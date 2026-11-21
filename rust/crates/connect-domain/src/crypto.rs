@@ -1,6 +1,6 @@
-//! Field encryption (`packages/core/db/src/lib/crypto.ts`) as commerce reads
-//! it: stored connector credentials, the Sendcloud secret and the sales tax
-//! engines' credentials, sealed with the workspace keyring
+//! Field encryption (`packages/core/db/src/lib/crypto.ts`) as the connectors
+//! read it: stored connector credentials and the sales tax engines'
+//! credentials, sealed with the workspace keyring
 //! (`DATABASE_ENCRYPTION_KEY`, `_V2`).
 
 use weldsuite_db::{Keyring, decrypt_workspace_database_url};

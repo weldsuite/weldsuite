@@ -29,7 +29,7 @@ function app(code, name, category, description, overview, installed) {
 const catalog = [
   app('weldcrm', 'WeldCRM', 'Sales & CRM', 'Contacts, companies, leads and deals in one pipeline.', null, true),
   app('welddesk', 'WeldDesk', 'Customer support', 'Answer customer questions from one shared inbox with tickets, live chat and SLAs.', 'WeldDesk brings every customer conversation into one shared inbox. Turn emails and chat messages into tickets, assign them to your team, set response targets and keep customers up to date, without switching tools.', false),
-  app('weldcommerce', 'WeldCommerce', 'E-commerce', 'Sell online with products, orders and a website builder.', null, false),
+  app('weldstash', 'WeldStash', 'Warehouse', 'Products, stock, pick lists and packing for your warehouse.', null, false),
   app('weldmail', 'WeldMail', 'Email', 'A shared business inbox with labels, templates and scheduling.', null, true),
   app('weldchat', 'WeldChat', 'Team chat', 'Channels, direct messages and calls for your team.', null, true),
   app('weldmeet', 'WeldMeet', 'Video meetings', 'Host video meetings with recording and transcripts.', null, false),
@@ -45,7 +45,7 @@ const installedCodes = () => catalog.filter((a) => a.isInstalled).map((a) => a.c
 
 function mockRoutes(page, env) {
   // Fresh state per recording.
-  for (const a of catalog) a.isInstalled = !['welddesk', 'weldcommerce', 'weldmeet', 'weldknow', 'weldhost', 'weldbooks'].includes(a.code)
+  for (const a of catalog) a.isInstalled = !['welddesk', 'weldstash', 'weldmeet', 'weldknow', 'weldhost', 'weldbooks'].includes(a.code)
 
   return mockApi(page, new URL(env.platformBase).origin, [
     ['GET /api/appstore/can-manage-apps', () => ({ data: { canManage: true } })],
@@ -99,7 +99,7 @@ async function run(d, page) {
 export default {
   name: 'getting-started-install-apps',
   url: (env) => `${env.platformBase}/preview/appstore`,
-  readySelector: 'text=WeldCommerce',
+  readySelector: 'text=WeldStash',
   intro: { eyebrow: 'Getting started', title: 'How to install an app', subtitle: 'Add apps to your workspace from the App Store' },
   outro: { eyebrow: 'Getting started', title: "That's it!", subtitle: 'More guides at help.weldsuite.org' },
   mockRoutes,

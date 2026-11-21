@@ -40,7 +40,6 @@ Browse guides written for everyday setup — no technical background needed. {% 
 | [WeldChat](/weldchat) | Team messaging and calls |
 | [WeldCalendar](/weldcalendar) | Events and booking pages |
 | [WeldDesk](/welddesk) | Support inbox and tickets |
-| [WeldCommerce](/weldcommerce) | Online store products and orders |
 | [WeldStash](/weldstash) | Inventory and fulfillment |
 | [WeldBooks](/weldbooks) | Invoices, bills, accounting |
 | [WeldData](/welddata) | B2B lead search and lists |
@@ -48,6 +47,8 @@ Browse guides written for everyday setup — no technical background needed. {% 
 | [WeldSocial](/social) | Social media planning |
 | [WeldDrive](/welddrive) | Files and shared documents |
 | [WeldKnow](/weldknow) | Internal wiki and knowledge base |
+| [WeldForms](/weldforms) | Forms, surveys and quizzes |
+| [WeldPanel](/weldpanel) | Website analytics and session recordings |
 | [WeldMeet](/weldmeet) | Video meetings |
 | [Settings](/settings) | Team, billing, integrations |
 

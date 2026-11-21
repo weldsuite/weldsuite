@@ -253,7 +253,7 @@ function MakeDepositPage() {
                       <Input
                         inputMode="decimal"
                         value={line.amount}
-                        placeholder="0.00"
+                        placeholder="0"
                         onChange={(e) => updateLine(line.key, { amount: e.target.value })}
                         aria-label={tn.columns.lineAmount}
                         data-testid="other-line-amount"

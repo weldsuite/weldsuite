@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { EN_LOCALE, MIN_CHART_SIZE } from '@weldsuite/sheets-engine';
+import { EN_LOCALE, MIN_CHART_SIZE, type Chart } from '@weldsuite/sheets-engine';
 import { chartAt, chartClip, chartRect, draggedChart, handleCenter } from '../charts/chart-geometry';
-import { niceScale } from '../charts/draw-chart';
+import { labelStride, niceScale } from '../charts/draw-chart';
 import { computeLayout } from '../grid/geometry';
-import { insertChart, parseDataRange, rangeLabel, removeChart, variantOf, withRange, withVariant } from './charts';
+import { chartAnchor, insertChart, parseDataRange, rangeLabel, removeChart, saveChart, variantOf, withRange, withVariant } from './charts';
 import { cellSelection } from './selection';
 import { SheetController } from './sheet-controller';
 
@@ -21,6 +21,37 @@ function make() {
   return ctl;
 }
 
+describe('category labels', () => {
+  it('shows every label while its band has room, else every k-th', () => {
+    expect(labelStride(120)).toBe(1);
+    expect(labelStride(36)).toBe(1);
+    expect(labelStride(20)).toBe(2);
+    expect(labelStride(8)).toBe(5);
+    expect(labelStride(0)).toBe(36);
+  });
+});
+
+describe('where a new chart goes', () => {
+  it('goes under short data, beside tall data, and stays on the grid', () => {
+    expect(chartAnchor({ r1: 0, c1: 1, r2: 3, c2: 2 }, 100, 26)).toEqual({ row: 5, col: 1, dx: 0, dy: 0 });
+    expect(chartAnchor({ r1: 0, c1: 1, r2: 99, c2: 2 }, 200, 26)).toEqual({ row: 0, col: 4, dx: 0, dy: 0 });
+    expect(chartAnchor({ r1: 0, c1: 1, r2: 98, c2: 25 }, 100, 26)).toEqual({ row: 0, col: 25, dx: 0, dy: 0 });
+    expect(chartAnchor({ r1: 0, c1: 0, r2: 2, c2: 0 }, 4, 26)).toEqual({ row: 0, col: 2, dx: 0, dy: 0 });
+  });
+
+  it("doesn't cover other values: beside the data, else further down", () => {
+    const ctl = make();
+    ctl.setInput(8, 0, 'notes below');
+    expect(insertChart(ctl)!.anchor).toEqual({ row: 0, col: 4, dx: 0, dy: 0 });
+
+    const crowded = make();
+    crowded.setInput(8, 0, 'notes below');
+    crowded.setInput(2, 6, 'notes beside');
+    crowded.select(cellSelection(1, 1));
+    expect(insertChart(crowded)!.anchor).toEqual({ row: 9, col: 0, dx: 0, dy: 0 });
+  });
+});
+
 describe('chart commands', () => {
   it('inserts a chart of the block around the active cell, picked, with its editor open', () => {
     const ctl = make();
@@ -32,7 +63,7 @@ describe('chart commands', () => {
         { name: 'Sheet1!$B$1', values: 'Sheet1!$B$2:$B$4' },
         { name: 'Sheet1!$C$1', values: 'Sheet1!$C$2:$C$4' },
       ],
-      anchor: { row: 0, col: 4, dx: 0, dy: 0 },
+      anchor: { row: 5, col: 0, dx: 0, dy: 0 },
     });
     expect(ctl.selectedChart).toBe(chart.id);
     expect(ctl.panel).toBe('chart');
@@ -107,10 +138,17 @@ describe('chart commands', () => {
   });
 });
 
+/** A new chart moved to E1, where the geometry tests below expect it. */
+function chartAtE1(ctl: SheetController): Chart {
+  const chart: Chart = { ...insertChart(ctl)!, anchor: { row: 0, col: 4, dx: 0, dy: 0 } };
+  saveChart(ctl, chart);
+  return chart;
+}
+
 describe('charts on the grid', () => {
   it('finds the chart under the pointer, and the handles of the picked one', () => {
     const ctl = make();
-    const chart = insertChart(ctl)!;
+    const chart = chartAtE1(ctl);
     const layout = computeLayout(ctl.sheet, 1200, 800, 0, 0);
     const rect = chartRect(layout, ctl.sheet, chart);
     expect(rect).toMatchObject({ x: layout.rowHeaderWidth + ctl.sheet.cols.offsetOf(4), y: layout.colHeaderHeight, w: 480, h: 300 });
@@ -123,7 +161,7 @@ describe('charts on the grid', () => {
 
   it('keeps a chart anchored past frozen panes out of them', () => {
     const ctl = make();
-    const chart = insertChart(ctl)!;
+    const chart = chartAtE1(ctl);
     ctl.setFreeze(1, 1);
     const layout = computeLayout(ctl.sheet, 1200, 800, 0, 0);
     expect(chartClip(layout, { ...chart, anchor: { ...chart.anchor, row: 2 } }).y).toBe(layout.colHeaderHeight + layout.frozenHeight);
@@ -134,7 +172,7 @@ describe('charts on the grid', () => {
   it('moves and resizes in sheet pixels, anchoring to the cell under the new corner', () => {
     const ctl = make();
     const sheet = ctl.sheet;
-    const chart = insertChart(ctl)!;
+    const chart = chartAtE1(ctl);
     const colW = sheet.cols.sizeOf(4);
     const rowH = sheet.rows.sizeOf(0);
     const moved = draggedChart(sheet, chart, null, colW + 7, rowH * 2 + 3);

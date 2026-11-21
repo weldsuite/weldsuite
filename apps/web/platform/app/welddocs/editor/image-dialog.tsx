@@ -7,6 +7,7 @@ import { useFileUpload } from '@/hooks/use-file-upload';
 import { useI18n } from '@/lib/i18n/provider';
 import { fileToDataUrl, insertImage } from './model/image-actions';
 import type { DocController } from './model/doc-controller';
+import { focusDialogItself } from './ui';
 
 /** Largest image a document takes (bigger ones belong in WeldDrive as files). */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -56,7 +57,7 @@ export function ImageDialog({ controller, onClose }: { controller: DocController
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="outline-none sm:max-w-md" onOpenAutoFocus={focusDialogItself}>
         <DialogHeader>
           <DialogTitle>{ti.title}</DialogTitle>
         </DialogHeader>

@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { common } from "../../../../../../packages/core/i18n/src/locales/en/common";
+import { setRuntimeConfig } from "@/lib/runtime-config";
+import { setAuthImplementation } from "@/lib/auth";
+import { clerkAuth } from "@/lib/auth/clerk-adapter";
 import { OnboardingSetup, type OnboardingSetupProps } from "./onboarding-setup";
 import { OnboardingWizard } from "./onboarding-wizard";
 
@@ -102,6 +105,29 @@ describe("quick workspace setup", () => {
     );
   });
 
+  it("asks only for the country where the deployment has one location", async () => {
+    setRuntimeConfig({ backend: "rust", edition: "eu", unavailableFeatures: ["data-regions"] });
+    try {
+      const user = userEvent.setup();
+      render(<OnboardingSetup {...props} />);
+      expect(screen.queryByText("Country and data storage")).not.toBeInTheDocument();
+      const summary = screen.getByText("Country", { selector: "summary span" });
+      expect(summary).toHaveTextContent("Netherlands");
+      await user.click(summary);
+      expect(screen.getByLabelText("Country")).toHaveValue("NL");
+      expect(screen.queryByLabelText("Data storage region")).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText("Workspace name"), "Acme");
+      await user.click(screen.getByRole("button", { name: "Create workspace" }));
+      expect(props.onSubmit).toHaveBeenCalledWith({
+        organizationName: "Acme",
+        country: "NL",
+        selectedApps: ["crm"],
+      });
+    } finally {
+      setRuntimeConfig(null);
+    }
+  });
+
   it("submits the preselected app and blocks submission once it is deselected", async () => {
     const user = userEvent.setup();
     render(<OnboardingSetup {...props} />);
@@ -181,6 +207,27 @@ describe("workspace creation handoff", () => {
     });
     expect(mocks.setActive).toHaveBeenCalledWith({ organization: "org_new" });
     expect(await screen.findByText("Provisioning started")).toBeInTheDocument();
+  });
+
+  it("activates the new workspace by workspaces.id in membership mode (WeldID), so its URL gets the slug", async () => {
+    const user = userEvent.setup();
+    setAuthImplementation({ ...clerkAuth, workspaceIds: "workspace" });
+    try {
+      mocks.complete.mockResolvedValue({
+        data: { success: true, clerkOrgId: "org_new", workspaceId: "ws_new" },
+      });
+      mocks.setActive.mockReset().mockResolvedValue(undefined);
+      window.sessionStorage.clear();
+      render(<OnboardingWizard {...props} />);
+      await user.type(screen.getByLabelText("Workspace name"), "Acme");
+      await user.click(screen.getByRole("button", { name: "Create workspace" }));
+
+      await waitFor(() => expect(mocks.setActive).toHaveBeenCalledWith({ organization: "ws_new" }));
+      expect(window.sessionStorage.getItem("weldsuite:pending-org")).toBe("ws_new");
+    } finally {
+      setAuthImplementation(clerkAuth);
+      window.sessionStorage.clear();
+    }
   });
 
   it("retains input after failure and permits retry without duplicate pending requests", async () => {

@@ -46,7 +46,7 @@ export const flowSchedule = {
       floatNone: 'No go-live date',
       floatNoneDetail: 'Set a baseline or an end date for the project',
       conflicts: 'Conflicts',
-      conflictsValue: '{count} tasks',
+      conflictsValue: { one: '{count} task', other: '{count} tasks' },
       conflictsNone: 'None',
       conflictsNoneDetail: 'Every task starts after what it waits for',
       conflictsDetail: '#{task} starts before #{predecessor} allows',
@@ -146,7 +146,8 @@ export const flowSchedule = {
   phases: {
     title: 'Phases and stage gates',
     lifecycle: 'Lifecycle',
-    lifecycleSummary: '{phases} phases, {gates} gates',
+    // Every phase ends in a gate: one count for both.
+    lifecycleSummary: { one: '{count} phase, {count} gate', other: '{count} phases, {count} gates' },
     editPhases: 'Edit phases',
     stepperLabel: 'Project phases',
     stateDone: 'Done',
@@ -182,6 +183,8 @@ export const flowSchedule = {
       requested: 'Approval requested',
       requestFailed: 'Approval could not be requested',
       waitingForApproval: 'Waiting for the approvers below.',
+      /** `blocked.criteria_open` for a single open criterion. */
+      criteriaOpenOne: '{count} criterion is still open. You can request approval once it is met, or once the sponsor waives it.',
       blocked: {
         phase_passed: 'This gate has already been passed.',
         phase_not_active: 'Only the active phase can request its gate.',
@@ -274,6 +277,8 @@ export const flowSchedule = {
       confirmRemoveDescription: 'The phase and its gate criteria are removed. Nothing else changes.',
       saveFailed: 'The phase could not be saved',
       newPhaseName: 'New phase',
+      endBeforeStart: 'The planned end is before the planned start.',
+      nameRequired: 'Give the phase a name.',
       criterionKeys: {
         deliverable_tasks_done: 'All tasks of a deliverable done',
         deliverable_accepted: 'Deliverable accepted',

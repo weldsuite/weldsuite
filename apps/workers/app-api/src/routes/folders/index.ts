@@ -170,7 +170,14 @@ app.delete('/:id', requirePermission('folders:delete'), async (c) => {
   try {
     const opened = await openFolder(c, id, 'edit');
     if (opened instanceof Response) return opened;
-    const deleted = await foldersService.softDeleteFolder(c.get('tenantDb'), id);
+    const db = c.get('tenantDb');
+    // What goes to the trash with the folder: only what the caller may change.
+    const contents = foldersService.trashableContents(
+      opened.access,
+      id,
+      await foldersService.listLiveFolderTree(db, id),
+    );
+    const deleted = await foldersService.softDeleteFolder(db, id, contents);
     if (!deleted) return error.notFound(c, 'Folder', id);
     publishEntityEvent({
       c,

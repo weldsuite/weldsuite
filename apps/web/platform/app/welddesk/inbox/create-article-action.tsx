@@ -40,7 +40,7 @@ export function CreateArticleAction({ conversationId }: Readonly<{ conversationI
       data-testid="desk-inbox-create-article"
     >
       {draft.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />}
-      <span className="hidden lg:inline ml-1.5">{k.createArticle}</span>
+      <span className="hidden @3xl/desk-header:inline ml-1.5">{k.createArticle}</span>
     </Button>
   );
 }

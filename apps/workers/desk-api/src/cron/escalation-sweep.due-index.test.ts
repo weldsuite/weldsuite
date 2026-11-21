@@ -316,6 +316,44 @@ describe('desk escalation rules on the SLA sweep', () => {
     expect(mail.sent[0]).toMatchObject({ from: 'support@acme.test', to: 'eve@shop.test' });
   });
 
+  it("tells the customer in their language: the conversation's, else the workspace's, else English", async () => {
+    await db.insert(schema.helpdeskDepartments).values({
+      id: 'dep_esc_lang',
+      name: 'Languages',
+      managerId: 'wm_esc_mgr',
+      escalationRules: [{ condition: 'unassigned', afterMinutes: 15, escalateTo: 'manager', notifyCustomer: true }],
+      createdAt: at,
+      updatedAt: at,
+    });
+    await db.insert(schema.workspaceSettings).values({ id: 'wset_esc_lang', language: 'nl' });
+    try {
+      const env = makeEnv();
+      const open = async (visitorId: string, language: string | null) => {
+        const made = await createDeskConversation(db, { generateId, visitorId, body: 'Hallo?', departmentId: 'dep_esc_lang' });
+        if (language) {
+          await db.update(schema.deskConversations).set({ language }).where(eq(schema.deskConversations.id, made.conversation.id));
+        }
+        return made;
+      };
+      const flemish = await open('v_esc_lang_nl', 'nl-BE');
+      const unknown = await open('v_esc_lang_none', null);
+      const german = await open('v_esc_lang_de', 'de');
+      await markDue(env, flemish.slaCheckAt!);
+      const last = german.conversation.createdAt.getTime();
+      expect(await sweep(env, new Date(last + 16 * MINUTE))).toMatchObject({ failed: 0 });
+
+      const notice = async (id: string) =>
+        (await timeline(id)).filter((r) => r.kind === 'message' && r.authorType === 'system').map((r) => r.body);
+      expect(await notice(flemish.conversation.id)).toEqual([expect.stringMatching(/^Je verzoek is doorgezet/)]);
+      // No language on the conversation: the workspace's.
+      expect(await notice(unknown.conversation.id)).toEqual([expect.stringMatching(/^Je verzoek is doorgezet/)]);
+      // A language without a text of its own gets English, not the workspace's Dutch.
+      expect(await notice(german.conversation.id)).toEqual([expect.stringMatching(/^Your request has been escalated/)]);
+    } finally {
+      await db.delete(schema.workspaceSettings);
+    }
+  });
+
   it('stops counting once the team answers', async () => {
     await db.insert(schema.helpdeskDepartments).values({
       id: 'dep_esc_quiet',

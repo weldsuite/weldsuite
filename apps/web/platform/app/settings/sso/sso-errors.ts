@@ -13,8 +13,38 @@ import type { TranslationsType } from '@/lib/i18n/types';
 
 export type SsoErrorCopy = TranslationsType['settings']['sso']['errors'];
 
-export function ssoErrorMessage(err: unknown, copy: SsoErrorCopy): string {
-  switch (apiErrorCode(err)) {
+/**
+ * The messages that read differently in WeldID mode: the incomplete
+ * details (OpenID Connect or SAML), the entitlement, and a protocol switch.
+ */
+function weldIdMessage(code: string | null, copy: SsoErrorCopy, protocol: 'oidc' | 'saml'): string | undefined {
+  switch (code) {
+    case SSO_ERRORS.IDP_INCOMPLETE:
+      return protocol === 'saml' ? copy.samlIncomplete : copy.oidcIncomplete;
+    case SSO_ERRORS.NOT_ENTITLED:
+      return copy.oidcNotEntitled;
+    case SSO_ERRORS.PROTOCOL_MISMATCH:
+      return copy.protocolMismatch;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * `weldid`: the page is in WeldID mode (an OpenID Connect or, with
+ * `protocol`, a SAML connection), where the incomplete-details and
+ * entitlement messages read differently.
+ */
+export function ssoErrorMessage(
+  err: unknown,
+  copy: SsoErrorCopy,
+  weldid = false,
+  protocol: 'oidc' | 'saml' = 'oidc',
+): string {
+  const code = apiErrorCode(err);
+  const weldIdOnly = weldid ? weldIdMessage(code, copy, protocol) : undefined;
+  if (weldIdOnly) return weldIdOnly;
+  switch (code) {
     case SSO_ERRORS.NOT_ENTITLED:
       return copy.notEntitled;
     case SSO_ERRORS.DOMAIN_INVALID:

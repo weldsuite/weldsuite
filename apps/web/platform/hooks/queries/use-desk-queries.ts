@@ -26,7 +26,15 @@ export type DeskEventType =
   | 'merged_into'
   | 'merged_from'
   | 'incident_marked'
-  | 'incident_unmarked';
+  | 'incident_unmarked'
+  // Problem management (internal): the incident was linked to / taken off a problem.
+  | 'problem_linked'
+  | 'problem_unlinked'
+  // Service catalogue (internal): approval steps and the start of fulfilment.
+  | 'approval_requested'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'fulfilment_started';
 export type DeskSlaMetric = 'first_response' | 'next_response' | 'resolution';
 /** What the inbox shows for a conversation's SLA clocks; null when no policy applies. */
 export type DeskSlaStatus = 'active' | 'warning' | 'breached' | 'paused' | 'achieved';

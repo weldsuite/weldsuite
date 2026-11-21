@@ -4,7 +4,7 @@
  * the shared constants (limits, labels, consumer domains, rendering helpers)
  * every side has to agree on.
  *
- * See docs/plans/weldreach.md.
+ * See weldsuite-documentation/plans/weldreach.md.
  */
 
 import { z } from 'zod';
@@ -26,7 +26,7 @@ export const WELDREACH_TERMS = [
   'lawful_lists',
   'suspension',
   'responsible_for_content',
-  // Added with the WeldSuite warmup network (docs/plans/weldreach-warmup.md).
+  // Added with the WeldSuite warmup network (weldsuite-documentation/plans/weldreach-warmup.md).
   'warmup_network',
 ] as const;
 export type WeldReachTermKey = (typeof WELDREACH_TERMS)[number];
@@ -138,6 +138,16 @@ export function resolveWeldReachLimits(stored: Record<string, unknown> | null | 
  */
 export const WELDREACH_INBOX_PRICE_CENTS = 800;
 export const WELDREACH_INBOX_CURRENCY = 'usd';
+
+/**
+ * €8.00 per inbox per month before VAT where plans are billed through Mollie
+ * (the EU edition, owner decision 2026-11-14): inboxes ride on the plan's
+ * monthly charge. The amount charged is the Rust server's
+ * (`rust/modules/core-billing/src/addons.rs`, `WELDREACH_INBOX_CENTS`); keep
+ * the two equal.
+ */
+export const WELDREACH_INBOX_EU_PRICE_CENTS = 800;
+export const WELDREACH_INBOX_EU_CURRENCY = 'eur';
 
 export const WELDREACH_SENDING_DEFAULTS = {
   /** Days of warmup (WeldSuite warmup network) before a mailbox may join campaigns. */

@@ -1,6 +1,6 @@
 /**
  * US state modules. v1 covers the nine states without a wage tax plus CA,
- * NY, IL, PA, GA, NC, NJ, MA, AZ and CO (docs/plans/weldhr-payroll.md).
+ * NY, IL, PA, GA, NC, NJ, MA, AZ and CO (weldsuite-documentation/plans/weldhr-payroll.md).
  *
  * Every module withholds for the work state only; a different residence
  * state raises `residence_state_differs`. Local taxes (NYC, Yonkers, PA

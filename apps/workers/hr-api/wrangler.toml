@@ -1,6 +1,6 @@
 # WeldSuite hr-api worker — the hr module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   hr-api.weldsuite.org        production
 #   hr-api-test.weldsuite.org   test
@@ -17,7 +17,7 @@
 # APP_URL is an optional [var]: the platform origin the payroll mails link to,
 # defaulting per ENVIRONMENT.
 #
-# WeldHR payroll (docs/plans/weldhr-payroll.md), behind the `weldhr-payroll` flag:
+# WeldHR payroll (weldsuite-documentation/plans/weldhr-payroll.md), behind the `weldhr-payroll` flag:
 #   STORAGE (R2)        payslip PDFs and filing files under workspaces/<id>/hr/payslips|filings/
 #   BOOKS_INTERNAL      books-api's BooksInternal entrypoint; approving a pay run posts its journal
 #                       through POST /internal/payroll/imports (no secret: only reachable over the binding)

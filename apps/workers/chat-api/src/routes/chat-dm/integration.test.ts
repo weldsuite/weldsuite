@@ -1,8 +1,8 @@
 /**
  * DB-backed integration tests for /api/chat-dm (WeldChat): DMs are only ever
- * created for real workspace members, the list carries the caller's mute flag,
- * and every member shows their account picture (master `users.image_url`),
- * never the workspace member row's copy.
+ * created for real workspace members who have accepted their invitation, the
+ * list carries the caller's mute flag, and every member shows their account
+ * picture (master `users.image_url`), never the workspace member row's copy.
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -28,6 +28,12 @@ const ALICE = 'user_dm_alice';
 const BOB = 'user_dm_bob';
 const ALICE_PICTURE = 'https://img.clerk.test/dm-alice.png';
 const BOB_PICTURE = 'https://img.clerk.test/dm-bob.png';
+/** Invited through the team page: a PENDING row on the `invited_<email>` placeholder. */
+const CAROL_INVITE = 'invited_carol@example.com';
+/** Invited, with a real-looking id but the row still PENDING. */
+const DAVE = 'user_dm_dave';
+/** Accepted, but the Clerk webhook hasn't swapped in the real user id yet. */
+const ERIN_INVITE = 'pending_clerk_inv_erin';
 
 function app() {
   return createTestApp('/api/chat-dm', chatDmRoutes, {
@@ -57,6 +63,9 @@ beforeAll(async () => {
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_dm_alice', userId: ALICE, email: 'alice@example.com', name: 'Alice', role: 'MEMBER', createdAt: now, updatedAt: now },
     { id: 'wm_dm_bob', userId: BOB, email: 'bob@example.com', name: 'Bob', picture: 'https://stale.example.com/bob.png', role: 'MEMBER', createdAt: now, updatedAt: now },
+    { id: 'wm_dm_carol', userId: CAROL_INVITE, email: 'carol@example.com', name: 'Carol', role: 'MEMBER', status: 'PENDING', createdAt: now, updatedAt: now },
+    { id: 'wm_dm_dave', userId: DAVE, email: 'dave@example.com', name: 'Dave', role: 'MEMBER', status: 'PENDING', createdAt: now, updatedAt: now },
+    { id: 'wm_dm_erin', userId: ERIN_INVITE, email: 'erin@example.com', name: 'Erin', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
   ] as (typeof schema.workspaceMembers.$inferInsert)[]);
   await master
     .insert(users)
@@ -66,6 +75,16 @@ beforeAll(async () => {
     ])
     .onConflictDoNothing();
 }, 60_000);
+
+type ErrorBody = { error: { code: string; details?: { reason?: string; userIds?: string[] } } };
+
+async function dmMembershipsOf(userId: string): Promise<number> {
+  const rows = await db
+    .select()
+    .from(schema.chatChannelMembers)
+    .where(eq(schema.chatChannelMembers.userId, userId));
+  return rows.length;
+}
 
 describe('/api/chat-dm · workspace membership', () => {
   it('GET /:targetUserId 404s an id that is not a workspace member and creates nothing', async () => {
@@ -144,5 +163,43 @@ describe('/api/chat-dm · avatars', () => {
     expect(withBob).toBeDefined();
     expect(pictureOf(withBob!.otherMembers, BOB)).toBe(BOB_PICTURE);
     expect(pictureOf(withBob!.members, ALICE)).toBe(ALICE_PICTURE);
+  });
+});
+describe('/api/chat-dm · pending invitations', () => {
+  it.each([
+    ['an invited_ placeholder', CAROL_INVITE],
+    ['a PENDING member', DAVE],
+    ['a pending_clerk_ placeholder', ERIN_INVITE],
+  ])('GET /:targetUserId 409s %s and creates nothing', async (_label, invitee) => {
+    const before = await dmChannelCount();
+    const res = await app().request(`/api/chat-dm/${encodeURIComponent(invitee)}`);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('CONFLICT');
+    expect(body.error.details).toEqual({ reason: 'invitation_pending', userIds: [invitee] });
+    expect(await dmChannelCount()).toBe(before);
+    expect(await dmMembershipsOf(invitee)).toBe(0);
+  });
+
+  it('POST / 409s a group with an invitee in it and creates nothing', async () => {
+    const before = await dmChannelCount();
+    const res = await app().request('/api/chat-dm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds: [BOB, CAROL_INVITE, DAVE] }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.details).toEqual({ reason: 'invitation_pending', userIds: [CAROL_INVITE, DAVE] });
+    expect(await dmChannelCount()).toBe(before);
+  });
+
+  it('opens the DM once the invitation is accepted', async () => {
+    await db
+      .update(schema.workspaceMembers)
+      .set({ status: 'ACTIVE', acceptedAt: new Date() })
+      .where(eq(schema.workspaceMembers.userId, DAVE));
+    const res = await app().request(`/api/chat-dm/${DAVE}`);
+    expect(res.status).toBe(201);
   });
 });

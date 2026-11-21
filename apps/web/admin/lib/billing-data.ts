@@ -6,17 +6,20 @@ import type {
   AuditEventRow,
   CreditsSummary,
   InvoiceRow,
+  MollieBillingAccount,
   PaymentRow,
   PlanDetail,
   PlanOption,
   WorkspaceBilling,
 } from './billing-types';
+import { toMollieBillingAccount } from './mollie-billing-account';
 
 const {
   workspaces,
   plans,
   billingInvoices,
   billingPayments,
+  billingAccounts,
   workspaceCredits,
   creditTransactions,
   adminAuditEvents,
@@ -61,6 +64,39 @@ export async function getWorkspaceBilling(workspaceId: string): Promise<Workspac
         }
       : null,
   };
+}
+
+/**
+ * The Mollie side of a paying workspace on a Kubernetes edition (ADR
+ * BILL-014): its `billing_accounts` row, the plan scheduled for the period
+ * end, and the open charge of a past-due account. Null when the workspace
+ * never checked out on Mollie. Global never writes the table, so callers only
+ * ask on Kubernetes (`GLOBAL ? null : …`).
+ */
+export async function getMollieBillingAccount(workspaceId: string): Promise<MollieBillingAccount | null> {
+  const [row] = await getMasterDb()
+    .select({
+      account: billingAccounts,
+      scheduledPlanName: plans.name,
+      chargeId: billingPayments.id,
+      chargeProviderPaymentId: billingPayments.providerPaymentId,
+      chargeAmount: billingPayments.amount,
+      chargeCurrency: billingPayments.currency,
+      chargeStatus: billingPayments.status,
+      chargeFailureMessage: billingPayments.failureMessage,
+    })
+    .from(billingAccounts)
+    .leftJoin(plans, eq(plans.id, billingAccounts.scheduledPlanId))
+    .leftJoin(
+      billingPayments,
+      and(
+        eq(billingPayments.id, billingAccounts.pastDuePaymentId),
+        eq(billingPayments.workspaceId, billingAccounts.workspaceId),
+      ),
+    )
+    .where(and(eq(billingAccounts.workspaceId, workspaceId), eq(billingAccounts.provider, 'mollie')))
+    .limit(1);
+  return row ? toMollieBillingAccount(row) : null;
 }
 
 function toPlanOption(p: typeof plans.$inferSelect): PlanOption {
@@ -179,6 +215,8 @@ export async function listWorkspaceInvoices(workspaceId: string): Promise<Invoic
   const rows = await getMasterDb()
     .select({
       id: billingInvoices.id,
+      provider: billingInvoices.provider,
+      providerPaymentId: billingInvoices.providerPaymentId,
       number: billingInvoices.number,
       status: billingInvoices.status,
       amountDue: billingInvoices.amountDue,
@@ -199,6 +237,9 @@ export async function listWorkspacePayments(workspaceId: string): Promise<Paymen
   const rows = await getMasterDb()
     .select({
       id: billingPayments.id,
+      provider: billingPayments.provider,
+      providerPaymentId: billingPayments.providerPaymentId,
+      kind: billingPayments.kind,
       amount: billingPayments.amount,
       currency: billingPayments.currency,
       status: billingPayments.status,

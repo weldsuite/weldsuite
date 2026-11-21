@@ -168,6 +168,10 @@ export function AccountingEntitiesTab() {
       onEdit={openEntity}
       searchFields={['name', 'legalName']}
       searchPlaceholder={te.colName}
+      // Like the other settings lists: the toolbar on its own row, the list
+      // in a bordered box under it.
+      topBarClassName="h-auto border-b-0 px-0 pb-3 md:px-0"
+      listClassName="rounded-lg border"
       createButton={canCreate ? { label: te.newEntity2, onClick: openCreate } : undefined}
       emptyState={{
         icon: (

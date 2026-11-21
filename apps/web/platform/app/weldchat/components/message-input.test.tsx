@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { toast } from 'sonner';
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
@@ -108,6 +109,7 @@ vi.mock('@/lib/i18n/provider', () => ({
           sendMessage: 'Send message',
           uploading: 'Uploading',
           uploadFailed: 'Upload failed',
+          sendFailed: 'Send failed',
           cancel: 'Cancel',
           stopRecording: 'Stop',
           sendVoiceClip: 'Send voice clip',
@@ -133,7 +135,7 @@ vi.mock('@/lib/i18n/provider', () => ({
 }));
 
 import { MessageInput } from './message-input';
-import { FOCUS_INPUT_EVENT } from './chat-context';
+import { COMPOSE_INPUT_EVENT, FOCUS_INPUT_EVENT } from './chat-context';
 
 const CHIP =
   '<span class="mention-badge" contenteditable="false" data-userid="user_2">@Zed</span>';
@@ -225,6 +227,18 @@ describe('MessageInput: mention popup and Enter', () => {
       content: 'hi <@user_1>',
       mentions: ['user_1'],
     });
+  });
+
+  it('says so when a message could not be sent', () => {
+    const toastError = vi.spyOn(toast, 'error');
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'hello');
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    const options = mocks.send.mock.calls[0][1] as { onError: () => void };
+    options.onError();
+    expect(toastError).toHaveBeenCalledWith('Send failed');
+    toastError.mockRestore();
   });
 
   it('Enter without a popup sends as before', () => {
@@ -627,5 +641,33 @@ describe('MessageInput: focus requests', () => {
       window.dispatchEvent(new CustomEvent(FOCUS_INPUT_EVENT, { detail: { parentId: null } }));
     });
     expect(document.activeElement).toBe(channelEditor);
+  });
+});
+
+describe('MessageInput: compose requests (asking an agent about its visual)', () => {
+  it('puts the text in its own thread composer, after what is typed, and focuses it', () => {
+    const channel = render(<MessageInput channelId="ch_1" />);
+    const thread = render(<MessageInput channelId="ch_1" parentId="msg_1" />);
+    const channelEditor = editorOf(channel.container);
+    const threadEditor = editorOf(thread.container);
+    type(threadEditor, 'Also:');
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(COMPOSE_INPUT_EVENT, { detail: { parentId: 'msg_1', content: 'Tell me more about March' } }),
+      );
+    });
+
+    expect(threadEditor.textContent).toBe('Also: Tell me more about March');
+    expect(channelEditor.textContent).toBe('');
+    expect(document.activeElement).toBe(threadEditor);
+  });
+
+  it('fills an empty channel composer', () => {
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent(COMPOSE_INPUT_EVENT, { detail: { parentId: null, content: 'Hello' } }));
+    });
+    expect(editorOf(container).textContent).toBe('Hello');
   });
 });

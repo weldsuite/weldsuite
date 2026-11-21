@@ -224,7 +224,9 @@ pub(crate) fn read_settings(
 /// `settingsError(provider, settings)`.
 fn settings_error(provider: &str, settings: Option<&Map<String, Value>>) -> Option<&'static str> {
     let settings = settings?;
-    if settings.contains_key("importStartDate") && provider != "stripe" {
+    // Odoo (Rust only, so Global never sees it) reads it as the first day of
+    // sales history to import (`weldsuite_connect_domain::odoo`).
+    if settings.contains_key("importStartDate") && provider != "stripe" && provider != "odoo" {
         return Some("importStartDate only applies to Stripe connections");
     }
     if settings.contains_key("moneybirdPush") && provider != "moneybird" {
@@ -667,8 +669,9 @@ pub(crate) async fn authorize(
             .await
         }
         _ => {
-            // The callback path belongs to commerce-api; the request's own origin
-            // is where it is served (`originForPathFrom`).
+            // The callback path's owner comes from api-modules (connect, this
+            // module); the request's own origin is where it is served
+            // (`originForPathFrom`).
             let origin = request_origin(&headers, &uri);
             start_woo_app_auth(
                 &caller.db,
@@ -692,7 +695,7 @@ pub(crate) async fn authorize(
 }
 
 /// `originForPathFrom(new URL(c.req.url).origin, WOOCOMMERCE_AUTH_CALLBACK_PATH)`:
-/// the request's own origin, which serves commerce's callback too.
+/// the request's own origin, which serves the callback too.
 fn request_origin(headers: &HeaderMap, uri: &http::Uri) -> Option<String> {
     if let (Some(scheme), Some(authority)) = (uri.scheme_str(), uri.authority()) {
         return Some(format!("{scheme}://{authority}"));

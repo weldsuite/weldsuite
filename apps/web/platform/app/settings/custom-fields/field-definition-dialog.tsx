@@ -68,6 +68,15 @@ export function buildFieldSchema(v: ValidationMessages) {
 
 type FieldFormValues = z.infer<ReturnType<typeof buildFieldSchema>>;
 
+/**
+ * An optional number input: empty is "not set". `valueAsNumber` turned an empty
+ * box into NaN, which failed validation with no message shown, so Save only
+ * moved focus from box to box (TASK-1463).
+ */
+const optionalNumber = {
+  setValueAs: (value: unknown) => (value === '' || value == null ? undefined : Number(value)),
+};
+
 interface FieldDefinitionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -134,7 +143,10 @@ export function FieldDefinitionDialog({
   // Auto-generate slug from name when creating
   useEffect(() => {
     if (!isEditing && watchName) {
-      form.setValue('slug', slugifyCustomFieldName(watchName), { shouldValidate: false });
+      const slug = slugifyCustomFieldName(watchName);
+      form.setValue('slug', slug, { shouldValidate: false });
+      // A "Slug is required" from an earlier Save no longer applies once it fills in.
+      if (slug) form.clearErrors('slug');
     }
   }, [watchName, isEditing, form]);
 
@@ -431,7 +443,7 @@ export function FieldDefinitionDialog({
                   <Label className="text-xs text-muted-foreground">{ts.min}</Label>
                   <Input
                     type="number"
-                    {...form.register('config.min', { valueAsNumber: true })}
+                    {...form.register('config.min', optionalNumber)}
                     className="h-8 text-sm"
                   />
                 </div>
@@ -439,7 +451,7 @@ export function FieldDefinitionDialog({
                   <Label className="text-xs text-muted-foreground">{ts.max}</Label>
                   <Input
                     type="number"
-                    {...form.register('config.max', { valueAsNumber: true })}
+                    {...form.register('config.max', optionalNumber)}
                     className="h-8 text-sm"
                   />
                 </div>
@@ -447,7 +459,7 @@ export function FieldDefinitionDialog({
                   <Label className="text-xs text-muted-foreground">{ts.step}</Label>
                   <Input
                     type="number"
-                    {...form.register('config.step', { valueAsNumber: true })}
+                    {...form.register('config.step', optionalNumber)}
                     className="h-8 text-sm"
                   />
                 </div>
@@ -473,7 +485,7 @@ export function FieldDefinitionDialog({
               <Label>{ts.maxRating}</Label>
               <Input
                 type="number"
-                {...form.register('config.maxRating', { valueAsNumber: true })}
+                {...form.register('config.maxRating', optionalNumber)}
                 placeholder="5"
                 className="h-8 text-sm"
                 min={1}

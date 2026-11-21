@@ -4,8 +4,10 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type {
+  BillingCheckoutResult,
   BillingPaymentMethodResponse,
   BillingSubscriptionResponse,
+  BillingVatPreview,
   PhoneSubscriptionResponse,
 } from '@/lib/api/domains/billing';
 import type { Billing } from '@/lib/api/types/apps/billing.types';
@@ -24,6 +26,7 @@ export const billingKeys = {
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
   paymentMethods: () => [...billingKeys.all, 'payment-methods'] as const,
   seatPrice: () => [...billingKeys.all, 'seat-price'] as const,
+  vat: () => [...billingKeys.all, 'vat'] as const,
 };
 
 const creditsKeys = {
@@ -154,6 +157,34 @@ export interface SeatPrice {
  * offer, which follows the workspace's current billing country. `null` when
  * there is no subscription.
  */
+/**
+ * The VAT the next Mollie checkout charges and the VAT number it rests on
+ * (`GET /billing/vat`, Rust only): the checkout summary shows it before the
+ * customer goes to Mollie. Enable it only where `billingProvider()` is
+ * `mollie`; Global has no such route.
+ */
+export function useBillingVat(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: billingKeys.vat(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: BillingVatPreview }>('/billing/vat');
+      return res.data;
+    },
+    enabled,
+    // VIES is asked on every read: keep one answer while the dialog is open.
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** Asks `GET /billing/vat` again: after the billing details (country, VAT number) changed. */
+export function useRefreshBillingVat() {
+  const queryClient = useQueryClient();
+  return () => void queryClient.invalidateQueries({ queryKey: billingKeys.vat() });
+}
+
 export function useSeatPrice(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -212,13 +243,10 @@ export function useChangePlan() {
         ...(data.successUrl ? { successUrl: data.successUrl } : {}),
         ...(data.cancelUrl ? { cancelUrl: data.cancelUrl } : {}),
       };
-      // `success` is never actually returned (neither worker has a free-plan branch —
-      // checkout always answers `{ url }`), but callers still guard on it, so the type
-      // stays wide enough for that dead branch.
-      const res = await client.post<{ data: { url?: string; success?: boolean } }>(
-        '/billing/checkout',
-        body,
-      );
+      // Stripe always answers `{ url }`. A running Mollie subscription can change in
+      // place (`success`, `scheduled` + `effectiveAt`) or ask for a payment first
+      // (`paymentRequired` + `paymentUrl`).
+      const res = await client.post<{ data: BillingCheckoutResult }>('/billing/checkout', body);
       return res.data;
     },
     onSuccess: () => {
@@ -239,7 +267,13 @@ export function useUpdateSeats() {
     mutationFn: async (data: { seats: number }) => {
       const client = await getClient();
       const res = await client.post<{
-        data: { purchasedSeats: number; paymentRequired?: boolean; paymentUrl?: string | null };
+        data: {
+          purchasedSeats: number;
+          paymentRequired?: boolean;
+          paymentUrl?: string | null;
+          /** A decrease that waits for the period end (Mollie). */
+          effectiveAt?: string | null;
+        };
       }>('/billing/seats', { seatCount: data.seats });
       return { success: true, ...res.data };
     },
@@ -302,7 +336,9 @@ export function usePaymentMethods(enabled = true) {
 }
 
 /**
- * Create a SetupIntent and return its client secret for Stripe Elements.
+ * Start adding a payment method. Stripe answers a SetupIntent `clientSecret` for
+ * Elements; Mollie (`billingProvider() === 'mollie'`) answers the `url` of a hosted
+ * checkout that creates a new mandate, which the caller redirects to.
  *
  * Deliberately a mutation, not a query: each secret backs one confirmation
  * attempt, so it is minted when the dialog opens rather than cached.
@@ -312,7 +348,7 @@ export function useCreateSetupIntent() {
   return useMutation({
     mutationFn: async () => {
       const client = await getClient();
-      const res = await client.post<{ data: { clientSecret: string } }>(
+      const res = await client.post<{ data: { clientSecret?: string; url?: string } }>(
         '/billing/payment-methods/setup-intent',
         {},
       );
@@ -358,10 +394,13 @@ export function useRemovePaymentMethod() {
 }
 
 /**
- * Start a prepaid credit topup — redirects the browser to Stripe Checkout.
+ * Start a prepaid credit topup — redirects the browser to the hosted
+ * checkout: Stripe Checkout on Global, Mollie on the Kubernetes editions.
  * On success the caller receives `{ url }` and should navigate to it.
  *
- * Goes through app-api `POST /credits/checkout` (proxied to billing-worker).
+ * Goes through app-api `POST /credits/checkout` (proxied to billing-worker on
+ * Global; the Rust backend creates a Mollie payment, and Mollie returns to
+ * `successUrl` with `&checkout=<id>`, see `app/settings/billing/credit-checkout-return.ts`).
  */
 export function useBuyCredits() {
   const { getClient } = useAppApiClient();

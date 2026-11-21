@@ -1,7 +1,7 @@
 /**
  * `adaptCloudflareEmail` must keep the raw RFC 5322 bytes through to
  * `rawMessageBytes` so `storeEmail` can write them to R2
- * (docs/plans/weldmail-mailbox-store-design.md decision 4; the bug this fixes:
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 4; the bug this fixes:
  * `rawMessage` was only ever set when `rawEmail` was a string, but
  * `CloudflareReceiveProvider` always hands back an `ArrayBuffer` — raw MIME
  * was NULL for every Cloudflare-routed message).

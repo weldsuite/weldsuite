@@ -41,7 +41,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{IdentityError, OrganizationChanges, with_identity};
 
 use super::business_profile::{
-    WriteThrough, locked_business_profile_change, overlay_default_entity,
+    WriteThrough, default_entity_profile, locked_business_profile_change, overlay_default_entity,
     write_through_to_default_entity,
 };
 use super::vat_number;
@@ -132,13 +132,18 @@ async fn get_settings(caller: Caller) -> Response {
 }
 
 /// The settings row with the default legal entity's business fields laid
-/// over it, or null when the workspace has never saved one.
+/// over it. A workspace that never saved one gets the default entity's
+/// business fields, or null without one either (TASK-1464: a null here made
+/// the form's first save clear the entity's VAT and registration numbers).
 async fn read_overlaid(db: &PgPool) -> Result<Value, String> {
     let Some(row) = select_settings(db)
         .await
         .map_err(|error| error.to_string())?
     else {
-        return Ok(Value::Null);
+        return default_entity_profile(db)
+            .await
+            .map(|profile| profile.unwrap_or(Value::Null))
+            .map_err(|error| error.to_string());
     };
     overlay_default_entity(db, row)
         .await
@@ -663,6 +668,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "mail",
     "support",
     "help",
+    "test",
     "agents",
     "apps",
     "appstore",
@@ -678,6 +684,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "social",
     "welcome",
     "weldads",
+    "weldboard",
     "weldbooks",
     "weldcalendar",
     "weldcall",
@@ -690,6 +697,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "welddocs",
     "welddrive",
     "weldflow",
+    "weldforms",
     "weldhost",
     "weldhr",
     "weldknow",
@@ -701,6 +709,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "weldreach",
     "weldsheets",
     "weldsign",
+    "weldsocial",
     "weldstash",
     "assets",
     "email",
@@ -1046,6 +1055,40 @@ mod tests {
         assert!(!slug_format("2acme"));
         assert!(!slug_format("acme-"));
         assert!(!slug_format("Acme"));
+    }
+
+    #[test]
+    fn slugs_refuse_reserved_names() {
+        for slug in ["test", "settings", "weldforms"] {
+            assert!(read_slug(&json!({ "slug": slug })).is_err(), "{slug}");
+        }
+        assert_eq!(
+            read_slug(&json!({ "slug": "testing" })).expect("valid"),
+            "testing"
+        );
+    }
+
+    #[test]
+    fn reserved_slugs_match_the_typescript_list() {
+        let source = include_str!(
+            "../../../../../packages/clients/app-api-client/src/schemas/workspace-slug.ts"
+        );
+        let (_, after_name) = source
+            .split_once("RESERVED_WORKSPACE_SLUGS: readonly string[] = [")
+            .expect("RESERVED_WORKSPACE_SLUGS in workspace-slug.ts");
+        let (list, _) = after_name
+            .split_once("];")
+            .expect("the list's closing bracket");
+        let mut typescript: Vec<&str> = list
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or_default().trim())
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| entry.trim_end_matches(',').trim_matches('\''))
+            .collect();
+        let mut rust: Vec<&str> = RESERVED_SLUGS.to_vec();
+        typescript.sort_unstable();
+        rust.sort_unstable();
+        assert_eq!(rust, typescript);
     }
 
     #[test]

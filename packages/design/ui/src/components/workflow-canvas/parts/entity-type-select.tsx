@@ -12,7 +12,7 @@ import {
 } from '../../select';
 import {
   Users,
-  ShoppingCart,
+  Package,
   FolderKanban,
   HelpCircle,
   Mail,
@@ -59,14 +59,11 @@ export const ENTITY_TYPE_GROUPS: EntityTypeGroup[] = [
     ],
   },
   {
-    id: 'commerce',
-    label: 'Commerce',
-    icon: <ShoppingCart className="h-4 w-4" />,
+    id: 'inventory',
+    label: 'Inventory',
+    icon: <Package className="h-4 w-4" />,
     entities: [
-      { value: 'order', label: 'Order', description: 'Customer orders' },
       { value: 'product', label: 'Product', description: 'Product catalog' },
-      { value: 'category', label: 'Category', description: 'Product categories' },
-      { value: 'cart', label: 'Cart', description: 'Shopping carts' },
     ],
   },
   {

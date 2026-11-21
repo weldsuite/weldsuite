@@ -20,10 +20,9 @@ export function getActionLabels(t: ReturnType<typeof useTranslations>): Record<S
 const CATEGORY_ORDER = [
   'Workspace',
   'CRM',
-  'Commerce & Inventory',
+  'Inventory',
   'Accounting',
   'Helpdesk',
-  'Parcel',
   'Projects',
   'Mail & Social',
   'Hosting',
@@ -38,10 +37,9 @@ export type Category = (typeof CATEGORY_ORDER)[number];
 const CATEGORY_TO_APP: Record<Category, string | null> = {
   Workspace: 'weldsuite',
   CRM: 'weldcrm',
-  'Commerce & Inventory': 'wms',
+  Inventory: 'wms',
   Accounting: 'weldbooks',
   Helpdesk: 'welddesk',
-  Parcel: 'parcel',
   Projects: 'weldflow',
   'Mail & Social': 'weldmail',
   Hosting: 'weldhost',
@@ -60,9 +58,8 @@ const CATEGORY_ICON_SIZE_OVERRIDE: Partial<Record<Category, string>> = {
 
 // Categories whose underlying app isn't shipped yet.
 export const COMING_SOON_CATEGORIES: ReadonlySet<Category> = new Set([
-  'Commerce & Inventory',
+  'Inventory',
   'Accounting',
-  'Parcel',
 ]);
 
 export function CategoryIcon({
@@ -110,18 +107,13 @@ const OBJECT_TO_CATEGORY: Record<string, Category> = {
   pipelines: 'CRM',
   quotes: 'CRM',
   telephony: 'CRM',
-  // Commerce & Inventory
-  products: 'Commerce & Inventory',
-  inventory: 'Commerce & Inventory',
-  orders: 'Commerce & Inventory',
-  picklists: 'Commerce & Inventory',
-  locations: 'Commerce & Inventory',
-  warehouses: 'Commerce & Inventory',
-  suppliers: 'Commerce & Inventory',
-  customers: 'Commerce & Inventory',
-  discounts: 'Commerce & Inventory',
-  categories: 'Commerce & Inventory',
-  websites: 'Commerce & Inventory',
+  // Inventory
+  products: 'Inventory',
+  inventory: 'Inventory',
+  picklists: 'Inventory',
+  locations: 'Inventory',
+  warehouses: 'Inventory',
+  suppliers: 'Inventory',
   // Accounting
   entities: 'Accounting',
   invoices: 'Accounting',
@@ -138,13 +130,6 @@ const OBJECT_TO_CATEGORY: Record<string, Category> = {
   departments: 'Helpdesk',
   slas: 'Helpdesk',
   settings: 'Helpdesk',
-  // Parcel
-  parcels: 'Parcel',
-  carriers: 'Parcel',
-  boxes: 'Parcel',
-  returns: 'Parcel',
-  pickups: 'Parcel',
-  webhooks: 'Parcel',
   // Projects
   projects: 'Projects',
   tasks: 'Projects',

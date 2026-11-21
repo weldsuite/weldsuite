@@ -64,6 +64,15 @@ import {
 } from '../lib/gantt-math';
 
 const SIDEBAR_WIDTH = 380;
+/** A narrow chart (next to a chat panel) gives the sidebar at most half its width, but never less than this. */
+const SIDEBAR_MIN_WIDTH = 200;
+
+/** The sidebar's width in a chart of this scroll element: 0 without a sidebar. */
+function sidebarWidthIn(scrollElement: HTMLElement | null): number {
+  if (!scrollElement?.querySelector('[data-roadmap-ui="gantt-sidebar"]')) return 0;
+  const half = Math.round(scrollElement.clientWidth / 2);
+  return scrollElement.clientWidth > 0 ? Math.min(SIDEBAR_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, half)) : SIDEBAR_WIDTH;
+}
 
 const draggingAtom = atom(false);
 const scrollXAtom = atom(0);
@@ -1384,10 +1393,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
       return;
     }
 
-    const hasSidebar = Boolean(
-      scrollElement.querySelector('[data-roadmap-ui="gantt-sidebar"]')
-    );
-    const sidebar = hasSidebar ? SIDEBAR_WIDTH : 0;
+    const sidebar = sidebarWidthIn(scrollElement);
     const timelineStart = new Date(timelineData.at(0)?.year ?? 0, 0, 1);
     const todayOffset = getOffset(new Date(), timelineStart, {
       range,
@@ -1407,11 +1413,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
   // Update sidebar width when DOM is ready
   useEffect(() => {
     const updateSidebarWidth = () => {
-      const sidebarElement = scrollRef.current?.querySelector(
-        '[data-roadmap-ui="gantt-sidebar"]'
-      );
-      const newWidth = sidebarElement ? SIDEBAR_WIDTH : 0;
-      setSidebarWidth(newWidth);
+      setSidebarWidth(sidebarWidthIn(scrollRef.current));
     };
 
     // Update immediately
@@ -1419,15 +1421,19 @@ export const GanttProvider: FC<GanttProviderProps> = ({
 
     // Also update on resize or when children change
     const observer = new MutationObserver(updateSidebarWidth);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateSidebarWidth);
     if (scrollRef.current) {
       observer.observe(scrollRef.current, {
         childList: true,
         subtree: true,
       });
+      resizeObserver?.observe(scrollRef.current);
     }
 
     return () => {
       observer.disconnect();
+      resizeObserver?.disconnect();
     };
   }, []);
 

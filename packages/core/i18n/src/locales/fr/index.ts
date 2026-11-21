@@ -3,6 +3,7 @@ import { accounts } from './accounts';
 import { assets } from './assets';
 import { banking } from './banking';
 import { bills } from './bills';
+import { weldstash } from './weldstash';
 import { commerce } from './commerce';
 import { common } from './common';
 import { crm } from './crm';
@@ -20,7 +21,6 @@ import { invoices } from './invoices';
 import { journal } from './journal';
 import { mail } from './mail';
 import { navigation } from './navigation';
-import { parcel } from './parcel';
 import { porting } from './porting';
 import { projects } from './projects';
 import { reports } from './reports';
@@ -41,6 +41,7 @@ export const fr = {
   assets,
   banking,
   bills,
+  weldstash,
   commerce,
   common,
   crm,
@@ -57,7 +58,6 @@ export const fr = {
   journal,
   mail,
   navigation,
-  parcel,
   porting,
   projects,
   reports,

@@ -18,7 +18,6 @@ import {
   pickItemSchema,
   updatePickListSchema,
 } from '@weldsuite/core-api-client/schemas/pick-lists';
-import { shipPickListSchema } from '@weldsuite/app-api-client/schemas/sendcloud';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -52,7 +51,7 @@ const PICK_LIST_NOT_FOUND_LABELS = new Map<string, string>([
 ]);
 
 /** PickListError codes that map to a 409. */
-const PICK_LIST_CONFLICT_CODES = new Set(['ALREADY_PICKING', 'SHIPPING_NOT_CONFIGURED', 'SENDCLOUD_FAILED']);
+const PICK_LIST_CONFLICT_CODES = new Set(['ALREADY_PICKING']);
 
 /** StockLedgerError codes that map to a 409. */
 const STOCK_LEDGER_CONFLICT_CODES = new Set(['INSUFFICIENT_STOCK', 'INSUFFICIENT_AVAILABLE']);
@@ -255,28 +254,8 @@ app.post('/:id/pack', requirePermission('picklists:update'), async (c) => {
 app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  let body: { senderId?: number; shippingOptionCode?: string; weightKg?: number } = {};
   try {
-    const json = await c.req.json();
-    const parsed = shipPickListSchema.partial().safeParse(json);
-    if (!parsed.success) {
-      return error.badRequest(c, 'Invalid ship payload', parsed.error.flatten());
-    }
-    body = parsed.data;
-  } catch {
-    // empty body — inventory-only (requiresShipping=false) shipments still work
-  }
-  try {
-    const result = await shipPickList(db, id, c.get('userId'), {
-      senderId: body.senderId,
-      shippingOptionCode: body.shippingOptionCode,
-      weightKg: body.weightKg,
-      clerkOrgId: c.get('clerkOrgId'),
-      keyring: {
-        v1: c.env.DATABASE_ENCRYPTION_KEY,
-        v2: c.env.DATABASE_ENCRYPTION_KEY_V2,
-      },
-    });
+    const result = await shipPickList(db, id, c.get('userId'));
     if (!result) return error.notFound(c, 'Pick list', id);
     publishEntityEvent({
       c,

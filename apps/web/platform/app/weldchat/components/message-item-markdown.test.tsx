@@ -21,6 +21,9 @@ vi.mock('@/lib/i18n/provider', () => ({
   }),
 }));
 vi.mock('./chat-context', () => ({ useChatContext: () => ({ openUserProfile: vi.fn(), openAgentProfile: vi.fn() }) }));
+vi.mock('@/hooks/use-member-avatar', () => ({
+  useMemberAvatar: (_userId: string | null | undefined, fallback?: string | null) => fallback ?? undefined,
+}));
 vi.mock('./reaction-bar', () => ({ ReactionBar: () => null }));
 vi.mock('./message-actions', () => ({ MessageActions: () => null }));
 vi.mock('./message-context-menu', () => ({ MessageContextMenu: ({ children }: { children: unknown }) => children }));

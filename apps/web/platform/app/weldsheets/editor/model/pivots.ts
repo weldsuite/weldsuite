@@ -8,6 +8,7 @@
 import {
   pivotFormula,
   pivotSourceData,
+  pivotTableAt,
   refText,
   resolveRef,
   toText,
@@ -19,6 +20,8 @@ import {
   type RangeAt,
   type Scalar,
 } from '@weldsuite/sheets-engine';
+import { fittedWidth, type Measure } from '../grid/autofit';
+import { measureText } from '../grid/renderer';
 import { cellSelection } from './selection';
 import { newSheetId, type SheetController } from './sheet-controller';
 
@@ -115,7 +118,11 @@ export function createPivotTable(
   const content = { v: null, f: pivotFormula(spec) };
   if (target) {
     if (!ctl.engine.workbook.getSheet(target.sheetId)) return 'noTarget';
-    ctl.apply({ type: 'setCells', sheetId: target.sheetId, cells: [[target.row, target.col, content]] });
+    // The columns are fitted to the output once it is there, in the same undo step.
+    ctl.applyThen({ type: 'setCells', sheetId: target.sheetId, cells: [[target.row, target.col, content]] }, () => {
+      ctl.goTo(target.sheetId, target.row, target.col);
+      return pivotFitOp(ctl, target.row, target.col);
+    });
     ctl.goTo(target.sheetId, target.row, target.col);
   } else {
     const sheetId = newSheetId();
@@ -123,12 +130,23 @@ export function createPivotTable(
       { type: 'addSheet', sheetId, name: freeName(ctl, sheetName), index: ctl.engine.workbook.sheets.length },
       { type: 'setCells', sheetId, cells: [[0, 0, content]] },
     ];
-    ctl.apply({ type: 'batch', ops });
+    ctl.applyThen({ type: 'batch', ops }, () => {
+      ctl.setActiveSheet(sheetId);
+      return pivotFitOp(ctl, 0, 0);
+    });
     ctl.setActiveSheet(sheetId);
     ctl.select(cellSelection(0, 0));
   }
   ctl.openPanel('pivot');
   return null;
+}
+
+/** The resize of the columns of the pivot table whose formula is at (row, col) to what it shows (null: no output). */
+export function pivotFitOp(ctl: SheetController, row: number, col: number, measure: Measure = measureText): Op | null {
+  const area = pivotTableAt(ctl.engine, ctl.activeSheetId, row, col)?.area;
+  if (!area) return null;
+  const cols = Array.from({ length: area.c2 - area.c1 + 1 }, (_, i) => area.c1 + i);
+  return { type: 'resizeDims', sheetId: ctl.activeSheetId, axis: 'col', entries: cols.map((c) => [c, fittedWidth(ctl, c, measure)]) };
 }
 
 /** `base 1`, `base 2`, …: the first one no sheet has. */
@@ -139,9 +157,10 @@ function freeName(ctl: SheetController, base: string): string {
   }
 }
 
-/** Rewrites a pivot table's formula for a changed spec. */
+/** Rewrites a pivot table's formula for a changed spec, and refits its columns. */
 export function savePivot(ctl: SheetController, table: PivotTable, spec: PivotSpec): void {
-  ctl.apply({ type: 'setCells', sheetId: ctl.activeSheetId, cells: [[table.row, table.col, { v: null, f: pivotFormula(spec) }]] });
+  const op: Op = { type: 'setCells', sheetId: ctl.activeSheetId, cells: [[table.row, table.col, { v: null, f: pivotFormula(spec) }]] };
+  ctl.applyThen(op, () => pivotFitOp(ctl, table.row, table.col));
 }
 
 function textOf(v: Scalar): string {

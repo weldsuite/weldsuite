@@ -30,12 +30,24 @@ export interface ModelPrice {
   inputPerM: number;
   /** USD per 1M output tokens. */
   outputPerM: number;
+  /** USD per page read (OCR models). */
+  perPage?: number;
+  /** USD per page read with document annotations (structured extraction). */
+  perPageAnnotated?: number;
+  /** USD per minute of audio (transcription models). */
+  perMinute?: number;
 }
 
 export interface AiUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** Pages an OCR model read (priced with `perPage`). */
+  pages?: number;
+  /** Of those, the pages read with document annotations (`perPageAnnotated`). */
+  annotatedPages?: number;
+  /** Seconds of audio transcribed (priced with `perMinute`). */
+  audioSeconds?: number;
 }
 
 export const MODEL_PRICES: Record<string, ModelPrice> = {
@@ -69,6 +81,19 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   '@cf/meta/llama-4-scout-17b-16e-instruct': { inputPerM: 0.27, outputPerM: 0.85 },
   '@cf/qwen/qwen3-30b-a3b-fp8': { inputPerM: 0.051, outputPerM: 0.335 },
   '@cf/meta/llama-3.1-8b-instruct-fast': { inputPerM: 0.045, outputPerM: 0.384 },
+  // Mistral, the EU edition's install provider (ADR AI-012, rust/crates/ai).
+  // Global never selects these ids. Last verified 2026-11-13 against the model
+  // cards on docs.mistral.ai (mistral.ai/pricing lists families, not ids).
+  // Medium 3.5 is deprecated (retires 2027-04-30; Large 4 replaces it and
+  // costs less); kept so a call that still names it is priced right.
+  'mistral/mistral-small-2603': { inputPerM: 0.15, outputPerM: 0.6 },
+  'mistral/mistral-medium-3-5': { inputPerM: 1.5, outputPerM: 7.5 },
+  'mistral/mistral-large-4-0': { inputPerM: 0.7, outputPerM: 2.1 },
+  // OCR: $4 per 1,000 pages, $5 with document annotations.
+  'mistral/mistral-ocr-4-1': { inputPerM: 0, outputPerM: 0, perPage: 0.004, perPageAnnotated: 0.005 },
+  'mistral/mistral-embed-2312': { inputPerM: 0.1, outputPerM: 0 },
+  // Voxtral Mini Transcribe 3 (public preview): $0.0035 per minute of audio.
+  'mistral/voxtral-mini-transcribe-3-0': { inputPerM: 0, outputPerM: 0, perMinute: 0.0035 },
   // TypeSafe Jev (Workers AI third-party). Rate is approximate — reconcile
   // against the Cloudflare dashboard pricing page; ops ledger is the source
   // of truth for infra spend, not customer billing.
@@ -114,13 +139,24 @@ export function priceForModel(modelId: string): ModelPrice {
   return modelId.startsWith('@cf/') ? WORKERS_AI_FALLBACK_PRICE : DEFAULT_PRICE;
 }
 
-/** Raw provider cost of a call, in USD. */
+/**
+ * Raw provider cost of a call, in USD: its tokens, plus its pages and minutes
+ * of audio for the models priced by them (Mistral OCR, Voxtral). A call
+ * without pages or audio costs exactly what its tokens cost.
+ */
 export function providerCostUsd(modelId: string, usage: AiUsage): number {
   const price = priceForModel(modelId);
-  return (
+  let cost =
     ((usage.inputTokens ?? 0) / 1_000_000) * price.inputPerM +
-    ((usage.outputTokens ?? 0) / 1_000_000) * price.outputPerM
-  );
+    ((usage.outputTokens ?? 0) / 1_000_000) * price.outputPerM;
+  if (usage.pages && price.perPage !== undefined) {
+    const annotated = Math.min(usage.annotatedPages ?? 0, usage.pages);
+    cost += (usage.pages - annotated) * price.perPage + annotated * (price.perPageAnnotated ?? price.perPage);
+  }
+  if (usage.audioSeconds && price.perMinute !== undefined) {
+    cost += (usage.audioSeconds / 60) * price.perMinute;
+  }
+  return cost;
 }
 
 /** Credits for one call: markedUpCostUSD × CREDITS_PER_USD, min 1. */

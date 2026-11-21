@@ -10,6 +10,7 @@ import {
   resolveRef,
   seriesFromRange,
   type Chart,
+  type ChartAnchor,
   type ChartSource,
   type ChartType,
   type Range,
@@ -36,19 +37,75 @@ export function chartRange(ctl: SheetController): Range {
   return sel.r1 === sel.r2 && sel.c1 === sel.c2 ? currentRegion(ctl, sel.r1, sel.c1) : sel;
 }
 
-/** A column chart (a line chart over dates) of the selected cells, placed beside them, and picked. */
+/** Data this tall (rows) is long enough that the cells under it are off screen; the chart goes beside it. */
+const TALL_RANGE = 20;
+
+/**
+ * Where a new chart goes: under the data, a row apart (the side panel that
+ * opens with it covers the right of the grid), or beside it when the data is
+ * too tall for the cells under it to be in view.
+ */
+export function chartAnchor(range: Range, rowCount: number, colCount: number): ChartAnchor {
+  if (range.r2 - range.r1 < TALL_RANGE && range.r2 + 2 < rowCount) return { row: range.r2 + 2, col: range.c1, dx: 0, dy: 0 };
+  return { row: range.r1, col: Math.min(range.c2 + 2, colCount - 1), dx: 0, dy: 0 };
+}
+
+/** How far down (rows) a new chart looks for empty cells before it settles on covering some. */
+const FREE_SCAN_ROWS = 200;
+
+/**
+ * Where a new chart goes without covering anything: `chartAnchor`'s spot when
+ * the cells under the chart are empty (no values, merges or other charts),
+ * else beside the data, else the first empty stretch further down the same columns.
+ */
+export function freeChartAnchor(ctl: SheetController, range: Range, width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT): ChartAnchor {
+  const sheet = ctl.sheet;
+  const preferred = chartAnchor(range, sheet.rowCount, sheet.colCount);
+  const beside = { row: range.r1, col: Math.min(range.c2 + 2, sheet.colCount - 1), dx: 0, dy: 0 };
+  const isFree = (row: number, col: number) => coverIsEmpty(ctl, footprint(ctl, row, col, width, height));
+  for (const spot of [preferred, beside]) if (isFree(spot.row, spot.col)) return spot;
+  const last = Math.min(sheet.rowCount - 1, range.r2 + FREE_SCAN_ROWS);
+  for (let row = range.r2 + 2; row <= last; row++) if (isFree(row, range.c1)) return { row, col: range.c1, dx: 0, dy: 0 };
+  return preferred;
+}
+
+/** The cells a chart of `width`×`height` px anchored at a cell's top-left corner covers. */
+function footprint(ctl: SheetController, row: number, col: number, width: number, height: number): Range {
+  const sheet = ctl.sheet;
+  let c2 = col;
+  for (let w = sheet.cols.sizeOf(c2); w < width && c2 < sheet.colCount - 1; w += sheet.cols.sizeOf(c2)) c2++;
+  let r2 = row;
+  for (let h = sheet.rows.sizeOf(r2); h < height && r2 < sheet.rowCount - 1; h += sheet.rows.sizeOf(r2)) r2++;
+  return { r1: row, c1: col, r2, c2 };
+}
+
+function overlaps(a: Range, b: Range): boolean {
+  return a.r1 <= b.r2 && b.r1 <= a.r2 && a.c1 <= b.c2 && b.c1 <= a.c2;
+}
+
+function coverIsEmpty(ctl: SheetController, area: Range): boolean {
+  const sheet = ctl.sheet;
+  if (sheet.merges.some((m) => overlaps(m, area))) return false;
+  if (sheet.charts.some((c) => overlaps(footprint(ctl, c.anchor.row, c.anchor.col, c.width, c.height), area))) return false;
+  let empty = true;
+  ctl.engine.forEachValue(ctl.activeSheetId, area, () => {
+    empty = false;
+  });
+  return empty;
+}
+
+/** A column chart (a line chart over dates) of the selected cells, placed where it covers nothing (see `freeChartAnchor`), and picked. */
 export function insertChart(ctl: SheetController): Chart | null {
   if (ctl.readOnly) return null;
   const range = chartRange(ctl);
   const source = guessChartSource(ctl.engine, ctl.activeSheetId, range);
   const data = seriesFromRange(ctl.engine, ctl.activeSheetId, range, source);
-  const sheet = ctl.sheet;
   const chart: Chart = {
     id: newChartId(),
     type: overDates(ctl, data.categories) ? 'line' : 'column',
     ...data,
     legend: 'bottom',
-    anchor: { row: range.r1, col: Math.min(range.c2 + 2, sheet.colCount - 1), dx: 0, dy: 0 },
+    anchor: freeChartAnchor(ctl, range),
     width: DEFAULT_WIDTH,
     height: DEFAULT_HEIGHT,
   };

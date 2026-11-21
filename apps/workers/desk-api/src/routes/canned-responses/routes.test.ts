@@ -24,10 +24,9 @@ describeCrud(BASE, {
   gates: { read: 'tickets:read', create: 'tickets:create', update: 'tickets:update', delete: 'tickets:delete' },
   // Another agent's personal responses: listed by GET /, never found by /search.
   seed: (n) => ({ name: `Canned ${n}`, content: `Body ${n}`, scope: 'personal', agentId: 'user_crud' }),
-  // The schema wants `body`, the column is `content`: only a passthrough `content` stores.
+  // The schema asks for `content`, the column the platform sends and reads.
   valid: {
     name: 'Greeting',
-    body: 'alias only',
     content: 'Hello {{customer.name}}',
     subject: 'Hi',
     shortcut: '/hi',
@@ -35,18 +34,19 @@ describeCrud(BASE, {
     departmentId: null,
     isShared: true,
   },
-  unstorable: { name: 'No content', body: 'only the alias' },
   invalid: [
     {},
-    { body: 'x' },
-    { name: '', body: 'x' },
+    { content: 'x' },
+    { name: '', content: 'x' },
     { name: 'x' },
-    { name: 'x', body: 5 },
-    { name: 'x', body: 'x', shortcut: 'x'.repeat(51) },
-    { name: 'x', body: 'x', category: 'x'.repeat(101) },
-    { name: 'x', body: 'x', subject: 'x'.repeat(501) },
-    { name: 'x', body: 'x', isShared: 'yes' },
-    { name: 'x', body: 'x', departmentId: 3 },
+    // The old `body` name is no column: without `content` the body is refused.
+    { name: 'x', body: 'x' },
+    { name: 'x', content: 5 },
+    { name: 'x', content: 'x', shortcut: 'x'.repeat(51) },
+    { name: 'x', content: 'x', category: 'x'.repeat(101) },
+    { name: 'x', content: 'x', subject: 'x'.repeat(501) },
+    { name: 'x', content: 'x', isShared: 'yes' },
+    { name: 'x', content: 'x', departmentId: 3 },
   ],
   patch: { name: 'Greeting 2', subject: 'Hello there', category: 'General' },
   invalidPatch: { isShared: 'no' },
@@ -64,7 +64,8 @@ const TEMPLATE =
 
 describe('/api/canned-responses · search, categories and use', () => {
   // createPgliteDb() is one database per file: the CRUD suite's rows (personal
-  // to `user_crud`, or personal with no agent) are here too, invisible to /search.
+  // to `user_crud`, or created by the harness's default user and so personal
+  // to them) are here too. "Mine" is `user_mine`, so /search sees none of them.
   let db: Database;
   const app = (keys: string[], userId?: string) =>
     createTestApp(BASE, cannedResponsesRoutes, {
@@ -78,7 +79,7 @@ describe('/api/canned-responses · search, categories and use', () => {
   const at = (second: number) => new Date(Date.UTC(2026, 0, 4, 12, 0, second));
   const row = async (id: string) => (await db.select().from(t).where(eq(t.id, id)).limit(1))[0];
 
-  async function search(query: string, userId?: string): Promise<string[]> {
+  async function search(query: string, userId = 'user_mine'): Promise<string[]> {
     const res = await app(['tickets:read'], userId).request(`${BASE}/search${query}`);
     expect(res.status).toBe(200);
     return ((await res.json()) as { data: Array<{ id: string }> }).data.map((r) => r.id);
@@ -107,7 +108,7 @@ describe('/api/canned-responses · search, categories and use', () => {
         content: 'We refund within 30 days',
         shortcut: '/refund',
         scope: 'personal',
-        agentId: 'user_test_default',
+        agentId: 'user_mine',
         usageCount: 5,
         category: 'Billing',
       }),
@@ -152,14 +153,14 @@ describe('/api/canned-responses · search, categories and use', () => {
     });
 
     it('answers the full rows', async () => {
-      const res = await app(['tickets:read']).request(`${BASE}/search?q=policy`);
+      const res = await app(['tickets:read'], 'user_mine').request(`${BASE}/search?q=policy`);
       const { data } = (await res.json()) as { data: unknown[] };
       expect(data).toEqual([
         expect.objectContaining({
           id: 'cr_mine',
           name: 'Refund policy',
           scope: 'personal',
-          agentId: 'user_test_default',
+          agentId: 'user_mine',
           usageCount: 5,
           isActive: true,
           deletedAt: null,
@@ -194,6 +195,38 @@ describe('/api/canned-responses · search, categories and use', () => {
 
     it('needs tickets:read', async () => {
       expect((await app([]).request(`${BASE}/search`)).status).toBe(403);
+    });
+  });
+
+  describe('the owner of a personal response', () => {
+    it('POST / makes the caller the owner, whatever the body says: it reaches their picker only', async () => {
+      const res = await app(['tickets:create'], 'user_author').request(
+        BASE,
+        json({ name: 'Owner probe', content: 'Mine only', agentId: 'user_other' }),
+      );
+      expect(res.status).toBe(201);
+      const { data } = (await res.json()) as { data: { id: string } };
+      expect(await row(data.id)).toMatchObject({ scope: 'personal', agentId: 'user_author' });
+      expect(await search('?q=owner%20probe', 'user_author')).toEqual([data.id]);
+      expect(await search('?q=owner%20probe', 'user_other')).toEqual([]);
+    });
+
+    it('PATCH /:id saving an ownerless response as personal makes it the caller’s; an owned one keeps its owner', async () => {
+      await db.insert(t).values([
+        { id: 'cr_ownerless', name: 'Ownerless probe', content: 'x', scope: 'personal', agentId: null, createdAt: at(40), updatedAt: at(40) },
+        { id: 'cr_owned', name: 'Owned probe', content: 'x', scope: 'personal', agentId: 'user_other', createdAt: at(41), updatedAt: at(41) },
+      ] as never);
+      const patch = (id: string, body: unknown) =>
+        app(['tickets:update'], 'user_author').request(`${BASE}/${id}`, json(body, 'PATCH'));
+
+      expect((await patch('cr_ownerless', { name: 'Ownerless probe 2' })).status).toBe(200);
+      expect((await row('cr_ownerless')).agentId).toBeNull();
+      expect((await patch('cr_ownerless', { scope: 'personal' })).status).toBe(200);
+      expect((await row('cr_ownerless')).agentId).toBe('user_author');
+      expect(await search('?q=ownerless', 'user_author')).toEqual(['cr_ownerless']);
+
+      expect((await patch('cr_owned', { scope: 'personal' })).status).toBe(200);
+      expect((await row('cr_owned')).agentId).toBe('user_other');
     });
   });
 

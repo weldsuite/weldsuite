@@ -14,17 +14,18 @@ use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
     CnpgOptions, CnpgProvisioner, JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore,
-    SmtpMail, ValkeyCache, ValkeyRealtime, ZitadelIdentity, ZitadelOptions, connect_valkey,
-    entity_events_stream_config,
+    SmtpMail, ValkeyCache, ValkeyRealtime, WeldIdIdentity, WeldIdOptions, WeldIdSso,
+    ZitadelIdentity, ZitadelOptions, connect_valkey, entity_events_stream_config,
 };
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
     DatabaseProvisioner, DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
+    SsoDirectory,
 };
 
-use crate::config::{FlagSourceKind, InfraConfig};
+use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig, WeldIdConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -48,12 +49,18 @@ pub(crate) struct Infra {
     pub(crate) job_registry: JobRegistry,
     /// System mail (the workers' `SEND_EMAIL`), from `SYSTEM_EMAIL_FROM` when set.
     pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
-    /// The identity provider's management API (Zitadel), when configured.
+    /// The identity provider's management API (Zitadel, or WeldID), when configured.
     pub(crate) identity: Option<Arc<dyn Identity>>,
+    /// Enterprise SSO connections at the identity provider: WeldID's, with
+    /// `IDENTITY_PROVIDER=weldid` (`/api/sso` in WeldID mode).
+    pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
     /// Workspace databases on the CloudNativePG shards, when configured.
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
     /// The subject prefix of WeldPanel's events stream, on the bus `events` sends to.
     pub(crate) panel_events_subject: String,
+    /// WeldPanel's bucket (`S3_BUCKET_PANEL`), where the collector stores
+    /// recording chunks and heatmap snapshots; none without it.
+    pub(crate) panel_files: Option<Arc<dyn DynFileStore>>,
 }
 
 impl std::fmt::Debug for Infra {
@@ -67,6 +74,7 @@ impl std::fmt::Debug for Infra {
             .field("job_registry", &self.job_registry)
             .field("mail", &self.mail.is_some())
             .field("identity", &self.identity.is_some())
+            .field("sso", &self.sso.is_some())
             .field("provisioner", &self.provisioner.is_some())
             .finish_non_exhaustive()
     }
@@ -89,8 +97,10 @@ impl Infra {
             mail: None,
             flags: Arc::new(DefaultFlags),
             identity: None,
+            sso: None,
             provisioner: None,
             panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
+            panel_files: None,
         }
     }
 }
@@ -137,10 +147,18 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
             &config.nats_subject_prefix,
         ))
         .await?;
+        // Created here so the collector's publishes find them; `consume`
+        // (`panel-writer`) brings an existing one to the configured age.
+        let max_age = std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60);
         bus.ensure_stream(weldsuite_adapters_oss::panel_events_stream_config(
             &config.nats_panel_stream,
             &config.nats_panel_subject,
-            std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60),
+            max_age,
+        ))
+        .await?;
+        bus.ensure_stream(weldsuite_adapters_oss::panel_state_stream_config(
+            &config.nats_panel_state_stream,
+            max_age,
         ))
         .await?;
     }
@@ -148,10 +166,21 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
 }
 
 /// The private and public file stores. Nothing is sent until a route uses
-/// one, so a wrong key shows up in that route's logs, not at start.
+/// one, so a wrong key shows up in that route's logs, not at start; except
+/// with `S3_ENSURE_BUCKETS`, which checks (and creates) each bucket first.
 type FileStores = (Option<Arc<dyn DynFileStore>>, Option<Arc<dyn DynFileStore>>);
 
-fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
+/// WeldPanel's bucket (`S3_BUCKET_PANEL`), when configured.
+fn panel_files(config: &InfraConfig) -> Result<Option<Arc<dyn DynFileStore>>, Error> {
+    Ok(config
+        .panel
+        .as_ref()
+        .map(crate::panel_store::PanelStoreConfig::file_store)
+        .transpose()?
+        .map(|store| Arc::new(store) as Arc<dyn DynFileStore>))
+}
+
+async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     let Some(files) = &config.files else {
         tracing::warn!("S3_ENDPOINT is not set: no file storage, file routes will fail");
         return Ok((None, None));
@@ -160,15 +189,31 @@ fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
-    let private: Arc<dyn DynFileStore> =
-        Arc::new(S3FileStore::new(&files.private, client.clone())?);
-    let public = match files.public() {
-        Some(options) => {
-            Some(Arc::new(S3FileStore::new(&options, client)?) as Arc<dyn DynFileStore>)
+    let private = S3FileStore::new(&files.private, client.clone())?;
+    let public = files
+        .public()
+        .map(|options| S3FileStore::new(&options, client))
+        .transpose()?;
+    if files.ensure_buckets {
+        // WeldPanel's bucket too, on the same store (the bundled RustFS).
+        let panel = config
+            .panel
+            .as_ref()
+            .map(crate::panel_store::PanelStoreConfig::file_store)
+            .transpose()?;
+        for store in std::iter::once(&private)
+            .chain(public.as_ref())
+            .chain(panel.as_ref())
+        {
+            if store.ensure_bucket().await? {
+                tracing::info!(bucket = store.bucket_name(), "created the bucket");
+            }
         }
-        None => None,
-    };
-    Ok((Some(private), public))
+    }
+    Ok((
+        Some(Arc::new(private) as Arc<dyn DynFileStore>),
+        public.map(|store| Arc::new(store) as Arc<dyn DynFileStore>),
+    ))
 }
 
 /// The registry every process starts with.
@@ -203,7 +248,7 @@ fn jobs(
 }
 
 /// The SMTP relay, when `SMTP_URL` is set. It connects on the first send.
-fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
+pub(crate) fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
     let Some(url) = &config.smtp_url else {
         tracing::warn!("SMTP_URL is not set: system mail is skipped");
         return Ok(None);
@@ -215,23 +260,92 @@ fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, E
     )))
 }
 
-/// Zitadel's management API, when `ZITADEL_*` is set.
-fn identity(config: &InfraConfig) -> Result<Option<Arc<dyn Identity>>, Error> {
+/// What the identity provider offers through its management API.
+pub(crate) struct IdentityPorts {
+    pub(crate) identity: Option<Arc<dyn Identity>>,
+    /// Enterprise SSO connections: only WeldID's.
+    pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
+}
+
+/// The identity provider's management API: WeldID's with
+/// `IDENTITY_PROVIDER=weldid` (memberships in the master database, and the
+/// SSO connections over the same admin client), else Zitadel's when
+/// `ZITADEL_*` is set.
+pub(crate) fn identity(
+    config: &InfraConfig,
+    master: &PgPool,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Result<IdentityPorts, Error> {
+    if let Some(settings) = &config.weldid {
+        let weldid = Arc::new(WeldIdIdentity::new(
+            weldid_options(settings, mail),
+            master.clone(),
+        )?);
+        let sso: Arc<dyn SsoDirectory> = Arc::new(WeldIdSso::new(Arc::clone(&weldid)));
+        return Ok(IdentityPorts {
+            identity: Some(weldid),
+            sso: Some(sso),
+        });
+    }
     let Some(settings) = &config.identity else {
         tracing::warn!(
-            "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
+            "no identity provider (ZITADEL_API_URL, or IDENTITY_PROVIDER=weldid): onboarding and team changes fail"
         );
-        return Ok(None);
+        return Ok(IdentityPorts {
+            identity: None,
+            sso: None,
+        });
     };
-    let identity = ZitadelIdentity::new(ZitadelOptions {
+    let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
+    Ok(IdentityPorts {
+        identity: Some(Arc::new(identity)),
+        sso: None,
+    })
+}
+
+/// How to reach WeldID's admin API. With system mail, invitations go out in
+/// WeldSuite's template (WeldID sends none: it knows no workspaces).
+pub(crate) fn weldid_options(
+    settings: &WeldIdConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> WeldIdOptions {
+    WeldIdOptions {
+        issuer: settings.issuer.clone(),
+        admin_url: settings.admin_url.clone(),
+        client_id: settings.client_id.clone(),
+        client_key: settings.client_key.clone(),
+        token_endpoint: None,
+        invitation_mailer: invitation_mailer(mail),
+    }
+}
+
+/// WeldSuite's invitation email over system mail.
+fn invitation_mailer(
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Option<Arc<dyn weldsuite_ports::InvitationMailer>> {
+    mail.map(|mail| {
+        Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
+            Arc::clone(mail),
+        )) as Arc<dyn weldsuite_ports::InvitationMailer>
+    })
+}
+
+/// How to reach Zitadel's management API. With system mail, invitations go
+/// out in WeldSuite's template and Zitadel hands the invite code back.
+pub(crate) fn zitadel_options(
+    settings: &IdentityConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> ZitadelOptions {
+    ZitadelOptions {
         api_url: settings.api_url.clone(),
         token: settings.token.clone(),
         project_id: settings.project_id.clone(),
         invite_url_template: settings.invite_url_template.clone(),
+        accept_on_platform: settings.accept_on_platform,
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
-    })?;
-    Ok(Some(Arc::new(identity)))
+        invitation_mailer: invitation_mailer(mail),
+    }
 }
 
 /// The CloudNativePG provisioner, when `TENANT_SHARDS` is set.
@@ -274,11 +388,11 @@ pub(crate) async fn connect(
         )),
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
-    let (files, public_files) = file_stores(config)?;
+    let (files, public_files) = file_stores(config).await?;
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let identity = identity(config)?;
+    let IdentityPorts { identity, sso } = identity(config, master, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,
@@ -292,7 +406,9 @@ pub(crate) async fn connect(
         public_files,
         mail,
         identity,
+        sso,
         provisioner,
         panel_events_subject: config.nats_panel_subject.clone(),
+        panel_files: panel_files(config)?,
     })
 }

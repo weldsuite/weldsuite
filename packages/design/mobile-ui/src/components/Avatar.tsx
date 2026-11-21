@@ -1,5 +1,8 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+// expo-image, not React Native's Image: a person's picture can be an SVG
+// (WeldID's letter avatars, /avatars/v1/…), which React Native can't draw.
+import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
 import { Radii } from '../constants/theme';
 

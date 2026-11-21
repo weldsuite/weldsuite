@@ -158,7 +158,10 @@ export function StatusFormDialog({
               className="shadow-none font-mono text-sm"
             />
             {form.formState.errors.slug ? (
-              <p className="text-xs text-destructive">{form.formState.errors.slug.message}</p>
+              <p className="text-xs text-destructive">
+                {/* The schema's pattern check only says "Invalid": name the rule instead (TASK-1463). */}
+                {form.formState.errors.slug.type === 'invalid_string' ? ts.form.slugHint : form.formState.errors.slug.message}
+              </p>
             ) : (
               <p className="text-xs text-muted-foreground">{ts.form.slugHint}</p>
             )}

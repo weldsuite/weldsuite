@@ -1,24 +1,39 @@
 /**
- * Conformance mode's stream bindings: a test's Cloudflare Pipelines stream
- * (`PANEL_EVENTS`, a fake with `send(records)`) served over HTTP, so the
- * Rust server's event writes reach the same fake. The Rust side is
- * `rust/bins/weldsuite/src/conformance_panel.rs`.
+ * Conformance mode's stream bindings: a test's Cloudflare Pipelines streams
+ * (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`, fakes with `send(records)`) served
+ * over HTTP, so the Rust server's row writes reach the same fakes. The Rust
+ * side is `rust/bins/weldsuite/src/conformance_panel.rs`.
  *
  *   POST /send { binding, records }
  *     → binding.send(records)
  *     204 | 500 { error }   the fake threw
  *
+ * Queue bindings (`PANEL_MAINTENANCE`, fakes with `send(message)`) go the
+ * same way, one message per record: `binding.send(record)` for each.
+ *
  * Both runs' writes are compared as `pipelines` side effects
- * (`{ binding, records }`). The TypeScript run of a write sends to the
- * fake's `fork()` when it has one (./write-isolation.ts), so the test's own
- * assertions see Rust's rows only, as its response is Rust's.
+ * (`{ binding, records }`, a queue message as `{ binding, records: [message] }`).
+ * The TypeScript run of a write sends to the fake's `fork()` when it has
+ * one, and a queue without one drops its messages (./write-isolation.ts), so
+ * the test's own assertions see Rust's rows only, as its response is Rust's.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
-/** The stream bindings the bridge serves. */
-export const PIPELINE_BINDINGS = ['PANEL_EVENTS'] as const;
+/**
+ * Queue bindings the bridge serves: WeldPanel's erasure queue (panel-api
+ * sends the Iceberg rewrite one message per batch of ids).
+ */
+export const QUEUE_BINDINGS = ['PANEL_MAINTENANCE'] as const;
+
+/** The stream (and queue) bindings the bridge serves. */
+export const PIPELINE_BINDINGS = ['PANEL_EVENTS', 'PANEL_REPLAY_CHUNKS', ...QUEUE_BINDINGS] as const;
+
+/** Whether `binding` is a queue (`send(message)`) rather than a stream (`send(records)`). */
+export function isQueueBinding(binding: string): boolean {
+  return (QUEUE_BINDINGS as readonly string[]).includes(binding);
+}
 
 interface PipelineLike {
   send(records: unknown[]): Promise<unknown>;
@@ -59,7 +74,11 @@ async function handle(env: Record<string, unknown>, req: IncomingMessage, res: S
   const records = copy(call.records);
   rustCalls.push({ binding: call.binding, records });
   try {
-    await binding.send(records);
+    if (isQueueBinding(call.binding)) {
+      for (const record of records) await (binding.send as (message: unknown) => Promise<unknown>)(record);
+    } else {
+      await binding.send(records);
+    }
     res.writeHead(204).end();
   } catch (error) {
     res
@@ -101,7 +120,8 @@ export function recordTypeScriptPipelineCalls(env: Record<string, unknown>): {
     if (!isPipelineLike(target)) continue;
     wrapped[binding] = {
       send: (records: unknown[]) => {
-        calls.push({ binding, records: copy(records) });
+        // A queue's `send(message)` is one record.
+        calls.push({ binding, records: isQueueBinding(binding) ? copy([records]) : copy(records) });
         return target.send(records);
       },
     };

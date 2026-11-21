@@ -935,6 +935,20 @@ export function isWorkflowInactiveError(err: unknown): boolean {
   return body?.error?.details?.reason === 'workflow_inactive';
 }
 
+/**
+ * The toast for a refused retry: why the run can't start again when the API
+ * says, rather than a bare "failed". A 404 is the run's workflow (the run
+ * itself is on screen): it was deleted.
+ */
+export function retryErrorMessage(
+  err: unknown,
+  toasts: { workflowInactive: string; workflowDeleted: string; retryFailed: string },
+): string {
+  if (isWorkflowInactiveError(err)) return toasts.workflowInactive;
+  if (isApiError(err) && err.status === 404) return toasts.workflowDeleted;
+  return toasts.retryFailed;
+}
+
 // A run changing state moves the list, the detail, and the dashboard's tiles and recent activity.
 function invalidateExecutionQueries(qc: QueryClient, executionId: string) {
   qc.invalidateQueries({ queryKey: automationKeys.executionsPrefix() });

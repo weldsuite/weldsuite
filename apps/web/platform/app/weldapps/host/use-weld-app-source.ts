@@ -30,11 +30,10 @@ export function useWeldAppSource(appCode: string | undefined, options: { pollDev
   const iframeSrc = previewUrl ?? bundle.src ?? '';
 
   /**
-   * First-party apps (and the legacy weldcommerce hosted app) act with
-   * the member's platform session against app-api; community apps go
-   * through the scoped gateway to external-api.
+   * First-party apps act with the member's platform session against app-api;
+   * community apps go through the scoped gateway to external-api.
    */
-  const usesPlatformSession = app?.publisherType === 'weldsuite' || appCode === 'weldcommerce';
+  const usesPlatformSession = app?.publisherType === 'weldsuite';
   // A community bundle shares its origin with the others (and the API) unless
   // every app has its own, so it may be rendered in an opaque origin.
   const isolated =

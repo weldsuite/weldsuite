@@ -1,7 +1,7 @@
 /**
  * Resend transport, kept only as the `EMAIL_TRANSPORT=resend` fallback while
  * the senders move to Cloudflare. Delete with the rest of Resend in the last
- * migration phase (docs/plans/system-email-cloudflare.md).
+ * migration phase (weldsuite-documentation/plans/system-email-cloudflare.md).
  */
 
 import {

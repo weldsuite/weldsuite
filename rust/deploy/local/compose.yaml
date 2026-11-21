@@ -6,14 +6,23 @@
 #
 #   node mint-token.mjs        (once: the session key and the Postman tokens)
 #   docker compose up -d
+#
+# Sign-in: without .local/auth.env the server takes mint-token.mjs's
+# Clerk-shaped tokens (Postman). `node eu-test-auth.mjs` writes that file, and
+# then it takes EU test's Zitadel tokens instead, with your EU test account
+# as the local workspace's owner (README.md, "Sign in with your EU test
+# account").
 name: weldsuite-local
 
 x-weldsuite-env: &weldsuite-env
   ENVIRONMENT: local
+  # /config.json says so, as on EU test; nothing else changes.
+  EDITION: eu
   LOG_FORMAT: text
   RUST_LOG: info
   DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
-  # Session tokens are Clerk-shaped and signed with the key mint-token.mjs made.
+  # Session tokens are Clerk-shaped and signed with the key mint-token.mjs
+  # made, unless .local/auth.env sets AUTH_PROVIDER=oidc (eu-test-auth.mjs).
   CLERK_JWKS_FILE: /keys/jwks.json
   VALKEY_URL: redis://valkey:6379
   NATS_URL: nats://nats:4222
@@ -36,8 +45,16 @@ x-weldsuite-env: &weldsuite-env
   STORAGE_SIGNING_KEY: local-storage-signing-key
   SHUTDOWN_DELAY_SECONDS: "1"
 
+# EU test sign-in (eu-test-auth.mjs): AUTH_PROVIDER and OIDC_* for the
+# server, LOCAL_* for the seeds. Absent: mint-token.mjs's tokens.
+x-auth-env: &auth-env
+  env_file:
+    - path: ./.local/auth.env
+      required: false
+
 x-weldsuite: &weldsuite
   image: ${WELDSUITE_IMAGE:-weldsuite:local}
+  <<: *auth-env
   environment: *weldsuite-env
   volumes:
     - ./.local/keys:/keys:ro
@@ -117,13 +134,24 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # Which organization the workspace answers to, and with EU test sign-in who
+  # its owner is: seed/master.sql has the variables.
   seed-master:
     image: pgvector/pgvector:pg17
+    <<: *auth-env
     environment:
       PGPASSWORD: weldsuite
+      SEED_DB: master
     volumes:
       - ./seed:/seed:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "weldsuite", "-d", "master", "-f", "/seed/master.sql"]
+    command: &seed-command
+      - sh
+      - -c
+      - >-
+        exec psql -v ON_ERROR_STOP=1 -h postgres -U weldsuite -d "$$SEED_DB"
+        -v org_id="$${LOCAL_ORG_ID:-org_local}" -v user_id="$${LOCAL_USER_ID:-}"
+        -v email="$${LOCAL_USER_EMAIL:-}" -v first_name="$${LOCAL_USER_FIRST_NAME:-}"
+        -v last_name="$${LOCAL_USER_LAST_NAME:-}" -f "/seed/$$SEED_DB.sql"
     depends_on:
       migrate-master: { condition: service_completed_successfully }
 
@@ -135,11 +163,13 @@ services:
 
   seed-tenant:
     image: pgvector/pgvector:pg17
+    <<: *auth-env
     environment:
       PGPASSWORD: weldsuite
+      SEED_DB: tenant
     volumes:
       - ./seed:/seed:ro
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "weldsuite", "-d", "tenant", "-f", "/seed/tenant.sql"]
+    command: *seed-command
     depends_on:
       migrate-tenants: { condition: service_completed_successfully }
 

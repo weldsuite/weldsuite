@@ -16,6 +16,7 @@ export const sheetData = {
     products: 'Products',
     orders: 'Orders',
     invoices: 'Invoices',
+    form_responses: 'Form responses',
   },
   fields: {
     companies: {
@@ -247,6 +248,15 @@ export const sheetData = {
       entityId: 'Entity',
       createdAt: 'Created',
       updatedAt: 'Updated',
+    },
+    form_responses: {
+      number: 'Response number',
+      submittedAt: 'Submitted',
+      respondentEmail: 'Respondent email',
+      startedAt: 'Started',
+      score: 'Score',
+      durationSeconds: 'Time taken (seconds)',
+      personId: 'CRM person',
     },
   },
 };

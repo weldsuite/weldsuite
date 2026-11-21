@@ -170,7 +170,7 @@ impl std::fmt::Debug for WebhookHttp {
 }
 
 /// Refuses names that resolve only to non-public addresses.
-struct PublicOnlyResolver;
+pub(crate) struct PublicOnlyResolver;
 
 impl reqwest::dns::Resolve for PublicOnlyResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
@@ -189,7 +189,7 @@ impl reqwest::dns::Resolve for PublicOnlyResolver {
 }
 
 #[derive(Debug)]
-struct BlockedAddress;
+pub(crate) struct BlockedAddress;
 
 impl std::fmt::Display for BlockedAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -208,7 +208,7 @@ pub fn is_public(ip: IpAddr) -> bool {
 
 /// Is `url`'s host an IP literal that is not public? (Names go through the
 /// resolver; literals never do.)
-fn literal_is_blocked(url: &reqwest::Url) -> bool {
+pub(crate) fn literal_is_blocked(url: &reqwest::Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(v4)) => !is_public(IpAddr::V4(v4)),
         Some(url::Host::Ipv6(v6)) => !is_public(IpAddr::V6(v6)),

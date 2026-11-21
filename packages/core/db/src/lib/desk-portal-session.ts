@@ -11,11 +11,11 @@
  */
 
 import { asc, eq, isNull } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import { deskPrincipalOf, normalizeDeskEmail, type DeskPrincipal } from './desk-portal';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 /** The header the help center's server sends the reader's session in. */
 export const DESK_PORTAL_SESSION_HEADER = 'x-portal-session';

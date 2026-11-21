@@ -75,8 +75,23 @@ describe('team form', () => {
       validateTeamValues({ ...emptyTeamValues(1), name: 'x', escalationRules: [{ ...rule, afterMinutes: '-3' }] }),
     ).toEqual({ field: 'afterMinutes', index: 0 });
     expect(
-      validateTeamValues({ ...emptyTeamValues(1), name: 'x', escalationRules: [rule, { ...rule, escalateTo: 'specific_agent' }] }),
+      validateTeamValues({
+        ...emptyTeamValues(1),
+        name: 'x',
+        managerMemberId: 'mbr_1',
+        escalationRules: [rule, { ...rule, escalateTo: 'specific_agent' }],
+      }),
     ).toEqual({ field: 'escalateToId', index: 1 });
-    expect(validateTeamValues({ ...emptyTeamValues(1), name: 'x', escalationRules: [rule] })).toBeNull();
+    // A rule for the team's manager needs a manager to hand the conversation to.
+    expect(validateTeamValues({ ...emptyTeamValues(1), name: 'x', escalationRules: [rule] })).toEqual({
+      field: 'manager',
+      index: 0,
+    });
+    expect(
+      validateTeamValues({ ...emptyTeamValues(1), name: 'x', managerMemberId: 'mbr_1', escalationRules: [rule] }),
+    ).toBeNull();
+    expect(
+      validateTeamValues({ ...emptyTeamValues(1), name: 'x', escalationRules: [{ ...rule, escalateTo: 'next_tier' }] }),
+    ).toBeNull();
   });
 });

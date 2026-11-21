@@ -26,7 +26,7 @@ Click **Filter** to narrow the list by **state** (open or closed), **assignee** 
 
 1. Click a row to open the thread.
 2. Read the customer message and any earlier history in the thread.
-3. Click **Assign** in the header and choose yourself (or a teammate) so others know who owns it.
+3. Click **Assign to me** in the header, or **Assign** to choose a teammate, so others know who owns it. On a narrow screen these show as icons; hover them for the label.
 
 Reply in the composer at the bottom and press **Enter** (or click **Send reply**). Customers receive your answer on the channel they used, for example email or chat.
 

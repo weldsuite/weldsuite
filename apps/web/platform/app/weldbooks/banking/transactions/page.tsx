@@ -130,7 +130,7 @@ export default function BankTransactionsPage() {
     {
       id: 'description',
       header: st('sweep.weldbooks.description'),
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (line) => (
         <RowTitle
           chips={
@@ -146,13 +146,13 @@ export default function BankTransactionsPage() {
     {
       id: 'counterparty',
       header: st('sweep.weldbooks.bankTransactionsTable.counterparty'),
-      width: 'w-[200px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
       render: (line) => <ContactCell name={line.counterpartyName} />,
     },
     {
       id: 'reference',
       header: st('sweep.weldbooks.bankTransactionsTable.reference'),
-      width: 'w-[160px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[160px]',
       render: (line) => <RowText>{line.reference}</RowText>,
     },
     ...(showSource
@@ -160,7 +160,7 @@ export default function BankTransactionsPage() {
           {
             id: 'source',
             header: tl.source,
-            width: 'w-[110px]',
+            width: 'hidden shrink-0 @6xl/list:flex w-[110px]',
             render: (line: BankLine) => <RowText>{line.source ? tl.sources[line.source] : null}</RowText>,
           },
         ]
@@ -168,13 +168,13 @@ export default function BankTransactionsPage() {
     {
       id: 'date',
       header: st('sweep.weldbooks.date'),
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (line) => <RowDate>{formatDate(line.date)}</RowDate>,
     },
     {
       id: 'amount',
       header: st('sweep.weldbooks.amount'),
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (line) => (
         <RowAmount className={(Number(line.amount) || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : undefined}>
           {formatMoney(line.amount, currencyByAccountId.get(line.bankAccountId))}
@@ -184,7 +184,7 @@ export default function BankTransactionsPage() {
     {
       id: 'status',
       header: st('sweep.weldbooks.status'),
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (line) => <StatusChip status={line.status}>{statusLabel(line.status)}</StatusChip>,
     },
   ];

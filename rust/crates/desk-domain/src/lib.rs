@@ -26,6 +26,15 @@
 //!   `@weldsuite/db/lib/desk`): a conversation's ticket fields, as any author.
 //! - [`links`] (`@weldsuite/db/lib/desk-links`): parent/child links, major
 //!   incidents and merging duplicates; [`webchat::append`] follows a merge.
+//! - [`problems`] (`@weldsuite/db/lib/desk-problems`): problem management,
+//!   i.e. the cause behind one or more incidents, its status and known-error
+//!   rules, and linking incidents to it.
+//! - [`catalog`] (`@weldsuite/db/lib/desk-catalog`): the service catalogue,
+//!   i.e. request items with their form, approval steps and fulfilment
+//!   tasks, making a conversation a request and deciding its approvals.
+//! - [`fulfilment`] (`@weldsuite/desk-domain/catalog`): what a service
+//!   request does after the rows change, i.e. its WeldFlow tasks and the
+//!   approver's notification.
 //! - [`priority_matrix`] (`@weldsuite/db/lib/desk-priority-matrix`): ITIL
 //!   impact × urgency → priority, which [`attributes`] applies.
 //! - [`inbox`] (`@weldsuite/desk-domain/inbox`): the inbox for writers
@@ -35,6 +44,9 @@
 //!   rules, applied when a conversation opens or its type or tags change.
 //! - [`escalation`] (`@weldsuite/db/lib/desk-escalation*`): a team's
 //!   escalation rules, when they come due and what firing one does.
+//! - [`report_schedule`] (`desk-api/src/services/desk-report-schedules.ts`,
+//!   `nextReportRun`): when a scheduled report email runs next, in its own
+//!   time zone.
 //! - [`sla`] (`@weldsuite/db/lib/desk-sla`): the SLA engine. Clocks per
 //!   conversation, derived from the timeline and the matching policy on
 //!   [`sla_calendar`]'s business time (`desk-sla-calendar`); every write
@@ -55,8 +67,10 @@ pub mod articles;
 pub mod assignment;
 pub mod assignment_router;
 pub mod attributes;
+pub mod catalog;
 pub mod email;
 pub mod escalation;
+pub mod fulfilment;
 pub mod http;
 pub mod inbox;
 pub mod links;
@@ -64,7 +78,9 @@ pub mod list;
 pub mod notify;
 pub mod phone;
 pub mod priority_matrix;
+pub mod problems;
 pub mod realtime;
+pub mod report_schedule;
 pub mod routing;
 pub mod sla;
 pub mod sla_calendar;

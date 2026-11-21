@@ -10,6 +10,7 @@ export const weldhrAdmin = {
       leaveTypes: 'Verloftypes',
       workLocations: 'Werklocaties',
       selfService: 'Zelfservice',
+      paySchedules: "Betaalschema's",
     },
 
     selfService: {

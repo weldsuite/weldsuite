@@ -215,25 +215,51 @@ function makeLine(
   return { start: paraOffset + start, end: paraOffset + end, width, runs, carets };
 }
 
+/** Whether a line ends inside a word: the word was wider than the box, so it was split. */
+function splitsWord(text: string, line: LaidLine): boolean {
+  const i = line.end;
+  return i > line.start && i < text.length && text[i] !== '\n' && !canBreakBefore(text, i);
+}
+
+/** Whether a layout fits a box: no taller, no line wider, and no word split to make it fit. */
+function fitsBox(text: RichText, layout: TextLayout, width: number, height: number): boolean {
+  return layout.height <= height && layout.lines.every((l) => l.width <= width + 0.5 && !splitsWord(text.text, l));
+}
+
 /**
  * The largest font size, at most the style's, at which the text fits the
- * box (stickies shrink as you type). Never below `min`.
+ * box (stickies shrink as you type), with no word split across lines. Never
+ * below `min`.
  */
 export function fitText(text: RichText, style: TextStyle, width: number, height: number, measurer: TextMeasurer, min = 8): TextLayout {
   let layout = layoutText(text, style, width, measurer);
-  if (layout.height <= height && layout.lines.every((l) => l.width <= width + 0.5)) return layout;
+  if (fitsBox(text, layout, width, height)) return layout;
   let lo = min;
   let hi = style.fontSize;
   let best = layoutText(text, style, width, measurer, min);
   for (let i = 0; i < 8 && hi - lo > 0.5; i++) {
     const mid = (lo + hi) / 2;
     layout = layoutText(text, style, width, measurer, mid);
-    if (layout.height <= height && layout.lines.every((l) => l.width <= width + 0.5)) {
+    if (fitsBox(text, layout, width, height)) {
       best = layout;
       lo = mid;
     } else hi = mid;
   }
   return best;
+}
+
+/** The largest font size, at most the style's, at which every word fits `width` whole. Never below `min`. */
+export function wholeWordSize(text: RichText, style: TextStyle, width: number, measurer: TextMeasurer, min = 8): number {
+  const whole = (size: number) => fitsBox(text, layoutText(text, style, width, measurer, size), width, Infinity);
+  if (whole(style.fontSize)) return style.fontSize;
+  let lo = min;
+  let hi = style.fontSize;
+  for (let i = 0; i < 8 && hi - lo > 0.5; i++) {
+    const mid = (lo + hi) / 2;
+    if (whole(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /** Vertical offset of a layout in a box of `height`. */

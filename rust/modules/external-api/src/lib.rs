@@ -30,11 +30,11 @@ macro_rules! scope {
 }
 
 mod app_storage;
+mod audit_logs;
 mod auth;
 mod books;
 mod calendar;
 mod chat;
-mod commerce;
 mod connect;
 mod crm;
 mod crud;
@@ -51,6 +51,7 @@ mod know;
 mod legal_entities;
 mod list;
 mod oauth;
+mod odata;
 mod project_sheets;
 mod schemas;
 #[rustfmt::skip]
@@ -185,12 +186,8 @@ where
         router
     };
     let router = if mounts("desk") {
-        inbox::routes(desk::routes(router))
-    } else {
-        router
-    };
-    let router = if mounts("commerce") {
-        commerce::routes(router)
+        // With WeldDesk's BI feed (`/v1/odata`), which desk owns too.
+        odata::routes(inbox::routes(desk::routes(router)))
     } else {
         router
     };
@@ -286,10 +283,10 @@ fn weldapps(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
         )
 }
 
-/// The core platform's own objects: `/v1/settings`, the legal entities, and
-/// the drive (files, folders).
+/// The core platform's own objects: `/v1/settings`, the legal entities, the
+/// audit log, and the drive (files, folders).
 fn core(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
-    legal_entities::routes(drive::routes(router))
+    audit_logs::routes(legal_entities::routes(drive::routes(router)))
         .route(
             "/settings/workspace",
             get(settings::workspace).route_layer(scope!("settings:read")),

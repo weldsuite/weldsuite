@@ -196,8 +196,12 @@ app.post('/', requirePermission('tickets:create'), zValidator('json', createCann
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('cnnd');
   const now = new Date();
+  // The author owns the response. A personal one (the column's default) is
+  // visible in the picker to its `agentId` only (`GET /search`), so the owner
+  // is the caller, never a value from the body: without it nobody saw it.
+  const agentId = c.get('userId');
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({ id, ...data, agentId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({ c, entityType: 'canned_response', entityId: id, action: 'created', data: { id, name: (data as Record<string, unknown>).name, subject: (data as Record<string, unknown>).subject, departmentId: (data as Record<string, unknown>).departmentId } });
     return success(c, { id }, 201);
   } catch (err) {
@@ -215,6 +219,9 @@ app.patch('/:id', requirePermission('tickets:update'), zValidator('json', update
     if (!existing) return error.notFound(c, 'Canned response', id);
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    // A personal response with no owner (saved before creates recorded one)
+    // is visible to nobody: saving it as personal makes it the caller's.
+    if (update.scope === 'personal' && !existing.agentId) update.agentId = c.get('userId');
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({ c, entityType: 'canned_response', entityId: id, action: 'updated', data: { id, name: (update.name as string | undefined) ?? existing.name, subject: (update.subject as string | undefined) ?? existing.subject, departmentId: (update.departmentId as string | undefined) ?? existing.departmentId } });
     return success(c, { id });

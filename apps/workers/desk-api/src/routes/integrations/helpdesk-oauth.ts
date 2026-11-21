@@ -35,7 +35,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 // Once the state names the org, redirects land in that workspace (`/w/{orgId}/…`, FE-013).
 const DISCORD_SETTINGS_PATH = '/settings/integrations/discord';
-const SLACK_SETTINGS_PATH = '/welddesk/settings/integrations/slack';
+const SLACK_SETTINGS_PATH = '/settings/integrations/slack';
 
 // ============================================================================
 // GET /discord/callback?code=...&state=...&guild_id=...

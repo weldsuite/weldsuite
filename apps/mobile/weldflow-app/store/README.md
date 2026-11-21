@@ -38,7 +38,7 @@ Clerk Dashboard → **Native applications** → enable Native API and register:
 
 ### 3. Secrets / build env
 Clerk + API URLs are pinned per profile in `eas.json` (same pattern as WeldBooks).
-OTA deploys from `.github/workflows/deploy.yml` inject the same Clerk keys.
+OTA deploys (`.github/actions/deploy-mobile`, run by `weldsuite-deploy`) inject the same Clerk keys.
 
 Optional Mixpanel:
 ```bash

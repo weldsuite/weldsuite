@@ -35,14 +35,14 @@ WeldSuite is one platform built from modules that share the same customer, conta
 - **Backend:** Hono on Cloudflare Workers
 - **Database:** Neon Postgres (multi-tenant), Drizzle ORM
 - **Infra:** Cloudflare (Workers, KV, R2, Queues, Durable Objects, Hyperdrive)
-- **Tooling:** pnpm 10.34.5 + Turborepo, Node 20+
+- **Tooling:** pnpm 10.34.5 + Turborepo, Node 22+
 
 ## Repository layout
 
 ```
 apps/
   web/        Browser frontends: platform (main SPA), sites, help center, admin, portals
-  workers/    Cloudflare Workers: app-api (the unified backend) + specialized workers
+  workers/    Cloudflare Workers: app-api (core), one API worker per module, background workers
   mobile/     Expo / React Native apps
   tools/      Dev & ops tooling (migrations, storybook, dashboards)
   desktop/    Desktop shell
@@ -54,11 +54,11 @@ packages/
   config/     Shared eslint / typescript configs
 ```
 
-The unified first-party backend is `apps/workers/app-api`. Every endpoint lives there.
+The first-party API is one Cloudflare Worker per module (`apps/workers/<module>-api`) plus `apps/workers/app-api` for the core platform. [AGENTS.md](./AGENTS.md) maps the rest.
 
 ## Configuration & deployment
 
-`develop` deploys to **test** (`app-test.weldsuite.org`). `main` deploys to **production** (`app.weldsuite.org`). The pipeline lives in this repository (`.github/workflows/deploy.yml`) and runs on GitHub-hosted runners. Secrets live on the GitHub Environments `test` and `production` — see [`.github/SECRETS.md`](./.github/SECRETS.md).
+Every merge to `main` that passes CI deploys to **test** (`app-test.weldsuite.org`). **Production** (`app.weldsuite.org`) goes out only through the Promote workflow in the private repo `weldsuite/weldsuite-deploy`, for a commit test already deployed. The deploy logic lives in this repository (`.github/actions/deploy-*`, `.github/scripts/deploy-plan.mjs`); the private repo runs it on GitHub-hosted runners and holds the GitHub Environments `test` and `production` with their secrets — see [`.github/SECRETS.md`](./.github/SECRETS.md).
 
 Hosted WeldSuite at [weldsuite.org](https://weldsuite.org) is the supported product. The AGPL source is public so you can audit, contribute, and self-host; self-hosting is not a supported product offering.
 

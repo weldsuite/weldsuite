@@ -15,17 +15,20 @@
  * that waits for approval sits under the header, whichever tab is open.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { EllipsisVertical, Link as LinkIcon, Pencil } from 'lucide-react';
+import { Banknote, EllipsisVertical, Link as LinkIcon, Pencil, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
@@ -34,12 +37,15 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
-import { useAccountingBill } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingBill, useDeleteBill } from '@/hooks/queries/use-accounting-queries';
 import type { BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
-import { BillApprovalBar, RejectBillDialog, useBillApproval } from './bill-approval';
+import { RecordPaymentDialog } from '@/app/weldbooks/invoices/components/record-payment-dialog';
+import { ApproveBillDialog, BillApprovalBar, RejectBillDialog, useBillApproval } from './bill-approval';
+import { canRecordBillPayment } from './bill-capabilities';
 import { BillDetailsTab } from './bill-details-tab';
+import { BillPaymentsTab } from './bill-payments-tab';
 import { BillLineItemsTab, BillTaxTab, hasBillTaxTab } from './bill-items-tab';
 import { getBillTabs, type BillTab } from './bill-tabs';
 
@@ -53,17 +59,12 @@ function BillTitle({
   statusLabels,
 }: Readonly<{ bill?: BillWithTax; fallback: string; statusLabels: StatusLabels }>) {
   if (!bill) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
-  // An approved bill's approval status says what its status already says.
-  const showApproval = !!bill.approvalStatus && bill.approvalStatus !== 'approved';
+  // One chip: while the bill waits for approval that is what matters, after that its status.
+  const chipStatus = bill.approvalStatus === 'pending' ? bill.approvalStatus : bill.status;
   return (
     <div className="flex min-w-0 items-center gap-2">
       <span className="relative top-px truncate text-[15px] font-medium text-foreground">{bill.billNumber ?? fallback}</span>
-      <StatusChip status={bill.status}>{statusLabels[bill.status] ?? bill.status}</StatusChip>
-      {showApproval && bill.approvalStatus ? (
-        <StatusChip status={bill.approvalStatus}>
-          {statusLabels[bill.approvalStatus] ?? bill.approvalStatus}
-        </StatusChip>
-      ) : null}
+      <StatusChip status={chipStatus}>{statusLabels[chipStatus] ?? chipStatus}</StatusChip>
     </div>
   );
 }
@@ -71,7 +72,18 @@ function BillTitle({
 function BillActions({
   bill,
   canEdit,
-}: Readonly<{ bill?: BillWithTax; canEdit: boolean }>) {
+  onRecordPayment,
+  canDelete,
+  onDelete,
+}: Readonly<{
+  bill?: BillWithTax;
+  canEdit: boolean;
+  onRecordPayment?: () => void;
+  /** The bill is a draft and bills:delete is granted. */
+  canDelete: boolean;
+  /** Asks to delete the draft. */
+  onDelete: () => void;
+}>) {
   const { t } = useI18n();
   const st = useTranslations();
   const copyLink = useCopyPanelLink('/weldbooks/bills', 'bill', bill?.id ?? '');
@@ -109,14 +121,72 @@ function BillActions({
             <LinkIcon />
             {st('sweep.entities.copyLink')}
           </DropdownMenuItem>
+          {onRecordPayment ? (
+            <DropdownMenuItem onClick={onRecordPayment}>
+              <Banknote />
+              {st('sweep.weldbooks.records.recordPayment')}
+            </DropdownMenuItem>
+          ) : null}
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
+                {t.accounting.billDetail.deleteDraft}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
   );
 }
 
+/** Confirms and deletes a draft bill; `onDeleted` runs once it is gone. */
+function DeleteDraftBillDialog({
+  bill,
+  open,
+  onOpenChange,
+  onDeleted,
+}: Readonly<{
+  bill?: BillWithTax;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}>) {
+  const { t } = useI18n();
+  const tb = t.accounting.billDetail;
+  const deleteBill = useDeleteBill();
+  if (!bill) return null;
+
+  const removeDraft = async () => {
+    try {
+      await deleteBill.mutateAsync(bill.id);
+    } catch (err) {
+      toast.error(tb.deleteDraftFailed, { description: err instanceof Error ? err.message : undefined });
+      return;
+    }
+    toast.success(tb.draftDeleted);
+    onOpenChange(false);
+    onDeleted();
+  };
+
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={tb.deleteDraftTitle.replace('{number}', bill.billNumber ?? '')}
+      description={tb.deleteDraftDescription}
+      confirmLabel={tb.deleteDraft}
+      cancelLabel={tb.keep}
+      variant="destructive"
+      onConfirm={removeDraft}
+    />
+  );
+}
+
 export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
-  const { id, initialTab } = props;
+  const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const st = useTranslations();
   const { can } = usePermissions();
@@ -131,6 +201,9 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
   const isDraft = bill?.status === 'draft';
   const isPendingApproval = bill?.approvalStatus === 'pending' || bill?.status === 'pending_approval';
   const approval = useBillApproval(id);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const canPay = !!bill && can('banking:create') && canRecordBillPayment(bill);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const shell = useObjectPanelShell({
     ...props,
@@ -144,12 +217,14 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
       getBillTabs({
         details: st('sweep.entities.detailsTab'),
         items: tb.lineItems,
+        payments: st('sweep.weldbooks.records.paymentsTab'),
         tax: tb.tax,
         history: st('sweep.entities.auditLogTab'),
         itemsCount: bill?.items?.length || undefined,
+        paymentsCount: bill?.payments?.length || undefined,
         showTax,
       }),
-    [st, tb, bill?.items?.length, showTax],
+    [st, tb, bill?.items?.length, bill?.payments?.length, showTax],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
@@ -166,10 +241,28 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
             statusLabels={statusLabels}
           />
         }
-        actions={<BillActions bill={bill} canEdit={isDraft && canUpdate} />}
+        actions={
+          <BillActions
+            bill={bill}
+            canEdit={isDraft && canUpdate}
+            onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined}
+            canDelete={isDraft && can('bills:delete')}
+            onDelete={() => setConfirmDelete(true)}
+          />
+        }
         subheader={
           bill ? (
-            <BillApprovalBar approval={approval} canAct={isPendingApproval && canUpdate} />
+            <>
+              <BillApprovalBar approval={approval} canAct={isPendingApproval && canUpdate} />
+              {canPay ? (
+                <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+                  <Button variant="outline" size="sm" onClick={() => setPaymentOpen(true)}>
+                    <Banknote className="mr-1 h-4 w-4" />
+                    {st('sweep.weldbooks.records.recordPayment')}
+                  </Button>
+                </div>
+              ) : null}
+            </>
           ) : undefined
         }
         tabs={
@@ -191,11 +284,25 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
 
         {bill && activeTab === 'overview' && <BillDetailsTab bill={bill} />}
         {bill && activeTab === 'items' && <BillLineItemsTab bill={bill} />}
+        {bill && activeTab === 'payments' && (
+          <BillPaymentsTab bill={bill} onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined} />
+        )}
         {bill && activeTab === 'tax' && <BillTaxTab bill={bill} />}
         {bill && activeTab === 'history' && <EntityAuditPanel entityType="bill" entityId={bill.id} />}
       </EntityDetailView>
 
+      {bill ? (
+        <RecordPaymentDialog
+          target={{ type: 'bill', id: bill.id }}
+          balanceDue={bill.balanceDue ?? '0'}
+          currency={bill.currency}
+          open={paymentOpen}
+          onOpenChange={setPaymentOpen}
+        />
+      ) : null}
+      <ApproveBillDialog approval={approval} />
       <RejectBillDialog approval={approval} />
+      <DeleteDraftBillDialog bill={bill} open={confirmDelete} onOpenChange={setConfirmDelete} onDeleted={onClose} />
     </>
   );
 }

@@ -121,6 +121,9 @@ export async function loadCapacity(
     .orderBy(asc(bookings.startsOn), asc(bookings.id));
 
   const t = schema.tasks;
+  // The estimate in hours: `estimatedHours`, else `duration` (minutes), which
+  // the task panel's estimate picker writes (as the workload views read it).
+  const estimate = sql`coalesce(${t.estimatedHours}, round(${t.duration} / 60.0, 2))`;
   const taskRows = await db
     .select({
       projectId: t.projectId,
@@ -128,7 +131,7 @@ export async function loadCapacity(
       assigneeIds: t.assigneeIds,
       startsOn: sql<string | null>`to_char(${t.startDate}, 'YYYY-MM-DD')`,
       dueOn: sql<string | null>`to_char(${t.dueDate}, 'YYYY-MM-DD')`,
-      estimatedHours: t.estimatedHours,
+      estimatedHours: sql<string | null>`(${estimate})::text`,
     })
     .from(t)
     .innerJoin(schema.projects, eq(schema.projects.id, t.projectId))
@@ -138,7 +141,7 @@ export async function loadCapacity(
         isNull(schema.projects.deletedAt),
         isNotNull(t.projectId),
         sql`${t.status} not in ('done', 'cancelled')`,
-        sql`${t.estimatedHours} > 0`,
+        sql`${estimate} > 0`,
         sql`(${t.assigneeId} is not null or (case when jsonb_typeof(${t.assigneeIds}) = 'array' then jsonb_array_length(${t.assigneeIds}) else 0 end) > 0)`,
         sql`least(${t.startDate}, ${t.dueDate})::date <= ${to}::date`,
         sql`greatest(${t.startDate}, ${t.dueDate})::date >= ${from}::date`,

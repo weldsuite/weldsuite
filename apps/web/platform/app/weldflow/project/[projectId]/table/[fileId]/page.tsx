@@ -4,6 +4,7 @@ import { useParams, useRouter } from '@/lib/router';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
+import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { LiveSheet } from '@/app/weldsheets/sheet/live-sheet';
 import { MissingSheet } from '@/app/weldsheets/sheet/sheet-chrome';
 import { sheetsQueryKey } from '@/app/weldsheets/store/use-sheet-store';
@@ -30,6 +31,8 @@ export default function ProjectTableEditorPage() {
     staleTime: Infinity,
     retry: (count, err) => !(isApiError(err) && (err.status === 404 || err.status === 403)) && count < 2,
   });
+  // The project header shows the sheet's name for the file id in the path.
+  useOptionalBreadcrumbs(opened.data ? [{ label: opened.data.name }] : []);
 
   if (opened.isPending) return <PageLoader fullScreen={false} />;
   if (!opened.data) return <MissingSheet message={t.weldsheets.home.notFound} />;

@@ -94,6 +94,7 @@ export * from './meeting-bot-sessions';
 export * from './voip-calls';
 export * from './voip-phone-numbers';
 export * from './voip-porting-orders';
+export * from './voip-sip-trunks';
 export * from './enrichment-logs';
 export * from './enrich-field-definitions';
 export * from './enrich-field-results';
@@ -178,6 +179,7 @@ export * from './helpdesk-channel-integrations';
 export * from './helpdesk-analytics-reports';
 export * from './helpdesk-analytics-charts';
 export * from './helpdesk-analytics-views';
+export * from './helpdesk-report-schedules';
 
 // WeldDesk — webchat-first conversation model.
 export * from './desk-conversations';
@@ -187,6 +189,9 @@ export * from './desk-visitors';
 export * from './desk-widget-settings';
 export * from './desk-voice-agents';
 export * from './desk-phone-routes';
+export * from './desk-phone-agents';
+export * from './desk-problems';
+export * from './desk-catalog';
 export * from './search-index';
 
 // Generic analytics (shared across apps)
@@ -224,6 +229,8 @@ export * from './stock-adjustments';
 export * from './suppliers';
 export * from './purchase-orders';
 export * from './purchase-order-items';
+export * from './stash-purchasing';
+export * from './stash-replenishment';
 export * from './pick-lists';
 export * from './pick-list-items';
 export * from './cycle-counts';
@@ -237,6 +244,7 @@ export * from './custom-field-values';
 
 // WeldObjects — user-defined custom objects (types, records, links, edges)
 export * from './custom-objects';
+export * from './asset-sources';
 
 // System settings (key-value configuration)
 export * from './system-settings';
@@ -283,6 +291,7 @@ export * from './ad-platform';
 
 // Audit Logs (generic, cross-module)
 export * from './audit-logs';
+export * from './audit-log-streams';
 
 // Legal entities (core: companies, registrations, bank accounts, per-entity access)
 export * from './legal-entities';
@@ -406,6 +415,9 @@ export type { RuleAction, RuleCondition } from './return-rules';
 // WeldPass (secret management) — workspace vaults
 export * from './weldpass';
 
+// AI settings (EU / self-hosted editions): allowed providers and own keys
+export * from './ai-settings';
+
 // WeldHR (employee operations + workforce portal)
 export * from './weldhr';
 
@@ -420,9 +432,14 @@ export * from './weldsign';
 
 // WeldPanel (product analytics and session recordings; config and saved objects only)
 export * from './weldpanel';
+// WeldPanel's project state on the Kubernetes editions (unused on Global)
+export * from './weldpanel-project-state';
 
 // WeldMerge (pull requests and issues across git providers)
 export * from './weldmerge';
+
+// WeldForms (forms and surveys)
+export * from './weldforms';
 
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

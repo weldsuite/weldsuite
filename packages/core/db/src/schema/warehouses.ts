@@ -51,6 +51,12 @@ export const warehouses = pgTable('warehouses', {
   // Metadata
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   tags: jsonb('tags').$type<string[]>(),
+
+  // Set when another system owns this warehouse's stock (a WeldConnect
+  // connection, e.g. Odoo): its sync writes the stock buckets, and the
+  // inventory ledger refuses every other change (ADR STASH-010).
+  // `connector_connections.id`, deliberately no foreign key.
+  managedByConnectionId: varchar('managed_by_connection_id', { length: 30 }),
 }, (table) => [
   index('warehouses_code_idx').on(table.code),
   index('warehouses_is_active_idx').on(table.isActive),

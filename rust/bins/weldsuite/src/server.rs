@@ -1,25 +1,28 @@
 //! `weldsuite serve`: the HTTP API.
 //!
-//! Global middleware, outermost first: request id, request tracing, CORS and
-//! the `X-Weld-App` app context, as in worker-kit's `createModuleApi`. Under
-//! `/api` every request is authenticated (session token → tenant database),
-//! as `apiAuth()` does.
+//! Global middleware, outermost first: request id, request tracing (a span
+//! with the method, route template and path, never the query string:
+//! [`RequestSpan`]), CORS and the `X-Weld-App` app context, as in
+//! worker-kit's `createModuleApi`. Under `/api` every request is
+//! authenticated (session token → tenant database), as `apiAuth()` does.
 //!
 //! Probes for Kubernetes: `/livez` (the process answers), `/readyz` (the
 //! master database answers and the pod is not draining). `/health` keeps the
-//! workers' JSON shape.
+//! workers' JSON shape. The request metrics are layered on top of all of it
+//! (`crate::monitoring::track_http`); `/metrics` is not served here but on
+//! its own listener (`METRICS_ADDR`), out of the ingress's reach.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use axum::extract::{OriginalUri, State};
+use axum::extract::{MatchedPath, OriginalUri, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use serde_json::json;
-use tower_http::trace::{DefaultMakeSpan, TraceLayer};
+use serde_json::{Value, json};
+use tower_http::trace::TraceLayer;
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::{TenantPermissionQueries, Workspaces};
 use weldsuite_kit::{ApiError, api_cors, request_id};
@@ -36,6 +39,10 @@ pub(crate) struct AppState {
     /// The edition and public settings `/config.json` reports.
     pub(crate) edition: Arc<crate::edition::EditionConfig>,
     pub(crate) workspaces: Arc<Workspaces>,
+    /// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): the workspace each
+    /// request names in `X-Weld-Workspace`, between the session and the
+    /// tenant database. `None` in claim mode and with Clerk.
+    pub(crate) workspace_header: Option<weldsuite_db::WorkspaceSelector>,
     /// Session tokens: the `/api` layer (not in conformance builds, which
     /// take the test's context) and the private-object read's bearer check.
     pub(crate) verifier: Arc<SessionVerifier>,
@@ -52,6 +59,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
     pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `PUBLIC_APP_URL`, for WeldSign's links back into the platform.
+    pub(crate) public_app_url: Option<Arc<str>>,
     /// `PROJECT_PORTAL_URL`, for WeldFlow's portal invitation and report emails.
     pub(crate) project_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
@@ -64,6 +73,8 @@ pub(crate) struct AppState {
     pub(crate) mail_inbound_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `S3_PUBLIC_VIA_SERVER`: serve the public bucket's objects here.
+    pub(crate) files_public_via_server: bool,
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
     /// realtime tokens with it, and the gateway verifies them.
     pub(crate) widget_token_secret: Option<Arc<str>>,
@@ -75,8 +86,37 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// The sign-in screens' backend (`/api/sign-in`), with
+    /// `OIDC_SIGN_IN=platform`.
+    pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
+    /// The host this server serves WeldDesk's helpdesk widget on (the first
+    /// of `HELPDESK_WIDGET_HOSTS`, with `HELPDESK_WIDGET_DIR`), named in
+    /// `/config.json` as `helpdeskWidgetUrl` so the widget's install code
+    /// points sites at it rather than at Global's.
+    pub(crate) helpdesk_widget_host: Option<Arc<str>>,
+    /// The install's AI (`crate::ai`), `None` without `AI_DEFAULT_PROVIDER`.
+    /// A route calls `crate::ai::for_request(state.ai.as_ref(), extensions)`:
+    /// conformance builds put the test's own on each request.
+    #[allow(dead_code, reason = "the AI routes read it as they are ported")]
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
+    /// WeldAgent's sandbox (`crate::sandbox`), `None` without
+    /// `SANDBOX_ENABLED`: where the agent tools of `computer:use` and
+    /// `browser:use` run.
+    pub(crate) sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+    /// WeldPanel's analytics engine (`crate::panel_sql`): DataFusion over the
+    /// panel store, `None` without `S3_BUCKET_PANEL`.
+    pub(crate) panel_sql: Option<Arc<dyn weldsuite_panel::AnalyticsSql>>,
+    /// What Global keeps in the `PanelProject` Durable Object, for the panel
+    /// routes (`crate::panel_project::TenantProjectState`): the tenant tables
+    /// and the live view. `None` in conformance builds (the test's, per
+    /// request).
+    pub(crate) panel_project_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
+    /// The collector's side (`crate::panel_project::CollectorProjectState`):
+    /// calls on NATS, the live view and the lists it reads in Valkey; `None`
+    /// without Valkey or NATS.
+    pub(crate) panel_collector_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -151,12 +191,32 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::post(crate::conformance::desk_sla_sweep),
         )
         .route(
+            "/__conformance/cron/desk-report-sweep",
+            axum::routing::post(crate::conformance::desk_report_sweep),
+        )
+        .route(
+            "/__conformance/cron/asset-import-sweep",
+            axum::routing::post(crate::conformance::asset_import_sweep),
+        )
+        .route(
             "/__conformance/cron/flow-approval-due",
             axum::routing::post(crate::conformance::flow_approval_due),
         )
         .route(
             "/__conformance/cron/books-tax-reminders",
             axum::routing::post(crate::conformance::books_tax_reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-process-response",
+            axum::routing::post(crate::conformance_forms::process_response),
+        )
+        .route(
+            "/__conformance/cron/forms-reminders",
+            axum::routing::post(crate::conformance_forms::reminders),
+        )
+        .route(
+            "/__conformance/cron/forms-digest",
+            axum::routing::post(crate::conformance_forms::digest),
         );
     // The helpdesk widget answers CORS for any origin itself (a widget is
     // embedded on customers' sites), so it goes in outside `api_cors()`.
@@ -176,13 +236,17 @@ pub(crate) fn router(state: AppState) -> Router {
         crate::routes::panel_collector(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     // So does the MCP server (`/mcp`, OAuth bearer tokens).
     let mcp = crate::routes::mcp(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // When this process started, for `/version`: taken as the router is built.
+    LazyLock::force(&BUILD);
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
+        .route("/version", get(version))
         .route("/robots.txt", get(robots))
         .route("/config.json", get(config_json))
         .nest("/api", api)
         .nest("/public/sign-portal", crate::routes::sign_portal(&state))
+        .nest("/public/forms", crate::routes::forms_public(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
@@ -199,11 +263,31 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(mcp)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
-        )
+        .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// The span of one request: `method`, `route` (the route's template, when a
+/// route took the request), `path` and `request_id`. Never the query
+/// string: sign and invite links and OAuth callbacks carry tokens there,
+/// and every JSON log line inside the request carries this span's fields
+/// (`DefaultMakeSpan` records the whole URI).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RequestSpan;
+
+impl<B> tower_http::trace::MakeSpan<B> for RequestSpan {
+    fn make_span(&mut self, request: &http::Request<B>) -> tracing::Span {
+        let extensions = request.extensions();
+        tracing::info_span!(
+            "request",
+            method = %request.method(),
+            route = extensions.get::<MatchedPath>().map(MatchedPath::as_str),
+            path = request.uri().path(),
+            request_id = extensions
+                .get::<weldsuite_kit::RequestId>()
+                .map(|id| id.0.as_str()),
+        )
+    }
 }
 
 /// connect-api's internal integration calls (`X-Internal-Secret`) go to
@@ -251,23 +335,41 @@ async fn bundle_host_guard(
     }
 }
 
-/// Session token → tenant database, as `apiAuth()` does.
+/// Session token → tenant database, as `apiAuth()` does. In membership mode
+/// the request's `X-Weld-Workspace` picks the workspace in between, and a
+/// workspace the user isn't a member of is refused.
 #[cfg(not(feature = "conformance"))]
 fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
-    api.layer(axum::middleware::from_fn_with_state(
+    let api = api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.workspaces),
         weldsuite_db::workspace_db,
-    ))
-    .layer(axum::middleware::from_fn_with_state(
+    ));
+    let api = match &state.workspace_header {
+        Some(selector) => api.layer(axum::middleware::from_fn_with_state(
+            selector.clone(),
+            weldsuite_db::workspace_from_header,
+        )),
+        None => api,
+    };
+    api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.verifier),
         weldsuite_auth::clerk_auth,
     ))
 }
 
 /// The session alone, for the routes that need no workspace
-/// (`clerkMiddleware()` without `workspaceDbMiddleware()`).
+/// (`clerkMiddleware()` without `workspaceDbMiddleware()`). In membership
+/// mode a workspace the request names is used when the user is a member of
+/// it, and ignored otherwise.
 #[cfg(not(feature = "conformance"))]
 fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    let api = match &state.workspace_header {
+        Some(selector) => api.layer(axum::middleware::from_fn_with_state(
+            selector.lenient(),
+            weldsuite_db::workspace_from_header,
+        )),
+        None => api,
+    };
     api.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.verifier),
         weldsuite_auth::clerk_auth,
@@ -324,6 +426,35 @@ async fn readyz(State(state): State<AppState>) -> Response {
     }
 }
 
+/// What `/version` answers: the server's own version, the chart release and
+/// image tag the Helm chart installed it with (`WELDSUITE_RELEASE`,
+/// `WELDSUITE_BUILD`; `null` outside the chart), and when this process
+/// started. EU production follows the test cluster's build once test has
+/// served it for a while (ADR OPS-020), and reads both from here.
+static BUILD: LazyLock<Value> = LazyLock::new(|| {
+    let read = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "release": read("WELDSUITE_RELEASE"),
+        "build": read("WELDSUITE_BUILD"),
+        "startedAt": iso_timestamp(),
+    })
+});
+
+/// `GET /version`.
+async fn version() -> Response {
+    (
+        [(header::CACHE_CONTROL, "no-cache, no-store")],
+        Json(BUILD.clone()),
+    )
+        .into_response()
+}
+
 /// The workers' `/health`: a master-DB ping with its time.
 async fn health(State(state): State<AppState>) -> Response {
     let start = Instant::now();
@@ -368,8 +499,8 @@ async fn health(State(state): State<AppState>) -> Response {
 
 /// `GET /config.json`: what this backend offers, for the EU and self-hosted
 /// frontends. `modules` is the core platform plus every module ported to Rust
-/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
-/// apps of any other module. Global never asks: it runs every module in
+/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`), WeldMeet only with a
+/// video service configured; a client hides the apps of any other module. Global never asks: it runs every module in
 /// TypeScript. With an OIDC provider, `auth` tells the frontends where to
 /// sign in (issuer, the platform's PKCE client id, the organization claim).
 /// `realtimeUrl` is the WebSocket gateway on the same origin
@@ -380,6 +511,7 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
             weldsuite_catalogs::api_modules()
                 .iter()
                 .filter(|module| module.rust && module.id != "core")
+                .filter(|module| state.edition.offers(&module.id))
                 .map(|module| module.id.as_str()),
         )
         .collect();
@@ -397,7 +529,22 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
     if let Some(url) = state.realtime.url(&headers) {
         body["realtimeUrl"] = json!(url);
     }
+    if let Some(host) = &state.helpdesk_widget_host {
+        body["helpdeskWidgetUrl"] = json!(helpdesk_widget_url(host, &headers));
+    }
     ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
+}
+
+/// The widget's origin for `/config.json`: its host, over the scheme the
+/// request for `/config.json` came over (as the ingress forwarded it), the
+/// same rule as the realtime URL's.
+fn helpdesk_widget_url(host: &str, headers: &axum::http::HeaderMap) -> String {
+    let https = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
+    format!("{}://{host}", if https { "https" } else { "http" })
 }
 
 async fn robots() -> &'static str {
@@ -501,6 +648,7 @@ mod tests {
                 Keyring::default(),
                 WorkspaceConfig::default(),
             )),
+            workspace_header: None,
             verifier: Arc::new(verifier.into()),
             permissions_app_enforce: false,
             draining: Arc::new(AtomicBool::new(false)),
@@ -513,22 +661,40 @@ mod tests {
             )),
             sign_session_secret: None,
             sign_portal_url: None,
+            public_app_url: None,
             project_portal_url: None,
             sign_portal_secret: None,
             collab: None,
             collab_secret: None,
             mail_inbound_secret: None,
             files_public_url: None,
+            files_public_via_server: false,
             widget_token_secret: None,
             trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
+            sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
+            helpdesk_widget_host: None,
+            ai: None,
+            sandboxes: None,
+            panel_sql: None,
+            panel_project_state: None,
+            panel_collector_state: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
             conformance_pools: Arc::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn bank_links_ask_for_a_fresh_second_factor_with_clerk_sign_in_only() {
+        let mut state = state();
+        assert!(crate::routes::books::books_state(&state).second_factor_step_up);
+        // OIDC: Zitadel's access tokens carry no `auth_time` or `amr`.
+        state.public_auth = Some(Arc::new(serde_json::json!({ "provider": "oidc" })));
+        assert!(!crate::routes::books::books_state(&state).second_factor_step_up);
     }
 
     async fn call(
@@ -581,6 +747,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn version_names_the_build_and_when_it_started() {
+        let (status, headers, body) = call(state(), get("/version")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-cache, no-store");
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        assert!(body.get("release").is_some() && body.get("build").is_some());
+        assert_eq!(body["startedAt"].as_str().map(str::len), Some(24));
+    }
+
+    #[tokio::test]
     async fn a_draining_pod_is_not_ready() {
         let state = state();
         state.draining.store(true, Ordering::Relaxed);
@@ -598,11 +775,21 @@ mod tests {
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["backend"], "rust");
         assert_eq!(body["modules"][0], "core");
+        // Every ported module but WeldMeet, which needs a video service this
+        // state hasn't configured, and WeldAgent, which needs an AI provider.
         let ported = weldsuite_catalogs::api_modules()
             .iter()
-            .filter(|m| m.rust)
+            .filter(|m| {
+                m.rust && m.id != crate::edition::VIDEO_MODULE && m.id != crate::edition::AI_MODULE
+            })
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
+        assert!(
+            !body["modules"]
+                .as_array()
+                .is_some_and(|modules| modules.contains(&json!("meet"))),
+            "no WeldMeet without video"
+        );
         for module in ["core", "know", "sign"] {
             assert!(
                 body["modules"]
@@ -618,6 +805,29 @@ mod tests {
         );
     }
 
+    /// The widget's origin, so its install code points sites at this
+    /// deployment's widget host; absent while the server serves no widget.
+    #[tokio::test]
+    async fn config_names_the_helpdesk_widget_it_serves() {
+        let (_, _, body) = call(state(), get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert!(body.get("helpdeskWidgetUrl").is_none());
+
+        let mut state = state();
+        state.helpdesk_widget_host = Some(Arc::from("widget.example.eu"));
+        let behind_tls = Request::builder()
+            .uri("/config.json")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .expect("request");
+        let (_, _, body) = call(state.clone(), behind_tls).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["helpdeskWidgetUrl"], "https://widget.example.eu");
+        let (_, _, body) = call(state, get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["helpdeskWidgetUrl"], "http://widget.example.eu");
+    }
+
     /// Edition flags (4.F3): the edition, the features the platform hides,
     /// and the public settings only when some are set.
     #[tokio::test]
@@ -631,6 +841,8 @@ mod tests {
             "billing",
             "credit-top-up",
             "desktop-sign-in",
+            // No panel bucket in the test state.
+            "panel-analytics",
         ] {
             assert!(lacks.contains(&json!(feature)), "{feature}");
         }
@@ -646,14 +858,58 @@ mod tests {
                 provider: weldsuite_video_rooms::ClientProvider::LiveKit,
                 url: Some("wss://lk.example.eu".to_owned()),
             },
+            video_configured: true,
             live_editing: false,
+            mail: crate::edition::MailOffer::default(),
+            ai: Some(json!({
+                "defaultProvider": "mistral",
+                "providers": [{ "id": "mistral", "region": "eu", "keySources": ["weldsuite"] }],
+            })),
+            credit_top_up: true,
+            plan_billing: true,
+            sandbox: false,
+            panel_analytics: true,
+            sso_connections: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
+        // Plans billed through Mollie (ADR BILL-014): billing is offered and
+        // the platform takes Mollie's flows; WeldReach inboxes are billed with
+        // the plan.
+        assert_eq!(body["billingProvider"], "mollie");
+        let lacks_billing = body["unavailableFeatures"]
+            .as_array()
+            .is_some_and(|lacks| lacks.contains(&json!("billing")));
+        assert!(!lacks_billing, "billing is offered with Mollie configured");
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|lacks| !lacks.contains(&json!("reach-billing")))
+        );
         assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
         assert_eq!(body["videoProvider"], "livekit");
         assert_eq!(body["videoUrl"], "wss://lk.example.eu");
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|lacks| !lacks.contains(&json!("credit-top-up"))),
+            "credits can be bought with Mollie configured"
+        );
+        assert!(
+            body["modules"]
+                .as_array()
+                .is_some_and(|modules| modules.contains(&json!("meet"))),
+            "WeldMeet is offered with a video service"
+        );
+        // AI on Mistral: the providers, and no AI feature listed as missing.
+        assert_eq!(body["ai"]["defaultProvider"], "mistral");
+        assert_eq!(body["ai"]["providers"][0]["region"], "eu");
+        let lacks = body["unavailableFeatures"].as_array().expect("list");
+        assert!(!lacks.contains(&json!("mail-ai")));
+        assert!(lacks.contains(&json!("agent-sandbox")));
+        // WeldPanel's store is there: its analytics are offered.
+        assert!(!lacks.contains(&json!("panel-analytics")));
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.
@@ -674,6 +930,7 @@ mod tests {
             "provider": "oidc",
             "issuer": fixture["issuer"],
             "clientId": "300000000000000300",
+            "mobileClientId": "300000000000000400",
         })));
         (state, fixture)
     }
@@ -704,6 +961,112 @@ mod tests {
         assert!(body.contains("Token verification failed"), "{body}");
     }
 
+    /// Grants the fixture's user `ws_member` (as `org_member`), nothing else.
+    #[cfg(not(feature = "conformance"))]
+    struct OneMembership(String);
+
+    #[cfg(not(feature = "conformance"))]
+    impl weldsuite_db::MembershipLookup for OneMembership {
+        fn member_workspace<'a>(
+            &'a self,
+            user_id: &'a str,
+            reference: &'a str,
+        ) -> weldsuite_db::MembershipFuture<'a> {
+            let found =
+                (user_id == self.0 && reference == "ws_member").then(|| "org_member".to_owned());
+            Box::pin(std::future::ready(Ok(found)))
+        }
+
+        fn member_workspaces<'a>(
+            &'a self,
+            user_id: &'a str,
+            _limit: u8,
+        ) -> weldsuite_db::MembershipsFuture<'a> {
+            let found = if user_id == self.0 {
+                vec!["org_member".to_owned()]
+            } else {
+                Vec::new()
+            };
+            Box::pin(std::future::ready(Ok(found)))
+        }
+    }
+
+    /// [`oidc_state`] in membership mode: the header picks the workspace,
+    /// and the fixture's user is a member of `ws_member` only.
+    #[cfg(not(feature = "conformance"))]
+    fn header_mode_state() -> (AppState, Value) {
+        let (mut state, fixture) = oidc_state();
+        let settings = weldsuite_auth::OidcSettings {
+            workspace_source: weldsuite_auth::WorkspaceSource::Header,
+            ..weldsuite_auth::OidcSettings::new(
+                fixture["issuer"].as_str().expect("issuer"),
+                vec![fixture["project"].as_str().expect("project").to_owned()],
+            )
+        };
+        state.verifier = Arc::new(
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks"),
+        );
+        let user = fixture["user"].as_str().expect("user").to_owned();
+        state.workspace_header = Some(weldsuite_db::WorkspaceSelector::new(Arc::new(
+            OneMembership(user),
+        )));
+        (state, fixture)
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn the_workspace_list_needs_no_workspace_in_membership_mode_only() {
+        let list = |token: &str| {
+            Request::builder()
+                .uri("/api/workspaces")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("request")
+        };
+        // Membership mode: no workspace named, yet the list is read (from
+        // the master database, which this test has none of: 500, not 403).
+        let (state, fixture) = header_mode_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let (status, _, body) = call(state, list(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("Failed to list workspaces"), "{body}");
+        // Claim mode keeps it behind the tenant layer: the token's
+        // organization is looked up first (no master database: 500 there).
+        let (state, fixture) = oidc_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let (status, _, body) = call(state, list(token)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(!body.contains("Failed to list workspaces"), "{body}");
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn membership_mode_takes_the_workspace_from_the_header() {
+        let (state, fixture) = header_mode_state();
+        let token = fixture["tokens"]["longLived"].as_str().expect("token");
+        let with = |workspace: Option<&str>| {
+            let request = Request::builder()
+                .uri("/api/me/permissions")
+                .header("Authorization", format!("Bearer {token}"));
+            let request = match workspace {
+                Some(workspace) => request.header("X-Weld-Workspace", workspace),
+                None => request,
+            };
+            request.body(Body::empty()).expect("request")
+        };
+        // A member: on to the tenant database lookup (none here, so 500).
+        let (status, _, body) = call(state.clone(), with(Some("ws_member"))).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        // Another workspace: refused before any lookup.
+        let (status, _, body) = call(state.clone(), with(Some("ws_other"))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("not a member of this workspace"), "{body}");
+        // No header: the token's organization claim doesn't count.
+        let (status, _, body) = call(state, with(None)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("ORG_REQUIRED"), "{body}");
+    }
+
     #[tokio::test]
     async fn config_tells_oidc_frontends_where_to_sign_in() {
         let (state, fixture) = oidc_state();
@@ -713,6 +1076,7 @@ mod tests {
         assert_eq!(body["auth"]["provider"], "oidc");
         assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
         assert_eq!(body["auth"]["clientId"], "300000000000000300");
+        assert_eq!(body["auth"]["mobileClientId"], "300000000000000400");
     }
 
     #[tokio::test]
@@ -801,5 +1165,229 @@ mod tests {
         let stamp = iso_timestamp();
         assert_eq!(stamp.len(), 24, "{stamp}");
         assert!(stamp.ends_with('Z'));
+    }
+
+    /// What the JSON log layer writes, kept for the test to read.
+    #[derive(Clone, Default)]
+    struct CapturedLogs(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl CapturedLogs {
+        fn text(&self) -> String {
+            let bytes = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+
+        fn clear(&self) {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+        }
+    }
+
+    impl std::io::Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'w> tracing_subscriber::fmt::MakeWriter<'w> for CapturedLogs {
+        type Writer = Self;
+
+        fn make_writer(&'w self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Sign links, invite links and OAuth callbacks carry tokens in the query
+    /// string: the request span, which every JSON log line inside the
+    /// request carries, names the route and the path only.
+    #[tokio::test]
+    async fn request_logs_never_carry_the_query_string() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let logs = CapturedLogs::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::DEBUG)
+            .with(crate::telemetry::json_logs(logs.clone()));
+        let _default = tracing::subscriber::set_default(subscriber);
+        // Other tests run on other threads, with no subscriber. While this
+        // is the only dispatcher, a callsite one of them registers first
+        // takes its interest from that thread's (none) and stays off here
+        // too; with a second dispatcher alive, interest comes from both.
+        let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        // Register the requests' callsites, then rebuild every interest.
+        call(state(), get("/health")).await;
+        call(state(), get("/nope")).await;
+        tracing::callsite::rebuild_interest_cache();
+        logs.clear();
+
+        // `/health` logs a warning inside the request: the master database
+        // this state points at answers nothing.
+        let (status, _, _) = call(
+            state(),
+            get("/health?token=secret123&next=%2Finvite%3Ftoken%3Dsecret123"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        call(state(), get("/nope?token=secret123")).await;
+
+        let text = logs.text();
+        let warning = text
+            .lines()
+            .find(|line| line.contains("health: master database ping failed"))
+            .unwrap_or_else(|| panic!("no warning inside the request:\n{text}"));
+        let line: Value = serde_json::from_str(warning).expect("a JSON log line");
+        assert_eq!(line["span"]["name"], "request", "{warning}");
+        assert_eq!(line["span"]["method"], "GET", "{warning}");
+        assert_eq!(line["span"]["route"], "/health", "{warning}");
+        assert_eq!(line["span"]["path"], "/health", "{warning}");
+        assert!(line["span"]["request_id"].is_string(), "{warning}");
+        assert!(text.contains(r#""path":"/nope""#), "{text}");
+        assert!(!text.contains("secret123"), "{text}");
+        assert!(!text.contains("token="), "{text}");
+    }
+
+    /// `/metrics` lives on its own listener (`METRICS_ADDR`): the API's port,
+    /// which the ingress reaches, answers it like any unknown path.
+    #[tokio::test]
+    async fn metrics_are_not_served_on_the_api_port() {
+        let local = crate::monitoring::tests::LocalMetrics::new();
+        let _guard = local.guard();
+        let app = crate::monitoring::track_http(router(state()));
+        let response = app.oneshot(get("/metrics")).await.expect("response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let body = String::from_utf8_lossy(&body);
+        assert!(!body.contains("weldsuite_"), "{body}");
+        assert!(
+            local.render().contains(
+                r#"weldsuite_http_requests_total{method="GET",route="unmatched",status="404"} 1"#
+            ),
+            "{}",
+            local.render()
+        );
+    }
+
+    /// The server's routes count by their template, the API's included,
+    /// never by the path or query a client sent.
+    #[tokio::test]
+    async fn api_requests_count_by_route_template() {
+        let local = crate::monitoring::tests::LocalMetrics::new();
+        let _guard = local.guard();
+        let app = crate::monitoring::track_http(router(state()));
+        for path in [
+            "/livez",
+            "/version?token=secret123",
+            "/api/me/permissions?token=secret123",
+        ] {
+            app.clone().oneshot(get(path)).await.expect("response");
+        }
+        let text = local.render();
+        for line in [
+            r#"weldsuite_http_requests_total{method="GET",route="/livez",status="200"} 1"#,
+            r#"weldsuite_http_requests_total{method="GET",route="/version",status="200"} 1"#,
+            r#"route="/api/me/permissions""#,
+        ] {
+            assert!(text.contains(line), "{line}\n{text}");
+        }
+        assert!(!text.contains("secret123"), "{text}");
+    }
+
+    /// A company's chat reaches WeldChat's record-chat routes in this
+    /// process (crm-api's `CHAT_API`, `routes::record_chat_binding`), routed
+    /// afresh: the CRM route's `{id}` must not reach the chat route's
+    /// `Path<(entity_type, entity_id)>` (axum adds a route's params to those
+    /// already on the request). An empty message fails the chat route's own
+    /// validation, which it answers only once routing and its extractors
+    /// (session, tenant database, permissions) passed.
+    #[tokio::test]
+    async fn company_chat_reaches_the_record_chat_routes() {
+        let state = state();
+        let binding = crate::routes::record_chat_binding(&state);
+        assert!(binding.is_some(), "chat is served");
+        let crm = weldsuite_crm::router(
+            weldsuite_crm::CrmState {
+                services: weldsuite_crm::CrmServices {
+                    events: state.infra.events.clone(),
+                    realtime: None,
+                    files: None,
+                    cache: None,
+                    jobs: None,
+                    env: Arc::default(),
+                },
+                chat_api: binding,
+            },
+            &state.permissions,
+        );
+        let app: Router = Router::new().nest("/api", crm);
+        let mut request = Request::post("/api/companies/co_1/chat/messages")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        // What the session and tenant layers put on the request.
+        let extensions = request.extensions_mut();
+        extensions.insert(weldsuite_auth::AuthContext {
+            user_id: "user_1".to_owned(),
+            org_id: Some("org_1".to_owned()),
+            session_id: String::new(),
+            factor_verification_age: None,
+        });
+        extensions.insert(weldsuite_db::Tenant {
+            workspace_id: "ws_1".to_owned(),
+            clerk_org_id: Some("org_1".to_owned()),
+            db: unreachable_master(),
+            suspended: false,
+            restrictions: weldsuite_db::WorkspaceRestrictions::default(),
+        });
+        extensions.insert(weldsuite_permissions::PresetPermissions(
+            weldsuite_permissions::Permissions::new(
+                weldsuite_permissions::ResolvedPermissions {
+                    permissions: vec!["messages:create".to_owned()],
+                    denies: Vec::new(),
+                    role: "MEMBER".to_owned(),
+                    role_id: None,
+                    is_owner: false,
+                },
+                None,
+                false,
+                "user_1".to_owned(),
+            ),
+        ));
+        let response = app.oneshot(request).await.expect("response");
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        assert!(
+            String::from_utf8_lossy(&body).contains("content"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
     }
 }

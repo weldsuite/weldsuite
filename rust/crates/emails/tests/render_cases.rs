@@ -6,13 +6,19 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::desk::{
+    DeskReport, DeskReportAgent, DeskReportBacklog, DeskReportChart, DeskReportKpi,
+    DeskReportPoint, KpiKey,
+};
 use weldsuite_emails::flow::{FlowPortalInvitation, FlowStatusReport, Overall};
 use weldsuite_emails::meet::MeetInvitation;
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
+use weldsuite_emails::workspace::WorkspaceInvitation;
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, flow, hr, meet, portal, reach, sign,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, billing, calendar, desk, flow,
+    forms, hr, meet, panel, panel_monitor, portal, reach, sign, workspace,
 };
 
 #[derive(Deserialize)]
@@ -63,6 +69,22 @@ fn list(props: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// `Array<{ question, answer }>` (WeldForms' answers).
+fn answers(value: &Value) -> Vec<forms::QuestionAnswer> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| forms::QuestionAnswer {
+                    question: item["question"].as_str().unwrap_or_default().to_owned(),
+                    answer: item["answer"].as_str().unwrap_or_default().to_owned(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one arm per exported template, each building its props"
@@ -99,6 +121,82 @@ fn render(case: &Case) -> RenderedEmail {
                 .as_u64()
                 .and_then(|m| u32::try_from(m).ok()),
         ),
+        "forms.code" => forms::code(
+            locale,
+            &brand,
+            &s(p, "title"),
+            &s(p, "code"),
+            p["expiresInMinutes"]
+                .as_u64()
+                .and_then(|m| u32::try_from(m).ok()),
+        ),
+        "forms.invite" => forms::invite(
+            locale,
+            &brand,
+            &forms::InviteProps {
+                sender_name: p["senderName"].as_str().unwrap_or_default(),
+                title: p["title"].as_str().unwrap_or_default(),
+                subject: p["subject"].as_str(),
+                message: p["message"].as_str(),
+                url: p["url"].as_str().unwrap_or_default(),
+                closes_at: p["closesAt"].as_str(),
+                time_zone: p["timeZone"].as_str(),
+                reminder: p["reminder"].as_bool().unwrap_or(false),
+            },
+        ),
+        "forms.receipt" => forms::receipt(
+            locale,
+            &brand,
+            &s(p, "title"),
+            p["number"].as_i64(),
+            &answers(&p["answers"]),
+        ),
+        "forms.response" => forms::response(
+            locale,
+            &brand,
+            &s(p, "title"),
+            p["number"].as_i64(),
+            p["respondent"].as_str(),
+            p["answers"]
+                .is_array()
+                .then(|| answers(&p["answers"]))
+                .as_deref(),
+            &s(p, "url"),
+        ),
+        "forms.digest" => forms::digest(
+            locale,
+            &brand,
+            &s(p, "title"),
+            &s(p, "workspaceName"),
+            p["count"].as_i64().unwrap_or_default(),
+            &p["responses"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| forms::DigestItem {
+                            number: item["number"].as_i64(),
+                            respondent: item["respondent"].as_str().map(str::to_owned),
+                            summary: item["summary"].as_str().map(str::to_owned),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+            &s(p, "url"),
+        ),
+        "forms.quota" => forms::quota(
+            locale,
+            &brand,
+            &s(p, "workspaceName"),
+            p["percent"]
+                .as_u64()
+                .and_then(|n| u8::try_from(n).ok())
+                .unwrap_or_default(),
+            p["used"].as_i64().unwrap_or_default(),
+            p["limit"].as_i64().unwrap_or_default(),
+            &s(p, "resetsAt"),
+            &s(p, "url"),
+        ),
         "sign.completed" => sign::completed(
             locale,
             &brand,
@@ -133,6 +231,7 @@ fn render(case: &Case) -> RenderedEmail {
             &s(p, "url"),
         ),
         "calendar.event" => calendar::event(locale, &brand, &calendar_props(p)),
+        "desk.report" => desk::report(locale, &brand, &desk_report_props(p)),
         "portal.sign-in" => portal::sign_in(
             locale,
             &brand,
@@ -180,6 +279,52 @@ fn render(case: &Case) -> RenderedEmail {
                 employer_name: s(p, "employerName"),
                 pay_date: s(p, "payDate"),
                 url: opt("url"),
+            },
+        ),
+        "ai.provider-enabled" => ai::provider_enabled(
+            locale,
+            &brand,
+            &ai::ProviderEnabled {
+                recipient_name: opt("recipientName"),
+                workspace_name: s(p, "workspaceName"),
+                provider_name: s(p, "providerName"),
+                enabled_by: s(p, "enabledBy"),
+                own_key: p["keySource"].as_str() == Some("own"),
+                settings_url: s(p, "settingsUrl"),
+            },
+        ),
+        "billing.dunning" => billing::dunning(
+            locale,
+            &brand,
+            &billing::Dunning {
+                kind: match p["kind"].as_str() {
+                    Some("reminder") => billing::DunningKind::Reminder,
+                    Some("ended") => billing::DunningKind::Ended,
+                    _ => billing::DunningKind::Failed,
+                },
+                workspace_name: s(p, "workspaceName"),
+                plan_name: s(p, "planName"),
+                amount: s(p, "amount"),
+                ends_on: s(p, "endsOn"),
+                url: s(p, "url"),
+            },
+        ),
+        "billing.invoice" => billing::invoice(
+            locale,
+            &brand,
+            &billing::Invoice {
+                workspace_name: s(p, "workspaceName"),
+                number: s(p, "number"),
+                date: s(p, "date"),
+                amount: s(p, "amount"),
+                vat: match p["vat"].as_str() {
+                    Some("reverse") => billing::InvoiceVat::Reverse,
+                    Some("outside") => billing::InvoiceVat::Outside,
+                    _ => billing::InvoiceVat::Charged,
+                },
+                vat_amount: s(p, "vatAmount"),
+                vat_rate: s(p, "vatRate"),
+                url: s(p, "url"),
             },
         ),
         "hr.bank-changed" => hr::bank_changed(
@@ -251,9 +396,80 @@ fn render(case: &Case) -> RenderedEmail {
                 url: opt("url"),
             },
         ),
+        "auth.verify-email" => auth::verify_email(
+            locale,
+            &s(p, "code"),
+            &s(p, "url"),
+            minutes(p).unwrap_or(60),
+        ),
+        "auth.sign-in-code" => auth::sign_in_code(locale, &s(p, "code"), minutes(p).unwrap_or(5)),
+        "auth.password-reset" => auth::password_reset(
+            locale,
+            &s(p, "email"),
+            &s(p, "code"),
+            &s(p, "url"),
+            minutes(p).unwrap_or(60),
+        ),
+        "panel.usage" => panel::usage(
+            locale,
+            &brand,
+            &panel::PanelUsage {
+                workspace_name: s(p, "workspaceName"),
+                kind: p["kind"]
+                    .as_str()
+                    .and_then(panel::UsageKind::parse)
+                    .unwrap_or_default(),
+                events: meter(&p["events"]),
+                recordings: meter(&p["recordings"]),
+                resets_at: s(p, "resetsAt"),
+                url: s(p, "url"),
+            },
+        ),
+        "workspace.invitation" => workspace::invitation(
+            locale,
+            &brand,
+            &WorkspaceInvitation {
+                inviter_name: s(p, "inviterName"),
+                workspace_name: s(p, "workspaceName"),
+                role: s(p, "role"),
+                accept_url: s(p, "acceptUrl"),
+                recipient_email: s(p, "recipientEmail"),
+            },
+        ),
+        // WeldPanel: the props deserialize as the template's props type.
+        "panel.alert" => panel_monitor::alert(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("alert props"),
+        ),
+        "panel.report-digest" => panel_monitor::report_digest(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("digest props"),
+        ),
+        "panel.export-failing" => panel_monitor::export_failing(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("export props"),
+        ),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
+}
+
+/// A WeldPanel meter: `{ used, allowance }`.
+fn meter(value: &Value) -> panel::Meter {
+    panel::Meter {
+        used: value["used"].as_i64().unwrap_or_default(),
+        allowance: value["allowance"].as_i64().unwrap_or_default(),
+    }
+}
+
+/// `expiresInMinutes`, when the preview sets it.
+fn minutes(p: &Value) -> Option<u32> {
+    p["expiresInMinutes"]
+        .as_u64()
+        .and_then(|m| u32::try_from(m).ok())
 }
 
 fn millis(value: &Value) -> Option<i64> {
@@ -292,6 +508,61 @@ fn calendar_props(p: &Value) -> CalendarEventEmail {
         all_day: p["allDay"].as_bool().unwrap_or(false),
         meeting_url: opt("meetingUrl"),
         event_url: opt("eventUrl"),
+    }
+}
+
+/// A preview's `DeskReportEmailProps`.
+fn desk_report_props(p: &Value) -> DeskReport {
+    let opt = |key: &str| p[key].as_str().map(str::to_owned);
+    let items = |key: &str| p[key].as_array().cloned().unwrap_or_default();
+    DeskReport {
+        schedule_name: s(p, "scheduleName"),
+        report_title: opt("reportTitle"),
+        period_label: s(p, "periodLabel"),
+        kpis: items("kpis")
+            .iter()
+            .map(|kpi| DeskReportKpi {
+                key: kpi["key"]
+                    .as_str()
+                    .and_then(KpiKey::parse)
+                    .expect("a KPI key"),
+                value: kpi["value"].as_f64(),
+                previous: kpi["previous"].as_f64(),
+            })
+            .collect(),
+        backlog: p["backlog"].as_object().map(|backlog| DeskReportBacklog {
+            open: backlog["open"].as_f64().unwrap_or_default(),
+            unassigned: backlog["unassigned"].as_f64().unwrap_or_default(),
+            waiting: backlog["waiting"].as_f64().unwrap_or_default(),
+        }),
+        agents: items("agents")
+            .iter()
+            .map(|agent| DeskReportAgent {
+                name: s(agent, "name"),
+                resolved: agent["resolved"].as_f64().unwrap_or_default(),
+                csat: agent["csat"].as_f64(),
+            })
+            .collect(),
+        charts: items("charts")
+            .iter()
+            .map(|chart| DeskReportChart {
+                title: s(chart, "title"),
+                rows: chart["rows"]
+                    .as_array()
+                    .map(|rows| {
+                        rows.iter()
+                            .map(|row| DeskReportPoint {
+                                label: s(row, "label"),
+                                value: row["value"].as_f64().unwrap_or_default(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect(),
+        url: s(p, "url"),
+        scheduled_by: opt("scheduledBy"),
+        csv_attached: p["csvAttached"].as_bool().unwrap_or(false),
     }
 }
 

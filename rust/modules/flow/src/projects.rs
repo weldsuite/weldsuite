@@ -545,13 +545,26 @@ fn or_text(value: &Value, fallback: &str) -> Value {
     }
 }
 
+/// A task's estimate in hours for the workload views (`workloadEstimateHours`):
+/// `estimated_hours`, else its `duration` (minutes), which the task panel's
+/// estimate picker writes.
+macro_rules! workload_estimate {
+    () => {
+        "(coalesce(t.estimated_hours, round(t.duration / 60.0, 2)))::text"
+    };
+}
+
 /// A task as the workload overview selects it.
 macro_rules! overview_task {
     () => {
-        "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
+        concat!(
+            "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
                 'projectId', t.project_id, 'assigneeId', t.assignee_id, 'status', t.status,
                 'priority', t.priority, 'startDate', t.start_date, 'dueDate', t.due_date,
-                'estimatedHours', t.estimated_hours::text, 'actualHours', t.actual_hours::text)"
+                'estimatedHours', ",
+            workload_estimate!(),
+            ", 'actualHours', t.actual_hours::text)"
+        )
     };
 }
 
@@ -680,15 +693,17 @@ async fn workload(caller: &Caller, project_id: &str) -> Reply {
         return Err(Refusal::not_found("Project", project_id));
     };
     let members = active_members(db, caller.request_master(), &[project_id.to_owned()]).await?;
-    let tasks: Vec<Value> = sqlx::query_scalar(
+    let tasks: Vec<Value> = sqlx::query_scalar(concat!(
         "select jsonb_build_object('id', t.id, 'title', t.title, 'assigneeId', t.assignee_id,
                 'status', t.status, 'priority', t.priority, 'startDate', t.start_date,
-                'dueDate', t.due_date, 'estimatedHours', t.estimated_hours::text,
+                'dueDate', t.due_date, 'estimatedHours', ",
+        workload_estimate!(),
+        ",
                 'actualHours', t.actual_hours::text)
          from tasks t
          where t.project_id = $1 and t.deleted_at is null and t.assignee_id is not null
-           and t.status not in ('done', 'cancelled')",
-    )
+           and t.status not in ('done', 'cancelled')"
+    ))
     .bind(project_id)
     .fetch_all(db)
     .await?;

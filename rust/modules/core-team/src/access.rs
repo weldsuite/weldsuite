@@ -174,6 +174,16 @@ pub struct AccountCaller {
 }
 
 impl AccountCaller {
+    /// A signed-in user without a workspace, for the routes' own tests.
+    #[cfg(test)]
+    pub(crate) fn for_test(user_id: &str) -> Self {
+        Self {
+            user_id: user_id.to_owned(),
+            org_id: None,
+            overrides: Overrides::default(),
+        }
+    }
+
     /// The master database (the test's in conformance mode).
     pub fn master(&self, state: &CoreTeamState) -> PgPool {
         self.overrides

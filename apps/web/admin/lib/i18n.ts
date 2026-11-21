@@ -16,6 +16,10 @@ export function adminMeetAiPricingCopy() {
   return getTranslations('host').adminMeetAiPricing;
 }
 
+export function adminPanelPricingCopy() {
+  return getTranslations('host').adminPanelPricing;
+}
+
 /** Billing, plan catalog and activity log copy. */
 export function adminCopy() {
   return getTranslations('admin');

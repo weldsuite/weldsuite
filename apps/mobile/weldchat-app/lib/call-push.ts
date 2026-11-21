@@ -46,6 +46,22 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/**
+ * Whether a call push comes from the server this app runs against. WeldChat
+ * 2.0 runs on EU and self-hosted servers only (ADR MOB-007), which name
+ * themselves in `server`; a push without one is WeldSuite cloud's, sent to a
+ * token a 1.x install registered there, for a call this app can't join.
+ * `isThisServer` checks the address once the runtime is booted; in Android's
+ * headless task (the app was closed) it isn't, and only Global's are dropped.
+ */
+export function isCallPushFromThisServer(
+  data: Record<string, unknown> | null,
+  isThisServer: ((data: Record<string, unknown>) => boolean) | null,
+): data is Record<string, unknown> {
+  if (!data || !str(data.server)) return false;
+  return isThisServer ? isThisServer(data) : true;
+}
+
 export function parseCallPush(data: Record<string, unknown> | null): CallPush | null {
   if (!data) return null;
   const callId = str(data.callId) || str(data.entityId);

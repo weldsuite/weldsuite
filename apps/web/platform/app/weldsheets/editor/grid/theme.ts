@@ -11,6 +11,11 @@ export interface GridTheme {
   selectionBorder: string;
   selectionFill: string;
   freezeLine: string;
+  /** Find: every match, and the current one. */
+  findHit: string;
+  findCurrent: string;
+  /** The corner mark on error values and values a validation rule refuses. */
+  errorMark: string;
   /** Connected tables: the header row, every other record and the line under the header. */
   tableHeader: string;
   tableBand: string;
@@ -38,6 +43,9 @@ export function readGridTheme(el: Element): GridTheme {
     selectionBorder: accent,
     selectionFill: dark ? 'rgba(112, 159, 245, 0.16)' : 'rgba(26, 115, 232, 0.10)',
     freezeLine: dark ? '#4a4f57' : '#c4c7c5',
+    findHit: dark ? 'rgba(250, 204, 21, 0.30)' : 'rgba(255, 214, 0, 0.38)',
+    findCurrent: dark ? 'rgba(251, 146, 60, 0.55)' : 'rgba(255, 152, 0, 0.55)',
+    errorMark: dark ? '#f28b82' : '#d93025',
     tableHeader: dark ? 'rgba(112, 159, 245, 0.22)' : 'rgba(26, 115, 232, 0.14)',
     tableBand: dark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.028)',
     tableLine: accent,

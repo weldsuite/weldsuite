@@ -54,7 +54,7 @@ interface MessagesQueryResult {
 
 /** Quote of a Discord-style inline reply, stored at `metadata.replyTo`. */
 function inlineReplyOf(message: ChatMessage) {
-  const metadata = message.metadata as { replyTo?: { authorName?: string; authorAvatar?: string | null; content?: string } } | null | undefined;
+  const metadata = message.metadata as { replyTo?: { authorId?: string; authorName?: string; authorAvatar?: string | null; content?: string } } | null | undefined;
   return metadata?.replyTo ?? undefined;
 }
 
@@ -515,6 +515,7 @@ export function MessageList({
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
+                activeCallId={hasActiveCall && message.id === lastCallStartedId ? activeCallData?.data?.id : undefined}
                 call={callHistory.calls.get(message.id)}
               />
             </div>

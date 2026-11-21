@@ -4,7 +4,7 @@
  * Pure TypeScript, no DOM, no dependencies besides our own collab core and
  * docs-engine (text measurement and line breaking), so the same code runs in
  * the browser, in the BoardRoom Durable Object and in any worker that reads
- * or writes boards. See docs/plans/weldboard.md.
+ * or writes boards. See weldsuite-documentation/plans/weldboard.md.
  */
 
 export * from './model/types';

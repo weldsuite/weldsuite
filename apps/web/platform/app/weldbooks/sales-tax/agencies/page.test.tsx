@@ -173,14 +173,14 @@ describe('SalesTaxAgenciesPage', () => {
   it('links to the engine settings', async () => {
     serve([]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    expect(await screen.findByRole('link', { name: ta.engineSettings })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
+    expect(await screen.findByRole('link', { name: ta.engineSettings })).toHaveAttribute('href', '/settings/apps/weldbooks');
   });
 
   it('is only for a US entity', () => {
     jurisdiction.salesTax = false;
     serve([texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    expect(screen.getByText(en.weldbooksUs.salesTax.setup.common.usOnly)).toBeInTheDocument();
+    expect(screen.getByText(/isn't available for/)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 

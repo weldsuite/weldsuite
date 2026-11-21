@@ -9,7 +9,7 @@ import type { Env } from '../index';
 import type { DeskConversation, DeskMessage } from '@weldsuite/db/lib/desk';
 
 const mocks = vi.hoisted(() => ({
-  publishEntityEventRaw: vi.fn(() => Promise.resolve()),
+  publishEntityEventRaw: vi.fn((_event: Record<string, unknown>) => Promise.resolve()),
   autoAssignDeskConversation: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ vi.mock('@weldsuite/notifications', () => ({ createAndDeliverNotification: vi.fn
 vi.mock('@weldsuite/realtime/server', () => ({ RealtimePublisher: vi.fn() }));
 vi.mock('../db', () => ({ schema: { workspaceMembers: {} } }));
 
-import { autoAssignConversation, publishVisitorEvent } from './desk-live';
+import { autoAssignConversation, deskCreatedChanges, publishVisitorEvent, publishVisitorMessage } from './desk-live';
 
 const ORG = 'org_1';
 const env = { ENTITY_EVENTS: {} } as unknown as Env;
@@ -67,5 +67,42 @@ describe('publishVisitorEvent', () => {
     expect(mocks.publishEntityEventRaw).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: ORG, entityType: 'desk_conversation', action: 'updated', entityId: 'dconv_1' }),
     );
+  });
+});
+
+describe('deskCreatedChanges', () => {
+  it('lists the attributes a conversation starts with, from null, like an agent attribute change', () => {
+    const request = { ...open, ticketTypeId: 'ttyp_1', priority: 'urgent', departmentId: 'dept_1', tags: [] } as unknown as DeskConversation;
+    expect(deskCreatedChanges(request)).toEqual({
+      ticketTypeId: { old: null, new: 'ttyp_1' },
+      priority: { old: null, new: 'urgent' },
+      departmentId: { old: null, new: 'dept_1' },
+    });
+  });
+
+  it('is undefined when it starts with none', () => {
+    expect(deskCreatedChanges({ ...open, ticketTypeId: null, priority: null, departmentId: null, tags: [] } as unknown as DeskConversation)).toBeUndefined();
+  });
+});
+
+describe('publishVisitorMessage', () => {
+  const request = { ...open, ticketTypeId: 'ttyp_1', priority: 'high' } as unknown as DeskConversation;
+  const changes = { ticketTypeId: { old: null, new: 'ttyp_1' }, priority: { old: null, new: 'high' } };
+
+  it('puts the changes on the created event of a new conversation', async () => {
+    await publishVisitorMessage({ ...env, REALTIME: undefined } as unknown as Env, ORG, request, message, 'Sam', 'created', changes);
+    expect(mocks.publishEntityEventRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'desk_conversation', action: 'created', entityId: 'dconv_1', changes }),
+    );
+  });
+
+  it('sends no changes on a reply, or when none were given', async () => {
+    await publishVisitorMessage({ ...env, REALTIME: undefined } as unknown as Env, ORG, request, message, 'Sam', 'updated', changes);
+    await publishVisitorMessage({ ...env, REALTIME: undefined } as unknown as Env, ORG, request, message, 'Sam', 'created');
+    const conversationEvents = mocks.publishEntityEventRaw.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.entityType === 'desk_conversation');
+    expect(conversationEvents).toHaveLength(1);
+    expect(conversationEvents[0]).not.toHaveProperty('changes');
   });
 });

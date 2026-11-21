@@ -41,6 +41,7 @@ import {
   handleAddInternalNote,
 } from './helpdesk';
 import { handleCreateConversation } from './desk';
+import { handleParseAlert } from './alerts';
 import {
   handleSendMessage,
   handleSendChoices,
@@ -116,6 +117,7 @@ export const actionHandlers: Record<string, ActionHandler> = {
   ai_classify: handleAiClassify,
   // Helpdesk
   create_conversation: handleCreateConversation,
+  parse_alert: handleParseAlert,
   assign_conversation: handleAssignConversation,
   tag_conversation: handleTagConversation,
   change_conversation_status: handleChangeConversationStatus,

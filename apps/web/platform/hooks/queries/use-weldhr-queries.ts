@@ -183,7 +183,19 @@ export function useUpdateHrEmployee() {
 
 export function useDeleteHrEmployee() {
   const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteEmployee(id));
+  const qc = useQueryClient();
+  return useMutation<unknown, Error, string>({
+    mutationFn: (id: string) => weldhr.deleteEmployee(id),
+    // Refresh everything but the deleted record: refetching it answers 404 (with
+    // retries) while the page still waits on this mutation (TASK-1471).
+    onSuccess: (_result, id) => {
+      const gone = weldhrKeys.employee(id);
+      return qc.invalidateQueries({
+        queryKey: weldhrKeys.all,
+        predicate: (query) => !gone.every((part, i) => query.queryKey[i] === part),
+      });
+    },
+  });
 }
 
 export function useUpdateHrEmployeeSensitive() {
@@ -364,9 +376,19 @@ export function useSetHrLeaveAllowance() {
   return useHrMutation((input: { employeeId: string; leaveTypeId: string; year: number; days: number }) => weldhr.setLeaveAllowance(input));
 }
 
-export function useHrLeaveRequests(params: { employeeId?: string; status?: string; from?: string; to?: string }) {
+export function useHrLeaveRequests(
+  params: { employeeId?: string; status?: string; from?: string; to?: string },
+  /** `keepPreviousData` keeps the last period's leave on screen while the next one loads (the attendance schedule). */
+  opts: { enabled?: boolean; keepPreviousData?: boolean } = {},
+) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.leaveRequests(params), queryFn: () => weldhr.listLeaveRequests(params), select: (r) => r.data });
+  return useQuery({
+    queryKey: weldhrKeys.leaveRequests(params),
+    queryFn: () => weldhr.listLeaveRequests(params),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+    placeholderData: opts.keepPreviousData ? keepPreviousData : undefined,
+  });
 }
 
 export function useCreateHrLeaveRequest() {

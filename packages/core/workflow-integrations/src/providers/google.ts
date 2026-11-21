@@ -29,7 +29,7 @@ export const GOOGLE_AUTH_BASE: Omit<OAuthConfig, 'scopes'> = {
  * OAuth consent screen through Google's CASA security assessment, not just
  * standard verification. `gmail.send` is "sensitive" (standard verification
  * only). Add `gmail.readonly` back — and re-run verification — only when the
- * `gmail.new_email` poll trigger is unlocked (docs/plans/weldconnect.md).
+ * `gmail.new_email` poll trigger is unlocked (weldsuite-documentation/plans/weldconnect.md).
  */
 export const GOOGLE_SCOPES = {
   userinfo: ['openid', 'email', 'profile'],

@@ -333,12 +333,21 @@ export const platformSyncMap: EntitySyncMap = {
   legal_entity: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   legal_entity_bank_account: inv(['legal-entities'], ['accounting', 'bank-accounts']),
   legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
+  // Settings → Activity → Log streaming (the SIEM destinations).
+  audit_log_stream: inv(['audit-log-streams']),
+  // Settings → AI (EU and self-hosted editions).
+  ai_settings: inv(['ai-settings']),
+  ai_provider_key: inv(['ai-settings']),
+  // Settings → Apps → WeldDesk → Asset register (device import sources).
+  asset_source: inv(['asset-sources']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
-  purchase_order: inv(['accounting', 'purchase-orders']),
+  // WeldStash's purchasing screens (purchasingKeys) and replenishment's incoming
+  // stock and plans read purchase orders too.
+  purchase_order: inv(['accounting', 'purchase-orders'], ['weldstash', 'purchasing', 'orders'], ['weldstash', 'replenishment']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
-  // US accounting (docs/plans/weldbooks-us.md).
+  // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
   sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
   sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
   sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
@@ -372,13 +381,9 @@ export const platformSyncMap: EntitySyncMap = {
   // both keys so either emitter refreshes stock/movements.
   inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   wms_inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
-  // Shared `products` table: commerce + WMS UIs both listen. Catalog twin
-  // `wms_product` covers connectors/future emitters.
-  product: inv(
-    ['weldcommerce', 'products'],
-    ['weldstash', 'products'],
-    ['weldstash', 'stock'],
-  ),
+  // stash-api's product routes publish `product`. Catalog twin `wms_product`
+  // covers connectors/future emitters.
+  product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_adjustment: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   picklist: inv(['weldstash', 'pickLists'], ['weldstash', 'stock']),
@@ -395,38 +400,13 @@ export const platformSyncMap: EntitySyncMap = {
   wms_cycle_count: inv(['weldstash', 'cycle-counts'], ['weldstash', 'stock']),
   wms_order: inv(['weldstash', 'orders']),
   wms_category: inv(['weldstash', 'categories'], ['weldstash', 'products']),
-
-  // =========================================================================
-  // WeldCommerce — Products, Orders, Fulfillment, Website builder (catalog)
-  // =========================================================================
-  // Real UI today: products / categories / orders via commerceKeys
-  // (`['weldcommerce', …]` in use-commerce-queries.ts). Runtime order routes
-  // publish `commerce_order`; connector ingest may emit legacy `order`.
-  category: inv(['weldcommerce', 'categories'], ['weldcommerce', 'products']),
-  commerce_order: inv(['weldcommerce', 'orders']),
-  order: inv(['weldcommerce', 'orders']),
-  // Commerce customers UI is people/companies filters; primary sync is
-  // company/person. Alias covers any future commerce_customer emitters.
-  commerce_customer: inv(['companies'], ['people']),
-  // Provisional kebab prefixes — API (and/or catalog) ahead of list hooks.
-  discount: inv(['weldcommerce', 'discounts']),
-  website: inv(['weldcommerce', 'websites']),
-  website_domain: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-domains']),
-  // Builder pages/sections: dual-invalidate so future detail hooks under
-  // website-pages / website-sections refresh without bare ['weldcommerce'].
-  website_page: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-pages']),
-  website_section: inv(
-    ['weldcommerce', 'websites'],
-    ['weldcommerce', 'website-sections'],
-    ['weldcommerce', 'website-pages'],
-  ),
-  cart: inv(['weldcommerce', 'carts']),
-  return: inv(['weldcommerce', 'returns']),
-  return_reason: inv(['weldcommerce', 'return-reasons']),
-  return_rule: inv(['weldcommerce', 'return-rules']),
-  shipment: inv(['weldcommerce', 'shipments']),
-  shipping_price: inv(['weldcommerce', 'shipping-prices']),
-  shipping_rule: inv(['weldcommerce', 'shipping-rules']),
+  // Purchasing and replenishment (purchasingKeys / replenishmentKeys in
+  // use-purchasing-queries.ts and use-replenishment-queries.ts).
+  product_supplier: inv(['weldstash', 'purchasing', 'product-suppliers'], ['weldstash', 'replenishment', 'plans']),
+  reorder_rule: inv(['weldstash', 'replenishment', 'rules'], ['weldstash', 'replenishment', 'plans']),
+  replenishment_settings: inv(['weldstash', 'replenishment', 'settings'], ['weldstash', 'replenishment', 'plans']),
+  replenishment_run: inv(['weldstash', 'replenishment', 'runs'], ['weldstash', 'replenishment', 'plans']),
+  sales_history_import: inv(['weldstash', 'replenishment', 'imports']),
 
   // =========================================================================
   // WeldDesk — Helpdesk
@@ -443,6 +423,8 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_folder: inv(['helpdesk', 'folders'], ['helpdesk', 'help-folders']),
   helpdesk_news: inv(['helpdesk', 'news']),
   helpdesk_settings: inv(['helpdesk', 'settings']),
+  // Scheduled report emails: the list refreshes when someone else changes a schedule.
+  helpdesk_report_schedule: inv(['helpdesk', 'reports', 'schedules']),
   helpdesk_ticket_type: inv(['helpdesk', 'ticket-types']),
   helpdesk_widget: inv(['helpdesk', 'widgets'], ['helpdesk', 'widget', 'settings']),
   helpdesk_workflow: inv(['helpdesk-automation']),
@@ -466,9 +448,19 @@ export const platformSyncMap: EntitySyncMap = {
   ),
   helpdesk_email: inv(['helpdesk', 'email']),
 
-  // WeldDesk webchat — list + open conversation pane
+  // WeldDesk webchat — list + open conversation pane. A ticket's problem link
+  // and its service request (item, approval, tasks) change through the
+  // conversation's own events, so their panels and the lists built on them
+  // (a problem's incidents, the problem lists' counts, the approvals) follow.
   desk_conversation: {
-    invalidate: [deskKeys.conversations()],
+    invalidate: [
+      deskKeys.conversations(),
+      ['desk', 'problems', 'conversation'],
+      ['desk', 'problems', 'incidents'],
+      ['desk', 'problems', 'list'],
+      ['desk', 'catalog', 'request'],
+      ['desk', 'catalog', 'approvals'],
+    ],
     updateDetail: detailUpdater(deskKeys.conversationDetail),
     remove: detailRemover(deskKeys.conversationDetail),
   },
@@ -481,6 +473,14 @@ export const platformSyncMap: EntitySyncMap = {
     },
   },
   desk_widget: inv(['desk', 'widget']),
+  // A problem's own changes (created, edited, deleted). A ticket linked or
+  // unlinked arrives as desk_conversation, above.
+  desk_problem: inv(['desk', 'problems']),
+  // A catalogue item's own changes. A request's approval and tasks arrive as
+  // desk_conversation, above.
+  desk_catalog_item: inv(['desk', 'catalog']),
+  // Settings → Apps → WeldDesk → Phone → "Your own phone system".
+  sip_trunk: inv(['desk', 'phone', 'sip-trunks']),
 
   // =========================================================================
   // WeldMail
@@ -520,8 +520,6 @@ export const platformSyncMap: EntitySyncMap = {
   // Workspace — Notifications, Automation (WeldFlow workflows), Settings
   // =========================================================================
   notification: { invalidate: [notificationKeys.all] },
-  // Parcel SMS/WhatsApp/webhook templates (API + portals); no platform list hooks yet.
-  notification_template: inv(['parcel-notifications']),
   digest_settings: inv(['task-digest', 'settings']),
   workspace_settings: inv(['settings', 'workspace']),
   workflow: inv(
@@ -585,6 +583,32 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
+  // Saved objects refresh their own branch of weldpanelKeys. Dashboards show
+  // reports on their tiles, so a report change refreshes them too; secret keys
+  // sit under the project detail.
+  panel_report: inv(['weldpanel', 'reports'], ['weldpanel', 'dashboards']),
+  panel_dashboard: inv(['weldpanel', 'dashboards']),
+  panel_cohort: inv(['weldpanel', 'cohorts']),
+  panel_event_definition: inv(['weldpanel', 'lexicon']),
+  panel_heatmap_page: inv(['weldpanel', 'heatmap-pages']),
+  panel_key: inv(['weldpanel', 'projects']),
+  // Data definitions (use-weldpanel-analysis-queries.ts). Custom events,
+  // computed properties and path rules change what a spec compiles to, so the
+  // cached query results refresh with them.
+  panel_custom_event: inv(['weldpanel', 'custom-events'], ['weldpanel', 'query']),
+  panel_computed_property: inv(['weldpanel', 'computed-properties'], ['weldpanel', 'query']),
+  panel_path_rule: inv(['weldpanel', 'path-rules'], ['weldpanel', 'query']),
+  panel_group_type: inv(['weldpanel', 'group-types'], ['weldpanel', 'groups']),
+  panel_metric_tree: inv(['weldpanel', 'metric-trees']),
+  // Collaboration and monitoring (use-weldpanel-collab-queries.ts). Domains
+  // sit under the project detail.
+  panel_annotation: inv(['weldpanel', 'annotations']),
+  panel_comment: inv(['weldpanel', 'comments']),
+  panel_share_link: inv(['weldpanel', 'share-links']),
+  panel_alert: inv(['weldpanel', 'alerts']),
+  panel_subscription: inv(['weldpanel', 'subscriptions']),
+  panel_export: inv(['weldpanel', 'exports']),
+  panel_custom_domain: inv(['weldpanel', 'projects']),
 
   // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
   // root: issues, teams, labels, cycles, comments, connections, repositories and
@@ -598,6 +622,17 @@ export const platformSyncMap: EntitySyncMap = {
   merge_connection: inv(['weldmerge']),
   merge_repository: inv(['weldmerge']),
   merge_pull_request: inv(['weldmerge']),
+
+  // WeldForms: weldformsKeys.all in use-weldforms-queries.ts. Every object
+  // shares the root: lists, the builder's form, themes, responses, invitations
+  // and integrations all refetch when anything in the module changes. The
+  // builder ignores a refetch of the form while it holds unsaved edits.
+  form: inv(['weldforms']),
+  form_folder: inv(['weldforms']),
+  form_theme: inv(['weldforms']),
+  form_response: inv(['weldforms']),
+  form_invitation: inv(['weldforms']),
+  form_integration: inv(['weldforms']),
   // Releases, issue record links and chat subscriptions live under the same
   // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
   merge_release: inv(['weldmerge']),
@@ -635,18 +670,6 @@ export const platformSyncMap: EntitySyncMap = {
   social_post: inv(['social']),
   social_settings: inv(['social']),
   social_team_member: inv(['social']),
-
-  // =========================================================================
-  // Parcels — no platform TanStack hooks yet (portals are out of scope).
-  // Provisional ['parcel'] root for catalog completeness / future UI.
-  // =========================================================================
-  parcel: inv(['parcel']),
-  parcel_box: inv(['parcel']),
-  parcel_carrier: inv(['parcel']),
-  parcel_order: inv(['parcel']),
-  parcel_pickup: inv(['parcel']),
-  parcel_wallet: inv(['parcel']),
-  parcel_settings: inv(['parcel']),
 
   // =========================================================================
   // WeldAds — weldadsKeys.all in use-weldads-queries.ts

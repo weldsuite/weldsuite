@@ -5,8 +5,7 @@
  * domain clients. A module-level token getter is wired from `app/_layout.tsx`.
  */
 
-import { createClientApi } from '@weldsuite/api-client/client';
-import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
+import { createMobileApiClient } from '@weldsuite/mobile-platform/api';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
@@ -16,26 +15,18 @@ import { createWorkspaceAgentsApi } from '@weldsuite/app-api-client/domains/work
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 
-export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
-
-/**
- * Modules served by their own worker (`<module>-api` host), from
- * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
- * which forwards moved modules. See docs/plans/app-api-module-split.md.
- */
-const apiOrigins = createApiOriginResolver({
-  coreOrigin: APP_API_URL,
-  enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
-});
-
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
 export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) {
   tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
-const client = createClientApi({
-  baseUrl: apiOrigins.originForPath,
+// Hosts come from the booted server runtime and are read per request, never at import time.
+const { client } = createMobileApiClient({
+  // WeldAgent isn't an app in the permission registry
+  // (@weldsuite/permissions PERMISSION_APPS): `workspace` is the explicit
+  // "no app" context, the same checks as sending no header (as before).
+  appCode: 'workspace',
   getToken: () => tokenGetter(),
 });
 

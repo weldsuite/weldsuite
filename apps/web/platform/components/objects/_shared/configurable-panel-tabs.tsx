@@ -78,6 +78,7 @@ export function ConfigurablePanelTabs<TId extends string>({
           onToggle={toggle}
           onReset={resetToDefaults}
           label={st('sweep.entities.visibleTabs')}
+          title={st('sweep.entities.visibleTabs')}
         />
       </div>
     </div>

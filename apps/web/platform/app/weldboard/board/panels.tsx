@@ -1,19 +1,21 @@
-import { useState, useSyncExternalStore } from 'react';
-import { History, MessageSquare, X } from 'lucide-react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { History, MessageSquare, MoreHorizontal, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BoardVersion } from '@weldsuite/app-api-client/schemas/boards';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { Input } from '@weldsuite/ui/components/input';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import type { Person } from '@/components/record-comments/comment-parts';
 import type { BoardController } from '../editor/model/board-controller';
+import { SIDE_PANEL, SIDE_PANEL_HEADER } from '../editor/ui';
 import { boardsQueryKey } from '../store/use-board-store';
-import { AiDialog } from './ai-dialog';
 import { CommentsPanel } from './comments-panel';
 import { RecordsDialog, TasksDialog } from './records';
 
@@ -27,13 +29,11 @@ interface PanelState {
   records: boolean;
   /** Elements being made tasks (the dialog is open), or null. */
   tasks: string[] | null;
-  /** The AI dialog is open. */
-  ai: boolean;
 }
 
 /** Which side panel a board shows, kept outside React so the board's callbacks can open one. */
 export class BoardPanels {
-  private state: PanelState = { open: null, activeComment: null, records: false, tasks: null, ai: false };
+  private state: PanelState = { open: null, activeComment: null, records: false, tasks: null };
   private readonly listeners = new Set<() => void>();
 
   subscribe = (fn: () => void) => {
@@ -52,6 +52,11 @@ export class BoardPanels {
     this.set({ open: this.state.open === kind ? null : kind });
   }
 
+  /** Opens a panel (leaves it open when it already is). */
+  show(kind: PanelKind) {
+    if (this.state.open !== kind) this.set({ open: kind });
+  }
+
   focusComment(id: string) {
     this.set({ open: 'comments', activeComment: id });
   }
@@ -67,22 +72,31 @@ export class BoardPanels {
   openTasks(ids: string[] | null) {
     this.set({ tasks: ids });
   }
+}
 
-  openAi(open = true) {
-    this.set({ ai: open });
-  }
+/**
+ * Picking the comment tool (its button or C) opens the comments panel, so
+ * the conversations are there beside the pins. Returns the unsubscribe.
+ */
+export function openCommentsWithTool(controller: BoardController, panels: BoardPanels): () => void {
+  let last = controller.tool;
+  return controller.onRender(() => {
+    const tool = controller.tool;
+    if (tool === 'comment' && last !== 'comment') panels.show('comments');
+    last = tool;
+  });
 }
 
 /** The board's right-hand panels: comments or version history. */
 export function SidePanels({ controller, boardId, projectId, people, panels, canEdit }: { controller: BoardController; boardId: string; projectId: string | null; people: Person[]; panels: BoardPanels; canEdit: boolean }) {
   const state = useSyncExternalStore(panels.subscribe, panels.get);
+  useEffect(() => openCommentsWithTool(controller, panels), [controller, panels]);
   return (
     <>
       {state.open === 'comments' && <CommentsPanel controller={controller} boardId={boardId} people={people} panels={panels} />}
-      {state.open === 'versions' && <VersionsPanel boardId={boardId} canEdit={canEdit} onClose={() => panels.close()} />}
+      {state.open === 'versions' && <VersionsPanel boardId={boardId} canEdit={canEdit} people={people} onClose={() => panels.close()} />}
       <RecordsDialog controller={controller} open={state.records} onOpenChange={(open) => panels.openRecords(open)} />
       <TasksDialog boardId={boardId} elementIds={state.tasks} projectId={projectId} onOpenChange={(open) => !open && panels.openTasks(null)} />
-      {canEdit && <AiDialog controller={controller} boardId={boardId} open={state.ai} onOpenChange={(open) => panels.openAi(open)} />}
     </>
   );
 }
@@ -94,11 +108,11 @@ export function PanelMenuItems({ panels }: { panels: BoardPanels }) {
   return (
     <>
       <DropdownMenuItem onSelect={() => panels.toggle('comments')}>
-        <MessageSquare className="mr-2 size-4" />
+        <MessageSquare className="size-4" />
         {te.comments.title}
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={() => panels.toggle('versions')}>
-        <History className="mr-2 size-4" />
+        <History className="size-4" />
         {te.versions.open}
       </DropdownMenuItem>
     </>
@@ -109,7 +123,7 @@ export function PanelMenuItems({ panels }: { panels: BoardPanels }) {
  * Version history: name the board as it is now, rename a version, restore
  * one (the board as it was is saved first, so a restore can be undone).
  */
-function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit: boolean; onClose: () => void }) {
+function VersionsPanel({ boardId, canEdit, people, onClose }: { boardId: string; canEdit: boolean; people: Person[]; onClose: () => void }) {
   const appApi = useAppApi();
   const queryClient = useQueryClient();
   const { t, format, language } = useI18n();
@@ -118,6 +132,7 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
   const versions = useQuery({ queryKey: key, queryFn: async () => (await appApi.boards.versions(boardId, { limit: 100 })).data });
   const [name, setName] = useState('');
   const [restoring, setRestoring] = useState<BoardVersion | null>(null);
+  const [renaming, setRenaming] = useState<BoardVersion | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
 
   const save = useMutation({
@@ -137,9 +152,8 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
     },
     onError: () => toast.error(tv.restoreFailed),
   });
-  const rename = async (version: BoardVersion) => {
-    const next = window.prompt(tv.namePrompt, version.name ?? '')?.trim();
-    if (!next || next === version.name) return;
+  const rename = async (version: BoardVersion, next: string) => {
+    if (next === version.name) return;
     try {
       await appApi.boards.renameVersion(boardId, version.id, { name: next.slice(0, 255) });
       void refresh();
@@ -148,10 +162,12 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
     }
   };
   const when = (iso: string) => new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+  /** Who saved a version (an automatic one has nobody). */
+  const author = (v: { createdById: string | null }) => (v.createdById ? people.find((p) => p.id === v.createdById)?.name : undefined);
 
   return (
-    <aside className="pointer-events-auto flex max-h-full w-80 flex-col rounded-xl border bg-background shadow-lg" aria-label={tv.title}>
-      <div className="flex items-center justify-between border-b px-3 py-2">
+    <aside className={SIDE_PANEL} aria-label={tv.title}>
+      <div className={SIDE_PANEL_HEADER}>
         <h2 className="text-sm font-semibold">{tv.title}</h2>
         <Button size="icon" variant="ghost" className="size-7" aria-label={t.weldboard.editor.comments.close} onClick={onClose}>
           <X className="size-4" />
@@ -181,25 +197,41 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
         {versions.data?.length === 0 && <p className="p-2 text-center text-sm text-muted-foreground">{tv.empty}</p>}
         <ul className="space-y-1">
           {versions.data?.map((v) => (
-            <li key={v.id} className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
+            // The whole name (two lines at most), when and by whom; its actions in a menu, always there.
+            <li key={v.id} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{v.name ?? tv.auto}</p>
-                <p className="truncate text-xs text-muted-foreground">{when(v.createdAt)}</p>
+                <p className={cn('line-clamp-2 break-words text-sm font-medium', !v.name && 'italic text-muted-foreground')}>{v.name ?? tv.auto}</p>
+                <p className="truncate text-xs text-muted-foreground">{[when(v.createdAt), author(v)].filter(Boolean).join(' · ')}</p>
               </div>
               {canEdit && (
-                <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void rename(v)}>
-                    {tv.rename}
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={restore.isPending} onClick={() => setRestoring(v)}>
-                    {tv.restoreShort}
-                  </Button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="icon" variant="ghost" className="size-7 shrink-0" aria-label={format(tv.actionsFor, { name: v.name ?? tv.auto })}>
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => setRenaming(v)}>{tv.rename}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={restore.isPending} onSelect={() => setRestoring(v)}>
+                      {tv.restore}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </li>
           ))}
         </ul>
       </div>
+      <PromptDialog
+        open={renaming !== null}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        title={tv.rename}
+        label={tv.namePrompt}
+        defaultValue={renaming?.name ?? ''}
+        confirmLabel={tv.save}
+        cancelLabel={t.weldboard.editor.comments.cancel}
+        onConfirm={(next) => (renaming ? rename(renaming, next) : undefined)}
+      />
       <ConfirmDialog
         open={restoring !== null}
         onOpenChange={(open) => !open && setRestoring(null)}

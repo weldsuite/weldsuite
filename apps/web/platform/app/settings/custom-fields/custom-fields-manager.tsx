@@ -44,6 +44,7 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { isApiError } from '@weldsuite/api-client';
 import { ENTITY_TYPES, FIELD_TYPES, getFieldTypeLabel } from './entity-types';
 import { FieldDefinitionDialog } from './field-definition-dialog';
@@ -132,7 +133,7 @@ function ActionsCell({
   duplicateLabel: string;
   onEdit: (field: CustomFieldDefinition) => void;
   onDuplicate: (field: CustomFieldDefinition) => void;
-  onDelete: (id: string) => void;
+  onDelete: (field: CustomFieldDefinition) => void;
 }>) {
   return (
     <div className="flex justify-end">
@@ -141,7 +142,7 @@ function ActionsCell({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+          className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
         >
           <span className="sr-only">{t.common.actions.openMenu}</span>
           <EllipsisVertical className="h-3.5 w-3.5" />
@@ -158,7 +159,7 @@ function ActionsCell({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => onDelete(field.id)}
+          onClick={() => onDelete(field)}
           className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
         >
           <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
@@ -177,7 +178,12 @@ interface ColumnDeps {
   isAll: boolean;
   onEdit: (field: CustomFieldDefinition) => void;
   onDuplicate: (field: CustomFieldDefinition) => void;
-  onDelete: (id: string) => void;
+  onDelete: (field: CustomFieldDefinition) => void;
+}
+
+/** The object a field belongs to, as the object filter names it. */
+function entityTypeLabel(entityType: string): string {
+  return ENTITY_TYPES.find((et) => et.value === entityType)?.label ?? entityType;
 }
 
 function buildColumns({
@@ -195,6 +201,21 @@ function buildColumns({
       header: ({ column }) => <SortableHeader column={column} label={t.common.labels.name} />,
       cell: ({ row }) => <NameCell row={row} isAll={isAll} />,
     },
+    // With "All objects" selected, say which object each field belongs to (TASK-1426).
+    ...(isAll
+      ? [
+          {
+            id: 'entityType',
+            accessorFn: (field: CustomFieldDefinition) => entityTypeLabel(field.entityType),
+            header: ({ column }: { column: Column<CustomFieldDefinition, unknown> }) => (
+              <SortableHeader column={column} label={ts.object} />
+            ),
+            cell: ({ getValue }: { getValue: () => unknown }) => (
+              <span className="text-sm text-muted-foreground">{String(getValue())}</span>
+            ),
+          } satisfies ColumnDef<CustomFieldDefinition>,
+        ]
+      : []),
     {
       accessorKey: 'fieldType',
       header: ({ column }) => <SortableHeader column={column} label={t.common.labels.type} />,
@@ -245,6 +266,8 @@ export function CustomFieldsManager() {
   const [entityTypeOpen, setEntityTypeOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState<CustomFieldDefinition | null>(null);
+  // Deleting a field deletes its value on every record: ask first (TASK-1426).
+  const [deletingField, setDeletingField] = useState<CustomFieldDefinition | null>(null);
 
   // TanStack Table state
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -326,14 +349,16 @@ export function CustomFieldsManager() {
     }
   }, [updateMutation, ts]);
 
-  const handleDelete = useCallback(async (id: string) => {
+  const handleDelete = useCallback(async () => {
+    if (!deletingField) return;
     try {
-      await deleteMutation.mutateAsync(id);
+      await deleteMutation.mutateAsync(deletingField.id);
       toast.success(ts.messages.deleted);
+      setDeletingField(null);
     } catch {
       toast.error(ts.messages.deleteFailed);
     }
-  }, [deleteMutation, ts]);
+  }, [deleteMutation, deletingField, ts]);
 
   const handleDuplicate = useCallback((field: CustomFieldDefinition) => {
     setEditingField(null);
@@ -368,9 +393,9 @@ export function CustomFieldsManager() {
         isAll,
         onEdit: handleEdit,
         onDuplicate: handleDuplicate,
-        onDelete: handleDelete,
+        onDelete: setDeletingField,
       }),
-    [handleEdit, handleDuplicate, handleDelete, t, ts, isAll, st],
+    [handleEdit, handleDuplicate, t, ts, isAll, st],
   );
 
   const table = useReactTable({
@@ -460,9 +485,10 @@ export function CustomFieldsManager() {
                 size="sm"
                 role="combobox"
                 aria-expanded={entityTypeOpen}
+                aria-label={ts.objectFilterLabel}
                 className="h-8 justify-between font-normal min-w-[160px]"
               >
-                {isAll ? st('sweep.settings.customFieldsExtra.all') : (ENTITY_TYPES.find((et) => et.value === selectedEntityType)?.label ?? st('sweep.settings.customFieldsExtra.selectEntityType'))}
+                {isAll ? ts.allObjects : (ENTITY_TYPES.find((et) => et.value === selectedEntityType)?.label ?? st('sweep.settings.customFieldsExtra.selectEntityType'))}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -485,7 +511,7 @@ export function CustomFieldsManager() {
                     >
                       <span className="flex items-center gap-1.5">
                         <LayoutGrid className="h-3.5 w-3.5" />
-                        {st('sweep.settings.customFieldsExtra.all')}
+                        {ts.allObjects}
                       </span>
                       <Check className={cn('h-4 w-4', isAll ? 'opacity-100' : 'opacity-0')} />
                     </CommandItem>
@@ -600,6 +626,25 @@ export function CustomFieldsManager() {
           return handleCreate({ ...data, entityType: data.entityType ?? createEntityType } as CreateCustomFieldData);
         }}
         isPending={isPending}
+      />
+
+      <ConfirmDialog
+        open={deletingField !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingField(null);
+        }}
+        title={ts.deleteDialog.title}
+        description={
+          deletingField
+            ? ts.deleteDialog.description
+                .replace('{name}', deletingField.name)
+                .replace('{object}', entityTypeLabel(deletingField.entityType))
+            : ''
+        }
+        confirmLabel={t.common.actions.delete}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={handleDelete}
       />
     </div>
   );

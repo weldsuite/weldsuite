@@ -102,6 +102,18 @@ export function detectLocale(languages: readonly string[] = globalThis.navigator
 export const locale: WidgetLocale = detectLocale();
 export const t: WidgetStrings = locale === 'nl' ? nl : en;
 
+/**
+ * The language to ask articles in: the browser's first language as a primary
+ * tag (`de` for `de-AT`). Wider than the widget's own two languages, since a
+ * team may have written an article in any language.
+ */
+export function detectArticleLocale(languages: readonly string[] = globalThis.navigator?.languages ?? []): string {
+  const primary = languages[0]?.toLowerCase().split('-')[0] ?? '';
+  return /^[a-z]{2,3}$/.test(primary) ? primary : locale;
+}
+
+export const articleLocale: string = detectArticleLocale();
+
 export function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (match: string, key: string) => (key in values ? String(values[key]) : match));
 }

@@ -10,6 +10,7 @@ export const weldhrAdmin = {
       leaveTypes: 'Leave types',
       workLocations: 'Work locations',
       selfService: 'Self-service',
+      paySchedules: 'Pay schedules',
     },
 
     selfService: {

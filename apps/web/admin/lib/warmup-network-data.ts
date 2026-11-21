@@ -19,7 +19,7 @@ const messages = masterSchema.reachWarmupMessages;
 const workspaces = masterSchema.workspaces;
 
 /**
- * Read side of the Warmup network screen (docs/plans/weldreach-warmup.md). The
+ * Read side of the Warmup network screen (weldsuite-documentation/plans/weldreach-warmup.md). The
  * pool and its messages live in the master DB, so everything here is a master
  * query; the warmup worker is the only writer besides the pause and resume
  * actions of this console.

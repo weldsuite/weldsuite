@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useAuth, useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
@@ -222,6 +223,8 @@ function createBridgeMethods(deps: BridgeMethodDeps): Map<string, BridgeMethodHa
 export function useBridgeHost(options: BridgeHostOptions): ReactNode {
   const { getToken } = useAuth();
   const { user } = useUser();
+  // The member's profile picture, the one the platform shows for them.
+  const avatar = useCurrentUserAvatar();
   const { resolvedTheme } = useTheme();
   const { t, language } = useI18n();
   const router = useRouter();
@@ -232,8 +235,8 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
   const theme: 'light' | 'dark' = resolvedTheme === 'dark' ? 'dark' : 'light';
 
   // Latest values for the long-lived message listener.
-  const live = useRef({ options, theme, language, user, getToken, router, sessionTokenMutation, pendingModal });
-  live.current = { options, theme, language, user, getToken, router, sessionTokenMutation, pendingModal };
+  const live = useRef({ options, theme, language, user, avatar, getToken, router, sessionTokenMutation, pendingModal });
+  live.current = { options, theme, language, user, avatar, getToken, router, sessionTokenMutation, pendingModal };
 
   const { iframeRef, targetOrigin, isolated = false } = options;
   const origins = useMemo(() => bridgeOrigins(targetOrigin, isolated), [targetOrigin, isolated]);
@@ -292,7 +295,7 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
   }, []);
 
   const sendInit = useCallback(() => {
-    const { options: opts, theme: currentTheme, language: locale, user: currentUser } = live.current;
+    const { options: opts, theme: currentTheme, language: locale, user: currentUser, avatar: currentAvatar } = live.current;
     post({
       type: 'weldapp:init',
       payload: {
@@ -305,7 +308,7 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
         token: null,
         tokenExpiresAt: null,
         user: currentUser
-          ? { id: currentUser.id, name: currentUser.fullName || currentUser.firstName || '', imageUrl: currentUser.imageUrl }
+          ? { id: currentUser.id, name: currentUser.fullName || currentUser.firstName || '', imageUrl: currentAvatar ?? currentUser.imageUrl }
           : null,
         protocol: HOST_BRIDGE_PROTOCOL,
         designTokens: readPlatformDesignTokens(),

@@ -1,11 +1,18 @@
 //! WeldConnect: connect-api's routes (`apps/workers/connect-api`) at the
 //! paths it serves under `/api` (workflows and their versions, templates,
 //! schedules, variables, webhooks, triggers, executions, the dashboard and
-//! the AI builder's drafts), and the public workflow webhook receiver
-//! (`/api/workflows/webhook/:id`, [`public_router`]).
+//! the AI builder's drafts), the public workflow webhook receiver
+//! (`/api/workflows/webhook/:id`, [`public_router`]) and WooCommerce's
+//! app-auth callback (`/webhooks/woocommerce/auth`,
+//! [`woocommerce_auth_router`]).
 //!
 //! A run is started through [`runs::WorkflowRuns`]: the `EXECUTE_WORKFLOW`
 //! Workflow binding on Global, the `connect.execute-workflow` job here.
+//!
+//! AI (ADR AI-012, feature `connect`) runs on the install's provider through
+//! `weldsuite-ai`: "Generate with AI" (`POST /api/workflows/generate`) and the
+//! engine's `ai_generate` / `ai_classify` steps. Without a provider they
+//! answer as the workers do without their gateway.
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `connect`
@@ -31,6 +38,7 @@ pub mod engine;
 mod entity_workflows;
 mod executions;
 mod external_webhooks;
+mod generate;
 mod github;
 mod github_app;
 mod github_connections;
@@ -49,6 +57,7 @@ mod triggers;
 mod variables;
 mod versions;
 mod webhooks;
+mod webhooks_woocommerce_auth;
 mod workflow_actions;
 mod workflow_integrations;
 mod workflows;
@@ -91,6 +100,7 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
+pub use cron::compute_next_run_at;
 pub use entity_workflows::EntityWorkflowsSubscriber;
 pub use integrations::RequestCrmSyncRuns;
 pub use integrations::internal::is_internal_call as is_internal_integrations_call;
@@ -100,6 +110,9 @@ pub use runs::{
     RequestWorkflowRuns, WorkflowRuns,
 };
 pub use schedule_sweep::{ScheduleTenants, run_schedule_sweep};
+/// The transport every Odoo request goes through (WeldConnect's syncs,
+/// tests and catch-up probes, WeldStash's RFQ push), installed by the binary.
+pub use weldsuite_connect_domain::odoo::install_transport as install_odoo_transport;
 pub use workflow_actions::{WorkflowActionsState, router as workflow_actions_router};
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,
@@ -140,6 +153,16 @@ pub struct ConnectState {
     /// the connector sync copies. A request's `StorageBuckets`
     /// (conformance) wins.
     pub storage: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
+    /// The install's AI (`weldsuite-ai`, ADR AI-012): "Generate with AI"
+    /// (`POST /api/workflows/generate`). `None` without a provider, which
+    /// answers as connect-api without its gateway. A request's `Ai`
+    /// (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// The edition whose connectors the catalog lists (`editions` in
+    /// `catalog.ts`, ADR INT-012): `kubernetes` normally, `global` in
+    /// conformance builds, which compare against Global's TypeScript
+    /// catalog (it hides Odoo).
+    pub connector_edition: &'static str,
 }
 
 impl std::fmt::Debug for ConnectState {
@@ -150,6 +173,7 @@ impl std::fmt::Debug for ConnectState {
             .field("master", &self.master.is_some())
             .field("http", &self.http.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -246,6 +270,21 @@ where
         .with_state(state)
 }
 
+/// WooCommerce's application-authentication callback
+/// (`POST /webhooks/woocommerce/auth`), at its full path and without a
+/// session: the shop posts the API keys it made, and the HMAC-signed state
+/// names the workspace, whose tenant database `workspaces` opens. A request's
+/// own `Tenant` (conformance) wins.
+pub fn woocommerce_auth_router<S>(
+    state: ConnectState,
+    workspaces: Option<Arc<weldsuite_db::Workspaces>>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    webhooks_woocommerce_auth::router(state, workspaces)
+}
+
 /// connect-api's internal integration routes (`X-Internal-Secret`) at their
 /// full `/api/integrations/...` paths. They share their paths with the
 /// member routes, so the server sends a request here only when
@@ -266,6 +305,7 @@ pub(crate) struct Overrides {
     pub(crate) master: Option<weldsuite_db::MasterDb>,
     pub(crate) runs: Option<RequestWorkflowRuns>,
     pub(crate) buckets: Option<weldsuite_ports::StorageBuckets>,
+    pub(crate) ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Overrides {
@@ -277,7 +317,18 @@ impl Overrides {
             master: extensions.get::<weldsuite_db::MasterDb>().cloned(),
             runs: extensions.get::<RequestWorkflowRuns>().cloned(),
             buckets: extensions.get::<weldsuite_ports::StorageBuckets>().cloned(),
+            ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
         }
+    }
+
+    /// The AI a route calls: the request's (conformance), else the state's;
+    /// `None` when it is off.
+    pub(crate) fn ai(&self, state: &ConnectState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// `c.env.<name>`: the request's env first (conformance), then the state's.

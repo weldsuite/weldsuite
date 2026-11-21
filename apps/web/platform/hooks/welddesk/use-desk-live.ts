@@ -16,7 +16,7 @@ import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/r
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { ConnectionState, PresenceMember, TypingUser } from '@weldsuite/realtime/types';
-import { getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import {
   deskKeys,
   type DeskConversation,
@@ -177,9 +177,11 @@ export function useDeskConversationRoom(conversationId: string | undefined): Des
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!conversationId) return;
+    const url = conversationId ? realtimeSocketUrl(`/ws/conversation/${conversationId}`) : '';
+    // An empty URL means realtime is off for this deployment.
+    if (!url) return;
     const client = new RoomClient({
-      url: `${getRealtimeWsOrigin()}/ws/conversation/${conversationId}`,
+      url,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     clientRef.current = client;

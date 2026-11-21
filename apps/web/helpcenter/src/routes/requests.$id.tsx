@@ -4,7 +4,7 @@ import { fill, useDateFormat, usePortalStrings } from '@/lib/portal-i18n'
 import { pageTitle } from '@/lib/site'
 import { PortalError, PortalPage } from '@/components/portal/PortalShell'
 import { ReplyBox, RequestThread } from '@/components/portal/RequestThread'
-import { StatusBadge } from '@/components/portal/StatusBadge'
+import { ApprovalBadge, StatusBadge } from '@/components/portal/StatusBadge'
 
 export const Route = createFileRoute('/requests/$id')({
   loader: async ({ params, location }) => {
@@ -53,10 +53,11 @@ function RequestView() {
             {request.title || t.requests.untitled}
           </h1>
           <StatusBadge status={request.status} label={request.statusLabel} t={t} />
+          {request.approval && <ApprovalBadge approval={request.approval} t={t} />}
         </div>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           {fill(t.requests.number, { number: request.number })}
-          {request.typeName ? ` · ${request.typeName}` : ''}
+          {request.catalogItemName || request.typeName ? ` · ${request.catalogItemName || request.typeName}` : ''}
           {' · '}
           <time dateTime={request.createdAt} suppressHydrationWarning>
             {fill(t.request.submittedOn, { date: date(request.createdAt) })}

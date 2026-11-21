@@ -10,7 +10,7 @@
  *                  was missed on the 1st (partners whose statement is already
  *                  invoiced, paid or void are skipped).
  *
- * Plan: docs/plans/reseller-licensing.md.
+ * Plan: weldsuite-documentation/plans/reseller-licensing.md.
  */
 
 import { and, eq } from 'drizzle-orm';

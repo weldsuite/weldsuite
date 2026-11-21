@@ -899,6 +899,35 @@ function selfAssessedTaxLines(
   return lines;
 }
 
+/**
+ * The account a bill line without its own account posts to: the bill's
+ * expense account, else the supplier's default expense account, else the
+ * entity's general expense role (4600 on older entities). The one chain behind
+ * posting and the "defaults to" hint the bill form shows.
+ */
+export function defaultBillExpenseAccount(
+  accounts: EntityAccounts,
+  expenseAccountId: string | null | undefined,
+  supplierDefaultExpenseAccountId: string | null | undefined,
+): AccountRow | undefined {
+  return (
+    accounts.byId(expenseAccountId) ??
+    accounts.byId(supplierDefaultExpenseAccountId) ??
+    accountForRole(accounts, 'general_expense', FALLBACK_CODES.general_expense)
+  );
+}
+
+/** `defaultBillExpenseAccount` for a bill (or bill-to-be) as `{ id, code, name }`, null when the entity has none. */
+export async function resolveBillDefaultExpenseAccount(
+  db: Database,
+  input: { entityId: string; expenseAccountId?: string | null; contactId?: string | null },
+): Promise<{ id: string; code: string; name: string } | null> {
+  const accounts = await loadEntityAccounts(db, input.entityId);
+  const party = await loadParty(db, input.contactId);
+  const account = defaultBillExpenseAccount(accounts, input.expenseAccountId, party?.defaultExpenseAccountId);
+  return account ? { id: account.id, code: account.code, name: account.name } : null;
+}
+
 export async function buildBillPosting(
   db: Database,
   bill: BillRow,
@@ -926,10 +955,7 @@ export async function buildBillPosting(
   if (bill.expenseAccountId && !accounts.byId(bill.expenseAccountId)) {
     throw new PostingError('expenseAccountId does not belong to this accounting entity');
   }
-  const defaultExpense =
-    accounts.byId(bill.expenseAccountId) ??
-    accounts.byId(party?.defaultExpenseAccountId) ??
-    accountForRole(accounts, 'general_expense', FALLBACK_CODES.general_expense);
+  const defaultExpense = defaultBillExpenseAccount(accounts, bill.expenseAccountId, party?.defaultExpenseAccountId);
 
   const expenses = billExpenses(items, accounts, defaultExpense, taxDeductible);
   adjustBrPurchaseCost(expenses, breakdown, items, (item) => accounts.byId(item.accountId)?.id ?? defaultExpense?.id);
@@ -1031,6 +1057,26 @@ export async function postBill(
 // Payments
 // ---------------------------------------------------------------------------
 
+/** The entity's default bank account: the one marked default, else the oldest, among those linked to a ledger account. */
+export async function findDefaultBankAccount(
+  db: Database,
+  entityId: string,
+): Promise<{ id: string; ledgerAccountId: string | null } | null> {
+  const [defaultBank] = await db
+    .select({ id: schema.bankAccounts.id, ledgerAccountId: schema.bankAccounts.ledgerAccountId })
+    .from(schema.bankAccounts)
+    .where(
+      and(
+        eq(schema.bankAccounts.entityId, entityId),
+        isNull(schema.bankAccounts.deletedAt),
+        sql`${schema.bankAccounts.ledgerAccountId} is not null`,
+      ),
+    )
+    .orderBy(sql`${schema.bankAccounts.isDefault} desc nulls last`, schema.bankAccounts.createdAt)
+    .limit(1);
+  return defaultBank ?? null;
+}
+
 /**
  * The ledger account money moves through: the payment's bank account, the
  * cash account for cash payments, else the entity's default bank account.
@@ -1063,18 +1109,7 @@ export async function resolveMoneyAccount(
     const cash = accounts.bySubtype('cash');
     if (cash) return cash.id;
   }
-  const [defaultBank] = await db
-    .select({ ledgerAccountId: schema.bankAccounts.ledgerAccountId })
-    .from(schema.bankAccounts)
-    .where(
-      and(
-        eq(schema.bankAccounts.entityId, entity.id),
-        isNull(schema.bankAccounts.deletedAt),
-        sql`${schema.bankAccounts.ledgerAccountId} is not null`,
-      ),
-    )
-    .orderBy(sql`${schema.bankAccounts.isDefault} desc nulls last`, schema.bankAccounts.createdAt)
-    .limit(1);
+  const defaultBank = await findDefaultBankAccount(db, entity.id);
   const fromBank = accounts.byId(defaultBank?.ledgerAccountId);
   if (fromBank) return fromBank.id;
   // Template bank accounts: NL 1100 Bank, IN 1200 Bank.

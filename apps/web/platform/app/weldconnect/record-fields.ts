@@ -107,6 +107,17 @@ const RECORD_FIELDS: Record<string, readonly RecordFieldDef[]> = {
     { path: 'authorLogin', sample: 'octocat' },
     { path: 'repositoryId' },
   ],
+  // WeldForms: FormResponseEventData (packages/core/entity-events/src/events/data.ts); answers are keyed by question ref.
+  form_response: [
+    { path: 'id', sample: 'frs_test' },
+    { path: 'formId', sample: 'frm_test' },
+    { path: 'formTitle', sample: 'Contact us' },
+    { path: 'number', sample: '12', type: 'number' },
+    { path: 'respondentEmail', sample: 'ada@example.com' },
+    { path: 'personId' },
+    { path: 'score', type: 'number', events: ['submitted', 'updated'] },
+    { path: 'submittedAt', events: ['submitted', 'updated'] },
+  ],
   merge_release: [
     { path: 'id', sample: 'mrl_test', events: ['created', 'updated', 'deleted'] },
     { path: 'releaseId', sample: 'mrl_test', events: ['shipped'] },

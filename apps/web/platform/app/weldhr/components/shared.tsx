@@ -30,11 +30,24 @@ export function errorMessage(err: unknown, fallback: string): string {
 // Formatting
 // ---------------------------------------------------------------------------
 
+/**
+ * The locale WeldHR formats dates and money in: the UI language with the
+ * selected legal entity's region, as WeldBooks does (`weldbooksDateLocale`),
+ * so an NL entity reads "17 Nov 2026" and "€ 12,34" in both (TASK-1471).
+ * The WeldHR layout sets it while rendering, before its pages render;
+ * undefined is the browser's locale.
+ */
+let hrFormatLocale: string | undefined;
+
+export function setHrFormatLocale(locale: string | undefined): void {
+  hrFormatLocale = locale;
+}
+
 /** `YYYY-MM-DD` (or ISO) → localised short date. Date-only strings are read as calendar dates, not UTC instants. */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(hrFormatLocale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /** Clock time of an instant in the user's 12h/24h preference (the same one WeldCalendar and the roster use). */
@@ -51,7 +64,7 @@ export function useFormatTime(): (value: string | null | undefined) => string {
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
-  return new Date(value).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(value).toLocaleString(hrFormatLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 /** 485 → "8h 05m". */
@@ -75,16 +88,16 @@ export function formatKpiValue(value: number | null | undefined, unit: HrKpiUnit
     case 'minutes':
       return formatMinutes(Math.round(value));
     case 'currency':
-      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      return value.toLocaleString(hrFormatLocale, { maximumFractionDigits: 2 });
     default:
-      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      return value.toLocaleString(hrFormatLocale, { maximumFractionDigits: 2 });
   }
 }
 
-/** 12.5 + "EUR" → "€12.50" in the viewer's locale; an unknown currency code falls back to "12.50 XYZ". */
+/** 12.5 + "EUR" → "€ 12,50" in WeldHR's locale (see `setHrFormatLocale`); an unknown currency code falls back to "12.50 XYZ". */
 export function formatMoney(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+    return new Intl.NumberFormat(hrFormatLocale, { style: 'currency', currency }).format(amount);
   } catch {
     return `${amount.toFixed(2)} ${currency}`;
   }

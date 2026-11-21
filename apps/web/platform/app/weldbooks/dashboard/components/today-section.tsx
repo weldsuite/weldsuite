@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react';
 import { Link, type LinkProps } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
+import { ComparisonChart } from '@weldsuite/ui/components/comparison-chart';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +19,6 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-import { ComparisonLineChart } from './comparison-line-chart';
 import { dashboardTrend, yearToDateSeries, type Metric } from './dashboard-series';
 import { useChartFormat } from './use-chart-format';
 
@@ -28,14 +28,14 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
   const format = useChartFormat();
   const [metric, setMetric] = useState<Metric>('revenue');
 
-  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
-  // The sample trend has all three metrics; an older API only returns revenue.
-  const hasTrend = sample || Boolean(dashboard.monthlyTrend?.length);
+  const months = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  // An older API only returns revenue: expenses and profit are then unknown.
+  const hasTrend = months.every((m) => m.expenses !== null);
   const activeMetric: Metric = hasTrend ? metric : 'revenue';
   const ytd = useMemo(() => yearToDateSeries(months, activeMetric), [months, activeMetric]);
-  // The sample trend only draws the chart: the figures stay the workspace's own, "—" while nothing is booked.
-  const total = sample ? null : ytd.total;
-  const lastYearTotal = sample ? null : ytd.compareTotal;
+  // Nothing booked reads as 0, like the line.
+  const total = ytd.total ?? 0;
+  const lastYearTotal = ytd.compareTotal ?? 0;
 
   const metricLabels: Record<Metric, string> = {
     revenue: tc.revenue,
@@ -75,26 +75,25 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <p className={`text-xl tabular-nums ${(total ?? 0) < 0 ? 'text-destructive' : ''}`}>
-              {total === null ? '—' : format.formatMoney(total)}
-            </p>
+            <p className={`text-xl tabular-nums ${total < 0 ? 'text-destructive' : ''}`}>{format.formatMoney(total)}</p>
             <p className="text-xs text-muted-foreground">{span(ytd.year)}</p>
           </div>
           <div className="space-y-1">
             <p className="text-sm font-medium">{tc.lastYear}</p>
-            <p className="text-xl tabular-nums text-muted-foreground">
-              {lastYearTotal === null ? '—' : format.formatMoney(lastYearTotal)}
-            </p>
-            <p className="text-xs text-muted-foreground">{lastYearTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
+            <p className="text-xl tabular-nums text-muted-foreground">{format.formatMoney(lastYearTotal)}</p>
+            <p className="text-xs text-muted-foreground">{span(ytd.year - 1)}</p>
           </div>
         </div>
 
-        <ComparisonLineChart
+        <ComparisonChart
           variant="hero"
           points={ytd.points}
           label={metricLabels[activeMetric]}
           compareLabel={tc.lastYear}
           formatTick={format.monthShort}
+          formatAxisValue={format.compactMoney}
+          formatValue={format.formatMoney}
+          formatPeriod={format.monthLong}
           className="aspect-auto h-[200px] w-full"
         />
       </div>
@@ -115,9 +114,13 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
 
   const base = dashboard.currency;
   const accounts = dashboard.bankAccounts ?? [];
-  const cash = accounts
-    .filter((a) => !a.currency || !base || a.currency === base)
-    .reduce((sum, a) => sum + Number(a.currentBalance ?? 0), 0);
+  // The ledger balance of the money accounts, when the API has it; else the sum of the bank accounts (older API).
+  const cash =
+    dashboard.cashBalance === undefined
+      ? accounts
+          .filter((a) => !a.currency || !base || a.currency === base)
+          .reduce((sum, a) => sum + Number(a.currentBalance ?? 0), 0)
+      : Number(dashboard.cashBalance);
   const receivables = dashboard.receivables;
   const payables = dashboard.payables;
   const overdue = Number(receivables?.overdue ?? 0);

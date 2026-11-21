@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { EN_LOCALE } from '@weldsuite/sheets-engine';
 import { parseDataRange } from './charts';
-import { createPivotTable, fieldValues, MAX_FILTER_VALUES, parseTargetCell, pivotFields, savePivot, suggestedLayout } from './pivots';
+import { createPivotTable, fieldValues, MAX_FILTER_VALUES, parseTargetCell, pivotFields, pivotFitOp, savePivot, suggestedLayout } from './pivots';
 import { cellSelection } from './selection';
 import { SheetController } from './sheet-controller';
 
@@ -24,6 +24,11 @@ function make() {
 }
 
 const value = (ctl: SheetController, row: number, col: number) => ctl.engine.getValue(ctl.activeSheetId, row, col);
+
+// Fitting columns measures text on a canvas, which jsdom has not got.
+beforeAll(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+});
 
 describe('pivot table commands', () => {
   it('suggests rows of the first text field and the sum of the first number field', () => {
@@ -128,6 +133,21 @@ describe('pivot table commands', () => {
     expect(ids.complete).toBe(false);
     expect(ids.values).toHaveLength(MAX_FILTER_VALUES);
     expect(fieldValues(ctl, parseDataRange(ctl, `A1:A${MAX_FILTER_VALUES + 1}`)!, 'Id')).toMatchObject({ complete: true });
+  });
+
+  it('sizes the output columns to what they hold, in the step that wrote them', () => {
+    const ctl = make();
+    ctl.setInput(1, 0, 'A very long region name');
+    createPivotTable(ctl, parseDataRange(ctl, 'A1:C6'), null, 'Pivot table');
+    // jsdom has no canvas to measure with; a fixed width per character stands in.
+    const op = pivotFitOp(ctl, 0, 0, (text) => text.length * 7);
+    expect(op).toMatchObject({ type: 'resizeDims', axis: 'col' });
+    const widths = op?.type === 'resizeDims' ? op.entries : [];
+    expect(widths[0]?.[1]).toBeGreaterThan(widths[1]?.[1] ?? 0);
+    expect(widths[0]?.[1]).toBeGreaterThanOrEqual('A very long region name'.length * 7);
+    expect(pivotFitOp(ctl, 9, 9)).toBeNull();
+    ctl.undo();
+    expect(ctl.engine.workbook.sheets).toHaveLength(1);
   });
 
   it('says what stops it', () => {

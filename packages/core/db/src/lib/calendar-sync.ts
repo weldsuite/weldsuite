@@ -20,11 +20,11 @@
  */
 
 import { eq, and, isNull, isNotNull, gte, lte, or, not, inArray, notExists, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { WorkingHours, DayHours } from '../schema/helpdesk-agents';
 
-type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
+type Database = TenantDb;
 
 const DEFAULT_DURATION_MINUTES = 30;
 const MAX_SEARCH_DAYS_NO_DEADLINE = 60;

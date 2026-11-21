@@ -23,6 +23,8 @@
     "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute",
     "backfill:legal-entities": "tsx src/backfill-legal-entities.ts",
     "backfill:legal-entities:execute": "tsx src/backfill-legal-entities.ts --execute",
+    "inventory:global": "tsx src/global-inventory.ts",
+    "clerk:weldid": "tsx src/clerk-to-weldid.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -41,6 +43,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.29",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "tsx": "^4.0.0",
     "typescript": "^5.7"

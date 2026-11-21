@@ -1,6 +1,6 @@
 /**
  * WeldHR payroll — WeldSuite's own payroll for the Netherlands and the United
- * States. Tenant DB. Plan: docs/plans/weldhr-payroll.md.
+ * States. Tenant DB. Plan: weldsuite-documentation/plans/weldhr-payroll.md.
  *
  * WeldSuite calculates; the employer pays. Nothing here holds money: a pay run
  * ends in payslips, a payment file (SEPA pain.001 / NACHA) the employer uploads
@@ -320,7 +320,7 @@ export interface HrPayrollFilingTaxPayment {
  * this row holds how payroll runs under one of its registrations. Approved
  * pay runs post their journal to the entity when WeldBooks is enabled for it.
  *
- * Release 1 (docs/plans/legal-entities.md): `legal_entity_id`,
+ * Release 1 (weldsuite-documentation/plans/legal-entities.md): `legal_entity_id`,
  * `registration_id` and `bank_account_id` are the new links; the copied
  * company facts below are @deprecated, still written (mirror) and dropped in
  * release 2.

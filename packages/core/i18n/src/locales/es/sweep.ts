@@ -1571,9 +1571,7 @@ export const sweep = {
     "fieldDate": "Date",
     "filterAttachments": "Attachments",
     "filterCurrent": "Current",
-    "filterNoPortalAccess": "No access",
     "filterNotStarred": "Not starred",
-    "filterPortalAccess": "Portal access",
     "filterRead": "Read",
     "filterStarred": "Starred",
     "filterUnread": "Unread",
@@ -3710,22 +3708,6 @@ export const sweep = {
       "noEmailsYetDescription": "Email history with this customer will appear here once synced.",
       "noEmailsFound": "No emails found",
       "noEmailsFoundDescription": "We couldn't find any emails matching your search."
-    },
-    "ordersSection": {
-      "orders": "Orders",
-      "orderCount": "{count} orders",
-      "newOrder": "New Order",
-      "noOrdersYet": "No orders yet",
-      "noOrdersYetDescription": "Orders from this customer will appear here.",
-      "createOrder": "Create Order",
-      "totalOrders": "Total Orders",
-      "totalValue": "Total Value",
-      "avgOrderValue": "Avg Order Value",
-      "viewOrder": "View order",
-      "editOrder": "Edit order",
-      "trackShipment": "Track shipment",
-      "createInvoice": "Create invoice",
-      "cancelOrder": "Cancel order"
     },
     "invoicesSection": {
       "invoices": "Invoices",

@@ -10,6 +10,7 @@ import {
 import { driveTurn, type DriveTurnParams } from './executor';
 import type { PlatformToolDefinition } from './tools';
 import { splitQuestionMarkers } from '@weldsuite/app-api-client/schemas/weldagent-questions';
+import { splitReplyParts } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 describe('resolveManagedModel', () => {
   it('keeps Claude agent models', () => {
@@ -164,6 +165,50 @@ describe('driveTurn', () => {
     });
 
     expect(splitQuestionMarkers(streamed)).toEqual({ text: 'One more thing.', questions: [question] });
+  });
+
+  it('puts a shown visual in the stream and in the stored text, in reply order', async () => {
+    const chart = {
+      kind: 'bar',
+      title: 'Open tickets per status',
+      labels: ['Open', 'Solved'],
+      series: [{ name: 'Tickets', values: [3, 9] }],
+    };
+    const { client } = fakeClient([
+      { type: 'session.status_running', id: 'e1' },
+      { type: 'agent.message', id: 'e2', content: [{ type: 'text', text: 'Here it is.' }] },
+      { type: 'agent.custom_tool_use', id: 'e3', name: 'show_chart', input: chart },
+      { type: 'agent.message', id: 'e4', content: [{ type: 'text', text: 'Most are solved.' }] },
+      { type: 'agent.custom_tool_use', id: 'e5', name: 'show_chart', input: { ...chart, title: 'Refused' } },
+      { type: 'session.status_idle', id: 'e6', stop_reason: { type: 'end_turn' } },
+    ]);
+    let streamed = '';
+    let call = 0;
+
+    const outcome = await driveTurn({
+      client,
+      sessionId: 'sesn_1',
+      kickoff: [{ type: 'user.message', content: [{ type: 'text', text: 'Chart my tickets' }] }],
+      deadline: Date.now() + 10_000,
+      maxModelRequests: 10,
+      invocations: [],
+      onText: (text) => {
+        streamed += text;
+      },
+      // The second call is refused: it is not shown.
+      onCustomTool: async () => {
+        call += 1;
+        return call === 1 ? { result: { ok: true }, isError: false } : { result: { ok: false }, isError: false };
+      },
+    });
+
+    const expected = [
+      { kind: 'text', text: 'Here it is.' },
+      { kind: 'visual', visual: { type: 'chart', ...chart } },
+      { kind: 'text', text: 'Most are solved.' },
+    ];
+    expect(splitReplyParts(streamed).parts).toEqual(expected);
+    expect(splitReplyParts(outcome.texts.join('\n\n')).parts).toEqual(expected);
   });
 
   it('interrupts once the model-request cap is passed', async () => {

@@ -160,6 +160,9 @@ pub struct ApiModule {
     pub apps: Option<Vec<String>>,
     /// Ported to Rust: the Kubernetes editions serve it (`RUST_PORTED_MODULES`).
     pub rust: bool,
+    /// Built only in Rust, with no TypeScript worker to check it against
+    /// (`RUST_ONLY_MODULES`, ADR COM-009).
+    pub rust_only: bool,
 }
 
 /// `record-chat.json`: a record's chat opens to the apps of the record's
@@ -360,7 +363,9 @@ mod tests {
             .iter()
             .filter_map(|suite| suite["module"].as_str())
             .collect();
-        for module in api_modules().iter().filter(|m| m.rust) {
+        // A Rust-only module has no TypeScript tests to run against it; its
+        // own Rust tests stand in (ADR COM-009).
+        for module in api_modules().iter().filter(|m| m.rust && !m.rust_only) {
             assert!(
                 covered.contains(&module.id.as_str()),
                 "{} has no conformance suite",

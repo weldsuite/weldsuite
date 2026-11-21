@@ -1,0 +1,6 @@
+# This cluster's own configs, applied by the configs-extra layer
+# (../layers.yaml) with the cluster's settings substituted.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - mta-database.yaml

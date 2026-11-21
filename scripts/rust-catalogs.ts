@@ -48,6 +48,8 @@ import {
   TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
 } from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
 import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
+import { STARTER_TEMPLATES } from '../packages/core/forms-engine/src/templates';
+import { formDefinitionSchema } from '../packages/core/forms-engine/src/definition';
 import {
   MAX_SHEET_DATA_COLUMNS,
   MAX_SHEET_DATA_FILTERS,
@@ -57,6 +59,24 @@ import {
   SHEET_DATA_OBJECT_KEYS,
   SHEET_DATA_OBJECTS,
 } from '../packages/clients/app-api-client/src/schemas/sheet-data';
+import {
+  AI_CAPABILITIES,
+  AI_FEATURES,
+  AI_MODELS,
+  AI_PROVIDERS,
+  AI_TASKS,
+  COMPAT_CAPABILITIES,
+  PROVIDER_TASKS,
+  TASK_NEEDS,
+} from '../packages/core/ai/src/catalog';
+import {
+  CREDITS_PER_USD,
+  DEFAULT_PRICE,
+  MODEL_PRICES,
+  PROVIDER_MARKUP,
+  WORKERS_AI_FALLBACK_PRICE,
+} from '../packages/core/ai/src/billing-rates';
+import { odataCatalogJson } from '../apps/workers/external-api/src/routes/v1/odata/catalog';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -113,13 +133,13 @@ function connectorsCatalog(): unknown {
   const entities = new Set<string>([
     ...Object.keys(CONNECTOR_INTERNAL_FIELDS),
     ...Object.keys(CONNECTOR_EXTERNAL_FIELDS),
-    ...listConnectors().flatMap((c) => c.syncs.map((s) => s.internalEntity)),
+    ...listConnectors('kubernetes').flatMap((c) => c.syncs.map((s) => s.internalEntity)),
   ]);
   const defaultFieldMappings = Object.fromEntries(
     [...entities].map((entity) => [entity, getDefaultConnectorFieldMappings(entity)]).filter(([, m]) => m.length),
   );
   return {
-    connectors: listConnectors(),
+    connectors: listConnectors('kubernetes'),
     defaultFieldMappings,
     picqerProductFieldMappings: getDefaultConnectorFieldMappings('product', 'picqer'),
   };
@@ -148,6 +168,44 @@ function sheetDataCatalog(): unknown {
   };
 }
 
+/**
+ * WeldForms' starter templates (`STARTER_TEMPLATES` of `@weldsuite/forms-engine`),
+ * in gallery order, each definition as `formDefinitionSchema.parse` returns it:
+ * what forms-api stores when a member creates a form from a template.
+ */
+function formsTemplatesCatalog(): unknown {
+  return STARTER_TEMPLATES.map((template) => ({
+    id: template.id,
+    category: template.category,
+    name: template.name,
+    description: template.description,
+    definition: formDefinitionSchema.parse(template.definition),
+  }));
+}
+
+/**
+ * The AI catalog of the Kubernetes editions (`@weldsuite/ai`'s `catalog.ts`,
+ * ADR AI-012) with the shared rate table (`billing-rates.ts`, AI-006), for
+ * `rust/crates/ai`. `tasks` is `recommended`'s task list, in its order.
+ */
+function aiCatalog(): unknown {
+  return {
+    tasks: AI_TASKS,
+    capabilities: AI_CAPABILITIES,
+    providers: AI_PROVIDERS,
+    models: AI_MODELS,
+    providerTasks: PROVIDER_TASKS,
+    taskNeeds: TASK_NEEDS,
+    compatCapabilities: COMPAT_CAPABILITIES,
+    features: AI_FEATURES,
+    prices: MODEL_PRICES,
+    defaultPrice: DEFAULT_PRICE,
+    workersAiFallbackPrice: WORKERS_AI_FALLBACK_PRICE,
+    providerMarkup: PROVIDER_MARKUP,
+    creditsPerUsd: CREDITS_PER_USD,
+  };
+}
+
 async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
@@ -162,6 +220,11 @@ async function main(): Promise<void> {
     'catalogs/weldconnect.json': weldconnectCatalog(),
     'catalogs/connectors.json': connectorsCatalog(),
     'catalogs/sheet-data.json': sheetDataCatalog(),
+    'catalogs/forms-templates.json': formsTemplatesCatalog(),
+    'catalogs/ai.json': aiCatalog(),
+    // The public API's OData feed (`/v1/odata`): its entity sets and properties,
+    // in order, as external-api exports them (rust/modules/external-api/src/odata).
+    'catalogs/odata.json': JSON.parse(odataCatalogJson()),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

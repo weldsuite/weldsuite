@@ -80,7 +80,7 @@ CREATE UNIQUE INDEX "legal_entity_members_entity_user_uidx" ON "legal_entity_mem
 CREATE INDEX "legal_entity_members_user_idx" ON "legal_entity_members" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "legal_entity_registrations_entity_type_idx" ON "legal_entity_registrations" USING btree ("entity_id","type");--> statement-breakpoint
 CREATE INDEX "acct_bank_account_settings_entity_idx" ON "accounting_bank_account_settings" USING btree ("entity_id");--> statement-breakpoint
--- At most one default legal entity (docs/plans/legal-entities.md, release 1
+-- At most one default legal entity (weldsuite-documentation/plans/legal-entities.md, release 1
 -- step 1): keep settings.default_entity_id when it is a live default, else the
 -- oldest live default; clear the rest before the unique index is built.
 UPDATE "entities" SET "is_default" = false

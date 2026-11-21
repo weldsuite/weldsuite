@@ -1,6 +1,6 @@
 /**
  * Inbound thread resolution for the Postgres mailbox store (design task B4,
- * docs/plans/weldmail-mailbox-store-design.md §2.1 / §9).
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md §2.1 / §9).
  *
  * Ported from mail-inbound-worker's `email-storage.ts` (`isTenantDuplicate`,
  * `findThreadByReplyIds`, `findThreadBySubject`, `resolveTenantThread`) so the

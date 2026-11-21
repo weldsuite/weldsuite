@@ -39,7 +39,8 @@ export default function WeldBoardTemplates() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
+    // The same edges as the boards page next to it.
+    <div className="flex w-full flex-col gap-6 px-4 py-6">
       <header>
         <h1 className="text-lg font-semibold">{tt.title}</h1>
         <p className="text-sm text-muted-foreground">{tt.description}</p>

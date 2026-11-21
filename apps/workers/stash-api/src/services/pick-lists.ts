@@ -13,14 +13,6 @@ import {
   releaseAllocation,
   StockLedgerError,
 } from './inventory-ledger';
-import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
-import type { SendcloudClient } from '@weldsuite/sendcloud/client';
-import { SendcloudError, createSendcloudClient } from '@weldsuite/sendcloud/client';
-import { toSendcloudToAddress } from '@weldsuite/sendcloud/addresses';
-import {
-  decryptSecret,
-  getSendcloudSettings,
-} from '@weldsuite/sendcloud/settings';
 
 const {
   pickLists,
@@ -51,10 +43,7 @@ export class PickListError extends Error {
       | 'INVALID_STATUS'
       | 'SCAN_MISMATCH'
       | 'ITEM_NOT_FOUND'
-      | 'INCOMPLETE_LINES'
-      | 'SHIPPING_NOT_CONFIGURED'
-      | 'MISSING_ADDRESS'
-      | 'SENDCLOUD_FAILED',
+      | 'INCOMPLETE_LINES',
   ) {
     super(message);
     this.name = 'PickListError';
@@ -631,27 +620,11 @@ export async function packPickList(db: Database, id: string, userId?: string) {
   return { id, status: 'packed', parcelId };
 }
 
-export interface ShipPickListOptions {
-  senderId?: number;
-  shippingOptionCode?: string;
-  weightKg?: number;
-  sendcloud?: SendcloudClient;
-  keyring?: EncryptionKeyring;
-  /** Clerk org id: the key of the workspace's `workspace_settings` row (the Sendcloud keys live there). */
-  clerkOrgId?: string;
-}
-
 export interface ShipPickListResult {
   id: string;
   status: string;
   shipmentId?: string | null;
   parcelId?: string | null;
-  trackingNumber?: string | null;
-  trackingUrl?: string | null;
-  labelUrl?: string | null;
-  labelPdfBase64?: string | null;
-  carrierName?: string | null;
-  shippingOptionCode?: string | null;
 }
 
 /** Issue a shipped line's picked stock from the ledger and bump its order line's fulfilled quantity. */
@@ -684,14 +657,8 @@ async function issuePickedLine(
   }
 }
 
-/** Flip the order to partial/fulfilled after a shipment, carrying over the carrier details. */
-async function markOrderShipped(
-  db: Database,
-  orderId: string,
-  order: typeof orders.$inferSelect | undefined,
-  carrier: { trackingNumber: string | null; trackingUrl: string | null; carrierName: string | null },
-  now: Date,
-): Promise<void> {
+/** Flip the order to partial/fulfilled after a shipment. Tracking details already on the order stay. */
+async function markOrderShipped(db: Database, orderId: string, now: Date): Promise<void> {
   const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
   const remaining = lines.some(
     (line) => (line.quantity ?? 0) - (line.fulfilledQuantity ?? 0) > 0,
@@ -700,20 +667,22 @@ async function markOrderShipped(
     .update(orders)
     .set({
       fulfillmentStatus: remaining ? 'partial' : 'fulfilled',
-      trackingNumber: carrier.trackingNumber ?? order?.trackingNumber,
-      trackingUrl: carrier.trackingUrl ?? order?.trackingUrl,
-      shippingCarrier: carrier.carrierName ?? order?.shippingCarrier,
       shippedAt: now,
       updatedAt: now,
     })
     .where(eq(orders.id, orderId));
 }
 
+/**
+ * Ship a packed pick list: record the outbound shipment, issue the picked
+ * stock from the ledger and fulfil the order lines. No carrier is called —
+ * carrier labels left with the shipping integration (removed ahead of the
+ * WeldCommerce rebuild).
+ */
 export async function shipPickList(
   db: Database,
   id: string,
   userId?: string,
-  options: ShipPickListOptions = {},
 ): Promise<ShipPickListResult | null> {
   const list = await loadPickList(db, id);
   if (!list) return null;
@@ -725,36 +694,6 @@ export async function shipPickList(
   }
 
   const orderId = list.orderIds?.[0] ?? null;
-  const [order] = orderId
-    ? await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
-    : [undefined];
-  const requiresShipping = await orderRequiresCarrier(db, orderId);
-
-  let trackingNumber: string | null = null;
-  let trackingUrl: string | null = null;
-  let labelUrl: string | null = null;
-  let labelPdfBase64: string | null = null;
-  let carrierName: string | null = null;
-  let shippingOptionCode: string | null = options.shippingOptionCode ?? null;
-  let sendcloudParcelId: number | null = null;
-  let sendcloudShipmentId: string | number | null = null;
-
-  if (requiresShipping) {
-    const announced = await announceSendcloudParcel(db, {
-      list,
-      order,
-      options,
-    });
-    trackingNumber = announced.trackingNumber ?? null;
-    trackingUrl = announced.trackingUrl ?? null;
-    labelUrl = announced.labelUrl ?? null;
-    labelPdfBase64 = announced.labelPdfBase64 ?? null;
-    carrierName = announced.carrierName ?? null;
-    shippingOptionCode = announced.shippingOptionCode ?? null;
-    sendcloudParcelId = announced.sendcloudParcelId;
-    sendcloudShipmentId = announced.sendcloudShipmentId;
-  }
-
   const items = await loadItems(db, id);
   const now = new Date();
   const shipmentId = list.shipmentId ?? generateId('shp');
@@ -769,7 +708,6 @@ export async function shipPickList(
       type: 'outbound',
       parcelIds: parcelId ? [parcelId] : [],
       totalParcels: parcelId ? 1 : 0,
-      carrierName,
       shippedAt: now,
       createdAt: now,
       updatedAt: now,
@@ -779,22 +717,7 @@ export async function shipPickList(
   if (parcelId) {
     await db
       .update(parcels)
-      .set({
-        shipmentId,
-        status: 'shipped',
-        shippedAt: now,
-        trackingNumber,
-        carrierName,
-        serviceType: shippingOptionCode,
-        labelUrl,
-        labelFormat: labelUrl || labelPdfBase64 ? 'PDF' : undefined,
-        customFields: {
-          sendcloudShipmentId,
-          sendcloudParcelId,
-          shippingOptionCode,
-        },
-        updatedAt: now,
-      })
+      .set({ shipmentId, status: 'shipped', shippedAt: now, updatedAt: now })
       .where(eq(parcels.id, parcelId));
   }
 
@@ -803,7 +726,7 @@ export async function shipPickList(
   }
 
   if (orderId) {
-    await markOrderShipped(db, orderId, order, { trackingNumber, trackingUrl, carrierName }, now);
+    await markOrderShipped(db, orderId, now);
   }
 
   await db
@@ -816,122 +739,9 @@ export async function shipPickList(
     userId,
     warehouseId: list.warehouseId,
     description: `Shipped pick list ${list.pickListNumber}`,
-    metadata: { shipmentId, parcelId, trackingNumber, shippingOptionCode },
+    metadata: { shipmentId, parcelId },
   });
-  return {
-    id,
-    status: 'shipped',
-    shipmentId,
-    parcelId,
-    trackingNumber,
-    trackingUrl,
-    labelUrl,
-    labelPdfBase64,
-    carrierName,
-    shippingOptionCode,
-  };
-}
-
-/**
- * Sendcloud client for this workspace (explicit client wins over stored keys).
- * When workspace settings are loaded, the chosen sender and parcel type must be enabled.
- */
-async function resolveSendcloudClient(
-  db: Database,
-  options: ShipPickListOptions,
-  senderId: number,
-  shippingOptionCode: string,
-): Promise<SendcloudClient> {
-  let client = options.sendcloud ?? null;
-  const stored = options.clerkOrgId
-    ? await getSendcloudSettings(db, options.clerkOrgId)
-    : null;
-  if (!client) {
-    const secret = stored ? await decryptSecret(stored.secretKey, options.keyring ?? {}) : null;
-    if (!stored?.publicKey || !secret) {
-      throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
-    }
-    client = createSendcloudClient({ publicKey: stored.publicKey, secretKey: secret });
-  }
-  const sender = stored?.senders.find((row) => row.id === senderId);
-  const method = stored?.methods.find((row) => row.code === shippingOptionCode);
-  if (stored && (!sender?.enabled || !method?.enabled)) {
-    throw new PickListError(
-      'Selected sender or parcel type is not enabled',
-      'SHIPPING_NOT_CONFIGURED',
-    );
-  }
-  return client;
-}
-
-/** Recipient address for the announcement; an incomplete one surfaces as MISSING_ADDRESS. */
-function buildToAddress(order: typeof orders.$inferSelect | undefined) {
-  try {
-    return toSendcloudToAddress({
-      address: order?.shippingAddress,
-      name: order?.customerName,
-      email: order?.customerEmail,
-      phone: order?.customerPhone,
-    });
-  } catch (err) {
-    throw new PickListError(
-      err instanceof Error ? err.message : 'Recipient address is incomplete',
-      'MISSING_ADDRESS',
-    );
-  }
-}
-
-async function announceSendcloudParcel(
-  db: Database,
-  params: {
-    list: NonNullable<Awaited<ReturnType<typeof loadPickList>>>;
-    order: typeof orders.$inferSelect | undefined;
-    options: ShipPickListOptions;
-  },
-) {
-  const { list, order, options } = params;
-  if (!options.senderId || !options.shippingOptionCode || !options.weightKg) {
-    throw new PickListError(
-      'Sender, parcel type, and weight are required to ship this order',
-      'SHIPPING_NOT_CONFIGURED',
-    );
-  }
-  if (!options.clerkOrgId && !options.sendcloud) {
-    throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
-  }
-
-  const client = await resolveSendcloudClient(db, options, options.senderId, options.shippingOptionCode);
-  const toAddress = buildToAddress(order);
-
-  try {
-    const announced = await client.announceShipment({
-      senderAddressId: options.senderId,
-      toAddress,
-      shippingOptionCode: options.shippingOptionCode,
-      weightKg: options.weightKg,
-      orderNumber: order?.orderNumber ?? list.pickListNumber,
-    });
-    if (announced.errors.length > 0 || !announced.parcel?.trackingNumber) {
-      const message = announced.errors[0]?.message || 'Sendcloud did not announce the shipment';
-      throw new PickListError(message, 'SENDCLOUD_FAILED');
-    }
-    return {
-      trackingNumber: announced.parcel.trackingNumber,
-      trackingUrl: announced.parcel.trackingUrl,
-      labelUrl: announced.parcel.labelDocumentUrl,
-      labelPdfBase64: announced.parcel.labelPdfBase64,
-      carrierName: announced.carrierName,
-      shippingOptionCode: announced.shippingOptionCode,
-      sendcloudParcelId: announced.parcel.id,
-      sendcloudShipmentId: announced.id,
-    };
-  } catch (err) {
-    if (err instanceof PickListError) throw err;
-    if (err instanceof SendcloudError) {
-      throw new PickListError(err.message, 'SENDCLOUD_FAILED');
-    }
-    throw err;
-  }
+  return { id, status: 'shipped', shipmentId, parcelId };
 }
 
 /**

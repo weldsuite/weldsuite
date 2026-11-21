@@ -40,6 +40,9 @@ pub struct SystemMessageContext<'a> {
     pub author_name: &'a str,
     /// Who caused the post: only the mention notifications name them.
     pub invoker_user_id: &'a str,
+    /// Outbound HTTP for the mention notifications' push (Expo); `None`
+    /// notifies in-app only. Conformance builds pass none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
 }
 
 /// What is posted (`PostSystemChatMessageInput`).
@@ -53,7 +56,7 @@ pub struct SystemMessageInput<'a> {
 }
 
 /// `SEARCH_ENTITY_TYPES`: entity references in `<@type:id>`.
-const SEARCH_ENTITY_TYPES: [&str; 14] = [
+const SEARCH_ENTITY_TYPES: [&str; 13] = [
     "contact",
     "customer",
     "lead",
@@ -61,7 +64,6 @@ const SEARCH_ENTITY_TYPES: [&str; 14] = [
     "ticket",
     "article",
     "product",
-    "order",
     "invoice",
     "bill",
     "project",
@@ -190,6 +192,7 @@ pub async fn post_system_chat_message(
     // `notifyMentionedUsers`.
     let notifier = weldsuite_notifications::Notifier {
         realtime: ctx.realtime.clone(),
+        http: ctx.push_http.clone(),
         ..weldsuite_notifications::Notifier::default()
     };
     for mentioned in all_mentions.iter().filter(|m| is_notifiable_mention(m)) {

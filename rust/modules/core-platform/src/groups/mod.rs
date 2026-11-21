@@ -1,7 +1,9 @@
 //! One module per route group; see the crate docs for the prefixes.
 
+pub(crate) mod ai_settings;
 pub(crate) mod api_keys;
 pub(crate) mod appstore;
+pub(crate) mod audit_log_streams;
 pub(crate) mod audit_logs;
 pub(crate) mod auth_sessions;
 pub(crate) mod credits;

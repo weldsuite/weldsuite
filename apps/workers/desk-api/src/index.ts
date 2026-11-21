@@ -6,15 +6,18 @@
  * satisfaction surveys, canned responses, knowledge-base articles, the help
  * center settings and the public help-center feed.
  *
- * A cron runs the SLA sweep (warnings and breaches): src/cron/sla-sweep.ts.
+ * A cron runs the SLA sweep (warnings and breaches): src/cron/sla-sweep.ts,
+ * and the report schedule sweep (scheduled report emails): src/cron/report-schedule-sweep.ts.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
+import { isAssetImportSweepCron, runAssetImportSweep } from './cron/asset-import-sweep';
+import { isReportSweepCron, runReportScheduleSweep } from './cron/report-schedule-sweep';
 import { isSlaSweepCron, runSlaSweep } from './cron/sla-sweep';
 import { articleFoldersRoutes } from './routes/article-folders';
 import { articlesRoutes } from './routes/articles';
@@ -23,6 +26,10 @@ import { conversationsRoutes } from './routes/conversations';
 import { deskConversationsRoutes } from './routes/desk-conversations';
 import { deskKnowledgeRoutes } from './routes/desk-knowledge';
 import { deskConversationLinkRoutes } from './routes/desk-conversations/links';
+import { deskConversationRequestRoutes } from './routes/desk-conversations/request';
+import { deskCatalogRoutes } from './routes/desk-catalog';
+import { deskConversationProblemRoutes } from './routes/desk-conversations/problem';
+import { deskProblemsRoutes } from './routes/desk-problems';
 import { deskWidgetRoutes } from './routes/desk-widget';
 import { deskAssignmentRoutes } from './routes/desk-assignment';
 import { deskRoutingRoutes } from './routes/desk-routing';
@@ -78,6 +85,10 @@ app.route('/api/conversations', conversationsRoutes);
 app.route('/api/desk/conversations', deskKnowledgeRoutes);
 app.route('/api/desk/conversations', deskConversationsRoutes);
 app.route('/api/desk/conversations', deskConversationLinkRoutes);
+app.route('/api/desk/conversations', deskConversationRequestRoutes);
+app.route('/api/desk/catalog', deskCatalogRoutes);
+app.route('/api/desk/conversations', deskConversationProblemRoutes);
+app.route('/api/desk/problems', deskProblemsRoutes);
 app.route('/api/desk/widget', deskWidgetRoutes);
 app.route('/api/desk/assignment', deskAssignmentRoutes);
 app.route('/api/desk/routing', deskRoutingRoutes);
@@ -122,6 +133,23 @@ export default {
       ctx.waitUntil(
         runSlaSweep(env).catch((err) => {
           console.error('[DeskSla] Failed:', err);
+        }),
+      );
+    }
+    // Scheduled report emails that came due (src/cron/report-schedule-sweep.ts). Its own
+    // waitUntil, so a slow report never holds up the SLA sweep.
+    if (isReportSweepCron(event.cron)) {
+      ctx.waitUntil(
+        runReportScheduleSweep(env).catch((err) => {
+          console.error('[DeskReports] Failed:', err);
+        }),
+      );
+    }
+    // Asset register device imports (src/cron/asset-import-sweep.ts): one bounded step per tick.
+    if (isAssetImportSweepCron(event.cron)) {
+      ctx.waitUntil(
+        runAssetImportSweep(env).catch((err) => {
+          console.error('[AssetImport] Failed:', err);
         }),
       );
     }

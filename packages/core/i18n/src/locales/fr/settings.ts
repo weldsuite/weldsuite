@@ -47,10 +47,6 @@ export const settings = {
     "integrations": "[TRANSLATE] Connect external services like Attio CRM",
     "phoneNumbers": "[TRANSLATE] Manage phone numbers and VoIP settings",
     "activityLog": "[TRANSLATE] View all entity changes and audit history",
-    "commerceSettings": "[TRANSLATE] Commerce Settings",
-    "configureCommerce": "[TRANSLATE] Configure commerce app",
-    "parcelSettings": "[TRANSLATE] Parcel Settings",
-    "configureParcel": "[TRANSLATE] Configure parcel app",
     "helpdeskSettings": "[TRANSLATE] WeldDesk Settings",
     "configureHelpdesk": "[TRANSLATE] Configure helpdesk app",
     "mailDomains": "[TRANSLATE] Mail Domains",
@@ -338,10 +334,8 @@ export const settings = {
     "modules": {
       "helpdesk": "[TRANSLATE] WeldDesk",
       "crm": "[TRANSLATE] WeldCRM",
-      "commerce": "[TRANSLATE] WeldCommerce",
       "mail": "[TRANSLATE] WeldMail",
       "projects": "[TRANSLATE] WeldFlow",
-      "parcel": "[TRANSLATE] WeldParcel",
       "workflows": "[TRANSLATE] WeldConnect",
       "weldchat": "[TRANSLATE] WeldChat",
       "dailyDigest": "[TRANSLATE] WeldCalendar"
@@ -572,21 +566,11 @@ export const settings = {
     "disconnectConfirmTitle": "[TRANSLATE] Disconnect {integration}?",
     "disconnectConfirmDescription": "[TRANSLATE] Are you sure you want to disconnect this integration? You'll need to reconfigure it if you want to use it again.",
     "comingSoon": "[TRANSLATE] {integration} integration coming soon",
-    "configurePrintNode": "[TRANSLATE] Configure PrintNode",
-    "printNodeDescription": "[TRANSLATE] Enter your PrintNode API key to connect your printers",
-    "apiKey": "[TRANSLATE] API Key",
-    "apiKeyPlaceholder": "[TRANSLATE] Enter your PrintNode API key",
-    "apiKeyHelp": "[TRANSLATE] You can find your API key in your PrintNode dashboard at printnode.com",
     "messages": {
       "disconnected": "[TRANSLATE] {integration} disconnected",
-      "disconnectFailed": "[TRANSLATE] Failed to disconnect {integration}",
-      "enterApiKey": "[TRANSLATE] Please enter an API key",
       "enterApiKeyFirst": "[TRANSLATE] Please enter an API key first",
       "connectionSuccess": "[TRANSLATE] Connection successful!",
       "connectionTestFailed": "[TRANSLATE] Connection test failed",
-      "testFailed": "[TRANSLATE] Failed to test connection",
-      "printNodeSaved": "[TRANSLATE] PrintNode settings saved",
-      "printNodeSaveFailed": "[TRANSLATE] Failed to save PrintNode settings"
     },
     "attio": {
       "title": "[TRANSLATE] Attio CRM",

@@ -17,6 +17,8 @@ import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
+import { assetSourcesRoutes } from './routes/asset-sources';
+import { auditLogStreamsRoutes } from './routes/audit-log-streams';
 import { auditLogsRoutes } from './routes/audit-logs';
 import { objectTemplatesRoutes } from './routes/object-templates';
 import { driveRoutes } from './routes/drive';
@@ -200,6 +202,8 @@ app.use('/api/*', ...apiAuth());
 app.route('/api/api-keys', apiKeysRoutes);
 app.route('/api/workspace-api-keys', workspaceApiKeysRoutes);
 app.route('/api/appstore', appstoreRoutes);
+app.route('/api/asset-sources', assetSourcesRoutes);
+app.route('/api/audit-log-streams', auditLogStreamsRoutes);
 app.route('/api/audit-logs', auditLogsRoutes);
 app.route('/api/auth-sessions', authSessionsRoutes);
 app.route('/api/billing', billingRoutes);
@@ -266,9 +270,6 @@ app.route('/api/app-catalog', appCatalogRoutes);
 // Access requests for apps that are on request only (WeldReach): /:code/access-request
 // on the same prefix; the paths do not overlap with the catalog routes above.
 app.route('/api/app-catalog', appAccessRoutes);
-// WeldCommerce (products, orders, parcels, …, /public/commerce-portal and
-// /webhooks/woocommerce) moved to commerce-api; the kit's forwarder hands those
-// paths to it over the COMMERCE_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/credits', creditsRoutes);
 // WeldAgent (/api/ai, /api/ai-models, /api/chat-agent, /api/weldagent) moved
 // to agent-api; the kit's forwarder hands those paths to it over the
@@ -342,7 +343,7 @@ export default {
 // instead of the INTERNAL_API_SECRET bearer. Only the core internal router is
 // mounted (send-email, send-transactional-email); no forwarding, no Clerk. The
 // public secret-guarded mount above stays until every caller uses the
-// entrypoint (docs/plans/app-api-module-split.md, rollout item 7).
+// entrypoint (weldsuite-documentation/plans/app-api-module-split.md, rollout item 7).
 const internalApp = createModuleApi<Env, Variables>({ service: 'app-api' });
 internalApp.use('*', async (c, next) => {
   c.set('internalTrusted', true);

@@ -2,7 +2,8 @@
  * What the long-press menu on a channel or conversation needs from the API:
  * your own membership (mute and notification level) and the web link.
  */
-import { PLATFORM_URL, appApiClient } from '@/services/app-api';
+import { platformUrl } from '@weldsuite/mobile-platform/api';
+import { appApiClient } from '@/services/app-api';
 
 export type NotificationLevel = 'all' | 'mentions' | 'none';
 
@@ -18,7 +19,7 @@ export interface MyMembership {
  */
 export function conversationWebUrl(
   target: { kind: 'channel'; id: string } | { kind: 'dm'; id: string; peerUserId?: string | null },
-  origin: string = PLATFORM_URL,
+  origin: string = platformUrl(),
 ): string {
   if (target.kind === 'channel') return `${origin}/weldchat/${target.id}`;
   if (target.peerUserId) return `${origin}/weldchat/dm/${target.peerUserId}`;

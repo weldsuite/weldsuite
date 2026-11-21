@@ -26,9 +26,11 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldsign: 'WeldSign',
   weldpanel: 'WeldPanel',
   weldmerge: 'WeldMerge',
+  weldforms: 'WeldForms',
   weldsuite: 'WeldSuite',
-  weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
+  // WeldSocial's app code (`/settings/apps/social`).
+  social: 'WeldSocial',
   weldcalendar: 'WeldCalendar',
 };
 
@@ -47,6 +49,7 @@ export interface BreadcrumbMenuLabels {
   apiKeys: string;
   webhooks: string;
   sso: string;
+  ai: string;
   customFields: string;
   objectTemplates: string;
   integrations: string;
@@ -81,6 +84,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     'api-keys': menu.apiKeys,
     webhooks: menu.webhooks,
     sso: menu.sso,
+    ai: menu.ai,
     'custom-fields': menu.customFields,
     'object-templates': menu.objectTemplates,
     integrations: menu.integrations,
@@ -112,15 +116,26 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
   ];
 }
 
+// Trail paths that have no page of their own: their segment is shown without
+// a link (`/settings/apps` would be a 404; the sidebar lists the apps).
+const PATHS_WITHOUT_PAGE = new Set(['/settings/apps']);
+
 // Whether path segment `i` is an id that adds nothing to the trail.
 function isIdSegment(pathParts: string[], i: number): boolean {
   // An entity's: Settings > Entities > Edit entity.
   if (pathParts[1] === 'entities') return i === 2 && pathParts[3] === 'edit';
   // A legal entity's: Settings > Legal entities (the page names the entity).
   if (pathParts[1] === 'legal-entities') return i === 2;
+  // A bank account's payment-run settings: Settings > Apps > WeldBooks > Payment runs.
+  if (pathParts[2] === 'weldbooks' && pathParts[3] === 'payment-runs') return i === 4;
   // A chat widget's: Settings > Apps > WeldDesk > Chat widget.
   return pathParts[2] === 'welddesk' && pathParts[3] === 'chat-widget' && i === 4;
 }
+
+// Path segments with no page of their own, linked to the tab that holds them.
+const SEGMENT_HREFS: Record<string, string> = {
+  '/settings/apps/weldbooks/payment-runs': '/settings/apps/weldbooks?tab=payment-runs',
+};
 
 // Label for path segment `i`: the app's own page title, else (under Entities)
 // New/Edit entity, else a translated menu title, else a known module slug with
@@ -170,10 +185,11 @@ export function buildBreadcrumbSegments(
   for (let i = 1; i < pathParts.length; i++) {
     if (isIdSegment(pathParts, i)) continue;
     const label = segmentLabel(pathParts, i, menu, pageLabels);
-    if (i === pathParts.length - 1) {
+    const href = '/' + pathParts.slice(0, i + 1).join('/');
+    if (i === pathParts.length - 1 || PATHS_WITHOUT_PAGE.has(href)) {
       segments.push({ label });
     } else {
-      segments.push({ label, href: '/' + pathParts.slice(0, i + 1).join('/') });
+      segments.push({ label, href: SEGMENT_HREFS[href] ?? href });
     }
   }
   return segments;

@@ -1,12 +1,10 @@
 export const navigation = {
     home: 'Inicio',
-    commerce: 'Comercio',
     accounting: 'Contabilidad',
     crm: 'CRM',
     projects: 'Proyectos',
     helpdesk: 'WeldDesk',
     mail: 'Correo',
-    parcel: 'Paquetes',
     task: 'Tarea',
     host: 'Host',
     woocommerce: 'WooCommerce',
@@ -75,11 +73,6 @@ export const navigation = {
       },
       weldcommerce: {
         overview: 'Resumen',
-        products: 'Productos',
-        categories: 'Categorías',
-        orders: 'Pedidos',
-        customers: 'Clientes',
-        portal: 'Portal de clientes',
       },
       weldstash: {
         overview: 'Resumen',

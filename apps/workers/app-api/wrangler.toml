@@ -113,7 +113,7 @@ ENVIRONMENT = "development"
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -194,7 +194,7 @@ binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
 # EU-jurisdiction bucket for mail bodies + raw MIME
-# (docs/plans/weldmail-mailbox-store-design.md decision 7), owned by mail-api.
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 7), owned by mail-api.
 # Only the dashboard sidebar badge and drive aggregation read the mailbox
 # store here, and neither touches a body — bound anyway because
 # `@weldsuite/mail-domain/store`'s `MailStoreEnv` requires it for the
@@ -305,6 +305,10 @@ binding = "MERGE_API"
 service = "weldsuite-merge-api-dev"
 
 [[services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api-dev"
+
+[[services]]
 binding = "AGENT_API"
 service = "weldsuite-agent-api-dev"
 
@@ -353,10 +357,6 @@ binding = "CRM_API"
 service = "weldsuite-crm-api-dev"
 
 [[services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api-dev"
-
-[[services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api-dev"
 
@@ -394,7 +394,7 @@ service = "weldsuite-reach-api-dev"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md).
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 # POST /api/internal/send-email (the WeldConnect send_email action) calls it.
 # Every send is checked against the workspace's OutboundLedger, a Durable
 # Object hosted by mail-api and bound here by name.
@@ -411,7 +411,7 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
-# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, design §8):
+# Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8):
 # MailboxStoreObject (one per mailbox) and MailIndex (one per workspace), both
 # hosted by mail-api and bound here by name, like the outbound guard's
 # Durable Objects above. Reached only through `@weldsuite/mail-domain/store`'s
@@ -479,7 +479,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -495,7 +495,7 @@ USER_APP_BUNDLE_ORIGIN = ""
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.flagship]]
@@ -597,6 +597,10 @@ binding = "MERGE_API"
 service = "weldsuite-merge-api-test"
 
 [[env.test.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api-test"
+
+[[env.test.services]]
 binding = "AGENT_API"
 service = "weldsuite-agent-api-test"
 
@@ -645,10 +649,6 @@ binding = "CRM_API"
 service = "weldsuite-crm-api-test"
 
 [[env.test.services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api-test"
-
-[[env.test.services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api-test"
 
@@ -680,7 +680,7 @@ service = "weldsuite-reach-api-test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -692,7 +692,7 @@ class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
 # Mailbox store (test): mail-api's Durable Objects
-# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8).
 [[env.test.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"
@@ -757,7 +757,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -773,7 +773,7 @@ USER_APP_BUNDLE_ORIGIN = ""
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
@@ -882,6 +882,10 @@ binding = "MERGE_API"
 service = "weldsuite-merge-api"
 
 [[env.production.services]]
+binding = "FORMS_API"
+service = "weldsuite-forms-api"
+
+[[env.production.services]]
 binding = "AGENT_API"
 service = "weldsuite-agent-api"
 
@@ -930,10 +934,6 @@ binding = "CRM_API"
 service = "weldsuite-crm-api"
 
 [[env.production.services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api"
-
-[[env.production.services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api"
 
@@ -965,7 +965,7 @@ service = "weldsuite-reach-api"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects, and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -977,7 +977,7 @@ class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
 
 # Mailbox store (production): mail-api's Durable Objects
-# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, design §8).
 [[env.production.durable_objects.bindings]]
 name = "MAILBOX_STORE"
 class_name = "MailboxStoreObject"

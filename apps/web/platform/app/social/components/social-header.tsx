@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Plus } from 'lucide-react';
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, BreadcrumbSegment } from '@/components/breadcrumb-header';
@@ -22,6 +23,7 @@ export function SocialHeader({
   const st = useTranslations();
   const pathname = usePathname();
   const [composeOpen, setComposeOpen] = useState(false);
+  useCreateIntent(() => setComposeOpen(true));
 
   const segments: BreadcrumbSegment[] = useMemo(() => {
     // Labels for the second breadcrumb segment, keyed by the route below /social.
@@ -35,8 +37,7 @@ export function SocialHeader({
       accounts: t.social.accounts.title,
       approvals: st('sweep.miscA.socialHeader.approvals'),
       campaigns: t.social.campaigns.title,
-      team: t.social.team.title,
-      settings: t.social.settings.title,
+      // Team and settings are in Settings → Apps → WeldSocial, not under /social.
     };
 
     const result: BreadcrumbSegment[] = [{ label: t.social.title, href: '/social' }];

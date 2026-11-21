@@ -7,7 +7,7 @@
  *
  * A WeldDocs document (docs-api, `isWeldDocsRow`) shares the table but keeps
  * its content in a DocRoom: reading one returns `content: []`, and every write
- * to one is refused with a 409. Phase 8 of docs/plans/welddocs.md retires
+ * to one is refused with a 409. Phase 8 of weldsuite-documentation/plans/welddocs.md retires
  * this route.
  *
  *   GET    /api/documents/:fileId                          → doc row (or null)

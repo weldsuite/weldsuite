@@ -523,9 +523,7 @@ fn values_refusal(error: ValuesError) -> Refusal {
     }
 }
 
-/// `createRecord`: the record with its fields. The shell goes in first, so
-/// the values have a parent, and is deleted by hand when a value is refused
-/// (neon-http has no interactive transactions).
+/// `createRecord` as the caller.
 async fn create_record(
     caller: &Caller,
     object: &CustomObject,
@@ -533,7 +531,29 @@ async fn create_record(
     fields: Vec<(String, Js)>,
     owner_id: Option<&str>,
 ) -> Result<Value, ValuesError> {
-    let db = &caller.db;
+    create_record_as(
+        &caller.db,
+        &caller.user_id,
+        object,
+        definitions,
+        fields,
+        owner_id,
+    )
+    .await
+}
+
+/// `createRecord(db, object, { fields, ownerId }, userId)`: the record with
+/// its fields. The shell goes in first, so the values have a parent, and is
+/// deleted by hand when a value is refused (neon-http has no interactive
+/// transactions). Also what the asset import creates a device's record with.
+pub(crate) async fn create_record_as(
+    db: &PgPool,
+    user_id: &str,
+    object: &CustomObject,
+    definitions: &[Definition],
+    fields: Vec<(String, Js)>,
+    owner_id: Option<&str>,
+) -> Result<Value, ValuesError> {
     let id = generate_id("cor");
     let now = now();
     sqlx::query(
@@ -544,8 +564,8 @@ async fn create_record(
     .bind(&id)
     .bind(&object.id)
     .bind(&object.entity_key)
-    .bind(owner_id.unwrap_or(&caller.user_id))
-    .bind(&caller.user_id)
+    .bind(owner_id.unwrap_or(user_id))
+    .bind(user_id)
     .bind(&now)
     .execute(db)
     .await?;
@@ -747,6 +767,62 @@ fn field_changes(old: &Map<String, Value>, new: &Map<String, Value>) -> Option<M
     (!changes.is_empty()).then_some(changes)
 }
 
+/// `updateRecord(db, object, existing, { fields, ownerId }, userId)`: the
+/// fields a patch names are written, then the whole value set is read back
+/// (the title may hang on a field the patch left alone) and the record
+/// answers with it. Also what the asset import updates a device's record
+/// with.
+pub(crate) async fn update_record_as(
+    db: &PgPool,
+    user_id: &str,
+    object: &CustomObject,
+    id: &str,
+    fields: Option<&[(String, Js)]>,
+    owner_id: &Field<String>,
+) -> Result<Value, ValuesError> {
+    let definitions = definitions(db, &object.entity_key).await?;
+    if let Some(fields) = fields {
+        set_values(
+            db,
+            &object.entity_key,
+            id,
+            fields,
+            &definitions,
+            true,
+            false,
+        )
+        .await?;
+    }
+    let mut values = values_for(db, &object.entity_key, &[id.to_owned()], &definitions).await?;
+    let fields = values.remove(id).unwrap_or_default();
+    let title = resolve_title(object.title_field_id.as_deref(), &definitions, |slug| {
+        fields.get(slug).map(Js::from_jsonb)
+    });
+    let (set_owner, owner) = crate::change(owner_id);
+    sqlx::query(
+        "update custom_object_records set
+             updated_at = $2::timestamp, updated_by = $3, title = $4,
+             owner_id = case when $5 then $6 else owner_id end
+         where id = $1",
+    )
+    .bind(id)
+    .bind(now())
+    .bind(user_id)
+    .bind(&title)
+    .bind(set_owner)
+    .bind(owner)
+    .execute(db)
+    .await?;
+    let raw: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(r) from custom_object_records r where id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
+    record["fields"] = Value::Object(fields);
+    Ok(record)
+}
+
 async fn update(
     State(state): State<CoreObjectsState>,
     caller: Caller,
@@ -768,56 +844,21 @@ async fn update(
         let existing = get_record(db, object, &id, access.scope.as_deref())
             .await?
             .ok_or_else(|| Refusal::not_found(&object.label_singular, &id))?;
-        let definitions = definitions(db, &object.entity_key).await?;
-        if let Some(fields) = &input.fields {
-            set_values(
-                db,
-                &object.entity_key,
-                &id,
-                fields,
-                &definitions,
-                true,
-                false,
-            )
-            .await
-            .map_err(values_refusal)?;
-        }
-        let mut values = values_for(
+        let record = update_record_as(
             db,
-            &object.entity_key,
-            std::slice::from_ref(&id),
-            &definitions,
+            &caller.user_id,
+            object,
+            &id,
+            input.fields.as_deref(),
+            &input.owner_id,
         )
-        .await?;
-        let fields = values.remove(&id).unwrap_or_default();
-        let title = resolve_title(object.title_field_id.as_deref(), &definitions, |slug| {
-            fields.get(slug).map(Js::from_jsonb)
-        });
-        let (set_owner, owner) = crate::change(&input.owner_id);
-        sqlx::query(
-            "update custom_object_records set
-                 updated_at = $2::timestamp, updated_by = $3, title = $4,
-                 owner_id = case when $5 then $6 else owner_id end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&caller.user_id)
-        .bind(&title)
-        .bind(set_owner)
-        .bind(owner)
-        .execute(db)
-        .await?;
-        let raw: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(r) from custom_object_records r where id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
-        let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
+        .await
+        .map_err(values_refusal)?;
         let empty = Map::new();
-        let changes = field_changes(existing["fields"].as_object().unwrap_or(&empty), &fields);
-        record["fields"] = Value::Object(fields);
+        let changes = field_changes(
+            existing["fields"].as_object().unwrap_or(&empty),
+            record["fields"].as_object().unwrap_or(&empty),
+        );
         emit(
             &state,
             &caller,

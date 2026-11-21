@@ -1,22 +1,44 @@
 # Signs in with the e2e test user, starting from a fresh install.
 # Credentials come from MAESTRO_TEST_EMAIL / MAESTRO_TEST_PASSWORD
 # (see .maestro/README.md), never from this file.
+#
+# WeldChat signs in on the server's own page (WeldID on WeldSuite EU), in a
+# Chrome tab: `f-email` and `f-password` are the ids of WeldID's fields
+# (weldsuite/weldid, crates/weldid-ui/templates/macros.html), which Chrome
+# hands to Maestro as resource ids.
 appId: com.weldsuite.weldchat
 ---
 - launchApp:
     clearState: true
 - extendedWaitUntil:
     visible:
-      id: login-email
+      id: hosted-sign-in
     timeout: 30000
 - tapOn:
-    id: login-email
+    id: hosted-sign-in
+# Chrome's first-run screens, on an emulator that hasn't opened it yet.
+- tapOn:
+    text: "Use without an account"
+    optional: true
+- tapOn:
+    text: "No thanks"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: f-email
+    timeout: 30000
+- tapOn:
+    id: f-email
 - inputText: ${MAESTRO_TEST_EMAIL}
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible:
+      id: f-password
+    timeout: 30000
 - tapOn:
-    id: login-password
+    id: f-password
 - inputText: ${MAESTRO_TEST_PASSWORD}
-- tapOn:
-    id: login-submit
+- tapOn: "Sign in"
 - extendedWaitUntil:
     visible: "DMs"
     timeout: 45000

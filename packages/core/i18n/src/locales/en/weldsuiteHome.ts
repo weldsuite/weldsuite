@@ -8,6 +8,7 @@ export const weldsuiteHome = {
     pickWidgetPlaceholder: 'Search widgets...',
     comingSoon: 'Coming soon',
     preview: 'Preview',
+    settings: 'Settings',
     save: 'Save',
     cancel: 'Cancel',
     unsavedChanges: 'You have unsaved changes.',
@@ -195,6 +196,8 @@ export const weldsuiteHome = {
     fallbackName: 'there',
     breadcrumbHome: 'Home',
     breadcrumbNewChat: 'New Chat',
+    customizeWidgets: 'Customize widgets',
+    openApp: 'Open {app}',
   },
   time: {
     now: 'now',

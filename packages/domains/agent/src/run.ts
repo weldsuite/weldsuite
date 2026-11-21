@@ -12,6 +12,7 @@ import {
   type AgentDb,
 } from './agents';
 import { sendWeldAgentRunNotification } from '@weldsuite/notifications';
+import { replyToPlainText } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 
 export async function executeAgentRun(params: {
@@ -97,7 +98,7 @@ export async function executeAgentRun(params: {
       agentId: agent.id,
       success: true,
       result: {
-        summary: result.text.slice(0, 2000),
+        summary: replyToPlainText(result.text).slice(0, 2000),
         actionsPerformed,
         toolInvocations: result.toolInvocations,
       },
@@ -117,7 +118,7 @@ export async function executeAgentRun(params: {
       runId,
       triggerType: params.triggerType,
       success: true,
-      summary: result.text.slice(0, 2000),
+      summary: replyToPlainText(result.text).slice(0, 2000),
     });
 
     return { runId, text: result.text, success: true };

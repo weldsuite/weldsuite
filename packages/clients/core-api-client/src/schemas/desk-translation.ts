@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // ── WeldDesk AI translation (/api/desk/conversations/:id/translate*) ─────────
 //
-// Global only: on the Kubernetes editions the routes answer 503
+// Both editions; without an AI provider the routes answer 503
 // `ai_unavailable` and the platform hides the feature (`desk-ai`).
 
 /** A BCP 47 language tag as the routes take it: `de`, `nl`, `pt-BR`. */

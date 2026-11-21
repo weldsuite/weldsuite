@@ -2,7 +2,7 @@
  * US identifiers: federal tax IDs (EIN, SSN, ITIN), ABA routing numbers and
  * ZIP codes.
  *
- * Sources: docs/plans/weldbooks-us-research/federal.md §11 (EIN prefixes, SSN
+ * Sources: weldsuite-documentation/plans/weldbooks-us-research/federal.md §11 (EIN prefixes, SSN
  * and ITIN rules, TIN truncation on payee statements).
  *
  * Validators check format and the rules the issuing agency publishes. They

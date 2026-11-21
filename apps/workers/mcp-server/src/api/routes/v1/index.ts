@@ -34,7 +34,7 @@ import mailMessages from './mail-messages';
 import mailThreads from './mail-threads';
 import milestones from './milestones';
 import opportunities from './opportunities';
-import orders from './orders';
+import panel from './panel';
 import people from './people';
 import pipelines from './pipelines';
 import pipelineStages from './pipeline-stages';
@@ -44,7 +44,6 @@ import projectLabels from './project-labels';
 import projectMembers from './project-members';
 import projectMessages from './project-messages';
 import projectSheets from './project-sheets';
-import products from './products';
 import projects from './projects';
 import quotes from './quotes';
 import reach from './reach';
@@ -107,11 +106,10 @@ v1.get('/', (c) => {
       '/v1/mail-threads',
       '/v1/milestones',
       '/v1/opportunities',
-      '/v1/orders',
+      '/v1/panel',
       '/v1/people',
       '/v1/pipeline-stages',
       '/v1/pipelines',
-      '/v1/products',
       '/v1/project-documents',
       '/v1/project-files',
       '/v1/project-labels',
@@ -147,7 +145,9 @@ v1.get('/', (c) => {
       '/v1/webhooks',
       '/v1/whiteboards',
       '/v1/workflows',
-    ].filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL),
+    ]
+      .filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL)
+      .filter((path) => path !== '/v1/panel' || !!c.env.PANEL_INTERNAL),
   });
 });
 
@@ -197,11 +197,10 @@ v1.route('/mail-messages', mailMessages);
 v1.route('/mail-threads', mailThreads);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
-v1.route('/orders', orders);
+v1.route('/panel', panel);
 v1.route('/people', people);
 v1.route('/pipeline-stages', pipelineStages);
 v1.route('/pipelines', pipelines);
-v1.route('/products', products);
 v1.route('/project-documents', productDocuments);
 v1.route('/project-files', projectFiles);
 v1.route('/project-labels', projectLabels);

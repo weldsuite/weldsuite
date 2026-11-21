@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Warehouse } from 'lucide-react';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useDeleteWeldstashWarehouse } from '@/hooks/queries/use-weldstash-queries';
@@ -29,13 +30,14 @@ export function WarehousesList({
   hasMore,
   isFetchingMore,
 }: Readonly<WarehousesListProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const ts = getTranslations('common');
   const deleteMut = useDeleteWeldstashWarehouse();
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/warehouses');
 
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateIntent(() => setCreateOpen(true));
   const [editing, setEditing] = useState<WeldstashWarehouse | undefined>();
 
   const columns = useMemo(() => buildWarehouseColumns(), []);

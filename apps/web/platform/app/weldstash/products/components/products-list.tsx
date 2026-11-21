@@ -2,14 +2,14 @@ import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Package } from 'lucide-react';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useDeleteWeldstashProduct } from '@/hooks/queries/use-weldstash-queries';
 import type { WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
 import { getTranslations } from '@/lib/i18n';
 import { buildWeldstashProductColumns } from '../config/product-columns';
-// Same `products` table as WeldCommerce, so the form is shared rather than forked.
-import { ProductDialog } from '@/app/weldcommerce/products/components/product-dialog';
+import { ProductDialog } from './product-dialog';
 
 interface ProductsListProps {
   products: WeldstashProduct[];
@@ -30,12 +30,13 @@ export function ProductsList({
   hasMore,
   isFetchingMore,
 }: Readonly<ProductsListProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const deleteMut = useDeleteWeldstashProduct();
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/products');
 
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateIntent(() => setCreateOpen(true));
   const [editing, setEditing] = useState<WeldstashProduct | undefined>();
 
   const columns = useMemo(() => buildWeldstashProductColumns(), []);

@@ -9,7 +9,7 @@
  * and addresses are stored in the shared `PostalAddress` shape (either
  * shape is accepted on input).
  *
- * US entities (docs/plans/weldbooks-us.md §11) also take: `entityType` and
+ * US entities (weldsuite-documentation/plans/weldbooks-us.md §11) also take: `entityType` and
  * `taxClassification` (an LLC may elect S or C corporation status), `dba`,
  * `accountingMethod` (the default basis of every report), a month-based
  * `fiscalYearStart` or a 52–53-week `fiscalYearConfig`, the EIN in

@@ -68,6 +68,12 @@ const EMPTY_WORKLOAD = {
 };
 
 /**
+ * A task's estimate in hours for the workload views: `estimatedHours`, else
+ * its `duration` (minutes), which is what the task panel's estimate picker writes.
+ */
+const workloadEstimateHours = sql<string | null>`(coalesce(${schema.tasks.estimatedHours}, round(${schema.tasks.duration} / 60.0, 2)))::text`;
+
+/**
  * Membership boundary for callers without `projects:scope:all`: projects the
  * user manages (projectManagerId) or is an active member of.
  */
@@ -345,7 +351,7 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         priority: tasks.priority,
         startDate: tasks.startDate,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
+        estimatedHours: workloadEstimateHours,
         actualHours: tasks.actualHours,
       })
       .from(tasks)
@@ -662,7 +668,7 @@ app.get('/:id/workload', requirePermission('projects:read'), async (c) => {
         priority: tasks.priority,
         startDate: tasks.startDate,
         dueDate: tasks.dueDate,
-        estimatedHours: tasks.estimatedHours,
+        estimatedHours: workloadEstimateHours,
         actualHours: tasks.actualHours,
       })
       .from(tasks)

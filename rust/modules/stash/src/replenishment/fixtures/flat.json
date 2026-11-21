@@ -1,0 +1,64 @@
+{
+  "description": "Flat demand: 5 a day for 120 days.",
+  "notes": [
+    "5 a day for 120 days: level 5, sigma 0, under 365 days so no seasonality -> level; 120 >= 90 days -> ok.",
+    "D_L = 14 x 5 = 70; safety stock ceil(1.645 x 0 x sqrt 14) = 0 -> reorder point 70 (the float sum 70.00000000000001 must not round up to 71); D_R = 7 x 5 = 35 -> order-up-to 105.",
+    "Position 40 <= 70 -> raw 105 - 40 = 65, pack 1, no MOQ -> 65; value 65 x 2.50 = 162.50.",
+    "Cover 40 / 5 = 8 days; the cumulative forecast passes 40 on day 8 (45 > 40) -> 2026-11-26."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-07-21",
+    "daily_demand": [[5,120]],
+    "first_activity": "2026-07-21",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 2.5
+    },
+    "position": {
+      "on_hand": 40,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "level",
+    "confidence": "ok",
+    "history_days": 120,
+    "nonzero_days": 120,
+    "avg_daily_demand": 5,
+    "demand_std_dev": 0,
+    "seasonality": null,
+    "forecast_30d": 150,
+    "forecast_90d": 450,
+    "safety_stock": 0,
+    "reorder_point": 70,
+    "order_up_to": 105,
+    "inventory_position": 40,
+    "days_of_cover": 8,
+    "stockout_date": "2026-11-26",
+    "suggested_qty": 65,
+    "suggested_value": 162.5,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 5,
+        "13": 5,
+        "14": 5,
+        "30": 5,
+        "45": 5,
+        "90": 5
+      }
+    }
+  }
+}

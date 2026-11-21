@@ -36,6 +36,7 @@ import {
   ProductShippingFeaturesBlock,
   EmailFormBlock,
   ContactFormModernBlock,
+  WeldFormsFormBlock,
   FooterBlock,
   ImageBannerBlock,
   CollectionListBlock,
@@ -418,6 +419,7 @@ export function BlockRenderer({
     formRadio: FormRadioBlock,
     emailForm: EmailFormBlock,
     contactFormModern: ContactFormModernBlock,
+    weldFormsForm: WeldFormsFormBlock,
 
     // Commerce blocks
     productCard: ProductCardBlock,

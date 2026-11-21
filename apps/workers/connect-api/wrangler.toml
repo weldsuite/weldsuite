@@ -1,6 +1,6 @@
 # WeldSuite connect-api worker — the connect module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   connect-api.weldsuite.org        production
 #   connect-api-test.weldsuite.org   test
@@ -18,8 +18,9 @@
 #     integration-webhook-worker) and /api/internal/workflow-actions
 #     (workflow-worker's create_customer bearer); also the WooCommerce connect
 #     HMAC key. Those callers now use the ConnectInternal entrypoint (no secret);
-#     the public mounts stay until all of them do. The SAME value as app-api,
-#     commerce-api and the callers in the same env)
+#     the public mounts stay until all of them do. The SAME value as app-api
+#     and the callers in the same env; it also verifies the WooCommerce
+#     app-auth callback at /webhooks/woocommerce, moved here from commerce-api)
 #
 # Entrypoint: `ConnectInternal` (src/index.ts) is bound as CONNECT_INTERNAL by
 # integration-sync-worker, integration-webhook-worker and workflow-worker. It is

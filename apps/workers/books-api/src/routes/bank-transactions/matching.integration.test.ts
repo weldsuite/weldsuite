@@ -332,6 +332,73 @@ describe('matching', () => {
     expect((await lines('/bt_missing/match-payment', 'POST', { paymentId: payment.id })).status).toBe(404);
   });
 
+  it('links a payment already recorded for the invoice instead of booking the bank twice', async () => {
+    const now = new Date();
+    await db.insert(schema.invoices).values({ id: 'inv_bl_dbl', entityId, contactId: 'pty_bl_client', contactName: 'Client Holding', invoiceNumber: 'INV-2003', status: 'finalized', issueDate: new Date('2026-01-07T00:00:00Z'), dueDate: new Date('2026-02-06T00:00:00Z'), currency: 'EUR', total: '200.00', balanceDue: '200.00', amountPaid: '0', createdAt: now, updatedAt: now });
+    // "Record payment" without a bank account: the money goes through the default bank account's ledger account.
+    const recorded = await recordPayment(db, {
+      entityId,
+      type: 'received',
+      amount: 200,
+      currency: 'EUR',
+      date: new Date('2026-01-19T00:00:00Z'),
+      paymentMethod: 'bank_transfer',
+      contactId: 'pty_bl_client',
+      allocations: [{ invoiceId: 'inv_bl_dbl', amount: 200 }],
+      userId: null,
+    });
+    const [payment] = await db.select().from(schema.payments).where(eq(schema.payments.id, recorded.paymentId)).limit(1);
+    expect(payment?.bankAccountId).toBe(bankId);
+
+    const bankDebits = async () => {
+      const rows = await db.select({ debit: schema.journalLines.debit }).from(schema.journalLines).where(eq(schema.journalLines.accountId, bankLedgerId));
+      return rows.reduce((total, r) => total + Number(r.debit), 0);
+    };
+    const before = await bankDebits();
+
+    const file = ofx('9988776655', [['F9', '20260120', 200, 'Dubbel BV', 'Double']]);
+    expect((await lines('/import', 'POST', { bankAccountId: bankId, content: file, fileName: 'dbl.ofx' })).status).toBe(201);
+    const line = await lineByDescription('Dubbel BV - Double');
+    const matched = await lines(`/${line.id}/reconcile`, 'POST', { type: 'invoice', entityId: 'inv_bl_dbl' });
+    expect(matched.status).toBe(200);
+    expect(matched.data).toMatchObject({ status: 'reconciled', paymentId: recorded.paymentId });
+
+    expect(await bankDebits()).toBe(before);
+    const forInvoice = await db.select().from(schema.payments).where(eq(schema.payments.invoiceId, 'inv_bl_dbl'));
+    expect(forInvoice).toHaveLength(1);
+    expect(forInvoice[0]?.bankTransactionId).toBe(line.id);
+    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, 'inv_bl_dbl')).limit(1);
+    expect(invoice?.balanceDue).toBe('0.00');
+  });
+
+  it('does not reuse a payment that went through another bank account', async () => {
+    const now = new Date();
+    await db.insert(schema.bankAccounts).values({ id: 'ba_bl_other', entityId, name: 'Other bank', currency: 'EUR', ledgerAccountId: bankLedgerId, createdAt: now, updatedAt: now });
+    await db.insert(schema.invoices).values({ id: 'inv_bl_other', entityId, contactId: 'pty_bl_client', contactName: 'Client Holding', invoiceNumber: 'INV-2004', status: 'finalized', issueDate: new Date('2026-01-07T00:00:00Z'), dueDate: new Date('2026-02-06T00:00:00Z'), currency: 'EUR', total: '150.00', balanceDue: '150.00', amountPaid: '0', createdAt: now, updatedAt: now });
+    const recorded = await recordPayment(db, {
+      entityId,
+      type: 'received',
+      amount: 150,
+      currency: 'EUR',
+      date: new Date('2026-01-19T00:00:00Z'),
+      paymentMethod: 'bank_transfer',
+      bankAccountId: 'ba_bl_other',
+      contactId: 'pty_bl_client',
+      allocations: [{ invoiceId: 'inv_bl_other', amount: 150 }],
+      userId: null,
+    });
+
+    const file = ofx('9988776655', [['F10', '20260121', 150, 'Ander BV', 'Other']]);
+    expect((await lines('/import', 'POST', { bankAccountId: bankId, content: file, fileName: 'other.ofx' })).status).toBe(201);
+    const line = await lineByDescription('Ander BV - Other');
+    const matched = await lines(`/${line.id}/reconcile`, 'POST', { type: 'invoice', entityId: 'inv_bl_other' });
+    expect(matched.status).toBe(200);
+    // The line on this bank is not the proof of a payment booked through the other one.
+    expect(matched.data.paymentId).not.toBe(recorded.paymentId);
+    const [original] = await db.select().from(schema.payments).where(eq(schema.payments.id, recorded.paymentId)).limit(1);
+    expect(original?.bankTransactionId).toBeNull();
+  });
+
   it('ties a line to a bank deposit, and unlinks it', async () => {
     const now = new Date();
     await db.insert(schema.bankDeposits).values({ id: 'dep_bl_1', entityId, bankAccountId: bankId, date: '2026-01-13', amount: '75.25', currency: 'EUR', status: 'posted', createdAt: now, updatedAt: now });

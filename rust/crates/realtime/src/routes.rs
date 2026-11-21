@@ -24,6 +24,7 @@ use crate::gateway::{Admission, Gateway};
 use crate::room::RoomKind;
 use crate::socket::{HubSession, RoomSession, serve_hub, serve_room};
 use crate::topics::{personal_allowed, personal_hub_key, workspace_allowed};
+use crate::workspace::{WORKSPACE_PARAM, workspace_reference};
 
 /// The gateway's routes, to merge into the server's router. They carry
 /// their own state and no request logging of their own: a socket's URL holds
@@ -73,8 +74,23 @@ fn internal_error(message: &str) -> Refusal {
 }
 
 /// Answer a handler's result, refusal or not.
-fn answer(result: Answer) -> Response {
+fn reply(result: Answer) -> Response {
     result.unwrap_or_else(IntoResponse::into_response)
+}
+
+/// Answer a socket route's result. A refused handshake is logged with the
+/// route, status and reason (never the URI or query: the token is in it), so
+/// an operator can see why a browser's socket failed.
+fn answer(route: &'static str, result: Answer) -> Response {
+    result.unwrap_or_else(|refusal| {
+        tracing::warn!(
+            route,
+            status = %refusal.0,
+            reason = %refusal.1,
+            "realtime: handshake refused"
+        );
+        refusal.into_response()
+    })
 }
 
 fn query(uri: &Uri) -> HashMap<String, String> {
@@ -130,6 +146,42 @@ impl Gateway {
             .map_err(|error| unauthorized(token_refusal(error)))
     }
 
+    /// The session's workspace where its token names none (membership mode,
+    /// `crate::workspace`): `?workspace=`, else `fallback` (the support
+    /// room's path), else the user's one workspace. Unchanged in claim mode
+    /// and for a token that names its organization.
+    async fn with_workspace(
+        &self,
+        uri: &Uri,
+        mut auth: AuthContext,
+        fallback: Option<&str>,
+    ) -> Result<AuthContext, Refusal> {
+        let Some(workspaces) = &self.workspaces else {
+            return Ok(auth);
+        };
+        if auth.org_id.is_some() {
+            return Ok(auth);
+        }
+        let named = query(uri).remove(WORKSPACE_PARAM);
+        let reference = named
+            .as_deref()
+            .map_or(Ok(None), workspace_reference)
+            .map_err(|()| forbidden("not a member of this workspace"))?
+            .or(fallback);
+        let found = match reference {
+            Some(reference) => match workspaces.member_workspace(&auth.user_id, reference).await {
+                Ok(None) => return Err(forbidden("not a member of this workspace")),
+                found => found,
+            },
+            None => workspaces.sole_workspace(&auth.user_id).await,
+        };
+        auth.org_id = found.map_err(|error| {
+            tracing::error!(%error, "realtime: choosing the workspace failed");
+            internal_error("Internal error resolving the workspace")
+        })?;
+        Ok(auth)
+    }
+
     async fn workspace_member(&self, org: &str, user: &str) -> Result<Member, Refusal> {
         match self.directory.member(org, user).await {
             Ok(Some(member)) => Ok(member),
@@ -165,7 +217,7 @@ async fn workspace_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(workspace(gateway, &uri, &headers, upgrade).await)
+    answer("/ws", workspace(gateway, &uri, &headers, upgrade).await)
 }
 
 async fn workspace(
@@ -176,6 +228,7 @@ async fn workspace(
 ) -> Answer {
     let upgrade = upgraded(upgrade)?;
     let auth = gateway.session(uri, headers).await?;
+    let auth = gateway.with_workspace(uri, auth, None).await?;
     let org = auth
         .org_id
         .as_deref()
@@ -200,7 +253,10 @@ async fn personal_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(personal(gateway, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/personal",
+        personal(gateway, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn personal(
@@ -237,7 +293,10 @@ async fn chat_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(chat(gateway, channel_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/chat",
+        chat(gateway, channel_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn chat(
@@ -250,8 +309,11 @@ async fn chat(
     let upgrade = upgraded(upgrade)?;
     let meeting = channel_id.starts_with("meet_");
     let signed_in = match gateway.session(uri, headers).await {
-        Ok(auth) if auth.org_id.is_some() => Ok(auth),
-        Ok(_) => Err(unauthorized("No organization in token")),
+        Ok(auth) => match gateway.with_workspace(uri, auth, None).await {
+            Ok(auth) if auth.org_id.is_some() => Ok(auth),
+            Ok(_) => Err(unauthorized("No organization in token")),
+            Err(refusal) => Err(refusal),
+        },
         Err(refusal) => Err(refusal),
     };
     let (user_id, user_name, role) = match signed_in {
@@ -314,7 +376,10 @@ async fn support_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(support(gateway, &workspace_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/support",
+        support(gateway, &workspace_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn support(
@@ -331,6 +396,9 @@ async fn support(
         .authenticate(&token)
         .await
         .map_err(|_| unauthorized("Token verification failed"))?;
+    let auth = gateway
+        .with_workspace(uri, auth, Some(workspace_id))
+        .await?;
     let org = auth
         .org_id
         .as_deref()
@@ -367,7 +435,10 @@ async fn conversation_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(conversation(gateway, conversation_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/conversation",
+        conversation(gateway, conversation_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn conversation(
@@ -384,6 +455,7 @@ async fn conversation(
     let Ok(auth) = gateway.session(uri, headers).await else {
         return visitor(gateway, conversation_id, uri, headers, upgrade);
     };
+    let auth = gateway.with_workspace(uri, auth, None).await?;
     let org = auth
         .org_id
         .as_deref()
@@ -513,7 +585,7 @@ async fn publish_workspace(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(publish_to_workspace(&gateway, &headers, &body).await)
+    reply(publish_to_workspace(&gateway, &headers, &body).await)
 }
 
 async fn publish_to_workspace(gateway: &Gateway, headers: &HeaderMap, body: &Bytes) -> Answer {
@@ -552,7 +624,7 @@ async fn publish_room(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(publish_to_room(&gateway, &room, &id, &headers, &body).await)
+    reply(publish_to_room(&gateway, &room, &id, &headers, &body).await)
 }
 
 async fn publish_to_room(
@@ -579,7 +651,7 @@ async fn internal_presence(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    answer(presence(&gateway, &uri, &headers).await)
+    reply(presence(&gateway, &uri, &headers).await)
 }
 
 async fn presence(gateway: &Gateway, uri: &Uri, headers: &HeaderMap) -> Answer {

@@ -9,7 +9,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client';
-import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi } from '@/lib/api/use-app-api';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import type { CostSource, ManualForecastBody } from '@weldsuite/app-api-client/domains/project-finance';
 
@@ -19,7 +19,6 @@ export const financeKeys = {
   costs: (projectId: string, filters: CostFilters) => [...financeKeys.all, 'costs', projectId, filters] as const,
   snapshots: (projectId: string) => [...financeKeys.all, 'snapshots', projectId] as const,
   settings: (projectId: string) => [...financeKeys.all, 'settings', projectId] as const,
-  pending: (projectId: string) => [...financeKeys.all, 'pending-changes', projectId] as const,
 };
 
 export interface CostFilters {
@@ -89,46 +88,3 @@ export function useSaveForecast(projectId: string) {
   });
 }
 
-/** A change request waiting for approval, as far as the Finance overview reads it. */
-export interface PendingChange {
-  id: string;
-  code: string | null;
-  title: string | null;
-  /** Decimal string in the project currency; negative when the change saves money. */
-  costDelta: number;
-}
-
-interface ChangeRow {
-  id?: unknown;
-  code?: unknown;
-  title?: unknown;
-  status?: unknown;
-  costDelta?: unknown;
-}
-
-/**
- * The change requests of the project that wait for approval (`/api/project-changes`,
- * governance). Reads loosely and fails quietly: the overview shows the card only
- * when the governance routes answer.
- */
-export function usePendingChanges(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: financeKeys.pending(projectId),
-    queryFn: async (): Promise<PendingChange[]> => {
-      const client = await getClient();
-      const res = await client.get<{ data?: ChangeRow[] }>(`/project-changes?projectId=${encodeURIComponent(projectId)}&limit=100`);
-      return (res.data ?? [])
-        .filter((row) => row.status === 'awaiting_approval' && typeof row.id === 'string')
-        .map((row) => ({
-          id: row.id as string,
-          code: typeof row.code === 'string' ? row.code : null,
-          title: typeof row.title === 'string' ? row.title : null,
-          costDelta: Number(row.costDelta ?? 0) || 0,
-        }));
-    },
-    enabled: !!projectId && enabled,
-    retry: false,
-    staleTime: 60_000,
-  });
-}

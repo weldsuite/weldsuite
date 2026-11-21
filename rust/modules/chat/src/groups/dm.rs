@@ -1,6 +1,8 @@
 //! `/api/chat-dm` (`routes/chat-dm/index.ts`): direct messages. A DM is a
 //! `type = 'dm'` channel whose members are exactly its participants; asking
-//! for one with the same people answers the existing channel.
+//! for one with the same people answers the existing channel. Someone invited
+//! to the workspace but not yet accepted can't be in one (409,
+//! `details.reason = "invitation_pending"`).
 
 use std::sync::Arc;
 
@@ -282,6 +284,50 @@ async fn notify_new_dm(
     }
 }
 
+/// User-id prefixes of an invitation's member row. The row is written before
+/// the person has an account; accepting the invitation swaps the placeholder
+/// for their real user id. Same list as `INVITE_PLACEHOLDER_USER_ID_PREFIXES`
+/// in `@weldsuite/app-api-client/schemas/chat-dm`.
+const INVITE_PLACEHOLDER_PREFIXES: [&str; 2] = ["invited_", "pending_clerk_"];
+
+/// The ones in `user_ids` invited to the workspace but not accepted yet.
+/// Nobody is messaged before they join: the invitee can't read the DM, and
+/// accepting moves their member row to a new user id, which would leave the
+/// DM with a placeholder nobody signs in as.
+async fn pending_invitees(
+    caller: &Caller,
+    user_ids: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pending: Vec<String> = sqlx::query_scalar(
+        "select user_id from workspace_members where user_id = any($1) and status = 'PENDING'",
+    )
+    .bind(user_ids)
+    .fetch_all(&caller.db)
+    .await?;
+    Ok(user_ids
+        .iter()
+        .filter(|id| {
+            pending.contains(id)
+                || INVITE_PLACEHOLDER_PREFIXES
+                    .iter()
+                    .any(|prefix| id.starts_with(prefix))
+        })
+        .cloned()
+        .collect())
+}
+
+/// 409 for a DM with someone who hasn't accepted their invitation; clients
+/// branch on `details.reason`.
+fn invitation_pending(user_ids: &[String]) -> ChatError {
+    ChatError::api(
+        ApiError::conflict("Some people have not accepted their workspace invitation yet")
+            .with_details(json!({ "reason": "invitation_pending", "userIds": user_ids })),
+    )
+}
+
 async fn member_name(caller: &Caller, user_id: &str) -> Result<Option<String>, sqlx::Error> {
     let name: Option<Option<String>> =
         sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
@@ -345,6 +391,12 @@ async fn create_dm(
                 ));
             }
         }
+        // Checked before the existing-DM lookup, so a DM made with an invitee
+        // before this guard existed doesn't keep taking messages either.
+        let pending = pending_invitees(&caller, &others).await?;
+        if !pending.is_empty() {
+            return Err(invitation_pending(&pending));
+        }
         let mut sorted = all.clone();
         sort_code_units(&mut sorted);
         if let Some(existing) = existing_dm(&caller, &sorted).await? {
@@ -404,6 +456,11 @@ async fn resolve_dm(
     let result = async {
         let mut all: Vec<String> = vec![caller.user_id.clone()];
         if target != caller.user_id {
+            // Before the existing-DM lookup, as in `POST /`.
+            let pending = pending_invitees(&caller, std::slice::from_ref(&target)).await?;
+            if !pending.is_empty() {
+                return Err(invitation_pending(&pending));
+            }
             all.push(target.clone());
         }
         sort_code_units(&mut all);

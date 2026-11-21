@@ -1,0 +1,24 @@
+# NetworkPolicy enforcement beside Flannel (infrastructure/network-policy),
+# OPT-IN: applied only when kustomization.yaml here lists this file. From
+# then on every NetworkPolicy in the cluster is enforced, the charts' and
+# Flux's included, and ordinary pods can't reach the metadata service. Test
+# cluster first (rust/deploy/hetzner/README.md, "Agent sandbox", step 2).
+# After the controllers layer, which makes the namespaces it puts policies in.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: network-policy
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: controllers
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/network-policy
+  # Removing the layer deletes kube-router and the policies, but not the
+  # rules kube-router wrote on each node: they stay until the node reboots.
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

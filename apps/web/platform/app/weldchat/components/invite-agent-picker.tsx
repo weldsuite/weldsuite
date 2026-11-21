@@ -18,15 +18,25 @@ import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace
 import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useChannel, useChannelMembers, useInviteChannelAgents } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 
 /** Channel types agents can join (record chats included); DMs stay between people. */
 const AGENT_ROOM_TYPES = new Set(['public', 'private', 'entity']);
 
-/** Whether the viewer can bring agents into (and out of) this channel. */
+/**
+ * Whether the viewer can bring agents into (and out of) this channel: only
+ * where this deployment offers WeldAgent (an edition without AI doesn't).
+ */
 export function useCanInviteAgents(channelId: string | undefined): boolean {
   const canUseAgents = useCan('weldagent:use');
   const { data } = useChannel(channelId || '');
-  return canUseAgents && !!channelId && AGENT_ROOM_TYPES.has(data?.data?.type ?? '');
+  return (
+    canUseAgents &&
+    isModuleOffered('agent') &&
+    isFeatureAvailable('agent-ai') &&
+    !!channelId &&
+    AGENT_ROOM_TYPES.has(data?.data?.type ?? '')
+  );
 }
 
 /**

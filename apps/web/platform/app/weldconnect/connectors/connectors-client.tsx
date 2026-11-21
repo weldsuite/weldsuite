@@ -12,6 +12,7 @@ import {
   ShoppingBag,
   Settings,
   BookOpen,
+  Factory,
   Warehouse,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -78,6 +79,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   store: ShoppingBag,
   'book-open': BookOpen,
   warehouse: Warehouse,
+  factory: Factory,
   'credit-card': CreditCard,
   plug: Plug,
 };
@@ -158,6 +160,8 @@ function SyncToggles({
     returns: { title: ts.returns, description: ts.returnsDescription },
     stockCounts: { title: ts.stockCounts, description: ts.stockCountsDescription },
     movements: { title: ts.movements, description: ts.movementsDescription },
+    productSuppliers: { title: ts.productSuppliers, description: ts.productSuppliersDescription },
+    sales: { title: ts.sales, description: ts.salesDescription },
   };
 
   const uniqueSyncs = [...new Map(syncs.map((sync) => [sync.settingKey, sync])).values()];

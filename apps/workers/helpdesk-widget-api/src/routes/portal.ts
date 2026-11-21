@@ -16,6 +16,9 @@
  *   POST /auth/sign-out
  *   GET  /me
  *   GET  /request-types               the request form (customer ticket types)
+ *   GET  /catalog                     the service catalogue as this reader sees it
+ *   GET  /catalog/:id                 one item with its form
+ *   POST /catalog/:id/requests        submit an item (a request that may need approval first)
  *   GET  /requests                    my requests
  *   POST /requests                    submit one
  *   GET  /requests/:id                one request, public thread only
@@ -53,8 +56,17 @@ import {
   DeskPortalRequestRejectedError,
 } from '@weldsuite/db/lib/desk-portal';
 import {
+  createDeskCatalogPortalRequest,
+  deskCatalogItemNames,
+  DeskCatalogRefusedError,
+  getDeskCatalogItemForPrincipal,
+  listDeskCatalogForPrincipal,
+} from '@weldsuite/db/lib/desk-catalog';
+import { fulfilDeskCatalogRequest, notifyDeskApprover } from '@weldsuite/desk-domain/catalog';
+import {
   deskPortalAuthRequestSchema,
   deskPortalAuthVerifySchema,
+  deskPortalCatalogRequestSchema,
   deskPortalCreateRequestSchema,
   deskPortalListRequestsQuerySchema,
   deskPortalReplySchema,
@@ -67,6 +79,7 @@ import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
 import {
   autoAssignConversation,
+  deskCreatedChanges,
   isPublicMessage,
   notifyTeamOfVisitorMessage,
   publishVisitorMessage,
@@ -307,8 +320,15 @@ signedIn.get('/requests', zValidator('query', deskPortalListRequestsQuerySchema)
       limit: query.limit ?? 20,
     });
     const types = await deskTicketTypesById(db, page.rows.map((r) => r.ticketTypeId));
+    const itemNames = await deskCatalogItemNames(db, page.rows.map((r) => r.catalogItemId));
     return success(c, {
-      requests: page.rows.map((row) => toDeskPortalSummary(row, row.ticketTypeId ? types.get(row.ticketTypeId) : undefined)),
+      requests: page.rows.map((row) =>
+        toDeskPortalSummary(
+          row,
+          row.ticketTypeId ? types.get(row.ticketTypeId) : undefined,
+          row.catalogItemId ? itemNames.get(row.catalogItemId) ?? null : null,
+        ),
+      ),
       hasMore: page.hasMore,
       cursor: page.cursor,
     });
@@ -340,10 +360,13 @@ async function requestDetail(
 ): Promise<DeskPortalRequestDetail> {
   const types = await deskTicketTypesById(db, [conversation.ticketTypeId]);
   const type = conversation.ticketTypeId ? types.get(conversation.ticketTypeId) : undefined;
+  const itemName = conversation.catalogItemId
+    ? ((await deskCatalogItemNames(db, [conversation.catalogItemId])).get(conversation.catalogItemId) ?? null)
+    : null;
   const visible = messages.filter(isPublicMessage);
   const authors = await resolveAuthors(env, db, visible.filter((m) => m.authorType === 'agent').map((m) => m.authorId));
   return {
-    ...toDeskPortalSummary(conversation, type),
+    ...toDeskPortalSummary(conversation, type, itemName),
     fields: await getDeskPortalRequestFields(db, conversation, type),
     messages: visible.map((m) => toPortalMessage(toPublicMessage(m, authors))),
   };
@@ -362,7 +385,15 @@ function announceVisitorMessage(
   c.executionCtx.waitUntil(
     visitorDisplayName(db, visitor.id, visitor).then((visitorName) =>
       Promise.all([
-        publishVisitorMessage(c.env, orgId, conversation, message, visitorName, opts.isNew ? 'created' : 'updated'),
+        publishVisitorMessage(
+          c.env,
+          orgId,
+          conversation,
+          message,
+          visitorName,
+          opts.isNew ? 'created' : 'updated',
+          opts.isNew ? deskCreatedChanges(conversation) : undefined,
+        ),
         autoAssignConversation(c.env, db, orgId, conversation, opts.isNew).then((current) =>
           opts.teamAlreadyWaiting
             ? undefined
@@ -401,6 +432,75 @@ signedIn.post('/requests', zValidator('json', deskPortalCreateRequestSchema), as
       return error.badRequest(c, err.message, { field: err.field });
     }
     console.error('[widget-api/portal] create request failed:', err);
+    return error.internal(c, 'Failed to submit the request');
+  }
+});
+
+signedIn.get('/catalog', async (c) => {
+  try {
+    return success(c, await listDeskCatalogForPrincipal(c.get('tenantDb'), c.get('principal')));
+  } catch (err) {
+    console.error('[widget-api/portal] catalogue failed:', err);
+    return error.internal(c, 'Failed to load the service catalogue');
+  }
+});
+
+signedIn.get('/catalog/:id', async (c) => {
+  const id = c.req.param('id');
+  try {
+    const found = await getDeskCatalogItemForPrincipal(c.get('tenantDb'), c.get('principal'), id);
+    if (!found) return error.notFound(c, 'Catalogue item', id);
+    return success(c, found.portal);
+  } catch (err) {
+    console.error('[widget-api/portal] catalogue item failed:', err);
+    return error.internal(c, 'Failed to load the catalogue item');
+  }
+});
+
+/**
+ * Submit a catalogue item: the same request as POST /requests with the item's
+ * form, started as a service request. The first approver is notified, or an
+ * item without approval gets its tasks created, after the answer. Both are
+ * skipped quietly where the worker lacks what they need (they never fail the
+ * request).
+ */
+signedIn.post('/catalog/:id/requests', zValidator('json', deskPortalCatalogRequestSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const found = await getDeskCatalogItemForPrincipal(db, c.get('principal'), id);
+    if (!found) return error.notFound(c, 'Catalogue item', id);
+    const { item } = found;
+    const created = await createDeskCatalogPortalRequest(db, {
+      generateId,
+      visitor: c.get('visitor'),
+      item,
+      title: data.title,
+      description: data.description,
+      fields: data.fields,
+    });
+    const { conversation, message, slaCheckAt } = created;
+    markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), c.get('clerkOrgId'), slaCheckAt);
+    announceVisitorMessage(c, conversation, message, { isNew: true, teamAlreadyWaiting: false });
+
+    const ctx = { env: c.env, clerkOrgId: c.get('clerkOrgId'), generateId };
+    if (created.pendingApproval) {
+      c.executionCtx.waitUntil(
+        notifyDeskApprover(ctx, { db, approval: created.pendingApproval, conversation, item }),
+      );
+    } else if (created.fulfilmentDue) {
+      c.executionCtx.waitUntil(
+        fulfilDeskCatalogRequest(ctx, { db, conversation, item }).then(() => undefined),
+      );
+    }
+    return success(c, await requestDetail(c.env, db, conversation, [message]), 201);
+  } catch (err) {
+    if (err instanceof DeskPortalRequestRejectedError) {
+      return error.badRequest(c, err.message, { field: err.field });
+    }
+    if (err instanceof DeskCatalogRefusedError) return error.conflict(c, err.message);
+    console.error('[widget-api/portal] catalogue request failed:', err);
     return error.internal(c, 'Failed to submit the request');
   }
 });

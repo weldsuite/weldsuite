@@ -1,6 +1,6 @@
 /**
  * Google Sheets outbound actions (`google_sheets.*`) — see "Provider pattern"
- * in docs/plans/weldconnect.md.
+ * in weldsuite-documentation/plans/weldconnect.md.
  *
  * Calls the Sheets v4 values API. Tokens (with refresh) are resolved through
  * the shared integration-token helper (./token.ts); errors are classified by

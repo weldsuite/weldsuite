@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { subtreeOf } from '../settings/components/department-tree';
 import { isPhoneNumber } from '../employees/components/employee-field-rules';
-import { instantAt, minutesAfter, workingDaysBetween } from './shared';
+import { formatDate, formatMoney, instantAt, minutesAfter, setHrFormatLocale, workingDaysBetween } from './shared';
+
+describe('the WeldHR format locale (TASK-1471)', () => {
+  it('formats dates and money in the entity locale, like WeldBooks', () => {
+    try {
+      setHrFormatLocale('en-NL');
+      expect(formatDate('2026-11-17')).toBe(new Date('2026-11-17T12:00:00').toLocaleDateString('en-NL', { day: 'numeric', month: 'short', year: 'numeric' }));
+      setHrFormatLocale('nl-NL');
+      expect(formatMoney(12.34, 'EUR')).toBe(new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(12.34));
+    } finally {
+      setHrFormatLocale(undefined);
+    }
+  });
+});
 
 describe('minutesAfter', () => {
   it('measures a day shift', () => {

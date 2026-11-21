@@ -213,7 +213,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
         data: [
           'welddata', 'weldcrm', 'welddesk', 'weldmail', 'weldflow',
           'weldconnect', 'weldhost', 'weldstash', 'weldbooks', 'weldchat', 'weldmeet',
-          'weldcalendar', 'welddrive', 'social', 'parcel',
+          'weldcalendar', 'welddrive', 'social',
         ],
       }),
     }),

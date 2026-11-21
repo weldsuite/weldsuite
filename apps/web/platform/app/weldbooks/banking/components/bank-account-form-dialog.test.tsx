@@ -64,6 +64,19 @@ describe('BankAccountFormDialog', () => {
     expect(screen.queryByLabelText('Next check number')).not.toBeInTheDocument();
   });
 
+  it('refuses an IBAN that does not check out and creates nothing', async () => {
+    jurisdiction.code = 'NL';
+    const user = userEvent.setup();
+    renderWithProviders(<BankAccountFormDialog open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Name'), 'Spaarrekening');
+    await user.type(screen.getByLabelText(/IBAN/), 'NL12INVALID');
+    await user.click(screen.getByRole('button', { name: 'Create bank account' }));
+
+    expect(await screen.findByText('Not a valid IBAN. Check the country code, the length and the check digits.')).toBeInTheDocument();
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
   it('refuses a routing number that fails the ABA check and creates nothing', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BankAccountFormDialog open onOpenChange={vi.fn()} />);
@@ -159,5 +172,27 @@ describe('BankAccountFormDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Remove' }));
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(updateMutate.mock.calls[1][0].data).toHaveProperty('accountNumber', null);
+  });
+});
+
+describe('BankAccountFormDialog: after creating', () => {
+  beforeAll(polyfillRadixSelect);
+
+  it('closes and hands the new account id to onCreated', async () => {
+    createMutate.mockReset().mockImplementation((_payload: unknown, options: { onSuccess: (res: unknown) => void }) =>
+      options.onSuccess({ data: { id: 'ba_new' } }),
+    );
+    const onOpenChange = vi.fn();
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<BankAccountFormDialog open onOpenChange={onOpenChange} onCreated={onCreated} />);
+
+    await user.type(screen.getByLabelText('Name'), 'Operating');
+    await user.type(screen.getByLabelText('Routing number'), VALID_ROUTING);
+    await user.type(screen.getByLabelText('Account number'), '0012 3456 7890');
+    await user.click(screen.getByRole('button', { name: 'Create bank account' }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onCreated).toHaveBeenCalledWith('ba_new');
   });
 });

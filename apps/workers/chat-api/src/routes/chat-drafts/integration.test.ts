@@ -77,6 +77,31 @@ describe('/api/chat-drafts · owner boundary', () => {
     expect(row?.workspaceId).toBe('org_test_default');
   });
 
+  it('POST / and PATCH /:id reject an empty channelId', async () => {
+    const { request } = createTestApp('/api/chat-drafts', chatDraftsRoutes, {
+      context: { userId: ALICE, permissions: permissions('channels:read'), tenantDb: db },
+    });
+    const created = await request('/api/chat-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: '', content: 'typed on another screen' }),
+    });
+    expect(created.status).toBe(400);
+
+    const ok = await request('/api/chat-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: generateId('ch'), content: 'kept' }),
+    });
+    const { data } = (await ok.json()) as { data: { id: string } };
+    const patched = await request(`/api/chat-drafts/${data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId: '' }),
+    });
+    expect(patched.status).toBe(400);
+  });
+
   it('GET /:id 404s another user’s draft', async () => {
     const [bobDraft] = await db
       .select()

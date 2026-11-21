@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent } from 'react';
+import { useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { ArrowUp, CornerDownRight, Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
@@ -30,7 +30,22 @@ interface AgentChatInputProps {
    * (the WeldAgent panel and the agent page).
    */
   variant?: 'inline' | 'stacked';
+  /**
+   * Stacked only: buttons at the start of the action row, in place of the `+`
+   * that tags a record (the mail composer's AI island puts its own there).
+   */
+  startActions?: ReactNode;
+  /** Stacked only: buttons just before the send button. */
+  endActions?: ReactNode;
+  /** `@` opens the record picker; off where the text goes somewhere that cannot read record tags. */
+  recordTags?: boolean;
+  /** Escape in the field (when the record picker is not open). */
+  onEscape?: () => void;
 }
+
+/** The look of the stacked composer's icon buttons, for buttons passed in through its action slots. */
+export const AGENT_INPUT_ICON_BUTTON =
+  'size-8 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground';
 
 /**
  * The WeldAgent composer: grows with its text, Enter sends, Shift+Enter breaks
@@ -46,13 +61,17 @@ export function AgentChatInput({
   autoFocus = false,
   className,
   variant = 'inline',
+  startActions,
+  endActions,
+  recordTags = true,
+  onEscape,
 }: Readonly<AgentChatInputProps>) {
   const t = getTranslations('common').ai.chat;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const tags = useRecordTags(value, onChange, textareaRef);
   const canSubmit = value.trim().length > 0 && !isSending && !disabled;
   const submit = () => {
-    if (canSubmit) onSubmit(tags.toSend(value));
+    if (canSubmit) onSubmit(recordTags ? tags.toSend(value) : value);
   };
 
   useEffect(() => {
@@ -93,28 +112,34 @@ export function AgentChatInput({
       ref={textareaRef}
       value={value}
       disabled={disabled}
-      aria-autocomplete="list"
-      aria-expanded={tags.open}
+      aria-label={placeholder ?? t.placeholder}
+      aria-autocomplete={recordTags ? 'list' : undefined}
+      aria-expanded={recordTags ? tags.open : undefined}
       onChange={(e) => {
         onChange(e.target.value);
-        tags.sync(e.target);
+        if (recordTags) tags.sync(e.target);
       }}
-      onSelect={(e) => tags.sync(e.currentTarget)}
+      onSelect={(e) => {
+        if (recordTags) tags.sync(e.currentTarget);
+      }}
       onKeyDown={(e) => {
-        if (tags.onKeyDown(e)) return;
+        if (recordTags && tags.onKeyDown(e)) return;
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
           submit();
+        }
+        if (e.key === 'Escape' && onEscape) {
+          e.preventDefault();
+          onEscape();
         }
       }}
       placeholder={placeholder ?? t.placeholder}
       rows={1}
       className={
         stacked
-          ? 'max-h-[200px] min-h-[40px] w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-3 pl-[10px] pt-[7px] text-[15px] text-gray-900 outline-none placeholder:text-gray-500 dark:text-foreground dark:placeholder:text-muted-foreground'
+          ? 'max-h-[200px] min-h-[40px] w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-3 pl-[10px] pt-[7px] text-[15px] text-gray-900 outline-none [scrollbar-color:rgba(200,200,200,0.3)_transparent] [scrollbar-width:thin] placeholder:text-gray-500 dark:text-foreground dark:placeholder:text-muted-foreground'
           : 'max-h-[200px] min-h-[36px] flex-1 resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70'
       }
-      style={stacked ? { scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' } : undefined}
     />
   );
 
@@ -136,49 +161,56 @@ export function AgentChatInput({
           )}
           onClick={focusField}
         >
-          {tags.menu}
+          {recordTags && tags.menu}
           {field}
           <div className="mt-auto flex items-center justify-between">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={disabled}
-              onClick={startTag}
-              aria-label={t.mentions.label}
-              title={t.mentions.label}
-              className="size-8 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
-            >
-              <Plus className="h-[18px] w-[18px]" />
-            </Button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              aria-label={t.send}
-              title={t.send}
-              className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-[12px] transition-all',
-                canSubmit
-                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                  : 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-muted dark:text-muted-foreground',
-              )}
-            >
-              {isSending ? (
-                <Loader2 className="h-[15px] w-[15px] animate-spin" />
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="2.5"
-                  stroke="currentColor"
-                  className="h-[15px] w-[15px]"
-                  aria-hidden="true"
+            <div className="flex min-w-0 items-center gap-0.5">
+              {startActions ?? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={disabled}
+                  onClick={startTag}
+                  aria-label={t.mentions.label}
+                  title={t.mentions.label}
+                  className={AGENT_INPUT_ICON_BUTTON}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                </svg>
+                  <Plus className="h-[18px] w-[18px]" />
+                </Button>
               )}
-            </button>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {endActions}
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                aria-label={t.send}
+                title={t.send}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-[12px] transition-all',
+                  canSubmit
+                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    : 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-muted dark:text-muted-foreground',
+                )}
+              >
+                {isSending ? (
+                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="2.5"
+                    stroke="currentColor"
+                    className="h-[15px] w-[15px]"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       ) : (

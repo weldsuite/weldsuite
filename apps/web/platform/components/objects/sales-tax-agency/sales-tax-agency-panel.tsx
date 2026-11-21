@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import {
   Building2,
   CalendarClock,
@@ -186,7 +187,12 @@ function AgencyDetailsTab({ agency, canUpdate }: Readonly<{ agency: SalesTaxAgen
             {format(ta.notManual.title, { engine: t.engine.options[engine].name })}
           </span>
           <span className="block">{ta.notManual.description}</span>
-          <Link to="/weldbooks/sales-tax/settings" className="text-primary underline-offset-4 hover:underline">
+          <Link
+            to="/settings/apps/weldbooks"
+            search={{ tab: 'sales-tax' }}
+            onClick={rememberSettingsReturn}
+            className="text-primary underline-offset-4 hover:underline"
+          >
             {ta.notManual.link}
           </Link>
         </PanelNotice>

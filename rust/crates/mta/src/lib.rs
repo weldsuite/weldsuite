@@ -3,7 +3,7 @@
 //! mail nodes, one pool per node set (`system` for WeldSuite's own mail,
 //! `customer` for everything users write), each node sending from its own
 //! public IPv4 with matching reverse DNS. Contract:
-//! `docs/plans/eu-mail-service.md`.
+//! `weldsuite-documentation/plans/eu-mail-service.md`.
 //!
 //! Written from the ground up, on purpose: no mail or DNS libraries.
 //!
@@ -16,13 +16,15 @@
 //!   outbox in the MTA's own Postgres database.
 //! - [`submission`]: the submission policy (auth → pool, sender and
 //!   suppression checks, enqueue).
-//! - [`delivery`], [`shaping`], [`retry`]: the delivery workers.
+//! - [`delivery`], [`shaping`], [`warmup`], [`retry`]: the delivery
+//!   workers, and each IP's daily cap while it builds a reputation.
 //! - [`verp`], [`feedback`], [`inbound`]: the return path (VERP addresses,
 //!   DSN and ARF reports, the bounce MX).
 //! - [`mta_sts`], [`tlsrpt`]: MTA-STS policies and TLS-RPT reports.
 //! - [`events`]: delivery events in Cloudflare Email Sending's shape, from
 //!   the outbox to NATS.
 //! - [`api`]: the HTTP API (domains, queue, health).
+//! - [`monitoring`]: the Prometheus metrics (deliveries, the database pool).
 //! - [`config`], [`run`]: settings and the process.
 
 pub mod api;
@@ -36,6 +38,7 @@ pub mod events;
 pub mod feedback;
 pub mod inbound;
 pub mod message;
+pub mod monitoring;
 pub mod mta_sts;
 pub mod retry;
 pub mod run;
@@ -46,6 +49,7 @@ pub mod submission;
 pub mod tls;
 pub mod tlsrpt;
 pub mod verp;
+pub mod warmup;
 
 #[cfg(test)]
 mod e2e;

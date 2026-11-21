@@ -19,12 +19,15 @@ import {
   type AuthGateCase,
   type ListSweepCase,
 } from '@weldsuite/worker-kit/testing/sweeps';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import { conversationsRoutes } from './conversations';
 import { deskConversationsRoutes } from './desk-conversations';
+import { deskProblemsRoutes } from './desk-problems';
 import { deskWidgetRoutes } from './desk-widget';
 import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
+import { reportSchedulesRoutes } from './helpdesk-analytics/schedules';
 import { helpdeskContactsRoutes } from './helpdesk-contacts';
 import { slasRoutes } from './slas';
 import { ticketsRoutes } from './tickets';
@@ -43,10 +46,13 @@ const EXEMPT_ROUTES = new Set<string>([
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/conversations', router: conversationsRoutes, prefix: 'conversations' },
   { mount: '/api/slas', router: slasRoutes, prefix: 'slas' },
+  { mount: '/api/desk/problems', router: deskProblemsRoutes, prefix: 'problems' },
   // helpdesk-contacts uses conversations:* permissions; no DELETE (contacts owned by CRM)
   { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, prefix: 'conversations', skipDelete: true },
   // helpdesk-analytics uses settings:* permissions; full CRUD at top level
   { mount: '/api/helpdesk-analytics', router: helpdeskAnalyticsRoutes, prefix: 'settings' },
+  // the scheduled report emails (./helpdesk-analytics/schedules.ts) too: settings:* on / and /:id
+  { mount: '/api/helpdesk-analytics/schedules', router: reportSchedulesRoutes, prefix: 'settings' },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
@@ -54,7 +60,9 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, permission: 'conversations:read' },
   { mount: '/api/helpdesk-analytics', router: helpdeskAnalyticsRoutes, permission: 'settings:read' },
+  { mount: '/api/helpdesk-analytics/schedules', router: reportSchedulesRoutes, permission: 'settings:read' },
   { mount: '/api/desk/conversations', router: deskConversationsRoutes, permission: 'conversations:read' },
+  { mount: '/api/desk/problems', router: deskProblemsRoutes, permission: 'problems:read' },
   { mount: '/api/desk/widget', router: deskWidgetRoutes, permission: 'settings:read' },
 ];
 
@@ -83,5 +91,21 @@ describe.skipIf(LIST_CASES.length === 0).each(LIST_CASES)('$mount · GET / (list
     const r = await listEndpointResult(c, db);
     expect(r.status).toBe(200);
     expect(r.envelopeOk).toBe(true);
+  }, 60_000);
+});
+
+// The live reports are GET-only (no CRUD sweep fits): each refuses a caller without its permission.
+const LIVE_REPORT_CASES = [
+  { path: '/api/helpdesk-analytics/wallboard', permission: 'conversations:read' },
+  { path: '/api/helpdesk-analytics/phone', permission: 'settings:read' },
+];
+
+describe.each(LIVE_REPORT_CASES)('$path · auth gate', (c) => {
+  it('refuses a caller without its permission', async () => {
+    const { db } = await createPgliteDb();
+    const { request } = createTestApp('/api/helpdesk-analytics', helpdeskAnalyticsRoutes, {
+      context: { permissions: permissions(), tenantDb: db },
+    });
+    expect((await request(c.path)).status, c.permission).toBe(403);
   }, 60_000);
 });

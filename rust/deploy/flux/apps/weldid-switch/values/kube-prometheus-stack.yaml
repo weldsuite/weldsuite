@@ -1,0 +1,31 @@
+# Grafana on WeldID's staff issuer, over ../../../infrastructure/monitoring/
+# values/kube-prometheus-stack.yaml: who may sign in is whoever has a staff
+# account (the staff issuer has nobody else), Admin for the staff role
+# grafana-admin (`weldid admin staff add --roles grafana-admin`, or the
+# roles of an existing staff member), Viewer for the rest. The break-glass
+# login (grafana-admin, /login?disableAutoLogin=true) stays.
+grafana:
+  # WeldID's fixed client id. A container's env wins over its envFrom, so
+  # this beats grafana-oidc's GF_AUTH_GENERIC_OAUTH_CLIENT_ID (Zitadel's);
+  # the client secret stays grafana-oidc's, which WeldID has too.
+  env:
+    GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+  grafana.ini:
+    auth:
+      signout_redirect_url: https://auth.${DOMAIN}/staff/oauth/logout?client_id=grafana&post_logout_redirect_uri=https%3A%2F%2Fgrafana.${DOMAIN}%2Flogin
+    auth.generic_oauth:
+      name: WeldSuite Staff
+      # client_secret_basic.
+      auth_style: InHeader
+      auth_url: https://auth.${DOMAIN}/staff/oauth/authorize
+      token_url: https://auth.${DOMAIN}/staff/oauth/token
+      api_url: https://auth.${DOMAIN}/staff/oauth/userinfo
+      # roles: the staff issuer's roles claim (an array, empty for none), in
+      # the ID token and from userinfo.
+      scopes: openid profile email roles
+      login_attribute_path: email
+      role_attribute_path: "contains(roles || `[]`, 'grafana-admin') && 'Admin' || 'Viewer'"
+      # Grafana's own session decides how long one lasts; WeldID's access
+      # tokens (10 minutes) aren't refreshed, and the client has no
+      # refresh_token grant.
+      use_refresh_token: false

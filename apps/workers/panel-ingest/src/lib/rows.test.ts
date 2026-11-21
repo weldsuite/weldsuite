@@ -239,4 +239,19 @@ describe('buildEventRows', () => {
     });
     expect(buildEventRows(source({ batch }))[0]!.ts).toBe(iso(NOW - 3 * SECOND));
   });
+
+  it('cuts only ASCII whitespace from either end of a mobile screen name', () => {
+    const screens: Array<[string, string, string | null]> = [
+      [' \t\nCheckout\r\v\f ', '/Checkout', 'Checkout'],
+      ['  Product  Detail  ', '/Product-Detail', 'Product  Detail'],
+      [' Home ', '/ Home ', ' Home '],
+      [' \t\n\r\v\f ', '/', null],
+      ['', '/', null],
+      ['x', '/x', 'x'],
+      [`${' '.repeat(5000)}a${' '.repeat(5000)}b`, '/a-b', `a${' '.repeat(5000)}b`.slice(0, 200)],
+    ];
+    const events = screens.map(([screen]) => wireEvent({ name: '$screen', url: 'app://com.acme.shop/', props: { $app_id: 'com.acme.shop', $screen_name: screen } }));
+    const rows = buildEventRows(source({ batch: wireBatch({ lib: 'mobile', events }) }));
+    expect(rows.map((row) => [row.path, row.title])).toEqual(screens.map(([, path, title]) => [path, title]));
+  });
 });

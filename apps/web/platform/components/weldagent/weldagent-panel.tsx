@@ -15,6 +15,7 @@ import { FloatingDrawer } from '@/components/layout/floating-drawer';
 import { AgentChatInput, AgentSuggestions, getDefaultAgentSuggestions } from './agent-chat-input';
 import { AssistantMessage, TypingIndicator, UserMessage } from './chat/chat-message';
 import { QuestionCard } from './chat/question-card';
+import { ChatVisualActionsProvider, usePrefillComposer } from './visuals/visual-actions-context';
 import { messagesToRemember, panelSessionAtom } from './panel-session';
 import { getTranslations } from '@/lib/i18n';
 import { usePathname } from '@/lib/router';
@@ -24,6 +25,7 @@ import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import type { EntityContext } from '@/lib/weldagent/tools/types';
+import { AssistantAiBadge } from '@/components/ai/assistant-ai-badge';
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
@@ -142,6 +144,8 @@ export function WeldAgentPanel({
   );
 
   const [input, setInput] = useState('');
+  // "Ask about this" on a visual puts the follow-up in the composer.
+  const { ask: askAboutVisual, composerRef } = usePrefillComposer(setInput);
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -241,6 +245,7 @@ export function WeldAgentPanel({
             <span className="truncate px-1.5 text-sm font-semibold">{t.generalAgent}</span>
           )}
           {betaAppCodes?.has('weldagent') ? <BetaBadge variant="inline" /> : null}
+          <AssistantAiBadge className="ml-1" />
         </div>
         <div className="flex items-center gap-0.5">
           <Button
@@ -264,19 +269,21 @@ export function WeldAgentPanel({
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {!isEmpty && (
-          <div className="flex flex-col gap-5">
-            {messages.map((m, index) => (
-              <PanelMessage
-                key={m.id}
-                message={m}
-                answer={messages.slice(index + 1).find((later) => later.role === 'user')?.content ?? null}
-                isLast={m.id === lastAssistantId && index === messages.length - 1}
-                isSending={isSending}
-                onAnswer={submit}
-              />
-            ))}
-            <div ref={scrollEndRef} />
-          </div>
+          <ChatVisualActionsProvider ask={isSending ? undefined : askAboutVisual}>
+            <div className="flex flex-col gap-5">
+              {messages.map((m, index) => (
+                <PanelMessage
+                  key={m.id}
+                  message={m}
+                  answer={messages.slice(index + 1).find((later) => later.role === 'user')?.content ?? null}
+                  isLast={m.id === lastAssistantId && index === messages.length - 1}
+                  isSending={isSending}
+                  onAnswer={submit}
+                />
+              ))}
+              <div ref={scrollEndRef} />
+            </div>
+          </ChatVisualActionsProvider>
         )}
       </div>
 
@@ -297,7 +304,7 @@ export function WeldAgentPanel({
         </div>
       )}
 
-      <div className={cn('flex-shrink-0 px-3 pb-3', !isEmpty && 'pt-1')}>
+      <div ref={composerRef} className={cn('flex-shrink-0 px-3 pb-3', !isEmpty && 'pt-1')}>
         {openSheet && (
           <div className="flex min-w-0 items-center gap-1.5 px-1 pb-1.5 text-xs text-muted-foreground" data-testid="weldagent-open-sheet">
             <Sheet className="h-3.5 w-3.5 shrink-0" />

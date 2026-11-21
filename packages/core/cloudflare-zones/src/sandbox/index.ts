@@ -2,7 +2,7 @@
  * WeldHost DNS sandbox: customer DNS zones on the test environment live in a
  * D1-backed stand-in for Cloudflare instead of the real account, so a domain
  * registered at Realtime Register's OTE gets a zone and editable records
- * without anything reaching real DNS. Plan: docs/plans/weldhost-test-environment.md.
+ * without anything reaching real DNS. Plan: weldsuite-documentation/plans/weldhost-test-environment.md.
  *
  * Turned on per worker by calling {@link configureZonesSandbox} with the
  * worker's env at the top of every handler. It does nothing unless

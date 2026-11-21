@@ -36,7 +36,7 @@ import { toast } from 'sonner';
 import {
   isActiveExecutionStatus,
   isCancellableExecutionStatus,
-  isWorkflowInactiveError,
+  retryErrorMessage,
   useCancelExecution,
   useRetryExecution,
   type WorkflowExecution,
@@ -85,6 +85,8 @@ export interface ExecutionDetailDto extends Omit<WorkflowExecution, 'error'> {
 interface ExecutionDetailClientProps {
   execution: ExecutionDetailDto;
   initialLogs: ExecutionLogEntry[];
+  /** The run's workflow as it is now: its current name, or deleted (then it can't run again). */
+  workflow?: { name: string | null; deleted: boolean };
 }
 
 interface DelegationOutput {
@@ -306,7 +308,7 @@ function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabe
   );
 }
 
-export function ExecutionDetailClient({ execution, initialLogs }: Readonly<ExecutionDetailClientProps>) {
+export function ExecutionDetailClient({ execution, initialLogs, workflow }: Readonly<ExecutionDetailClientProps>) {
   const { t, language } = useI18n();
   const st = useTranslations();
   const naLabel = st('sweep.weldconnect.executionDetail.notAvailable');
@@ -320,7 +322,9 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     return Number.isNaN(value.getTime()) ? naLabel : dateTimeFormat.format(value);
   };
 
-  const workflowName = execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow;
+  // The workflow's name now (a rename reaches its old runs), else the one stored with the run.
+  const workflowName = workflow?.name || execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow;
+  const workflowDeleted = workflow?.deleted === true;
   const idTail = execution.id.slice(-6);
 
   useBreadcrumbs([
@@ -400,11 +404,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
         }
       },
       onError: (err) => {
-        toast.error(
-          isWorkflowInactiveError(err)
-            ? t.weldconnect.executionDetail.toasts.workflowInactive
-            : t.weldconnect.executionDetail.toasts.retryFailed,
-        );
+        toast.error(retryErrorMessage(err, t.weldconnect.executionDetail.toasts));
       },
     });
   };
@@ -469,13 +469,15 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
   };
 
   // Quick actions
+  const viewWorkflowAction: DetailAction = {
+    label: t.weldconnect.executionDetail.viewWorkflow,
+    icon: ExternalLink,
+    variant: 'outline',
+    onClick: () => router.push(`/weldconnect/workflows/${execution.workflowId}`),
+  };
   const quickActions: DetailAction[] = [
-    {
-      label: t.weldconnect.executionDetail.viewWorkflow,
-      icon: ExternalLink,
-      variant: 'outline',
-      onClick: () => router.push(`/weldconnect/workflows/${execution.workflowId}`),
-    },
+    // A deleted workflow has no page to open.
+    ...(workflowDeleted ? [] : [viewWorkflowAction]),
     {
       label: t.weldconnect.executionDetail.export,
       icon: Download,
@@ -505,7 +507,8 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     });
   }
 
-  if (isFailed) {
+  // A run of a deleted workflow can't start again (the API answers 404).
+  if (isFailed && !workflowDeleted) {
     primaryActions.push({
       label: t.weldconnect.executionDetail.retryExecution,
       icon: RefreshCw,

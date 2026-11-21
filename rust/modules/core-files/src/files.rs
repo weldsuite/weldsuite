@@ -98,7 +98,7 @@ async fn file_sharing(caller: &Caller, opened: &OpenedFile) -> Result<Value, Fai
     };
     Ok(describe_sharing(
         &caller.db,
-        caller.master(),
+        caller.request_master(),
         &opened.access,
         target,
         opened.role,
@@ -1033,6 +1033,8 @@ mod tests {
                 jobs: Some(Arc::clone(&jobs) as Arc<dyn weldsuite_ports::DynJobs>),
                 ..StorageState::default()
             },
+            ai: None,
+            master: None,
         };
         let deleted_at =
             OffsetDateTime::from_unix_timestamp_nanos(1_790_665_200_123_000_000).expect("a time");

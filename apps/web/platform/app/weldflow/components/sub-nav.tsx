@@ -80,7 +80,16 @@ const SubNavContext = createContext<SubNavContextValue | null>(null);
 export function SubNavTabs() {
   const context = useContext(SubNavContext);
   if (!context) return null;
-  const { label, basePath, items, activeId } = context;
+  return <SubNavSwitch label={context.label} basePath={context.basePath} items={context.items} activeId={context.activeId} />;
+}
+
+/** The segmented switch of `SubNavTabs`, for a page that has its own toolbar (Workload and its views). */
+export function SubNavSwitch({
+  label,
+  basePath,
+  items,
+  activeId,
+}: Readonly<{ label: string; basePath: string; items: readonly SubNavItem[]; activeId: string }>) {
   return (
     <nav aria-label={label} className="inline-flex shrink-0 rounded-md">
       {items.map((item) => {

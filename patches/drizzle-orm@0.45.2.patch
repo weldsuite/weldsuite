@@ -1,0 +1,44 @@
+diff --git a/relations.d.cts b/relations.d.cts
+index 5da10ab518a939580f0858e5bbf88ac14fa9fd60..da0c524683b7c015ab2ed3b3e472d15e3ef09429 100644
+--- a/relations.d.cts
++++ b/relations.d.cts
+@@ -136,12 +136,16 @@ export interface RelationalSchemaConfig<TSchema extends TablesRelationalConfig>
+     schema: TSchema;
+     tableNamesMap: Record<string, string>;
+ }
++/** The schema's `relations()` exports only: filtered once, so each table scans those instead of every export. */
++export type ExtractRelationsOnly<TSchema extends Record<string, unknown>> = {
++    [K in keyof TSchema as TSchema[K] extends Relations ? K : never]: TSchema[K];
++};
+ export type ExtractTablesWithRelations<TSchema extends Record<string, unknown>> = {
+     [K in keyof TSchema as TSchema[K] extends Table ? K : never]: TSchema[K] extends Table ? {
+         tsName: K & string;
+         dbName: TSchema[K]['_']['name'];
+         columns: TSchema[K]['_']['columns'];
+-        relations: ExtractTableRelationsFromSchema<TSchema, TSchema[K]['_']['name']>;
++        relations: ExtractTableRelationsFromSchema<ExtractRelationsOnly<TSchema>, TSchema[K]['_']['name']>;
+         primaryKey: AnyColumn[];
+     } : never;
+ };
+diff --git a/relations.d.ts b/relations.d.ts
+index e24548ee8917c5ab1f9bee15a1dcace7bd3dd631..b16d272057840649a40f7ef2be64cfa691fcf947 100644
+--- a/relations.d.ts
++++ b/relations.d.ts
+@@ -136,12 +136,16 @@ export interface RelationalSchemaConfig<TSchema extends TablesRelationalConfig>
+     schema: TSchema;
+     tableNamesMap: Record<string, string>;
+ }
++/** The schema's `relations()` exports only: filtered once, so each table scans those instead of every export. */
++export type ExtractRelationsOnly<TSchema extends Record<string, unknown>> = {
++    [K in keyof TSchema as TSchema[K] extends Relations ? K : never]: TSchema[K];
++};
+ export type ExtractTablesWithRelations<TSchema extends Record<string, unknown>> = {
+     [K in keyof TSchema as TSchema[K] extends Table ? K : never]: TSchema[K] extends Table ? {
+         tsName: K & string;
+         dbName: TSchema[K]['_']['name'];
+         columns: TSchema[K]['_']['columns'];
+-        relations: ExtractTableRelationsFromSchema<TSchema, TSchema[K]['_']['name']>;
++        relations: ExtractTableRelationsFromSchema<ExtractRelationsOnly<TSchema>, TSchema[K]['_']['name']>;
+         primaryKey: AnyColumn[];
+     } : never;
+ };

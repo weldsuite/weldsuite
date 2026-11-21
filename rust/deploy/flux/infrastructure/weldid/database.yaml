@@ -1,0 +1,136 @@
+# WeldID's own database, next to it in the weldid namespace, built like
+# zitadel-db (../configs/base/postgres.yaml): a primary and a synchronous
+# replica in different locations on the Postgres pool, WAL archiving and
+# nightly base backups to the backup bucket at the second provider. The
+# owner, weldid, runs WeldID's migrations (`weldid migrate`, the chart's
+# hook Job); nothing logs in as the superuser.
+#
+# Never pruned, like the configs layer's clusters: turning WeldID's layer off
+# leaves the database and its backups running. Delete them by hand.
+#
+# A restore of weldid-db without WELDID_MASTER_KEY (weldid-env) gives back
+# users and sessions but no signing key WeldID can use: keep the key in the
+# password manager too.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: weldid-db
+  namespace: weldid
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+  bootstrap:
+    initdb:
+      database: weldid
+      owner: weldid
+      secret:
+        name: weldid-db-owner
+  storage:
+    storageClass: openebs-hostpath
+    size: 10Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: topology.kubernetes.io/zone
+    nodeSelector:
+      node.weldsuite.org/pool: postgres
+    tolerations:
+      - key: node.weldsuite.org/postgres
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  # WeldID's signing keys, for WeldIDKeyRotationOverdue (monitoring.yaml):
+  # the server has no metric for them, its database has.
+  monitoring:
+    customQueriesConfigMap:
+      - name: weldid-db-monitoring
+        key: queries
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: weldid-backups
+---
+# Run by each instance's exporter (port 9187, scraped by monitoring.yaml's
+# PodMonitor) against the weldid database, on the primary only. Per issuer
+# and algorithm, how long until the newest signing key retires: WeldID makes
+# a key's successor 7 days before it retires (hourly check, keys.rs in the
+# weldid repository), so in normal running this never drops below about 7
+# days. Below that, the successor is late; at 0 the issuer has no key left
+# to sign with and /readyz fails.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weldid-db-monitoring
+  namespace: weldid
+  labels:
+    cnpg.io/reload: ""
+data:
+  queries: |
+    weldid_signing_keys:
+      query: |
+        SELECT issuer, alg,
+               EXTRACT(EPOCH FROM max(retires_at) - now()) AS horizon_seconds
+        FROM signing_keys
+        GROUP BY issuer, alg
+      target_databases: ["weldid"]
+      primary: true
+      metrics:
+        - issuer:
+            usage: "LABEL"
+            description: "The WeldID issuer: platform or staff"
+        - alg:
+            usage: "LABEL"
+            description: "The signing algorithm: ES256 or RS256"
+        - horizon_seconds:
+            usage: "GAUGE"
+            description: "Seconds until the issuer's newest key for this algorithm retires"
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: weldid-backups
+  namespace: weldid
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  retentionPolicy: 30d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/weldid-db
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+# After the platform's and Zitadel's (02:30, 03:00, 03:30).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: weldid-nightly
+  namespace: weldid
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  schedule: "0 45 3 * * *"
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  cluster:
+    name: weldid-db

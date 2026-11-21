@@ -27,6 +27,7 @@ export const weldbooksUsReports = {
   exportCsv: 'Download CSV',
   exportPdf: 'Download PDF',
   exportFailed: 'Could not export the report',
+  exportDownloaded: 'Report downloaded: {file}',
   loadError: 'Could not load the report.',
   retry: 'Retry',
   noActivity: 'Nothing was booked in this period.',
@@ -82,6 +83,7 @@ export const weldbooksUsReports = {
 
   // Aging
   documentsCount: '{count} documents',
+  documentsCountOne: '1 document',
   byContact: 'By {contact}',
   openDocuments: 'Open documents',
 

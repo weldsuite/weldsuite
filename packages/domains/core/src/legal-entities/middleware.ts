@@ -1,7 +1,7 @@
 /**
  * `legalEntityContext()`: the one place a WeldBooks or WeldHR request learns
  * which legal entity it is about, and the one place per-entity access is
- * enforced for it (docs/plans/legal-entities.md).
+ * enforced for it (weldsuite-documentation/plans/legal-entities.md).
  *
  * Resolution: `X-Legal-Entity-Id`, then `X-Accounting-Entity-Id` (kept for
  * old mobile binaries and API clients), then `?entityId`, then the default

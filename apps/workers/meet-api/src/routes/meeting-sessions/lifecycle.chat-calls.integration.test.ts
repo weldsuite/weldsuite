@@ -2,10 +2,10 @@
  * "One live call at a time" across WeldMeet and WeldChat: joining a meeting
  * session also leaves the user's WeldChat calls.
  *
- * TypeScript only, outside the Rust conformance suite: the Kubernetes
- * editions have no WeldChat calls (`chat-calls` is unavailable there), so the
- * Rust backend never has a ringing or active call to leave. The rest of the
- * lifecycle runs on both backends in ./lifecycle.integration.test.ts.
+ * TypeScript only, outside the Rust conformance suite: these tests mock
+ * `@weldsuite/cloudflare-realtime` with `vi.mock`, which can't reach the Rust
+ * server (its chat half is `rust/modules/meet/src/chat_calls.rs`). The rest
+ * of the lifecycle runs on both backends in ./lifecycle.integration.test.ts.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';

@@ -10,10 +10,10 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useUser } from '@clerk/expo';
+import { useUser } from '@weldsuite/mobile-platform/auth';
 import { DELETE_ACCOUNT_CONFIRMATION } from '@weldsuite/app-api-client/schemas/account';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { useI18n } from '@/lib/i18n';
@@ -22,7 +22,7 @@ import { appApi } from '@/services/app-api';
 export function DeleteAccountDialog({ visible, onClose }: Readonly<{ visible: boolean; onClose: () => void }>) {
   const { t, format } = useI18n();
   const { user } = useUser();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const toast = useToast();
   const [deleting, setDeleting] = useState(false);
   // Asked fresh every time the dialog opens: a blocker may have been solved on the web meanwhile.
@@ -52,7 +52,7 @@ export function DeleteAccountDialog({ visible, onClose }: Readonly<{ visible: bo
       onClose();
       return;
     }
-    // The user is gone at Clerk; signing out clears what the app kept.
+    // The user is gone; signing out clears what the app kept.
     await signOut().catch(() => undefined);
   };
 

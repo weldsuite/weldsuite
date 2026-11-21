@@ -16,7 +16,7 @@ import type { Board } from '../model/board';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_STROKE, DEFAULT_TEXT } from '../model/defaults';
 import { plain } from '../model/text';
 import type { BoardElement, Marks, RecordRef, RichText } from '../model/types';
-import { fitText, layoutText, verticalOffset, type LaidLine, type LaidRun, type TextLayout, type TextStyle } from '../text/layout';
+import { fitText, layoutText, verticalOffset, wholeWordSize, type LaidLine, type LaidRun, type TextLayout, type TextStyle } from '../text/layout';
 
 export type DisplayItem =
   | {
@@ -115,9 +115,14 @@ export function textItems(layout: TextLayout, x: number, y: number, color: strin
   return out;
 }
 
-/** Lays out an element's text for its text box (the same layout the editor edits). */
-export function elementTextLayout(el: BoardElement, options: Pick<DisplayOptions, 'measurer'>): { layout: TextLayout; x: number; y: number; style: TextStyle } | null {
-  const box = elementTextBox(el);
+/**
+ * Lays out an element's text for its text box (the same layout the editor
+ * edits). A sticky's text is at most its size and shrinks to fit. Pass
+ * `showAuthors` as the board shows it: a sticky keeps room for its author's
+ * name then.
+ */
+export function elementTextLayout(el: BoardElement, options: Pick<DisplayOptions, 'measurer' | 'showAuthors'>): { layout: TextLayout; x: number; y: number; style: TextStyle } | null {
+  const box = elementTextBox(el, options.showAuthors);
   if (!box) return null;
   const text = el.text ?? plain();
   const style = textStyle(el, el.type === 'sticky' ? 22 : DEFAULT_FONT_SIZE, el.type === 'sticky' ? (el.textAlign ?? 'center') : undefined);
@@ -129,12 +134,45 @@ export function elementTextLayout(el: BoardElement, options: Pick<DisplayOptions
   return { layout, x: box.x, y: box.y + verticalOffset(layout, box.h, vAlign), style };
 }
 
-/** The box text goes in, in board units (unrotated). */
-export function elementTextBox(el: BoardElement): { x: number; y: number; w: number; h: number } | null {
+/**
+ * How tall a sticky must be for its whole text at `fontSize` without
+ * shrinking it, and never less than it is now: picking a size grows the
+ * sticky rather than leaving the text squeezed.
+ */
+export function stickyHeightFor(el: BoardElement, fontSize: number, options: Pick<DisplayOptions, 'measurer' | 'showAuthors'>): number {
+  const box = elementTextBox(el, options.showAuthors);
+  if (!box || !el.text?.text) return el.h;
+  const style = textStyle({ ...el, fontSize }, fontSize, el.textAlign ?? 'center');
+  // A word too wide for the sticky at that size shrinks the text anyway: grow only for the size it gets.
+  const size = wholeWordSize(el.text, style, box.w, options.measurer);
+  const layout = layoutText(el.text, style, box.w, options.measurer, size);
+  return Math.max(el.h, Math.ceil(layout.height + (el.h - box.h)));
+}
+
+/**
+ * The height a text box should have for its text: as tall as its lines, so
+ * the box (and the selection round it) follows the text as lines come and
+ * go. A box aligned to the middle or bottom keeps any room it was given and
+ * only grows. Null for anything but a text box: stickies and shapes keep
+ * their size, and so does text that fits itself to its box.
+ */
+export function fittedTextHeight(el: BoardElement, options: Pick<DisplayOptions, 'measurer' | 'showAuthors'>): number | null {
+  if (el.type !== 'text' || el.autoFit) return null;
+  const laid = elementTextLayout(el, options);
+  if (!laid) return null;
+  const needed = Math.ceil(laid.layout.height);
+  return (el.vAlign ?? 'top') === 'top' ? needed : Math.max(el.h, needed);
+}
+
+/** Room under a sticky's text for its author's name, while names are shown. */
+export const STICKY_AUTHOR_SPACE = 14;
+
+/** The box text goes in, in board units (unrotated); a sticky keeps room for its author's name when names are shown. */
+export function elementTextBox(el: BoardElement, showAuthors = false): { x: number; y: number; w: number; h: number } | null {
   switch (el.type) {
     case 'sticky': {
       const pad = Math.max(10, el.w * 0.08);
-      return { x: el.x + pad, y: el.y + pad, w: el.w - pad * 2, h: el.h - pad * 2 - (el.createdBy ? 14 : 0) };
+      return { x: el.x + pad, y: el.y + pad, w: el.w - pad * 2, h: el.h - pad * 2 - (showAuthors && el.createdBy ? STICKY_AUTHOR_SPACE : 0) };
     }
     case 'shape': {
       const b = textBox(el.shape, el.w, el.h);
@@ -243,6 +281,11 @@ function recordDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[]
   return cardLike(el, options, title, subtitle, view?.color ?? '#6366f1');
 }
 
+/** The sticky's text colour at three quarters, for the author's name under the text. */
+function authorColor(text: string | undefined): string {
+  return text && /^#[0-9a-f]{6}$/i.test(text) ? `${text}bf` : 'rgba(17, 24, 39, 0.75)';
+}
+
 function stickyDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[] {
   const out: DisplayItem[] = [rectItem(el.x, el.y, el.w, el.h, 2, el.fill ?? '#fff9b1', undefined, undefined, true)];
   const t = elementTextLayout(el, options);
@@ -250,9 +293,12 @@ function stickyDisplay(el: BoardElement, options: DisplayOptions): DisplayItem[]
   if (options.showAuthors && el.createdBy) {
     const name = options.name?.(el.createdBy);
     if (name) {
-      const size = Math.max(9, el.w * 0.055);
+      // In the sticky's own text colour, a little lighter: readable on every sticky colour (a fixed grey
+      // was not on orange or the darker ones), and large enough to read at a normal zoom.
+      const size = Math.max(11, el.w * 0.06);
       const font = { family: DEFAULT_FONT, size, bold: false, italic: false };
-      out.push({ kind: 'text', x: el.x + el.w * 0.06, y: el.y + el.h - el.w * 0.05, text: name, font, color: '#6b7280', width: options.measurer.measure(name, font) });
+      const color = authorColor(t?.style.color);
+      out.push({ kind: 'text', x: el.x + el.w * 0.06, y: el.y + el.h - el.w * 0.05, text: name, font, color, width: options.measurer.measure(name, font) });
     }
   }
   return out;

@@ -651,6 +651,7 @@ async fn storage_writes_the_rows_the_worker_writes() {
             books: false,
         },
         assignment_router: None,
+        ai: None,
     };
     let a = &f["account"];
     let account = RecipientAccount {

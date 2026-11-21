@@ -3,13 +3,14 @@ import { HOTKEYS, isTypingTarget, matchesBinding } from "@/lib/hotkeys/registry"
 
 /**
  * Cmd/Ctrl+/ or `?` opens the keyboard shortcuts page. The bare `?` is left
- * alone while the user is typing, so it can still be typed.
+ * alone while the user is typing, so it can still be typed, and a key an
+ * editor already used (WeldDocs' own shortcuts list) is left to it.
  */
 export function useShortcutsHotkey(onOpen: () => void) {
   useEffect(() => {
     const { binding, alternate } = HOTKEYS.showKeyboardShortcuts;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) return;
+      if (event.repeat || event.defaultPrevented) return;
       const viaModifier = matchesBinding(event, binding);
       const viaQuestionMark = alternate ? matchesBinding(event, alternate) && !isTypingTarget(event.target) : false;
       if (!viaModifier && !viaQuestionMark) return;

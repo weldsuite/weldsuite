@@ -1196,6 +1196,21 @@ function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
   return filters;
 }
 
+/** A project list without a parentTaskId lists top-level tasks only (see taskScopeFilters). */
+function listsTopLevelOnly(q: ListQuery): boolean {
+  return !(q.parentTaskId !== undefined && q.parentTaskId !== '') && !!q.projectId;
+}
+
+/**
+ * The project's tasks that have a subtask (at any depth) matching the search:
+ * walk up from every matching subtask to its ancestors. `union` (not `union
+ * all`) also stops a parent cycle from looping.
+ */
+function hasMatchingSubtask(projectId: string, term: string, number: number | null): SQL {
+  const byNumber = number === null ? sql`` : sql` or m.number = ${number}`;
+  return sql`${t.id} in (with recursive hit as (select m.id, m.parent_task_id from tasks m where m.deleted_at is null and m.parent_task_id is not null and m.project_id = ${projectId} and (m.title ilike ${term} or m.description ilike ${term} or m.key ilike ${term}${byNumber}) union select p.id, p.parent_task_id from tasks p join hit on p.id = hit.parent_task_id where p.deleted_at is null) select hit.id from hit)`;
+}
+
 function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
   const filters: SQL[] = [];
   // Status filters match every stored spelling, so `review` also finds rows
@@ -1236,8 +1251,15 @@ function taskSearchFilters(q: ListQuery): SQL[] {
     ];
     // Let users find a task by its number: "TASK-1042", "#1042", or "1042".
     const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
-    if (/^\d+$/.test(numberMatch)) {
-      searchClauses.push(eq(t.number, Number(numberMatch)));
+    const number = /^\d+$/.test(numberMatch) ? Number(numberMatch) : null;
+    if (number !== null) {
+      searchClauses.push(eq(t.number, number));
+    }
+    // A project list returns top-level tasks with their subtask tree, so a
+    // parent also matches when one of its subtasks does: the search finds
+    // subtasks in place, under their parent.
+    if (listsTopLevelOnly(q) && q.projectId) {
+      searchClauses.push(hasMatchingSubtask(q.projectId, term, number));
     }
     filters.push(or(...searchClauses)!);
   }

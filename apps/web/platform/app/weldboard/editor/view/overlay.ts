@@ -20,7 +20,10 @@ import {
 } from '@weldsuite/board-engine';
 import type { BoardController } from '../model/board-controller';
 import { toScreen } from '../model/camera';
-import { handlePositions, selectionFrame, type Handle, type Interactions } from '../model/interactions';
+import { handlePositions, LINK_BADGE_RADIUS, linkBadges, selectionFrame, type Handle, type Interactions } from '../model/interactions';
+
+/** Room between text being typed and its outline, in screen pixels. */
+const TEXT_EDIT_PAD = 4;
 
 export interface OverlayOptions {
   caretVisible: boolean;
@@ -58,10 +61,13 @@ function boxCorners(b: { x: number; y: number; w: number; h: number }): Point[] 
 }
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, c: BoardController, ia: Interactions, options: OverlayOptions): void {
+  if (drawPresentMask(ctx, c)) return;
   drawDropTarget(ctx, c);
   drawHover(ctx, c);
   drawPeerSelections(ctx, c);
+  drawFindHits(ctx, c);
   drawSelection(ctx, c, ia);
+  drawLinkBadges(ctx, c);
   drawEditedText(ctx, c, options.caretVisible);
   drawPeerCarets(ctx, c);
   drawMarquee(ctx, c);
@@ -77,6 +83,76 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, c: BoardController, i
   drawVotes(ctx, c, options.votes);
   // Collaborators' cursors with their names.
   for (const peer of c.peers) drawPeerCursor(ctx, c, peer);
+}
+
+/**
+ * Presenting: only the slide shows. Everything around it is painted over with
+ * the board's background (true when presenting, which leaves the rest of the
+ * overlay out: a slide has no selection or handles).
+ */
+function drawPresentMask(ctx: CanvasRenderingContext2D, c: BoardController): boolean {
+  if (!c.presenting || !c.slide) return false;
+  const f = c.board.get(c.slide);
+  if (!f) return false;
+  const a = toScreen(c.camera, { x: f.x, y: f.y });
+  ctx.save();
+  ctx.fillStyle = c.board.props.background ?? c.canvasBackground;
+  ctx.beginPath();
+  ctx.rect(0, 0, c.viewport.width, c.viewport.height);
+  ctx.rect(a.x, a.y, f.w * c.camera.zoom, f.h * c.camera.zoom);
+  ctx.fill('evenodd');
+  ctx.restore();
+  for (const peer of c.peers) drawPeerCursor(ctx, c, peer);
+  return true;
+}
+
+/**
+ * Find matches: each one ringed just outside its edge, on the canvas, so the
+ * ring shows whatever colour the element is (the current one is also selected).
+ */
+function drawFindHits(ctx: CanvasRenderingContext2D, c: BoardController): void {
+  if (!c.findHits.size) return;
+  ctx.save();
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 2;
+  for (const id of c.findHits) {
+    const el = c.board.get(id);
+    if (!el) continue;
+    const b = elementBounds(c.board, el);
+    const a = toScreen(c.camera, { x: b.x, y: b.y });
+    ctx.beginPath();
+    ctx.roundRect(a.x - 5, a.y - 5, b.w * c.camera.zoom + 10, b.h * c.camera.zoom + 10, 4);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** A chain-link badge on each element that has a link: a click on it opens the link. */
+function drawLinkBadges(ctx: CanvasRenderingContext2D, c: BoardController): void {
+  const badges = linkBadges(c);
+  if (!badges.length || c.editing) return;
+  ctx.save();
+  for (const { at } of badges) {
+    ctx.shadowColor = 'rgba(0,0,0,0.18)';
+    ctx.shadowBlur = 3;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, LINK_BADGE_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    // Two links of a chain, drawn as rounded bars at 45°.
+    ctx.save();
+    ctx.strokeStyle = SELECTION_COLOR;
+    ctx.lineWidth = 1.6;
+    ctx.translate(at.x, at.y);
+    ctx.rotate(-Math.PI / 4);
+    ctx.beginPath();
+    ctx.roundRect(-5.5, -2.25, 6, 4.5, 2.25);
+    ctx.roundRect(-0.5, -2.25, 6, 4.5, 2.25);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 /** Drop target frame. */
@@ -113,7 +189,19 @@ function drawPeerSelections(ctx: CanvasRenderingContext2D, c: BoardController): 
 function drawSelection(ctx: CanvasRenderingContext2D, c: BoardController, ia: Interactions): void {
   const cam = c.camera;
   const sel = c.selected;
-  for (const el of sel) outline(ctx, c, el, SELECTION_COLOR, el.locked ? 1 : 1.5);
+  for (const el of sel) {
+    // A comment pin grows when selected instead.
+    if (el.type === 'comment') continue;
+    // Text being typed gets room around it, so it doesn't touch the outline.
+    if (c.editing?.id === el.id && el.type === 'text' && !el.rotation) {
+      const a = toScreen(cam, { x: el.x, y: el.y });
+      ctx.strokeStyle = SELECTION_COLOR;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(a.x - TEXT_EDIT_PAD, a.y - TEXT_EDIT_PAD, el.w * cam.zoom + TEXT_EDIT_PAD * 2, el.h * cam.zoom + TEXT_EDIT_PAD * 2);
+      continue;
+    }
+    outline(ctx, c, el, SELECTION_COLOR, el.locked ? 1 : 1.5);
+  }
   const frame = selectionFrame(c);
   if (frame && sel.length > 1) {
     const { box } = frame;
@@ -161,7 +249,7 @@ function drawEditedText(ctx: CanvasRenderingContext2D, c: BoardController, caret
   const editing = c.editing;
   if (!editing) return;
   const el = c.board.get(editing.id);
-  const tl = el ? elementTextLayout(el, { measurer: c.measurer }) : null;
+  const tl = el ? elementTextLayout(el, { measurer: c.measurer, showAuthors: c.showAuthors }) : null;
   if (!el || !tl) return;
   ctx.save();
   ctx.translate(-cam.x * cam.zoom, -cam.y * cam.zoom);
@@ -192,7 +280,7 @@ function drawPeerCarets(ctx: CanvasRenderingContext2D, c: BoardController): void
     const p = peer.presence;
     if (!p?.editing || !p.caret) continue;
     const el = c.board.get(p.editing);
-    const tl = el ? elementTextLayout(el, { measurer: c.measurer }) : null;
+    const tl = el ? elementTextLayout(el, { measurer: c.measurer, showAuthors: c.showAuthors }) : null;
     if (!el || !tl) continue;
     const caret = caretRect(tl.layout, Math.min(p.caret[1], el.text?.text.length ?? 0));
     const at = toScreen(cam, rotatePoint({ x: tl.x + caret.x, y: tl.y + caret.y }, { x: el.x + el.w / 2, y: el.y + el.h / 2 }, el.rotation ?? 0));
@@ -290,11 +378,25 @@ function drawErasing(ctx: CanvasRenderingContext2D, c: BoardController): void {
   }
 }
 
-/** A comment pin, with the number of replies on it. */
+/** Up to two initials of a name ("Daniel Smit" → "DS"). */
+function initials(name: string | undefined): string {
+  if (!name) return '';
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+}
+
+/**
+ * A comment pin, with the number of replies on it, else its author's initials.
+ * It shrinks as the board zooms out, so it doesn't cover what it is about.
+ */
 function drawCommentPin(ctx: CanvasRenderingContext2D, c: BoardController, el: BoardElement, options: OverlayOptions): void {
   const at = toScreen(c.camera, { x: el.x, y: el.y });
   const active = options.activeComment === el.thread || c.selection.has(el.id);
-  const size = active ? 30 : 26;
+  const size = Math.max(16, (active ? 30 : 26) * Math.min(1, c.camera.zoom));
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.2)';
   ctx.shadowBlur = 6;
@@ -311,11 +413,13 @@ function drawCommentPin(ctx: CanvasRenderingContext2D, c: BoardController, el: B
   ctx.fill();
   ctx.restore();
   const count = options.commentCounts?.get(el.thread ?? '') ?? 0;
-  if (count > 0) {
+  const author = el.createdBy ? c.names.get(el.createdBy) : undefined;
+  const label = count > 0 ? String(count) : initials(author);
+  if (label && size >= 20) {
     ctx.fillStyle = '#ffffff';
-    ctx.font = `600 ${Math.round(size * 0.45)}px Inter, sans-serif`;
+    ctx.font = `600 ${Math.round(size * (label.length > 1 ? 0.36 : 0.45))}px Inter, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(String(count), at.x + size / 2, at.y - size * 0.35);
+    ctx.fillText(label, at.x + size / 2, at.y - size * 0.35);
     ctx.textAlign = 'left';
   }
 }

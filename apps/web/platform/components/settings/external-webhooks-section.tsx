@@ -447,7 +447,7 @@ export function ExternalWebhooksSection() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                             >
                               <span className="sr-only">{st('sweep.settings.webhooksExtra.openMenu')}</span>
                               <EllipsisVertical className="h-3.5 w-3.5" />

@@ -1,7 +1,7 @@
 //! The store clients (`@weldsuite/connectors`, `packages/core/connectors/src`,
-//! and `@weldsuite/connect-domain`'s `connectors/clients.ts`): what
-//! commerce-api pushes a product's sales channels through, and what
-//! connect-api tests a store's credentials with:
+//! and `@weldsuite/connect-domain`'s `connectors/clients.ts`): the product
+//! writes of the store connectors, and what connect-api tests a store's
+//! credentials with:
 //!
 //! - `getConnector(provider)` → [`connector`] (label, category, the product
 //!   sync's `externalEntityType`), `resolveConnectorObjectDirection` +
@@ -29,7 +29,7 @@ use weldsuite_ports::{HttpRequest, HttpResponse, OutboundHttp};
 
 use crate::js::{number_text, number_value};
 
-/// A connector's catalog entry (`ConnectorDef`), what commerce reads of it.
+/// A connector's catalog entry (`ConnectorDef`), what the product writes read of it.
 pub struct Connector {
     pub label: &'static str,
     pub category: &'static str,

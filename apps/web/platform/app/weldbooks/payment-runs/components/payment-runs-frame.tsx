@@ -1,19 +1,14 @@
 import type { ReactNode } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Landmark } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
-import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 const NAV = [
   { key: 'runs', href: '/weldbooks/payment-runs' },
   { key: 'checkRegister', href: '/weldbooks/payment-runs/check-register' },
   { key: 'positivePay', href: '/weldbooks/payment-runs/positive-pay' },
-  { key: 'settings', href: '/weldbooks/payment-runs/settings' },
 ] as const;
 
 /** The section of the payment screens a path belongs to; `runs` for the list, a run and the wizard. */
@@ -21,34 +16,17 @@ export function sectionOf(pathname: string): (typeof NAV)[number]['key'] {
   const path = pathname.replace(/\/+$/, '');
   if (path.startsWith('/weldbooks/payment-runs/check-register')) return 'checkRegister';
   if (path.startsWith('/weldbooks/payment-runs/positive-pay')) return 'positivePay';
-  if (path.startsWith('/weldbooks/payment-runs/settings')) return 'settings';
   return 'runs';
 }
 
 /** Vendor payments are for US entities: anyone else gets a notice instead of the screen. */
 export function UsOnlyGate({ children }: Readonly<{ children: ReactNode }>) {
   const { t } = useI18n();
-  const tu = t.weldbooksUs.payments.usOnly;
-  const { code, isError } = useCurrentJurisdiction();
-
-  if (!code && !isError) return <PageLoader fullScreen={false} />;
-  if (code && !isUsJurisdictionCode(code)) {
-    return (
-      <div className="p-6">
-        <Card>
-          <CardContent className="space-y-3 py-10 text-center">
-            <Landmark className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">{tu.title}</p>
-            <p className="mx-auto max-w-md text-sm text-muted-foreground">{tu.description}</p>
-            <Button asChild variant="outline">
-              <Link to="/weldbooks/dashboard">{tu.back}</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-  return <>{children}</>;
+  return (
+    <JurisdictionGate when={(j) => isUsJurisdictionCode(j.code)} feature={t.accounting.header.paymentRuns}>
+      {children}
+    </JurisdictionGate>
+  );
 }
 
 interface SectionNavProps {

@@ -15,7 +15,7 @@
 //!   `max_retries + 1` times, with headers naming the subscriber, the hub
 //!   sequence, the deliveries and the last error.
 //!
-//! The subscribers not ported (analytics, WeldAgent) have no
+//! The subscribers not ported (analytics) have no
 //! consumer, so nothing waits for them: their events age out of the hub with
 //! everything else after seven days.
 //!
@@ -38,11 +38,31 @@
 //!   and the tenant databases (mail-api's `mail-sending-events` queue,
 //!   MAIL-011). Dead letters go to `MAIL_SENDING_EVENTS_DLQ`.
 //!
+//! - **WeldPanel's rows** `PANEL_EVENTS` (`panel.events.v1.<ws>`) and
+//!   `PANEL_STATE` (`panel.{identities,people,groups,replays}.v1.<ws>`),
+//!   which the collector publishes to, when `S3_BUCKET_PANEL` is set: the
+//!   `panel-writer` subscriber commits them to WeldPanel's Iceberg tables
+//!   (`panel_writer`, ADR EVT-019), one replica per table under a Valkey
+//!   lease. Bad rows go to `PANEL_DLQ`.
+//! - **WeldPanel's project state** `PANEL_STATE` (`panel.ops.v1.<ws>`): the
+//!   calls the collector makes where panel-ingest calls the `PanelProject`
+//!   Durable Object. The `panel-state` subscriber applies them to the
+//!   producing workspace's tenant tables in stream order and publishes the
+//!   rows they write back to `PANEL_STATE` (`panel_state`), one replica
+//!   under a Valkey lease. Dead letters go to `PANEL_DLQ`.
+//!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
-//! not draining) and `/health` on `PORT`. On SIGTERM it stops fetching,
+//! not draining) and `/health` on `PORT`, and `/metrics` on `METRICS_ADDR`
+//! (`crate::monitoring`: each consumer's messages by outcome, the webhook
+//! retry sweep's runs, the database pools). On SIGTERM it stops fetching,
 //! finishes the batches in hand within `CONSUME_DRAIN_SECONDS` and exits.
+//! The audit log stream flushes those batches left behind (they run a few
+//! seconds after a batch, once its rows have settled) are waited for inside
+//! the same deadline.
 
 mod config;
+mod panel_state;
+pub(crate) mod panel_writer;
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -65,15 +85,15 @@ use weldsuite_db::{PgPool, Workspaces, master_pool};
 use weldsuite_ports::{BatchHandler, DynFileStore, DynJobs, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
-    AuditSubscriber, RealtimeSubscriber, Routed, SearchSubscriber, Subscriber, Tenants,
-    WebhookHttp, WebhooksSubscriber, WorkspaceTenants, filter_subject, run_webhook_retry_sweep,
-    subscriber,
+    AuditStreamSender, AuditSubscriber, PendingStreamFlushes, RealtimeSubscriber, Routed,
+    SearchSubscriber, Subscriber, Tenants, WebhookHttp, WebhooksSubscriber, WorkspaceTenants,
+    filter_subject, run_webhook_retry_sweep, subscriber,
 };
 
 pub(crate) use config::ConsumeConfig;
 use config::{
-    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, REACH_SEND,
-    REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
+    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, PANEL_STATE,
+    PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
 };
 
 type Error = Box<dyn std::error::Error>;
@@ -218,13 +238,15 @@ fn mail_inbound_handler(
         http,
         fan_out: weldsuite_mail_inbound::FanOut::from_catalog(),
         assignment_router: Some(crate::routes::desk_assignment_router()),
+        // The auto-labels (feature `mail`); without AI they label nothing.
+        ai: services.ai.clone(),
     };
     if !ctx.fan_out.books {
         tracing::info!(
             "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
         );
     }
-    let reach = reach_inbound(inbound, workspaces, &ctx);
+    let reach = reach_inbound(inbound, workspaces, &ctx, services.ai.clone());
     let mail: Arc<dyn BatchHandler> = Arc::new(weldsuite_mail_inbound::MailInboundSubscriber::new(
         ctx,
         Arc::clone(&spool),
@@ -342,6 +364,7 @@ fn reach_inbound(
     inbound: &MailInboundConfig,
     workspaces: &Arc<Workspaces>,
     ctx: &weldsuite_mail_inbound::InboundContext,
+    ai: Option<weldsuite_ai::Ai>,
 ) -> Option<weldsuite_reach::inbound::ReachInbound> {
     let served = weldsuite_catalogs::api_modules()
         .iter()
@@ -367,7 +390,101 @@ fn reach_inbound(
         storage: ctx.storage.clone(),
         events: ctx.events.clone(),
         inbound_domain: domain,
+        // Replies are labelled by the install's AI, metered on the master
+        // database's wallet.
+        classifier: ai.map(|ai| weldsuite_reach::inbound::classify::ReplyClassifier {
+            ai,
+            master: Some(workspaces.master().clone()),
+        }),
     })
+}
+
+/// The `panel-writer` subscriber: the store on the master database (its
+/// tables made where missing) and a lease per table in Valkey.
+async fn panel_writer(
+    panel: &config::PanelWriterConfig,
+    config: &ConsumeConfig,
+    master: &PgPool,
+    services: &Services,
+) -> Result<
+    (
+        Arc<panel_writer::PanelWriter>,
+        Vec<(panel_writer::Feed, weldsuite_adapters_oss::ValkeyLease)>,
+    ),
+    Error,
+> {
+    let lake = panel.store.lakehouse(master.clone())?;
+    lake.ensure_tables().await?;
+    let url = config
+        .valkey_url
+        .as_deref()
+        .ok_or("panel-writer needs VALKEY_URL")?;
+    let valkey = connect_valkey(url).await?;
+    let feeds = panel_writer::feeds(&panel.streams)
+        .into_iter()
+        .map(|feed| {
+            let lease = weldsuite_adapters_oss::ValkeyLease::new(
+                valkey.clone(),
+                format!("weldsuite:lease:panel-writer:{}", feed.table.name()),
+                &panel.holder,
+                panel.settings.lease_ttl,
+            );
+            (feed, lease)
+        })
+        .collect();
+    let writer = Arc::new(panel_writer::PanelWriter {
+        lake,
+        jetstream: services.bus.context().clone(),
+        settings: panel.settings.clone(),
+        tenant_state: Arc::new(panel_writer::NoTenantState),
+    });
+    Ok((writer, feeds))
+}
+
+/// The `panel-state` subscriber: the tenant databases through the
+/// workspaces, the rows back to the bus, the collector's lists and the
+/// lease in Valkey.
+async fn panel_state(
+    panel: &config::PanelWriterConfig,
+    config: &ConsumeConfig,
+    workspaces: &Arc<Workspaces>,
+    services: &Services,
+) -> Result<
+    (
+        Arc<panel_state::StateApplier>,
+        weldsuite_adapters_oss::ValkeyLease,
+    ),
+    Error,
+> {
+    let url = config
+        .valkey_url
+        .as_deref()
+        .ok_or("panel-state needs VALKEY_URL")?;
+    let valkey = connect_valkey(url).await?;
+    let settings = panel_state::ApplierSettings::default();
+    let lease = weldsuite_adapters_oss::ValkeyLease::new(
+        valkey.clone(),
+        format!("weldsuite:lease:{}", panel_state::DURABLE),
+        &panel.holder,
+        settings.lease_ttl,
+    );
+    let applier = Arc::new(panel_state::StateApplier {
+        jetstream: services.bus.context().clone(),
+        stream: panel.streams.state.clone(),
+        filter: panel_state::all_operations(),
+        pools: Arc::new(crate::panel_project::WorkspaceTenantPools(Arc::clone(
+            workspaces,
+        ))),
+        rows: crate::panel_project::rows::RowSink::new(Some(
+            Arc::new(services.bus.clone()) as Arc<dyn weldsuite_ports::DynEventBus>
+        )),
+        valkey: Some(crate::panel_project::PanelValkey::new(
+            valkey,
+            config.valkey_cache_prefix.clone(),
+        )),
+        settings,
+    });
+    Ok((applier, lease))
 }
 
 /// What the probes look at.
@@ -437,20 +554,27 @@ fn handlers(
     config: &ConsumeConfig,
     tenants: &Arc<dyn Tenants>,
     master: &PgPool,
-    realtime: Option<&Arc<dyn DynRealtimePublisher>>,
-    embeddings: Option<&Arc<dyn Embeddings>>,
-    http: &WebhookHttp,
+    services: &Services,
     jobs: Option<&Arc<dyn DynJobs>>,
 ) -> Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> {
+    let realtime = services.realtime.as_ref();
+    let embeddings = services.embeddings.as_ref();
     let mut out: Vec<(&'static Subscriber, Arc<dyn BatchHandler>)> = Vec::new();
     for id in &config.subscribers {
         let Some(sub) = subscriber(id) else { continue };
         let handler: Arc<dyn BatchHandler> = match id.as_str() {
-            "audit" => Arc::new(AuditSubscriber::new(Arc::clone(tenants))),
+            // The audit rows, then each workspace's audit log streams (the
+            // SIEM push), their tokens opened with the keyring. The push
+            // runs behind the batch; the drain waits for it.
+            "audit" => Arc::new(
+                AuditSubscriber::new(Arc::clone(tenants))
+                    .with_streams(services.streams.clone(), config.keyring.clone())
+                    .with_pending_stream_flushes(services.stream_flushes.clone()),
+            ),
             "webhooks" => Arc::new(WebhooksSubscriber::new(
                 Arc::clone(tenants),
                 Some(master.clone()),
-                http.clone(),
+                services.http.clone(),
             )),
             "weldconnect" => {
                 let Some(jobs) = jobs else {
@@ -468,6 +592,38 @@ fn handlers(
                     Some(runs),
                 ))
             }
+            // WeldAgent: runs the agents subscribed to an event. Only with AI
+            // (ADR AI-011 kept it out until the install has a provider).
+            "weldagent" => {
+                let Some(ai) = services.ai.clone() else {
+                    tracing::warn!("AI is not configured: the weldagent subscriber does not run");
+                    continue;
+                };
+                // With Restate a matched run is a `weldagent.job` that `serve`
+                // runs, with the spreadsheet, board and WeldMerge tools.
+                // Without it the run is inline here, lacking those three.
+                let launcher = match jobs {
+                    Some(jobs) => weldsuite_agent::launch::RunLauncher::jobs(Arc::clone(jobs)),
+                    None => weldsuite_agent::launch::RunLauncher::inline(
+                        Some(ai),
+                        weldsuite_agent::run::RunEnv {
+                            master: Some(master.clone()),
+                            realtime: services.realtime.clone(),
+                            sandbox: services.sandboxes.is_some(),
+                            sandboxes: services.sandboxes.clone(),
+                            // Expo push for what the tools notify; none in
+                            // conformance builds.
+                            push_http: (!cfg!(feature = "conformance"))
+                                .then(crate::routes::shared_outbound)
+                                .flatten(),
+                        },
+                    ),
+                };
+                Arc::new(weldsuite_agent::dispatch::WeldAgentSubscriber::new(
+                    Arc::clone(tenants),
+                    launcher,
+                ))
+            }
             "realtime" => {
                 let Some(realtime) = realtime else {
                     tracing::warn!("VALKEY_URL is not set: the realtime subscriber does not run");
@@ -478,17 +634,30 @@ fn handlers(
                     Arc::clone(realtime),
                 ))
             }
+            // The install's AI (`search-index`, metered), else the plain
+            // endpoint of an install without AI.
             "search-index" => {
-                let Some(embeddings) = embeddings else {
+                let with_ai = services.ai.clone().and_then(|ai| {
+                    SearchSubscriber::with_ai(Arc::clone(tenants), ai, Some(master.clone()))
+                });
+                if let Some(subscriber) = with_ai {
+                    if embeddings.is_some() {
+                        tracing::info!(
+                            "search-index: embeddings from the install's AI; EMBEDDINGS_URL is not used"
+                        );
+                    }
+                    Arc::new(subscriber)
+                } else if let Some(embeddings) = embeddings {
+                    Arc::new(SearchSubscriber::new(
+                        Arc::clone(tenants),
+                        Arc::clone(embeddings),
+                    ))
+                } else {
                     tracing::warn!(
-                        "EMBEDDINGS_URL is not set: the search-index subscriber does not run"
+                        "neither AI with an embedding model nor EMBEDDINGS_URL: the search-index subscriber does not run"
                     );
                     continue;
-                };
-                Arc::new(SearchSubscriber::new(
-                    Arc::clone(tenants),
-                    Arc::clone(embeddings),
-                ))
+                }
             }
             _ => continue,
         };
@@ -502,11 +671,24 @@ struct Services {
     bus: JetStreamEventBus,
     realtime: Option<Arc<dyn DynRealtimePublisher>>,
     embeddings: Option<Arc<dyn Embeddings>>,
+    /// The install's AI (`crate::ai`), with the settings cache in Valkey;
+    /// `None` without `AI_DEFAULT_PROVIDER`.
+    #[allow(
+        dead_code,
+        reason = "the AI subscribers (search index, WeldReach and inbound mail labels) take it as they are ported"
+    )]
+    ai: Option<weldsuite_ai::Ai>,
+    /// WeldAgent's sandbox (`crate::sandbox`), for the weldagent subscriber.
+    sandboxes: Option<weldsuite_sandbox::Sandboxes>,
     http: WebhookHttp,
+    /// Audit log streams go out under the webhooks' private-network rule.
+    streams: AuditStreamSender,
+    /// The audit subscriber's stream flushes that are still on their way.
+    stream_flushes: PendingStreamFlushes,
 }
 
 /// Connects NATS (creating the streams when asked) and Valkey, and builds
-/// the embeddings and webhook clients. A configured service that can't be
+/// the embeddings, webhook and audit log stream clients. A configured service that can't be
 /// reached fails the start, so a broken pod crash-loops visibly.
 /// The queue streams others publish to: WeldReach's, which crons publish to
 /// (`REACH_SEND`, the send sweep; `REACH_WARMUP`, the warmup dispatch), and
@@ -544,6 +726,23 @@ async fn ensure_queue_streams(
         streams.push(dead_letter_stream_config(
             crate::reach::WARMUP_DLQ_STREAM,
             crate::reach::WARMUP_DLQ_SUBJECT,
+            config.stream_replicas,
+        ));
+    }
+    if let Some(panel) = config
+        .panel
+        .as_ref()
+        .filter(|_| runs(&[PANEL_WRITER, PANEL_STATE]))
+    {
+        // `serve` creates both streams as they are and never changes them;
+        // with NATS_ENSURE_STREAMS this updates an existing one, so the
+        // events stream gets its max age (NATS_PANEL_EVENTS_MAX_AGE_DAYS),
+        // the state stream the operations' subject (`panel.ops.v1.>`), and
+        // both the replicas here.
+        streams.extend(panel.streams.configs(config.stream_replicas));
+        streams.push(dead_letter_stream_config(
+            panel_writer::DLQ_STREAM,
+            panel_writer::DLQ_SUBJECT,
             config.stream_replicas,
         ));
     }
@@ -605,13 +804,25 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         }
     }
     ensure_queue_streams(&bus, config).await?;
-    let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
-        Some(url) => Some(Arc::new(ValkeyRealtime::new(
-            connect_valkey(url).await?,
-            config.valkey_realtime_prefix.clone(),
-        ))),
+    let valkey = match &config.valkey_url {
+        Some(url) => Some(connect_valkey(url).await?),
         None => None,
     };
+    let realtime: Option<Arc<dyn DynRealtimePublisher>> = valkey.clone().map(|connection| {
+        Arc::new(ValkeyRealtime::new(
+            connection,
+            config.valkey_realtime_prefix.clone(),
+        )) as Arc<dyn DynRealtimePublisher>
+    });
+    let ai = crate::ai::build(
+        &config.ai,
+        valkey.map(|connection| {
+            Arc::new(weldsuite_adapters_oss::ValkeyCache::new(
+                connection,
+                config.valkey_cache_prefix.clone(),
+            )) as Arc<dyn weldsuite_ports::DynCache>
+        }),
+    )?;
     let embeddings: Option<Arc<dyn Embeddings>> = match &config.embeddings {
         Some(settings) => Some(Arc::new(OpenAiEmbeddings::new(OpenAiEmbeddingsOptions {
             base_url: settings.url.clone(),
@@ -624,7 +835,11 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
         bus,
         realtime,
         embeddings,
+        ai,
+        sandboxes: crate::sandbox::build(config.sandbox.as_ref())?,
         http: WebhookHttp::new(config.webhook_allow_private)?,
+        streams: AuditStreamSender::new(config.webhook_allow_private)?,
+        stream_flushes: PendingStreamFlushes::default(),
     })
 }
 
@@ -638,26 +853,17 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         version = env!("CARGO_PKG_VERSION"),
         "consume: starting"
     );
+    // Before any consumer registers its counters.
+    crate::monitoring::start(config.metrics_addr).await;
     let master = master_pool(&config.master_database_url, config.master_max_connections)?;
     let workspaces = Arc::new(Workspaces::new(
         master.clone(),
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
+    crate::monitoring::sample_pools(&workspaces);
     let tenants: Arc<dyn Tenants> = Arc::new(WorkspaceTenants::new(Arc::clone(&workspaces)));
-    let Services {
-        bus,
-        realtime,
-        embeddings,
-        http,
-    } = connect(&config).await?;
-
-    let services = Services {
-        bus,
-        realtime,
-        embeddings,
-        http,
-    };
+    let services = connect(&config).await?;
     // Workflow runs the weldconnect subscriber starts go to Restate, where
     // `serve` runs them.
     let jobs: Option<Arc<dyn DynJobs>> = config.restate_ingress_url.as_ref().map(|url| {
@@ -666,15 +872,7 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             reqwest::Client::new(),
         )) as Arc<dyn DynJobs>
     });
-    let running = handlers(
-        &config,
-        &tenants,
-        &master,
-        services.realtime.as_ref(),
-        services.embeddings.as_ref(),
-        &services.http,
-        jobs.as_ref(),
-    );
+    let running = handlers(&config, &tenants, &master, &services, jobs.as_ref());
     let mail_inbound = match &config.mail_inbound {
         Some(inbound) if config.subscribers.iter().any(|s| s == MAIL_INBOUND) => Some((
             mail_inbound_spec(inbound),
@@ -720,7 +918,8 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     let mut reach_warmup = Vec::new();
     if !warmup_subscribers.is_empty() {
         let flags = flag_source(&config, &master);
-        let network = crate::reach::warmup_network(master.clone(), flags)?;
+        // The sender and the engager only read the corpus.
+        let network = crate::reach::warmup_network(master.clone(), flags, None)?;
         for id in &warmup_subscribers {
             let kind = if *id == REACH_WARMUP_SEND {
                 weldsuite_reach::warmup_network::dispatch::WarmupQueueKind::Send
@@ -736,7 +935,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             reach_warmup.push(((*id).to_owned(), crate::reach::warmup_spec(kind), handler));
         }
     }
-    let Services { bus, http, .. } = services;
+    let panel_writer = match config.panel.as_ref() {
+        Some(panel) if config.subscribers.iter().any(|s| s == PANEL_WRITER) => {
+            Some(panel_writer(panel, &config, &master, &services).await?)
+        }
+        _ => None,
+    };
+    let panel_state = match config.panel.as_ref() {
+        Some(panel) if config.subscribers.iter().any(|s| s == PANEL_STATE) => {
+            Some(panel_state(panel, &config, &workspaces, &services).await?)
+        }
+        _ => None,
+    };
+    let Services {
+        bus,
+        http,
+        stream_flushes,
+        ..
+    } = services;
     let (stop, stopping) = watch::channel(false);
     let mut tasks = Vec::new();
     let mut names = Vec::new();
@@ -831,6 +1047,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             stopping.clone(),
         )));
     }
+    if let Some((writer, feeds)) = panel_writer {
+        tracing::info!(
+            tables = feeds.len(),
+            flush_bytes = writer.settings.flush_bytes,
+            flush_seconds = writer.settings.flush_after.as_secs(),
+            "consume: writing WeldPanel's tables"
+        );
+        names.push(PANEL_WRITER.to_owned());
+        tasks.extend(writer.spawn(feeds, &stopping));
+    }
+    if let Some((applier, lease)) = panel_state {
+        tracing::info!(
+            stream = applier.stream,
+            "consume: applying WeldPanel's project state"
+        );
+        names.push(PANEL_STATE.to_owned());
+        tasks.push(applier.spawn(lease, &stopping));
+    }
     if names.iter().any(|name| name == "webhooks") && config.webhook_retry_sweep {
         tasks.push(tokio::spawn(webhook_retry_sweeps(
             master.clone(),
@@ -871,6 +1105,17 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             break;
         }
     }
+    // The batches are answered; their audit log stream flushes may still be
+    // waiting for the settle window.
+    if tokio::time::timeout_at(deadline, stream_flushes.settled())
+        .await
+        .is_err()
+    {
+        tracing::warn!(
+            waiting = stream_flushes.running(),
+            "consume: audit log stream flushes still waiting at the drain deadline; the streams catch up with each workspace's next audit event"
+        );
+    }
     let _ = probes.await;
     tracing::info!(
         drained_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -879,8 +1124,13 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
     Ok(())
 }
 
+/// The webhook retry sweep's `job` label in the job metrics.
+const WEBHOOK_SWEEP_JOB: &str = "webhooks.retry-sweep";
+
 /// Every ten minutes (and at start), the webhook retry sweep, by one pod at
 /// a time: the integration-webhook-worker's cron, until the cron role exists.
+/// Each sweep this pod runs is a run of [`WEBHOOK_SWEEP_JOB`] in the job
+/// metrics; one another pod holds the lock for is not.
 async fn webhook_retry_sweeps(
     master: PgPool,
     tenants: Arc<dyn Tenants>,
@@ -893,17 +1143,24 @@ async fn webhook_retry_sweeps(
             _ = ticker.tick() => {},
             _ = stop.wait_for(|stopping| *stopping) => return,
         }
-        if let Err(error) = sweep_once(&master, &*tenants, &http).await {
-            tracing::warn!(%error, "webhooks: retry sweep skipped");
+        let started = Instant::now();
+        match sweep_once(&master, &*tenants, &http).await {
+            Ok(true) => weldsuite_ports::record_job_run(WEBHOOK_SWEEP_JOB, true, started.elapsed()),
+            Ok(false) => {}
+            Err(error) => {
+                weldsuite_ports::record_job_run(WEBHOOK_SWEEP_JOB, false, started.elapsed());
+                tracing::warn!(%error, "webhooks: retry sweep skipped");
+            }
         }
     }
 }
 
+/// One sweep, if this pod gets the lock: whether it ran.
 async fn sweep_once(
     master: &PgPool,
     tenants: &dyn Tenants,
     http: &WebhookHttp,
-) -> Result<(), sqlx::Error> {
+) -> Result<bool, sqlx::Error> {
     let mut lock = master.begin().await?;
     let mine: bool = sqlx::query_scalar("select pg_try_advisory_xact_lock($1)")
         .bind(WEBHOOK_SWEEP_LOCK)
@@ -912,7 +1169,8 @@ async fn sweep_once(
     if mine {
         run_webhook_retry_sweep(master, tenants, http).await;
     }
-    lock.commit().await
+    lock.commit().await?;
+    Ok(mine)
 }
 
 #[cfg(test)]

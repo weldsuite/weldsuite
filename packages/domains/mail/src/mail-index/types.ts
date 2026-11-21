@@ -1,7 +1,7 @@
 /**
  * Types for `MailIndex`, the per-workspace EU-jurisdiction Durable Object that
  * holds correspondents and the address index (design decision 1,
- * docs/plans/weldmail-mailbox-store-design.md §0 "Decisions"). Originally
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md §0 "Decisions"). Originally
  * designed as ledger tables (§3.9 of that doc); the owner moved them to their
  * own object because they hold email addresses and the ledger is not an
  * EU-jurisdiction object (MAIL-009 requires EU for anything holding mail

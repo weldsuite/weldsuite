@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import { DEFAULT_MEETING_PORTAL_URL, buildMeetingShareUrl, parseMeetingJoinInput } from './share-link';
 
 afterEach(() => {
@@ -28,6 +29,24 @@ describe('buildMeetingShareUrl', () => {
     expect(buildMeetingShareUrl('org_123', 'wm-abc-def-ghi')).toBe(
       'http://localhost:3020/org_123/wm-abc-def-ghi',
     );
+  });
+
+  describe('on a Kubernetes edition', () => {
+    afterEach(() => setRuntimeConfig(null));
+
+    it("links to the platform's join page when it has no meeting portal, never to Global's", () => {
+      vi.stubEnv('VITE_MEETING_PORTAL_URL', '');
+      setRuntimeConfig({ backend: 'rust', edition: 'eu' });
+      expect(buildMeetingShareUrl('399484358940950842', 'wm-qfu-qqt-ban')).toBe(
+        `${window.location.origin}/w/399484358940950842/weldmeet/join/wm-qfu-qqt-ban`,
+      );
+    });
+
+    it('uses the portal its /config.json names', () => {
+      vi.stubEnv('VITE_MEETING_PORTAL_URL', '');
+      setRuntimeConfig({ backend: 'rust', env: { VITE_MEETING_PORTAL_URL: 'https://meet.example.eu/' } });
+      expect(buildMeetingShareUrl('org_123', 'wm-abc-def-ghi')).toBe('https://meet.example.eu/org_123/wm-abc-def-ghi');
+    });
   });
 });
 

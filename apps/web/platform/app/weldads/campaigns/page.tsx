@@ -1,8 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { MoreHorizontal, Pause, Play, Pencil, Plus } from 'lucide-react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
+import { Megaphone, MoreHorizontal, Pause, Play, Pencil, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
+import { Link } from '@/lib/router';
 import {
   useWeldAdsAccounts,
   useWeldAdsCampaigns,
@@ -54,6 +58,18 @@ export default function WeldAdsCampaignsPage() {
     () => (accounts.data ?? []).filter((account) => account.isSelected),
     [accounts.data],
   );
+  // Say why Create campaign is off, and where to fix it, once we know.
+  const accountsKnown = !connections.isLoading && (!connection || !accounts.isLoading);
+  const needsAccount = accountsKnown && selectedAccounts.length === 0;
+  const needsAccountText = (
+    <span id="weldads-needs-account">{connection ? t.noSelectedAccounts : t.noConnectionToCreate}</span>
+  );
+  const campaignRows = campaigns.data?.data ?? [];
+  const accountsLink = (
+    <Button asChild variant="outline" size="sm">
+      <Link href="/weldads/accounts">{connection ? t.goToAccounts : t.connectFacebook}</Link>
+    </Button>
+  );
 
   const openCreateDialog = () => {
     setEditingCampaign(null);
@@ -64,6 +80,8 @@ export default function WeldAdsCampaignsPage() {
     setEditingCampaign(campaign);
     setDialogOpen(true);
   };
+
+  useCreateIntent(openCreateDialog, { ready: canCreate && selectedAccounts.length > 0 });
 
   const handleStatusChange = async (campaign: AdCampaignRow, status: 'ACTIVE' | 'PAUSED') => {
     try {
@@ -96,7 +114,7 @@ export default function WeldAdsCampaignsPage() {
             <Button
               onClick={openCreateDialog}
               disabled={selectedAccounts.length === 0}
-              title={selectedAccounts.length === 0 ? t.noSelectedAccounts : undefined}
+              aria-describedby={needsAccount ? 'weldads-needs-account' : undefined}
             >
               <Plus className="mr-2 h-4 w-4" />
               {t.createCampaign}
@@ -114,8 +132,19 @@ export default function WeldAdsCampaignsPage() {
         </div>
       </div>
 
-      {(campaigns.data?.data ?? []).length === 0 ? (
-        <p className="text-muted-foreground">{t.noCampaigns}</p>
+      {canCreate && needsAccount && campaignRows.length > 0 && (
+        <InfoBanner variant="neutral" action={accountsLink}>
+          {needsAccountText}
+        </InfoBanner>
+      )}
+
+      {campaignRows.length === 0 ? (
+        <EmptyState
+          icon={Megaphone}
+          title={t.noCampaigns}
+          description={needsAccount ? needsAccountText : undefined}
+          action={needsAccount ? accountsLink : undefined}
+        />
       ) : (
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
@@ -133,7 +162,7 @@ export default function WeldAdsCampaignsPage() {
               </tr>
             </thead>
             <tbody>
-              {(campaigns.data?.data ?? []).map((row) => (
+              {campaignRows.map((row) => (
                 <tr key={row.id} className="border-t">
                   <td className="p-3 font-medium">{row.name}</td>
                   <td className="p-3 text-muted-foreground">{row.accountName}</td>

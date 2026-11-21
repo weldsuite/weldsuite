@@ -19,8 +19,6 @@ export const flowPortfolio = {
     skillsHint: 'Separate skills with commas',
   },
   capacity: {
-    title: 'Capacity',
-    subtitle: 'Booked hours per person across all projects, against their contract hours',
     requestPerson: 'Request a person',
     weeks: 'Weeks',
     weeksOption: '{weeks} weeks from {from}',
@@ -29,15 +27,6 @@ export const flowPortfolio = {
     skill: 'Skill',
     allSkills: 'All skills',
     showTentative: 'Show tentative',
-    summary: {
-      booked: 'Team booked',
-      bookedNote: '{people} people · {booked} of {capacity} hours',
-      overbooked: 'Overbooked person-weeks',
-      overbookedNote: 'More than 100% of contract hours',
-      openRequests: 'Open resource requests',
-      oldest: 'Oldest waiting {days} days',
-      noOpen: 'Nothing waiting',
-    },
     heatmap: {
       title: 'Booked per week',
       unit: '% of contract hours',
@@ -45,6 +34,8 @@ export const flowPortfolio = {
       group: 'Skill group',
       noSkill: 'No skill',
       people: '{count} people',
+      peopleHeader: 'People',
+      contractHours: 'Contract hours',
       hoursPerWeek: '{hours} h/week',
       show: 'Show projects for {name}',
       hide: 'Hide projects for {name}',

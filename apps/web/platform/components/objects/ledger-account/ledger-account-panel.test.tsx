@@ -131,7 +131,7 @@ describe('ledger account panel: details', () => {
 
   it('links to the edit page', () => {
     renderPanel();
-    expect(screen.getByRole('link', { name: ta.editing })).toHaveAttribute('href', '/weldbooks/accounts/$id/edit');
+    expect(screen.getByRole('link', { name: ta.editAccount })).toHaveAttribute('href', '/weldbooks/accounts/$id/edit');
   });
 
   it('shows the audit trail of the account in the History tab', async () => {

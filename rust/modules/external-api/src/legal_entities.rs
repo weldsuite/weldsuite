@@ -2,7 +2,7 @@
 //! `GET /v1/legal-entities` and `GET /v1/legal-entities/:id`, scope
 //! `legal_entities:read`. Read-only.
 //!
-//! The companies of the workspace (`docs/plans/legal-entities.md`) with their
+//! The companies of the workspace (`weldsuite-documentation/plans/legal-entities.md`) with their
 //! registrations and bank accounts. Bank accounts carry no account number at
 //! all (nor routing number), and the IBAN is masked to its last four
 //! characters; no ciphertext column is ever selected. Per-entity access is a

@@ -7,9 +7,11 @@
  * (`/api/billing/sso`, the add-on subscription; `/api/internal/admin/.../sso`,
  * staff pricing), the platform settings page and the admin console.
  *
- * SSO is included in plans whose `features.sso` is true (Enterprise). Every
- * other paid, directly billed workspace can buy it as a flat monthly add-on;
- * staff can set a workspace's price, 0 meaning free.
+ * SSO is included in plans whose `features.sso` is true: Business, Scale and
+ * Enterprise since November 2026 (`scripts/pricing/2026-11-sso-in-business.sql`;
+ * on the EU edition Business and Enterprise, its Starter has none).
+ * A paid, directly billed workspace on a plan without it can buy it as a flat
+ * monthly add-on; staff can set a workspace's price, 0 meaning free.
  */
 
 import { z } from 'zod';
@@ -196,6 +198,8 @@ export const SSO_ERRORS = {
   SUBSCRIPTION_UNPAID: 'SSO_SUBSCRIPTION_UNPAID',
   PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   BILLING_ADMIN_REQUIRED: 'BILLING_ADMIN_REQUIRED',
+  /** WeldID mode: a connection keeps its protocol; switching means removing it first. */
+  PROTOCOL_MISMATCH: 'SSO_PROTOCOL_MISMATCH',
 } as const;
 
 // ============================================================================
@@ -229,6 +233,143 @@ export const ssoConnectionInputSchema = z.object({
 });
 export type SsoConnectionInput = z.infer<typeof ssoConnectionInputSchema>;
 
+// ============================================================================
+// WeldID mode (Kubernetes editions, ADR SEC-019): OpenID Connect connections
+// ============================================================================
+
+/**
+ * The roles someone gets when they first sign in through the workspace's
+ * connection. Never the owner. Kept equal to `SSO_DEFAULT_ROLES` in
+ * `rust/crates/db/src/sso_settings.rs`.
+ */
+export const SSO_DEFAULT_ROLES = ['ADMIN', 'MEMBER', 'VIEWER'] as const;
+export type SsoDefaultRole = (typeof SSO_DEFAULT_ROLES)[number];
+
+/** Where a domain's ownership proof stands at WeldID. */
+export const SSO_DOMAIN_STATUSES = ['pending', 'verified', 'failed'] as const;
+export type SsoDomainStatus = (typeof SSO_DOMAIN_STATUSES)[number];
+
+/** An OAuth scope token (RFC 6749 §3.3): printable ASCII except space, `"` and `\`. */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
+
+/** The protocols of a connection at WeldID. */
+export const SSO_PROTOCOLS = ['oidc', 'saml'] as const;
+export type SsoProtocol = (typeof SSO_PROTOCOLS)[number];
+
+/** The largest SAML metadata document WeldID takes. */
+export const SSO_SAML_METADATA_MAX_BYTES = 256 * 1024;
+
+/**
+ * `PUT /api/sso/connection` in WeldID mode. Every field is optional so a
+ * switch sends only itself. Creating an OpenID Connect connection needs the
+ * display name, issuer and client ID; a SAML connection (`protocol: 'saml'`)
+ * the display name and the identity provider's metadata, as a document or a
+ * URL. The secret is write-only: leaving it out keeps the stored one. The
+ * protocol never changes: remove the connection to switch.
+ */
+export const ssoOidcConnectionInputSchema = z.object({
+  protocol: z.enum(SSO_PROTOCOLS).optional(),
+  /** SAML: the identity provider's metadata document. */
+  metadataXml: z.string().trim().min(1).max(SSO_SAML_METADATA_MAX_BYTES).optional(),
+  /** SAML: where WeldID fetches the identity provider's metadata. */
+  metadataUrl: httpsUrl.optional(),
+  displayName: z.string().trim().min(1).max(64).optional(),
+  issuer: httpsUrl.optional(),
+  clientId: z.string().trim().min(1).max(512).optional(),
+  /** Without one, WeldID is a public client at the identity provider (PKCE only). */
+  clientSecret: z.string().trim().min(1).max(1024).optional(),
+  /** Scopes asked for besides `openid email profile`. */
+  scopes: z.array(z.string().trim().min(1).max(100).regex(SCOPE_TOKEN, 'Not a valid scope')).max(20).optional(),
+  /**
+   * Take the emails the identity provider sends as verified, for providers that
+   * don't say (Microsoft Entra ID among them); only on the verified domains.
+   */
+  trustEmails: z.boolean().optional(),
+  /** People at the verified domains can sign in only through the identity provider. */
+  enforceSso: z.boolean().optional(),
+  defaultRole: z.enum(SSO_DEFAULT_ROLES).optional(),
+});
+export type SsoOidcConnectionInput = z.infer<typeof ssoOidcConnectionInputSchema>;
+
+/** Extra scopes as a person types them ("groups, offline_access"), as a list. */
+export function parseSsoScopes(input: string): string[] {
+  const scopes = input
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return [...new Set(scopes)];
+}
+
+/** Whether every typed scope is a scope token. */
+export function areSsoScopesValid(scopes: readonly string[]): boolean {
+  return scopes.length <= 20 && scopes.every((scope) => scope.length <= 100 && SCOPE_TOKEN.test(scope));
+}
+
+const ssoDnsRecordSchema = z.object({ type: z.literal('TXT'), name: z.string(), value: z.string() });
+
+export const ssoOidcDomainViewSchema = z.object({
+  name: z.string(),
+  status: z.enum(SSO_DOMAIN_STATUSES),
+  verified: z.boolean(),
+  verifiedAt: z.string().nullable(),
+  /** When WeldID last looked for the record. */
+  checkedAt: z.string().nullable(),
+  dnsRecord: ssoDnsRecordSchema,
+});
+export type SsoOidcDomainView = z.infer<typeof ssoOidcDomainViewSchema>;
+
+/** A SAML connection's two sides at WeldID. */
+export const ssoSamlViewSchema = z.object({
+  /** What to register at the identity provider as the entity ID (identifier). */
+  entityId: z.string(),
+  /** What to register as the assertion consumer service (reply) URL. */
+  acsUrl: z.string(),
+  /** WeldID's service provider metadata, for identity providers that read it. */
+  metadataUrl: z.string(),
+  idpEntityId: z.string().nullable(),
+  idpSsoUrl: z.string().nullable(),
+  /** Where the identity provider's metadata was fetched from; null when uploaded. */
+  idpMetadataUrl: z.string().nullable(),
+  idpCertificates: z.array(
+    z.object({
+      sha256: z.string(),
+      subject: z.string().nullable(),
+      notAfter: z.string().nullable(),
+    }),
+  ),
+});
+export type SsoSamlView = z.infer<typeof ssoSamlViewSchema>;
+
+export const ssoOidcConnectionViewSchema = z.object({
+  id: z.string(),
+  /** Absent (answers before SAML): OpenID Connect. */
+  protocol: z.enum(SSO_PROTOCOLS).optional(),
+  /** SAML only. */
+  saml: ssoSamlViewSchema.nullable().optional(),
+  displayName: z.string(),
+  issuer: z.string(),
+  clientId: z.string(),
+  /** A client secret is stored. The secret itself is never sent back. */
+  hasClientSecret: z.boolean(),
+  scopes: z.array(z.string()),
+  trustEmails: z.boolean(),
+  enabled: z.boolean(),
+  enforceSso: z.boolean(),
+  /** What to register at the identity provider as the redirect URI (WeldID's callback). */
+  redirectUri: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+export type SsoOidcConnectionView = z.infer<typeof ssoOidcConnectionViewSchema>;
+
+export const ssoOidcViewSchema = z.object({
+  connection: ssoOidcConnectionViewSchema.nullable(),
+  domains: z.array(ssoOidcDomainViewSchema),
+  defaultRole: z.enum(SSO_DEFAULT_ROLES),
+  /** Switched on, entitled and with a verified domain: sign-ins go to the identity provider. */
+  active: z.boolean(),
+});
+export type SsoOidcView = z.infer<typeof ssoOidcViewSchema>;
+
 /** Whether the IdP details are enough for Clerk to sign anyone in. */
 export function isIdpConfigured(idp: {
   metadataUrl: string | null;
@@ -259,7 +400,7 @@ export const ssoConfigViewSchema = z.object({
       verified: z.boolean(),
       verifiedAt: z.string().nullable(),
       /** The record to add at the DNS host. */
-      dnsRecord: z.object({ type: z.literal('TXT'), name: z.string(), value: z.string() }),
+      dnsRecord: ssoDnsRecordSchema,
     })
     .nullable(),
   connection: z
@@ -290,6 +431,13 @@ export const ssoConfigViewSchema = z.object({
     .nullable(),
   /** The caller may change the configuration (`sso:manage`). */
   canManage: z.boolean(),
+  /**
+   * `weldid`: a Kubernetes edition with WeldID as the identity provider. The
+   * connection (OpenID Connect or SAML) and its own domains are then in
+   * `oidc`, and `connection` (Global's Clerk SAML) is null. Absent on Global.
+   */
+  mode: z.literal('weldid').optional(),
+  oidc: ssoOidcViewSchema.optional(),
 });
 export type SsoConfigView = z.infer<typeof ssoConfigViewSchema>;
 

@@ -3,7 +3,7 @@
  * and ICS now live in `@weldsuite/emails` (tested there). This file checks the
  * plumbing: which template + props + attachment + recipients + locale
  * `sendCalendarEventEmails` hands to `sendSystemEmail`, and how each batch goes
- * through the outbound mail guard first (docs/plans/weldmail-outbound-abuse.md;
+ * through the outbound mail guard first (weldsuite-documentation/plans/weldmail-outbound-abuse.md;
  * the guard itself is faked here and tested in @weldsuite/mail-domain).
  */
 

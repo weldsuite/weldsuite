@@ -1,0 +1,19 @@
+# WeldID's certificate for auth.${DOMAIN}, issued while Zitadel still holds
+# the host: cert-manager's HTTP-01 solver answers on a more specific path of
+# its own, so it works next to Zitadel's Ingress. WeldID's Ingress (the
+# weldid-switch layer turns it on) then serves it from the first request,
+# with no gap while a new certificate is issued. The chart's own issuer
+# annotation stays off (values: ingress.clusterIssuer), so this is the only
+# Certificate for the Secret.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: weldid-tls
+  namespace: weldid
+spec:
+  secretName: weldid-tls
+  dnsNames:
+    - auth.${DOMAIN}
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt

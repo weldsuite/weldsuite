@@ -70,7 +70,7 @@ const CHANNELS: &[&str] = &[
 
 /// `zValidator('query', schema)`: the query's values, or the 400.
 #[allow(clippy::result_large_err)] // the response is the route's answer
-fn read_query<T>(
+pub(super) fn read_query<T>(
     query: Option<&str>,
     read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
 ) -> Result<T, Response> {

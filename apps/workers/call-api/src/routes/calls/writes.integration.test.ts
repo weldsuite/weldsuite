@@ -132,6 +132,32 @@ describe('POST /api/calls', () => {
   });
 });
 
+describe('POST /api/calls from a number of a phone system', () => {
+  const place = (fromNumber: string) => send('POST', '', { direction: 'outbound', fromNumber, toNumber: '+31600000009' });
+
+  it('refuses a number that is not verified as caller id, and accepts it once it is', async () => {
+    await db.insert(schema.voipPhoneNumbers).values({
+      id: 'vpn_calls_trunk', provider: 'sip_trunk', phoneNumber: '+31201119001', countryCode: 'NL', status: 'active',
+      sipTrunkId: 'strk_calls', allowOutbound: false,
+    });
+    const refused = await place('+31201119001');
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: {
+        code: 'caller_id_unverified',
+        message: 'Verify this number before using it for outgoing calls',
+        details: { reason: 'caller_id_unverified' },
+      },
+    });
+
+    await db
+      .update(schema.voipPhoneNumbers)
+      .set({ callerIdVerifiedAt: new Date('2026-10-01T00:00:00Z'), allowOutbound: true })
+      .where(eq(schema.voipPhoneNumbers.id, 'vpn_calls_trunk'));
+    expect((await place('+31201119001')).status).toBe(201);
+  });
+});
+
 describe('PUT /api/calls/:id', () => {
   it('answers 404 for an unknown call and validates the body', async () => {
     expect((await send('PUT', '/vcall_missing', { notes: 'x' })).status).toBe(404);

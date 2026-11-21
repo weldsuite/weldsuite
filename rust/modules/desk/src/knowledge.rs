@@ -27,6 +27,7 @@ use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::crud::write_failed;
+use crate::table::WriteError;
 use crate::tables::HELPDESK_ARTICLES;
 use crate::{Caller, DeskState, Refusal, now};
 
@@ -88,7 +89,8 @@ fn suggestions_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>
     Ok((q, limit))
 }
 
-/// `suggestDeskArticles(db, search, limit, baseUrl)`.
+/// `suggestDeskArticles(db, search, limit, baseUrl)`: a version counts only
+/// while its original is published and shareable too.
 async fn suggest(
     db: &weldsuite_db::PgPool,
     search: &Search,
@@ -108,7 +110,11 @@ async fn suggest(
     )> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select t.id, t.title, t.slug, t.excerpt, t.visibility, t.locale from helpdesk_articles t
              where t.status = 'published' and t.deleted_at is null
-               and t.visibility in ('public', 'logged_in', 'groups') and {matches}
+               and t.visibility in ('public', 'logged_in', 'groups')
+               and (t.translation_of_id is null or exists (select 1 from helpdesk_articles o
+                 where o.id = t.translation_of_id and o.status = 'published' and o.deleted_at is null
+                   and o.visibility in ('public', 'logged_in', 'groups')))
+               and {matches}
              order by {rank} desc, t.updated_at desc, t.id desc limit $3"
     )))
     .bind(search.websearch.as_deref())
@@ -283,6 +289,64 @@ fn draft_from(
     (title, content, excerpt)
 }
 
+/// A draft article a route writes from what it has at hand: a conversation
+/// (`draft-article`), or a problem (`/desk/problems/{id}/article`).
+pub(crate) struct DraftArticle<'a> {
+    pub(crate) title: &'a str,
+    pub(crate) content: &'a str,
+    pub(crate) excerpt: Option<&'a str>,
+    pub(crate) visibility: &'a str,
+    pub(crate) author_id: &'a str,
+    /// The conversations the article came from.
+    pub(crate) related_tickets: Vec<String>,
+}
+
+/// The insert both routes do: a new id, a slug from the title that ends in
+/// six characters of that id, no views or votes yet. The article's id, its
+/// slug and the row.
+pub(crate) async fn insert_draft(
+    db: &weldsuite_db::PgPool,
+    draft: &DraftArticle<'_>,
+) -> Result<(String, String, Value), WriteError> {
+    let article_id = generate_id("art");
+    let base = article_slug(draft.title);
+    let base = if base.is_empty() {
+        article_id.clone()
+    } else {
+        base
+    };
+    let suffix: String = article_id.chars().skip(4).take(6).collect();
+    let slug = format!("{base}-{suffix}");
+    let now = now();
+    let table = &HELPDESK_ARTICLES;
+    let mut values = Map::new();
+    for (prop, value) in [
+        ("id", json!(article_id)),
+        ("title", json!(draft.title)),
+        ("slug", json!(slug)),
+        ("content", json!(draft.content)),
+        ("excerpt", json!(draft.excerpt)),
+        ("status", json!("draft")),
+        ("visibility", json!(draft.visibility)),
+        ("audienceCompanyIds", json!([])),
+        ("authorId", json!(draft.author_id)),
+        ("isDraft", json!(true)),
+        ("publishedAt", Value::Null),
+        ("relatedTickets", json!(draft.related_tickets)),
+        ("viewCount", json!(0)),
+        ("helpfulCount", json!(0)),
+        ("notHelpfulCount", json!(0)),
+        ("createdAt", json!(now)),
+        ("updatedAt", json!(now)),
+    ] {
+        table.set(&mut values, prop, value);
+    }
+    let row = table
+        .insert(db, values, &["createdAt", "updatedAt", "publishedAt"])
+        .await?;
+    Ok((article_id, slug, row))
+}
+
 async fn draft_article(
     State(state): State<DeskState>,
     caller: Caller,
@@ -317,44 +381,16 @@ async fn draft_article(
     };
     let (title, content, excerpt) = draft_from(title.as_deref(), number, &timeline);
 
-    let article_id = generate_id("art");
-    let base = article_slug(&title);
-    let base = if base.is_empty() {
-        article_id.clone()
-    } else {
-        base
+    let draft = DraftArticle {
+        title: &title,
+        content: &content,
+        excerpt: excerpt.as_deref(),
+        visibility: "public",
+        author_id: &caller.user_id,
+        related_tickets: vec![id.clone()],
     };
-    let suffix: String = article_id.chars().skip(4).take(6).collect();
-    let slug = format!("{base}-{suffix}");
-    let now = now();
-    let table = &HELPDESK_ARTICLES;
-    let mut values = Map::new();
-    for (prop, value) in [
-        ("id", json!(article_id)),
-        ("title", json!(title)),
-        ("slug", json!(slug)),
-        ("content", json!(content)),
-        ("excerpt", json!(excerpt)),
-        ("status", json!("draft")),
-        ("visibility", json!("public")),
-        ("audienceCompanyIds", json!([])),
-        ("authorId", json!(caller.user_id)),
-        ("isDraft", json!(true)),
-        ("publishedAt", Value::Null),
-        ("relatedTickets", json!([id])),
-        ("viewCount", json!(0)),
-        ("helpfulCount", json!(0)),
-        ("notHelpfulCount", json!(0)),
-        ("createdAt", json!(now)),
-        ("updatedAt", json!(now)),
-    ] {
-        table.set(&mut values, prop, value);
-    }
-    let row = match table
-        .insert(db, values, &["createdAt", "updatedAt", "publishedAt"])
-        .await
-    {
-        Ok(row) => row,
+    let (article_id, slug, row) = match insert_draft(db, &draft).await {
+        Ok(inserted) => inserted,
         Err(error) => return write_failed(&error, MESSAGE),
     };
     caller.publish(

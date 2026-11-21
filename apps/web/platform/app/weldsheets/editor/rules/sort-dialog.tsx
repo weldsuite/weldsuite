@@ -65,10 +65,11 @@ export function SortDialog({ controller, onClose }: { controller: SheetControlle
             {ts.header}
           </label>
           {keys.map((key, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="w-20 shrink-0 text-xs text-muted-foreground">{i === 0 ? ts.sortBy : ts.thenBy}</span>
+            // Label, column, order and a slot for the remove button (empty in the first row), so every row lines up.
+            <div key={i} className="grid grid-cols-[5rem_minmax(0,1fr)_6rem_1.75rem] items-center gap-2">
+              <span className="text-xs text-muted-foreground">{i === 0 ? ts.sortBy : ts.thenBy}</span>
               <Select value={String(key.col)} onValueChange={(v) => setKey(i, { col: Number(v) })}>
-                <SelectTrigger className="h-8 min-w-0 flex-1 text-sm">
+                <SelectTrigger className="h-8 w-full min-w-0 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -80,7 +81,7 @@ export function SortDialog({ controller, onClose }: { controller: SheetControlle
                 </SelectContent>
               </Select>
               <Select value={key.descending ? 'desc' : 'asc'} onValueChange={(v) => setKey(i, { descending: v === 'desc' })}>
-                <SelectTrigger className="h-8 w-24 text-sm">
+                <SelectTrigger className="h-8 w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -88,10 +89,12 @@ export function SortDialog({ controller, onClose }: { controller: SheetControlle
                   <SelectItem value="desc">{ts.descending}</SelectItem>
                 </SelectContent>
               </Select>
-              {i > 0 && (
-                <button type="button" className="rounded p-1 hover:bg-accent" aria-label={ts.removeColumn} onClick={() => setKeys((ks) => ks.filter((_, j) => j !== i))}>
+              {i > 0 ? (
+                <button type="button" className="flex size-7 items-center justify-center rounded hover:bg-accent" aria-label={ts.removeColumn} onClick={() => setKeys((ks) => ks.filter((_, j) => j !== i))}>
                   <X className="size-4" />
                 </button>
+              ) : (
+                <span />
               )}
             </div>
           ))}

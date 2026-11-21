@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   EntityList,
@@ -129,14 +129,14 @@ export function ChannelThreadsTab({ channelId, messages }: Readonly<ChannelThrea
         />
         <div className="flex-1 min-w-0 flex items-start gap-3">
           <div className="relative flex-shrink-0 mt-0.5">
-            <Avatar className="h-6 w-6">
-              {t.authorAvatar && (
-                <AvatarImage src={t.authorAvatar} />
-              )}
-              <AvatarFallback className="text-[10px]">
-                {(t.authorName || '?')[0]?.toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <MemberAvatar
+              userId={t.authorId}
+              name={t.authorName}
+              picture={t.authorAvatar}
+              className="h-6 w-6"
+              fallbackClassName="text-[10px]"
+              fallback={(t.authorName || '?')[0]?.toUpperCase()}
+            />
             <span className="absolute -bottom-0.5 -right-0.5 h-[12px] w-[12px] rounded-full bg-background flex items-center justify-center">
               <MessageSquare className="h-2.5 w-2.5 text-foreground" />
             </span>

@@ -1,7 +1,7 @@
 /**
  * WeldSuite pass-api — the WeldPass (secret vaults) module's API worker.
  *
- * The first module split out of app-api (docs/plans/app-api-module-split.md,
+ * The first module split out of app-api (weldsuite-documentation/plans/app-api-module-split.md,
  * phase 1). It serves the same /api/weldpass paths app-api served; app-api
  * forwards them here over the PASS_API service binding for clients that still
  * call app-api. Workspace-scoped through the kit's Clerk → tenant DB chain, so

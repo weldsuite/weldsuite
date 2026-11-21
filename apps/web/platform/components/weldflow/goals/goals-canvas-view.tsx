@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -338,15 +339,16 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const targetProgress = useGoalTargetProgress(projectId);
   const [targetsGoalId, setTargetsGoalId] = useState<string | null>(null);
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const defaultOwner = useMemo(() => {
     const name = user?.fullName || user?.primaryEmailAddress?.emailAddress || '';
     return {
       name,
-      avatar: user?.imageUrl,
+      avatar: selfAvatar,
       initials: ownerInitials(name),
       color: '#8b5cf6',
     };
-  }, [user]);
+  }, [user, selfAvatar]);
   const { open: openObjectPanel } = useObjectPanel();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [existingTasks] = useState<ExistingTask[]>(initialTasks);
@@ -2259,6 +2261,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                 const next: GoalCard = { ...g };
                 if (data.title !== undefined) next.title = data.title;
                 if (data.description !== undefined) next.description = data.description;
+                // A goal always has a due date (its period's end by default),
+                // so clearing it keeps the current one.
+                if (data.dueDate) next.dueDate = data.dueDate;
+                if (data.priority !== undefined) next.priority = data.priority;
                 return next;
               }));
             }}
@@ -2273,8 +2279,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
             onNavigateToTask={(id) => setSelectedGoal(id)}
             availableAssignees={[]}
             availableCompanies={[]}
-            hiddenFields={['labels', 'repeat', 'subtasks', 'assignee', 'duration']}
+            // A goal's status is its own (Not started, On track, …), shown on
+            // its card, not a task status; and a goal is no task, so it has
+            // no task chat (posting there is refused).
+            hiddenFields={['status', 'labels', 'repeat', 'subtasks', 'assignee', 'duration', 'company']}
             hideCompletionCheckbox
+            hideChat
           />,
           document.body
         );

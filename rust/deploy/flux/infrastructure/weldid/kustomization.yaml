@@ -1,0 +1,28 @@
+# WeldID (ADR SEC-019), WeldSuite's own OpenID Connect provider, which
+# replaces Zitadel on the Kubernetes editions. Opt-in: no cluster runs it
+# until its layers list clusters/<cluster>/weldid.yaml. What it is, how to
+# switch it on and the order of the cut-over: README.md here.
+#
+# ${DOMAIN}, ${WELDID_VERSION}, ${WELDID_RP_ID}, ${WELDID_BACKEND_KEY_X},
+# ${WELDID_BACKEND_KEY_Y}, ${BACKUP_S3_BUCKET} and ${BACKUP_S3_ENDPOINT} come
+# from the cluster's settings (Flux postBuild), ${WELDID_MAIL_FROM:=…} too,
+# with a default. Nothing else here may contain a dollar-brace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - source.yaml
+  - database.yaml
+  - certificate.yaml
+  - release.yaml
+  - monitoring.yaml
+  - network-policy.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  # helm-controller upgrades a release as soon as its values ConfigMap
+  # changes, not at the release's next interval.
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+configMapGenerator:
+  - name: weldid-values
+    namespace: weldid
+    files: [values.yaml=values/weldid.yaml]

@@ -18,11 +18,28 @@ import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-sect
 import { AppAccessRequestDialog } from './app-access-request-dialog';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { accessBadgeTone, canRequestAccess, getAppAccessInfo, type AppAccessState } from './app-access-state';
+import { getConsolidatedCategory } from './app-categories';
+import {
+  APP_CATEGORY_FILTER,
+  APP_STATUS_FILTER,
+  APP_STATUS_INSTALLED,
+  APP_STATUS_NOT_INSTALLED,
+  isCompleteFilter,
+  matchesAppFilters,
+  matchesAppQuery,
+  userAppMatches,
+} from './app-search';
+import { SearchIconButton } from '@/components/entity-grid';
+import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { useUserAppStore } from '@/hooks/queries/use-user-apps-queries';
 
 interface AppStoreClientProps {
   initialApps: AvailableApp[];
   categories: string[];
   canManage?: boolean; // Only admins can install/uninstall apps
+  /** Shows the Developer console link next to the search. */
+  canDevelop?: boolean;
 }
 
 function AppLogo({ code, className = 'h-5 w-5' }: Readonly<{ code: string; className?: string }>) {
@@ -34,39 +51,7 @@ function AppLogo({ code, className = 'h-5 w-5' }: Readonly<{ code: string; class
   return <Icon className={className} />;
 }
 
-// Consolidate categories into broader groups
-const CATEGORY_GROUPS: Record<string, string[]> = {
-  'Customers': ['sales', 'crm', 'commerce', 'customer', 'support', 'helpdesk', 'marketing'],
-  'Communication': ['mail', 'email', 'chat', 'messaging', 'meet', 'video', 'inbox', 'webmail', 'communication'],
-  'Work': ['productivity', 'projects', 'tasks', 'task', 'planning', 'collaboration', 'documents', 'notes', 'calendar', 'workflow', 'automation'],
-  'Storage': ['drive', 'files', 'storage', 'host', 'hosting', 'dns', 'domains', 'infrastructure'],
-  'Finance': ['finance', 'accounting', 'billing', 'invoicing', 'erp', 'books'],
-};
-
-// Direct app code to category mapping — wins over keyword matching. Used when
-// the app's stored category alone isn't enough to disambiguate (e.g. WeldDrive
-// is stored as "Productivity" but belongs in Storage).
-const APP_CODE_OVERRIDES: Record<string, string> = {
-  'mail': 'Communication',
-  'welddrive': 'Storage',
-};
-
-function getConsolidatedCategory(originalCategory: string, appCode?: string): string {
-  // Check for direct app code override first
-  if (appCode && APP_CODE_OVERRIDES[appCode.toLowerCase()]) {
-    return APP_CODE_OVERRIDES[appCode.toLowerCase()];
-  }
-
-  const normalizedCategory = originalCategory.toLowerCase();
-  for (const [group, keywords] of Object.entries(CATEGORY_GROUPS)) {
-    if (keywords.some(keyword => normalizedCategory.includes(keyword.toLowerCase()))) {
-      return group;
-    }
-  }
-  return 'Work';
-}
-
-export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppStoreClientProps>) {
+export function AppStoreClient({ initialApps, canManage = false, canDevelop = false }: Readonly<AppStoreClientProps>) {
   const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
   const { t: allT, format } = useI18n();
@@ -78,6 +63,21 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
   const [appToUninstall, setAppToUninstall] = useState<AvailableApp | null>(null);
   // On-request apps (WeldReach): the app whose access request form is open.
   const [appToRequest, setAppToRequest] = useState<AvailableApp | null>(null);
+  // The search field's text and the filter pills (status, category); both
+  // narrow the first-party apps and the WeldApps sections.
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filters, setFilters] = useState<ActiveFilter[]>([]);
+  const isSearching = query.trim() !== '';
+  const isFiltering = filters.some(isCompleteFilter);
+  const clearSearchAndFilters = () => {
+    setQuery('');
+    setSearchOpen(false);
+    setFilters([]);
+  };
+  // The WeldApps sections load the same (cached) list; read it here too so a
+  // search that only matches WeldApps doesn't show "No apps found".
+  const { data: userApps } = useUserAppStore();
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
@@ -163,11 +163,39 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
     'Finance': t.appstore.categoryFinance,
   };
 
-  // Group all apps by consolidated category for display
+  // The Filter button's fields: install status and category group.
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: APP_STATUS_FILTER,
+      label: t.appstore.status,
+      options: [
+        { value: APP_STATUS_INSTALLED, label: t.appstore.installed },
+        { value: APP_STATUS_NOT_INSTALLED, label: t.appstore.notInstalled },
+      ],
+    },
+    {
+      field: APP_CATEGORY_FILTER,
+      label: t.appstore.category,
+      options: Object.entries(categoryLabel).map(([value, label]) => ({ value, label })),
+    },
+  ];
+
+  // Group the apps that match the search and filters by consolidated category
+  // for display. Categories without a match drop out of the list and the
+  // categories column.
   const { appsByCategory, consolidatedCategories } = React.useMemo(() => {
     const grouped: Record<string, AvailableApp[]> = {};
     apps.forEach((app) => {
       const consolidatedCategory = getConsolidatedCategory(app.category, app.code);
+      const matches =
+        matchesAppQuery(query, [
+          app.name,
+          app.code,
+          app.description,
+          app.category,
+          categoryLabel[consolidatedCategory],
+        ]) && matchesAppFilters(filters, { isInstalled: !!app.isInstalled, group: consolidatedCategory });
+      if (!matches) return;
       if (!grouped[consolidatedCategory]) {
         grouped[consolidatedCategory] = [];
       }
@@ -179,7 +207,13 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
     const sortedCategories = categoryOrder.filter(cat => grouped[cat]);
 
     return { appsByCategory: grouped, consolidatedCategories: sortedCategories };
-  }, [apps]);
+    // `categoryLabel` is rebuilt every render from the static translations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apps, query, filters]);
+
+  const hasUserAppMatch = (userApps ?? []).some((app) => userAppMatches(app, query, filters));
+  const showNoResults =
+    (isSearching || isFiltering) && consolidatedCategories.length === 0 && !hasUserAppMatch;
 
   const scrollToCategory = (category: string) => {
     const element = document.getElementById(`category-${category.replaceAll(/\s+/g, '-').toLowerCase()}`);
@@ -191,10 +225,11 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
   return (
     <>
       <div className="flex justify-center flex-1 relative overflow-y-auto">
-        <div className="w-full max-w-[1150px] flex relative">
+        {/* As tall as the apps (at least the page), so the categories column and its divider run to the bottom. */}
+        <div className="relative flex min-h-full w-full max-w-[1150px] self-start">
           {/* Categories Section */}
-          <div className="hidden md:flex md:w-60 md:shrink-0 py-6 md:pl-8 border-r border-border">
-            <div className="sticky top-6 w-full">
+          <div className="hidden md:flex md:w-60 md:shrink-0 md:flex-col py-6 md:pl-8 border-r border-border">
+            <div className="sticky top-6 w-full self-start">
               <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
                 {t.appstore.categories}
               </h2>
@@ -219,7 +254,54 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
 
           {/* Apps Content */}
           <div className="flex-1 p-4 md:p-6 md:pl-8">
-            <OfficialHostedAppsSection />
+            {/* Filter and search row above the cards, laid out like the settings
+                list toolbars (roles, activity): the filter pills on the left, the
+                list pages' (`GridToolbar`) magnifier search on the right.
+                `@container` sizes the open field the same way the toolbar does. */}
+            <div className="@container mb-6 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <FilterPills
+                  filters={filters}
+                  filterConfigs={filterConfigs}
+                  maxFilters={2}
+                  onFiltersChange={setFilters}
+                  operatorLabels={{ is: allT.sweep.entities.operatorIs, 'is not': allT.sweep.entities.operatorIsNot }}
+                  labels={{ filter: allT.sweep.entities.filter, selectCondition: allT.sweep.entities.selectCondition }}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SearchIconButton
+                  value={query}
+                  onChange={setQuery}
+                  placeholder={t.appstore.searchPlaceholder}
+                  isOpen={searchOpen}
+                  onOpenChange={setSearchOpen}
+                />
+                {canDevelop && (
+                  <Button asChild variant="outline" size="sm" className="h-8 shadow-none">
+                    <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {showNoResults && (
+              <EmptyState
+                title={t.appstore.noResultsTitle}
+                description={
+                  isSearching
+                    ? format(t.appstore.noResultsDescription, { query: query.trim() })
+                    : t.appstore.noResultsFilters
+                }
+                action={
+                  <Button variant="outline" size="sm" onClick={clearSearchAndFilters}>
+                    {isFiltering ? t.appstore.clearFilters : t.appstore.clearSearch}
+                  </Button>
+                }
+              />
+            )}
+
+            <OfficialHostedAppsSection query={query} filters={filters} />
 
             {consolidatedCategories.map((category, index) => (
               <div
@@ -334,7 +416,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
               </div>
             ))}
 
-            <CustomAppsSection />
+            <CustomAppsSection query={query} filters={filters} />
 
             <div className="pb-8" />
           </div>

@@ -26,15 +26,40 @@
 //! Not here: the invitation email (Zitadel sends its own invite code), the
 //! permission-cache bump (the Rust backend keeps no permission cache), and
 //! WeldChat's auto-join (not ported).
+//!
+//! WeldID (membership mode) keeps no organizations or memberships, only
+//! users, and offers an ordered event feed instead of a change feed:
+//! [`IdentitySync::run_feed`] reads `Identity::events_after` from its own
+//! watermark ([`FEED_WATERMARK_KEY`], the last event id handled) and
+//! reconciles only users, the same way: `user.created`, `user.updated` and
+//! `user.email_changed` read the profile into `users` and the member rows'
+//! name and email (the picture stays on the account, `users.image_url`);
+//! `user.deleted` deactivates the user and removes
+//! their memberships (WeldID keeps an anonymised row, so the profile isn't
+//! asked); `session.revoked` needs nothing here.
+//!
+//! `sso.signed_in` ([`SSO_SIGNED_IN`], ADR SEC-019 phase 5a) is the one
+//! automatic way into a workspace in membership mode (invitations are not
+//! served yet): someone signed in through a workspace's SSO connection, and
+//! its data names the workspace (`tenantRef`, `workspaces.id`) and the
+//! connection. Besides the profile refresh, the person joins that workspace
+//! with its default role for SSO members (`weldsuite_db::sso_settings`) when
+//! they aren't a member yet: the tenant member first, then the master row,
+//! so a run that stops halfway is finished by the next one. An existing
+//! member's role is never changed, and a user the same page deletes doesn't
+//! join. Like the other membership reconciles here it publishes no entity
+//! event (the catalog has no member events; Clerk's webhooks publish none
+//! either).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
 use weldsuite_db::PgPool;
 use weldsuite_ports::{
-    DatabaseProvisioner, Identity, IdentityChange, IdentityError, ListPage, Membership, Teardown,
+    DatabaseProvisioner, FeedEvent, Identity, IdentityChange, IdentityError, ListPage, Membership,
+    Teardown, UserProfile,
 };
 
 use crate::TenantDatabases;
@@ -43,6 +68,114 @@ use crate::onboard::upsert_user_workspace;
 /// The `system_settings` key of the watermark: the time of the newest change
 /// handled (RFC 3339, as a JSON string).
 pub const WATERMARK_KEY: &str = "identity_sync.watermark";
+
+/// The `system_settings` key of the event feed's watermark
+/// ([`IdentitySync::run_feed`]): the id of the last event handled (a JSON
+/// string).
+pub const FEED_WATERMARK_KEY: &str = "identity_sync.weldid_watermark";
+
+/// What a feed event asks of a user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FeedAction {
+    /// Read the profile again.
+    Refresh,
+    /// The user is gone.
+    Delete,
+}
+
+/// The feed event of a sign-in through a workspace's SSO connection.
+pub const SSO_SIGNED_IN: &str = "sso.signed_in";
+
+/// The action an event of `kind` asks for; `None` for kinds with nothing to
+/// do here (`session.revoked`, and kinds this build doesn't know). An SSO
+/// sign-in also refreshes the profile (WeldID may have just created the
+/// person); the join itself is [`sso_joins`]'.
+pub fn feed_action(kind: &str) -> Option<FeedAction> {
+    match kind {
+        "user.created" | "user.updated" | "user.email_changed" | SSO_SIGNED_IN => {
+            Some(FeedAction::Refresh)
+        }
+        "user.deleted" => Some(FeedAction::Delete),
+        _ => None,
+    }
+}
+
+/// Someone signed in through a workspace's SSO connection
+/// ([`SSO_SIGNED_IN`]): they join that workspace if they aren't a member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SsoJoin {
+    pub user_id: String,
+    /// `workspaces.id` (an organization id is accepted too).
+    pub tenant_ref: String,
+    pub connection_id: Option<String>,
+}
+
+/// A string field of an event's data, camelCase or snake case, non-empty.
+fn data_field<'a>(data: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| data.get(*name).and_then(Value::as_str))
+        .filter(|text| !text.is_empty())
+}
+
+/// The joins a batch of events asks for, once per user and workspace, in
+/// feed order. An event without a user or a workspace is skipped.
+pub fn sso_joins<'a>(events: impl IntoIterator<Item = &'a FeedEvent>) -> Vec<SsoJoin> {
+    let mut joins: Vec<SsoJoin> = Vec::new();
+    for event in events {
+        if event.kind != SSO_SIGNED_IN {
+            continue;
+        }
+        let user = event
+            .user_id
+            .as_deref()
+            .filter(|user| !user.is_empty())
+            .or_else(|| data_field(&event.data, &["userId", "user_id"]));
+        let tenant = data_field(&event.data, &["tenantRef", "tenant_ref"]);
+        let (Some(user), Some(tenant)) = (user, tenant) else {
+            tracing::warn!(
+                event = event.id,
+                "identity sync: an SSO sign-in without a user or workspace"
+            );
+            continue;
+        };
+        if joins
+            .iter()
+            .any(|join| join.user_id == user && join.tenant_ref == tenant)
+        {
+            continue;
+        }
+        joins.push(SsoJoin {
+            user_id: user.to_owned(),
+            tenant_ref: tenant.to_owned(),
+            connection_id: data_field(&event.data, &["connectionId", "connection_id"])
+                .map(str::to_owned),
+        });
+    }
+    joins
+}
+
+/// One action per user for a batch of events: a deletion wins over a
+/// refresh (ids are never reused).
+pub fn feed_actions<'a>(
+    events: impl IntoIterator<Item = &'a FeedEvent>,
+) -> BTreeMap<String, FeedAction> {
+    let mut actions = BTreeMap::new();
+    for event in events {
+        let (Some(action), Some(user)) = (feed_action(&event.kind), event.user_id.as_deref())
+        else {
+            continue;
+        };
+        if user.is_empty() {
+            continue;
+        }
+        actions
+            .entry(user.to_owned())
+            .and_modify(|current: &mut FeedAction| *current = (*current).max(action))
+            .or_insert(action);
+    }
+    actions
+}
 
 /// Changes read per page, and pages per run.
 const PAGE: u32 = 500;
@@ -107,10 +240,10 @@ impl IdentitySync {
         }
     }
 
-    async fn watermark(&self) -> Result<Option<String>, sqlx::Error> {
+    async fn watermark(&self, key: &str) -> Result<Option<String>, sqlx::Error> {
         let value: Option<Option<Value>> =
             sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-                .bind(WATERMARK_KEY)
+                .bind(key)
                 .fetch_optional(&self.master)
                 .await?;
         Ok(value
@@ -118,23 +251,231 @@ impl IdentitySync {
             .and_then(|value| value.as_str().map(str::to_owned)))
     }
 
-    async fn store_watermark(&self, at: &str) -> Result<(), sqlx::Error> {
+    async fn store_watermark(&self, key: &str, at: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             "insert into system_settings (id, key, category, value, description, data_type)
              values ($1, $2, 'integrations', $3, 'The identity sync has handled the provider''s changes up to here', 'string')
              on conflict (key) do update set value = excluded.value, updated_at = now()",
         )
         .bind(weldsuite_kit::generate_id("sset"))
-        .bind(WATERMARK_KEY)
+        .bind(key)
         .bind(Value::String(at.to_owned()))
         .execute(&self.master)
         .await
         .map(drop)
     }
 
+    /// One run on an event feed (WeldID's outbox): read the events after the
+    /// watermark, reconcile their users, move the watermark. A page whose
+    /// reconciles didn't all work leaves the watermark, and the next run
+    /// reads it again.
+    pub async fn run_feed(&self) -> Result<SyncReport, Failure> {
+        let mut after = self.watermark(FEED_WATERMARK_KEY).await?;
+        let mut report = SyncReport::default();
+        for _ in 0..MAX_PAGES {
+            let page = self.identity.events_after(after.as_deref(), PAGE).await?;
+            if page.events.is_empty() {
+                break;
+            }
+            report.changes += page.events.len();
+            let mut failed = 0;
+            let actions = feed_actions(&page.events);
+            for (user_id, action) in &actions {
+                report.users += 1;
+                let outcome = match action {
+                    FeedAction::Refresh => self.feed_user(user_id).await,
+                    FeedAction::Delete => self
+                        .user_deleted(user_id)
+                        .await
+                        .map_or_else(Outcome::from, |()| Outcome::Done),
+                };
+                if let Outcome::Retry(error) = outcome {
+                    tracing::warn!(%error, "identity sync: a user is left for the next run");
+                    failed += 1;
+                }
+            }
+            for join in sso_joins(&page.events) {
+                // Deleted in this page: gone, whatever came before.
+                if actions.get(&join.user_id) == Some(&FeedAction::Delete) {
+                    continue;
+                }
+                report.memberships += 1;
+                if let Outcome::Retry(error) = self.sso_join(&join).await {
+                    tracing::warn!(%error, "identity sync: an SSO join is left for the next run");
+                    failed += 1;
+                }
+            }
+            if failed > 0 {
+                report.failed += failed;
+                break;
+            }
+            let Some(next) = page.next_cursor().map(str::to_owned) else {
+                break;
+            };
+            self.store_watermark(FEED_WATERMARK_KEY, &next).await?;
+            let unchanged = after.as_deref() == Some(next.as_str());
+            after = Some(next);
+            if !page.has_more || unchanged {
+                break;
+            }
+        }
+        report.watermark = after;
+        Ok(report)
+    }
+
+    /// A user an event named: the profile into `users` and the member rows
+    /// (their email too: `user.email_changed`), or their deletion.
+    async fn feed_user(&self, user_id: &str) -> Outcome {
+        let profile = match self.identity.user_profile(user_id).await {
+            Ok(profile) => profile,
+            Err(error) if error.is_not_found() => {
+                return self
+                    .user_deleted(user_id)
+                    .await
+                    .map_or_else(Outcome::from, |()| Outcome::Done);
+            }
+            Err(error) => return retry_unless_refused(error),
+        };
+        if let Err(outcome) = self.store_profile(user_id, &profile).await {
+            return outcome;
+        }
+        let email = profile.primary_email().unwrap_or_default();
+        if !email.is_empty() {
+            for (workspace, org) in self.workspaces_of(user_id).await {
+                let Ok(tenant) = (self.tenants)(org.unwrap_or(workspace)).await else {
+                    continue;
+                };
+                let _ = sqlx::query(
+                    "update workspace_members set email = $2, updated_at = now()
+                      where user_id = $1 and deleted_at is null and email is distinct from $2",
+                )
+                .bind(user_id)
+                .bind(email)
+                .execute(&tenant)
+                .await;
+            }
+        }
+        Outcome::Done
+    }
+
+    /// An SSO sign-in's join: the workspace's tenant member with the default
+    /// role for SSO members, then the master membership. Someone already in
+    /// keeps their role; a workspace that is gone is skipped.
+    async fn sso_join(&self, join: &SsoJoin) -> Outcome {
+        let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> = sqlx::query_as(
+            "select id, clerk_org_id from workspaces
+              where (id = $1 or clerk_org_id = $1) and deleted_at is null
+              order by (id = $1) desc limit 1",
+        )
+        .bind(&join.tenant_ref)
+        .fetch_optional(&self.master)
+        .await;
+        let (workspace_id, org) = match workspace {
+            Ok(Some(workspace)) => workspace,
+            Ok(None) => {
+                tracing::info!(
+                    tenant_ref = join.tenant_ref,
+                    "identity sync: an SSO sign-in for a workspace that is gone; skipped"
+                );
+                return Outcome::Done;
+            }
+            Err(error) => return error.into(),
+        };
+        let master_role: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
+            "select status::text, role from user_workspaces where user_id = $1 and workspace_id = $2",
+        )
+        .bind(&join.user_id)
+        .bind(&workspace_id)
+        .fetch_optional(&self.master)
+        .await;
+        let master_role = match master_role {
+            Ok(row) => row
+                .filter(|(status, _)| status == "ACTIVE")
+                .map(|(_, role)| role),
+            Err(error) => return error.into(),
+        };
+        let tenant = match (self.tenants)(org.unwrap_or_else(|| workspace_id.clone())).await {
+            Ok(tenant) => tenant,
+            Err(error) => return Outcome::Retry(error.into()),
+        };
+        let existing = match active_member(&tenant, &join.user_id).await {
+            Ok(existing) => existing,
+            Err(error) => return error.into(),
+        };
+        if master_role.is_some() && existing.is_some() {
+            return Outcome::Done;
+        }
+        // The role they have, else the one the workspace gives SSO members.
+        let role = match (&existing, &master_role) {
+            (Some(member), _) => member.role.clone(),
+            (None, Some(master)) => display_role(master).to_owned(),
+            (None, None) => match weldsuite_db::sso_settings::sso_default_role(&tenant).await {
+                Ok(role) => role.to_owned(),
+                Err(error) => return error.into(),
+            },
+        };
+        let person = match self.sso_person(&join.user_id).await {
+            Ok(Some(person)) => person,
+            Ok(None) => return Outcome::Done,
+            Err(outcome) => return outcome,
+        };
+        if existing.is_none()
+            && let Err(error) = add_sso_member(&tenant, &join.user_id, &person, &role).await
+        {
+            return error.into();
+        }
+        if master_role.is_none()
+            && let Err(error) = upsert_user_workspace(
+                &self.master,
+                &join.user_id,
+                &workspace_id,
+                None,
+                provider_role(&role),
+            )
+            .await
+        {
+            return error.into();
+        }
+        tracing::info!(
+            workspace_id,
+            user_id = join.user_id,
+            role,
+            connection_id = join.connection_id.as_deref(),
+            "identity sync: joined the workspace through SSO"
+        );
+        Outcome::Done
+    }
+
+    /// The `users` row of someone who signed in through SSO (read from the
+    /// provider when this run hasn't stored it yet); `None` when the
+    /// provider no longer knows them.
+    async fn sso_person(&self, user_id: &str) -> Result<Option<Person>, Outcome> {
+        let person = |row: Option<Person>| row.filter(|p| !p.email.is_empty());
+        let stored: Option<Person> =
+            sqlx::query_as("select email, first_name, last_name from users where id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.master)
+                .await
+                .map_err(Outcome::from)?;
+        if let Some(found) = person(stored) {
+            return Ok(Some(found));
+        }
+        let profile = match self.identity.user_profile(user_id).await {
+            Ok(profile) => profile,
+            Err(error) if error.is_not_found() => return Ok(None),
+            Err(error) => return Err(retry_unless_refused(error)),
+        };
+        self.store_profile(user_id, &profile).await?;
+        Ok(Some(Person {
+            email: profile.primary_email().unwrap_or_default().to_owned(),
+            first_name: profile.first_name,
+            last_name: profile.last_name,
+        }))
+    }
+
     /// One run: read the feed, reconcile, move the watermark.
     pub async fn run(&self) -> Result<SyncReport, Failure> {
-        let mut since = self.watermark().await?;
+        let mut since = self.watermark(WATERMARK_KEY).await?;
         let mut report = SyncReport::default();
         for _ in 0..MAX_PAGES {
             let changes = self.identity.changes_since(since.as_deref(), PAGE).await?;
@@ -157,7 +498,7 @@ impl IdentitySync {
             } else {
                 last
             };
-            self.store_watermark(&next).await?;
+            self.store_watermark(WATERMARK_KEY, &next).await?;
             let unchanged = since.as_deref() == Some(next.as_str());
             since = Some(next);
             if !full || unchanged {
@@ -226,34 +567,7 @@ impl IdentitySync {
     async fn user(&self, user_id: &str) -> Result<Vec<String>, Outcome> {
         match self.identity.user_profile(user_id).await {
             Ok(profile) => {
-                let email = profile.primary_email().unwrap_or_default().to_owned();
-                sqlx::query(
-                    "insert into users (id, email, first_name, last_name, image_url)
-                     values ($1, $2, $3, $4, $5)
-                     on conflict (id) do update
-                        set email = case when excluded.email <> '' then excluded.email else users.email end,
-                            first_name = excluded.first_name, last_name = excluded.last_name,
-                            -- The provider's picture when it has one; a picture
-                            -- uploaded in WeldSuite (`PUT /settings/profile/avatar`)
-                            -- is not on the provider and must not be wiped.
-                            image_url = coalesce(nullif(excluded.image_url, ''), users.image_url),
-                            updated_at = now()",
-                )
-                .bind(user_id)
-                .bind(&email)
-                .bind(&profile.first_name)
-                .bind(&profile.last_name)
-                .bind(&profile.image_url)
-                .execute(&self.master)
-                .await
-                .map_err(Outcome::from)?;
-                let full_name = [profile.first_name.as_deref(), profile.last_name.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                self.update_member_names(user_id, &full_name).await;
+                self.store_profile(user_id, &profile).await?;
                 match self.identity.user_memberships(user_id, 100).await {
                     Ok(memberships) => Ok(memberships
                         .into_iter()
@@ -270,9 +584,43 @@ impl IdentitySync {
         }
     }
 
+    /// `handleUserCreated` / `handleUserUpdated`: the `users` row, then the
+    /// member rows' name. The picture stays on the account (`users.image_url`,
+    /// ADR SEC-020): members keep no copy.
+    async fn store_profile(&self, user_id: &str, profile: &UserProfile) -> Result<(), Outcome> {
+        let email = profile.primary_email().unwrap_or_default().to_owned();
+        sqlx::query(
+            "insert into users (id, email, first_name, last_name, image_url)
+             values ($1, $2, $3, $4, $5)
+             on conflict (id) do update
+                set email = case when excluded.email <> '' then excluded.email else users.email end,
+                    first_name = excluded.first_name, last_name = excluded.last_name,
+                    -- The provider's picture when it has one; a picture
+                    -- uploaded in WeldSuite (`PUT /settings/profile/avatar`)
+                    -- is not on the provider and must not be wiped.
+                    image_url = coalesce(nullif(excluded.image_url, ''), users.image_url),
+                    updated_at = now()",
+        )
+        .bind(user_id)
+        .bind(&email)
+        .bind(&profile.first_name)
+        .bind(&profile.last_name)
+        .bind(&profile.image_url)
+        .execute(&self.master)
+        .await
+        .map_err(Outcome::from)?;
+        let full_name = [profile.first_name.as_deref(), profile.last_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.update_member_names(user_id, &full_name).await;
+        Ok(())
+    }
+
     /// `handleUserUpdated`'s tenant half: the name, only when the provider has
-    /// one (early events carry empty names), best effort per workspace. The
-    /// picture stays on the account (`users.image_url`): members keep no copy.
+    /// one (early events carry empty names), best effort per workspace.
     async fn update_member_names(&self, user_id: &str, name: &str) {
         if name.is_empty() {
             return;
@@ -748,6 +1096,79 @@ async fn sync_tenant_member(
     .map(drop)
 }
 
+/// `mapRoleToClerk`: the master row's role for a workspace role.
+fn provider_role(role: &str) -> &'static str {
+    if role.eq_ignore_ascii_case("ADMIN") || role.eq_ignore_ascii_case("OWNER") {
+        "org:admin"
+    } else {
+        "org:member"
+    }
+}
+
+/// Who signed in, from the master `users` row. No picture: the member row
+/// keeps none (avatars are the account's, `users.image_url`).
+#[derive(Debug, sqlx::FromRow)]
+struct Person {
+    email: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+}
+
+/// The tenant member of an SSO join: a pending row for the email (an
+/// invitation from before) becomes them and keeps its role; otherwise a new
+/// active member with `role`. Never the owner, even in an empty workspace.
+async fn add_sso_member(
+    tenant: &PgPool,
+    user_id: &str,
+    person: &Person,
+    role: &str,
+) -> Result<(), sqlx::Error> {
+    let name = [person.first_name.as_deref(), person.last_name.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let name = Some(name).filter(|name| !name.is_empty());
+    release_removed_user_id(tenant, user_id).await?;
+    let pending: Option<String> = sqlx::query_scalar(
+        "select id from workspace_members
+          where lower(email) = lower($1)
+            and (status = 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
+            and deleted_at is null
+          limit 1",
+    )
+    .bind(&person.email)
+    .fetch_optional(tenant)
+    .await?;
+    if let Some(id) = pending {
+        sqlx::query(
+            "update workspace_members
+                set user_id = $2, name = coalesce($3, name),
+                    status = 'ACTIVE', accepted_at = coalesce(accepted_at, now()), updated_at = now()
+              where id = $1",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(&name)
+        .execute(tenant)
+        .await?;
+        return Ok(());
+    }
+    sqlx::query(
+        "insert into workspace_members (id, user_id, email, name, role, status)
+         values ($1, $2, $3, $4, $5, 'ACTIVE')",
+    )
+    .bind(weldsuite_kit::generate_id("mbr"))
+    .bind(user_id)
+    .bind(&person.email)
+    .bind(&name)
+    .bind(role)
+    .execute(tenant)
+    .await
+    .map(drop)
+}
+
 /// `releaseRemovedMemberUserId`: a removed row that still holds the user id
 /// gives it up, so the user's new row can take it.
 async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
@@ -764,6 +1185,95 @@ async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feed_events_become_one_action_per_user() {
+        let event = |id: &str, kind: &str, user: Option<&str>| FeedEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            user_id: user.map(str::to_owned),
+            at: None,
+            data: Value::Null,
+        };
+        let events = [
+            event("1", "user.created", Some("usr_a")),
+            event("2", "user.email_changed", Some("usr_a")),
+            event("3", "user.updated", Some("usr_b")),
+            event("4", "user.deleted", Some("usr_b")),
+            event("5", "user.updated", Some("usr_b")),
+            event("6", "session.revoked", Some("usr_c")),
+            event("7", "user.renamed", Some("usr_d")),
+            event("8", "user.updated", None),
+            event("9", "user.updated", Some("")),
+        ];
+        let actions = feed_actions(&events);
+        assert_eq!(
+            actions.into_iter().collect::<Vec<_>>(),
+            [
+                ("usr_a".to_owned(), FeedAction::Refresh),
+                ("usr_b".to_owned(), FeedAction::Delete),
+            ]
+        );
+        assert_eq!(feed_action("session.revoked"), None);
+        assert_eq!(feed_action("user.deleted"), Some(FeedAction::Delete));
+    }
+
+    #[test]
+    fn sso_sign_ins_become_one_join_per_user_and_workspace() {
+        let event = |id: &str, kind: &str, user: Option<&str>, data: Value| FeedEvent {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            user_id: user.map(str::to_owned),
+            at: None,
+            data,
+        };
+        let events = [
+            event(
+                "1",
+                SSO_SIGNED_IN,
+                Some("usr_a"),
+                serde_json::json!({ "tenantRef": "ws_1", "connectionId": "ssoc_1", "created": true }),
+            ),
+            event(
+                "2",
+                SSO_SIGNED_IN,
+                Some("usr_a"),
+                serde_json::json!({ "tenantRef": "ws_1", "connectionId": "ssoc_1" }),
+            ),
+            event(
+                "3",
+                SSO_SIGNED_IN,
+                None,
+                serde_json::json!({ "user_id": "usr_b", "tenant_ref": "ws_1", "connection_id": "ssoc_1" }),
+            ),
+            event("4", SSO_SIGNED_IN, Some("usr_c"), Value::Null),
+            event(
+                "5",
+                "user.created",
+                Some("usr_d"),
+                serde_json::json!({ "tenantRef": "ws_1" }),
+            ),
+        ];
+        let joins = sso_joins(&events);
+        assert_eq!(
+            joins,
+            [
+                SsoJoin {
+                    user_id: "usr_a".to_owned(),
+                    tenant_ref: "ws_1".to_owned(),
+                    connection_id: Some("ssoc_1".to_owned()),
+                },
+                SsoJoin {
+                    user_id: "usr_b".to_owned(),
+                    tenant_ref: "ws_1".to_owned(),
+                    connection_id: Some("ssoc_1".to_owned()),
+                },
+            ]
+        );
+        assert_eq!(feed_action(SSO_SIGNED_IN), Some(FeedAction::Refresh));
+        assert_eq!(provider_role("ADMIN"), "org:admin");
+        assert_eq!(provider_role("VIEWER"), "org:member");
+    }
 
     #[test]
     fn stepping_past_an_instant() {

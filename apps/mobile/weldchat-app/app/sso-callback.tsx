@@ -1,7 +1,9 @@
 /**
- * SSO Callback — handles the OAuth redirect from Clerk.
- * This screen is shown briefly while Clerk processes the auth session,
- * then AuthGuard redirects to the main app.
+ * Where the sign-in page sends the browser sheet back to
+ * (`weldchat://sso-callback`, the redirect URI registered for the
+ * `weldsuite-mobile` client on WeldID). The auth session picks the code up
+ * from the sheet itself; this screen only shows while that finishes, then
+ * AuthGuard moves on to the app.
  */
 
 import { View, ActivityIndicator } from 'react-native';

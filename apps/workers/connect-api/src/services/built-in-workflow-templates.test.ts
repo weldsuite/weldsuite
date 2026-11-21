@@ -56,9 +56,9 @@ const resolved: Array<[string, ResolvedBuiltInTemplate]> = Object.entries(CATALO
 );
 
 describe('built-in workflow templates', () => {
-  it('ships a starter set of 6 to 10 templates with unique, storable ids', () => {
+  it('ships a starter set of 6 to 12 templates with unique, storable ids', () => {
     expect(BUILT_IN_WORKFLOW_TEMPLATES.length).toBeGreaterThanOrEqual(6);
-    expect(BUILT_IN_WORKFLOW_TEMPLATES.length).toBeLessThanOrEqual(10);
+    expect(BUILT_IN_WORKFLOW_TEMPLATES.length).toBeLessThanOrEqual(12);
     const ids = BUILT_IN_WORKFLOW_TEMPLATES.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(new Set(BUILT_IN_WORKFLOW_TEMPLATES.map((t) => t.key)).size).toBe(ids.length);

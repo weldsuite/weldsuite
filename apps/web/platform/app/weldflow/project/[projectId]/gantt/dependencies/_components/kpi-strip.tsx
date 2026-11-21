@@ -42,7 +42,7 @@ function floatTileOf(
 
 /** Critical path, float to go-live, conflicts and tasks without links. */
 export function KpiStrip({ schedule }: Readonly<{ schedule: ProjectSchedule }>) {
-  const { t, language } = useI18n();
+  const { t, language, plural } = useI18n();
   const copy = t.flowSchedule.dependencies.kpis;
   const locale = intlLocaleOf(language);
   const { summary } = schedule;
@@ -65,7 +65,7 @@ export function KpiStrip({ schedule }: Readonly<{ schedule: ProjectSchedule }>) 
       <Tile label={copy.float} value={floatTile.value} detail={floatTile.detail} tone={floatTile.tone} />
       <Tile
         label={copy.conflicts}
-        value={summary.conflictCount > 0 ? fill(copy.conflictsValue, { count: summary.conflictCount }) : copy.conflictsNone}
+        value={summary.conflictCount > 0 ? plural(summary.conflictCount, copy.conflictsValue) : copy.conflictsNone}
         detail={
           successor && predecessor
             ? fill(copy.conflictsDetail, { task: taskLabel(successor), predecessor: taskLabel(predecessor) })

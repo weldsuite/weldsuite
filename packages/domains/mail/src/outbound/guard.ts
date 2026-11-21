@@ -28,8 +28,8 @@
  * more harm than a short gap in counting.
  *
  * Pure of Hono: callers pass env, the tenant DB and `waitUntil` themselves.
- * See docs/plans/weldmail-outbound-abuse.md and
- * docs/plans/weldmail-mailbox-store-design.md (decision 1: the mail index is
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md and
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md (decision 1: the mail index is
  * its own EU object, `MailIndex`, not tables on the ledger).
  */
 

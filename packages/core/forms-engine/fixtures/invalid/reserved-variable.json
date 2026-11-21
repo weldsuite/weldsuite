@@ -1,0 +1,35 @@
+{
+  "name": "Declaring score",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "variables": [
+      {
+        "name": "score",
+        "type": "number"
+      }
+    ]
+  },
+  "expectIssues": [
+    "reserved_variable"
+  ]
+}

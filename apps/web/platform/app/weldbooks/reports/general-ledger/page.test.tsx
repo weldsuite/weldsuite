@@ -127,7 +127,7 @@ describe('GeneralLedgerReportPage', () => {
 
     const table = screen.getByRole('table', { name: 'Transactions' });
     const rows = within(table).getAllByRole('row');
-    expect(within(rows[1]).getAllByRole('cell').map((c) => c.textContent)).toEqual(['Opening Balance', '$100.00']);
+    expect(within(rows[1]).getAllByRole('cell').map((c) => c.textContent)).toEqual(['Opening balance', '$100.00']);
 
     const first = within(rows[2]).getAllByRole('cell').map((c) => c.textContent);
     expect(first).toEqual(['2026-02-03', 'JE-0001', 'Customer payment', '$300.00', '-', '$400.00']);
@@ -137,7 +137,7 @@ describe('GeneralLedgerReportPage', () => {
     expect(second).toEqual(['2026-03-04', '-', '-', '-', '$420.00', '-$20.00']);
 
     const last = within(rows[rows.length - 1]).getAllByRole('cell').map((c) => c.textContent);
-    expect(last).toEqual(['Closing Balance', '$300.00', '$420.00', '-$20.00']);
+    expect(last).toEqual(['Closing balance', '$300.00', '$420.00', '-$20.00']);
   });
 
   it('pages through the lines', async () => {

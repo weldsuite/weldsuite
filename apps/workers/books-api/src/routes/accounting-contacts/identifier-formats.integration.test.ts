@@ -115,3 +115,35 @@ describe('IBAN format', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('KvK number format', () => {
+  const dutch = (overrides: Record<string, unknown> = {}) =>
+    company({
+      name: 'Kvk BV',
+      companyName: 'Kvk BV',
+      billingAddress: { line1: 'Keizersgracht 1', city: 'Amsterdam', postalCode: '1015 AA', country: 'NL' },
+      ...overrides,
+    });
+
+  it('refuses a short KvK number on a Dutch contact, naming the field', async () => {
+    const res = await contacts('', 'POST', dutch({ registrationNumber: '12' }));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { message: string; details?: { field?: string } } };
+    expect(json.error.message).toBe('"12" is not a valid KvK number: it must be 8 digits');
+    expect(json.error.details).toMatchObject({ field: 'registrationNumber' });
+  });
+
+  it('stores a good one without spaces, and checks an update against the stored country', async () => {
+    const created = await contacts('', 'POST', dutch({ registrationNumber: '1234 5678' }));
+    expect(created.status).toBe(201);
+    const data = ((await created.json()) as { data: { id: string; registrationNumber: string } }).data;
+    expect(data.registrationNumber).toBe('12345678');
+    expect((await contacts(`/${data.id}`, 'PATCH', { registrationNumber: '123' })).status).toBe(400);
+    expect((await contacts(`/${data.id}`, 'PATCH', { registrationNumber: '87654321' })).status).toBe(200);
+  });
+
+  it('leaves the registration number of a contact in another country alone', async () => {
+    const res = await contacts('', 'POST', company({ name: 'Abroad NV', companyName: 'Abroad NV', registrationNumber: '0123456789' }));
+    expect(res.status).toBe(201);
+  });
+});

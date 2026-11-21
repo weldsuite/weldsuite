@@ -15,6 +15,8 @@ interface UseChatRoomConfig {
   getToken: () => Promise<string>;
   /** Presence data to send on connect (name, avatar, status) */
   presenceData?: Record<string, unknown>;
+  /** The member's workspace, membership mode only (`RoomClientConfig.workspace`); a change reconnects. */
+  workspace?: string | null;
 }
 
 /**
@@ -34,11 +36,13 @@ export function useChatRoom(channelId: string, config: UseChatRoomConfig) {
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [presence, setPresence] = useState<PresenceMember[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const workspace = config.workspace || null;
 
   useEffect(() => {
     const client = new RoomClient({
       url: `${config.baseUrl}/ws/chat/${channelId}`,
       getToken: config.getToken,
+      workspace,
     });
     clientRef.current = client;
 
@@ -60,7 +64,7 @@ export function useChatRoom(channelId: string, config: UseChatRoomConfig) {
       setTypingUsers([]);
       setState('disconnected');
     };
-  }, [channelId, config.baseUrl]);
+  }, [channelId, config.baseUrl, workspace]);
 
   const sendMessage = useCallback(
     (content: string, opts?: { threadId?: string; attachments?: Attachment[] }) => {

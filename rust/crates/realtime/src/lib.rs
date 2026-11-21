@@ -15,7 +15,7 @@
 //! | `/ws/support/:workspaceId` | `SupportRoom` | [`room`], members of the workspace only (see below) |
 //! | `/ws/conversation/:id` | `ConversationRoom` | [`room`], agents of the workspace, and widget visitors with the HS256 token the widget API minted for that conversation (`WIDGET_TOKEN_SECRET`) |
 //! | `/ws/document/:id` | `DocumentRoom` | not served yet (the collaborative document room is not ported) |
-//! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead |
+//! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead (presence through [`GatewayPresence`]) |
 //!
 //! Every pod subscribes to the Valkey channel of each hub and room it holds a
 //! socket of; the publisher (`weldsuite_adapters_oss::ValkeyRealtime`, behind
@@ -28,6 +28,9 @@
 //! - The role and display name come from `workspace_members` (active rows),
 //!   not the token's Clerk claims, so OIDC sessions work; someone without an
 //!   active membership is refused (403) instead of joining.
+//! - In membership mode (`OIDC_WORKSPACE_SOURCE=header`) the token names no
+//!   workspace, so a socket names it in its URL, `?workspace=` (the
+//!   counterpart of the API's `X-Weld-Workspace`; [`workspace`]).
 //! - Event ids continue the hub's counter from the clock rather than from 1.
 //! - Limits the Durable Objects did not have: sockets per pod and per
 //!   person, topics per connection (`too_many_subscriptions`), and a send
@@ -47,14 +50,18 @@ mod directory;
 mod gateway;
 mod hub;
 mod outbox;
+mod presence;
 mod protocol;
 mod room;
 mod routes;
 mod socket;
 mod topics;
 mod widget;
+mod workspace;
 
 pub use config::GatewayConfig;
 pub use directory::{ChatAccess, DbDirectory, Directory, DirectoryError, Member};
 pub use gateway::{Authenticator, Gateway};
+pub use presence::GatewayPresence;
 pub use routes::router;
+pub use workspace::{WORKSPACE_PARAM, WorkspaceChooser};

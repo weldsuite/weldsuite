@@ -12,7 +12,7 @@
  *
  * The label/location vocabulary and the pure `addLabels` / `removeLabels` /
  * `flagsForLabelChange` helpers live in `./store/model` so the mailbox object
- * can share them (docs/plans/weldmail-mailbox-store-design.md, task A3); this
+ * can share them (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task A3); this
  * file re-exports what callers already import from here.
  */
 

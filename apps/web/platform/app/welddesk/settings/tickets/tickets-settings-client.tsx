@@ -106,18 +106,18 @@ export function TicketsSettingsClient() {
     setDeleteId(null);
   };
 
-  const handleSave = async (type: TicketTypeConfig) => {
+  // The editor says "created"/"updated" itself once this resolves true.
+  const handleSave = async (type: TicketTypeConfig): Promise<boolean> => {
     try {
       if (editingType) {
         await updateTicketType.mutateAsync(type);
       } else {
-         
-        const { id: _id, createdAt: _c, updatedAt: _u, ...data } = type;
-        await createTicketType.mutateAsync(data);
+        await createTicketType.mutateAsync(type);
       }
-      toast.success(editingType ? t.helpdesk.ticketsPage.ticketTypeUpdated : t.helpdesk.ticketsPage.ticketTypeCreated);
+      return true;
     } catch {
       toast.error(t.helpdesk.ticketsPage.failedToSaveTicketType);
+      return false;
     }
   };
 

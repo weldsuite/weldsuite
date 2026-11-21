@@ -19,6 +19,7 @@ import type {
   AuditEventRow,
   CreditsSummary,
   InvoiceRow,
+  MollieBillingAccount,
   PaymentRow,
   PlanOption,
   SnapshotState,
@@ -40,6 +41,7 @@ import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
 import { SsoCard } from './billing/sso-card';
 import { HistoryCard } from './billing/history-card';
+import { MollieBillingCard } from './billing/mollie-billing-card';
 import { GLOBAL } from '@/lib/edition';
 
 /** `org:admin` → `Admin`. Unknown Clerk roles fall through unchanged. */
@@ -73,6 +75,7 @@ export function WorkspaceDetail({
   activity,
   snapshotState,
   ssoState,
+  mollieBilling,
   appAccess,
   appUsage,
   outbound,
@@ -92,6 +95,8 @@ export function WorkspaceDetail({
   snapshotState: SnapshotState;
   /** Single sign-on: entitlement, price, add-on and connection, from the billing worker. */
   ssoState: SsoViewState;
+  /** Plan billing on Mollie (Kubernetes only, ADR BILL-014); null on Global or when the workspace never checked out. */
+  mollieBilling: MollieBillingAccount | null;
   /** The apps that are on request only, with this workspace's access to each. */
   appAccess: WorkspaceAppAccessEntry[];
   /** WeldReach usage by app code, for the apps that have any. */
@@ -108,8 +113,9 @@ export function WorkspaceDetail({
   canMoveDatabase: boolean;
 }>) {
   const t = adminCopy();
-  // Credit and invoice changes run in the billing worker too, so they need it wired up.
-  const canWriteBilling = canWrite && snapshotState.kind !== 'not_configured';
+  // Credit and invoice changes run in the billing worker too, so they need it
+  // wired up; Kubernetes has none (its billing changes run from the CLI).
+  const canWriteBilling = GLOBAL && canWrite && snapshotState.kind !== 'not_configured';
   const active = members.filter((m) => m.status === 'ACTIVE');
   const pending = members.filter((m) => m.status === 'PENDING');
   const admins = active.filter((m) => m.role === 'org:admin');
@@ -143,10 +149,14 @@ export function WorkspaceDetail({
           />
         </div>
 
-        {/* Billing (Stripe) and the database tab (Neon) are Global's. */}
-        <Tabs defaultValue={GLOBAL ? 'billing' : 'members'} className="gap-4">
+        {/*
+          Billing is read-only on Kubernetes (Mollie, changed from the CLI) and
+          opens first only for a workspace that pays there. The database tab
+          (Neon) and SSO are Global's.
+        */}
+        <Tabs defaultValue={GLOBAL || mollieBilling ? 'billing' : 'members'} className="gap-4">
           <TabsList>
-            {GLOBAL && <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>}
+            <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>
             <TabsTrigger value="members">
               {t.tabs.members}
               <span className="ml-1 text-muted-foreground tabular-nums">{members.length}</span>
@@ -165,14 +175,15 @@ export function WorkspaceDetail({
             )}
           </TabsList>
 
-          {GLOBAL && (
-            <TabsContent value="billing" className="space-y-4">
-              <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
-              <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />
-              <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
-              <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
-            </TabsContent>
-          )}
+          <TabsContent value="billing" className="space-y-4">
+            <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
+            {!GLOBAL && mollieBilling && (
+              <MollieBillingCard workspaceId={workspace.id} account={mollieBilling} billing={billing} />
+            )}
+            {GLOBAL && <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />}
+            <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
+            <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
+          </TabsContent>
 
           {appAccess.length > 0 && (
             <TabsContent value="app-access" className="space-y-4">

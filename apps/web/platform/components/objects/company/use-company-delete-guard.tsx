@@ -29,8 +29,17 @@ interface PendingDelete {
   deals: number;
 }
 
+export interface CompanyDeleteOptions {
+  /**
+   * Ask even when no open deal is at stake (a single delete from the company
+   * panel, which people deletes there also confirm). Without it, a company
+   * with no open deals is deleted straight away (bulk deletes ask elsewhere).
+   */
+  always?: boolean;
+}
+
 export function useCompanyDeleteGuard(): {
-  confirmDelete: (companyIds: string[]) => Promise<boolean>;
+  confirmDelete: (companyIds: string[], options?: CompanyDeleteOptions) => Promise<boolean>;
   dialog: ReactNode;
 } {
   const st = useTranslations();
@@ -59,16 +68,17 @@ export function useCompanyDeleteGuard(): {
   );
 
   const confirmDelete = useCallback(
-    async (companyIds: string[]): Promise<boolean> => {
+    async (companyIds: string[], options: CompanyDeleteOptions = {}): Promise<boolean> => {
       if (companyIds.length === 0) return true;
       let found: PendingDelete;
       try {
         found = await countOpenDeals(companyIds);
       } catch (error) {
         console.error('[Companies] open-deal lookup failed:', error);
-        return true;
+        if (!options.always) return true;
+        found = { companies: 0, deals: 0 };
       }
-      if (found.deals === 0) return true;
+      if (found.deals === 0 && !options.always) return true;
       return new Promise<boolean>((resolve) => {
         resolveRef.current = resolve;
         setPending(found);
@@ -84,7 +94,9 @@ export function useCompanyDeleteGuard(): {
   }, []);
 
   let description: string;
-  if (pending && pending.companies > 1) {
+  if (pending?.deals === 0) {
+    description = st('sweep.entities.companyDeleteDescription');
+  } else if (pending && pending.companies > 1) {
     description = st('sweep.entities.companyDeleteBulkOpenDeals', {
       count: pending.companies,
       deals: pending.deals,

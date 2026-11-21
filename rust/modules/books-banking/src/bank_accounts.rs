@@ -17,14 +17,16 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bank_accounts::{
     BANK_ACCOUNT_TYPES, BankLedgerPlan, assert_ledger_account_fits, insert_ledger_account,
-    is_valid_aba_routing, normalize_account_number, plan_bank_ledger_account, public_bank_account,
-    reveal_account_number, seal_account_number,
+    is_valid_aba_routing, normalize_account_number, plan_bank_ledger_account,
+    plan_default_bank_ledger_account, public_bank_account, reveal_account_number,
+    seal_account_number,
 };
 use weldsuite_books_domain::entity_context::{resolve_entity_base_currency, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
+use weldsuite_books_domain::identifiers::invalid_iban_message;
 use weldsuite_books_domain::tables::{ACCOUNTS, BANK_ACCOUNTS};
 use weldsuite_catalogs::entity_events::{
     ACCOUNT_CREATED, BANK_ACCOUNT_CREATED, BANK_ACCOUNT_DELETED, BANK_ACCOUNT_UPDATED,
@@ -229,22 +231,27 @@ fn read(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Body {
     out
 }
 
-/// `badNumbers(data)`: the 400 message for a routing or account number that
-/// doesn't check out.
-fn bad_numbers(data: &Body) -> Option<&'static str> {
-    if let Some(routing) = text(&Value::Object(data.fields.clone()), "routingNumber")
+/// `badNumbers(data)`: the 400 message for a routing or account number, or
+/// an IBAN, that doesn't check out.
+fn bad_numbers(data: &Body) -> Option<String> {
+    let fields = Value::Object(data.fields.clone());
+    if let Some(routing) = text(&fields, "routingNumber")
         && !routing.is_empty()
         && !is_valid_aba_routing(routing)
     {
-        return Some("That routing number does not pass the ABA check. Check the nine digits.");
+        return Some(
+            "That routing number does not pass the ABA check. Check the nine digits.".to_owned(),
+        );
     }
     if let Field::Set(number) = &data.account_number
         && !number.is_empty()
         && normalize_account_number(number).is_none()
     {
-        return Some("An account number has 4 to 34 letters or digits.");
+        return Some("An account number has 4 to 34 letters or digits.".to_owned());
     }
-    None
+    // The same check a contact's IBAN gets: its shape, its length for the
+    // country and the check digits.
+    text(&fields, "iban").and_then(invalid_iban_message)
 }
 
 /// `loadLedgerAccount(db, entityId, ledgerAccountId, accountType)`.
@@ -435,12 +442,13 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
     let mut ledger_info: Option<Value> = None;
     if let Some(id) = &chosen {
         load_ledger_account(caller, &entity_id, id, account_type).await?;
-    } else if let Some(kind) = account_type.filter(|t| !t.is_empty())
-        && data.create_ledger_account != Some(false)
-    {
+    } else if data.create_ledger_account != Some(false) {
+        // No type (the NL form sends none) reads as checking.
         let base = resolve_entity_base_currency(&caller.db, &entity_id).await?;
         let name = text(&fields, "name").unwrap_or_default();
-        match plan_bank_ledger_account(&caller.db, &entity_id, name, kind, &base).await? {
+        match plan_default_bank_ledger_account(&caller.db, &entity_id, name, account_type, &base)
+            .await?
+        {
             BankLedgerPlan::Existing(account) => {
                 ledger_account_id = text(&account, "id").map(str::to_owned);
                 ledger_info = Some(json!({

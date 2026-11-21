@@ -178,6 +178,12 @@ function toUiComment(row: TaskCommentRow): TaskComment {
   };
 }
 
+/** The delete confirmation's text, naming the task when it has a title. */
+function deleteTaskDescription(t: ReturnType<typeof useTranslations>, title: string | null | undefined): string {
+  if (!title) return t('sweep.entities.deleteTaskConfirmDescription');
+  return t('sweep.entities.deleteTaskConfirmNamed', { name: title });
+}
+
 /** What the task dialog hands back when it saves an edit. */
 type TaskDialogUpdate = Parameters<React.ComponentProps<typeof TaskDialog>['onUpdate']>[1];
 
@@ -818,7 +824,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}
         title={t('sweep.entities.deleteTask')}
-        description={t('sweep.entities.deleteTaskConfirmDescription')}
+        description={deleteTaskDescription(t, task?.title)}
         confirmLabel={t('sweep.entities.deleteTask')}
         cancelLabel={t('common.actions.cancel')}
         variant="destructive"

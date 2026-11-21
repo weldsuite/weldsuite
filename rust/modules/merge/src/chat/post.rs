@@ -42,6 +42,7 @@ pub(crate) async fn post_card(
             author_id: MERGE_CHAT_AUTHOR,
             author_name: MERGE_CHAT_AUTHOR_NAME,
             invoker_user_id: &ctx.user_id,
+            push_http: ctx.state.push_http.clone(),
         },
         &SystemMessageInput {
             content,

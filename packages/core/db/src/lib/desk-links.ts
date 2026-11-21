@@ -25,14 +25,14 @@
  */
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type { DeskConversation } from '../schema/desk-conversations';
 import type { DeskEventType, DeskMessage, DeskMessageMetadata } from '../schema/desk-messages';
 import { appendDeskMessage, DeskConversationNotFoundError } from './desk';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const visitors = schema.deskVisitors;
@@ -117,6 +117,9 @@ function summaryOf(row: DeskConversation): DeskConversationLinkSummary {
     isMajorIncident: row.isMajorIncident,
   };
 }
+
+/** Used by desk-problems to list a problem's incidents in the same shape. */
+export const deskConversationLinkSummaryOf = summaryOf;
 
 async function findConversation(db: AnyDb, id: string): Promise<DeskConversation | null> {
   const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);

@@ -8,13 +8,15 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import { useI18n } from '@/lib/i18n/provider';
 import { findMatches, replaceMatches, type FindMatch, type FindOptions } from './model/find';
 import type { SheetController } from './model/sheet-controller';
+import { COL_HEADER_HEIGHT } from './grid/geometry';
 
 const DEFAULT_OPTIONS: FindOptions = { matchCase: false, wholeCell: false, formulas: false, allSheets: false };
 
 /**
  * Find (Ctrl+F) and replace (Ctrl+H), floating over the top right of the
- * grid: Enter goes to the next match, Shift+Enter to the previous one,
- * Escape closes. A match is shown by selecting its cell.
+ * grid, under the column letters: Enter goes to the next match, Shift+Enter
+ * to the previous one, Escape closes (the options first, when open). The
+ * current match is selected; the grid tints all of them (`setFindHits`).
  */
 export function FindBar({ controller }: { controller: SheetController }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
@@ -36,6 +38,11 @@ export function FindBar({ controller }: { controller: SheetController }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [controller, query, opts, replacing, revision, opts.allSheets ? null : activeSheet],
   );
+  // The grid tints every match on this sheet, the current one stronger.
+  useEffect(() => {
+    controller.setFindHits(matches, index >= 0 ? (matches[index] ?? null) : null);
+  }, [controller, matches, index, activeSheet]);
+  useEffect(() => () => controller.setFindHits([], null), [controller]);
   /** A replace just changed the list: go to the next match once it is searched again. */
   const advanceAfterReplace = useRef(false);
 
@@ -81,14 +88,18 @@ export function FindBar({ controller }: { controller: SheetController }) {
 
   const replaceAll = () => {
     const count = replaceMatches(controller, matches, query, replacement, opts);
-    toast.success(format(tf.replaced, { count }));
+    toast.success(count === 1 ? tf.replacedOne : format(tf.replaced, { count }));
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  // Keys anywhere in the bar, heard on the bar itself so the options menu (portaled out of it) keeps its own Escape.
+  // Enter steps through matches only from a text box: on a button it presses the button.
+  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+  onKey.current = (e) => {
+    if (e.isComposing) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
       e.preventDefault();
       go(e.shiftKey ? -1 : 1);
     } else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'h')) {
@@ -96,6 +107,14 @@ export function FindBar({ controller }: { controller: SheetController }) {
       controller.openFind(e.key === 'h' ? 'replace' : 'find');
     }
   };
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const listener = (e: KeyboardEvent) => onKey.current(e);
+    bar.addEventListener('keydown', listener);
+    return () => bar.removeEventListener('keydown', listener);
+  }, []);
 
   const statusText = () => {
     if (!query) return '';
@@ -108,9 +127,10 @@ export function FindBar({ controller }: { controller: SheetController }) {
 
   return (
     <div
-      className="absolute right-4 top-2 z-30 flex w-[min(420px,calc(100%-2rem))] flex-col gap-2 rounded-md border bg-popover p-2 text-sm text-popover-foreground shadow-md"
+      ref={barRef}
+      style={{ top: COL_HEADER_HEIGHT + 4 }}
+      className="absolute right-5 z-30 flex w-[min(420px,calc(100%-2rem))] flex-col gap-2 rounded-md border bg-popover p-2 text-sm text-popover-foreground shadow-md"
       role="search"
-      onKeyDown={onKeyDown}
     >
       <div className="flex items-center gap-1">
         <div className="relative min-w-0 flex-1">

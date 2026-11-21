@@ -494,7 +494,6 @@ pub(crate) fn app_name(code: &str) -> String {
         "weldcalendar" => Some("WeldCalendar"),
         "welddrive" => Some("WeldDrive"),
         "welddata" => Some("WeldData"),
-        "weldcommerce" => Some("WeldCommerce"),
         "weldads" => Some("WeldAds"),
         _ => None,
     };

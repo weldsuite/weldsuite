@@ -11,7 +11,7 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';
@@ -19,6 +19,7 @@ import { useI18n } from '@/lib/i18n';
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
+import { isPendingInvitee } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { SearchField } from '@/components/chat/SearchField';
 import { SheetHeader } from '@/components/ui/SheetHeader';
 
@@ -29,6 +30,7 @@ interface WorkspaceMember {
   email: string | null;
   picture: string | null;
   role: string | null;
+  status?: string | null;
 }
 
 function MemberListSeparator() {
@@ -67,7 +69,8 @@ export default function NewDmScreen() {
   }, []);
 
   const filtered = useMemo(() => {
-    const others = members.filter((m) => m.userId !== userId);
+    // Invitees can be messaged once they accept (chat-api refuses a DM before then).
+    const others = members.filter((m) => m.userId !== userId && !isPendingInvitee(m));
     if (!search.trim()) return others;
     const q = search.toLowerCase();
     return others.filter(

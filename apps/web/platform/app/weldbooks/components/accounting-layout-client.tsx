@@ -34,10 +34,12 @@ function fallbackEntity(entities: EntityRow[]): EntityRow {
  * After a workspace switch (or once the entity is deleted) it names an entity
  * this workspace doesn't have, and every request would carry it. Replace it
  * with this workspace's default; returns false until the selection is valid.
+ * With nothing selected yet the default is stored too, so the entity switcher
+ * shows it instead of "Select entity".
  */
 function useValidAccountingEntity(entities: EntityRow[] | undefined): boolean {
   const { entityId, setEntityId } = useCurrentAccountingEntity();
-  const known = !entityId || !entities || entities.length === 0 || entities.some((e) => e.id === entityId);
+  const known = !entities || entities.length === 0 || (!!entityId && entities.some((e) => e.id === entityId));
 
   useEffect(() => {
     if (known || !entities || entities.length === 0) return;

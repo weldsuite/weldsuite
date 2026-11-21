@@ -1,0 +1,70 @@
+{
+  "description": "Upward trend: 5 a day rising by 1 every 10 days to 22, over 180 days.",
+  "notes": [
+    "The 30-day half-life level lags the latest 22 by about the slope (0.1 a day) x the weights' mean age (~40 days): 18.438.",
+    "sigma 3.664 (the trend around the level) -> safety stock ceil(1.645 x 3.664 x sqrt 14) = ceil(22.55) = 23.",
+    "D_L = 14 x 18.438 = 258.14 -> reorder point 259 + 23 = 282; D_R = 7 x 18.438 = 129.07 -> order-up-to 282 + 130 = 412.",
+    "Position (120 - 10) + 50 - 5 = 155 <= 282 -> raw 257 -> max(257, MOQ 24) -> ceil(257 / 6) x 6 = 258; value 258 x 3 = 774.",
+    "Available 110: cover 110 / 18.438 = 5.97 days; 6 days of forecast (110.6) pass 110 before the receipt on day 7 -> 2026-11-23."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-05-22",
+    "daily_demand": [[5,10],[6,10],[7,10],[8,10],[9,10],[10,10],[11,10],[12,10],[13,10],[14,10],[15,10],[16,10],[17,10],[18,10],[19,10],[20,10],[21,10],[22,10]],
+    "first_activity": "2026-05-22",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": 24,
+      "order_multiple": 6,
+      "unit_cost": 3
+    },
+    "position": {
+      "on_hand": 120,
+      "allocated": 10,
+      "incoming": 50,
+      "open_demand": 5
+    },
+    "receipts": [
+      {
+        "date": "2026-11-25",
+        "quantity": 50
+      }
+    ]
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "level",
+    "confidence": "ok",
+    "history_days": 180,
+    "nonzero_days": 180,
+    "avg_daily_demand": 18.438392184,
+    "demand_std_dev": 3.663975936,
+    "seasonality": null,
+    "forecast_30d": 553.151765516,
+    "forecast_90d": 1659.455296547,
+    "safety_stock": 23,
+    "reorder_point": 282,
+    "order_up_to": 412,
+    "inventory_position": 155,
+    "days_of_cover": 5.965813011,
+    "stockout_date": "2026-11-23",
+    "suggested_qty": 258,
+    "suggested_value": 774,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 18.438392184,
+        "13": 18.438392184,
+        "14": 18.438392184,
+        "30": 18.438392184,
+        "45": 18.438392184,
+        "90": 18.438392184
+      }
+    }
+  }
+}

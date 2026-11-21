@@ -1224,6 +1224,7 @@ export const crm = {
 
     renameDialog: {
       title: 'Lijst hernoemen',
+      titlePipeline: 'Pijplijn hernoemen',
       nameLabel: 'Naam',
       cancel: 'Annuleren',
       rename: 'Hernoemen',
@@ -2263,6 +2264,9 @@ export const crm = {
       emptyTitle: 'Nog geen {entity}',
       emptyHint: 'Voeg je eerste {entity} toe om te beginnen.',
       newEntity: 'Nieuwe {entity}',
+      noMatchesTitle: 'Geen {entity} die aan je filters voldoen',
+      noMatchesHint: 'Probeer een andere zoekopdracht of wis de filters.',
+      clearFilters: 'Filters wissen',
       personSingular: 'persoon',
       personPlural: 'personen',
       companySingular: 'bedrijf',
@@ -2341,6 +2345,9 @@ export const crm = {
       priorityFallback: 'Prioriteit',
       labelsFallback: 'Labels',
       durationFallback: 'Duur',
+      durationLabel: 'Geschatte tijd: {duration}',
+      repeatFallback: 'Herhalen',
+      close: 'Sluiten',
       dueDateFallback: 'Vervaldatum',
       assigneesFallback: 'Toegewezenen',
       unassigned: 'Niet toegewezen',
@@ -2397,6 +2404,17 @@ export const crm = {
       addToCrm: 'Toevoegen aan CRM',
       addedToCrm: 'Toegevoegd aan CRM',
       addToCrmFailed: 'Toevoegen aan CRM mislukt',
+    },
+
+    websiteActivity: {
+      title: 'Websiteactiviteit',
+      lastSeen: 'Laatst op de site {date}',
+      openInWeldPanel: 'Openen in WeldPanel',
+      recentEvents: 'Recente activiteit',
+      noEvents: 'Geen recente events.',
+      viewed: 'Bekeek',
+      recordings: 'Opnames',
+      watchSession: 'Bekijk het bezoek van {date}',
     },
   };
 

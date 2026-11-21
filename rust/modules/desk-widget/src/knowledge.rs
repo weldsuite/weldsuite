@@ -20,7 +20,7 @@ use axum::response::Response;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_desk_domain::articles::{
-    Reader, announcements_for, normalize_locale, reader_of, search_for_reader, typed_search,
+    Reader, announcements_for, normalize_locale, reader_of, search_for_reader, suggest_search,
 };
 use weldsuite_desk_domain::webchat::{self, Principal};
 
@@ -126,7 +126,7 @@ pub(crate) async fn search(
     RawQuery(query): RawQuery,
 ) -> Response {
     let query = query.as_deref();
-    let Some(search) = typed_search(&query_value(query, "q").unwrap_or_default()) else {
+    let Some(search) = suggest_search(&query_value(query, "q").unwrap_or_default()) else {
         return success(StatusCode::OK, json!([]));
     };
     let hits = async {

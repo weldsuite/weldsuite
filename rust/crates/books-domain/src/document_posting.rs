@@ -1460,6 +1460,43 @@ fn self_assessed_tax_lines(
     Ok(lines)
 }
 
+/// `defaultBillExpenseAccount`: the account a bill line without its own
+/// account posts to. The bill's expense account, else the supplier's default
+/// expense account, else the entity's general expense role (4600 on older
+/// entities). One chain behind posting and the hint the bill form shows.
+pub fn default_bill_expense_account<'a>(
+    accounts: &'a EntityAccounts,
+    expense_account_id: Option<&str>,
+    supplier_default_expense_account_id: Option<&str>,
+) -> Option<&'a Value> {
+    accounts
+        .by_id(expense_account_id)
+        .or_else(|| accounts.by_id(supplier_default_expense_account_id))
+        .or_else(|| account_for_role(accounts, "general_expense", fallback::GENERAL_EXPENSE))
+}
+
+/// `resolveBillDefaultExpenseAccount`: `default_bill_expense_account` for a
+/// bill (or a bill to be) as `{ id, code, name }`, null when the entity has none.
+pub async fn resolve_bill_default_expense_account(
+    db: &PgPool,
+    entity_id: &str,
+    expense_account_id: Option<&str>,
+    contact_id: Option<&str>,
+) -> Result<Value, sqlx::Error> {
+    let accounts = load_entity_accounts(db, entity_id).await?;
+    let (_, party_expense) = load_party(db, contact_id).await?;
+    Ok(
+        default_bill_expense_account(&accounts, expense_account_id, party_expense.as_deref())
+            .map_or(Value::Null, |account| {
+                json!({
+                    "id": account.get("id"),
+                    "code": account.get("code"),
+                    "name": account.get("name"),
+                })
+            }),
+    )
+}
+
 /// `buildBillPosting(db, bill, items)`.
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
 pub async fn build_bill_posting(
@@ -1517,10 +1554,8 @@ pub async fn build_bill_posting(
             "expenseAccountId does not belong to this accounting entity",
         ));
     }
-    let default_expense = accounts
-        .by_id(expense_account)
-        .or_else(|| accounts.by_id(party_expense.as_deref()))
-        .or_else(|| account_for_role(&accounts, "general_expense", fallback::GENERAL_EXPENSE));
+    let default_expense =
+        default_bill_expense_account(&accounts, expense_account, party_expense.as_deref());
 
     let mut expenses = bill_expenses(items, &accounts, default_expense, tax_deductible)?;
     adjust_br_purchase_cost(&mut expenses, &breakdown, items, |item| {
@@ -1649,6 +1684,22 @@ pub async fn post_bill(
 
 // ── payments ────────────────────────────────────────────────────────────────
 
+/// `findDefaultBankAccount(db, entityId)`: the entity's default bank account
+/// (`(id, ledger_account_id)`): the one marked default, else the oldest, among
+/// those linked to a ledger account.
+pub async fn find_default_bank_account(
+    db: &PgPool,
+    entity_id: &str,
+) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    sqlx::query_as(
+        "select id, ledger_account_id from bank_accounts where entity_id = $1 and deleted_at is null \
+         and ledger_account_id is not null order by is_default desc nulls last, created_at limit 1",
+    )
+    .bind(entity_id)
+    .fetch_optional(db)
+    .await
+}
+
 /// `resolveMoneyAccount(db, accounts, entity, args)`: the payment's bank
 /// account's ledger account, the cash account for cash, else the entity's
 /// default bank account.
@@ -1681,14 +1732,9 @@ pub async fn resolve_money_account(
     {
         return Ok(id_of(cash));
     }
-    let default_bank: Option<(Option<String>,)> = sqlx::query_as(
-        "select ledger_account_id from bank_accounts where entity_id = $1 and deleted_at is null \
-         and ledger_account_id is not null order by is_default desc nulls last, created_at limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    if let Some(from_bank) = accounts.by_id(default_bank.and_then(|(id,)| id).as_deref()) {
+    let default_bank = find_default_bank_account(db, entity_id).await?;
+    if let Some(from_bank) = accounts.by_id(default_bank.and_then(|(_, ledger)| ledger).as_deref())
+    {
         return Ok(id_of(from_bank));
     }
     // Template bank accounts: NL 1100 Bank, IN 1200 Bank.

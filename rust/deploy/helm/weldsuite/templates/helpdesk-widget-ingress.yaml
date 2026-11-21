@@ -1,0 +1,42 @@
+{{- with .Values.helpdeskWidget }}
+{{- if and .enabled .ingress.enabled }}
+# WeldDesk's helpdesk widget at its own hosts (helpdeskWidget.hosts): the
+# same server as the platform, which answers these hosts with the widget's
+# build instead of the SPA, and the widget API on the same origin.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "weldsuite.fullname" $ }}-helpdesk-widget
+  labels:
+    {{- include "weldsuite.labels" $ | nindent 4 }}
+  {{- with .ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .ingress.tlsSecretName }}
+  tls:
+    - secretName: {{ .ingress.tlsSecretName }}
+      hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+  {{- end }}
+  rules:
+    {{- range .hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "weldsuite.fullname" $ }}
+                port:
+                  name: http
+    {{- end }}
+{{- end }}
+{{- end }}

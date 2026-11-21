@@ -292,9 +292,12 @@ async function updateWorkspaceSlug({
 // ============================================================================
 
 /**
- * GET / — read the singleton `workspace_settings` row. `null` when the tenant
- * has never saved one (the legacy route answered the same way, and the
- * business-settings form relies on it to fall back to its defaults).
+ * GET / — read the singleton `workspace_settings` row. When the tenant has
+ * never saved one it answers the default legal entity's business fields, and
+ * `null` without one too (the legacy route answered null, and the
+ * business-settings form then falls back to its defaults). Answering null
+ * while an entity exists made the form show empty VAT and registration
+ * numbers, which its first save then cleared on the entity (TASK-1464).
  *
  * `general:read` matches the legacy gate — MEMBER and VIEWER both carry it, so
  * the workspace timezone/language defaults stay readable by everyone (the
@@ -307,8 +310,8 @@ app.get('/', requirePermission('general:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
     const row = await settingsService.getWorkspaceSettings(db);
-    // The business fields live on the default legal entity (docs/plans/legal-entities.md).
-    return success(c, row ? await businessProfile.overlayDefaultEntity(db, row) : row);
+    // The business fields live on the default legal entity (weldsuite-documentation/plans/legal-entities.md).
+    return success(c, row ? await businessProfile.overlayDefaultEntity(db, row) : await businessProfile.defaultEntityProfile(db));
   } catch (err) {
     console.error('[app-api/workspace-settings] get blob failed:', err);
     return error.internal(c, 'Failed to fetch workspace settings');

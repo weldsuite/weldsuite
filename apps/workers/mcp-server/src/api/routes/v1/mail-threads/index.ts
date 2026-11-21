@@ -7,7 +7,7 @@
  * thread's `accountId`, to read or change the whole conversation.
  *
  * The list accepts an opaque `cursor`. New pages are minted as a keyset cursor
- * (design docs/plans/weldmail-mailbox-store-design.md §5), which works the
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md §5), which works the
  * same in every mailbox-store mode; a legacy offset cursor a client already
  * holds is still decoded (design: "legacy `o:<offset>` is still decoded").
  * Like the inbox, a list read also returns snoozed mail whose time has come to

@@ -1,7 +1,7 @@
 /**
  * Workflow version history — point-in-time snapshots of a `workflows` row.
  *
- * Snapshot policy (decided for this feature, see docs/plans/weldconnect.md
+ * Snapshot policy (decided for this feature, see weldsuite-documentation/plans/weldconnect.md
  * phase 2 "extras"): a version is written
  *   - whenever a workflow activates (draft/paused -> active), and
  *   - whenever an ALREADY-active workflow is saved with a meaningful change

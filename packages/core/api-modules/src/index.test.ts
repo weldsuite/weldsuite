@@ -164,11 +164,11 @@ describe('origins', () => {
   });
 
   it('points callback URLs at the worker that owns the path', () => {
-    expect(originForPathFrom('https://connect-api.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
-      'https://commerce-api.weldsuite.org',
+    expect(originForPathFrom('https://crm-api.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
+      'https://connect-api.weldsuite.org',
     );
     expect(originForPathFrom('https://app-api-test.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
-      'https://commerce-api-test.weldsuite.org',
+      'https://connect-api-test.weldsuite.org',
     );
     expect(originForPathFrom('https://crm-api.weldsuite.org', '/api/workspaces')).toBe(
       'https://app-api.weldsuite.org',
@@ -265,6 +265,9 @@ describe('licence gate lookups', () => {
     expect(findModuleForExternalPath('/v1/mail-accounts/a1/send').id).toBe('mail');
     expect(findModuleForExternalPath('/v1/knowledge-pages').id).toBe('know');
     expect(findModuleForExternalPath('/v1/quotes?limit=5').id).toBe('crm');
+    // WeldDesk's BI connector (OData feed).
+    expect(findModuleForExternalPath('/v1/odata/Conversations?$top=5').id).toBe('desk');
+    expect(findModuleForExternalPath('/v1/odata/$metadata').id).toBe('desk');
     // WeldReach: the partner licence gate applies with no entry in EXTERNAL_OBJECT_MODULES.
     expect(findModuleForExternalPath('/v1/reach/campaigns/rcmp_1/launch').id).toBe('reach');
     expect(findModuleForExternalPath('/v1/reach/threads/a%40b.c/reply').id).toBe('reach');
@@ -278,7 +281,7 @@ describe('licence gate lookups', () => {
     // Objects external-api serves that genuinely belong to the core platform.
     // Anything else falling through to core would silently escape the gate.
     const coreObjects = new Set([
-      'app-storage', 'custom-objects', 'drive', 'files', 'folders', 'legal-entities', 'settings', 'user-apps', 'webhooks',
+      'app-storage', 'audit-logs', 'custom-objects', 'drive', 'files', 'folders', 'legal-entities', 'settings', 'user-apps', 'webhooks',
     ]);
     const source = readFileSync(path.resolve(WORKERS_DIR, 'external-api/src/routes/v1/index.ts'), 'utf8');
     const objects = [...source.matchAll(/v1\.route\(\s*'\/([^'/]+)'/g)].map((m) => m[1]!);

@@ -113,12 +113,50 @@ fn pix_of(entity: &Value, invoice: &Value) -> Result<Option<Pix>, Refusal> {
     }))
 }
 
+async fn render_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
+    let keyring = caller.keyring(state);
+    let (html, filename) = invoice_html(&caller.db, &keyring, id).await?;
+    let mut response = (StatusCode::OK, html).into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    if let Ok(value) = HeaderValue::from_str(&format!("inline; filename=\"{filename}.html\"")) {
+        headers.insert(CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
+}
+
+/// The printable invoice of `id`, rendered as the system (no caller): what
+/// plan billing on the EU edition copies into the customer's files (ADR
+/// BILL-014).
+///
+/// # Errors
+///
+/// The refusal, as text, when the invoice or its entity is missing or the
+/// layout can't be rendered.
+pub async fn render_invoice_html_as_system(
+    db: &weldsuite_db::PgPool,
+    keyring: &weldsuite_db::Keyring,
+    id: &str,
+) -> Result<String, String> {
+    invoice_html(db, keyring, id)
+        .await
+        .map(|(html, _)| html)
+        .map_err(|refusal| format!("{refusal:?}"))
+}
+
+/// The invoice's HTML and its file name (the invoice number).
 #[allow(
     clippy::too_many_lines,
     reason = "the render data of the route, field by field"
 )]
-async fn render_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
-    let db = &caller.db;
+async fn invoice_html(
+    db: &weldsuite_db::PgPool,
+    keyring: &weldsuite_db::Keyring,
+    id: &str,
+) -> Result<(String, String), Refusal> {
     let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
@@ -126,8 +164,7 @@ async fn render_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply 
     let entity_id = text(&invoice, "entityId").unwrap_or_default().to_owned();
     // Extension values merged in; the bank account printed is the one chosen
     // for invoices, else `bank_details` (`loadInvoiceEntity(db, id, c.env)`).
-    let keyring = caller.keyring(state);
-    let Some(entity) = load_invoice_entity(db, &entity_id, Some(&keyring)).await? else {
+    let Some(entity) = load_invoice_entity(db, &entity_id, Some(keyring)).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
 
@@ -247,14 +284,5 @@ async fn render_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply 
     }
     .map_err(|error| Refusal::Internal(error.0))?;
     let filename = filled(&invoice, "invoiceNumber").unwrap_or_else(|| "invoice".to_owned());
-    let mut response = (StatusCode::OK, html).into_response();
-    let headers = response.headers_mut();
-    headers.insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("text/html; charset=utf-8"),
-    );
-    if let Ok(value) = HeaderValue::from_str(&format!("inline; filename=\"{filename}.html\"")) {
-        headers.insert(CONTENT_DISPOSITION, value);
-    }
-    Ok(response)
+    Ok((html, filename))
 }

@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle2, AlertCircle, LogOut } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { personalApi } from '@/services/personal-api';
 import { useMail } from '@/contexts/MailContext';
@@ -31,7 +31,7 @@ export default function ClaimAddressScreen() {
   const router = useRouter();
   const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const { refreshAccounts } = useMail();
 
   useEffect(() => {

@@ -487,7 +487,7 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
       enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
       displayName: body.displayName,
       returnUrl: body.returnUrl,
-      // The callback path belongs to commerce-api; this worker's own host would 404.
+      // The callback path's owner comes from api-modules (connect-api, this worker).
       requestOrigin: originForPathFrom(new URL(c.req.url).origin, WOOCOMMERCE_AUTH_CALLBACK_PATH),
     });
     if ('error' in result) return error.badRequest(c, result.error);

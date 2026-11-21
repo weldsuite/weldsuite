@@ -25,10 +25,10 @@ describe('resolveProxyUrl', () => {
   });
 
   it('lets official apps call app-api under /api/ only', () => {
-    expect(resolveProxyUrl({ apiBase: `${API}/`, appCode: 'weldcommerce', usesPlatformSession: true, path: '/api/products' })).toBe(
+    expect(resolveProxyUrl({ apiBase: `${API}/`, appCode: 'official-app', usesPlatformSession: true, path: '/api/products' })).toBe(
       `${API}/api/products`,
     );
-    expect(resolveProxyUrl({ apiBase: API, appCode: 'weldcommerce', usesPlatformSession: true, path: '/public/x' })).toBeNull();
+    expect(resolveProxyUrl({ apiBase: API, appCode: 'official-app', usesPlatformSession: true, path: '/public/x' })).toBeNull();
   });
 });
 

@@ -31,11 +31,6 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   // WeldKnow (workspace wiki) is gated by the `knowledge` object — the same
   // object its app-api routes enforce (knowledge:read/create/update/delete).
   weldknow: ['knowledge'],
-  // WeldCommerce spans four objects, matching what its routes enforce:
-  // products / categories / orders (app-api `products`, `categories`, `orders`)
-  // plus `companies`, which backs the customers tab — the customer surface is
-  // a status-flag projection on companies, not a separate object.
-  weldcommerce: ['products', 'categories', 'orders', 'companies'],
   weldads: ['ad_accounts', 'ad_campaigns'],
   // WeldHR spans the seven HR objects its API routes enforce.
   weldhr: ['employees', 'attendance', 'leave', 'declarations', 'absences', 'coaching', 'evaluations'],
@@ -48,6 +43,7 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   weldsheets: ['sheets'],
   weldsign: ['sign_envelopes', 'sign_templates'],
   weldpanel: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
+  weldforms: ['forms', 'form_responses'],
   weldmerge: ['merge_issues', 'merge_pull_requests', 'merge_releases', 'merge_teams', 'merge_connections'],
   welddocs: ['docs'],
   weldboard: ['boards'],

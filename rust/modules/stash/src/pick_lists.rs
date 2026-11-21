@@ -1,6 +1,6 @@
 //! `/api/pick-lists`: list, create, generate from an order, assign, start,
-//! scan-confirm a line, complete, pack, ship (through Sendcloud when the
-//! order needs a carrier), the packing slip, detail, patch and delete. The
+//! scan-confirm a line, complete, pack, ship (recording the shipment; no
+//! carrier is called), the packing slip, detail, patch and delete. The
 //! work is [`crate::picking`]'s; stock moves through [`crate::ledger`].
 
 use std::sync::Arc;
@@ -20,7 +20,6 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     PICKLISTS_CREATE, PICKLISTS_DELETE, PICKLISTS_READ, PICKLISTS_UPDATE,
 };
-use weldsuite_db::Keyring;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -29,7 +28,7 @@ use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list};
 use crate::crud::{cursor_failed, soft_delete, write_failed};
 use crate::js::{js_limit, query_param, query_set, sql_limit, text, time_number};
 use crate::ledger::LedgerError;
-use crate::picking::{self, Confirm, Generate, PickError, ShipOptions};
+use crate::picking::{self, Confirm, Generate, PickError};
 use crate::tables::PICK_LISTS;
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -82,13 +81,7 @@ fn pick_error(error: PickError, fallback: &str) -> Response {
             if let Some(label) = label {
                 return ApiError::not_found(label, None).into_response();
             }
-            if [
-                "ALREADY_PICKING",
-                "SHIPPING_NOT_CONFIGURED",
-                "SENDCLOUD_FAILED",
-            ]
-            .contains(&code)
-            {
+            if code == "ALREADY_PICKING" {
                 return ApiError::conflict(message)
                     .with_details(json!({ "code": code }))
                     .into_response();
@@ -390,87 +383,9 @@ async fn pack(State(state): State<StashState>, caller: Caller, Path(id): Path<St
     }
 }
 
-/// A `.positive()` failing on the number at `key` (after its type check).
-fn positive(issues: &mut Issues, body: &Body, key: &str) {
-    if let Some(number) = body.get(key).and_then(Value::as_f64)
-        && number <= 0.0
-    {
-        issues.issue_at(
-            key,
-            json!({
-                "code": "too_small",
-                "minimum": 0,
-                "type": "number",
-                "inclusive": false,
-                "exact": false,
-                "message": "Number must be greater than 0",
-            }),
-        );
-    }
-}
-
-/// `shipPickListSchema.partial()`.
-fn ship_schema(issues: &mut Issues, body: &Body) -> (Option<f64>, Option<String>, Option<f64>) {
-    #[allow(clippy::cast_precision_loss)]
-    let sender = issues
-        .whole_number(body, "senderId", Presence::Optional, Number::default())
-        .into_option()
-        .map(|sender| sender as f64);
-    positive(issues, body, "senderId");
-    let code = issues
-        .text_with(
-            body,
-            "shippingOptionCode",
-            Presence::Optional,
-            Text::length(Some(1), None),
-        )
-        .into_option();
-    let weight = issues
-        .number(body, "weightKg", Presence::Optional, Number::default())
-        .into_option();
-    positive(issues, body, "weightKg");
-    let positive_or = |value: Option<f64>| value.filter(|value| *value > 0.0);
-    (positive_or(sender), code, positive_or(weight))
-}
-
-async fn ship(
-    State(state): State<StashState>,
-    caller: Caller,
-    Path(id): Path<String>,
-    body: Bytes,
-) -> Response {
+async fn ship(State(state): State<StashState>, caller: Caller, Path(id): Path<String>) -> Response {
     let fallback = "Failed to ship pick list";
-    // `await c.req.json()`: a body that does not parse is an empty payload.
-    let (sender_id, code, weight) = match serde_json::from_slice::<Value>(&body) {
-        Ok(json) => {
-            let mut issues = Issues::default();
-            let read = issues
-                .object(&json)
-                .map(|fields| ship_schema(&mut issues, fields));
-            match issues.finish() {
-                Ok(()) => read.unwrap_or((None, None, None)),
-                Err(invalid) => {
-                    return ApiError::bad_request("Invalid ship payload")
-                        .with_details(invalid.flatten())
-                        .into_response();
-                }
-            }
-        }
-        Err(_) => (None, None, None),
-    };
-    let nonempty = |name: &str| caller.env(name).filter(|value| !value.is_empty());
-    let options = ShipOptions {
-        sender_id,
-        shipping_option_code: code,
-        weight_kg: weight,
-        clerk_org_id: caller.clerk_org_id.clone(),
-        keyring: Keyring {
-            v1: nonempty("DATABASE_ENCRYPTION_KEY"),
-            v2: nonempty("DATABASE_ENCRYPTION_KEY_V2"),
-        },
-        http: caller.http(&state),
-    };
-    let result = match picking::ship(&caller.db, &id, &caller.user_id, &options).await {
+    let result = match picking::ship(&caller.db, &id, &caller.user_id).await {
         Ok(Some(result)) => result,
         Ok(None) => return Refusal::not_found("Pick list", &id).respond(fallback),
         Err(error) => return pick_error(error, fallback),

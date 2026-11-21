@@ -43,7 +43,7 @@ export interface CachedWorkspaceDetails {
   /**
    * Licensed app codes, null = unrestricted. Absent on entries cached before it
    * was added, read as null. Only partner-managed workspaces carry one
-   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
+   * (weldsuite-documentation/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
    */
   licensedApps?: string[] | null;
   /**
@@ -74,18 +74,44 @@ interface CachedAppToken {
 // Helper Functions
 // ============================================================================
 
+/** `/v1/odata` and everything below it: the one place HTTP Basic is accepted. */
+export function isODataPath(path: string): boolean {
+  return path === '/v1/odata' || path.startsWith('/v1/odata/');
+}
+
+/** The password of a Basic credential (`base64(user:password)`), or null if it is not one. */
+function basicPassword(encoded: string): string | null {
+  try {
+    const binary = atob(encoded.trim());
+    const decoded = new TextDecoder().decode(Uint8Array.from(binary, (ch) => ch.charCodeAt(0)));
+    const colon = decoded.indexOf(':');
+    return colon === -1 ? null : decoded.slice(colon + 1);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Extract API key from request headers
  * Supports both Authorization: Bearer and X-Api-Key, for workspace/personal
  * API keys (wsk_) and user-app tokens (wsat_).
  */
-function extractApiKey(c: Context): string | null {
+export function extractApiKey(c: { req: { path: string; header(name: string): string | undefined } }): string | null {
   // Try Authorization header first
   const authHeader = c.req.header('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     if (token.startsWith('wsk_') || token.startsWith('wsat_')) {
       return token;
+    }
+  }
+
+  // HTTP Basic, on the OData feed only: Power BI's connector sends credentials
+  // that way. The password is the API key, the username is ignored.
+  if (isODataPath(c.req.path) && authHeader?.startsWith('Basic ')) {
+    const password = basicPassword(authHeader.substring(6));
+    if (password && (password.startsWith('wsk_') || password.startsWith('wsat_'))) {
+      return password;
     }
   }
 
@@ -463,8 +489,13 @@ async function validateAppToken(
  */
 export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   const apiKey = extractApiKey(c);
+  // The OData feed answers a missing or bad key with a Basic challenge, so Power BI prompts for credentials.
+  const challenge = () => {
+    if (isODataPath(c.req.path)) c.header('WWW-Authenticate', 'Basic realm="WeldSuite"');
+  };
 
   if (!apiKey) {
+    challenge();
     return error.unauthorized(
       c,
       'Invalid or missing API key. Provide a valid key via Authorization: Bearer wsk_... or X-Api-Key header.',
@@ -476,6 +507,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     : await validateApiKey(c, apiKey);
 
   if (!session) {
+    challenge();
     return error.unauthorized(
       c,
       'Invalid API key. The key may have been revoked, expired, or never existed.',
@@ -486,7 +518,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // The top-level context vars that `publishEntityEvent` reads: `workspaceId`
   // is the master `workspaces.id` (ADR SEC-011), `clerkOrgId` the org id that
   // events still carry until their consumers move (phase 2b of
-  // docs/plans/workspace-id-standardization.md). An older cached session has
+  // weldsuite-documentation/plans/workspace-id-standardization.md). An older cached session has
   // no org id, and then it is looked up.
   const clerkOrgId =
     session.clerkOrgId !== undefined ? session.clerkOrgId : await resolveClerkOrgId(c.env, session.workspaceId);

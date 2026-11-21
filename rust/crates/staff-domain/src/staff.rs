@@ -1,8 +1,17 @@
 //! The install's staff roster: master `admin_users` (ADR SEC-014). On a
 //! Kubernetes install a person may act through `weldsuite admin` only while
-//! their email has an active row here; a `viewer` may only read. The same
-//! table is what Rust's WeldApps review gate reads (`user_id`), so adding
-//! someone who already signed in also lets them review public apps.
+//! their email has an active row here; a `viewer` may only read.
+//!
+//! A row names two accounts of the same person (ADR SEC-018):
+//! - `user_id`, their platform account, which Rust's WeldApps review gate
+//!   matches. [`add`] fills it from an account with that email that belongs
+//!   to a workspace, so adding someone who uses the platform also lets them
+//!   review public apps, and adding them again catches up with an account
+//!   they made since.
+//! - `console_subject`, the account the admin console bound the row to on
+//!   their first sign-in there (`apps/web/admin/lib/server/staff-roster.ts`),
+//!   a separate account in the identity provider's staff organization. Only
+//!   the console writes it.
 //!
 //! The first row can be added without an actor, while no active row exists;
 //! after that only a superadmin adds or removes staff, as the console's
@@ -60,9 +69,12 @@ pub struct StaffMember {
     pub name: Option<String>,
     pub role: StaffRole,
     pub is_active: bool,
-    /// The person's user id once they have one on this install (from master
-    /// `users`), which the WeldApps review gate matches.
+    /// The person's platform account (master `users`), which the WeldApps
+    /// review gate matches; none until they belong to a workspace.
     pub user_id: Option<String>,
+    /// The admin console's account for them, bound on their first sign-in
+    /// there; none until then.
+    pub console_subject: Option<String>,
     pub invited_by: Option<String>,
     pub invited_at: Option<String>,
 }
@@ -88,7 +100,7 @@ pub fn normalize_email(value: &str) -> StaffResult<String> {
 /// The columns of [`MemberRow`], for `concat!` (sqlx takes only static SQL).
 macro_rules! member_columns {
     () => {
-        "id, email, name, role::text, is_active, user_id, invited_by, \
+        "id, email, name, role::text, is_active, user_id, console_subject, invited_by, \
          to_char(invited_at, 'YYYY-MM-DD\"T\"HH24:MI:SS')"
     };
 }
@@ -102,10 +114,11 @@ type MemberRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
 );
 
 fn member(row: MemberRow) -> StaffMember {
-    let (id, email, name, role, is_active, user_id, invited_by, invited_at) = row;
+    let (id, email, name, role, is_active, user_id, console_subject, invited_by, invited_at) = row;
     StaffMember {
         id,
         email,
@@ -113,9 +126,45 @@ fn member(row: MemberRow) -> StaffMember {
         role: StaffRole::parse(&role).unwrap_or(StaffRole::Viewer),
         is_active,
         user_id,
+        console_subject,
         invited_by,
         invited_at,
     }
+}
+
+/// The person's platform account: a master `users` row with this email that
+/// belongs to a workspace. The identity sync copies every account of the
+/// provider into `users`, the staff organization's too, and those share the
+/// email; a staff account is in no workspace and may already be a row's
+/// `console_subject`, so neither is taken. The oldest wins if there are more.
+async fn platform_account(
+    db: impl sqlx::PgExecutor<'_>,
+    email: &str,
+) -> StaffResult<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "select u.id from users u
+          where lower(u.email) = $1 and u.is_active
+            and exists (select 1 from user_workspaces m where m.user_id = u.id)
+            and not exists (select 1 from admin_users s where s.console_subject = u.id)
+          order by u.created_at, u.id
+          limit 1",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await?)
+}
+
+/// `user_id` after [`add`]: the platform account found now, else the one the
+/// row had, unless that is the row's console account (which an install set
+/// up before ADR SEC-018 could hold there).
+fn kept_user_id(found: Option<String>, before: Option<&StaffMember>) -> Option<String> {
+    found.or_else(|| {
+        before.and_then(|b| {
+            b.user_id
+                .clone()
+                .filter(|id| b.console_subject.as_deref() != Some(id.as_str()))
+        })
+    })
 }
 
 /// Every roster row, active first.
@@ -272,6 +321,8 @@ pub async fn add(
     // Changing a superadmin's role is a demotion too.
     check_keeps_a_superadmin(master, before.as_ref(), staff.role == StaffRole::Superadmin).await?;
     let name = staff.name.map(str::trim).filter(|n| !n.is_empty());
+    // For the WeldApps review gate; the console's account is never set here.
+    let user_id = kept_user_id(platform_account(master, &email).await?, before.as_ref());
 
     if dry_run {
         let after = StaffMember {
@@ -282,7 +333,8 @@ pub async fn add(
                 .or_else(|| before.as_ref().and_then(|b| b.name.clone())),
             role: staff.role,
             is_active: true,
-            user_id: before.as_ref().and_then(|b| b.user_id.clone()),
+            user_id,
+            console_subject: before.as_ref().and_then(|b| b.console_subject.clone()),
             invited_by: Some(actor_email.to_owned()),
             invited_at: None,
         };
@@ -294,17 +346,14 @@ pub async fn add(
     }
 
     let mut tx = master.begin().await?;
-    // `user_id`: the person's id on this install when they have signed in
-    // already (master `users`), for the WeldApps review gate.
     let row: MemberRow = sqlx::query_as(concat!(
         "insert into admin_users (id, email, name, role, is_active, user_id, invited_by, invited_at)
-         values ($1, $2, $3, $4::admin_role, true,
-                 (select id from users where lower(email) = $2 limit 1), $5, now())
+         values ($1, $2, $3, $4::admin_role, true, $6, $5, now())
          on conflict (email) do update set
              role = excluded.role,
              is_active = true,
              name = coalesce(excluded.name, admin_users.name),
-             user_id = coalesce(admin_users.user_id, excluded.user_id),
+             user_id = excluded.user_id,
              updated_at = now()
          returning ",
         member_columns!()
@@ -314,6 +363,7 @@ pub async fn add(
     .bind(name)
     .bind(staff.role.as_str())
     .bind(actor_email)
+    .bind(user_id)
     .fetch_one(&mut *tx)
     .await?;
     let after = member(row);
@@ -466,6 +516,7 @@ mod tests {
             role,
             is_active,
             user_id: None,
+            console_subject: None,
             invited_by: None,
             invited_at: None,
         };
@@ -478,6 +529,40 @@ mod tests {
         assert!(keeps_a_superadmin(Some(&member(StaffRole::Admin, true)), false, 1).is_ok());
         assert!(keeps_a_superadmin(Some(&member(StaffRole::Superadmin, false)), false, 1).is_ok());
         assert!(keeps_a_superadmin(None, false, 0).is_ok());
+    }
+
+    #[test]
+    fn the_platform_account_found_now_wins_and_a_console_account_is_dropped() {
+        let row = |user_id: Option<&str>, console_subject: Option<&str>| StaffMember {
+            id: "adm_1".to_owned(),
+            email: "a@weldsuite.org".to_owned(),
+            name: None,
+            role: StaffRole::Admin,
+            is_active: true,
+            user_id: user_id.map(str::to_owned),
+            console_subject: console_subject.map(str::to_owned),
+            invited_by: None,
+            invited_at: None,
+        };
+        let some = |id: &str| Some(id.to_owned());
+        // A new row takes what was found, or nothing.
+        assert_eq!(kept_user_id(some("platform"), None), some("platform"));
+        assert_eq!(kept_user_id(None, None), None);
+        // Adding again catches up with the account found now.
+        assert_eq!(
+            kept_user_id(some("platform-2"), Some(&row(Some("platform"), None))),
+            some("platform-2")
+        );
+        // Nothing found: the row keeps its platform account...
+        assert_eq!(
+            kept_user_id(None, Some(&row(Some("platform"), Some("staff")))),
+            some("platform")
+        );
+        // ...but not the console's account, which the console once bound there.
+        assert_eq!(
+            kept_user_id(None, Some(&row(Some("staff"), Some("staff")))),
+            None
+        );
     }
 
     #[test]

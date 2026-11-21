@@ -145,7 +145,11 @@ impl Table {
 
     /// The `date`-mode timestamps in `values` that came from the body: a
     /// string there makes Drizzle throw.
-    fn check_dates(&self, values: &Map<String, Value>, trusted: &[&str]) -> Result<(), WriteError> {
+    pub(crate) fn check_dates(
+        &self,
+        values: &Map<String, Value>,
+        trusted: &[&str],
+    ) -> Result<(), WriteError> {
         for column in self.columns {
             if column.kind == Kind::Date
                 && !trusted.contains(&column.prop)

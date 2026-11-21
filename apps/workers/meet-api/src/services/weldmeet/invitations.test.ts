@@ -27,7 +27,7 @@ vi.mock('@weldsuite/emails', async (importOriginal) => {
 
 // The real OutboundDeniedError (invitations tell a refusal apart by class);
 // the three calls that talk to the ledger are faked. The guard itself is tested
-// in @weldsuite/mail-domain (docs/plans/weldmail-outbound-abuse.md).
+// in @weldsuite/mail-domain (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/mail-domain/outbound')>();
   return {

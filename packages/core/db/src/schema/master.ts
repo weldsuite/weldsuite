@@ -205,7 +205,7 @@ export const workspaces = pgTable('workspaces', {
   compGrantedBy: varchar('comp_granted_by', { length: 255 }),
   compReason: text('comp_reason'),
 
-  // Reseller licensing (docs/plans/reseller-licensing.md). A `partner`
+  // Reseller licensing (weldsuite-documentation/plans/reseller-licensing.md). A `partner`
   // workspace is billed to its partner, never directly: no Stripe customer,
   // no paywall. What it may use comes from `workspace_licences`.
   partnerId: varchar('partner_id', { length: 30 }),
@@ -276,6 +276,46 @@ export const userWorkspaces = pgTable('user_workspaces', {
 
 export type UserWorkspace = typeof userWorkspaces.$inferSelect;
 export type NewUserWorkspace = typeof userWorkspaces.$inferInsert;
+
+// Pending invitations by email, where WeldSuite keeps memberships itself
+// (membership mode: WeldID or a bring-your-own provider on the Kubernetes
+// editions, ADR SEC-019). Clerk and Zitadel keep invitations themselves, so
+// the Global edition leaves this table empty. Read and written by the Rust
+// WeldID adapter (`rust/crates/adapters-oss/src/weldid.rs`).
+export const workspaceInvitations = pgTable('workspace_invitations', {
+  // `inv_` + 128 random bits: also the token in the invitation link. Accepting
+  // takes the invited address, verified, so the id alone joins nobody.
+  id: varchar('id', { length: 30 }).primaryKey(),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  // As typed, and normalised (NFKC, then lowercase, as WeldID compares them).
+  email: varchar('email', { length: 320 }).notNull(),
+  emailNormalized: varchar('email_normalized', { length: 320 }).notNull(),
+  // The provider-style role key the routes pass: org:admin or org:member.
+  role: varchar('role', { length: 50 }).notNull(),
+  // `member_type: EXTERNAL_GUEST` for a guest.
+  publicMetadata: jsonb('public_metadata').$type<Record<string, unknown>>().notNull().default({}),
+  // pending, accepted or revoked. Expired is read from expires_at, never stored.
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  invitedBy: varchar('invited_by', { length: 255 }).references(() => users.id, { onDelete: 'set null' }),
+  acceptedBy: varchar('accepted_by', { length: 255 }).references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (table) => [
+  // One pending invitation per address and workspace.
+  uniqueIndex('workspace_invitations_pending_email_uidx')
+    .on(table.workspaceId, table.emailNormalized)
+    .where(sql`${table.status} = 'pending'`),
+  index('workspace_invitations_workspace_status_idx').on(table.workspaceId, table.status, table.createdAt),
+  index('workspace_invitations_pending_email_idx')
+    .on(table.emailNormalized)
+    .where(sql`${table.status} = 'pending'`),
+  check('workspace_invitations_status_check', sql`${table.status} in ('pending', 'accepted', 'revoked')`),
+]);
+
+export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
+export type NewWorkspaceInvitation = typeof workspaceInvitations.$inferInsert;
 
 // ============================================================================
 // WIDGET REGISTRY
@@ -767,10 +807,25 @@ export const billingInvoices = pgTable('billing_invoices', {
   // Workspace reference
   workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
-  // Stripe identifiers
-  stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).notNull().unique(),
+  // Who issued the invoice: 'stripe' (Global, mirrored from Stripe) or
+  // 'weldbooks' (the EU edition: WeldBooks in WeldSuite's own workspace,
+  // ADR BILL-014).
+  provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+
+  // Stripe identifiers (null on a WeldBooks invoice)
+  stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).unique(),
   stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
   stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+
+  // WeldBooks identifiers: the invoice in the issuer workspace, and the
+  // Mollie payment (`tr_…`) it was issued for. An EU invoice is issued only
+  // once its payment is paid, so there is exactly one per paid payment.
+  providerInvoiceId: varchar('provider_invoice_id', { length: 255 }),
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }).unique(),
+  // What was billed: the lines with their periods and amounts in cents.
+  lines: jsonb('lines').$type<Array<Record<string, unknown>>>(),
+  // The printable invoice document copied into the private files bucket.
+  documentKey: text('document_key'),
 
   // Invoice details
   number: varchar('number', { length: 100 }),
@@ -826,9 +881,22 @@ export const billingPayments = pgTable('billing_payments', {
   // cascade can trip over a not-yet-deleted payment row.
   invoiceId: varchar('invoice_id', { length: 30 }).references(() => billingInvoices.id, { onDelete: 'cascade' }),
 
+  // 'stripe' (Global) or 'mollie' (the EU edition, ADR BILL-014).
+  provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+
   // Stripe identifiers
   stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).unique(),
   stripeChargeId: varchar('stripe_charge_id', { length: 255 }),
+
+  // Mollie: the payment (`tr_…`), what it is for ('first', 'renewal',
+  // 'proration', 'pay_link', 'mandate'), a key that makes each intended
+  // charge exactly one row (e.g. `renewal:<workspace>:<period start>`), and
+  // the lines, VAT and plan change it carries, which settle it when paid.
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }).unique(),
+  kind: varchar('kind', { length: 30 }),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).unique(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  paidAt: timestamp('paid_at'),
 
   // Amount
   amount: integer('amount').notNull(), // in cents
@@ -859,6 +927,65 @@ export const billingPayments = pgTable('billing_payments', {
 
 export type BillingPaymentRecord = typeof billingPayments.$inferSelect;
 export type NewBillingPaymentRecord = typeof billingPayments.$inferInsert;
+
+// ============================================================================
+// BILLING ACCOUNTS (EU edition: plan billing on Mollie, ADR BILL-014)
+// ============================================================================
+
+/**
+ * One row per workspace that has ever checked out on a Kubernetes edition
+ * with plan billing (`BILLING_PROVIDER=mollie`). Global never writes it: its
+ * subscription state is Stripe's, mirrored onto `workspaces` (BILL-001).
+ *
+ * Plan, seats, cycle, period and status stay on `workspaces`, so every reader
+ * (seat check, limits, lock gate) works unchanged. This row holds what only
+ * the billing code needs: the Mollie customer and its default mandate, the
+ * seat price the running period was bought at, the monthly anchor the
+ * renewal job (`weldsuite cron billing-renewals`) charges on, changes
+ * scheduled for the period end, and the open charge of a past-due account.
+ */
+export const billingAccounts = pgTable('billing_accounts', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().unique().references(() => workspaces.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 20 }).notNull().default('mollie'),
+
+  // Mollie customer (`cst_…`) and the mandate (`mdt_…`) renewals charge.
+  customerId: varchar('customer_id', { length: 255 }),
+  mandateId: varchar('mandate_id', { length: 255 }),
+  mandateMethod: varchar('mandate_method', { length: 30 }), // creditcard, directdebit, paypal
+  mandateLabel: varchar('mandate_label', { length: 100 }), // masked: "Visa •••• 4242"
+
+  // Net price per seat per cycle the running period bills, in cents.
+  unitAmount: integer('unit_amount'),
+  currency: varchar('currency', { length: 3 }).notNull().default('EUR'),
+
+  // Charges fall on this day of the month (1–28). The renewal job charges
+  // when `next_charge_at` has passed: the plan when its period ends, and the
+  // monthly add-ons and plan credits on every anchor in between.
+  anchorDay: smallint('anchor_day'),
+  nextChargeAt: timestamp('next_charge_at'),
+
+  // Applied at the end of the period: fewer seats, a cheaper plan, another cycle.
+  scheduledPlanId: varchar('scheduled_plan_id', { length: 30 }),
+  scheduledSeats: integer('scheduled_seats'),
+  scheduledCycle: varchar('scheduled_cycle', { length: 10 }),
+
+  // Past due: since when, the billing_payments row still to be paid, and
+  // when the billing owners were last reminded.
+  pastDueSince: timestamp('past_due_since'),
+  pastDuePaymentId: varchar('past_due_payment_id', { length: 30 }),
+  dunningRemindedAt: timestamp('dunning_reminded_at'),
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('billing_accounts_next_charge_at_idx').on(table.nextChargeAt),
+  index('billing_accounts_past_due_since_idx').on(table.pastDueSince),
+  uniqueIndex('billing_accounts_customer_id_idx').on(table.customerId),
+]);
+
+export type BillingAccountRecord = typeof billingAccounts.$inferSelect;
+export type NewBillingAccountRecord = typeof billingAccounts.$inferInsert;
 
 // ============================================================================
 // WORKSPACE CREDITS
@@ -1206,16 +1333,24 @@ export type NewHelpcenterDomainRegistry = typeof helpcenterDomainRegistry.$infer
 //  - viewer:     read-only access to every surface
 export const adminRoleEnum = pgEnum('admin_role', ['superadmin', 'admin', 'viewer']);
 
-// Admin Users - explicit allowlist of who may sign into the internal admin
-// console. Access is gated on an ACTIVE row here (matched by email), plus an
-// env-based bootstrap list so the very first superadmin can never be locked
-// out. Without a matching entry, an authenticated Clerk user gets NO access.
+// Admin Users - the install's staff roster. The WeldApps review gate lets in
+// the platform account in `user_id`. On the Kubernetes editions it is also who
+// may sign in to the admin console, and as what (ADR SEC-014), managed with
+// `weldsuite admin staff`; Global's console is gated by its own Clerk instance
+// (ADR SEC-009) and doesn't read this table.
 export const adminUsers = pgTable('admin_users', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
-  // Clerk user id, populated on first successful sign-in (matched by email).
-  // Null while an invitation is still outstanding.
+  // The person's PLATFORM account (master `users.id`), which the WeldApps
+  // review gate matches. `staff add` fills it from an account with this email
+  // that belongs to a workspace; null until they have one.
   userId: varchar('user_id', { length: 255 }),
+
+  // Kubernetes editions: the account the admin console bound this row to (the
+  // identity provider's subject in the staff organization), on the first
+  // sign-in with this verified email. A separate account from `user_id` (ADR
+  // SEC-018). Never filled by `staff add`; null until that first sign-in.
+  consoleSubject: varchar('console_subject', { length: 255 }),
 
   // Email is the invite key — always stored lowercased.
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -1239,6 +1374,8 @@ export const adminUsers = pgTable('admin_users', {
 }, (table) => [
   uniqueIndex('admin_users_email_idx').on(table.email),
   index('admin_users_user_id_idx').on(table.userId),
+  // One console account is one roster row.
+  uniqueIndex('admin_users_console_subject_idx').on(table.consoleSubject),
   index('admin_users_is_active_idx').on(table.isActive),
 ]);
 
@@ -1365,18 +1502,57 @@ export {
 } from './reach-routes';
 // WeldSign: signing-link tokens -> workspace, envelope and recipient.
 export { signLinkRegistry, type SignLink, type NewSignLink } from './weldsign-links';
-// WeldPanel: project tokens and secret keys -> workspace and project, and monthly usage.
+// WeldForms: public ids and invitation tokens -> workspace and form, and abuse reports.
+export {
+  formLinkRegistry,
+  formInvitationRegistry,
+  formAbuseReports,
+  FORM_ABUSE_REPORT_STATUSES,
+  type FormAbuseReportStatus,
+  type FormLink,
+  type NewFormLink,
+  type FormInvitationLink,
+  type FormAbuseReport,
+} from './weldforms-links';
+// WeldPanel: project tokens and secret keys -> workspace and project, monthly usage,
+// custom collector domains, public share tokens and the alert/report/export schedule.
 export {
   panelProjectRegistry,
   panelKeyRegistry,
   panelUsageMonthly,
+  panelCustomDomains,
+  panelShareRegistry,
+  panelScheduleRegistry,
+  PANEL_DOMAIN_STATUSES,
+  PANEL_SCHEDULE_KINDS,
   type PanelProjectRegistryRow,
   type NewPanelProjectRegistryRow,
   type PanelKey,
   type NewPanelKey,
   type PanelUsageMonth,
   type NewPanelUsageMonth,
+  type PanelCustomDomain,
+  type NewPanelCustomDomain,
+  type PanelDomainStatus,
+  type PanelDomainVerificationRecord,
+  type PanelShareRegistryRow,
+  type NewPanelShareRegistryRow,
+  type PanelScheduleKind,
+  type PanelScheduleRegistryRow,
+  type NewPanelScheduleRegistryRow,
 } from './weldpanel-registry';
+// WeldPanel on the Kubernetes editions: the Iceberg catalog and the erasures waiting for a rewrite.
+export {
+  icebergTables,
+  icebergNamespaceProperties,
+  panelErasureLedger,
+  type IcebergTableRow,
+  type NewIcebergTableRow,
+  type IcebergNamespacePropertyRow,
+  type NewIcebergNamespacePropertyRow,
+  type PanelErasureLedgerRow,
+  type NewPanelErasureLedgerRow,
+} from './weldpanel-lakehouse';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,

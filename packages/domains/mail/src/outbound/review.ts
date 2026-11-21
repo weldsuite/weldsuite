@@ -13,7 +13,7 @@
  * failing model leaves the template unclassified and the heuristics decide.
  *
  * Owner decision 2026-10-13: Workers AI, WeldSuite pays.
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { assertGatewayConfigured, createWeldAI, generateObject, jsonSchema, providerCostUsd, workersAi } from '@weldsuite/ai';

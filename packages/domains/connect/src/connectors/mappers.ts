@@ -34,6 +34,13 @@ export interface MappedOrder {
   externalId: string;
   values: Record<string, unknown>;
   lineItems: Array<{
+    /**
+     * The provider's own id for the line (WooCommerce and Shopify `id`,
+     * Picqer `idorder_product`). Ingest keeps it in
+     * `order_items.properties.externalLineId`, so a re-import updates the
+     * same item instead of replacing it.
+     */
+    externalLineId: string | null;
     externalProductId: string | null;
     sku: string | null;
     name: string;
@@ -439,6 +446,7 @@ function mapOrder(record: Record<string, unknown>, externalId: string, provider:
         : null)
       ?? pickString(customer ?? {}, ['id', 'idcustomer']),
     lineItems: lineItemsRaw.map((item) => ({
+      externalLineId: pickString(item, ['idorder_product', 'id']),
       externalProductId:
         pickString(item, ['product_id', 'idproduct']) && pickString(item, ['product_id', 'idproduct']) !== '0'
           ? pickString(item, ['product_id', 'idproduct'])
@@ -905,6 +913,11 @@ export function mapConnectorRecord(
       return mapStockCount(record, externalId);
     case 'inventory_movement':
       return mapInventoryMovement(record, externalId);
+    // Only Odoo syncs these, and Odoo runs on the Rust backend only
+    // (rust/crates/connect-domain); Global never receives such a record.
+    case 'product_supplier':
+    case 'sales_history':
+      return null;
   }
 }
 

@@ -144,27 +144,30 @@ export function resolveAssetAccounts(
       return id;
     }
     const found = fallback();
-    if (!found) throw new FixedAssetError(`Choose a ${hint}: this chart of accounts has no default for it`);
+    if (!found) {
+      throw new FixedAssetError(`Choose ${hint}: this chart of accounts has no default for it. Pick one, or add it to the chart of accounts.`);
+    }
     return found.id;
   };
   return {
     assetAccountId: pick(
       given.assetAccountId,
       'assetAccountId',
-      () => accountForRole(accounts, 'fixed_assets') ?? accounts.bySubtype('fixed_assets') ?? accounts.bySubtype('fixed_asset'),
-      'fixed asset account (assetAccountId)',
+      // The codes: the NL template's accounts, for entities seeded before the roles were on them.
+      () => accountForRole(accounts, 'fixed_assets', ['0200']) ?? accounts.bySubtype('fixed_assets') ?? accounts.bySubtype('fixed_asset'),
+      'a fixed asset account',
     ),
     accumulatedDepreciationAccountId: pick(
       given.accumulatedDepreciationAccountId,
       'accumulatedDepreciationAccountId',
-      () => accountForRole(accounts, 'accumulated_depreciation'),
-      'accumulated depreciation account (accumulatedDepreciationAccountId)',
+      () => accountForRole(accounts, 'accumulated_depreciation', ['0290']),
+      'an accumulated depreciation account',
     ),
     depreciationExpenseAccountId: pick(
       given.depreciationExpenseAccountId,
       'depreciationExpenseAccountId',
-      () => accountForRole(accounts, 'depreciation_expense') ?? accounts.bySubtype('depreciation'),
-      'depreciation expense account (depreciationExpenseAccountId)',
+      () => accountForRole(accounts, 'depreciation_expense', ['4700']) ?? accounts.bySubtype('depreciation'),
+      'a depreciation expense account',
     ),
   };
 }

@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { hostKeys, useRefreshZoneStatus } from './use-host-queries';
+import { ApiError } from '@weldsuite/api-client';
+import {
+  hostKeys,
+  useRefreshZoneStatus,
+  zoneStatusRefetchInterval,
+  type RefreshZoneStatusResponse,
+} from './use-host-queries';
 
 const refreshZoneStatusMock = vi.fn();
 
@@ -111,5 +117,28 @@ describe('useRefreshZoneStatus', () => {
     const zoneStatusKey = hostKeys.zoneStatus('dom_test');
 
     expect(zoneStatusKey.slice(0, domainKey.length)).not.toEqual(domainKey);
+  });
+});
+
+describe('zoneStatusRefetchInterval', () => {
+  const answer = (zoneStatus: RefreshZoneStatusResponse['data']['zoneStatus']): RefreshZoneStatusResponse => ({
+    data: { zoneStatus, domainStatus: 'pending', cloudflareStatus: zoneStatus },
+  });
+
+  it('polls a zone that waits for its delegation, and stops once it is settled', () => {
+    expect(zoneStatusRefetchInterval(answer('pending'), null)).toBe(20_000);
+    expect(zoneStatusRefetchInterval(answer('active'), null)).toBe(false);
+    expect(zoneStatusRefetchInterval(answer('error'), null)).toBe(false);
+  });
+
+  it('stops when the API answers that the domain has no zone it watches', () => {
+    const refused = new ApiError('This domain does not have a Hetzner zone yet.', 400);
+    expect(zoneStatusRefetchInterval(undefined, refused)).toBe(false);
+  });
+
+  it('keeps trying after a server error or before any answer', () => {
+    expect(zoneStatusRefetchInterval(undefined, new ApiError('Could not reach Hetzner.', 503))).toBe(20_000);
+    expect(zoneStatusRefetchInterval(undefined, new Error('offline'))).toBe(20_000);
+    expect(zoneStatusRefetchInterval(undefined, null)).toBe(20_000);
   });
 });

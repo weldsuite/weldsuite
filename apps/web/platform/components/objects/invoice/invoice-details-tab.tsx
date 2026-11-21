@@ -179,13 +179,13 @@ export function InvoiceDetailsTab({
           <PropertyRow icon={Banknote} label={ti.total} value={formatMoney(invoice.total, invoice.currency)} readOnly />
           <PropertyRow
             icon={Wallet}
-            label={isCreditMemo ? ti.creditUsed : ti.amountPaid}
+            label={isCreditMemo ? ti.creditUsed : st('sweep.entities.fieldPaid')}
             value={formatMoney(paid, invoice.currency)}
             readOnly
           />
           <PropertyRow
             icon={Scale}
-            label={isCreditMemo ? ti.creditRemaining : ti.balanceDue}
+            label={isCreditMemo ? ti.creditRemaining : st('sweep.entities.fieldBalanceDue')}
             value={formatMoney(owed, invoice.currency)}
             readOnly
           />
@@ -207,7 +207,7 @@ export function InvoiceDetailsTab({
           />
           <PropertyRow
             icon={CalendarDays}
-            label={ti.issueDate}
+            label={st('sweep.entities.fieldIssueDate')}
             value={formatDate(invoice.issueDate, '')}
             placeholder={EMPTY}
             tabular
@@ -215,7 +215,7 @@ export function InvoiceDetailsTab({
           />
           <PropertyRow
             icon={CalendarClock}
-            label={ti.dueDate}
+            label={st('sweep.entities.fieldDueDate')}
             value={formatDate(invoice.dueDate, '')}
             placeholder={EMPTY}
             tabular

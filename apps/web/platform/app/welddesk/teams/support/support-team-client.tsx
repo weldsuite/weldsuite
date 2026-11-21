@@ -6,7 +6,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
 import { Card, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { MessageSquare, CheckCircle, Clock, User, MoreVertical, Eye } from 'lucide-react';
 import { EntityDataTable, type ColumnDefinition } from '@/components/entity-overview';
@@ -24,7 +24,10 @@ interface TeamMember {
   id: string;
   name: string;
   email: string;
+  /** Initials, shown until the picture loads or when there is none. */
   avatar: string;
+  userId?: string;
+  picture?: string | null;
   role: string;
   activeTickets: number;
   resolvedToday: number;
@@ -104,11 +107,14 @@ export function SupportTeamClient({ teamData }: Readonly<SupportTeamClientProps>
       render: (member) => (
         <div className="flex items-center gap-3">
           <div className="relative">
-            <Avatar className="h-10 w-10">
-              <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                {member.avatar}
-              </AvatarFallback>
-            </Avatar>
+            <MemberAvatar
+              userId={member.userId}
+              name={member.name}
+              picture={member.picture}
+              className="h-10 w-10"
+              fallbackClassName="bg-primary text-primary-foreground text-sm"
+              fallback={member.avatar}
+            />
             <div className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${getStatusColor(member.status)}`} />
           </div>
           <div>

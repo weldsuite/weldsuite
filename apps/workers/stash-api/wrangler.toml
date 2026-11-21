@@ -1,6 +1,6 @@
 # WeldSuite stash-api worker — the stash module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   stash-api.weldsuite.org        production
 #   stash-api-test.weldsuite.org   test
@@ -9,8 +9,6 @@
 # Secrets (scripts/secrets/manifest.ts → "stash-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
-#   (DATABASE_ENCRYPTION_KEY also decrypts the workspace Sendcloud keys the
-#   pick-list ship action reads through @weldsuite/sendcloud/settings)
 #
 # Secrets (not in the manifest yet):
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)

@@ -11,6 +11,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { DeskSlaMetric } from './desk-sla-clocks';
+import type { DeskRequestApprovalStatus } from './desk-catalog';
 
 /**
  * WeldDesk conversation — current state only.
@@ -60,6 +61,14 @@ import type { DeskSlaMetric } from './desk-sla-clocks';
  *
  * escalationCheckAt: when the team's escalation rules next need checking
  * (the SLA sweep runs them); null when no rule can fire.
+ *
+ * problemId: the problem (desk_problems) this incident is linked to, written
+ * only by desk-problems.ts.
+ *
+ * catalogItemId: the service catalogue item (desk_catalog_items) this
+ * request was made from. approvalStatus: where the request stands with its
+ * approvers (desk_request_approvals); null when the item needs no approval.
+ * Both are written only by desk-catalog.ts.
  */
 
 export type DeskConversationState = 'open' | 'closed';
@@ -135,6 +144,11 @@ export const deskConversations = pgTable(
     language: varchar('language', { length: 10 }),
 
     escalationCheckAt: timestamp('escalation_check_at'),
+
+    problemId: varchar('problem_id', { length: 30 }),
+
+    catalogItemId: varchar('catalog_item_id', { length: 30 }),
+    approvalStatus: varchar('approval_status', { length: 10 }).$type<DeskRequestApprovalStatus>(),
   },
   (table) => [
     uniqueIndex('desk_conversations_number_uidx').on(table.conversationNumber),
@@ -166,6 +180,17 @@ export const deskConversations = pgTable(
     index('desk_conversations_escalation_check_idx')
       .on(table.escalationCheckAt)
       .where(sql`${table.escalationCheckAt} IS NOT NULL`),
+    // Problem management: the incidents of a problem.
+    index('desk_conversations_problem_idx')
+      .on(table.problemId)
+      .where(sql`${table.problemId} IS NOT NULL`),
+    // Service catalogue: the requests of an item, and the ones waiting for approval.
+    index('desk_conversations_catalog_item_idx')
+      .on(table.catalogItemId)
+      .where(sql`${table.catalogItemId} IS NOT NULL`),
+    index('desk_conversations_approval_status_idx')
+      .on(table.approvalStatus)
+      .where(sql`${table.approvalStatus} IS NOT NULL`),
   ],
 );
 

@@ -29,6 +29,70 @@ function isNone(color: string | null): boolean {
   return !color || color === 'transparent';
 }
 
+/** The words a colour is named with: hues and greys in lower case, and the light/dark patterns. */
+export interface ColorNames {
+  hues: Record<'red' | 'orange' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'purple' | 'pink' | 'grey' | 'white' | 'black', string>;
+  /** "Light {color}" */
+  light: string;
+  /** "Dark {color}" */
+  dark: string;
+}
+
+const HUES: [number, keyof ColorNames['hues']][] = [
+  [15, 'red'],
+  [40, 'orange'],
+  [65, 'yellow'],
+  [90, 'lime'],
+  [150, 'green'],
+  [175, 'teal'],
+  [195, 'cyan'],
+  [235, 'blue'],
+  [255, 'indigo'],
+  [275, 'violet'],
+  [300, 'purple'],
+  [345, 'pink'],
+  [360, 'red'],
+];
+
+/** The hue of an RGB colour (0–1 channels), in degrees. */
+function hueDegrees(r: number, g: number, b: number): number {
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+/** The colour word for a colour: a grey (or white, black) when it has next to no hue, else its hue. */
+function baseColor(r: number, g: number, b: number, l: number): keyof ColorNames['hues'] {
+  const d = Math.max(r, g, b) - Math.min(r, g, b);
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (s >= 0.12 && d >= 0.04) {
+    const deg = hueDegrees(r, g, b);
+    return HUES.find(([limit]) => deg < limit)![1];
+  }
+  if (l > 0.96) return 'white';
+  return l < 0.1 ? 'black' : 'grey';
+}
+
+/** A colour's name for people ("Light yellow"), so a swatch is announced as more than a hex code. */
+export function colorName(hex: string, names: ColorNames): string {
+  const m = HEX_RE.test(hex) ? hex.slice(1) : null;
+  if (!m) return hex;
+  const [r, g, b] = [0, 2, 4].map((i) => Number.parseInt(m.slice(i, i + 2), 16) / 255) as [number, number, number];
+  const l = (Math.max(r, g, b) + Math.min(r, g, b)) / 2;
+  const base = baseColor(r, g, b, l);
+  const word = names.hues[base];
+  let name = word;
+  if (base !== 'white' && base !== 'black') {
+    if (l > 0.72) name = names.light.replace('{color}', word);
+    else if (l < 0.3) name = names.dark.replace('{color}', word);
+  }
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /**
  * A colour swatch grid. `null` in the list is "none". Below it, the
  * person's saved colours and a button to make a new one.
@@ -49,9 +113,13 @@ export function Swatches({
 }) {
   const { t } = useI18n();
   const tc = t.weldboard.editor.customColors;
+  const names = t.weldboard.editor.colorNames;
   const saved = useContext(SavedColorsContext);
   const [making, setMaking] = useState(false);
   const current = value?.toLowerCase();
+  /** Announced by name, with the code in the tooltip for whoever needs it. */
+  const label = (color: string) => colorName(color, names);
+  const title = (color: string) => `${label(color)} · ${color.toUpperCase()}`;
   const root = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   // The picker floats under the whole colour menu this grid sits in, not under the grid.
@@ -66,8 +134,9 @@ export function Swatches({
           <button
             key={color ?? 'none'}
             type="button"
-            aria-label={isNone(color) ? (noneLabel ?? color ?? undefined) : color!}
-            title={isNone(color) ? (noneLabel ?? color ?? undefined) : color!}
+            aria-label={isNone(color) ? (noneLabel ?? color ?? undefined) : label(color!)}
+            title={isNone(color) ? (noneLabel ?? color ?? undefined) : title(color!)}
+            aria-pressed={(value ?? null) === color}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(color)}
             className={cn(SWATCH, (value ?? null) === color && SELECTED, isNone(color) && NONE)}
@@ -83,8 +152,9 @@ export function Swatches({
               <div key={color} className="group relative">
                 <button
                   type="button"
-                  aria-label={color}
-                  title={color}
+                  aria-label={label(color)}
+                  title={title(color)}
+                  aria-pressed={current === color}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onPick(color)}
                   className={cn(SWATCH, current === color && SELECTED)}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Link } from '@tanstack/react-router';
 import { ClipboardCheck, Download, Landmark, Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -52,7 +53,8 @@ export default function BankAccountsPage() {
     {
       id: 'name',
       header: tbp.columns.name,
-      width: 'min-w-[200px] flex-1 gap-2',
+      // Narrow list (a record panel open, a phone): the name and the balance stay, the rest follows as there is room.
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (a) => (
         <RowTitle
           chips={
@@ -71,7 +73,7 @@ export default function BankAccountsPage() {
           {
             id: 'type',
             header: tb.accountList.type,
-            width: 'w-[150px] gap-1.5',
+            width: 'hidden shrink-0 @4xl/list:flex w-[150px] gap-1.5',
             render: (a: UsBankAccount) => (
               <>
                 <RowText>{a.accountType ? tb.accountTypes[a.accountType] : null}</RowText>
@@ -84,7 +86,7 @@ export default function BankAccountsPage() {
           {
             id: 'account',
             header: tb.accountList.account,
-            width: 'w-[140px]',
+            width: 'hidden shrink-0 @6xl/list:flex w-[140px]',
             render: (a: UsBankAccount) => (
               <span className="min-w-0" data-testid="account-last4">
                 <RowText className="font-mono">
@@ -98,26 +100,26 @@ export default function BankAccountsPage() {
           {
             id: 'iban',
             header: tbp.columns.iban,
-            width: 'w-[200px]',
+            width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
             render: (a: UsBankAccount) => <RowText className="font-mono">{a.iban}</RowText>,
           },
         ]),
     {
       id: 'bank',
       header: tbp.columns.bank,
-      width: 'w-[160px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[160px]',
       render: (a) => <RowText>{a.bankName}</RowText>,
     },
     {
       id: 'currency',
       header: tbp.columns.currency,
-      width: 'w-[100px]',
+      width: 'hidden shrink-0 @2xl/list:flex w-[80px]',
       render: (a) => <RowText>{a.currency ?? entityCurrency}</RowText>,
     },
     {
       id: 'balance',
       header: tbp.columns.balance,
-      width: 'w-[180px]',
+      width: 'shrink-0 w-[140px]',
       render: (a) => <RowAmount>{formatMoney(a.currentBalance, a.currency ?? entityCurrency)}</RowAmount>,
     },
   ];
@@ -195,7 +197,15 @@ export default function BankAccountsPage() {
 
       {launcher.elements}
 
-      <BankAccountFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <BankAccountFormDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(id) => {
+          toast.success(tbp.accountCreated);
+          // The new account opens in its side panel, like a new invoice.
+          if (id) openPanel({ type: 'bank_account', id });
+        }}
+      />
     </>
   );
 }

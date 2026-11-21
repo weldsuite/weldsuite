@@ -17,6 +17,8 @@ interface FormFieldProps {
    * Optional help text to display below the field (above error)
    */
   helpText?: string | React.ReactNode;
+  /** The id of the control in `children`, so the label names it (`<label for>`). */
+  htmlFor?: string;
   className?: string;
   children: React.ReactNode;
 }
@@ -27,6 +29,7 @@ export function FormField({
   required,
   info,
   helpText,
+  htmlFor,
   className,
   children,
 }: Readonly<FormFieldProps>) {
@@ -34,7 +37,7 @@ export function FormField({
     <div className={className}>
       {label && (
         <div className="mb-2 flex items-center gap-1.5">
-          <Label>
+          <Label htmlFor={htmlFor}>
             {label}
             {required && <span className="text-destructive ml-1">*</span>}
           </Label>

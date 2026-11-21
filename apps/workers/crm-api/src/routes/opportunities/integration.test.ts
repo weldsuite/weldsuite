@@ -544,6 +544,31 @@ describe('/api/opportunities · pglite integration', () => {
     expect((await loadDeal(dealId))?.probability).toBe(70);
   });
 
+  // TASK-1462: between open stages the probability follows the stage unless
+  // it was changed by hand.
+  it('PATCH /:id moving between open stages takes the stage probability, but keeps one set by hand', async () => {
+    const { dealId, pipelineId } = await seedDealWithWonLostStages();
+    const now = new Date();
+    const qualified = generateId('pls');
+    const negotiation = generateId('pls');
+    await db.insert(schema.crmPipelineStages).values([
+      { id: qualified, name: 'Qualified', position: 3, pipeline: pipelineId, probability: 40, isWon: false, isLost: false, createdAt: now, updatedAt: now },
+      { id: negotiation, name: 'Negotiation', position: 4, pipeline: pipelineId, probability: 75, isWon: false, isLost: false, createdAt: now, updatedAt: now },
+    ]);
+    const patch = patchAs('user_won_lost_sync');
+
+    // 25 is the Open stage's own probability: it moves with the deal.
+    expect((await patch(dealId, { stageId: qualified })).status).toBe(200);
+    expect((await loadDeal(dealId))?.probability).toBe(40);
+
+    // Changed by hand: the next move keeps it.
+    await patch(dealId, { probability: 55 });
+    await patch(dealId, { stageId: negotiation });
+    const row = await loadDeal(dealId);
+    expect(row?.stageId).toBe(negotiation);
+    expect(row?.probability).toBe(55);
+  });
+
   it('POST / without probability starts at the stage probability; explicit probability wins', async () => {
     const { openStage } = await seedDealWithWonLostStages();
     const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {

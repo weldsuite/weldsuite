@@ -1,0 +1,73 @@
+{
+  "name": "An ending link that is not http or https",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_email",
+        "ref": "email",
+        "type": "email",
+        "title": "Email"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_script",
+        "ref": "script",
+        "title": "Script",
+        "redirectUrl": "javascript:alert(document.domain)",
+        "button": {
+          "text": "More",
+          "url": "data:text/html,<script>alert(1)</script>"
+        }
+      },
+      {
+        "id": "e_recall",
+        "ref": "recall",
+        "title": "Recall as the scheme",
+        "redirectUrl": "{{field:email}}",
+        "button": {
+          "text": "Mail us",
+          "url": "mailto:team@example.com"
+        }
+      },
+      {
+        "id": "e_fine",
+        "ref": "fine",
+        "title": "Web links, recall after the scheme",
+        "redirectUrl": "HTTPS://example.com/?e={{field:email}}",
+        "button": {
+          "text": "Not linked yet",
+          "url": ""
+        }
+      }
+    ]
+  },
+  "expectIssues": [
+    "schema",
+    "schema",
+    "schema",
+    "schema"
+  ],
+  "expectDetails": [
+    {
+      "code": "schema",
+      "path": "endings.0.redirectUrl",
+      "message": "must start with http:// or https://"
+    },
+    {
+      "code": "schema",
+      "path": "endings.0.button.url",
+      "message": "must start with http:// or https://"
+    },
+    {
+      "code": "schema",
+      "path": "endings.1.redirectUrl",
+      "message": "must start with http:// or https://"
+    },
+    {
+      "code": "schema",
+      "path": "endings.1.button.url",
+      "message": "must start with http:// or https://"
+    }
+  ]
+}

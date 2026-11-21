@@ -1,19 +1,21 @@
 /**
- * Column definitions for the WeldStash products list.
- *
- * Same `products` table as WeldCommerce, different lens: the warehouse view
- * drops price/brand and shows stock, low-stock threshold and tracking instead.
- * The shared cells are imported rather than re-declared.
+ * Column definitions for the WeldStash products list: the warehouse view shows
+ * stock, low-stock threshold and tracking rather than price and brand.
  */
 
 import { Badge } from '@weldsuite/ui/components/badge';
 import type { WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
 import type { ColumnDef } from '@/components/panel-entity-list';
 import { getTranslations } from '@/lib/i18n';
-import { productStatusVariant } from '@/app/weldcommerce/products/config/product-columns';
+
+export function productStatusVariant(status: string | null | undefined) {
+  if (status === 'active') return 'default';
+  if (status === 'draft') return 'outline';
+  return 'secondary';
+}
 
 export function buildWeldstashProductColumns(): ColumnDef<WeldstashProduct>[] {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   return [
     {
       id: 'name',

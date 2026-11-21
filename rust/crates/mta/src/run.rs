@@ -125,7 +125,8 @@ fn delivery(
         owner: format!("{hostname}:{}", std::process::id()),
         bounce_domain: config.bounce_domain.clone(),
         max_queue_age: config.max_queue_age,
-        warmup: config.warmup_schedule.clone(),
+        warmup: config.warmup.clone(),
+        warmup_soft_pools: config.warmup_soft_pools.clone(),
         concurrency: config.concurrency,
         allow_private_destinations: config.allow_private_destinations,
     }))
@@ -232,8 +233,12 @@ pub async fn run(config: Config, shutdown: CancellationToken) -> Result<(), BoxE
         tasks.spawn(reporter.run(shutdown.clone()));
     }
 
-    // Housekeeping.
+    // Housekeeping, and the queue database's pool for the metrics.
     tasks.spawn(housekeeping(store.clone(), shutdown.clone()));
+    tasks.spawn(crate::monitoring::sample_pool(
+        store.pool().clone(),
+        shutdown.clone(),
+    ));
 
     shutdown.cancelled().await;
     tracing::info!("MTA stopping: finishing deliveries in progress");

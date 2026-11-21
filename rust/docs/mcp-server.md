@@ -3,7 +3,11 @@
 WeldSuite's MCP server (`apps/workers/mcp-server`, `mcp.weldsuite.org` on
 Global) exposes a workspace to AI clients. On the Kubernetes editions it is
 `modules/mcp` (package `weldsuite-mcp`), served by `weldsuite serve` at `/mcp`
-on the edition's own host (one host serves every path, OPS-013).
+(one server serves every path, OPS-013). The EU values give it a host of its
+own, as Global has: AI clients connect to `https://mcp.<domain>/mcp`, the
+origin `config.mcp.serverUrl` sets and the discovery documents name, and
+that host's ingress routes only `/mcp` and the two `/.well-known/oauth-*`
+paths.
 
 ## What the worker is
 
@@ -37,9 +41,10 @@ on the edition's own host (one host serves every path, OPS-013).
 - **Rate limit.** Per workspace and plan tier, a `RateLimiter` Durable Object
   (60 a minute for `free`; the table names `starter`, `professional`,
   `enterprise`, so `business` and `scale` fall back to `free`'s 60).
-- **Tools.** 300 static tools in 11 groups (`src/tools/*`: crm 40, reach 38,
+- **Tools.** 290 static tools in 11 groups (`src/tools/*`: crm 40, reach 38,
   workspace 36, projects 35, weldflow 31, chat 30, social 28, mail 20,
-  commerce 20, helpdesk 11, knowledge 11), each declarative: name, scope,
+  helpdesk 11, knowledge 11, and the domain and time-entry tools 10; the
+  product and order tools left with WeldCommerce), each declarative: name, scope,
   description, a Zod raw shape for the input, and `method` + `path` (+
   `pathParams`, `exactId`) into the `/v1` API. Listed only when the member
   could use the scope (`canUseScope`). Then, dynamically: Clerk's
@@ -71,11 +76,11 @@ on the edition's own host (one host serves every path, OPS-013).
   `drive`→`files`, and WeldReach's pinned action routes), and a few routes
   differ: tickets and conversations record `via: 'mcp'`, creating a project
   makes the creator its owner member and maps `ownerId` to the project
-  manager, creating a product takes no generated slug, the knowledge-page
-  tree walk is cycle-safe, WeldReach mounts no reply route (MCP never sends
+  manager, the knowledge-page tree walk is cycle-safe, WeldReach mounts no reply route (MCP never sends
   mail), `/v1/social-approvals` and `/v1/social-media/upload` exist only here,
   and `/v1/user-apps` has only `agent-tools`, list, create, detail, versions
-  and submit. No `accounting`, `categories` or `mail-sending` groups. An
+  and submit. No `accounting`, `categories`, `orders`, `products` or
+  `mail-sending` groups. An
   unknown path is Hono's plain-text 404; a thrown error a plain-text 500.
   Licence and read-only gates as external-api's.
 - **Bindings.** `DATABASE_URL_MASTER`/`HYPERDRIVE_MASTER` (workspace by org;
@@ -120,10 +125,52 @@ on the edition's own host (one host serves every path, OPS-013).
   OAuth access tokens (`at+jwt`), so an MCP client can't sign in on a
   Clerk-mode Kubernetes install yet; Global's TypeScript server takes them.
   The workspace, its restrictions and the member's permissions
-  come from the same lookups the `/api` pipeline uses. Discovery names the
-  edition's issuer (`OIDC_ISSUER`, or Clerk's from `CLERK_PUBLISHABLE_KEY`) and
-  passes its `oauth-authorization-server` metadata through. Opaque Clerk
+  come from the same lookups the `/api` pipeline uses. Opaque Clerk
   tokens (`oat_…`, verified only by Clerk's API) are refused.
+- **Discovery.** It names the edition's issuer (`OIDC_ISSUER`, or Clerk's
+  from `CLERK_PUBLISHABLE_KEY`) and follows the sign-in (`auth::Discovery`).
+  With Clerk the protected-resource document is Global's, field for field,
+  and `/.well-known/oauth-authorization-server` passes Clerk's RFC 8414
+  metadata through. With `AUTH_PROVIDER=oidc` the protected-resource
+  document carries RFC 9728's fields only (`resource`,
+  `authorization_servers`, `scopes_supported`, `bearer_methods_supported`),
+  not Clerk's paths, and the authorization-server document is the
+  provider's `/.well-known/openid-configuration` (Zitadel serves no RFC 8414
+  document; §5 of the RFC makes the two the same). `scopes_supported` is
+  what a client must ask for, the scopes the platform asks for: `openid
+  profile email offline_access`, and with a Zitadel org claim
+  (`OIDC_ORG_CLAIM` starting `urn:zitadel:`) also
+  `urn:zitadel:iam:org:projects:roles` (the roles claim that names the
+  organization) and `urn:zitadel:iam:org:project:id:<OIDC_AUDIENCE>:aud`
+  (the project in `aud`).
+- **An MCP client on Zitadel.** Zitadel has no dynamic client registration,
+  so each client is an application in the WeldSuite project (the project
+  `OIDC_AUDIENCE` names), registered by hand: the client's redirect URI,
+  code flow with PKCE, refresh tokens, and **JWT access tokens** (the
+  verifier takes no opaque token). The user gives the client its client id
+  (and secret, for a confidential app). The organization comes from the
+  roles claim, so an account with roles in several organizations gets a
+  token that names none, and `/mcp` answers 401: the platform narrows its
+  token with `urn:zitadel:iam:org:roles:id:<org id>`, which an MCP client
+  can't know to ask for. Until `/mcp` can be told the workspace some other
+  way, MCP on a Zitadel edition is for accounts in one workspace.
+- **An MCP client on WeldID (membership mode,
+  `OIDC_WORKSPACE_SOURCE=header`).** The token names no workspace, and an
+  MCP client can't send the platform's `X-Weld-Workspace`, so the server URL
+  names it: `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization
+  id, in URL-unreserved characters), checked against the master
+  `user_workspaces` by the same `WorkspaceSelector` as the header. A plain
+  `/mcp` takes the user's only workspace; with several it answers 403 and
+  names the URL to use, with none 403 too. A workspace the user isn't an
+  active member of is 403, unknown or foreign alike. With a token that
+  names its workspace (claim mode, Clerk) a workspace URL must name that
+  one, by id or organization id.
+- **One resource per URL (RFC 9728).** The 401's `WWW-Authenticate` points
+  at the metadata of the URL the client called
+  (`/.well-known/oauth-protected-resource/mcp`, or `…/mcp/w/<workspace>`),
+  and each document's `resource` is exactly that URL, as §3.3 requires of a
+  document found through the challenge. Global's worker points at `…/mcp`
+  the same way.
 - **Bindings on Kubernetes.** KV caches → the cache port (Valkey); the
   rate limiter → the cache's atomic counters, as external-api's; the D1
   due index → `weldsuite_db::due_index` (in the ported WeldReach routes);

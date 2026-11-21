@@ -12,7 +12,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
@@ -26,8 +26,10 @@ import {
   resolveInternalWorkspaceId,
   SERVICE_CREDIT_RATES,
 } from '@weldsuite/credits';
-import { contactCallStatsQuerySchema } from '@weldsuite/app-api-client/schemas/call-intelligence';
+import { contactCallStatsQuerySchema, createCallSchema } from '@weldsuite/app-api-client/schemas/call-intelligence';
 import type { Env, Variables } from '../../types';
+import { postPhoneMessage } from '../../lib/desk-phone-messages';
+import { normalizeE164 } from '../../lib/phone-registry';
 import { getContactCallStats } from '../../services/contact-call-stats';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -188,20 +190,6 @@ app.get('/:id', requirePermission('activities:read'), async (c) => {
 // /crm/call-intelligence/calls routes, with prepaid credit metering.
 // ============================================================================
 
-const createCallSchema = z.object({
-  direction: z.enum(['inbound', 'outbound']),
-  fromNumber: z.string().min(1),
-  toNumber: z.string().min(1),
-  fromNumberFormatted: z.string().optional(),
-  toNumberFormatted: z.string().optional(),
-  customerId: z.string().optional(),
-  contactId: z.string().optional(),
-  opportunityId: z.string().optional(),
-  isRecorded: z.boolean().optional(),
-  notes: z.string().optional(),
-  provider: z.string().optional(),
-});
-
 /**
  * POST / — create a call record. The dialer creates this row BEFORE dialing,
  * so the credit pre-flight here gates the call itself: an exhausted wallet
@@ -228,6 +216,45 @@ app.post('/', requirePermission('activities:create'), zValidator('json', createC
     }
   }
 
+  // Click-to-call: the conversation the call is placed from must exist.
+  if (data.deskConversationId) {
+    const [conversation] = await db
+      .select({ id: schema.deskConversations.id })
+      .from(schema.deskConversations)
+      .where(eq(schema.deskConversations.id, data.deskConversationId))
+      .limit(1);
+    if (!conversation) return error.notFound(c, 'Conversation', data.deskConversationId);
+  }
+
+  // A number on the customer's own phone system is a caller id only once Telnyx verified it is theirs.
+  if (data.direction === 'outbound' && data.fromNumber) {
+    const n = schema.voipPhoneNumbers;
+    const [unverified] = await db
+      .select({ id: n.id })
+      .from(n)
+      .where(
+        and(
+          eq(n.phoneNumber, normalizeE164(data.fromNumber)),
+          eq(n.provider, 'sip_trunk'),
+          isNull(n.callerIdVerifiedAt),
+          isNull(n.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (unverified) {
+      return c.json(
+        {
+          error: {
+            code: 'caller_id_unverified',
+            message: 'Verify this number before using it for outgoing calls',
+            details: { reason: 'caller_id_unverified' },
+          },
+        },
+        409,
+      );
+    }
+  }
+
   const id = generateId('vcall');
   const now = new Date();
   try {
@@ -244,6 +271,7 @@ app.post('/', requirePermission('activities:create'), zValidator('json', createC
       customerId: data.customerId,
       contactId: data.contactId,
       opportunityId: data.opportunityId,
+      deskConversationId: data.deskConversationId,
       isRecorded: data.isRecorded ?? true,
       notes: data.notes,
       initiatedAt: now,
@@ -257,6 +285,12 @@ app.post('/', requirePermission('activities:create'), zValidator('json', createC
       action: 'created',
       data: { id, direction: data.direction, toNumber: data.toNumber, status: 'initiated' },
     });
+    if (data.deskConversationId && data.direction === 'outbound') {
+      await postPhoneMessage(c.env, db, c.get('clerkOrgId'), data.deskConversationId, {
+        body: `Outbound call to ${data.toNumber}`,
+        metadata: { event: 'call_outbound', callId: id, userId },
+      });
+    }
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/calls] create failed:', err);

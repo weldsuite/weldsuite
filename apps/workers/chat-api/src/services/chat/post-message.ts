@@ -62,7 +62,6 @@ const SEARCH_ENTITY_TYPES_SET: ReadonlySet<string> = new Set<string>([
   'ticket',
   'article',
   'product',
-  'order',
   'invoice',
   'bill',
   'project',

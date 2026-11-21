@@ -61,7 +61,7 @@ export function ApprovalsClient() {
         rejectionReason: notes[id],
         revision,
       });
-      if (revision) toast.success(t.social.queue.requestRevision);
+      if (revision) toast.success(t.social.messages.revisionRequested);
       else toast.success(t.social.messages.postRejected);
     } catch {
       // ignore

@@ -6,6 +6,7 @@ import {
   applySuggestion,
   argumentCounts,
   callAt,
+  closeOpenParens,
   formulaSuggestions,
   functionPrefixAt,
   referenceText,
@@ -53,6 +54,19 @@ describe('SheetController input', () => {
     expect(value(ctl, 2, 0)).toBeCloseTo(3.6);
     expect(ctl.displayText(1, 0).text).toBe('30%');
     expect(onOp).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows =TODAY() and the other date functions as a date, =NOW() with the time', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '=TODAY()');
+    ctl.setInput(1, 0, '=now()');
+    ctl.setInput(2, 0, '=DATE(2026,11,17)');
+    ctl.setInput(3, 0, '=A3+1');
+    const numFmt = (row: number) => ctl.engine.workbook.style(ctl.sheet, row, 0)?.numFmt;
+    expect(numFmt(0)).toBe('m/d/yyyy');
+    expect(numFmt(1)).toBe('m/d/yyyy h:mm:ss');
+    expect(ctl.displayText(2, 0).text).toBe('11/17/2026');
+    expect(numFmt(3)).toBeUndefined();
   });
 
   it('shows the input text back in the editing locale', () => {
@@ -240,6 +254,41 @@ describe('SheetController formatting and structure', () => {
     ctl.insertFunction('SUM');
     expect(value(ctl, 2, 0)).toBe(5);
     expect(ctl.selection.active).toEqual({ row: 2, col: 0 });
+  });
+
+  it('suggests the numbers above (else left of) the cell for a function on one cell', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, 'Total');
+    ctl.setInput(1, 0, '2');
+    ctl.setInput(2, 0, '3');
+    ctl.setInput(3, 0, '4');
+    ctl.select(cellSelection(4, 0));
+    ctl.insertFunction('SUM');
+    expect(ctl.editing?.text).toBe('=SUM(A2:A4)');
+    ctl.cancelEdit();
+    ctl.setInput(6, 0, '1');
+    ctl.setInput(6, 1, '2');
+    ctl.select(cellSelection(6, 2));
+    ctl.insertFunction('AVERAGE');
+    expect(ctl.editing?.text).toBe('=AVERAGE(A7:B7)');
+    ctl.cancelEdit();
+    ctl.select(cellSelection(10, 5));
+    ctl.insertFunction('SUM');
+    expect(ctl.editing?.text).toBe('=SUM(');
+  });
+
+  it('gives a SUM over formatted cells the format of the range', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '2');
+    ctl.setInput(1, 0, '3');
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.format({ numFmt: '#,##0.00' });
+    ctl.setInput(2, 0, '=SUM(A1:A2)');
+    expect(ctl.engine.workbook.style(ctl.sheet, 2, 0)?.numFmt).toBe('#,##0.00');
+    ctl.setInput(3, 0, '=SUM(A1:A2)+1');
+    expect(ctl.engine.workbook.style(ctl.sheet, 3, 0)?.numFmt).toBeUndefined();
+    ctl.setInput(4, 0, '=MAX(A1)');
+    expect(ctl.engine.workbook.style(ctl.sheet, 4, 0)?.numFmt).toBe('#,##0.00');
   });
 
   it('adds, renames, duplicates and deletes sheets', () => {
@@ -494,6 +543,44 @@ describe('connected tables on the grid', () => {
   });
 });
 
+describe('conditional formatting preview', () => {
+  const rule = (id: string, fill: string, min: number) => ({
+    id,
+    order: 0,
+    ranges: [{ r1: 0, c1: 0, r2: 2, c2: 0 }],
+    rule: { type: 'condition' as const, condition: { type: 'greater' as const, value: min }, style: { fill } },
+  });
+
+  it('shows a rule being edited before it is saved, and drops it', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '5');
+    ctl.setInput(1, 0, '1');
+    expect(ctl.conditionalStyle(0, 0)).toBeUndefined();
+    const seen = vi.fn();
+    ctl.subscribe(seen);
+    ctl.setPreviewRule(rule('r1', '#ff0000', 2));
+    expect(seen).toHaveBeenCalled();
+    expect(ctl.conditionalStyle(0, 0)).toEqual({ fill: '#ff0000' });
+    expect(ctl.conditionalStyle(1, 0)).toBeUndefined();
+    expect(ctl.sheet.conditionalFormats).toHaveLength(0);
+    ctl.setPreviewRule(null);
+    expect(ctl.conditionalStyle(0, 0)).toBeUndefined();
+  });
+
+  it('stands in for the saved rule it edits', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '5');
+    ctl.apply({ type: 'patchConditionalFormats', sheetId: ctl.activeSheetId, set: [rule('r1', '#00ff00', 2)] });
+    expect(ctl.conditionalStyle(0, 0)).toEqual({ fill: '#00ff00' });
+    ctl.setPreviewRule(rule('r1', '#0000ff', 9));
+    expect(ctl.conditionalStyle(0, 0)).toBeUndefined();
+    ctl.setPreviewRule(rule('r1', '#0000ff', 1));
+    expect(ctl.conditionalStyle(0, 0)).toEqual({ fill: '#0000ff' });
+    ctl.setPreviewRule(null);
+    expect(ctl.conditionalStyle(0, 0)).toEqual({ fill: '#00ff00' });
+  });
+});
+
 describe('formula editing helpers', () => {
   it('knows where a clicked cell may be inserted', () => {
     expect(acceptsReference('=SUM(', 5)).toBe(true);
@@ -523,6 +610,12 @@ describe('formula editing helpers', () => {
     expect(names(formulaSuggestions('=lookup', 7))).toEqual(['LOOKUP', 'HLOOKUP', 'VLOOKUP', 'XLOOKUP']);
     expect(names(formulaSuggestions('=SUM(ax', 7, ['Tax', 'Axis', 'Rates']))).toEqual(['Axis', 'MAX', 'MAXA', 'MAXIFS', 'Tax']);
     expect(names(formulaSuggestions('=Rates', 6, ['Rates']))).toEqual([]);
+  });
+
+  it('offers the common function first among those that start with the text', () => {
+    expect(names(formulaSuggestions('=av', 3)).slice(0, 3)).toEqual(['AVERAGE', 'AVERAGEIF', 'AVERAGEIFS']);
+    expect(names(formulaSuggestions('=co', 3)).slice(0, 4)).toEqual(['COUNT', 'COUNTA', 'COUNTIF', 'COUNTIFS']);
+    expect(names(formulaSuggestions('=s', 2)).slice(0, 3)).toEqual(['SUM', 'SUMIF', 'SUMIFS']);
   });
 
   it('does not take a cell reference for part of a function name', () => {
@@ -674,3 +767,228 @@ describe('a co-editor changes rows and columns under the user', () => {
     expect(ctl.selection.active).toEqual({ row: 5, col: 2 });
   });
 });
+
+describe('Tab then Enter', () => {
+  it('goes back to the column the Tab run started in', () => {
+    const { ctl } = make();
+    for (const text of ['a', 'b', 'c', 'd']) {
+      ctl.beginEdit({ text });
+      handleEditKey(ctl, key(text === 'd' ? 'Enter' : 'Tab'));
+    }
+    expect(ctl.selection.active).toEqual({ row: 1, col: 0 });
+  });
+
+  it('forgets the run once something else moves or selects', () => {
+    const { ctl } = make();
+    ctl.beginEdit({ text: 'a' });
+    handleEditKey(ctl, key('Tab'));
+    ctl.select(cellSelection(0, 2));
+    ctl.advance(1, 0);
+    expect(ctl.selection.active).toEqual({ row: 1, col: 2 });
+    ctl.advance(0, 1);
+    ctl.move(0, 1);
+    ctl.advance(1, 0);
+    expect(ctl.selection.active).toEqual({ row: 2, col: 4 });
+  });
+});
+
+describe('freezing through a merged cell', () => {
+  it('refuses a freeze line that would cut a merge, and says so', () => {
+    const { ctl } = make();
+    const notify = vi.fn();
+    ctl.notify = notify;
+    ctl.select({ ranges: [{ r1: 5, c1: 0, r2: 5, c2: 2 }], active: { row: 5, col: 0 }, anchor: { row: 5, col: 0 } });
+    ctl.toggleMerge();
+    ctl.setFreeze(0, 1);
+    expect(ctl.sheet.freeze.cols).toBe(0);
+    expect(notify).toHaveBeenCalledWith('freezeSplitsMerge');
+    ctl.setFreeze(0, 3);
+    expect(ctl.sheet.freeze.cols).toBe(3);
+    ctl.setFreeze(2, 0);
+    expect(ctl.sheet.freeze.rows).toBe(2);
+  });
+});
+
+describe('merged cells and moving around them', () => {
+  const merge = (ctl: SheetController, r: { r1: number; c1: number; r2: number; c2: number }) => {
+    ctl.select({ ranges: [r], active: { row: r.r1, col: r.c1 }, anchor: { row: r.r1, col: r.c1 } });
+    ctl.toggleMerge();
+  };
+
+  it('leaves a merged cell, just merged, on Enter and Tab instead of walking into it', () => {
+    const { ctl } = make();
+    merge(ctl, { r1: 0, c1: 0, r2: 1, c2: 2 });
+    ctl.advance(1, 0);
+    expect(ctl.selection.active).toEqual({ row: 2, col: 0 });
+    merge(ctl, { r1: 4, c1: 0, r2: 4, c2: 2 });
+    ctl.advance(0, 1);
+    expect(ctl.selection.active).toEqual({ row: 4, col: 3 });
+  });
+
+  it('steps over the cells a merge hides when walking a selection', () => {
+    const { ctl } = make();
+    merge(ctl, { r1: 0, c1: 1, r2: 0, c2: 2 });
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 1, c2: 3 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.advance(0, 1);
+    expect(ctl.selection.active).toEqual({ row: 0, col: 1 });
+    ctl.advance(0, 1);
+    expect(ctl.selection.active).toEqual({ row: 0, col: 3 });
+  });
+
+  it('refuses to move columns or rows through a merged cell, and says so', () => {
+    const { ctl } = make();
+    const notify = vi.fn();
+    ctl.notify = notify;
+    ctl.setInput(0, 4, 'E');
+    merge(ctl, { r1: 2, c1: 1, r2: 2, c2: 2 });
+    // Part of the merge (column B) moved away.
+    ctl.moveDimsTo('col', 1, 1, 5);
+    // Column E dropped between B and C.
+    ctl.moveDimsTo('col', 4, 1, 2);
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenCalledWith('moveSplitsMerge');
+    expect(value(ctl, 0, 4)).toBe('E');
+    expect(ctl.sheet.merges).toEqual([{ r1: 2, c1: 1, r2: 2, c2: 2 }]);
+    // The whole merge moves along, and moves around it are fine.
+    ctl.moveDimsTo('col', 1, 2, 6);
+    expect(ctl.sheet.merges).toEqual([{ r1: 2, c1: 4, r2: 2, c2: 5 }]);
+    ctl.moveDimsTo('row', 0, 1, 5);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('rows that fit wrapped text', () => {
+  const tall = (ctl: SheetController) => (row: number) => (ctl.cellStyle(row, 0)?.wrap === 'wrap' ? 60 : null);
+
+  it('grows a row when wrap is turned on, in one undo step, and leaves rows sized by hand', () => {
+    const { ctl } = make();
+    ctl.autoFit = tall(ctl);
+    ctl.setInput(0, 0, 'long text');
+    ctl.setInput(1, 0, 'other');
+    ctl.resize('row', [1], 30);
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.format({ wrap: 'wrap' });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(60);
+    expect(ctl.sheet.rows.sizeOf(1)).toBe(30);
+    ctl.undo();
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
+    expect(ctl.cellStyle(0, 0)?.wrap).toBeUndefined();
+  });
+
+  it('grows and shrinks a fitted row with the font size', () => {
+    const { ctl } = make();
+    ctl.autoFit = (row) => ((ctl.cellStyle(row, 0)?.fontSize ?? 10) > 14 ? 40 : null);
+    ctl.setInput(0, 0, 'big');
+    ctl.format({ fontSize: 24 });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(40);
+    ctl.format({ fontSize: 10 });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
+  });
+
+  it('keeps fitting rows, in one undo step, once the undo history is full', () => {
+    const { ctl } = make();
+    ctl.autoFit = tall(ctl);
+    // Past the 200-step undo limit, so the history's length no longer changes.
+    for (let i = 0; i < 205; i++) ctl.setInput(5, 5, `edit ${i}`);
+    ctl.setInput(0, 0, 'long text');
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.format({ wrap: 'wrap' });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(60);
+    ctl.undo();
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
+    expect(ctl.cellStyle(0, 0)?.wrap).toBeUndefined();
+    expect(ctl.engine.getValue(ctl.activeSheetId, 0, 0)).toBe('long text');
+  });
+
+  it('shrinks a fitted row back when wrap goes off, never below the default', () => {
+    const { ctl } = make();
+    ctl.autoFit = tall(ctl);
+    ctl.setInput(0, 0, 'long text');
+    ctl.format({ wrap: 'wrap' });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(60);
+    ctl.format({ wrap: null });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
+  });
+});
+
+describe('closing parentheses on commit', () => {
+  it('closes what is left open, ignoring parentheses in strings', () => {
+    expect(closeOpenParens('=SUM(A1:A2')).toBe('=SUM(A1:A2)');
+    expect(closeOpenParens('=IF(A1>0,SUM(B1:B2')).toBe('=IF(A1>0,SUM(B1:B2))');
+    expect(closeOpenParens('=SUM(1)')).toBe('=SUM(1)');
+    expect(closeOpenParens('="a(b"&(1')).toBe('="a(b"&(1)');
+    expect(closeOpenParens('="(")')).toBe('="(")');
+    expect(closeOpenParens('=1+(2')).toBe('=1+(2)');
+    expect(closeOpenParens('(1')).toBe('(1');
+  });
+
+  it('commits an unclosed SUM as a working formula', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '1');
+    ctl.setInput(1, 0, '2');
+    ctl.setInput(2, 0, '=SUM(A1:A2');
+    expect(ctl.engine.getValue(ctl.activeSheetId, 2, 0)).toBe(3);
+    expect(ctl.inputText(2, 0)).toBe('=SUM(A1:A2)');
+  });
+});
+
+describe('hiding the selected columns', () => {
+  it('moves the selection to the next visible column, else the previous', () => {
+    const { ctl } = make();
+    ctl.select({ ranges: [wholeColumns(1, 1)], active: { row: 0, col: 1 }, anchor: { row: 0, col: 1 } });
+    ctl.setHidden('col', true);
+    expect(ctl.selection.active.col).toBe(2);
+    expect(ctl.selection.ranges).toEqual([wholeColumns(2, 2)]);
+    const last = ctl.sheet.colCount - 1;
+    ctl.select({ ranges: [wholeColumns(last, last)], active: { row: 0, col: last }, anchor: { row: 0, col: last } });
+    ctl.setHidden('col', true);
+    expect(ctl.selection.active.col).toBe(last - 1);
+  });
+
+  it('does the same for rows', () => {
+    const { ctl } = make();
+    ctl.select({ ranges: [wholeRows(0, 1)], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.setHidden('row', true);
+    expect(ctl.selection.active.row).toBe(2);
+  });
+});
+
+describe('the copy outline', () => {
+  const copyIn = () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, 'a');
+    ctl.select(cellSelection(0, 0));
+    copySelection(ctl);
+    return ctl;
+  };
+
+  it('is set by a copy and put down by Escape', () => {
+    const ctl = copyIn();
+    expect(ctl.copied?.range).toEqual({ r1: 0, c1: 0, r2: 0, c2: 0 });
+    expect(handleGridKey(ctl, key('Escape'), 10)).toBe(true);
+    expect(ctl.copied).toBeNull();
+    expect(handleGridKey(ctl, key('Escape'), 10)).toBe(false);
+  });
+
+  it('stays after pasting a copy, goes after pasting a cut, an edit or another sheet', () => {
+    const ctl = copyIn();
+    ctl.select(cellSelection(2, 2));
+    pasteInto(ctl, 'a', null);
+    expect(ctl.copied).not.toBeNull();
+    ctl.setInput(5, 5, 'x');
+    expect(ctl.copied).toBeNull();
+
+    ctl.select(cellSelection(0, 0));
+    const payload = copySelection(ctl, true);
+    ctl.select(cellSelection(3, 3));
+    pasteInto(ctl, payload.text, payload.html);
+    expect(ctl.copied).toBeNull();
+
+    const other = copyIn();
+    other.apply({ type: 'addSheet', sheetId: 'sheet-2', name: 'Two', index: 1 });
+    other.copied = { sheetId: other.activeSheetId, range: { r1: 0, c1: 0, r2: 0, c2: 0 }, cut: false };
+    other.setActiveSheet('sheet-2');
+    expect(other.copied).toBeNull();
+  });
+});
+

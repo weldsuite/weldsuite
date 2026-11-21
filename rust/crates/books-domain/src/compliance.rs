@@ -35,16 +35,6 @@ pub fn invoice_requirements(code: &str, locale: &str) -> Option<&'static Value> 
     by_language.get(variant)
 }
 
-/// The adapter's own locale (`getInvoiceRequirements()` without one).
-fn default_locale(code: &str) -> &'static str {
-    match code {
-        "NL" => "nl-NL",
-        "BR" => "pt-BR",
-        "IN" => "en-IN",
-        _ => "en-US",
-    }
-}
-
 /// A notice constant (`NL_NOTICE_KOR`, …).
 pub fn notice(name: &str) -> &'static str {
     INVOICE_DATA["notices"][name].as_str().unwrap_or_default()
@@ -206,11 +196,9 @@ pub async fn validate_invoice_for_finalize(
     let mut check = ComplianceCheck::default();
     let code = entity["jurisdictionCode"].as_str().unwrap_or_default();
     if crate::jurisdictions::has_adapter(code) {
-        let upper = code.to_uppercase();
-        let locale = entity["locale"]
-            .as_str()
-            .unwrap_or_else(|| default_locale(&upper));
-        if let Some(requirements) = invoice_requirements(code, locale) {
+        // The message is English, so it names the fields in English too ("VAT number", not
+        // "BTW-nummer"): the required fields are the same in every language of the jurisdiction.
+        if let Some(requirements) = invoice_requirements(code, "en") {
             check.missing_entity_fields = missing_entity_invoice_field_codes(entity, requirements);
             let missing: Vec<String> = check
                 .missing_entity_fields

@@ -1,5 +1,5 @@
 /**
- * Auto-pause rules that protect sender reputation (docs/plans/weldreach.md,
+ * Auto-pause rules that protect sender reputation (weldsuite-documentation/plans/weldreach.md,
  * "Guardrails"):
  *
  * - a mailbox with WELDREACH_SENDING_DEFAULTS.mailboxHardBouncesPerDay hard

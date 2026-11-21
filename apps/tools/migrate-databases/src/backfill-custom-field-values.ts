@@ -3,7 +3,7 @@
  * Custom fields Phase 2 — backfill the typed `custom_field_values` table from
  * the legacy per-entity `custom_fields` JSONB blobs.
  *
- * See docs/custom-fields-values-table.md. Phase 1 (dual-write) is live in
+ * See weldsuite-documentation/plans/custom-fields-values-table.md. Phase 1 (dual-write) is live in
  * production, so every write since that deploy already lands in both places.
  * This sweep is the historical catch-up: it explodes each blob into typed rows
  * for entities that predate the cutover, then reports parity.

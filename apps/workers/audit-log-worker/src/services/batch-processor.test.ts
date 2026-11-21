@@ -10,8 +10,16 @@ import { inspect } from 'node:util';
 import type { Env } from '../env';
 import type { EntityEventMessage } from '../lib/entity-events';
 
-vi.mock('./event-processor', () => ({ processEntityEvent: vi.fn() }));
+const tenantDbHandle = { handle: 'tenant-db' };
+const openTenantDb = vi.fn(async (_workspaceId: string) => tenantDbHandle);
 
+vi.mock('./event-processor', () => ({
+  processEntityEvent: vi.fn(),
+  createTenantDbResolver: () => openTenantDb,
+}));
+vi.mock('./stream-flusher', () => ({ flushStreamsForWorkspace: vi.fn() }));
+
+import type { Database } from '../db';
 import {
   LOCKED_MAX_RETRIES,
   lockedRetryDelaySeconds,
@@ -64,6 +72,7 @@ function drizzleFailure(cause: unknown): Error {
 let consoleSpies: ReturnType<typeof vi.spyOn>[];
 
 beforeEach(() => {
+  openTenantDb.mockClear();
   send.mockReset().mockResolvedValue(undefined);
   consoleSpies = [
     vi.spyOn(console, 'log').mockImplementation(() => {}),
@@ -213,5 +222,146 @@ describe('processAuditBatch', () => {
     const logged = consoleSpies.map((spy) => inspect(spy.mock.calls, { depth: 6 })).join('\n');
     expect(logged).toContain('evt_log');
     expect(logged).toContain('DrizzleQueryError');
+  });
+
+  describe('audit log streams', () => {
+    const inWorkspace = (id: string, workspaceId: string, attempts = 1): FakeMessage => {
+      const m = message(id, attempts);
+      m.body = { ...m.body, metadata: { ...m.body.metadata, workspaceId } };
+      return m;
+    };
+
+    it('flushes once per workspace the batch wrote for, not once per event, on the handle the batch opened', async () => {
+      const flush = vi.fn(async () => {});
+      const batch = batchOf(inWorkspace('e1', 'org_a'), inWorkspace('e2', 'org_a'), inWorkspace('e3', 'org_b'), inWorkspace('e4', 'org_a'));
+
+      await processAuditBatch(batch, env, async () => {}, flush);
+
+      expect(flush).toHaveBeenCalledTimes(2);
+      expect(flush.mock.calls.map((c: unknown[]) => c[1]).sort()).toEqual(['org_a', 'org_b']);
+      expect((flush.mock.calls[0] as unknown[])[0]).toBe(tenantDbHandle);
+    });
+
+    it('flushes after every message of the batch has been acked', async () => {
+      const m1 = inWorkspace('e1', 'org_a');
+      const m2 = inWorkspace('e2', 'org_a');
+      const flush = vi.fn(async () => {
+        expect(m1.ack).toHaveBeenCalledTimes(1);
+        expect(m2.ack).toHaveBeenCalledTimes(1);
+      });
+
+      await processAuditBatch(batchOf(m1, m2), env, async () => {}, flush);
+
+      expect(flush).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips workspaces whose events all failed, and flushes the ones that were written', async () => {
+      const flush = vi.fn(async () => {});
+      const failing = inWorkspace('bad', 'org_bad');
+      const fine = inWorkspace('good', 'org_good');
+
+      await processAuditBatch(batchOf(failing, fine), env, async (event) => {
+        if (event.id === 'bad') throw new Error('x');
+      }, flush);
+
+      expect(flush.mock.calls.map((c: unknown[]) => c[1])).toEqual(['org_good']);
+    });
+
+    it('does nothing for streams when no event carries a workspace', async () => {
+      const flush = vi.fn(async () => {});
+      const m = message('evt_x');
+      m.body = { ...m.body, metadata: { ...m.body.metadata, workspaceId: '' } };
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush);
+
+      expect(flush).not.toHaveBeenCalled();
+    });
+
+    it('a throwing flush does not fail, retry or re-queue any message, and the other workspace still flushes', async () => {
+      const m1 = inWorkspace('e1', 'org_a');
+      const m2 = inWorkspace('e2', 'org_b');
+      const flushed: string[] = [];
+      const flush = vi.fn(async (_db: Database, workspaceId: string) => {
+        if (workspaceId === 'org_a') throw Object.assign(new Error('connect to postgresql://user:pw@host failed'), { code: '28P01' });
+        flushed.push(workspaceId);
+      });
+
+      await expect(processAuditBatch(batchOf(m1, m2), env, async () => {}, flush)).resolves.toBeUndefined();
+
+      expect(m1.ack).toHaveBeenCalledTimes(1);
+      expect(m2.ack).toHaveBeenCalledTimes(1);
+      expect(m1.retry).not.toHaveBeenCalled();
+      expect(m2.retry).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(flushed).toEqual(['org_b']);
+    });
+
+    it('hands the flushes to ctx.waitUntil and returns without waiting for them', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let flushedAt = 0;
+      const flush = vi.fn(async () => {
+        // The settle wait of the real flusher.
+        await gate;
+        flushedAt = Date.now();
+      });
+      const waited: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (promise: Promise<unknown>) => void waited.push(promise) };
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush, ctx);
+
+      // Back already: the message is acked and the flush is still waiting.
+      expect(m.ack).toHaveBeenCalledTimes(1);
+      expect(waited).toHaveLength(1);
+      expect(flushedAt).toBe(0);
+
+      release();
+      await waited[0];
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(flushedAt).toBeGreaterThan(0);
+    });
+
+    it('a flush that throws behind ctx.waitUntil does not reject the promise it was given', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      const flush = vi.fn(async () => {
+        throw new Error('connect to postgresql://user:pw@host failed');
+      });
+      const waited: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (promise: Promise<unknown>) => void waited.push(promise) };
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush, ctx);
+
+      await expect(waited[0]).resolves.toBeUndefined();
+      expect(m.retry).not.toHaveBeenCalled();
+    });
+
+    it('without a ctx it waits for the flushes, after the acks', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      let flushed = false;
+      const flush = vi.fn(async () => {
+        expect(m.ack).toHaveBeenCalledTimes(1);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        flushed = true;
+      });
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush);
+
+      expect(flushed).toBe(true);
+    });
+
+    it('a tenant database that cannot be opened for the flush is only logged', async () => {
+      const m = inWorkspace('e1', 'org_a');
+      const flush = vi.fn(async () => {});
+      openTenantDb.mockRejectedValueOnce(new Error('boom'));
+
+      await processAuditBatch(batchOf(m), env, async () => {}, flush);
+
+      expect(flush).not.toHaveBeenCalled();
+      expect(m.ack).toHaveBeenCalledTimes(1);
+      expect(m.retry).not.toHaveBeenCalled();
+    });
   });
 });

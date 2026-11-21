@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '../../components/host-entity-form-layout';
 import { DomainAvailabilityChecker, type TransformedDomainResult } from '../../components/domain-availability-checker';
-import { Globe, Search, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { checkoutErrorMessage, redirectToCheckout } from '@/lib/host/domain-purchase-client';
 import { toast } from 'sonner';
@@ -170,14 +170,14 @@ export function DomainRegistrationClient() {
             {tr.heroTagline}
           </p>
 
-          {/* Search Input */}
-          <div className="relative mt-6 md:mt-8">
+          {/* Search Input: narrower than the title above it */}
+          <div className="relative mx-auto mt-6 max-w-[440px] md:mt-8">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none h-4 w-4 text-muted-foreground" />
             <input
               type="text"
               data-testid="domain-search-input"
               placeholder={tr.heroSearchPlaceholder}
-              className="w-full h-[44px] pl-[44px] pr-[50px] text-sm outline-none rounded-xl bg-white dark:bg-secondary text-foreground placeholder:text-muted-foreground border border-[#eaeaea] dark:border-border focus:border-[#c0c0c0] dark:focus:border-muted-foreground transition-colors"
+              className="w-full h-[44px] pl-[44px] pr-[50px] text-sm outline-none rounded-xl bg-white dark:bg-secondary text-foreground placeholder:text-muted-foreground border border-[#eaeaea] dark:border-white/15 focus:border-[#c0c0c0] dark:focus:border-white/30 transition-colors"
               style={{
                 fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
               }}
@@ -207,7 +207,7 @@ export function DomainRegistrationClient() {
                 }
               }}
             >
-              <ArrowRight className={cn(
+              <ChevronRight className={cn(
                 "h-4 w-4",
                 initialSearchQuery.trim().length >= 2
                   ? "text-white dark:text-black"
@@ -371,7 +371,6 @@ export function DomainRegistrationClient() {
       subtitle={tr.subtitle}
       sections={sections}
       summaryTitle={tr.purchaseSummary}
-      summaryIcon={Globe}
       summaryFields={summaryFields}
       summaryBottomFields={summaryBottomFields}
       summaryContent={summaryContent}

@@ -14,7 +14,7 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { Hash, Lock, Check } from 'lucide-react-native';
-import { useAuth, useOrganization } from '@clerk/expo';
+import { useAuth, useOrganization } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { isApiError } from '@weldsuite/api-client/client';
 import { BRAND } from '@/lib/brand';

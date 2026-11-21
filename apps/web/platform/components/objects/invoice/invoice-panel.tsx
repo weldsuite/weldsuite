@@ -14,6 +14,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
@@ -26,14 +27,16 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
-import { useAccountingEntity, useAccountingInvoice } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingEntity, useAccountingInvoice, useDeleteInvoice } from '@/hooks/queries/use-accounting-queries';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-details';
+import { EntityInvoiceDetailsNotice } from '@/app/weldbooks/invoices/components/entity-invoice-details';
 import { RecordPaymentDialog } from '@/app/weldbooks/invoices/components/record-payment-dialog';
-import { SalesTaxErrorNotice } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
+import { SalesTaxErrorNotice, useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { SendInvoiceDialog } from '@/app/weldbooks/invoices/components/send-invoice-dialog';
 import { getInvoiceCapabilities, hasSalesTaxInfoOf, type InvoiceCapabilities } from './invoice-capabilities';
 import { InvoiceCreditNotesTab } from './invoice-credit-notes-tab';
@@ -136,13 +139,37 @@ function InvoiceDialogs({
   invoice,
   caps,
   workflow,
+  finalizeBlockedReason,
+  deleteOpen,
+  onDeleteOpenChange,
+  onDeleted,
 }: Readonly<{
   invoice: InvoiceWithTax;
   caps: InvoiceCapabilities;
   workflow: ReturnType<typeof useInvoiceWorkflow>;
+  /** Why the draft cannot be finalized yet (the company details are missing); undefined when it can. */
+  finalizeBlockedReason?: string;
+  deleteOpen: boolean;
+  onDeleteOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
 }>) {
   const { t } = useI18n();
   const ti = t.accounting.invoiceDetail;
+  const tf = t.accounting.invoiceForm;
+  const describeError = useDescribeError();
+  const deleteInvoice = useDeleteInvoice();
+
+  const removeDraft = async () => {
+    try {
+      await deleteInvoice.mutateAsync(invoice.id);
+    } catch (err) {
+      toast.error(tf.discardDraftFailed, { description: describeError(err) });
+      return;
+    }
+    toast.success(tf.draftDiscarded);
+    onDeleteOpenChange(false);
+    onDeleted();
+  };
   return (
     <>
       <SendInvoiceDialog
@@ -154,7 +181,7 @@ function InvoiceDialogs({
         onTaxError={workflow.setTaxError}
       />
       <RecordPaymentDialog
-        invoiceId={invoice.id}
+        target={{ type: 'invoice', id: invoice.id }}
         balanceDue={invoice.status === 'uncollectible' ? caps.writtenOffBalance.toFixed(2) : (invoice.balanceDue ?? '0')}
         currency={invoice.currency}
         open={workflow.paymentOpen}
@@ -165,12 +192,27 @@ function InvoiceDialogs({
         open={workflow.finalizeOpen}
         onOpenChange={workflow.setFinalizeOpen}
         title={ti.finalizeConfirmTitle}
-        description={ti.finalizeConfirmDescription}
+        description={
+          finalizeBlockedReason ? `${ti.finalizeConfirmDescription} ${finalizeBlockedReason}` : ti.finalizeConfirmDescription
+        }
         confirmLabel={ti.confirmFinalize}
         cancelLabel={ti.keepDraft}
         loading={workflow.finalizing}
+        confirmDisabled={finalizeBlockedReason !== undefined}
         onConfirm={workflow.finalize}
       />
+      {caps.canDelete ? (
+        <ConfirmDialog
+          open={deleteOpen}
+          onOpenChange={onDeleteOpenChange}
+          title={tf.discardDraftTitle}
+          description={tf.discardDraftDescription.replace('{number}', invoice.invoiceNumber ?? '')}
+          confirmLabel={tf.discardDraftConfirm}
+          cancelLabel={ti.keepDraft}
+          variant="destructive"
+          onConfirm={removeDraft}
+        />
+      ) : null}
       <StatusChangeDialog
         status={workflow.statusDialog}
         loading={workflow.changingStatus}
@@ -182,22 +224,33 @@ function InvoiceDialogs({
 }
 
 export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
-  const { id, initialTab } = props;
+  const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
   const td = useDocumentTexts();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
+  const canDelete = useCan('invoices:delete');
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const { features } = useJurisdictionLabels();
   const { open: openPanel } = useObjectPanel();
 
   const { entityId } = useCurrentAccountingEntity();
   const { data: entity } = useAccountingEntity(entityId);
+  const invoiceDetails = useEntityInvoiceDetails();
 
   const invoiceQuery = useAccountingInvoice(id);
   const invoice = invoiceQuery.data?.data as unknown as InvoiceWithTax | undefined;
-  const caps = invoice ? getInvoiceCapabilities(invoice, canUpdate, canCreate) : undefined;
+  const caps = invoice ? getInvoiceCapabilities(invoice, canUpdate, canCreate, canDelete) : undefined;
+  // A draft is finalized only with the company details every invoice shows (books-api refuses it otherwise).
+  const finalizeBlockedReason =
+    caps?.isDraft && invoiceDetails.missing.length > 0
+      ? t.accounting.entityInvoiceDetails.issueDescription.replace(
+          '{fields}',
+          invoiceDetails.missing.map((field) => invoiceDetails.labels[field]).join(', '),
+        )
+      : undefined;
 
   const workflow = useInvoiceWorkflow(invoice);
   const { certificateIds, certificates, certificateNumbers } = useInvoiceCertificates(invoice);
@@ -257,16 +310,21 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
             onRecordPayment={() => workflow.setPaymentOpen(true)}
             onSend={() => workflow.setSendOpen(true)}
             onStatusDialog={workflow.setStatusDialog}
+            onDelete={() => setDeleteOpen(true)}
           />
         }
         subheader={
           invoice && caps ? (
             <InvoiceActionBar
               caps={caps}
+              recordLabel={recordPaymentLabel(t.accounting.invoiceDetail, invoice, caps.isCreditMemo)}
               finalizing={workflow.finalizing}
+              finalizeBlockedReason={finalizeBlockedReason}
               applyingCredit={workflow.applyingCredit}
               onFinalize={() => workflow.setFinalizeOpen(true)}
               onApplyCredit={workflow.applyCredit}
+              onSend={() => workflow.setSendOpen(true)}
+              onRecordPayment={() => workflow.setPaymentOpen(true)}
             />
           ) : null
         }
@@ -293,6 +351,18 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
           </div>
         )}
 
+        {/* A draft is finalized or sent only with the company details every invoice shows. */}
+        {invoice && caps?.isDraft && invoiceDetails.missing.length > 0 && (
+          <div className="px-4 pt-4">
+            <EntityInvoiceDetailsNotice
+              entity={invoiceDetails.entity}
+              missing={invoiceDetails.missing}
+              labels={invoiceDetails.labels}
+              context="issue"
+            />
+          </div>
+        )}
+
         {invoice && caps && (
           <InvoiceTabBody
             tab={activeTab}
@@ -308,7 +378,17 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
         )}
       </EntityDetailView>
 
-      {invoice && caps ? <InvoiceDialogs invoice={invoice} caps={caps} workflow={workflow} /> : null}
+      {invoice && caps ? (
+        <InvoiceDialogs
+          invoice={invoice}
+          caps={caps}
+          workflow={workflow}
+          finalizeBlockedReason={finalizeBlockedReason}
+          deleteOpen={deleteOpen}
+          onDeleteOpenChange={setDeleteOpen}
+          onDeleted={onClose}
+        />
+      ) : null}
     </>
   );
 }

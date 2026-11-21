@@ -2,7 +2,7 @@
  * Which API worker serves which paths.
  *
  * app-api is being split into one worker per `weld*` module (plan:
- * docs/plans/app-api-module-split.md). This manifest is the single source of
+ * weldsuite-documentation/plans/app-api-module-split.md). This manifest is the single source of
  * truth for that split. It is read by:
  *
  *   - the clients, to pick the host for a request path (`resolveApiOrigin`)
@@ -46,7 +46,8 @@ export type ApiModuleId =
   | 'docs'
   | 'panel'
   | 'board'
-  | 'merge';
+  | 'merge'
+  | 'forms';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -65,7 +66,7 @@ export interface ApiModule {
   /**
    * App codes (the `PERMISSION_APPS` codes in `@weldsuite/permissions`) whose
    * screens call this module. A licensed workspace (partner-managed, see
-   * docs/plans/reseller-licensing.md) reaches the module only when at least
+   * weldsuite-documentation/plans/reseller-licensing.md) reaches the module only when at least
    * one of them is licensed. The first entry is the module's own app, the one
    * an `APP_NOT_LICENSED` error names; the rest are the apps that list one of
    * the module's objects (`companies`, `tasks`, `calendars`, …) in
@@ -83,6 +84,12 @@ export interface ApiModule {
    * `RUST_PORTED_MODULES` (playbook step 6), then run `pnpm rust:catalogs`.
    */
   rust: boolean;
+  /**
+   * Built only in the Rust backend, with no TypeScript worker
+   * (`RUST_ONLY_MODULES`). It has no conformance suite to pass; its own Rust
+   * tests carry the weight (ADR COM-009).
+   */
+  rustOnly: boolean;
 }
 
 /**
@@ -94,7 +101,33 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'commerce', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+
+/**
+ * Modules built only in the Rust backend (ADR COM-009): no TypeScript worker
+ * under `apps/workers/`, no app-api forward, nothing on Global. Each is also in
+ * `RUST_PORTED_MODULES` (so the Rust server mounts it) and its edition feature
+ * is in `GLOBAL_UNAVAILABLE_FEATURES` (so Global's platform hides it). The
+ * Rust catalogs test exempts these from needing a conformance suite.
+ */
+export const RUST_ONLY_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['commerce']);
+
+/**
+ * Features built only in the Rust backend. Global is being retired (ADR
+ * OPS-025), so new work lands in Rust first and Global's TypeScript workers
+ * never get it. Global serves no `/config.json`, so the platform
+ * (`isFeatureAvailable` in `apps/web/platform/lib/edition.ts`) and the mobile
+ * apps (`buildGlobalRuntime` in `@weldsuite/mobile-platform`) read this list
+ * instead and hide these features on Global until the cutover. Each name is
+ * an `EditionFeature` (`apps/web/platform/lib/edition.ts`): add it there first.
+ * Deleted together with Global.
+ */
+export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
+  // The rebuilt WeldCommerce, a Rust-only module (ADR COM-009).
+  'commerce',
+  // WeldStash purchasing and replenishment (ADR STASH-008).
+  'stash-replenishment',
+];
 
 const mod = (
   id: ApiModuleId,
@@ -109,15 +142,20 @@ const mod = (
   prefixes,
   apps,
   rust: RUST_PORTED_MODULES.has(id),
+  rustOnly: RUST_ONLY_MODULES.has(id),
 });
 
 export const API_MODULES: readonly ApiModule[] = [
   mod('core', 8789, null, [
     '/api/access-requests',
     '/api/account',
+    // Rust-only (EU and self-hosted editions, ADR AI-012): Global's app-api does not mount it.
+    '/api/ai-settings',
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',
+    '/api/asset-sources',
+    '/api/audit-log-streams',
     '/api/audit-logs',
     '/api/auth-desktop',
     '/api/auth-sessions',
@@ -163,7 +201,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/public/partner-territories',
     '/public/user-apps',
   ]),
-  mod('crm', 8801, ['weldcrm', 'weldcommerce', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [
+  mod('crm', 8801, ['weldcrm', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [
     '/api/activities',
     '/api/companies',
     '/api/company-logos',
@@ -186,7 +224,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/canned-responses',
     '/api/conversations',
     '/api/desk/assignment',
+    '/api/desk/catalog',
     '/api/desk/conversations',
+    '/api/desk/problems',
     '/api/desk/routing',
     '/api/desk/widget',
     '/api/helpcenter-settings',
@@ -303,7 +343,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/recurring-invoices',
     '/api/tax-rates',
     '/api/vat-returns',
-    // US accounting (docs/plans/weldbooks-us.md)
+    // US accounting (weldsuite-documentation/plans/weldbooks-us.md)
     '/api/accounting-dimensions',
     '/api/bank-connections',
     '/api/bank-deposits',
@@ -322,45 +362,31 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tax-returns',
     '/api/w9-requests',
     '/public/w9',
-    // Brazil (docs/plans/weldbooks-br.md)
+    // Brazil (weldsuite-documentation/plans/weldbooks-br.md)
     '/api/br-tax',
     '/api/fiscal-documents',
     '/api/received-fiscal-documents',
     '/public/fiscal-webhooks',
   ]),
-  mod('commerce', 8806, ['weldcommerce', 'weldstash'], [
-    '/api/carriers',
-    '/api/categories',
-    '/api/commerce-portal',
-    '/api/orders',
-    '/api/parcel-analytics',
-    '/api/parcel-notifications',
-    '/api/parcel-rates',
-    '/api/parcel-settings',
-    '/api/parcel-wallet',
-    '/api/parcels',
-    '/api/pickups',
-    '/api/printnode',
-    '/api/products',
-    '/api/return-reasons',
-    '/api/return-rules',
-    '/api/returns',
-    '/api/sendcloud',
-    '/api/shipments',
-    '/api/shipping-prices',
-    '/api/shipping-rules',
-    '/public/commerce-portal',
-    '/webhooks/woocommerce',
+  // WeldCommerce, rebuilt in Rust only (ADR COM-009); phase 0 serves the overview.
+  mod('commerce', 8806, ['weldcommerce'], [
+    '/api/commerce',
   ]),
-  mod('stash', 8807, ['weldstash', 'weldcommerce'], [
+  mod('stash', 8807, ['weldstash'], [
     '/api/boxes',
     '/api/cycle-counts',
     '/api/inventory',
     '/api/inventory-movements',
     '/api/pick-lists',
     '/api/pickers',
+    // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
+    '/api/product-suppliers',
+    // The product catalogue: WeldStash owns it while WeldCommerce is rebuilt.
+    '/api/products',
     '/api/purchase-orders',
     '/api/putaway',
+    // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
+    '/api/replenishment',
     '/api/stock-adjustments',
     '/api/warehouse-locations',
     '/api/warehouse-zones',
@@ -446,6 +472,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workflow-versions',
     '/api/workflow-webhooks',
     '/api/workflows',
+    // WooCommerce's app-auth callback (public; HMAC `user_id`).
+    '/webhooks/woocommerce',
   ]),
   mod('agent', 8814, null, ['/api/ai', '/api/ai-models', '/api/chat-agent', '/api/weldagent']),
   mod('data', 8815, ['welddata'], ['/api/enrich-fields', '/api/enrichments', '/api/welddata']),
@@ -470,16 +498,16 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldSheets. Its worker (sheets-api, with the SheetRoom Durable Object)
   // arrives with live co-editing; until then nothing calls these paths.
   mod('sheets', 8822, ['weldsheets'], ['/api/sheets']),
-  // WeldSign (e-signatures, docs/plans/weldsign.md). Signers have no API path:
+  // WeldSign (e-signatures, weldsuite-documentation/plans/weldsign.md). Signers have no API path:
   // apps/web/sign-portal reads and writes the tenant DB itself (ADR FE-016).
   mod('sign', 8823, ['weldsign'], ['/api/sign']),
   // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
   mod('docs', 8824, ['welddocs'], ['/api/docs']),
   // WeldPanel (product analytics and session recordings,
-  // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
+  // weldsuite-documentation/plans/weldpanel.md). Tracked sites never call this worker: they send
   // to the public collector apps/workers/panel-ingest on its own host.
-  mod('panel', 8825, ['weldpanel'], ['/api/panel']),
-  // WeldBoard (whiteboards, docs/plans/weldboard.md). Its worker is board-api
+  mod('panel', 8825, ['weldpanel'], ['/api/panel', '/public/panel']),
+  // WeldBoard (whiteboards, weldsuite-documentation/plans/weldboard.md). Its worker is board-api
   // (with the BoardRoom Durable Object). WeldFlow is listed too: a project's
   // whiteboards are WeldBoard boards, and keep working with WeldFlow alone.
   mod('board', 8826, ['weldboard', 'weldflow'], ['/api/boards']),
@@ -488,6 +516,10 @@ export const API_MODULES: readonly ApiModule[] = [
   // MERGE_INTERNAL entrypoint, never on this path. `/public/merge` is the
   // GitHub App's setup redirect (no Clerk session: the signed state decides).
   mod('merge', 8827, ['weldmerge'], ['/api/merge', '/public/merge']),
+  // WeldForms (forms and surveys, weldsuite-documentation/plans/weldforms.md). `/public/forms` is
+  // called only by apps/web/forms-portal, which proves itself with
+  // FORMS_PORTAL_SECRET (ADR FORMS-002); respondents never reach it directly.
+  mod('forms', 8828, ['weldforms'], ['/api/forms', '/public/forms']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));
@@ -531,6 +563,8 @@ export function findModuleForPath(path: string): ApiModule {
 const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
   'knowledge-pages': 'know',
   'knowledge-spaces': 'know',
+  // WeldDesk's BI connector: the OData feed of helpdesk tables (ADR API-015).
+  odata: 'desk',
   quotes: 'crm',
   // WeldFlow's deprecated project whiteboard API (served on WeldBoard boards): licensed as it always was.
   whiteboards: 'flow',

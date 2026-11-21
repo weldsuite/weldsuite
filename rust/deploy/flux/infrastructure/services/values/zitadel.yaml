@@ -66,6 +66,9 @@ ingress:
   className: traefik
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+    # The sign-in host's own rate limit, on top of every request's
+    # (controllers/values/traefik.yaml).
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-auth-ratelimit@kubernetescrd
   hosts:
     - host: auth.${DOMAIN}
       paths:
@@ -84,6 +87,8 @@ login:
   ingress:
     enabled: true
     className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-auth-ratelimit@kubernetescrd
     hosts:
       - host: auth.${DOMAIN}
         paths:
@@ -93,3 +98,24 @@ login:
       - secretName: zitadel-tls
         hosts:
           - auth.${DOMAIN}
+# Egress anywhere but the metadata service for every pod in Zitadel's
+# namespace (zitadel-db's included), as in the base layers' namespaces
+# (../../network-policy/metadata-service.yaml, which says why). Part of this
+# release so that it exists only where Zitadel does: a cluster that removes
+# Zitadel removes it with the release. A no-op until the cluster enforces
+# NetworkPolicy (the opt-in network-policy layer).
+extraManifests:
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: block-metadata-service
+    spec:
+      podSelector: {}
+      policyTypes: [Egress]
+      egress:
+        - to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except: [169.254.169.254/32]
+            - ipBlock:
+                cidr: "::/0"

@@ -1,7 +1,8 @@
 //! Push: Expo for the mobile apps (`channels/push.ts`), and for an incoming
 //! call the native ring (`channels/call-push.ts`): Apple's `VoIP` push on
 //! `voip` tokens (`channels/apns.ts`), an Expo data message on `expo_call`
-//! tokens. Dead tokens are deactivated.
+//! tokens. Dead tokens are deactivated. Each one's data names the install it
+//! comes from (`server`, [`crate::set_push_server`]).
 
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -13,7 +14,7 @@ use time::OffsetDateTime;
 use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
 
-use crate::{NewNotification, Notifier, channel_preferences, push_data};
+use crate::{NewNotification, Notifier, channel_preferences, push_data, push_server, tag_server};
 
 const EXPO_PUSH_URL: &str = "https://exp.host/--/api/v2/push/send";
 const MAX_PER_REQUEST: usize = 100;
@@ -161,7 +162,7 @@ async fn try_deliver_push(
     let mut invalid: Vec<String> = Vec::new();
     let mut rung_devices: HashSet<String> = HashSet::new();
     if params.notification_type == "chat_incoming_call" {
-        let mut data = push_data(params);
+        let mut data = push_data(params, push_server());
         let call_id = data
             .get("entityId")
             .and_then(Value::as_str)
@@ -203,7 +204,7 @@ async fn try_deliver_push(
     }
     if !by_app.is_empty() {
         let (channel_id, priority) = android_delivery(&params.category, &params.notification_type);
-        let data = Value::Object(push_data(params));
+        let data = Value::Object(push_data(params, push_server()));
         for (_, app_tokens) in by_app {
             let messages: Vec<Value> = app_tokens
                 .iter()
@@ -607,6 +608,7 @@ pub async fn cancel_incoming_call_push(
         );
         data.insert("callId".to_owned(), Value::from(call_id));
         data.insert("reason".to_owned(), Value::from(reason.as_str()));
+        tag_server(&mut data, push_server());
         let sent = send_to_call_tokens(notifier, &refs, &data).await;
         deactivate_device_tokens(db, &sent.invalid_tokens).await
     };

@@ -12,8 +12,24 @@ const TONE_CLASS: Record<KpiTone, string | undefined> = {
   success: 'text-emerald-600 dark:text-emerald-400',
 };
 
-/** The row of KPI tiles at the top of a dashboard: 1, 2 or 4 columns by width. */
-export function KpiGrid({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
+/**
+ * The row of KPI tiles at the top of a dashboard: 1, 2 or 4 columns by width.
+ * `fit="viewport"` (default) follows the window; `fit="container"` follows the
+ * space the grid itself gets, for tiles in a narrow side panel on a wide
+ * screen (an AI reply in the WeldAgent panel), with a tighter gap.
+ */
+export function KpiGrid({
+  children,
+  className,
+  fit = 'viewport',
+}: Readonly<{ children: ReactNode; className?: string; fit?: 'viewport' | 'container' }>) {
+  if (fit === 'container') {
+    return (
+      <div className="@container">
+        <div className={cn('grid grid-cols-1 gap-3 @[20rem]:grid-cols-2 @[40rem]:grid-cols-4', className)}>{children}</div>
+      </div>
+    );
+  }
   return <div className={cn('grid gap-4 sm:grid-cols-2 lg:grid-cols-4', className)}>{children}</div>;
 }
 
@@ -25,6 +41,8 @@ export interface KpiCardProps {
   hint?: ReactNode;
   /** Colors the value: amber for warning, red for danger, green for success. */
   tone?: KpiTone;
+  /** `large` for a tile read from a distance (a wallboard): a much bigger value. */
+  size?: 'default' | 'large';
   /** Shows a skeleton in place of the value. */
   loading?: boolean;
   /**
@@ -43,6 +61,7 @@ export function KpiCard({
   icon: Icon,
   hint,
   tone = 'default',
+  size = 'default',
   loading = false,
   interactive = false,
   className,
@@ -57,7 +76,15 @@ export function KpiCard({
         {loading ? (
           <Skeleton className="h-8 w-16" />
         ) : (
-          <div className={cn('text-2xl font-bold tabular-nums', TONE_CLASS[tone])}>{value}</div>
+          <div
+            className={cn(
+              'font-bold tabular-nums',
+              size === 'large' ? 'text-5xl leading-tight xl:text-6xl' : 'text-2xl',
+              TONE_CLASS[tone],
+            )}
+          >
+            {value}
+          </div>
         )}
         {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       </CardContent>

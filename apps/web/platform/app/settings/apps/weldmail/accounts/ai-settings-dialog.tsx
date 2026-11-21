@@ -32,6 +32,8 @@ import { useUpdateMailAccount } from '@/hooks/queries/use-mail-queries';
 import { toast } from 'sonner';
 import { AVAILABLE_MODELS } from '@/lib/weldagent/tools/types';
 import { getTranslations } from '@/lib/i18n';
+import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
+import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
 
 const NONE = 'none';
 
@@ -50,7 +52,7 @@ const NONE = 'none';
  * dropdown. If a real, server-owned model catalog returns, both this picker and
  * `AVAILABLE_MODELS` should move onto it together.
  */
-const MODEL_OPTIONS = AVAILABLE_MODELS.map((m) => ({ id: m.id, name: m.name }));
+const MODEL_OPTIONS = AVAILABLE_MODELS.map((m) => ({ id: m.id, name: m.name, provider: null, region: null }));
 
 const aiSettingsSchema = z.object({
   customInstructions: z.string().max(2000).optional(),
@@ -84,7 +86,12 @@ export function AiSettingsDialog({
   const ts = getTranslations('settings');
   const tai = ts.weldmail.aiSettings;
   const updateAccount = useUpdateMailAccount();
-  const models = MODEL_OPTIONS;
+  // Kubernetes editions: the models this workspace may use for mail, from its AI settings
+  // (with where each is processed). Global keeps the list above.
+  const policyModels = useAiModelOptions('mail');
+  const models = policyModels
+    ? policyModels.map((m) => ({ id: m.id, name: m.label, provider: m.provider, region: m.region }))
+    : MODEL_OPTIONS;
 
   const form = useForm<AiSettingsFormValues>({
     resolver: zodResolver(aiSettingsSchema),
@@ -210,7 +217,10 @@ export function AiSettingsDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{tai.modelPreference}</FormLabel>
-                  <Select value={field.value || NONE} onValueChange={field.onChange}>
+                  <Select
+                    value={models.some((m) => m.id === field.value) ? field.value : NONE}
+                    onValueChange={field.onChange}
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder={tai.useWorkspaceDefault} />
@@ -220,7 +230,12 @@ export function AiSettingsDialog({
                       <SelectItem value={NONE}>{tai.useWorkspaceDefault}</SelectItem>
                       {models.map((m) => (
                         <SelectItem key={m.id} value={m.id}>
-                          {m.name}
+                          <span className="flex items-center gap-2">
+                            {m.name}
+                            {m.provider && m.region && (
+                              <AiMetaBadge ai={{ provider: m.provider, region: m.region }} hideIcon />
+                            )}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>

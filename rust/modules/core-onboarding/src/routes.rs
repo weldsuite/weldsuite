@@ -590,15 +590,7 @@ const fn app(
 }
 
 /// `FALLBACK_CATALOG`, copied from the workers.
-const FALLBACK_CATALOG: [FallbackApp; 13] = [
-    app(
-        "commerce",
-        "Commerce",
-        "Comprehensive e-commerce platform for online selling, product management, and order processing",
-        "ShoppingCart",
-        "Sales & Marketing",
-        "/commerce",
-    ),
+const FALLBACK_CATALOG: [FallbackApp; 12] = [
     app(
         "crm",
         "CRM",
@@ -1058,6 +1050,7 @@ async fn invitations(
             redirect_url: Some(redirect.clone()),
             public_metadata: None,
             inviter_user_id: Some(user_id.clone()),
+            invited_by: None,
         };
         match with_identity(identity.as_ref(), |i| i.invite(&org, &invitation)).await {
             Ok(_) => sent += 1,

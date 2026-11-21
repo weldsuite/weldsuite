@@ -22,7 +22,8 @@ export function AnalyticsClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const { data: overviewData, isLoading: overviewLoading } = useSocialAnalyticsOverview();
-  const { data: postsData, isLoading: postsLoading } = useSocialPosts({ limit: 20 });
+  // Only published posts have metrics; a draft would sit here with every number 0.
+  const { data: postsData, isLoading: postsLoading } = useSocialPosts({ status: 'published', limit: 20 });
   const syncMetrics = useSyncSocialPostMetrics();
 
   const overview = overviewData?.data;
@@ -121,7 +122,7 @@ export function AnalyticsClient() {
                     disabled={syncMetrics.isPending}
                   >
                     <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                    {t.social.analytics.overview}
+                    {t.social.analytics.syncMetrics}
                   </Button>
                 </div>
               ))}

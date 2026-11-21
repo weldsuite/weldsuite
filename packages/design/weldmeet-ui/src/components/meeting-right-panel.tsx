@@ -69,6 +69,8 @@ export interface MeetingRightPanelProps {
   startRecording?: () => void;
   stopRecording?: () => void;
   recordingAvailable?: boolean;
+  /** Forwarded to MeetingToolsPanel: off where this deployment records nothing. */
+  showRecord?: boolean;
   recordingStartElapsedSeconds?: number;
   recordingLabels?: RecordingLabels;
   /** Forwarded to MeetingToolsPanel: the live tools of this meeting. */
@@ -95,6 +97,7 @@ export function MeetingRightPanel({
   startRecording,
   stopRecording,
   recordingAvailable,
+  showRecord,
   recordingStartElapsedSeconds,
   recordingLabels,
   tools,
@@ -161,6 +164,7 @@ export function MeetingRightPanel({
           startRecording={startRecording}
           stopRecording={stopRecording}
           recordingAvailable={recordingAvailable}
+          showRecord={showRecord}
           recordingStartElapsedSeconds={recordingStartElapsedSeconds}
           recordingLabels={recordingLabels}
           tools={tools}

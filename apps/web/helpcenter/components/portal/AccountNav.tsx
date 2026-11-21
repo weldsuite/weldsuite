@@ -94,6 +94,13 @@ function AccountNavInner({ portal }: Readonly<{ portal: PortalState }>) {
               {t.submitRequest}
             </Link>
           </MenuItem>
+          {portal.catalog && (
+            <MenuItem>
+              <Link to="/catalog" className={itemClass}>
+                {t.serviceCatalogue}
+              </Link>
+            </MenuItem>
+          )}
           <div className="my-1 h-px bg-zinc-100 dark:bg-zinc-800" />
           <MenuItem>
             <button type="button" disabled={signingOut} onClick={() => void handleSignOut()} className={itemClass}>

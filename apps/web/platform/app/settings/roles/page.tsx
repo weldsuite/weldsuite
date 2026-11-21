@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useRouter } from '@/lib/router';
+import { Link, useRouter } from '@/lib/router';
 import { Plus, EllipsisVertical, Pencil, Trash2, Crown, Eye } from 'lucide-react';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -183,7 +183,7 @@ export default function RolesSettingsPage() {
               >
                 <TableCell className="py-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{role.name}</span>
+                    <Link href={`/settings/roles/${role.id}`} onClick={(e) => e.stopPropagation()} className="font-medium focus-visible:underline focus-visible:outline-none">{role.name}</Link>
                     {role.name === 'Owner' && (
                       <Crown className="h-3.5 w-3.5 text-amber-500" />
                     )}
@@ -204,7 +204,8 @@ export default function RolesSettingsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                        aria-label={t('common.actions.openMenu')}
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                       >
                         <EllipsisVertical className="h-4 w-4" />
                       </Button>
@@ -226,7 +227,7 @@ export default function RolesSettingsPage() {
                 onClick={() => router.push(`/settings/roles/${role.id}`)}
               >
                 <TableCell className="py-2">
-                  <span className="font-medium">{role.name}</span>
+                  <Link href={`/settings/roles/${role.id}`} onClick={(e) => e.stopPropagation()} className="font-medium focus-visible:underline focus-visible:outline-none">{role.name}</Link>
                 </TableCell>
                 <TableCell className="py-2 text-muted-foreground">
                   {role.description || '—'}
@@ -241,7 +242,8 @@ export default function RolesSettingsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                          aria-label={t('common.actions.openMenu')}
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                         >
                           <EllipsisVertical className="h-4 w-4" />
                         </Button>

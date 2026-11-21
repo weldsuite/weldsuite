@@ -19,12 +19,12 @@ import { errors } from './errors';
 import { bills } from './bills';
 import { assets } from './assets';
 import { accounting } from './accounting';
+import { weldstash } from './weldstash';
 import { commerce } from './commerce';
 import { crm } from './crm';
 import { projects } from './projects';
 import { task } from './task';
 import { helpdesk } from './helpdesk';
-import { parcel } from './parcel';
 import { host } from './host';
 import { mail } from './mail';
 import { woocommerce } from './woocommerce';
@@ -64,12 +64,12 @@ export const es = {
   bills,
   assets,
   accounting,
+  weldstash,
   commerce,
   crm,
   projects,
   task,
   helpdesk,
-  parcel,
   host,
   mail,
   woocommerce,

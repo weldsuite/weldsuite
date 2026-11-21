@@ -2,7 +2,7 @@
  * WeldStash Query Hooks
  *
  * All endpoints live on app-api:
- * - Products:   /products (WMS + WeldCommerce shared `products` table)
+ * - Products:   /products
  * - Suppliers:  /wms-suppliers
  * - Warehouses: /warehouses (PATCH for updates)
  * - Stock:      /inventory, /inventory/adjust, /inventory-movements
@@ -52,6 +52,8 @@ export interface WmsSupplier {
   currency?: string | null;
   taxId?: string | null;
   defaultLeadTimeDays?: number | null;
+  /** Numeric text; replenishment warns when a draft purchase order stays below it. */
+  minimumOrderValue?: string | null;
   isActive: boolean;
   status: string;
   rating?: number | null;
@@ -97,6 +99,19 @@ export function useWeldstashProducts(params?: WeldstashListQuery) {
     },
   });
 }
+/** One product, for the product object panel. */
+export function useWeldstashProduct(id: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldstashKeys.product(id),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<WeldstashProduct>>(`/products/${id}`);
+    },
+    enabled: !!id && enabled,
+  });
+}
+
 /**
  * Cursor-paged variants used by the EntityGrid screens. The plain `use*`
  * queries above are kept for the pickers and the overview counters, which
@@ -516,30 +531,26 @@ export function usePackWeldstashPickList() {
   });
 }
 
+/**
+ * Marks a packed pick list as shipped: stash-api issues the picked stock and
+ * marks the order shipped. No carrier is involved, so there is no body.
+ */
 export function useShipWeldstashPickList() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
-      id: string;
-      senderId?: number;
-      shippingOptionCode?: string;
-      weightKg?: number;
-    }) => {
+    mutationFn: async (id: string) => {
       const client = await getClient();
-      const { id, ...body } = input;
       return client.post<DataResponse<{
         id: string;
-        status: string;
-        trackingNumber?: string | null;
-        trackingUrl?: string | null;
-        labelPdfBase64?: string | null;
-        labelUrl?: string | null;
-      }>>(`/pick-lists/${id}/ship`, body);
+        status: 'shipped';
+        shipmentId: string | null;
+        parcelId: string | null;
+      }>>(`/pick-lists/${id}/ship`, {});
     },
-    onSuccess: (_, input) => {
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
-      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(input.id) });
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
     },
   });
 }

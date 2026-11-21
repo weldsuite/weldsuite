@@ -5,6 +5,7 @@ import { isFeatureAvailable } from '@/lib/edition';
 import { useRouter } from '@/lib/router';
 import type { BoardController } from '../editor/model/board-controller';
 import type { LiveBoardProps } from './live-board';
+import { BoardAiIsland } from './ai-island';
 import { BoardPanels, PanelMenuItems, SidePanels } from './panels';
 import { recordUrl } from './records';
 
@@ -21,8 +22,8 @@ export function useBoardExtensions(): LiveBoardProps['extend'] {
   const stores = useRef(new WeakMap<BoardController, BoardPanels>());
   const router = useRouter();
   const canCreateTasks = useCan('tasks:create');
-  // AI runs where WeldAgent's does (no AI provider on the Kubernetes editions yet).
-  const aiAvailable = isFeatureAvailable('agent-ai');
+  // AI runs where the assistant does (an AI provider must be configured on the Kubernetes editions).
+  const aiAvailable = isFeatureAvailable('assistant-ai');
   return useCallback<NonNullable<LiveBoardProps['extend']>>(
     (c, ctx) => {
       let panels = stores.current.get(c);
@@ -36,7 +37,7 @@ export function useBoardExtensions(): LiveBoardProps['extend'] {
         menuExtra: <PanelMenuItems panels={store} />,
         onComment: (id: string) => store.focusComment(id),
         onRecords: ctx.mode === 'edit' ? () => store.openRecords() : undefined,
-        onAi: ctx.mode === 'edit' && aiAvailable ? () => store.openAi() : undefined,
+        island: ctx.mode === 'edit' && aiAvailable ? <BoardAiIsland controller={c} boardId={ctx.boardId} /> : undefined,
         context: {
           ...(ctx.mode === 'edit' && canCreateTasks ? { onToTasks: (ids: string[]) => store.openTasks(ids) } : {}),
           onOpenRecord: (el) => {

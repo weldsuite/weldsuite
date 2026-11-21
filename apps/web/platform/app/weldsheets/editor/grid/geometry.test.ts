@@ -3,6 +3,8 @@ import { Sheet } from '@weldsuite/sheets-engine';
 import {
   COL_HEADER_HEIGHT,
   computeLayout,
+  hiddenMarkerAt,
+  hiddenMarkers,
   hitTest,
   MAX_SCROLL_SIZE,
   rangeRect,
@@ -70,5 +72,21 @@ describe('grid geometry', () => {
     expect(physical).toBeLessThan(MAX_SCROLL_SIZE);
     expect(toLogicalScroll(physical, content, viewport)).toBeCloseTo(11_000_000, 0);
     expect(toPhysicalScroll(300, 5000, 500)).toBe(300);
+  });
+
+  it('marks hidden columns and rows on the header boundary, and finds the mark under a point', () => {
+    const s = sheet();
+    s.cols.setHidden(1, true);
+    s.cols.setHidden(2, true);
+    s.rows.setHidden(4, true);
+    const layout = computeLayout(s, 800, 400, 0, 0);
+    const marks = hiddenMarkers(layout, s);
+    const col = marks.find((m) => m.axis === 'col')!;
+    expect(col.indices).toEqual([1, 2]);
+    expect(col.pos).toBe(layout.cols[1]!.start);
+    expect(marks.find((m) => m.axis === 'row')!.indices).toEqual([4]);
+    expect(hiddenMarkerAt(layout, s, col.pos + 2, 10)?.indices).toEqual([1, 2]);
+    expect(hiddenMarkerAt(layout, s, col.pos + 40, 10)).toBeUndefined();
+    expect(hiddenMarkerAt(layout, s, col.pos, 100)).toBeUndefined();
   });
 });

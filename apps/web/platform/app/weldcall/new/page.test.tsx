@@ -34,6 +34,7 @@ vi.mock('@clerk/clerk-react', async (importOriginal) => ({
   useUser: () => ({ user: { id: 'user_1', fullName: 'Daniel S', imageUrl: undefined } }),
 }));
 vi.mock('@weldsuite/i18n/client', () => ({ useTranslations: () => (key: string) => key }));
+vi.mock('@/hooks/use-member-avatar', () => ({ useCurrentUserAvatar: () => undefined }));
 vi.mock('@/contexts/call-context', () => ({ useCall: () => callState }));
 vi.mock('../components/weldcall-gate', () => ({
   WeldCallGate: ({ children }: { children: ReactNode }) => <>{children}</>,

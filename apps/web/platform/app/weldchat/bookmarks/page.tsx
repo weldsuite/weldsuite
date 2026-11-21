@@ -3,7 +3,7 @@ import { Bookmark, Check, Hash, MessageSquare, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useUser } from '@/lib/auth';
 import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   AlertDialog,
@@ -212,10 +212,14 @@ export default function BookmarksPage() {
           className="flex flex-1 min-w-0 items-center gap-4 text-left cursor-pointer"
         >
           <span className="w-[220px] flex-shrink-0 flex items-center gap-3 min-w-0">
-            <Avatar className="h-6 w-6 flex-shrink-0">
-              {bk.messageAuthorAvatar && <AvatarImage src={bk.messageAuthorAvatar} />}
-              <AvatarFallback className="text-[10px]">{authorName[0].toUpperCase()}</AvatarFallback>
-            </Avatar>
+            <MemberAvatar
+              userId={bk.messageAuthorId}
+              name={authorName}
+              picture={bk.messageAuthorAvatar}
+              className="h-6 w-6 flex-shrink-0"
+              fallbackClassName="text-[10px]"
+              fallback={authorName[0].toUpperCase()}
+            />
             <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{authorName}</span>
           </span>
 
@@ -229,7 +233,10 @@ export default function BookmarksPage() {
 
           <span className="w-[200px] flex-shrink-0 flex items-center gap-1.5 min-w-0 text-sm text-gray-600 dark:text-muted-foreground">
             <ConversationIcon className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="truncate">{conversationLabel(bk, dmLabels, page.directMessage)}</span>
+            {/* The # icon already marks a channel: its name goes without another "#". */}
+            <span className="truncate">
+              {!isDirectMessage(bk) && bk.channelName ? bk.channelName : conversationLabel(bk, dmLabels, page.directMessage)}
+            </span>
           </span>
 
           <span className="w-[120px] flex-shrink-0 text-sm text-gray-600 dark:text-muted-foreground">

@@ -3,7 +3,7 @@
  * the minimum selling price (base, seats, credits), the check that refuses a
  * price below it, revenue share, per-seat peaks, day proration from the
  * licence history, and the dunning clock. The worked examples are the ones in
- * docs/plans/reseller-licensing.md.
+ * weldsuite-documentation/plans/reseller-licensing.md.
  */
 
 import { describe, expect, it } from 'vitest';

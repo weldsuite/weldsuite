@@ -79,7 +79,7 @@ export const METERS: Record<MeterKey, MeterDefinition> = {
     creditsPerBlock: 50,
   },
   // Defined for the usage overview; sending is not metered yet (the outbound
-  // mail guard is where it will be, docs/plans/weldmail-outbound-abuse.md).
+  // mail guard is where it will be, weldsuite-documentation/plans/weldmail-outbound-abuse.md).
   emails: {
     key: 'emails',
     unit: 'email',

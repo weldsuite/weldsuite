@@ -31,6 +31,7 @@ export function ConversationList({
   isLoading,
   footer,
   onSearchChange,
+  hideUnreadCount,
 }: Readonly<ConversationListProps>) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.shared.noConversationsFound');
@@ -114,6 +115,7 @@ export function ConversationList({
                 onToggleStar={onToggleStar ? () => onToggleStar(item.id) : undefined}
                 contextMenuContent={contextMenuItems?.(item)}
                 onLabelDrop={onLabelDrop ? (labelData) => onLabelDrop(item, labelData) : undefined}
+                hideUnreadCount={hideUnreadCount}
               />
             ))}
           </div>
@@ -143,6 +145,7 @@ export function ConversationList({
                 size="sm"
                 className="h-8 w-8 p-0 flex-shrink-0 shadow-none"
                 onClick={() => setSearchOpen(true)}
+                aria-label={t('common.actions.search')}
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -153,6 +156,7 @@ export function ConversationList({
                   ref={searchInputRef}
                   type="text"
                   placeholder={t('sweep.shared.searchPlaceholder')}
+                  aria-label={t('common.actions.search')}
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);

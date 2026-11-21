@@ -45,7 +45,7 @@ export function SupplierDialog({
   onOpenChange: (open: boolean) => void;
   supplier?: WmsSupplier;
 }>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const ts = getTranslations('common');
   const isEdit = !!supplier;
   const create = useCreateWeldstashSupplier();

@@ -19,7 +19,9 @@ publish = false
 # Shared dependency versions go here; crates use `dep = { workspace = true }`.
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-ai = { path = "crates/ai" }
 weldsuite-ads = { path = "modules/ads" }
+weldsuite-agent = { path = "modules/agent" }
 weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-call = { path = "modules/call" }
@@ -37,17 +39,18 @@ weldsuite-books-tax = { path = "modules/books-tax" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
-weldsuite-commerce = { path = "modules/commerce" }
-weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-connect-domain = { path = "crates/connect-domain" }
 weldsuite-connect = { path = "modules/connect" }
 weldsuite-core-apps = { path = "modules/core-apps" }
+weldsuite-core-billing = { path = "modules/core-billing" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-onboarding = { path = "modules/core-onboarding" }
+weldsuite-core-signin = { path = "modules/core-signin" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
+weldsuite-commerce = { path = "modules/commerce" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-data = { path = "modules/data" }
@@ -60,10 +63,13 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-forms = { path = "modules/forms" }
+weldsuite-forms-engine = { path = "crates/forms-engine" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-lakehouse = { path = "crates/lakehouse" }
 weldsuite-legal-entities = { path = "crates/legal-entities" }
 weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
@@ -79,9 +85,11 @@ weldsuite-meet = { path = "modules/meet" }
 weldsuite-merge = { path = "modules/merge" }
 weldsuite-merge-domain = { path = "crates/merge-domain" }
 weldsuite-panel = { path = "modules/panel" }
+weldsuite-panel-domain = { path = "crates/panel-domain" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
+weldsuite-mollie = { path = "crates/mollie" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-social = { path = "modules/social" }
 weldsuite-staff-domain = { path = "crates/staff-domain" }
@@ -89,6 +97,7 @@ weldsuite-social-domain = { path = "crates/social-domain" }
 weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
+weldsuite-zod = { path = "crates/zod" }
 weldsuite-personal = { path = "modules/personal" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
@@ -97,8 +106,22 @@ weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
 weldsuite-reach = { path = "modules/reach" }
 weldsuite-reach-domain = { path = "crates/reach-domain" }
+weldsuite-sandbox = { path = "crates/sandbox" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
+# WeldPanel's lakehouse (crates/lakehouse, ADR EVT-019). Pre-1.0 and breaking
+# every minor release, so pinned exactly and upgraded together on purpose:
+# iceberg-datafusion 0.11 pins DataFusion 54 and Arrow 58. The Iceberg catalog
+# is our own, on the workspace's sqlx (crates/lakehouse/src/pg_catalog.rs).
+arrow-array = "=58.4.2"
+arrow-schema = "=58.4.2"
+datafusion = "=54.2.0"
+datafusion-functions-json = "=0.54.2"
+iceberg = "=0.11.0"
+iceberg-datafusion = "=0.11.0"
+iceberg-storage-opendal = { version = "=0.11.0", default-features = false, features = ["opendal-fs", "opendal-s3"] }
+parquet = { version = "=58.4.2", default-features = false, features = ["arrow", "async", "zstd"] }
+async-trait = "0.1.92"
 async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"
@@ -121,10 +144,14 @@ opentelemetry = { version = "0.33.1", default-features = false, features = ["tra
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+# Prometheus metrics (`GET /metrics` on `METRICS_ADDR`): the facade for every
+# crate that records, the exporter for the binary only.
+metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"
-lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 redis = { version = "1.8.0", default-features = false }
@@ -180,3 +207,14 @@ debug = "line-tables-only"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# The image `Rust · image and chart` builds on a pull request (ci.yml, the
+# CARGO_PROFILE build argument of rust/Dockerfile). Thin LTO with one codegen
+# unit made that build 20 to 40 minutes whenever the Rust layer missed the
+# cache; a pull request's image only has to deploy and pass the kind smoke
+# test. Pushes to main still build `release`, the profile that ships.
+[profile.ci-image]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 1

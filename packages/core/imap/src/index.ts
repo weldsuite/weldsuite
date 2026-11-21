@@ -4,7 +4,7 @@
  *
  * Just enough IMAP for the WeldReach warmup network: find a message by its
  * Message-ID in INBOX or the Junk folder, move it, flag it, delete it. See
- * docs/plans/weldreach-warmup.md. The socket is injectable so the protocol is
+ * weldsuite-documentation/plans/weldreach-warmup.md. The socket is injectable so the protocol is
  * unit-tested against scripted servers, like @weldsuite/smtp.
  *
  * CONTRACT (other packages code against these names; keep them stable):

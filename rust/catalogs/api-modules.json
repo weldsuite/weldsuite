@@ -7,9 +7,12 @@
     "prefixes": [
       "/api/access-requests",
       "/api/account",
+      "/api/ai-settings",
       "/api/api-keys",
       "/api/app-catalog",
       "/api/appstore",
+      "/api/asset-sources",
+      "/api/audit-log-streams",
       "/api/audit-logs",
       "/api/auth-desktop",
       "/api/auth-sessions",
@@ -56,12 +59,12 @@
       "/public/user-apps"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "app-api"
   },
   {
     "apps": [
       "weldcrm",
-      "weldcommerce",
       "welddesk",
       "weldflow",
       "weldmail",
@@ -92,6 +95,7 @@
       "/api/sequences"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "crm-api"
   },
   {
@@ -107,7 +111,9 @@
       "/api/canned-responses",
       "/api/conversations",
       "/api/desk/assignment",
+      "/api/desk/catalog",
       "/api/desk/conversations",
+      "/api/desk/problems",
       "/api/desk/routing",
       "/api/desk/widget",
       "/api/helpcenter-settings",
@@ -137,6 +143,7 @@
       "/public/helpcenter"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "desk-api"
   },
   {
@@ -169,6 +176,7 @@
       "/api/mailboxes"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "mail-api"
   },
   {
@@ -226,6 +234,7 @@
       "/public/project-portal"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "flow-api"
   },
   {
@@ -282,47 +291,26 @@
       "/public/fiscal-webhooks"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "books-api"
   },
   {
     "apps": [
-      "weldcommerce",
-      "weldstash"
+      "weldcommerce"
     ],
     "binding": "COMMERCE_API",
     "devPort": 8806,
     "id": "commerce",
     "prefixes": [
-      "/api/carriers",
-      "/api/categories",
-      "/api/commerce-portal",
-      "/api/orders",
-      "/api/parcel-analytics",
-      "/api/parcel-notifications",
-      "/api/parcel-rates",
-      "/api/parcel-settings",
-      "/api/parcel-wallet",
-      "/api/parcels",
-      "/api/pickups",
-      "/api/printnode",
-      "/api/products",
-      "/api/return-reasons",
-      "/api/return-rules",
-      "/api/returns",
-      "/api/sendcloud",
-      "/api/shipments",
-      "/api/shipping-prices",
-      "/api/shipping-rules",
-      "/public/commerce-portal",
-      "/webhooks/woocommerce"
+      "/api/commerce"
     ],
     "rust": true,
+    "rustOnly": true,
     "worker": "commerce-api"
   },
   {
     "apps": [
-      "weldstash",
-      "weldcommerce"
+      "weldstash"
     ],
     "binding": "STASH_API",
     "devPort": 8807,
@@ -334,8 +322,11 @@
       "/api/inventory-movements",
       "/api/pick-lists",
       "/api/pickers",
+      "/api/product-suppliers",
+      "/api/products",
       "/api/purchase-orders",
       "/api/putaway",
+      "/api/replenishment",
       "/api/stock-adjustments",
       "/api/warehouse-locations",
       "/api/warehouse-zones",
@@ -344,6 +335,7 @@
       "/api/wms-suppliers"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "stash-api"
   },
   {
@@ -362,6 +354,7 @@
       "/public/webhooks/realtime-register"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "host-api"
   },
   {
@@ -381,6 +374,7 @@
       "/api/working-hours"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "calendar-api"
   },
   {
@@ -401,6 +395,7 @@
       "/public/meeting-recordings"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "meet-api"
   },
   {
@@ -430,6 +425,7 @@
       "/public/chat-calls"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "chat-api"
   },
   {
@@ -451,6 +447,7 @@
       "/public/webhooks/telnyx"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "call-api"
   },
   {
@@ -485,9 +482,11 @@
       "/api/workflow-variables",
       "/api/workflow-versions",
       "/api/workflow-webhooks",
-      "/api/workflows"
+      "/api/workflows",
+      "/webhooks/woocommerce"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "connect-api"
   },
   {
@@ -501,7 +500,8 @@
       "/api/chat-agent",
       "/api/weldagent"
     ],
-    "rust": false,
+    "rust": true,
+    "rustOnly": false,
     "worker": "agent-api"
   },
   {
@@ -517,6 +517,7 @@
       "/api/welddata"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "data-api"
   },
   {
@@ -530,6 +531,7 @@
       "/api/knowledge"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "know-api"
   },
   {
@@ -543,6 +545,7 @@
       "/api/weldhr"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "hr-api"
   },
   {
@@ -564,6 +567,7 @@
       "/public/social/postpeer"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "social-api"
   },
   {
@@ -579,6 +583,7 @@
       "/api/ad-connections"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "ads-api"
   },
   {
@@ -592,6 +597,7 @@
       "/api/weldpass"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "pass-api"
   },
   {
@@ -606,6 +612,7 @@
       "/public/reach"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "reach-api"
   },
   {
@@ -619,6 +626,7 @@
       "/api/sheets"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "sheets-api"
   },
   {
@@ -632,6 +640,7 @@
       "/api/sign"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "sign-api"
   },
   {
@@ -645,6 +654,7 @@
       "/api/docs"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "docs-api"
   },
   {
@@ -655,9 +665,11 @@
     "devPort": 8825,
     "id": "panel",
     "prefixes": [
-      "/api/panel"
+      "/api/panel",
+      "/public/panel"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "panel-api"
   },
   {
@@ -672,6 +684,7 @@
       "/api/boards"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "board-api"
   },
   {
@@ -686,6 +699,22 @@
       "/public/merge"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "merge-api"
+  },
+  {
+    "apps": [
+      "weldforms"
+    ],
+    "binding": "FORMS_API",
+    "devPort": 8828,
+    "id": "forms",
+    "prefixes": [
+      "/api/forms",
+      "/public/forms"
+    ],
+    "rust": true,
+    "rustOnly": false,
+    "worker": "forms-api"
   }
 ]

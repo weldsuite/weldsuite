@@ -24,7 +24,7 @@ import {
 //           + max(0, licensed_credits − included_credits) × credit_floor_price
 //   due     = max(resale, minimum) × revenue_share + extra credits granted
 //
-// Plan: docs/plans/reseller-licensing.md. Master DB because the partner portal
+// Plan: weldsuite-documentation/plans/reseller-licensing.md. Master DB because the partner portal
 // reads across many workspaces and the licence joins the cached workspace
 // context every API worker already loads.
 //

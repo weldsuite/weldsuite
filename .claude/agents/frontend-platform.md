@@ -19,7 +19,7 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 - **TanStack Query** for server state (via `QueryProvider`)
 - **Jotai** for lightweight client state
 - **React Hook Form + Zod v3 (NOT v4)**, validation schemas go through `zodResolver`
-- **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read CLAUDE.md → UI for the rules and the "need → component" table.
+- **`@weldsuite/ui`** (`packages/design/ui`) for all UI, imported by path: `@weldsuite/ui/components/<name>`. Read `apps/web/platform/AGENTS.md` → UI for the rules and the "need → component" table.
 - **Tailwind v4** utilities only, no legacy v3 syntax
 - **Path alias `@`** resolves to platform root: `@/lib/...`, `@/components/...`, `@/app/...`
 - **Env vars use `VITE_` prefix** (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_WORKER_URL`)
@@ -37,9 +37,9 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 
 Route files are thin:
 ```ts
-// src/routes/commerce/products/index.tsx
-import PageComponent from '@/app/weldcommerce/products/page';
-export const Route = createFileRoute('/commerce/products/')({ component: PageComponent });
+// src/routes/weldstash/products/index.tsx
+import PageComponent from '@/app/weldstash/products/page';
+export const Route = createFileRoute('/weldstash/products/')({ component: PageComponent });
 ```
 
 Layout groups: `_dashboard/`, `_builder/`, `_preview/`, `auth/`, `settings/`.
@@ -63,6 +63,7 @@ Mutations wrapped in `useMutation` with query invalidation on success.
 - **i18n:** `@/lib/i18n` `getTranslations('namespace')`. Add new strings to both `en` and `nl` in `packages/core/i18n/src/locales/<locale>/` (TypeScript modules).
 - **Dark mode + responsive:** Every new screen works in both modes + mobile breakpoints.
 - **Confirm modals:** `ConfirmDialog` from `@weldsuite/ui/components/confirm-dialog`, no per-feature dialogs.
+- **Modern web guidance:** before writing HTML, CSS or browser code, run the `modern-web-guidance` skill (search, retrieve, apply, check) as root `AGENTS.md` → "Modern web guidance" describes. Don't wait to be asked.
 
 ## Testing
 

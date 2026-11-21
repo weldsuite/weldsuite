@@ -20,6 +20,8 @@ use crate::session::{ApiSession, unauthorized};
 fn aliased_module(object: &str) -> Option<&'static str> {
     match object {
         "knowledge-pages" | "knowledge-spaces" => Some("know"),
+        // WeldDesk's BI connector: the OData feed of helpdesk tables.
+        "odata" => Some("desk"),
         "quotes" => Some("crm"),
         _ => None,
     }
@@ -178,6 +180,13 @@ mod tests {
         assert_eq!(module_for_external_path("/v1/knowledge-pages/x").id, "know");
         assert_eq!(module_for_external_path("/v1/quotes").id, "crm");
         assert_eq!(module_for_external_path("/v1/tickets/t_1").id, "desk");
+        // WeldDesk's BI connector (the OData feed).
+        assert_eq!(
+            module_for_external_path("/v1/odata/Conversations?$top=5").id,
+            "desk"
+        );
+        assert_eq!(module_for_external_path("/v1/odata/$metadata").id, "desk");
+        assert_eq!(module_for_external_path("/v1/odata").id, "desk");
         assert_eq!(module_for_external_path("/v1/people?limit=5").id, "crm");
         assert_eq!(module_for_external_path("/v1").id, "core");
         assert_eq!(module_for_external_path("/v1/app-storage/x").id, "core");
