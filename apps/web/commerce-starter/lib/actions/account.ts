@@ -4,11 +4,11 @@ import { isStorefrontError } from '@weldsuite/commerce-sdk';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
-import { requestOptions, storefront } from '../commerce';
+import { emailLocale, requestOptions, storefront } from '../commerce';
 import { getSessionToken } from '../data';
 import { describeError } from '../errors';
 import { clearShopperToken, getCartToken, getShopperToken, setCartToken, setShopperToken } from '../session';
-import { safePath, text, type FormState } from './state';
+import { problemRows, safePath, text, type FormState, type ProblemRow } from './state';
 
 export interface SignInState extends FormState {
   step: 'email' | 'code';
@@ -36,7 +36,8 @@ function wrongCodeMessage(attemptsLeft: unknown, error: unknown): string {
  * emails one, with a `code` it checks it.
  */
 export async function signInAction(prev: SignInState, form: FormData): Promise<SignInState> {
-  return form.has('code') ? verifyCode(prev, form) : requestCode(prev, form);
+  if (form.has('code')) return await verifyCode(prev, form);
+  return await requestCode(prev, form);
 }
 
 /** Sign-in step 1: email a code. The email stays in the form, not in the URL. */
@@ -47,7 +48,7 @@ async function requestCode(_prev: SignInState, form: FormData): Promise<SignInSt
     return { status: 'error', step: 'email', next, message: 'Enter your email address.', fieldErrors: { email: 'Enter an email address like name@example.com' } };
   }
   try {
-    await storefront().auth.requestCode(email, await requestOptions());
+    await storefront().auth.requestCode(email, { locale: emailLocale(), ...(await requestOptions()) });
     return { status: 'success', step: 'code', email, next, message: `We sent a 6-digit code to ${email}.` };
   } catch (error) {
     return { status: 'error', step: 'email', email, next, message: describeError(error) };
@@ -139,7 +140,7 @@ export async function selectCompanyAction(_prev: FormState, form: FormData): Pro
 }
 
 export interface ReorderState extends FormState {
-  problems?: Array<{ sku: string | null; message: string }>;
+  problems?: ProblemRow[];
 }
 
 /** Order page: put the order's lines in the cart again. */
@@ -160,10 +161,14 @@ export async function reorderAction(_prev: ReorderState, form: FormData): Promis
     if (result.cartToken) await setCartToken(result.cartToken);
     revalidatePath('/', 'layout');
     if (result.problems.length > 0) {
+      const rows = problemRows(result.problems);
+      const allAdded = rows.every((row) => row.added);
       return {
-        status: 'error',
-        message: 'Some items could not be added again. The rest are in your cart.',
-        problems: result.problems.map((p) => ({ sku: p.sku, message: p.message })),
+        status: allAdded ? 'success' : 'error',
+        message: allAdded
+          ? 'Added to your cart. Some items have fewer in stock than you ordered.'
+          : 'Some items could not be added again. The rest are in your cart.',
+        problems: rows,
       };
     }
     goToCart = true;
@@ -181,17 +186,20 @@ export async function decideApprovalAction(_prev: FormState, form: FormData): Pr
   const decision = text(form, 'decision');
   const comment = text(form, 'comment') || undefined;
   if (decision !== 'approve' && decision !== 'reject') return { status: 'error', message: 'Choose approve or reject.' };
-  let orderNumber: string;
+  const query = new URLSearchParams();
   try {
+    const options = { comment, ...(await requestOptions()) };
     const order =
       decision === 'approve'
-        ? await storefront().approvals.approve(token, orderId, { comment }, await requestOptions())
-        : await storefront().approvals.reject(token, orderId, { comment }, await requestOptions());
-    orderNumber = order.orderNumber;
+        ? await storefront().approvals.approve(token, orderId, options)
+        : await storefront().approvals.reject(token, orderId, options);
+    query.set(decision === 'approve' ? 'approved' : 'rejected', order.orderNumber);
+    // An approved Mollie order got its payment: the buyer is emailed the link.
+    if (order.payment) query.set('payment', 'sent');
   } catch (error) {
     return { status: 'error', message: describeError(error) };
   }
   // The order leaves the list, so the confirmation goes on the page.
   revalidatePath('/account/approvals');
-  redirect(`/account/approvals?${decision === 'approve' ? 'approved' : 'rejected'}=${encodeURIComponent(orderNumber)}`);
+  redirect(`/account/approvals?${query.toString()}`);
 }

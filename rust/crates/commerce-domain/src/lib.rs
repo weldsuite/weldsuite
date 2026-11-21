@@ -11,6 +11,8 @@
 //! It never writes `fulfilled_quantity` or `fulfillment_status` (WeldStash
 //! owns them, STASH-001/006), and it reserves no stock.
 
+pub mod accounts;
+pub mod approvals;
 pub mod carts;
 pub mod channels;
 pub mod checkout;

@@ -10,13 +10,13 @@ export function NavLink({
   children,
   className = '',
   exact = false,
-}: {
+}: Readonly<{
   href: string;
   children: ReactNode;
   className?: string;
   /** Only the page itself, not the pages under it. */
   exact?: boolean;
-}) {
+}>) {
   const pathname = usePathname();
   const current = pathname === href || (!exact && href !== '/' && pathname.startsWith(`${href}/`));
   return (

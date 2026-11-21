@@ -20,7 +20,7 @@ const getProduct = cache(async (idOrSlug: string) => {
   }
 });
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params }: Readonly<Props>): Promise<Metadata> {
   const product = await getProduct(segment((await params).slug));
   const image = product.featuredImageUrl ?? product.images[0]?.url;
   return {
@@ -36,7 +36,7 @@ function galleryOf(product: StorefrontProduct): ProductImage[] {
   return product.featuredImageUrl ? [{ url: product.featuredImageUrl, altText: null }] : [];
 }
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage({ params }: Readonly<Props>) {
   const [product, channel] = await Promise.all([getProduct(segment((await params).slug)), getChannel()]);
   const [main, ...more] = galleryOf(product);
   const category = product.categories[0];
@@ -45,6 +45,7 @@ export default async function ProductPage({ params }: Props) {
     <div className="flex flex-col gap-6">
       {category ? (
         <nav aria-label="Breadcrumb">
+          {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
           <ol role="list" className="flex flex-wrap gap-2 text-sm text-ink-muted">
             <li>
               <Link href="/products" className="hover:underline">
@@ -80,6 +81,7 @@ export default async function ProductPage({ params }: Props) {
             <div aria-hidden="true" className="aspect-square w-full rounded-2xl bg-surface-muted" />
           )}
           {more.length > 0 ? (
+            // role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none.
             <ul role="list" className="grid grid-cols-4 gap-3">
               {more.map((image) => (
                 <li key={image.url}>

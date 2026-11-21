@@ -26,14 +26,14 @@ function AddressFields({
   countries,
   errors,
   required,
-}: {
+}: Readonly<{
   section: Section;
   address: Address | null;
   countries: Array<{ code: string; name: string }>;
   errors: Record<string, string>;
   /** Billing fields are checked on the server: they may be hidden. */
   required: boolean;
-}) {
+}>) {
   const prefix = section === 'shipping' ? 'shippingAddress' : 'billingAddress';
   const countryId = useId();
   const error = (field: string) => errors[`${prefix}.${field}`];
@@ -163,11 +163,11 @@ export function DetailsForm({
   defaults,
   countries,
   b2b,
-}: {
+}: Readonly<{
   defaults: DetailsDefaults;
   countries: Array<{ code: string; name: string }>;
   b2b: boolean;
-}) {
+}>) {
   const [state, action, pending] = useActionState(saveDetailsAction, idle);
   const form = useFormFocus(state);
   const errors = state.fieldErrors ?? {};
@@ -203,7 +203,7 @@ export function DetailsForm({
       <div className="billing flex flex-col gap-4">
         <label className="flex items-center gap-3">
           <input type="checkbox" name="billingSame" className="billing-same" defaultChecked={sameBilling} />
-          Billing address is the same as the delivery address
+          <span>Billing address is the same as the delivery address</span>
         </label>
         <fieldset className="billing-fields flex flex-col gap-4">
           <legend className="mb-2 text-lg font-semibold">Billing address</legend>
@@ -261,12 +261,12 @@ export function ShippingForm({
   selected,
   currency,
   locale,
-}: {
+}: Readonly<{
   rates: ShippingRateOffer[];
   selected: string | null;
   currency: string;
   locale: string;
-}) {
+}>) {
   const [state, action] = useActionState(chooseShippingAction, idle);
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -305,13 +305,13 @@ export function PlaceOrderForm({
   currency,
   locale,
   idempotencyKey,
-}: {
+}: Readonly<{
   methods: PaymentMethod[];
   total: string;
   currency: string;
   locale: string;
   idempotencyKey: string;
-}) {
+}>) {
   const [state, action, pending] = useActionState<PlaceOrderState, FormData>(placeOrderAction, { status: 'idle' });
   const [method, setMethod] = useState<PaymentMethod | undefined>(methods[0]);
   const amount = money(total, currency, locale);
@@ -324,7 +324,7 @@ export function PlaceOrderForm({
         {methods.map((m) => (
           <label
             key={m}
-            className="flex cursor-pointer items-start gap-3 rounded-lg border-2 border-line px-4 py-3 has-checked:border-brand has-checked:bg-brand-soft"
+            className="grid cursor-pointer grid-cols-[auto_1fr] items-start gap-x-3 rounded-lg border-2 border-line px-4 py-3 has-checked:border-brand has-checked:bg-brand-soft"
           >
             <input
               type="radio"
@@ -333,12 +333,10 @@ export function PlaceOrderForm({
               required
               checked={method === m}
               onChange={() => setMethod(m)}
-              className="mt-1"
+              className="row-span-2 mt-1"
             />
-            <span className="flex flex-col">
-              <span className="font-medium">{METHOD_LABELS[m].title}</span>
-              <span className="hint">{METHOD_LABELS[m].text}</span>
-            </span>
+            <span className="font-medium">{METHOD_LABELS[m].title}</span>
+            <span className="hint">{METHOD_LABELS[m].text}</span>
           </label>
         ))}
       </fieldset>

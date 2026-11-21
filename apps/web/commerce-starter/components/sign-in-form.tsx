@@ -10,7 +10,7 @@ import { Field, FormMessage, SubmitButton } from './form-bits';
  * Passwordless sign-in in two steps: the email, then the 6-digit code from
  * the email. The email is carried in the form, never in the URL.
  */
-export function SignInForm({ next }: { next: string }) {
+export function SignInForm({ next }: Readonly<{ next: string }>) {
   const [state, action] = useActionState<SignInState, FormData>(signInAction, { status: 'idle', step: 'email' });
   const codeId = useId();
   const hintId = useId();

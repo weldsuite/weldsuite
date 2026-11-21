@@ -164,6 +164,10 @@ pub(crate) fn invalid(field: &str, message: &str) -> Refusal {
     }
 }
 
+fn forbidden(code: &'static str, message: String) -> Refusal {
+    ApiError::new(StatusCode::FORBIDDEN, code, message).into()
+}
+
 fn conflict(code: &'static str, message: String, details: Option<Value>) -> Refusal {
     let error = ApiError::new(StatusCode::CONFLICT, code, message);
     match details {
@@ -233,6 +237,22 @@ pub(crate) fn refuse(error: Error) -> Refusal {
             format!("VAT to {country} is not supported yet"),
             Some(json!({ "country": country })),
         ),
+        error @ Error::PaymentInProgress => {
+            conflict("PAYMENT_IN_PROGRESS", error.to_string(), None)
+        }
+        error @ Error::BuyerExists => conflict("BUYER_EXISTS", error.to_string(), None),
+        error @ Error::LastAdmin => conflict("LAST_ADMIN", error.to_string(), None),
+        error @ Error::NotABuyer => forbidden("NOT_A_BUYER", error.to_string()),
+        error @ Error::NotAnApprover => forbidden("NOT_AN_APPROVER", error.to_string()),
+        error @ Error::NotPending => conflict("NOT_PENDING", error.to_string(), None),
+        error @ Error::CompanyRequired => conflict("COMPANY_REQUIRED", error.to_string(), None),
+        error @ Error::NoPaymentTerms => conflict("NO_PAYMENT_TERMS", error.to_string(), None),
+        Error::CreditLimitExceeded { available } => conflict(
+            "CREDIT_LIMIT_EXCEEDED",
+            "The order would take the company past its credit limit".to_owned(),
+            Some(json!({ "available": weldsuite_commerce_domain::money::format(available) })),
+        ),
+        error @ Error::ApprovalPending => conflict("APPROVAL_PENDING", error.to_string(), None),
         error @ Error::TaxLocked => conflict("ORDER_TAX_LOCKED", error.to_string(), None),
         Error::TaxEngineUnavailable(why) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

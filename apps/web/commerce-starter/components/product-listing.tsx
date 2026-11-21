@@ -1,5 +1,6 @@
-import type { ProductSort } from '@weldsuite/commerce-sdk';
+import { isStorefrontError, type ProductSort } from '@weldsuite/commerce-sdk';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { requestOptions, shopLocale, storefront } from '@/lib/commerce';
 import { single } from '@/lib/params';
@@ -26,15 +27,14 @@ export async function ProductListing({
   basePath,
   category,
   searchParams,
-}: {
+}: Readonly<{
   basePath: string;
   category?: string;
   searchParams: Record<string, string | string[] | undefined>;
-}) {
+}>) {
   const search = single(searchParams.search)?.slice(0, 100);
   const sort = readSort(searchParams.sort);
   const cursor = single(searchParams.cursor);
-  const page = await storefront().products.list({ category, search, sort, cursor, limit: 24 }, await requestOptions());
 
   const link = (params: Record<string, string | undefined>) => {
     const query = new URLSearchParams();
@@ -44,6 +44,15 @@ export async function ProductListing({
     const text = query.toString();
     return text ? `${basePath}?${text}` : basePath;
   };
+
+  let page;
+  try {
+    page = await storefront().products.list({ category, search, sort, cursor, limit: 24, ...(await requestOptions()) });
+  } catch (error) {
+    // A cursor from an old link (or another sort): back to the first page.
+    if (cursor && isStorefrontError(error, 'INVALID_CURSOR')) redirect(link({}));
+    throw error;
+  }
 
   return (
     <div className="flex flex-col gap-6">

@@ -28,7 +28,7 @@ function errorMessage(code: string | undefined): string | null {
   return messageForCode(code);
 }
 
-export default async function CartPage({ searchParams }: Props) {
+export default async function CartPage({ searchParams }: Readonly<Props>) {
   const [cart, params] = await Promise.all([getCart(), searchParams]);
   const error = errorMessage(single(params.error));
 
@@ -56,6 +56,7 @@ export default async function CartPage({ searchParams }: Props) {
       ) : null}
 
       <div className="grid gap-10 lg:grid-cols-[1fr_22rem]">
+        {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
         <ul role="list" aria-label="Items in your cart" className="flex flex-col divide-y divide-line border-y border-line">
           {cart.items.map((line) => {
             const label = line.variantName ? `${line.name}, ${line.variantName}` : line.name;

@@ -23,14 +23,31 @@
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 
+use crate::accounts;
+use crate::approvals;
 use crate::carts::{self, Ctx, Refusal};
+use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::lines::LineInput;
 use crate::orders::write::{self, NewOrder};
 
+/// A signed-in shopper (the session's person, and the company they chose).
+#[derive(Debug, Clone)]
+pub struct Shopper {
+    pub person_id: String,
+    /// The session's active company; on a B2B channel the shopper's only
+    /// company stands in when none is chosen.
+    pub company_id: Option<String>,
+}
+
 /// What a checkout asks for.
 #[derive(Debug, Clone, Default)]
 pub struct Input {
+    /// The signed-in shopper; none is a guest.
+    pub shopper: Option<Shopper>,
+    /// Where a Mollie payment sends the shopper back to; kept on the order
+    /// (an order waiting for approval pays after it).
+    pub redirect_url: Option<String>,
     /// `mollie` or `invoice`.
     pub payment_method: String,
     /// The total the shopper saw: a different total refuses with
@@ -48,6 +65,27 @@ pub struct Placed {
     pub order_number: String,
     /// A retry: the order existed already, nothing was written.
     pub replayed: bool,
+    /// The order waits for an approval, and why.
+    pub approval_reason: Option<&'static str>,
+    /// A guest's random access token, once; only its hash is stored. None
+    /// for a signed-in shopper and for a replay.
+    pub order_token: Option<String>,
+    pub person_id: Option<String>,
+    pub company_id: Option<String>,
+}
+
+fn new_order_token() -> String {
+    format!(
+        "wot_{}",
+        weldsuite_kit::id::random_string(40, weldsuite_kit::id::ALPHANUMERIC)
+    )
+}
+
+/// SHA-256 (hex) of an order access token.
+#[must_use]
+pub fn order_token_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 fn first_text(address: Option<&Value>, key: &str) -> Option<String> {
@@ -71,8 +109,7 @@ fn first_text(address: Option<&Value>, key: &str) -> Option<String> {
 )]
 pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Placed, Refusal> {
     let channel = ctx.channel;
-    if !channel.guest_checkout {
-        // Shopper sessions arrive with phase 6.
+    if !channel.guest_checkout && input.shopper.is_none() {
         return Err(Refusal::GuestCheckoutDisabled);
     }
     let offered = channel.payment_methods.contains(&input.payment_method);
@@ -104,6 +141,10 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
                 order_id: order_id.to_owned(),
                 order_number: number.unwrap_or_default(),
                 replayed: true,
+                approval_reason: None,
+                order_token: None,
+                person_id: None,
+                company_id: None,
             });
         }
         return Err(Refusal::CartNotOpen("completed".to_owned()));
@@ -156,6 +197,34 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
         return Err(Refusal::PriceChanged(quote.total));
     }
 
+    // Who buys: a B2B channel orders for a company the shopper is an active
+    // buyer of.
+    let b2b = channel.audience == "b2b";
+    let mut buyer: Option<accounts::Membership> = None;
+    if let Some(shopper) = &input.shopper {
+        let companies = accounts::memberships(&mut tx, &shopper.person_id).await?;
+        buyer = match shopper.company_id.as_deref() {
+            Some(chosen) => companies.into_iter().find(|m| m.company_id == chosen),
+            None if companies.len() == 1 => companies.into_iter().next(),
+            None => None,
+        };
+        if b2b && buyer.is_none() {
+            return Err(Refusal::Domain(if shopper.company_id.is_some() {
+                Error::NotABuyer
+            } else {
+                Error::CompanyRequired
+            }));
+        }
+    } else if b2b {
+        return Err(Refusal::Domain(Error::CompanyRequired));
+    }
+    let company_id = if b2b {
+        buyer.as_ref().map(|m| m.company_id.clone())
+    } else {
+        None
+    };
+    let person_id = input.shopper.as_ref().map(|s| s.person_id.clone());
+
     let shipping = cart.get("shippingAddress").filter(|a| a.is_object());
     let billing = cart
         .get("billingAddress")
@@ -165,8 +234,8 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
         source: "storefront".to_owned(),
         channel_id: Some(channel.id.clone()),
         currency: channel.currency.clone(),
-        company_id: None,
-        person_id: None,
+        company_id: company_id.clone(),
+        person_id: person_id.clone(),
         customer_name: first_text(billing, "name").or_else(|| first_text(shipping, "name")),
         customer_email: cart["email"].as_str().map(str::to_owned),
         customer_phone: first_text(billing, "phone").or_else(|| first_text(shipping, "phone")),
@@ -198,8 +267,59 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
     };
     let tax = vat_taxation(ctx);
     let created = write::create(&mut tx, &tax, &new).await?;
-    if input.payment_method == "invoice" {
-        write::place_on_invoice(&mut tx, &created.id).await?;
+    let mut approval_reason = None;
+    let mut order_token = None;
+    if !created.replayed {
+        if person_id.is_none() {
+            let token = new_order_token();
+            sqlx::query("update orders set guest_access_token_hash = $2 where id = $1")
+                .bind(&created.id)
+                .bind(order_token_hash(&token))
+                .execute(&mut *tx)
+                .await?;
+            order_token = Some(token);
+        }
+        if let Some(url) = &input.redirect_url {
+            sqlx::query(
+                "update orders set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb),                    '{redirectUrl}', to_jsonb($2::text)) where id = $1",
+            )
+            .bind(&created.id)
+            .bind(url)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if input.payment_method == "invoice" {
+            let party: Option<String> =
+                sqlx::query_scalar("select counterparty_id from orders where id = $1")
+                    .bind(&created.id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let party = party.ok_or(Refusal::Domain(Error::NoPaymentTerms))?;
+            approvals::check_invoice_terms(
+                &mut tx,
+                &party,
+                &created.id,
+                quote.total,
+                &channel.currency,
+            )
+            .await?;
+        }
+        if let Some(member) = buyer.as_ref().filter(|_| b2b) {
+            approval_reason = approvals::reason_for(
+                &mut tx,
+                &member.buyer_id,
+                &member.company_id,
+                quote.total,
+                &channel.currency,
+            )
+            .await?;
+            if let Some(reason) = approval_reason {
+                approvals::request(&mut tx, &created.id, reason, person_id.as_deref()).await?;
+            }
+        }
+        if input.payment_method == "invoice" {
+            write::place_on_invoice(&mut tx, &created.id, approval_reason.is_none()).await?;
+        }
     }
     carts::complete_cart(
         &mut tx,
@@ -215,6 +335,10 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
         order_id: created.id,
         order_number: created.order_number,
         replayed: created.replayed,
+        approval_reason,
+        order_token,
+        person_id,
+        company_id,
     })
 }
 
@@ -246,6 +370,16 @@ pub async fn order_view(conn: &mut PgConnection, order_id: &str) -> Result<Value
         return Ok(Value::Null);
     };
     let order = &stored.order;
+    let placed_by: Option<(String, Option<String>, Option<String>)> = match stored.text("personId")
+    {
+        Some(person) => {
+            sqlx::query_as("select id, display_name, email from people where id = $1")
+                .bind(person)
+                .fetch_optional(&mut *conn)
+                .await?
+        }
+        None => None,
+    };
     let state = |key: &str, default: &str| {
         order
             .get(key)
@@ -276,6 +410,11 @@ pub async fn order_view(conn: &mut PgConnection, order_id: &str) -> Result<Value
         "status": state("status", "pending"),
         "paymentStatus": state("paymentStatus", "pending"),
         "fulfillmentStatus": state("fulfillmentStatus", "unfulfilled"),
+        "approvalStatus": state("approvalStatus", "not_required"),
+        "placedBy": placed_by.map(|(id, name, email)| json!({
+            "personId": id,
+            "name": name.or(email),
+        })),
         "currency": order["currency"],
         "pricesIncludeTax": order.get("pricesIncludeTax").and_then(Value::as_bool).unwrap_or(false),
         "items": items,

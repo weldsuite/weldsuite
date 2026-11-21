@@ -4,24 +4,27 @@ import { countryName, date, statusLabel } from '@/lib/format';
 
 import { OrderLines } from './totals';
 
-function AddressBlock({ title, address, locale }: { title: string; address: Address | null; locale: string }) {
+function AddressBlock({ title, address, locale }: Readonly<{ title: string; address: Address | null; locale: string }>) {
   if (!address) return null;
-  const lines = [
-    address.name,
-    address.company,
-    address.line1,
-    address.line2,
-    [address.postalCode, address.city].filter(Boolean).join(' '),
-    address.region,
-    address.country ? countryName(address.country, locale) : null,
-  ].filter(Boolean);
+  // [field, text]: the field names the line (a stable key).
+  const lines = (
+    [
+      ['name', address.name],
+      ['company', address.company],
+      ['line1', address.line1],
+      ['line2', address.line2],
+      ['city', [address.postalCode, address.city].filter(Boolean).join(' ')],
+      ['region', address.region],
+      ['country', address.country ? countryName(address.country, locale) : null],
+    ] as const
+  ).filter(([, text]) => Boolean(text));
   return (
     <div className="flex flex-col gap-1">
       <h3 className="font-semibold">{title}</h3>
       <address className="not-italic">
-        {lines.map((line, index) => (
-          <span key={index} className="block">
-            {line}
+        {lines.map(([field, text]) => (
+          <span key={field} className="block">
+            {text}
           </span>
         ))}
       </address>
@@ -30,7 +33,7 @@ function AddressBlock({ title, address, locale }: { title: string; address: Addr
 }
 
 /** An order: its status, addresses, lines and totals. */
-export function OrderDetails({ order, locale, timeZone }: { order: StorefrontOrder; locale: string; timeZone: string }) {
+export function OrderDetails({ order, locale, timeZone }: Readonly<{ order: StorefrontOrder; locale: string; timeZone: string }>) {
   return (
     <div className="flex flex-col gap-8">
       <dl className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-4 rounded-2xl bg-surface-muted p-5">
@@ -50,12 +53,12 @@ export function OrderDetails({ order, locale, timeZone }: { order: StorefrontOrd
           <dt className="text-sm text-ink-muted">Delivery</dt>
           <dd className="font-medium">{statusLabel(order.fulfillmentStatus)}</dd>
         </div>
-        {order.approvalStatus && order.approvalStatus !== 'not_required' ? (
+        {order.approvalStatus === 'not_required' ? null : (
           <div>
             <dt className="text-sm text-ink-muted">Approval</dt>
             <dd className="font-medium">{statusLabel(order.approvalStatus)}</dd>
           </div>
-        ) : null}
+        )}
         {order.placedBy?.name ? (
           <div>
             <dt className="text-sm text-ink-muted">Placed by</dt>

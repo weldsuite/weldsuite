@@ -71,6 +71,7 @@ pub(crate) fn app(db: PgPool, permissions: &[&str]) -> TestApp {
     let bus = Arc::new(RecordingEventBus::new());
     let tracker = TaskTracker::new();
     let state = CommerceState {
+        mail: None,
         events: EntityEventPublisher::new(
             Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
             tracker.clone(),

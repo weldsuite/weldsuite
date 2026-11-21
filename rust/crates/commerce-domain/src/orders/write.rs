@@ -76,7 +76,7 @@ struct Customer {
     phone: Option<String>,
 }
 
-async fn party_of(
+pub(crate) async fn party_of(
     conn: &mut PgConnection,
     company: bool,
     id: &str,
@@ -960,6 +960,11 @@ pub async fn update(
     if let Some(to) = &patch.status {
         let from = stored.text("status").unwrap_or("pending");
         if to != from {
+            if stored.text("approvalStatus") == Some("pending")
+                && matches!(to.as_str(), "confirmed" | "processing" | "completed")
+            {
+                return Err(Error::ApprovalPending);
+            }
             if !status::can_move(from, to) {
                 return Err(Error::InvalidTransition {
                     from: from.to_owned(),
@@ -980,6 +985,7 @@ pub async fn update(
         if !stored.editable() {
             return Err(not_editable(&stored));
         }
+        ensure_no_open_payment(conn, id).await?;
         let owner = stored.text("createdBy").unwrap_or_default().to_owned();
         let mut person_id = stored.text("personId").map(str::to_owned);
         let mut email = stored.text("customerEmail").map(str::to_owned);
@@ -1185,6 +1191,7 @@ pub async fn recalculate(
     if !stored.editable() {
         return Err(Error::TaxLocked);
     }
+    ensure_no_open_payment(conn, id).await?;
     let order = &stored.order;
     let now = crate::now();
     let currency = stored.text("currency").unwrap_or("EUR").to_owned();
@@ -1227,6 +1234,22 @@ pub async fn recalculate(
         order.get("metadata").unwrap_or(&Value::Null),
     );
     ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    Ok(())
+}
+
+/// A Mollie payment still open fixes an amount: while one is, the order's
+/// total cannot change (a payment of the old total would otherwise settle
+/// the new one). Refused with [`Error::PaymentInProgress`].
+async fn ensure_no_open_payment(conn: &mut PgConnection, id: &str) -> Result<(), Error> {
+    let open: bool = sqlx::query_scalar(
+        "select exists (select 1 from commerce_payments            where order_id = $1 and status in ('open', 'pending', 'authorized'))",
+    )
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if open {
+        return Err(Error::PaymentInProgress);
+    }
     Ok(())
 }
 
@@ -1274,6 +1297,9 @@ pub async fn mark_paid(conn: &mut PgConnection, id: &str, payment: &Payment) -> 
     let stored = orders::load(conn, id, true)
         .await?
         .ok_or_else(|| Error::not_found("Order", id))?;
+    if stored.text("approvalStatus") == Some("pending") {
+        return Err(Error::ApprovalPending);
+    }
     if status::is_paid(stored.text("paymentStatus").unwrap_or("pending")) {
         return Err(Error::AlreadyPaid);
     }
@@ -1302,18 +1328,45 @@ pub async fn mark_paid(conn: &mut PgConnection, id: &str, payment: &Payment) -> 
     Ok(())
 }
 
-/// A storefront order placed on invoice (a B2B channel): the payment is
-/// owed, not pending, and the order is confirmed.
+/// A pending order that is no longer waiting on anything but its fulfilment
+/// becomes confirmed (an approved order on invoice).
 ///
 /// # Errors
 /// [`Error::NotFound`].
-pub async fn place_on_invoice(conn: &mut PgConnection, id: &str) -> Result<(), Error> {
+pub async fn confirm(conn: &mut PgConnection, id: &str) -> Result<(), Error> {
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "status", json!("confirmed"));
+    put(&mut values, t, "updatedAt", json!(now));
+    let stored = orders::load(conn, id, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    if stored.text("status") == Some("pending") {
+        ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    }
+    Ok(())
+}
+
+/// A storefront order placed on invoice (a B2B channel): the payment is
+/// owed, not pending. It is confirmed too, unless it waits for an approval
+/// (`confirmed` is refused to a pending approval; [`confirm`] follows it).
+///
+/// # Errors
+/// [`Error::NotFound`].
+pub async fn place_on_invoice(
+    conn: &mut PgConnection,
+    id: &str,
+    confirmed: bool,
+) -> Result<(), Error> {
     let now = crate::now();
     let t = &ORDERS;
     let mut values = Map::new();
     put(&mut values, t, "paymentStatus", json!("on_invoice"));
     put(&mut values, t, "paymentMethod", json!("invoice"));
-    put(&mut values, t, "status", json!("confirmed"));
+    if confirmed {
+        put(&mut values, t, "status", json!("confirmed"));
+    }
     put(&mut values, t, "updatedAt", json!(now));
     ORDERS
         .patch_raw(&mut *conn, id, values, true)

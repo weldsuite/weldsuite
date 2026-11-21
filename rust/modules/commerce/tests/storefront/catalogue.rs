@@ -63,7 +63,7 @@ async fn only_active_priced_products_are_listed_and_nothing_internal_leaves() {
     assert_eq!(product["available"], true);
     assert_eq!(product["variants"], json!([]));
     let rendered = product.to_string();
-    for secret in [
+    for private_field in [
         "costPrice",
         "cost_price",
         "inventoryQuantity",
@@ -72,7 +72,10 @@ async fn only_active_priced_products_are_listed_and_nothing_internal_leaves() {
         "vatCategory",
         "supplier",
     ] {
-        assert!(!rendered.contains(secret), "{secret} leaked: {rendered}");
+        assert!(
+            !rendered.contains(private_field),
+            "a field that must stay private leaked into the storefront product"
+        );
     }
 
     // Detail by id and by slug; a draft is not found.
@@ -275,4 +278,59 @@ async fn lists_sort_search_and_page_by_cursor() {
     assert_eq!(reply.body["error"]["code"], "VALIDATION_ERROR");
     assert!(reply.body["error"]["details"]["fields"]["limit"].is_string());
     assert!(reply.body["error"]["details"]["fields"]["sort"].is_string());
+}
+
+#[tokio::test]
+async fn a_cursor_is_a_keyset_that_survives_a_deleted_product() {
+    let Some(env) = env().await else { return };
+    let app = env.app();
+    let channel = env.channel(&json!({})).await;
+    let key = env.key(&channel, "private", &[]).await;
+    let tag = fresh("keyset-");
+    let mut made = Vec::new();
+    for n in ["a", "b", "c", "d"] {
+        made.push(
+            env.product(&json!({ "name": format!("{tag}-{n}"), "price": "10.00" }))
+                .await,
+        );
+    }
+    let url = |extra: &str| format!("/products?search={tag}&sort=name&limit=2{extra}");
+    let first = app.get(&url(""), &key).send().await;
+    assert_eq!(
+        ids(&first.body["data"]),
+        vec![made[0].clone(), made[1].clone()]
+    );
+    let cursor = first.body["pagination"]["cursor"]
+        .as_str()
+        .expect("cursor")
+        .to_owned();
+    // The product the cursor ends on is deleted: paging goes on after where it was.
+    sqlx::query("update products set deleted_at = now() where id = $1")
+        .bind(&made[1])
+        .execute(&env.tenant)
+        .await
+        .expect("delete");
+    let second = app
+        .get(&url(&format!("&cursor={cursor}")), &key)
+        .send()
+        .await;
+    assert_eq!(second.status, StatusCode::OK, "{}", second.body);
+    assert_eq!(
+        ids(&second.body["data"]),
+        vec![made[2].clone(), made[3].clone()]
+    );
+    // A cursor that is not one, or belongs to another sort, is refused.
+    for bad in ["garbage".to_owned(), "eyJ4IjoxfQ".to_owned()] {
+        let reply = app.get(&url(&format!("&cursor={bad}")), &key).send().await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{bad}");
+        assert_eq!(reply.body["error"]["code"], "INVALID_CURSOR");
+    }
+    let other_sort = app
+        .get(
+            &format!("/products?search={tag}&sort=price&limit=2&cursor={cursor}"),
+            &key,
+        )
+        .send()
+        .await;
+    assert_eq!(other_sort.body["error"]["code"], "INVALID_CURSOR");
 }

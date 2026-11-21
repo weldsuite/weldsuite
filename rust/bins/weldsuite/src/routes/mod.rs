@@ -266,6 +266,7 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         return router;
     }
     let commerce = weldsuite_commerce::CommerceState {
+        mail: state.infra.mail.clone(),
         events: state.infra.events.clone(),
         http: shared_outbound(),
         payments: commerce_payments(state),
@@ -1952,6 +1953,7 @@ pub(crate) fn commerce_storefront(state: &AppState) -> Router {
     }
     weldsuite_commerce::storefront::storefront_router(
         weldsuite_commerce::storefront::StorefrontState {
+            mail: state.infra.mail.clone(),
             events: state.infra.events.clone(),
             http: shared_outbound(),
             master: state.workspaces.master().clone(),

@@ -9,13 +9,13 @@ export function Price({
   currency,
   locale,
   className = '',
-}: {
+}: Readonly<{
   amount: string;
   compareAt?: string | null;
   currency: string;
   locale: string;
   className?: string;
-}) {
+}>) {
   const reduced = compareAt && compareMoney(compareAt, amount) > 0;
   return (
     <span className={`inline-flex flex-wrap items-baseline gap-x-2 ${className}`}>

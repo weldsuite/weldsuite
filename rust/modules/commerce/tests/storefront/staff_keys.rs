@@ -50,6 +50,7 @@ impl PermissionQueries for NoQueries {
 /// who may manage channels.
 fn staff(tenant: PgPool, master: PgPool) -> Router {
     let state = CommerceState {
+        mail: None,
         events: EntityEventPublisher::new(None, TaskTracker::new()),
         http: None,
         payments: weldsuite_commerce::PaymentsConfig::default(),

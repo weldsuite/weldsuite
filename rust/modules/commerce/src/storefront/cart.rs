@@ -15,12 +15,14 @@ use weldsuite_commerce_domain::money;
 use weldsuite_events::publish_entity_event;
 
 use super::{
-    Principal, body_object, cart_token, created, data, fail, internal, payments, refuse, validation,
+    Principal, body_object, cart_token, created, data, fail, internal, payments, refuse, shopper,
+    validation,
 };
+use crate::{decide, mail};
 
 type Problems = Vec<(String, String)>;
 
-fn ctx(principal: &Principal) -> Ctx<'_> {
+pub(super) fn ctx(principal: &Principal) -> Ctx<'_> {
     Ctx {
         db: &principal.db,
         http: principal.state.http.as_ref(),
@@ -176,7 +178,7 @@ pub(crate) async fn read(
     Extension(principal): Extension<Principal>,
     headers: HeaderMap,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -191,7 +193,7 @@ pub(crate) async fn add_item(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -216,7 +218,7 @@ pub(crate) async fn set_quantity(
     Path(line_id): Path<String>,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -238,7 +240,7 @@ pub(crate) async fn remove_item(
     headers: HeaderMap,
     Path(line_id): Path<String>,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -253,7 +255,7 @@ pub(crate) async fn patch(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -296,7 +298,7 @@ pub(crate) async fn shipping_rates(
     Extension(principal): Extension<Principal>,
     headers: HeaderMap,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -321,7 +323,7 @@ pub(crate) async fn set_rate(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -347,7 +349,7 @@ pub(crate) async fn apply_discount(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -376,7 +378,7 @@ pub(crate) async fn remove_discount(
     Extension(principal): Extension<Principal>,
     headers: HeaderMap,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -387,7 +389,7 @@ pub(crate) async fn remove_discount(
 }
 
 /// The `order:created` data, as the staff routes publish it.
-fn order_event(order: &Value) -> Value {
+fn order_event(order: &Value, person: Option<&str>, company: Option<&str>) -> Value {
     json!({
         "id": order["id"],
         "orderNumber": order["orderNumber"],
@@ -397,10 +399,52 @@ fn order_event(order: &Value) -> Value {
         "currency": order["currency"],
         "customerName": order["customerName"],
         "customerEmail": order["customerEmail"],
-        "personId": Value::Null,
-        "companyId": Value::Null,
+        "personId": person,
+        "companyId": company,
         "source": "storefront",
     })
+}
+
+/// `orderUrl`: an `https://` template with `{orderId}` and `{token}`; for a
+/// publishable key its origin must be one of the key's allowed origins.
+#[allow(clippy::result_large_err, reason = "the Err is the response to send")]
+fn read_order_url(
+    principal: &Principal,
+    body: &Map<String, Value>,
+) -> Result<Option<String>, Response> {
+    let text = match body.get("orderUrl") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(text)) => text.trim(),
+        Some(_) => {
+            return Err(validation(&[(
+                "orderUrl".to_owned(),
+                "Must be an https URL".to_owned(),
+            )]));
+        }
+    };
+    // The template as a URL: the placeholders stand in for ids and tokens.
+    let probe = text
+        .replace("{orderId}", "ord_x")
+        .replace("{token}", "tok_x");
+    let valid = text.len() <= 2000
+        && text.starts_with("https://")
+        && !text.contains(char::is_whitespace)
+        && url::Url::parse(&probe).is_ok();
+    if !valid {
+        return Err(validation(&[(
+            "orderUrl".to_owned(),
+            "Must be an https URL, with {orderId} and {token} where they belong".to_owned(),
+        )]));
+    }
+    if !payments::redirect_allowed(principal, &probe) {
+        return Err(fail(
+            http::StatusCode::BAD_REQUEST,
+            "ORDER_URL_NOT_ALLOWED",
+            "The order URL is not on one of the key's allowed origins",
+            None,
+        ));
+    }
+    Ok(Some(text.to_owned()))
 }
 
 #[allow(
@@ -412,7 +456,7 @@ pub(crate) async fn checkout(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let token = match cart_token(&headers) {
+    let token = match cart_token(&principal, &headers).await {
         Ok(token) => token,
         Err(response) => return response,
     };
@@ -473,6 +517,10 @@ pub(crate) async fn checkout(
     if !problems.is_empty() {
         return validation(&problems);
     }
+    let order_url = match read_order_url(&principal, &body) {
+        Ok(url) => url,
+        Err(response) => return response,
+    };
     if method == "mollie" {
         // The shop's own state first (nothing connected), then the request.
         if let Err(response) = payments::connected(&principal).await {
@@ -502,12 +550,21 @@ pub(crate) async fn checkout(
             return response;
         }
     }
+    let shopper = match shopper::optional(&principal, &headers).await {
+        Ok(shopper) => shopper,
+        Err(response) => return response,
+    };
     let mollie = method == "mollie";
     let on_invoice = method == "invoice";
     let input = checkout::Input {
         payment_method: method,
         expected_total: expected,
         idempotency_key: key,
+        shopper: shopper.as_ref().map(|s| checkout::Shopper {
+            person_id: s.person.id.clone(),
+            company_id: s.active.as_ref().map(|m| m.company_id.clone()),
+        }),
+        redirect_url: redirect.clone().filter(|_| mollie),
     };
     let placed = match checkout::checkout(&ctx(&principal), &token, &input).await {
         Ok(placed) => placed,
@@ -525,6 +582,9 @@ pub(crate) async fn checkout(
         Ok(found) => found,
         Err(error) => return refuse(Refusal::Database(error)),
     };
+    let customer_email = raw
+        .as_ref()
+        .and_then(|r| r.order["customerEmail"].as_str().map(str::to_owned));
     if !placed.replayed {
         if let Some(raw) = raw {
             publish_entity_event(
@@ -532,7 +592,11 @@ pub(crate) async fn checkout(
                 &principal.events,
                 ORDER_CREATED,
                 placed.order_id.clone(),
-                &order_event(&raw.order),
+                &order_event(
+                    &raw.order,
+                    placed.person_id.as_deref(),
+                    placed.company_id.as_deref(),
+                ),
             );
         }
         publish_entity_event(
@@ -551,10 +615,11 @@ pub(crate) async fn checkout(
     if view.is_null() {
         return internal(&"order not found after checkout", "Checkout failed");
     }
-    if on_invoice && !placed.replayed {
+    if on_invoice && !placed.replayed && placed.approval_reason.is_none() {
         payments::invoice_on_placement(&principal, &placed.order_id).await;
     }
-    let payment = if mollie {
+    // A Mollie order waits for its approval before it is paid.
+    let payment = if mollie && placed.approval_reason.is_none() {
         let redirect = redirect.as_deref().unwrap_or_default();
         match payments::create(&principal, &placed.order_id, redirect).await {
             Ok(payment) => payment,
@@ -563,5 +628,42 @@ pub(crate) async fn checkout(
     } else {
         Value::Null
     };
-    created(json!({ "order": view, "payment": payment, "orderToken": Value::Null }))
+    if !placed.replayed {
+        // The emails go out now: nothing is held, the order is committed.
+        let locale = mail::locale(None, Some(&headers));
+        let link = mail::fill_order_url(
+            order_url.as_deref(),
+            &placed.order_id,
+            placed.order_token.as_deref().unwrap_or_default(),
+        );
+        if let Some(to) =
+            customer_email.or_else(|| shopper.as_ref().map(|s| s.person.email.clone()))
+        {
+            mail::confirmation(
+                &principal.state.mail,
+                &principal.channel.name,
+                &to,
+                &view,
+                link,
+                locale,
+            )
+            .await;
+        }
+        if let (Some(reason), Some(company)) =
+            (placed.approval_reason, placed.company_id.as_deref())
+        {
+            decide::notify_approvers(
+                &principal.db,
+                &principal.state.mail,
+                &principal.channel.name,
+                company,
+                placed.person_id.as_deref(),
+                &view,
+                reason,
+                locale,
+            )
+            .await;
+        }
+    }
+    created(json!({ "order": view, "payment": payment, "orderToken": placed.order_token }))
 }

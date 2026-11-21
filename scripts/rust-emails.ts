@@ -525,6 +525,78 @@ const SPECS: Spec[] = [
       url: S('url'),
     }),
   },
+  // WeldCommerce (B2B): access for a buyer, the order copy, and the approval mails.
+  // The role and the reason are enums, so each value is a flag (none set: 'buyer', 'buyer_limit').
+  {
+    id: 'commerce.buyer-invitation',
+    flags: ['inviter', 'url', 'role_approver', 'role_admin'],
+    fields: ['shop_name', 'company_name', 'inviter_name', 'shop_url'],
+    exclude: (f) => f.has('role_approver') && f.has('role_admin'),
+    props: (f) => ({
+      shopName: S('shop_name'),
+      companyName: S('company_name'),
+      inviterName: f.has('inviter') ? S('inviter_name') : null,
+      role: f.has('role_admin') ? 'admin' : f.has('role_approver') ? 'approver' : 'buyer',
+      shopUrl: f.has('url') ? S('shop_url') : null,
+    }),
+  },
+  {
+    id: 'commerce.order-confirmation',
+    flags: ['rows', 'url', 'approval', 'invoice'],
+    fields: ['shop_name', 'order_number', 'currency', 'subtotal', 'shipping_total', 'tax_total', 'total', 'order_url'],
+    list: {
+      flag: 'rows',
+      flags: [],
+      fields: ['name', 'quantity', 'total'],
+      row: (_f, i) => ({ name: R(i, 'name'), quantity: R(i, 'quantity'), total: R(i, 'total') }),
+    },
+    props: (f, rows) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      lines: rows,
+      subtotal: S('subtotal'),
+      shippingTotal: S('shipping_total'),
+      taxTotal: S('tax_total'),
+      total: S('total'),
+      orderUrl: f.has('url') ? S('order_url') : null,
+      awaitingApproval: f.has('approval'),
+      onInvoice: f.has('invoice'),
+    }),
+  },
+  {
+    id: 'commerce.approval-requested',
+    flags: ['company', 'url', 'reason_company'],
+    fields: ['shop_name', 'order_number', 'currency', 'total', 'requested_by', 'company_name', 'shop_url'],
+    props: (f) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      total: S('total'),
+      requestedBy: S('requested_by'),
+      companyName: f.has('company') ? S('company_name') : null,
+      reason: f.has('reason_company') ? 'company_threshold' : 'buyer_limit',
+      shopUrl: f.has('url') ? S('shop_url') : null,
+    }),
+  },
+  {
+    id: 'commerce.approval-decided',
+    flags: ['approved', 'by', 'comment', 'pay'],
+    fields: ['shop_name', 'order_number', 'currency', 'total', 'decided_by', 'comment', 'payment_url'],
+    multiline: ['comment'],
+    // A payment link is only ever shown for an approved order.
+    exclude: (f) => f.has('pay') && !f.has('approved'),
+    props: (f) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      total: S('total'),
+      approved: f.has('approved'),
+      decidedBy: f.has('by') ? S('decided_by') : null,
+      comment: f.has('comment') ? S('comment') : null,
+      paymentUrl: f.has('pay') ? S('payment_url') : null,
+    }),
+  },
   // WeldReach's access decisions, sent by `weldsuite admin access` (ADR
   // SEC-014). The three limits go through `toLocaleString`, which leaves a
   // sentinel string as it is; Rust groups the digits the same way (en-US

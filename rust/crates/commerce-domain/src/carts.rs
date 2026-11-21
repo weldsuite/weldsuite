@@ -1062,6 +1062,224 @@ pub async fn create(
     Ok((quote, token))
 }
 
+/// A shopper a cart is attached to (a session sent with the cart token).
+#[derive(Debug, Clone, Copy)]
+pub struct Attach<'a> {
+    pub person_id: &'a str,
+    pub email: &'a str,
+    /// B2B channel: the company the shopper buys for, and their buyer row.
+    pub company_id: Option<&'a str>,
+    pub buyer_id: Option<&'a str>,
+}
+
+const ATTACH_SQL: &str = "update carts set person_id = $3, company_id = $4, buyer_id = $5, \
+       email = coalesce(nullif(email, ''), $6), updated_at = now() at time zone 'utc' \
+     where token_hash = $1 and channel_id = $2 and status in ('open', 'checkout')";
+
+/// Attach the open cart of `token` to the shopper. `false` when there is
+/// no such open cart (a guest cart stays a guest cart).
+///
+/// # Errors
+/// A failed statement.
+pub async fn attach(ctx: &Ctx<'_>, token: &str, who: &Attach<'_>) -> Result<bool, sqlx::Error> {
+    let changed = sqlx::query(ATTACH_SQL)
+        .bind(token_hash(token))
+        .bind(&ctx.channel.id)
+        .bind(who.person_id)
+        .bind(who.company_id)
+        .bind(who.buyer_id)
+        .bind(who.email)
+        .execute(ctx.db)
+        .await?
+        .rows_affected();
+    Ok(changed > 0)
+}
+
+/// A line asked for by SKU or by product and variant.
+#[derive(Debug, Clone, Default)]
+pub struct Wanted {
+    /// The row of the quick order (or null), echoed back in a problem.
+    pub row: Option<i64>,
+    pub sku: Option<String>,
+    pub product_id: Option<String>,
+    pub variant_id: Option<String>,
+    pub quantity: i64,
+}
+
+/// A line that could not be added as asked.
+#[derive(Debug, Clone)]
+pub struct LineProblem {
+    pub row: Option<i64>,
+    pub sku: Option<String>,
+    pub product_id: Option<String>,
+    /// `UNKNOWN_SKU`, `NOT_SELLABLE`, `NO_PRICE`, `INVALID_QUANTITY` or
+    /// `OUT_OF_STOCK` (the line is in the cart, with fewer on hand).
+    pub problem: &'static str,
+    pub message: String,
+}
+
+/// What [`fill`] did.
+#[derive(Debug, Clone)]
+pub struct Filled {
+    pub quote: Quote,
+    /// The token of a cart that was made.
+    pub token: Option<String>,
+    pub problems: Vec<LineProblem>,
+}
+
+async fn resolve_sku(
+    conn: &mut PgConnection,
+    sku: &str,
+) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    let variant: Option<(String, String)> = sqlx::query_as(
+        "select v.product_id, v.id from product_variants v join products p on p.id = v.product_id \
+         where lower(v.sku) = lower($1) and v.deleted_at is null and p.deleted_at is null limit 1",
+    )
+    .bind(sku)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some((product, variant)) = variant {
+        return Ok(Some((product, Some(variant))));
+    }
+    let product: Option<String> = sqlx::query_scalar(
+        "select id from products where lower(sku) = lower($1) and deleted_at is null limit 1",
+    )
+    .bind(sku)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(product.map(|id| (id, None)))
+}
+
+/// Add many lines at once (quick order, reorder): into the cart of `token`,
+/// or a new cart. A line that cannot be added is reported, never silently
+/// dropped, and the others are added. One transaction.
+///
+/// # Errors
+/// A cart that is not found or not open, and the refusals of [`quote`].
+#[allow(clippy::too_many_lines, reason = "resolve, add, report, price")]
+pub async fn fill(
+    ctx: &Ctx<'_>,
+    token: Option<&str>,
+    wanted: &[Wanted],
+    who: Option<&Attach<'_>>,
+) -> Result<Filled, Refusal> {
+    let mut tx = ctx.db.begin().await?;
+    let (cart_id, made) = if let Some(token) = token {
+        (lock_open(&mut tx, ctx, token).await?, None)
+    } else {
+        let token = new_token();
+        let id = generate_id("cart");
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "insert into carts (id, token_hash, channel_id, status, currency, prices_include_tax, \
+               email, expires_at) \
+             values ($1, $2, $3, 'open', $4, $5, $6, (now() at time zone 'utc') + interval '{EXPIRY}')"
+        )))
+        .bind(&id)
+        .bind(token_hash(&token))
+        .bind(&ctx.channel.id)
+        .bind(&ctx.channel.currency)
+        .bind(ctx.channel.prices_include_tax)
+        .bind(who.map(|w| w.email))
+        .execute(&mut *tx)
+        .await?;
+        (id, Some(token))
+    };
+    if let Some(who) = who {
+        sqlx::query(
+            "update carts set person_id = $2, company_id = $3, buyer_id = $4, \
+               email = coalesce(nullif(email, ''), $5) where id = $1",
+        )
+        .bind(&cart_id)
+        .bind(who.person_id)
+        .bind(who.company_id)
+        .bind(who.buyer_id)
+        .bind(who.email)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let mut problems: Vec<LineProblem> = Vec::new();
+    let mut added: Vec<(Wanted, String, Option<String>)> = Vec::new();
+    for line in wanted {
+        let problem = |problem: &'static str, message: &str| LineProblem {
+            row: line.row,
+            sku: line.sku.clone(),
+            product_id: line.product_id.clone(),
+            problem,
+            message: message.to_owned(),
+        };
+        if !(1..=MAX_QUANTITY).contains(&line.quantity) {
+            problems.push(problem(
+                "INVALID_QUANTITY",
+                &format!("The quantity must be a whole number from 1 to {MAX_QUANTITY}"),
+            ));
+            continue;
+        }
+        let (product_id, variant_id) = if let Some(sku) = &line.sku {
+            let Some(found) = resolve_sku(&mut tx, sku).await? else {
+                problems.push(problem("UNKNOWN_SKU", "No product has that SKU"));
+                continue;
+            };
+            found
+        } else {
+            (
+                line.product_id.clone().unwrap_or_default(),
+                line.variant_id.clone(),
+            )
+        };
+        let input = ItemInput {
+            product_id: Some(product_id.clone()),
+            variant_id: variant_id.clone(),
+            quantity: line.quantity,
+        };
+        match add_line(&mut tx, ctx, &cart_id, &input, "").await {
+            Ok(()) => added.push((line.clone(), product_id, variant_id)),
+            Err(Refusal::NotSellable(why)) => {
+                let kind = if why.contains("no price") {
+                    "NO_PRICE"
+                } else {
+                    "NOT_SELLABLE"
+                };
+                problems.push(problem(kind, &why));
+            }
+            Err(Refusal::Validation(issues)) => {
+                let why = issues
+                    .first()
+                    .map_or("The line cannot be added", |(_, message)| message.as_str());
+                problems.push(problem("NOT_SELLABLE", why));
+            }
+            Err(Refusal::TooLarge) => {
+                problems.push(problem("NOT_SELLABLE", "The cart has too many lines"));
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    let quote = settle_and_save(&mut tx, ctx, &cart_id).await?;
+    tx.commit().await?;
+    for line in quote
+        .lines
+        .iter()
+        .filter(|l| l.problem == Some("OUT_OF_STOCK"))
+    {
+        let at = added.iter().find(|(_, product, variant)| {
+            *product == line.product_id && *variant == line.variant_id
+        });
+        problems.push(LineProblem {
+            row: at.and_then(|(w, _, _)| w.row),
+            sku: at
+                .and_then(|(w, _, _)| w.sku.clone())
+                .or_else(|| line.sku.clone()),
+            product_id: Some(line.product_id.clone()),
+            problem: "OUT_OF_STOCK",
+            message: format!("Only {} on hand", line.available_stock.unwrap_or(0)),
+        });
+    }
+    Ok(Filled {
+        quote,
+        token: made,
+        problems,
+    })
+}
+
 /// Lock the open cart of `token` inside `tx`.
 async fn lock_open(tx: &mut PgConnection, ctx: &Ctx<'_>, token: &str) -> Result<String, Refusal> {
     let cart = find(tx, &ctx.channel.id, token, true)

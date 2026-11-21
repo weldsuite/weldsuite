@@ -103,7 +103,10 @@ export interface ListProductsParams {
   search?: string;
   /** Default `name`. */
   sort?: ProductSort;
-  /** The `pagination.cursor` of the previous page. */
+  /**
+   * The `pagination.cursor` of the previous page, with the same `sort`
+   * (another sort's cursor is 400 `INVALID_CURSOR`).
+   */
   cursor?: string;
   /** 1 to 100, default 24. */
   limit?: number;
@@ -111,7 +114,11 @@ export interface ListProductsParams {
 
 export interface Pagination {
   hasMore: boolean;
-  /** Pass it as `cursor` to get the next page; `null` on the last page. */
+  /**
+   * An opaque cursor: pass it back as `cursor` for the next page; `null` on
+   * the last page. Don't build or change one: a cursor the list didn't give
+   * out is 400 `INVALID_CURSOR`.
+   */
   cursor: string | null;
 }
 
@@ -293,15 +300,17 @@ export interface CheckoutInput {
   expectedTotal?: string;
   /**
    * Mollie only: where Mollie sends the shopper back (`https://…`, with
-   * `order=<orderId>` added). With a publishable key its origin must be one
-   * of the key's allowed origins.
+   * `order=<orderId>&payment=<paymentId>` added). With a publishable key its
+   * origin must be one of the key's allowed origins (`REDIRECT_NOT_ALLOWED`).
    */
   redirectUrl?: string;
   /**
    * A link to the order for the confirmation email: an `https://` URL with
    * `{orderId}` and `{token}` placeholders, e.g.
    * `https://shop.example.com/orders/{orderId}?token={token}`. `{token}` is
-   * empty for a signed-in shopper.
+   * empty for a signed-in shopper. Another shape is 400 `VALIDATION_ERROR`;
+   * with a publishable key its origin must be one of the key's allowed
+   * origins (`ORDER_URL_NOT_ALLOWED`).
    */
   orderUrl?: string;
 }
@@ -341,10 +350,22 @@ export interface StorefrontOrder {
   shippingAddress: Address | null;
   billingAddress: Address | null;
   placedAt: string;
-  /** B2B: whether the order waits for a company approver. */
-  approvalStatus?: ApprovalStatus;
-  /** B2B: who placed the order, on orders a company approver or admin sees. */
-  placedBy?: { personId: string; name: string | null } | null;
+  /**
+   * B2B: whether the order waits for a company approver (`pending`); an
+   * order that needs none is `not_required`.
+   */
+  approvalStatus: ApprovalStatus;
+  /** The signed-in shopper who placed the order; `null` for a guest order. */
+  placedBy: { personId: string; name: string | null } | null;
+}
+
+/**
+ * An order an approver just decided on. `payment` is set when a Mollie
+ * order was approved and its payment started (the buyer is emailed the
+ * link too).
+ */
+export interface DecidedOrder extends StorefrontOrder {
+  payment: CheckoutPayment | null;
 }
 
 export type PaymentStatus = Open<'open' | 'pending' | 'authorized' | 'paid' | 'failed' | 'canceled' | 'expired'>;
@@ -357,12 +378,18 @@ export interface CheckoutPayment {
 }
 
 export interface CheckoutResult {
+  /** The placed order; `approvalStatus: 'pending'` when a B2B order waits for approval. */
   order: StorefrontOrder;
-  /** The Mollie payment; `null` when paying on invoice. */
+  /**
+   * The Mollie payment; `null` when paying on invoice, and for a Mollie
+   * order that waits for approval (it gets its payment once approved).
+   */
   payment: CheckoutPayment | null;
   /**
-   * A guest's order token, returned once: with the order id it opens the
-   * order through `orders.getGuest`. `null` for a signed-in shopper.
+   * A guest's order token (`wot_…`), returned once: with the order id it
+   * opens the order through `orders.getGuest`. Only its hash is stored, so
+   * keep it. `null` for a signed-in shopper, and when an `Idempotency-Key`
+   * retry returns an earlier checkout.
    */
   orderToken: string | null;
 }
@@ -402,10 +429,22 @@ export interface Shopper {
 }
 
 export interface ShopperSession {
-  /** The session token (`wss_…`). Send it as the shopper token. */
+  /**
+   * The session token (`wss_…`). Send it as the shopper token. It works on
+   * this channel only, for 30 days; after that calls answer 401
+   * `SESSION_EXPIRED`.
+   */
   sessionToken: string;
   expiresAt: string;
   shopper: Shopper;
+}
+
+/** The languages the sign-in email is written in. */
+export type SignInLocale = 'en' | 'nl';
+
+export interface RequestCodeInput {
+  /** The sign-in email's language; without it the server picks one. */
+  locale?: SignInLocale;
 }
 
 export interface UpdateAccountInput {
@@ -415,15 +454,24 @@ export interface UpdateAccountInput {
 }
 
 export interface ListOrdersParams {
+  /** The opaque `pagination.cursor` of the previous page. */
   cursor?: string;
+  /** 1 to 100, default 25. */
   limit?: number;
 }
 
 export type LineProblemCode = 'UNKNOWN_SKU' | 'NOT_SELLABLE' | 'NO_PRICE' | 'INVALID_QUANTITY' | 'OUT_OF_STOCK';
 
-/** A line a quick order or a reorder could not add. The other lines were added. */
+/**
+ * A line of a quick order or a reorder to look at. Every other line was
+ * added. An `OUT_OF_STOCK` line was added too (with more than is on hand),
+ * and is reported so the shopper knows; the other problems were not added.
+ */
 export interface LineProblem {
-  /** The CSV row (1-based), for a CSV quick order. */
+  /**
+   * Quick order: the 1-based position in `lines`, or the CSV line number
+   * (a header line counts). Reorder: `null`.
+   */
   row: number | null;
   sku: string | null;
   productId: string | null;
@@ -438,9 +486,14 @@ export interface CartWithProblems {
   problems: LineProblem[];
 }
 
+/**
+ * SKUs and quantities. SKUs match exactly but case-insensitively, variants
+ * first. When both are sent, `lines` come before the CSV's rows; at most 500
+ * rows in all (more is 400 `VALIDATION_ERROR`).
+ */
 export interface QuickOrderInput {
   lines?: Array<{ sku: string; quantity: number }>;
-  /** `sku,quantity` per row, header optional, at most 500 rows. */
+  /** `sku,quantity` per line (`;` or a tab work too), a `sku,quantity` header optional. */
   csv?: string;
 }
 
@@ -451,7 +504,8 @@ export type ApprovalReason = Open<'buyer_limit' | 'company_threshold'>;
 export interface Approval {
   order: StorefrontOrder;
   reason: ApprovalReason;
-  requestedBy: { personId: string; name: string | null };
+  /** The buyer who placed the order; `null` when that person is gone. */
+  requestedBy: { personId: string; name: string | null } | null;
 }
 
 export type BuyerStatus = 'invited' | 'active' | 'disabled';
@@ -474,14 +528,18 @@ export interface Buyer {
 
 export interface InviteBuyerInput {
   email: string;
+  /** At most 100 characters. */
   firstName?: string;
+  /** At most 100 characters. */
   lastName?: string;
   role: BuyerRole;
+  /** The most one order may total before it needs approval, in the channel's currency. */
   spendLimit?: string | null;
 }
 
 export interface UpdateBuyerInput {
   role?: BuyerRole;
+  /** In the channel's currency; `null` removes the limit. */
   spendLimit?: string | null;
   status?: BuyerStatus;
 }

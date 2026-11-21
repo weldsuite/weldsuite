@@ -394,3 +394,117 @@ async fn an_open_payment_is_read_back_when_the_order_is_read() {
     assert_eq!(again["data"]["payments"][0]["status"], "paid");
     assert_eq!(reads(), 1, "a paid payment is not read again");
 }
+
+#[tokio::test]
+async fn a_smaller_payment_does_not_pay_the_order_and_a_larger_one_is_flagged() {
+    let Some(ctx) = setup().await else { return };
+    let (app, public, connection) = connected(&ctx).await;
+    let order = ctx.order("50.00", "pending").await;
+    let first = link(&app, &order).await;
+    // The order grows after the link was made (as it could before the edit
+    // guard: a total changed in the database stands in for it).
+    sqlx::query("update orders set total = 80, subtotal = 80 where id = $1")
+        .bind(&order)
+        .execute(&ctx.tenant)
+        .await
+        .expect("grow");
+    let second = link(&app, &order).await;
+    assert_ne!(first["id"], second["id"]);
+    assert_eq!(second["amount"], "80.00");
+
+    // The old, smaller link is paid: recorded, the order stays pending.
+    pay(&ctx, &public, &connection, &first).await;
+    let row = ctx.order_row(&order).await;
+    assert_eq!(row["paymentStatus"], "pending");
+    assert_eq!(row["status"], "pending");
+    let (_, body) = app.get(&format!("/orders/{order}")).await;
+    assert_eq!(body["data"]["amountPaid"], "50.00");
+    assert_eq!(ctx.books.calls().len(), 0);
+
+    // The new link is paid as well: now the order is paid, and the 50.00
+    // that was paid twice over is flagged for a refund.
+    pay(&ctx, &public, &connection, &second).await;
+    let row = ctx.order_row(&order).await;
+    assert_eq!(row["paymentStatus"], "paid");
+    assert_eq!(row["status"], "confirmed");
+    assert_eq!(row["metadata"]["overpaid"], "50.00");
+    let (_, body) = app.get(&format!("/orders/{order}")).await;
+    assert_eq!(body["data"]["metadata"]["overpaid"], "50.00");
+    assert_eq!(ctx.books.calls(), vec![format!("invoice:{order}")]);
+}
+
+#[tokio::test]
+async fn a_payment_read_back_on_a_paid_order_is_recorded_and_flagged() {
+    let Some(ctx) = setup().await else { return };
+    let (app, public, connection) = connected(&ctx).await;
+    let order = ctx.order("25.00", "pending").await;
+    let old = link(&app, &order).await;
+    sqlx::query("update orders set total = 30, subtotal = 30 where id = $1")
+        .bind(&order)
+        .execute(&ctx.tenant)
+        .await
+        .expect("grow");
+    let current = link(&app, &order).await;
+    pay(&ctx, &public, &connection, &current).await;
+    let row = ctx.order_row(&order).await;
+    assert_eq!(row["paymentStatus"], "paid");
+    assert!(row["metadata"]["overpaid"].is_null());
+    let calls = ctx.books.calls();
+    assert_eq!(calls, vec![format!("invoice:{order}")]);
+
+    // The old link is paid afterwards: recorded, not marked paid again,
+    // not invoiced again, and flagged for a refund.
+    pay(&ctx, &public, &connection, &old).await;
+    let row = ctx.order_row(&order).await;
+    assert_eq!(row["paymentStatus"], "paid");
+    assert_eq!(row["metadata"]["overpaid"], "25.00");
+    assert_eq!(ctx.books.calls(), calls);
+    let (_, body) = app.get(&format!("/orders/{order}/payments")).await;
+    assert_eq!(body["data"]["payments"].as_array().map(Vec::len), Some(2));
+    let events = ctx.events().await;
+    assert_eq!(events_of(&events, "order:paid", &order), 1);
+}
+
+#[tokio::test]
+async fn an_order_with_an_open_payment_cannot_change_its_total() {
+    let Some(ctx) = setup().await else { return };
+    let (app, public, connection) = connected(&ctx).await;
+    let order = ctx.order("25.00", "pending").await;
+    let payment = link(&app, &order).await;
+    let (status, body) = app
+        .patch(
+            &format!("/orders/{order}"),
+            &json!({ "shippingTotal": "5.00" }),
+        )
+        .await;
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::CONFLICT, "PAYMENT_IN_PROGRESS")
+    );
+    let (status, body) = app
+        .post(&format!("/orders/{order}/recalculate-tax"), &json!({}))
+        .await;
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::CONFLICT, "PAYMENT_IN_PROGRESS")
+    );
+    // Notes are not the total.
+    let (status, _) = app
+        .patch(
+            &format!("/orders/{order}"),
+            &json!({ "internalNote": "call back" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    // Once the payment failed the order can change again.
+    let provider = payment["providerPaymentId"].as_str().expect("id");
+    ctx.fake.set_status(provider, "expired", None);
+    assert_eq!(public.webhook(&connection, provider).await, StatusCode::OK);
+    let (status, body) = app
+        .patch(
+            &format!("/orders/{order}"),
+            &json!({ "shippingTotal": "5.00" }),
+        )
+        .await;
+    assert_ne!(code(&body), "PAYMENT_IN_PROGRESS", "{status}");
+}

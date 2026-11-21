@@ -56,6 +56,7 @@ impl PermissionQueries for NoQueries {
 
 fn app(db: PgPool, permissions: &[&str]) -> Router {
     let state = CommerceState {
+        mail: None,
         events: EntityEventPublisher::new(
             Some(Arc::new(RecordingEventBus::new()) as Arc<dyn DynEventBus>),
             TaskTracker::new(),

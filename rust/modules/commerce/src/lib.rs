@@ -38,11 +38,14 @@
 #[rustfmt::skip]
 mod tables;
 mod args;
+mod buyers;
 mod categories;
 mod channels;
 mod config;
+mod decide;
 mod discounts;
 mod js;
+mod mail;
 mod orders;
 mod overview;
 mod payments;
@@ -87,7 +90,7 @@ use crate::table::WriteError;
 pub struct StorefrontRegistry(pub PgPool);
 
 /// What the commerce handlers share.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct CommerceState {
     /// Entity events (`publishEntityEvent`).
     pub events: EntityEventPublisher,
@@ -97,6 +100,17 @@ pub struct CommerceState {
     pub http: Option<OutboundHttp>,
     /// Payments (phase 5): credentials, public URLs, Mollie Connect, WeldBooks.
     pub payments: PaymentsConfig,
+    /// System mail (buyer invitations, approval decisions); without it
+    /// nothing is sent.
+    pub mail: mail::Mail,
+}
+
+impl std::fmt::Debug for CommerceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommerceState")
+            .field("mail", &self.mail.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// WeldCommerce's routes, relative to `/api` (`/commerce/overview`,
@@ -115,7 +129,9 @@ where
         .nest("/orders", orders::routes(gate))
         .nest("/discounts", discounts::routes(gate))
         .nest("/commerce-settings", settings::routes(gate))
+        .nest("/commerce-buyers", buyers::routes(gate))
         .nest("/commerce-channels", channels::routes(gate))
+        .nest("/commerce-company-settings", buyers::settings_routes(gate))
         .nest("/commerce-payments", payments::routes(gate))
         .with_state(state)
 }

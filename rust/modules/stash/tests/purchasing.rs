@@ -1500,6 +1500,84 @@ async fn a_managed_warehouse_refuses_every_stock_write() {
     );
 }
 
+// ── Orders waiting for approval ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_pick_list_is_not_generated_for_an_order_waiting_for_approval() {
+    let Some(db) = tenant() else {
+        return;
+    };
+    let fx = Fx::new(&db);
+    let h = harness(db.clone(), ALL);
+    let product = fx.product("p", false).await;
+    let warehouse = fx.warehouse("w", false).await;
+    fx.bucket("inv", &product, &warehouse, 10).await;
+    let make = |key: &'static str, approval: &'static str| {
+        let (db, id, product) = (db.clone(), fx.id(key), product.clone());
+        async move {
+            sqlx::query(
+                "insert into orders (id, order_number, approval_status) values ($1, $1, $2)",
+            )
+            .bind(&id)
+            .bind(approval)
+            .execute(&db)
+            .await
+            .expect("order");
+            sqlx::query(
+                "insert into order_items (id, order_id, product_id, name, quantity, unit_price, total)                  values ($1, $2, $3, 'Thing', 1, 5.00, 5.00)",
+            )
+            .bind(format!("{id}_i"))
+            .bind(&id)
+            .bind(&product)
+            .execute(&db)
+            .await
+            .expect("item");
+            id
+        }
+    };
+    for (key, approval, code) in [
+        ("opend", "pending", "APPROVAL_PENDING"),
+        ("orej", "rejected", "APPROVAL_REJECTED"),
+    ] {
+        let order = make(key, approval).await;
+        let (status, body) = h
+            .call(
+                "POST",
+                "/pick-lists/generate",
+                Some(json!({ "orderId": order, "warehouseId": warehouse })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{approval}: {body}");
+        assert_eq!(body["error"]["details"]["code"], code, "{body}");
+        let lists: i64 =
+            sqlx::query_scalar("select count(*) from pick_lists where order_ids @> $1::jsonb")
+                .bind(json!([order]))
+                .fetch_one(&db)
+                .await
+                .expect("pick lists");
+        assert_eq!(lists, 0, "{approval}: nothing was written");
+    }
+    // Not required, and approved: released as before.
+    for (key, approval) in [("onot", "not_required"), ("oapp", "approved")] {
+        let order = make(key, approval).await;
+        let (status, body) = h
+            .call(
+                "POST",
+                "/pick-lists/generate",
+                Some(json!({ "orderId": order, "warehouseId": warehouse })),
+            )
+            .await;
+        assert!(status.is_success(), "{approval}: {status} {body}");
+        let lists: i64 =
+            sqlx::query_scalar("select count(*) from pick_lists where order_ids @> $1::jsonb")
+                .bind(json!([order]))
+                .fetch_one(&db)
+                .await
+                .expect("pick lists");
+        assert_eq!(lists, 1, "{approval}");
+    }
+}
+
 // ── Receive is one transaction ──────────────────────────────────────────────
 
 /// A received line, as the database holds it: received, rejected.

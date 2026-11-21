@@ -72,6 +72,7 @@ pub(crate) fn app_with(db: PgPool, master: Option<PgPool>, permissions: &[&str])
     let bus = Arc::new(RecordingEventBus::new());
     let tracker = TaskTracker::new();
     let state = CommerceState {
+        mail: None,
         events: EntityEventPublisher::new(
             Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
             tracker.clone(),

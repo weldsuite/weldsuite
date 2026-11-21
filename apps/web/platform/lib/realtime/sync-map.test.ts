@@ -359,6 +359,11 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.commerce_payment_connection?.invalidate).toEqual([['weldcommerce', 'payments']]);
   });
 
+  it('commerce_buyer and commerce_company_settings refresh the buyers and the company settings', () => {
+    expect(platformSyncMap.commerce_buyer?.invalidate).toEqual([['weldcommerce', 'buyers']]);
+    expect(platformSyncMap.commerce_company_settings?.invalidate).toEqual([['weldcommerce', 'company-settings']]);
+  });
+
   it('discount refreshes the WeldCommerce discounts', () => {
     expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
   });

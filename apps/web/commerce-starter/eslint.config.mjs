@@ -32,8 +32,6 @@ export default tseslint.config(
       'jsx-a11y/no-redundant-roles': ['error', { nav: ['navigation'], ul: ['list'], ol: ['list'] }],
       // Scrollable table wrappers (role="region") take focus so keyboard users can scroll them.
       'jsx-a11y/no-noninteractive-tabindex': ['error', { tags: [], roles: ['tabpanel', 'region'] }],
-      // Choice cards nest the label text one level deeper than the default looks.
-      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },

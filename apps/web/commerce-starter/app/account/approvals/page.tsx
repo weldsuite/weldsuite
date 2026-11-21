@@ -26,7 +26,7 @@ function itemSummary(items: Approval['order']['items']): string {
   return items.length > 5 ? `${shown}, and ${items.length - 5} more` : shown;
 }
 
-function ApprovalCard({ approval }: { approval: Approval }) {
+function ApprovalCard({ approval }: Readonly<{ approval: Approval }>) {
   const { order, reason, requestedBy } = approval;
   return (
     <article aria-labelledby={`approval-${order.id}`} className="flex flex-col gap-4 rounded-2xl border border-line p-5">
@@ -40,7 +40,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
       </header>
       <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[auto_1fr]">
         <dt className="text-ink-muted">Requested by</dt>
-        <dd>{requestedBy.name ?? 'A buyer'}</dd>
+        <dd>{requestedBy?.name ?? 'A buyer'}</dd>
         <dt className="text-ink-muted">Placed</dt>
         <dd>{date(order.placedAt, shopLocale, shopTimeZone)}</dd>
         <dt className="text-ink-muted">Why</dt>
@@ -53,7 +53,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
   );
 }
 
-function Approvals({ canApprove, approvals }: { canApprove: boolean; approvals: Approval[] }) {
+function Approvals({ canApprove, approvals }: Readonly<{ canApprove: boolean; approvals: Approval[] }>) {
   if (!canApprove) {
     return <p className="rounded-lg bg-surface-muted p-6">Only your company&apos;s approvers and admins approve orders.</p>;
   }
@@ -61,6 +61,7 @@ function Approvals({ canApprove, approvals }: { canApprove: boolean; approvals: 
     return <p className="rounded-lg bg-surface-muted p-6">Nothing waits for your approval.</p>;
   }
   return (
+    // role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none.
     <ul role="list" className="flex flex-col gap-4">
       {approvals.map((approval) => (
         <li key={approval.order.id}>
@@ -71,10 +72,11 @@ function Approvals({ canApprove, approvals }: { canApprove: boolean; approvals: 
   );
 }
 
-export default async function ApprovalsPage({ searchParams }: Props) {
+export default async function ApprovalsPage({ searchParams }: Readonly<Props>) {
   const params = await searchParams;
   const approved = single(params.approved);
   const rejected = single(params.rejected);
+  const paymentSent = single(params.payment) === 'sent';
   const shopper = await getShopper();
   const session = await getSessionToken();
   if (!shopper || !session) redirect('/account/sign-in?next=/account/approvals');
@@ -95,10 +97,12 @@ export default async function ApprovalsPage({ searchParams }: Props) {
         {company ? <p className="text-ink-muted">For {company.name}</p> : null}
       </div>
 
+      {/* role="status": a live region that stays in the page, so changes to it are announced. */}
       <div role="status" aria-live="polite">
         {approved || rejected ? (
           <p className="rounded-lg border border-success bg-success-soft px-4 py-3 font-medium text-success">
             Order {approved ?? rejected} {approved ? 'approved' : 'rejected'}.
+            {paymentSent ? ' We emailed the buyer a link to pay.' : ''}
           </p>
         ) : null}
       </div>

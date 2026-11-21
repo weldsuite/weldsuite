@@ -30,7 +30,7 @@ const MISSING: Record<CartMissing, string> = {
   billingAddress: 'A complete billing address',
 };
 
-function Step({ number, id, title, children }: { number: number; id: string; title: string; children: ReactNode }) {
+function Step({ number, id, title, children }: Readonly<{ number: number; id: string; title: string; children: ReactNode }>) {
   return (
     <section aria-labelledby={id} className="flex flex-col gap-4 rounded-2xl border border-line p-5 sm:p-6">
       <h2 id={id} className="flex items-center gap-3 text-xl font-semibold">
@@ -48,7 +48,7 @@ function Step({ number, id, title, children }: { number: number; id: string; tit
 }
 
 /** What stands between the shopper and the checkout (sign in, choose a company). */
-function Gate({ text, href, label }: { text: string; href: string; label: string }) {
+function Gate({ text, href, label }: Readonly<{ text: string; href: string; label: string }>) {
   return (
     <div className="flex max-w-xl flex-col items-start gap-4">
       <h1 className="text-3xl font-semibold">Checkout</h1>
@@ -73,7 +73,7 @@ function paymentMethods(channel: StorefrontChannel, company: ShopperCompany | nu
   return channel.paymentMethods.filter((m): m is PaymentMethod => m === 'mollie' || (m === 'invoice' && invoiceAllowed));
 }
 
-function CompanyNote({ company }: { company: ShopperCompany | null }) {
+function CompanyNote({ company }: Readonly<{ company: ShopperCompany | null }>) {
   if (!company) return null;
   return (
     <p>
@@ -85,7 +85,7 @@ function CompanyNote({ company }: { company: ShopperCompany | null }) {
   );
 }
 
-function ShippingStep({ cart, rates }: { cart: Cart; rates: ShippingRateOffer[] }) {
+function ShippingStep({ cart, rates }: Readonly<{ cart: Cart; rates: ShippingRateOffer[] }>) {
   if (!cart.shippingAddress) return <p className="text-ink-muted">Fill in your delivery address first.</p>;
   if (rates.length === 0) {
     return <p className="text-ink-muted">We have no shipping method for this address. Check the country.</p>;
@@ -93,7 +93,7 @@ function ShippingStep({ cart, rates }: { cart: Cart; rates: ShippingRateOffer[] 
   return <ShippingForm rates={rates} selected={cart.shippingRate?.id ?? null} currency={cart.currency} locale={shopLocale} />;
 }
 
-function PaymentStep({ cart, methods }: { cart: Cart; methods: PaymentMethod[] }) {
+function PaymentStep({ cart, methods }: Readonly<{ cart: Cart; methods: PaymentMethod[] }>) {
   if (cart.items.some((line) => line.problem)) {
     return (
       <p className="text-danger">
@@ -127,12 +127,13 @@ function PaymentStep({ cart, methods }: { cart: Cart; methods: PaymentMethod[] }
   );
 }
 
-function OrderSummary({ cart }: { cart: Cart }) {
+function OrderSummary({ cart }: Readonly<{ cart: Cart }>) {
   return (
     <aside aria-labelledby="order-summary" className="flex flex-col gap-5 self-start rounded-2xl bg-surface-muted p-6">
       <h2 id="order-summary" className="text-xl font-semibold">
         Your order
       </h2>
+      {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
       <ul role="list" className="flex flex-col gap-3">
         {cart.items.map((line) => (
           <li key={line.id} className="flex justify-between gap-4">

@@ -188,6 +188,12 @@
     "updated",
     "deleted"
   ],
+  "commerce_buyer": [
+    "created",
+    "updated",
+    "deleted",
+    "invited"
+  ],
   "commerce_channel": [
     "created",
     "updated",
@@ -197,6 +203,9 @@
     "created",
     "revoked",
     "rotated"
+  ],
+  "commerce_company_settings": [
+    "updated"
   ],
   "commerce_customer": [
     "created",
@@ -935,7 +944,9 @@
     "cancelled",
     "completed",
     "paid",
-    "refunded"
+    "refunded",
+    "approved",
+    "rejected"
   ],
   "panel_alert": [
     "created",

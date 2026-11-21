@@ -161,15 +161,15 @@ pub struct NewOrderPayment<'a> {
 /// The order's payment state for a new payment: its number, currency, what
 /// is outstanding.
 async fn payable(db: &PgPool, order_id: &str) -> Result<(String, String, Cents), Error> {
-    let order: Option<(String, String, String, String, String)> = sqlx::query_as(
+    let order: Option<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
         "select order_number, coalesce(currency, 'EUR'), total::text, status, \
-           coalesce(payment_status, 'pending') \
+           coalesce(payment_status, 'pending'), approval_status \
          from orders where id = $1 and deleted_at is null",
     )
     .bind(order_id)
     .fetch_optional(db)
     .await?;
-    let Some((number, currency, total, status, payment_status)) = order else {
+    let Some((number, currency, total, status, payment_status, approval)) = order else {
         return Err(Error::NotFound {
             resource: "Order",
             id: order_id.to_owned(),
@@ -177,6 +177,11 @@ async fn payable(db: &PgPool, order_id: &str) -> Result<(String, String, Cents),
     };
     if status == "cancelled" {
         return Err(Error::NotPayable("The order is cancelled".to_owned()));
+    }
+    if approval.as_deref() == Some("pending") {
+        return Err(Error::NotPayable(
+            "The order is waiting for approval".to_owned(),
+        ));
     }
     if payment_status == "on_invoice" {
         return Err(Error::NotPayable("The order is on invoice".to_owned()));
@@ -252,6 +257,11 @@ pub async fn create_for_order(env: &Env<'_>, new: &NewOrderPayment<'_>) -> Resul
         new.public_url.trim_end_matches('/'),
         active.id
     );
+    // The shop's return page reads the payment back by its id: it comes back
+    // with `?order=<id>&payment=<id>` (the order's is the caller's).
+    let id = generate_id("cpay");
+    let redirect = weldsuite_mollie::with_query(new.redirect_url, "payment", &id)
+        .unwrap_or_else(|| new.redirect_url.to_owned());
     let description = format!("Order {number}");
     let amount_cents = i64::try_from(outstanding)
         .map_err(|_| Error::Provider("The amount is too large".to_owned()))?;
@@ -259,7 +269,7 @@ pub async fn create_for_order(env: &Env<'_>, new: &NewOrderPayment<'_>) -> Resul
         amount_cents,
         currency: &currency,
         description: &description,
-        redirect_url: new.redirect_url,
+        redirect_url: &redirect,
         webhook_url: &webhook,
         metadata: json!({ "orderId": new.order_id, "workspace": new.workspace_id }),
         idempotency_key: &key,
@@ -267,7 +277,6 @@ pub async fn create_for_order(env: &Env<'_>, new: &NewOrderPayment<'_>) -> Resul
     };
     let created = with_provider!(env, |provider| provider.create_payment(&request));
 
-    let id = generate_id("cpay");
     let inserted: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "insert into commerce_payments (id, order_id, connection_id, provider, provider_payment_id, \
            status, amount, currency, method, checkout_url, redirect_url, testmode, provider_data, \
@@ -285,7 +294,7 @@ pub async fn create_for_order(env: &Env<'_>, new: &NewOrderPayment<'_>) -> Resul
     .bind(&currency)
     .bind(created.method.as_deref())
     .bind(created.checkout_url.as_deref())
-    .bind(new.redirect_url)
+    .bind(&redirect)
     .bind(active.testmode)
     .bind(&created.raw)
     .bind(&key)
@@ -439,16 +448,55 @@ pub async fn apply(
             method: read.method.clone(),
             reference: Some(read.id.clone()),
         };
-        match write::mark_paid(&mut *conn, &order_id, &paid).await {
-            Ok(()) => {
-                applied.newly_paid = true;
-                applied.order_changed = true;
+        // The order is paid when the payments that were made come to its
+        // total, not when any one of them is paid: a payment is for the
+        // amount outstanding when it was created, and the order may have
+        // changed since. A smaller payment leaves the order `pending`
+        // (`amountPaid` shows it).
+        let (taken, _) = amounts(&mut *conn, &order_id).await?;
+        let order: Option<(String, String)> = sqlx::query_as(
+            "select coalesce(payment_status, 'pending'), coalesce(total, 0)::text              from orders where id = $1",
+        )
+        .bind(&order_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let total = order
+            .as_ref()
+            .and_then(|(_, total)| money::parse(total))
+            .unwrap_or(0);
+        let already_paid = order
+            .as_ref()
+            .is_some_and(|(status, _)| crate::status::is_paid(status));
+        if !already_paid && taken >= total {
+            match write::mark_paid(&mut *conn, &order_id, &paid).await {
+                Ok(()) => {
+                    applied.newly_paid = true;
+                    applied.order_changed = true;
+                }
+                // Cancelled meanwhile: the payment is recorded, the order is
+                // left alone.
+                Err(
+                    crate::Error::AlreadyPaid
+                    | crate::Error::NotEditable(_)
+                    | crate::Error::ApprovalPending,
+                ) => {}
+                Err(crate::Error::Database(error)) => return Err(Error::Database(error)),
+                Err(other) => return Err(Error::Provider(other.to_string())),
             }
-            // Paid by another payment already, or cancelled meanwhile: the
-            // payment is recorded, the order is left alone.
-            Err(crate::Error::AlreadyPaid | crate::Error::NotEditable(_)) => {}
-            Err(crate::Error::Database(error)) => return Err(Error::Database(error)),
-            Err(other) => return Err(Error::Provider(other.to_string())),
+        }
+        // More was paid than the order is worth (a second payment, or an old
+        // link paid after the total changed): recorded, and flagged for staff
+        // to refund.
+        let over = (taken - total).max(0);
+        if over > 0 && order.is_some() {
+            sqlx::query(
+                "update orders set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb),                    '{overpaid}', to_jsonb($2::text)), updated_at = now() at time zone 'utc'                  where id = $1",
+            )
+            .bind(&order_id)
+            .bind(money::format(over))
+            .execute(&mut *conn)
+            .await?;
+            applied.order_changed = true;
         }
     }
     if failed && applied.status_changed {

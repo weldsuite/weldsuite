@@ -151,12 +151,24 @@ const cases: Case[] = [
     path: '/products?category=shoes&search=red+sneaker&sort=-price&cursor=p_9&limit=10',
   },
   { name: 'products.list without params', run: (c) => c.products.list(), method: 'GET', path: '/products' },
+  {
+    name: 'products.list with request options only',
+    run: (c) => c.products.list({ signal: new AbortController().signal }),
+    method: 'GET',
+    path: '/products',
+  },
   { name: 'products.get', run: (c) => c.products.get('blue shirt/1'), method: 'GET', path: '/products/blue%20shirt%2F1' },
   { name: 'categories.list', run: (c) => c.categories.list(), method: 'GET', path: '/categories' },
   { name: 'categories.get', run: (c) => c.categories.get('summer'), method: 'GET', path: '/categories/summer' },
   {
     name: 'cart.create',
-    run: (c) => c.cart.create({ items: [{ variantId: 'v_1', quantity: 2 }], email: 'a@b.test' }, { shopperToken: S }),
+    run: (c) =>
+      c.cart.create({
+        items: [{ variantId: 'v_1', quantity: 2 }],
+        email: 'a@b.test',
+        shopperToken: S,
+        signal: new AbortController().signal,
+      }),
     method: 'POST',
     path: '/carts',
     body: { items: [{ variantId: 'v_1', quantity: 2 }], email: 'a@b.test' },
@@ -272,6 +284,14 @@ const cases: Case[] = [
     method: 'POST',
     path: '/auth/code',
     body: { email: 'a@b.test' },
+    status: 202,
+  },
+  {
+    name: 'auth.requestCode with a locale',
+    run: (c) => c.auth.requestCode('a@b.test', { locale: 'nl' }),
+    method: 'POST',
+    path: '/auth/code',
+    body: { email: 'a@b.test', locale: 'nl' },
     status: 202,
   },
   {
@@ -492,6 +512,27 @@ describe('errors', () => {
     const error = await client.cart.update(T, { shippingAddress: { country: 'Holland' } }).catch((e: unknown) => e);
     if (!isStorefrontError(error, 'VALIDATION_ERROR')) throw new Error('expected a validation error');
     expect(error.details.fields['shippingAddress.country']).toMatch(/2-letter/);
+  });
+
+  it('maps the session and cursor refusals', async () => {
+    const answers: Record<string, Response> = {
+      '/account': json(401, { error: { code: 'SESSION_EXPIRED', message: 'The session has expired: sign in again' } }),
+      '/products': json(400, { error: { code: 'INVALID_CURSOR', message: 'The cursor is not one this list gave out' } }),
+    };
+    const { client } = setup((req) => answers[new URL(req.url).pathname.replace('/storefront/v1', '')]!);
+    const expired = await client.account.get(S).catch((e: unknown) => e);
+    expect(isStorefrontError(expired, 'SESSION_EXPIRED', 'SESSION_REQUIRED')).toBe(true);
+    expect(expired).toMatchObject({ status: 401 });
+    const cursor = await client.products.list({ cursor: 'stale' }).catch((e: unknown) => e);
+    expect(isStorefrontError(cursor, 'INVALID_CURSOR')).toBe(true);
+  });
+
+  it('returns an approved order with its payment', async () => {
+    const payment = { id: 'cpay_1', status: 'open', checkoutUrl: 'https://mollie.test/pay' };
+    const { client } = setup(() => json(200, { data: { id: 'ord_1', approvalStatus: 'approved', payment } }));
+    const order = await client.approvals.approve(S, 'ord_1');
+    expect(order.payment).toEqual(payment);
+    expect(order.approvalStatus).toBe('approved');
   });
 
   it('reads an error answer without a body as UNEXPECTED_RESPONSE', async () => {

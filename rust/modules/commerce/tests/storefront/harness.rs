@@ -25,7 +25,17 @@ pub(crate) struct Env {
     pub(crate) master: PgPool,
     pub(crate) tenant: PgPool,
     workspaces: Arc<Workspaces>,
+    /// Sessions planted for the apps of this environment (cache key, record):
+    /// each app loads them into its own cache before its first request.
+    planted: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 }
+
+/// Sessions planted for a key: a B2B checkout without its own session
+/// header is sent as that shopper (the B2B tests of phase 4 place orders as
+/// a company's buyer now).
+static DEFAULT_SESSIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, String>>,
+> = std::sync::LazyLock::new(Default::default);
 
 /// The shared databases, or `None` to skip.
 pub(crate) async fn env() -> Option<Env> {
@@ -70,6 +80,7 @@ pub(crate) async fn env() -> Option<Env> {
         master,
         tenant,
         workspaces,
+        planted: Arc::default(),
     })
 }
 
@@ -129,13 +140,18 @@ pub(crate) struct App {
     router: Router,
     pub(crate) bus: Arc<RecordingEventBus>,
     tracker: TaskTracker,
+    cache: Arc<MemoryCache>,
+    planted: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    loaded: std::sync::atomic::AtomicUsize,
 }
 
 impl Env {
     pub(crate) fn app(&self) -> App {
         let bus = Arc::new(RecordingEventBus::new());
         let tracker = TaskTracker::new();
+        let cache = Arc::new(MemoryCache::default());
         let state = StorefrontState {
+            mail: None,
             events: EntityEventPublisher::new(
                 Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
                 tracker.clone(),
@@ -143,7 +159,7 @@ impl Env {
             http: None,
             master: self.master.clone(),
             workspaces: Arc::clone(&self.workspaces),
-            cache: Some(Arc::new(MemoryCache::default()) as Arc<dyn DynCache>),
+            cache: Some(Arc::clone(&cache) as Arc<dyn DynCache>),
             trusted_proxies: 1,
             payments: weldsuite_commerce::PaymentsConfig::default(),
         };
@@ -151,6 +167,9 @@ impl Env {
             router: storefront_router(state),
             bus,
             tracker,
+            cache,
+            planted: Arc::clone(&self.planted),
+            loaded: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -233,6 +252,56 @@ impl Env {
         .await
         .expect("registry key");
         secret
+    }
+
+    /// An active buyer of a new company (with a party on payment terms) with a
+    /// session on `channel`, planted in the cache; from now on a checkout with
+    /// `key` that sends no session is sent as this buyer. The session token.
+    pub(crate) async fn buyer_for_key(&self, channel: &str, key: &str) -> String {
+        use weldsuite_kit::portal::tokens::sha256_hex;
+        let company = fresh("comp_");
+        let person = fresh("per_");
+        let email = format!("{person}@example.com");
+        for (sql, binds) in [
+            (
+                "insert into companies (id, name, display_name) values ($1, 'Buyer BV', 'Buyer BV')",
+                vec![company.clone()],
+            ),
+            (
+                "insert into parties (id, kind, company_id, role, display_name, payment_terms) values ($2, 'company', $1, 'customer', 'Buyer BV', '30')",
+                vec![company.clone(), fresh("party_")],
+            ),
+            (
+                "insert into people (id, display_name, email, in_crm) values ($1, $1, $2, false)",
+                vec![person.clone(), email.clone()],
+            ),
+            (
+                "insert into commerce_buyers (id, person_id, company_id, role, status) values ($3, $1, $2, 'admin', 'active')",
+                vec![person.clone(), company.clone(), fresh("cbuy_")],
+            ),
+        ] {
+            let mut query = sqlx::query(sql);
+            for bind in binds {
+                query = query.bind(bind);
+            }
+            query.execute(&self.tenant).await.expect("buyer fixture");
+        }
+        let token = format!("wss_{}", fresh("t"));
+        let now = "2099-01-01T00:00:00.000Z";
+        let record = json!({
+            "workspaceId": WORKSPACE, "clerkOrgId": null, "workspaceSlug": "",
+            "workspaceName": "Test shop", "email": email, "channelId": channel,
+            "personId": person, "activeCompanyId": company, "createdAt": now, "lastSeenAt": now,
+        });
+        self.planted.lock().expect("planted").push((
+            format!("shopper:sess:{}", sha256_hex(&token)),
+            record.to_string(),
+        ));
+        DEFAULT_SESSIONS
+            .lock()
+            .expect("sessions")
+            .insert(key.to_owned(), token.clone());
+        token
     }
 
     pub(crate) async fn revoke(&self, secret: &str) {
@@ -472,6 +541,29 @@ impl Call<'_> {
         let mut request = Request::builder().method(self.method).uri(&self.path);
         for (name, value) in &self.headers {
             request = request.header(name, value);
+        }
+        let planted: Vec<(String, String)> = self.app.planted.lock().expect("planted").clone();
+        let done = self
+            .app
+            .loaded
+            .swap(planted.len(), std::sync::atomic::Ordering::SeqCst);
+        for (key, value) in planted.iter().skip(done) {
+            self.app
+                .cache
+                .put_boxed(key, value, Some(std::time::Duration::from_secs(3600)))
+                .await
+                .expect("session");
+        }
+        if self.path.ends_with("/cart/checkout")
+            && !self.headers.iter().any(|(n, _)| n == "x-shopper-token")
+            && let Some(bearer) = self
+                .headers
+                .iter()
+                .find(|(n, _)| n == "authorization")
+                .and_then(|(_, v)| v.strip_prefix("Bearer "))
+            && let Some(session) = DEFAULT_SESSIONS.lock().expect("sessions").get(bearer)
+        {
+            request = request.header("x-shopper-token", session);
         }
         let body = match &self.body {
             Some(body) => {

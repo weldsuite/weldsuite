@@ -63,6 +63,8 @@ where
         .route("/{id}", get(detail).route_layer(read()))
         .route("/{id}", patch(patch_order).route_layer(update()))
         .route("/{id}/cancel", post(cancel).route_layer(update()))
+        .route("/{id}/approve", post(approve).route_layer(update()))
+        .route("/{id}/reject", post(reject).route_layer(update()))
         .route("/{id}/mark-paid", post(mark_paid).route_layer(update()))
         .route(
             "/{id}/recalculate-tax",
@@ -204,6 +206,7 @@ fn present(
     company: Option<(String, Option<String>)>,
     invoice: Option<Value>,
     (paid, refunded): (Cents, Cents),
+    approval: Value,
 ) -> Value {
     let (company_id, company_name) = company.map_or((Value::Null, Value::Null), |(id, name)| {
         (json!(id), json!(name))
@@ -237,6 +240,7 @@ fn present(
                 ),
             ),
             ("approvalStatus", json!(order["approvalStatus"])),
+            ("approval", approval),
             (
                 "source",
                 json!(
@@ -381,6 +385,7 @@ fn public_metadata(order: &Value) -> Value {
     if let Some(Value::Object(metadata)) = order.get("metadata") {
         for key in [
             "invoiceError",
+            "overpaid",
             "viesUnavailable",
             "vatRelief",
             "shippingVat",
@@ -421,12 +426,19 @@ pub(crate) async fn fetch(
     let invoice =
         invoice.map(|(id, number, status)| json!({ "id": id, "number": number, "status": status }));
     let amounts = weldsuite_commerce_domain::payments::service::amounts(&mut conn, id).await?;
+    let approval = weldsuite_commerce_domain::approvals::approval_view(
+        &mut conn,
+        id,
+        stored.order.get("metadata"),
+    )
+    .await?;
     Ok(Some(present(
         &stored.order,
         &stored.items,
         company,
         invoice,
         amounts,
+        approval,
     )))
 }
 
@@ -449,8 +461,8 @@ pub(crate) fn event(order: &Value) -> Value {
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-/// Params `$1..$10`: search, status, payment status, fulfillment status,
-/// source, channel, company, person, from, to (exclusive).
+/// Params `$1..$11`: search, status, payment status, fulfillment status,
+/// source, channel, company, person, from, to (exclusive), approval status.
 const WHERE_SQL: &str = " where o.deleted_at is null \
     and ($1::text is null or o.order_number ilike $1 or o.customer_name ilike $1 \
          or o.customer_email ilike $1 or o.external_order_id ilike $1) \
@@ -462,7 +474,7 @@ const WHERE_SQL: &str = " where o.deleted_at is null \
     and ($7::text is null or pa.company_id = $7) \
     and ($8::text is null or o.person_id = $8) \
     and ($9::text is null or o.created_at >= $9::timestamp) \
-    and ($10::text is null or o.created_at < $10::timestamp)";
+    and ($10::text is null or o.created_at < $10::timestamp) and ($11::text is null or o.approval_status = $11)";
 
 /// `(column, descending)` of a `sort`.
 fn sort_of(sort: &str) -> Option<(&'static str, bool)> {
@@ -524,13 +536,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let operator = if descending { "<" } else { ">" };
     let direction = if descending { "desc" } else { "asc" };
     let keyset = format!(
-        " and ($11::text is null or not exists (select 1 from orders where id = $11) \
-           or (({column}, o.id) {operator} (select {c}, c.id from orders c where c.id = $11)))",
+        " and ($12::text is null or not exists (select 1 from orders where id = $12) \
+           or (({column}, o.id) {operator} (select {c}, c.id from orders c where c.id = $12)))",
         c = column.replace("o.", "c."),
     );
     let select = format!(
         "select {FIELDS_OF_SUMMARY}{FROM_SUMMARY}{WHERE_SQL}{keyset} \
-         order by {column} {direction}, o.id {direction} limit $12"
+         order by {column} {direction}, o.id {direction} limit $13"
     );
     let count = format!("select count(*){FROM_SUMMARY}{WHERE_SQL}");
     let cursor = param("cursor");
@@ -546,6 +558,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
                 .bind(param("personId"))
                 .bind(from.as_deref())
                 .bind(to.as_deref())
+                .bind(param("approvalStatus"))
         };
     }
     let rows: Result<Vec<Value>, sqlx::Error> =
@@ -1093,4 +1106,122 @@ async fn mark_paid(
         Ok(()) => respond_with_order(&state, &caller, &id, &[ORDER_PAID], None, FAILED).await,
         Err(refusal) => refusal.respond(FAILED),
     }
+}
+
+// ── approvals ───────────────────────────────────────────────────────────────
+
+/// The staff member as an approval keeps them: `{ userId, name, email }`,
+/// the name read from the master `users` table when the server has one.
+async fn staff_actor(caller: &Caller) -> Value {
+    let found: Option<(Option<String>, Option<String>, String)> = match &caller.registry {
+        Some(master) => {
+            sqlx::query_as("select first_name, last_name, email from users where id = $1")
+                .bind(&caller.user_id)
+                .fetch_optional(master)
+                .await
+                .ok()
+                .flatten()
+        }
+        None => None,
+    };
+    let (name, email) = found.map_or((None, None), |(first, last, email)| {
+        let name = [first.as_deref(), last.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
+        (Some(name).filter(|n| !n.trim().is_empty()), Some(email))
+    });
+    json!({
+        "userId": caller.user_id,
+        "name": name.or_else(|| email.clone()).unwrap_or_else(|| caller.user_id.clone()),
+        "email": email,
+    })
+}
+
+/// Approve or reject a pending order as staff (an override of the company's
+/// approvers): `{ comment? }`, 409 `NOT_PENDING` when it is not pending.
+async fn decide_as_staff(
+    state: CommerceState,
+    caller: Caller,
+    id: String,
+    headers: HeaderMap,
+    body: Bytes,
+    approve: bool,
+) -> Response {
+    const FAILED: &str = "Failed to decide the order's approval";
+    let (headers, body) = body_or_empty(&headers, &body);
+    let comment = match validate(&headers, &body, |issues, fields| {
+        read_text(issues, fields, "comment", 2000).into_option()
+    }) {
+        Ok(comment) => comment,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let staff = staff_actor(&caller).await;
+    let by = weldsuite_commerce_domain::approvals::Decider {
+        person_id: None,
+        staff: Some(staff.clone()),
+    };
+    let decided = async {
+        let mut tx = caller.db.begin().await?;
+        let decided = weldsuite_commerce_domain::approvals::decide(
+            &mut tx,
+            &id,
+            approve,
+            comment.as_deref(),
+            &by,
+        )
+        .await
+        .map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(decided)
+    }
+    .await;
+    let decided = match decided {
+        Ok(decided) => decided,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let follow = crate::decide::Followup {
+        db: &caller.db,
+        events: &state.events,
+        ctx: &caller.events,
+        config: &state.payments,
+        http: state.http.as_ref(),
+        mail: &state.mail,
+        workspace_id: &caller.workspace_id,
+        user_id: &caller.user_id,
+        locale: weldsuite_emails::EmailLocale::En,
+    };
+    crate::decide::after_decision(
+        &follow,
+        &decided,
+        comment.as_deref(),
+        staff["name"].as_str(),
+    )
+    .await;
+    match fetch(&caller.db, &id).await {
+        Ok(Some(order)) => Data(order).into_response(),
+        Ok(None) => Refusal::not_found("Order", &id).respond(FAILED),
+        Err(error) => internal(&error, FAILED),
+    }
+}
+
+async fn approve(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    decide_as_staff(state, caller, id, headers, body, true).await
+}
+
+async fn reject(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    decide_as_staff(state, caller, id, headers, body, false).await
 }

@@ -718,6 +718,36 @@ pub(crate) async fn from_order(
     .await
 }
 
+/// The days of the payment terms of the order's counterparty (`30`, `net 30`,
+/// `30 days`); `None` without terms or in a form that is not one of those.
+async fn party_terms_days(db: &weldsuite_db::PgPool, order: &Value) -> Option<i64> {
+    let party = text(order, "counterpartyId")?;
+    let terms: Option<String> = sqlx::query_scalar(
+        "select payment_terms from parties where id = $1 and deleted_at is null",
+    )
+    .bind(party)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+    parse_terms_days(terms.as_deref()?)
+}
+
+fn parse_terms_days(terms: &str) -> Option<i64> {
+    let lower = terms.trim().to_lowercase();
+    let rest = lower.strip_prefix("net").unwrap_or(&lower).trim_start();
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let tail = rest[digits.len()..].trim();
+    if digits.is_empty()
+        || digits.len() > 4
+        || !(tail.is_empty() || tail == "day" || tail == "days")
+    {
+        return None;
+    }
+    digits.parse().ok().filter(|days| *days > 0)
+}
+
 /// The invoice row, its lines, the audit row and the event of either branch.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn finish(
@@ -738,7 +768,10 @@ async fn finish(
     let db = &caller.db;
     let at = now();
     let at_ms = js::millis_of(&at).unwrap_or(0);
-    let due = js::iso_from_millis(at_ms + 30 * DAY_MS).unwrap_or_else(|| at.clone());
+    // Due by the buyer's payment terms (a B2B party's `30`, `net 14`,
+    // `30 days`), else in 30 days.
+    let days = party_terms_days(db, order).await.unwrap_or(30);
+    let due = js::iso_from_millis(at_ms + days * DAY_MS).unwrap_or_else(|| at.clone());
     let base = resolve_entity_base_currency(db, entity_id).await?;
     let http = caller.http(state);
     let rate = draft_rate(
@@ -994,5 +1027,15 @@ mod tests {
         assert!(stored_eu_invoice(&imported, &items("0", "0", "0"), "NL").is_none());
         let eu = order("domestic", "NL", "21.00", "5.25", "30.25");
         assert!(stored_eu_invoice(&eu, &items("21.00", "4.20", "24.20"), "US").is_none());
+    }
+
+    #[test]
+    fn payment_terms_read_as_days() {
+        assert_eq!(parse_terms_days("30"), Some(30));
+        assert_eq!(parse_terms_days(" Net 14 "), Some(14));
+        assert_eq!(parse_terms_days("45 days"), Some(45));
+        assert_eq!(parse_terms_days("on receipt"), None);
+        assert_eq!(parse_terms_days("0"), None);
+        assert_eq!(parse_terms_days(""), None);
     }
 }

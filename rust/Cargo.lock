@@ -7558,6 +7558,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-commerce-domain",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mollie",

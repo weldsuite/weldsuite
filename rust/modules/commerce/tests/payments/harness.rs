@@ -40,8 +40,8 @@ use weldsuite_permissions::{
     MemberRow, PermissionGate, PermissionQueries, Permissions, ResolvedPermissions,
 };
 use weldsuite_ports::{
-    BoxFuture, DynCache, DynEventBus, DynOutboundHttp, HttpRequest, HttpResponse, MemoryCache,
-    OutboundHttp, PortError, RecordingEventBus,
+    BoxFuture, DynCache, DynEventBus, DynOutboundHttp, DynSystemMail, HttpRequest, HttpResponse,
+    MemoryCache, OutboundHttp, PortError, RecordingEventBus, RecordingSystemMail,
 };
 
 pub(crate) const WORKSPACE: &str = "ws_pay_test";
@@ -58,6 +58,8 @@ pub(crate) const ALL: &[&str] = &[
     "orders:update",
     "commerce_settings:read",
     "commerce_settings:update",
+    "companies:read",
+    "companies:update",
 ];
 
 pub(crate) fn fresh(prefix: &str) -> String {
@@ -504,6 +506,8 @@ pub(crate) struct Ctx {
     pub(crate) fake: Arc<Fake>,
     pub(crate) books: Arc<FakeBooks>,
     bus: Arc<RecordingEventBus>,
+    /// The system mail every router sends through.
+    pub(crate) mail: Arc<RecordingSystemMail>,
     tracker: TaskTracker,
     tenant_url: String,
     master_url: String,
@@ -595,6 +599,7 @@ pub(crate) async fn setup() -> Option<Ctx> {
         fake: Arc::new(Fake::default()),
         books: Arc::new(FakeBooks::default()),
         bus: Arc::new(RecordingEventBus::new()),
+        mail: Arc::new(RecordingSystemMail::new()),
         tracker: TaskTracker::new(),
         tenant_url,
         master_url,
@@ -698,6 +703,7 @@ impl Ctx {
     /// The staff router for a member holding `permissions`.
     pub(crate) fn staff(&self, permissions: &[&str], connect: bool) -> Staff {
         let state = CommerceState {
+            mail: Some(Arc::clone(&self.mail) as Arc<dyn DynSystemMail>),
             events: self.publisher(),
             http: Some(self.http()),
             payments: self.config(connect),
@@ -753,6 +759,7 @@ impl Ctx {
     /// The storefront router.
     pub(crate) fn storefront(&self) -> Storefront {
         let router = storefront_router(StorefrontState {
+            mail: Some(Arc::clone(&self.mail) as Arc<dyn DynSystemMail>),
             events: self.publisher(),
             http: Some(self.http()),
             master: self.master.clone(),
@@ -1078,4 +1085,195 @@ impl Storefront {
 /// A refund made in Mollie's dashboard, not by WeldSuite; its id.
 pub(crate) fn dashboard_refund(ctx: &Ctx, payment: &str, amount: &str) -> String {
     ctx.fake.add_refund(payment, amount)
+}
+
+// ── B2B fixtures (phase 6) ──────────────────────────────────────────────────
+
+impl Ctx {
+    /// A company and its party, with payment terms and a credit limit (EUR)
+    /// when given; `(company id, party id)`.
+    pub(crate) async fn company(
+        &self,
+        name: &str,
+        terms: Option<&str>,
+        credit_limit: Option<i64>,
+    ) -> (String, String) {
+        let company = fresh("comp_");
+        let party = fresh("party_");
+        sqlx::query("insert into companies (id, name, display_name) values ($1, $2, $2)")
+            .bind(&company)
+            .bind(name)
+            .execute(&self.tenant)
+            .await
+            .expect("company");
+        sqlx::query(
+            "insert into parties (id, kind, company_id, role, display_name, payment_terms, credit_limit) \
+             values ($1, 'company', $2, 'customer', $3, $4, $5)",
+        )
+        .bind(&party)
+        .bind(&company)
+        .bind(name)
+        .bind(terms)
+        .bind(credit_limit.map(|amount| json!({ "amount": amount, "currency": "EUR" })))
+        .execute(&self.tenant)
+        .await
+        .expect("party");
+        (company, party)
+    }
+
+    /// A buyer of `company`: the person, the link and the buyer row; the
+    /// person's id. `limit` is a spend limit in EUR.
+    pub(crate) async fn buyer(
+        &self,
+        company: &str,
+        email: &str,
+        role: &str,
+        status: &str,
+        limit: Option<&str>,
+    ) -> String {
+        let person = fresh("per_");
+        sqlx::query(
+            "insert into people (id, display_name, full_name, email, in_crm) \
+             values ($1, $2, $2, $3, false)",
+        )
+        .bind(&person)
+        .bind(email)
+        .bind(email)
+        .execute(&self.tenant)
+        .await
+        .expect("person");
+        sqlx::query(
+            "insert into person_companies (id, person_id, company_id, is_primary) values ($1, $2, $3, true)",
+        )
+        .bind(fresh("pc_"))
+        .bind(&person)
+        .bind(company)
+        .execute(&self.tenant)
+        .await
+        .expect("link");
+        sqlx::query(
+            "insert into commerce_buyers (id, person_id, company_id, role, spend_limit, \
+               spend_limit_currency, status) values ($1, $2, $3, $4, $5::numeric, $6, $7)",
+        )
+        .bind(fresh("cbuy_"))
+        .bind(&person)
+        .bind(company)
+        .bind(role)
+        .bind(limit)
+        .bind(limit.map(|_| "EUR"))
+        .bind(status)
+        .execute(&self.tenant)
+        .await
+        .expect("buyer");
+        person
+    }
+
+    /// The sign-in code last mailed to `email`.
+    pub(crate) fn code_for(&self, email: &str) -> String {
+        let sent = self.mail.sent();
+        let mail = sent
+            .iter()
+            .rev()
+            .find(|m| {
+                m.to.iter().any(|to| to.email == email)
+                    && m.subject.chars().any(|c| c.is_ascii_digit())
+            })
+            .expect("a sign-in mail");
+        let text = &mail.text;
+        let bytes = text.as_bytes();
+        let mut at = 0;
+        while at + 6 <= bytes.len() {
+            if bytes[at..at + 6].iter().all(u8::is_ascii_digit)
+                && (at == 0 || !bytes[at - 1].is_ascii_digit())
+                && (at + 6 == bytes.len() || !bytes[at + 6].is_ascii_digit())
+            {
+                return text[at..at + 6].to_owned();
+            }
+            at += 1;
+        }
+        panic!("no code in the mail");
+    }
+
+    /// The mails sent to `email` so far, newest last (subject, text).
+    pub(crate) fn mails_to(&self, email: &str) -> Vec<(String, String)> {
+        self.mail
+            .sent()
+            .into_iter()
+            .filter(|m| m.to.iter().any(|to| to.email == email))
+            .map(|m| (m.subject, m.text))
+            .collect()
+    }
+
+    /// Put a limit on every buyer of the company at once (rows in the setup).
+    pub(crate) async fn threshold(&self, company: &str, amount: &str) {
+        sqlx::query(
+            "insert into commerce_company_settings (id, company_id, approval_threshold, \
+               approval_threshold_currency) values ($1, $2, $3::numeric, 'EUR') \
+             on conflict (company_id) do update set approval_threshold = excluded.approval_threshold, \
+               approval_threshold_currency = 'EUR'",
+        )
+        .bind(fresh("ccs_"))
+        .bind(company)
+        .bind(amount)
+        .execute(&self.tenant)
+        .await
+        .expect("threshold");
+    }
+}
+
+impl Storefront {
+    /// Sign in `email` on the channel of `key`; the session token.
+    pub(crate) async fn sign_in(&self, ctx: &Ctx, key: &str, email: &str) -> String {
+        let reply = self
+            .call(
+                "POST",
+                "/auth/code",
+                key,
+                &[],
+                Some(json!({ "email": email })),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.body);
+        let code = ctx.code_for(email);
+        let reply = self
+            .call(
+                "POST",
+                "/auth/verify",
+                key,
+                &[],
+                Some(json!({ "email": email, "code": code })),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+        reply.body["data"]["sessionToken"]
+            .as_str()
+            .expect("session token")
+            .to_owned()
+    }
+}
+
+impl Ctx {
+    /// An existing person as a buyer of one more company.
+    pub(crate) async fn buyer_for(&self, person: &str, company: &str, role: &str, status: &str) {
+        sqlx::query(
+            "insert into person_companies (id, person_id, company_id, is_primary) values ($1, $2, $3, false)",
+        )
+        .bind(fresh("pc_"))
+        .bind(person)
+        .bind(company)
+        .execute(&self.tenant)
+        .await
+        .expect("link");
+        sqlx::query(
+            "insert into commerce_buyers (id, person_id, company_id, role, status) values ($1, $2, $3, $4, $5)",
+        )
+        .bind(fresh("cbuy_"))
+        .bind(person)
+        .bind(company)
+        .bind(role)
+        .bind(status)
+        .execute(&self.tenant)
+        .await
+        .expect("buyer");
+    }
 }

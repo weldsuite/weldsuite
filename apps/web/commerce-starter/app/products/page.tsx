@@ -4,12 +4,12 @@ import { ProductListing } from '@/components/product-listing';
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+export async function generateMetadata({ searchParams }: Readonly<Props>): Promise<Metadata> {
   const { search } = await searchParams;
   return { title: typeof search === 'string' && search ? `Search: ${search}` : 'All products' };
 }
 
-export default async function ProductsPage({ searchParams }: Props) {
+export default async function ProductsPage({ searchParams }: Readonly<Props>) {
   const params = await searchParams;
   const search = typeof params.search === 'string' ? params.search.trim() : '';
   return (

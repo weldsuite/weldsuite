@@ -51,6 +51,11 @@ pub(crate) fn verify(secret: &str, token: &str) -> Option<Map<String, Value>> {
 mod tests {
     use super::*;
 
+    /// A key made at run time: the tests depend on no fixed secret.
+    fn key() -> String {
+        weldsuite_kit::generate_id("key")
+    }
+
     fn claims() -> Map<String, Value> {
         let mut claims = Map::new();
         claims.insert("workspaceId".to_owned(), json!("ws_1"));
@@ -60,29 +65,32 @@ mod tests {
 
     #[test]
     fn a_state_round_trips_under_its_secret_only() {
-        let token = sign("secret", &claims()).expect("signed");
-        let back = verify("secret", &token).expect("verified");
+        let secret = key();
+        let token = sign(&secret, &claims()).expect("signed");
+        let back = verify(&secret, &token).expect("verified");
         assert_eq!(back["workspaceId"], "ws_1");
-        assert!(verify("other", &token).is_none());
-        assert!(verify("", &token).is_none());
+        assert!(verify(&key(), &token).is_none());
+        let no_key = String::new();
+        assert!(verify(&no_key, &token).is_none());
     }
 
     #[test]
     fn a_tampered_or_expired_state_is_refused() {
-        let token = sign("secret", &claims()).expect("signed");
+        let secret = key();
+        let token = sign(&secret, &claims()).expect("signed");
         let (payload, signature) = token.split_once('.').expect("two parts");
         let forged = URL_SAFE_NO_PAD.encode(r#"{"workspaceId":"ws_2","exp":99999999999}"#);
-        assert!(verify("secret", &format!("{forged}.{signature}")).is_none());
-        assert!(verify("secret", payload).is_none());
+        assert!(verify(&secret, &format!("{forged}.{signature}")).is_none());
+        assert!(verify(&secret, payload).is_none());
         let mut old = claims();
         old.insert("exp".to_owned(), json!(1));
         let payload = URL_SAFE_NO_PAD.encode(Value::Object(old).to_string());
-        let mut mac = mac("secret").expect("mac");
+        let mut mac = mac(&secret).expect("mac");
         mac.update(payload.as_bytes());
         let expired = format!(
             "{payload}.{}",
             URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
         );
-        assert!(verify("secret", &expired).is_none());
+        assert!(verify(&secret, &expired).is_none());
     }
 }

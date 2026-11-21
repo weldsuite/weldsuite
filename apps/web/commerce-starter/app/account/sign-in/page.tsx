@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Sign in', robots: { index: false } }
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-export default async function SignInPage({ searchParams }: Props) {
+export default async function SignInPage({ searchParams }: Readonly<Props>) {
   const next = safePath(single((await searchParams).next) ?? '', '/account');
   if (await getShopper()) redirect(next);
   return (

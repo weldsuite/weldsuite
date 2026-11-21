@@ -24,12 +24,12 @@ export function Totals({
   totals,
   locale,
   shippingKnown = true,
-}: {
+}: Readonly<{
   totals: TotalsInput;
   locale: string;
   /** False until a shipping method is chosen. */
   shippingKnown?: boolean;
-}) {
+}>) {
   const m = (amount: string) => money(amount, totals.currency, locale);
   const vatNote = totals.pricesIncludeTax ? 'incl.' : 'excl.';
   const lines = totals.taxLines?.filter((line) => !isZeroMoney(line.amount)) ?? [];
@@ -76,10 +76,11 @@ export function Totals({
 }
 
 /** An order's lines and totals. */
-export function OrderLines({ order, locale }: { order: StorefrontOrder; locale: string }) {
+export function OrderLines({ order, locale }: Readonly<{ order: StorefrontOrder; locale: string }>) {
   const m = (amount: string) => money(amount, order.currency, locale);
   return (
     <div className="flex flex-col gap-6">
+      {/* tabIndex: keyboard users can scroll a table wider than the screen (a focusable region). */}
       <div role="region" aria-labelledby={`lines-${order.id}`} tabIndex={0} className="overflow-x-auto">
         <table className="w-full border-collapse text-left">
           <caption id={`lines-${order.id}`} className="sr-only">

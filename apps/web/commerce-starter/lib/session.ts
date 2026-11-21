@@ -54,13 +54,21 @@ export async function clearShopperToken(): Promise<void> {
   (await cookies()).delete(SESSION);
 }
 
+/**
+ * The last checkout. Mollie's return URL carries the order and payment ids
+ * itself; this keeps what the URL doesn't: a guest's order token and how the
+ * order is paid (and the payment id, as a fallback).
+ */
 export interface CheckoutState {
   orderId: string;
   orderNumber: string;
+  paymentMethod: 'mollie' | 'invoice';
   paymentId: string | null;
   /** A guest's order token, for the order link. */
   orderToken: string | null;
 }
+
+const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
 export async function getCheckoutState(): Promise<CheckoutState | undefined> {
   const raw = (await cookies()).get(CHECKOUT)?.value;
@@ -70,9 +78,10 @@ export async function getCheckoutState(): Promise<CheckoutState | undefined> {
     if (typeof value.orderId !== 'string') return undefined;
     return {
       orderId: value.orderId,
-      orderNumber: typeof value.orderNumber === 'string' ? value.orderNumber : '',
-      paymentId: typeof value.paymentId === 'string' ? value.paymentId : null,
-      orderToken: typeof value.orderToken === 'string' ? value.orderToken : null,
+      orderNumber: text(value.orderNumber) ?? '',
+      paymentMethod: value.paymentMethod === 'invoice' ? 'invoice' : 'mollie',
+      paymentId: text(value.paymentId),
+      orderToken: text(value.orderToken),
     };
   } catch {
     return undefined;

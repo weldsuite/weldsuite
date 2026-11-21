@@ -8,7 +8,7 @@ import { requestOptions, storefront } from '../commerce';
 import { getSessionToken } from '../data';
 import { describeError, discountReason } from '../errors';
 import { getCartToken, setCartToken } from '../session';
-import { text, wholeNumber, type FormState } from './state';
+import { problemRows, text, wholeNumber, type FormState, type ProblemRow } from './state';
 
 async function cartOptions() {
   return { ...(await requestOptions()), shopperToken: await getSessionToken() };
@@ -28,7 +28,7 @@ async function addToCart(item: CartItemInput): Promise<Cart> {
       if (!isStorefrontError(error, 'CART_NOT_FOUND', 'CART_NOT_OPEN')) throw error;
     }
   }
-  const created = await storefront().cart.create({ items: [item] }, options);
+  const created = await storefront().cart.create({ items: [item], ...options });
   await setCartToken(created.cartToken);
   return created.cart;
 }
@@ -149,19 +149,38 @@ function toCsvLine(line: string): string {
 /** Quick order: SKUs and quantities pasted or uploaded as CSV. */
 export interface QuickOrderState extends FormState {
   added?: number;
-  problems?: Array<{ row: number | null; sku: string | null; message: string }>;
+  problems?: ProblemRow[];
 }
 
-export async function quickOrderAction(_prev: QuickOrderState, form: FormData): Promise<QuickOrderState> {
-  let csv = text(form, 'csv');
+/** What the shopper pasted, or the uploaded file; untrimmed, so line numbers stay right. */
+async function pastedCsv(form: FormData): Promise<string | QuickOrderState> {
   const file = form.get('file');
   if (file instanceof File && file.size > 0) {
     if (file.size > 200_000) return { status: 'error', message: 'The file is too large (at most 200 KB).' };
-    csv = (await file.text()).trim();
+    return await file.text();
   }
-  if (!csv) return { status: 'error', message: 'Paste or upload at least one line: SKU,quantity.', fieldErrors: { csv: 'Required' } };
-  const lines = csv.split(/\r?\n/).filter((line) => line.trim() !== '');
-  if (lines.length > 500) return { status: 'error', message: 'At most 500 lines at a time.' };
+  const pasted = form.get('csv');
+  return typeof pasted === 'string' ? pasted : '';
+}
+
+function quickOrderMessage(rows: ProblemRow[], itemCount: number): string {
+  if (rows.length === 0) return `Added. Your cart now has ${itemCount} items.`;
+  if (rows.every((row) => row.added)) {
+    return `Added. Some items have fewer in stock than you asked for. Your cart now has ${itemCount} items.`;
+  }
+  return `Some lines could not be added. Your cart now has ${itemCount} items.`;
+}
+
+export async function quickOrderAction(_prev: QuickOrderState, form: FormData): Promise<QuickOrderState> {
+  const csv = await pastedCsv(form);
+  if (typeof csv !== 'string') return csv;
+  // Blank lines stay: the API reports problems by line number.
+  const lines = csv.split(/\r?\n/);
+  const filled = lines.filter((line) => line.trim() !== '').length;
+  if (filled === 0) {
+    return { status: 'error', message: 'Paste or upload at least one line: SKU,quantity.', fieldErrors: { csv: 'Required' } };
+  }
+  if (filled > 500) return { status: 'error', message: 'At most 500 lines at a time.' };
   const normalised = lines.map(toCsvLine).join('\n');
   try {
     const options = await cartOptions();
@@ -175,14 +194,12 @@ export async function quickOrderAction(_prev: QuickOrderState, form: FormData): 
     }
     if (result.cartToken) await setCartToken(result.cartToken);
     revalidatePath('/', 'layout');
+    const rows = problemRows(result.problems);
     return {
-      status: result.problems.length > 0 ? 'error' : 'success',
-      message:
-        result.problems.length > 0
-          ? `Some lines could not be added. Your cart now has ${result.cart.itemCount} items.`
-          : `Added. Your cart now has ${result.cart.itemCount} items.`,
+      status: rows.every((row) => row.added) ? 'success' : 'error',
+      message: quickOrderMessage(rows, result.cart.itemCount),
       added: result.cart.itemCount,
-      problems: result.problems.map((p) => ({ row: p.row, sku: p.sku, message: p.message })),
+      problems: rows,
     };
   } catch (error) {
     return { status: 'error', message: describeError(error) };

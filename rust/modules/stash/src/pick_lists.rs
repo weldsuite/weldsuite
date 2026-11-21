@@ -81,7 +81,10 @@ fn pick_error(error: PickError, fallback: &str) -> Response {
             if let Some(label) = label {
                 return ApiError::not_found(label, None).into_response();
             }
-            if code == "ALREADY_PICKING" {
+            if matches!(
+                code,
+                "ALREADY_PICKING" | "APPROVAL_PENDING" | "APPROVAL_REJECTED"
+            ) {
                 return ApiError::conflict(message)
                     .with_details(json!({ "code": code }))
                     .into_response();

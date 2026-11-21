@@ -19,7 +19,7 @@ type Props = {
  * (`/orders/<id>?token=<orderToken>`). Signed-in shoppers' links have no
  * token: they go to their account.
  */
-export default async function GuestOrderPage({ params, searchParams }: Props) {
+export default async function GuestOrderPage({ params, searchParams }: Readonly<Props>) {
   const id = segment((await params).id);
   const token = single((await searchParams).token);
   if (!token) redirect(`/account/orders/${encodeURIComponent(id)}`);

@@ -28,7 +28,8 @@ use weldsuite_events::EventContext;
 use super::{Principal, StorefrontState, fail, internal, limit};
 
 const KEY_CACHE_TTL: Duration = Duration::from_secs(30);
-const ALLOW_HEADERS: &str = "authorization, content-type, x-cart-token, idempotency-key";
+const ALLOW_HEADERS: &str =
+    "authorization, content-type, x-cart-token, x-shopper-token, idempotency-key";
 const ALLOW_METHODS: &str = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,5 +343,24 @@ mod tests {
             HeaderValue::from_static("Bearer wcp_x"),
         );
         assert_eq!(bearer(&headers), Some("wcp_x"));
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::*;
+
+    #[test]
+    fn a_browser_may_send_every_header_a_shop_needs() {
+        let allowed: Vec<&str> = ALLOW_HEADERS.split(',').map(str::trim).collect();
+        for header in [
+            "authorization",
+            "content-type",
+            "x-cart-token",
+            "x-shopper-token",
+            "idempotency-key",
+        ] {
+            assert!(allowed.contains(&header), "{header} in {ALLOW_HEADERS}");
+        }
     }
 }

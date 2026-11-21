@@ -8,7 +8,7 @@ export default async function HomePage() {
   const [channel, categories, latest] = await Promise.all([
     getChannel(),
     getCategories(),
-    storefront().products.list({ sort: 'newest', limit: 8 }, await requestOptions()),
+    storefront().products.list({ sort: 'newest', limit: 8, ...(await requestOptions()) }),
   ]);
 
   return (
@@ -34,6 +34,7 @@ export default async function HomePage() {
           <h2 id="shop-by-category" className="text-2xl font-semibold">
             Shop by category
           </h2>
+          {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
           <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-3">
             {categories.map((category) => (
               <li key={category.id}>

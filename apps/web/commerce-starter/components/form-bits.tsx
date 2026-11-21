@@ -22,11 +22,11 @@ export function SubmitButton({
   children,
   pendingText,
   className = 'btn btn-primary',
-}: {
+}: Readonly<{
   children: ReactNode;
   pendingText?: string;
   className?: string;
-}) {
+}>) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className={className} disabled={pending}>
@@ -40,12 +40,13 @@ export function SubmitButton({
  * (a region that only appears when there is a message is not announced
  * reliably).
  */
-export function FormMessage({ state }: { state: FormState }) {
+export function FormMessage({ state }: Readonly<{ state: FormState }>) {
   const tone =
     state.status === 'error'
       ? 'border-danger bg-danger-soft text-danger'
       : 'border-success bg-success-soft text-success';
   return (
+    // role="status": a live region that stays in the page, so changes to it are announced.
     <div role="status" aria-live="polite" aria-atomic="true">
       {state.message ? <p className={`rounded-lg border px-4 py-3 text-sm font-medium ${tone}`}>{state.message}</p> : null}
     </div>
@@ -74,7 +75,7 @@ type FieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> & {
 };
 
 /** A labelled input with its hint and error wired up for assistive tech. */
-export function Field({ name, label, hint, error, optional, className = '', ...input }: FieldProps) {
+export function Field({ name, label, hint, error, optional, className = '', ...input }: Readonly<FieldProps>) {
   const id = useId();
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
@@ -119,12 +120,12 @@ export function PendingButton({
   children,
   pendingText,
   className = 'btn btn-primary',
-}: {
+}: Readonly<{
   pending: boolean;
   children: ReactNode;
   pendingText: string;
   className?: string;
-}) {
+}>) {
   return (
     <button type="submit" className={className} disabled={pending}>
       {pending ? pendingText : children}

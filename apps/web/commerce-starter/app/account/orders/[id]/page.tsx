@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Order', robots: { index: false } };
 
 type Props = { params: Promise<{ id: string }> };
 
-export default async function AccountOrderPage({ params }: Props) {
+export default async function AccountOrderPage({ params }: Readonly<Props>) {
   const id = segment((await params).id);
   const session = await getSessionToken();
   if (!session) redirect(`/account/sign-in?next=${encodeURIComponent('/account/orders/' + id)}`);

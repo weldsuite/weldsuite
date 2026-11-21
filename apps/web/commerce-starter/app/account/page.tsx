@@ -11,7 +11,7 @@ import { activeCompany, getChannel, getShopper } from '@/lib/data';
 export const metadata: Metadata = { title: 'Your account', robots: { index: false } };
 
 /** B2B: the company the shopper buys for, a choice when there are several, or a note when there is none. */
-function CompanySection({ shopper, company, b2b }: { shopper: Shopper; company: ShopperCompany | null; b2b: boolean }) {
+function CompanySection({ shopper, company, b2b }: Readonly<{ shopper: Shopper; company: ShopperCompany | null; b2b: boolean }>) {
   if (shopper.companies.length === 0) {
     if (!b2b) return null;
     return (
@@ -62,6 +62,7 @@ export default async function AccountPage() {
       </div>
 
       <nav aria-label="Account">
+        {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
         <ul role="list" className="flex flex-wrap gap-3">
           <li>
             <Link href="/account/orders" className="btn btn-primary">

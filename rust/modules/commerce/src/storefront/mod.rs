@@ -14,10 +14,13 @@
 //! that price a staff member's order.
 
 mod auth;
+mod b2b;
 mod cart;
 mod catalogue;
 mod limit;
+mod orders;
 mod payments;
+mod shopper;
 
 use std::sync::Arc;
 
@@ -30,7 +33,7 @@ use axum::routing::{get, post, put};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use weldsuite_commerce_domain::Error as DomainError;
-use weldsuite_commerce_domain::carts::{Channel, Refusal};
+use weldsuite_commerce_domain::carts::{self, Channel, Refusal};
 use weldsuite_commerce_domain::money;
 use weldsuite_db::{PgPool, Workspaces};
 use weldsuite_events::{EntityEventPublisher, EventContext};
@@ -56,6 +59,9 @@ pub struct StorefrontState {
     pub trusted_proxies: usize,
     /// Payments (phase 5): Mollie at checkout, and WeldBooks.
     pub payments: crate::PaymentsConfig,
+    /// System mail (sign-in codes, order confirmations, invitations,
+    /// approvals); without it nothing is sent.
+    pub mail: crate::mail::Mail,
 }
 
 impl std::fmt::Debug for StorefrontState {
@@ -105,6 +111,24 @@ pub fn storefront_router(state: StorefrontState) -> Router {
             post(cart::apply_discount).delete(cart::remove_discount),
         )
         .route("/cart/checkout", post(cart::checkout))
+        .route("/cart/quick-order", post(orders::quick_order))
+        .route("/auth/code", post(shopper::request_code))
+        .route("/auth/verify", post(shopper::verify))
+        .route("/auth/sign-out", post(shopper::sign_out))
+        .route("/account", get(shopper::read).patch(shopper::patch))
+        .route("/account/company", put(shopper::select_company))
+        .route("/account/orders", get(orders::list))
+        .route("/account/orders/{id}", get(orders::read))
+        .route("/account/orders/{id}/reorder", post(orders::reorder))
+        .route("/orders/{id}", get(orders::guest))
+        .route("/account/approvals", get(b2b::approvals))
+        .route("/account/approvals/{order_id}/approve", post(b2b::approve))
+        .route("/account/approvals/{order_id}/reject", post(b2b::reject))
+        .route("/account/buyers", get(b2b::buyers).post(b2b::add_buyer))
+        .route(
+            "/account/buyers/{buyer_id}",
+            axum::routing::patch(b2b::patch_buyer).delete(b2b::remove_buyer),
+        )
         .route("/payments/{payment_id}", get(payments::read))
         .route("/payments/{payment_id}/retry", post(payments::retry))
         .fallback(not_found)
@@ -272,7 +296,7 @@ pub(crate) fn refuse(refusal: Refusal) -> Response {
     }
 }
 
-fn domain(error: DomainError) -> Response {
+pub(crate) fn domain(error: DomainError) -> Response {
     match error {
         DomainError::Database(error) => internal(&error, "The request could not be completed"),
         DomainError::Invalid { field, message } => validation(&[(field, message)]),
@@ -291,6 +315,56 @@ fn domain(error: DomainError) -> Response {
             "This channel does not sell to that country",
             Some(json!({ "country": country })),
         ),
+        DomainError::PaymentInProgress => conflict(
+            "PAYMENT_IN_PROGRESS",
+            "The order has a payment in progress",
+            None,
+        ),
+        DomainError::ApprovalPending => conflict(
+            "APPROVAL_PENDING",
+            "The order is waiting for approval",
+            None,
+        ),
+        DomainError::BuyerExists => conflict(
+            "BUYER_EXISTS",
+            "This person is a buyer of the company already",
+            None,
+        ),
+        DomainError::LastAdmin => {
+            conflict("LAST_ADMIN", "A company needs at least one admin", None)
+        }
+        DomainError::NotABuyer => fail(
+            StatusCode::FORBIDDEN,
+            "NOT_A_BUYER",
+            "You are not a buyer of that company",
+            None,
+        ),
+        DomainError::NotAnApprover => fail(
+            StatusCode::FORBIDDEN,
+            "NOT_AN_APPROVER",
+            "You cannot approve orders of this company",
+            None,
+        ),
+        DomainError::NotPending => conflict(
+            "NOT_PENDING",
+            "The order is not waiting for an approval",
+            None,
+        ),
+        DomainError::CompanyRequired => conflict(
+            "COMPANY_REQUIRED",
+            "Sign in and choose the company you are ordering for",
+            None,
+        ),
+        DomainError::NoPaymentTerms => conflict(
+            "NO_PAYMENT_TERMS",
+            "The company has no payment terms, so it cannot pay on invoice",
+            None,
+        ),
+        DomainError::CreditLimitExceeded { available } => conflict(
+            "CREDIT_LIMIT_EXCEEDED",
+            "The order would take the company past its credit limit",
+            Some(json!({ "available": money::format(available) })),
+        ),
         DomainError::TaxEngineUnavailable(why) => {
             tracing::warn!(%why, "[storefront] the VAT engine could not answer");
             fail(
@@ -305,13 +379,25 @@ fn domain(error: DomainError) -> Response {
 }
 
 #[allow(clippy::result_large_err, reason = "the Err is the response to send")]
-/// The cart token the request carries.
-pub(crate) fn cart_token(headers: &HeaderMap) -> Result<String, Response> {
-    headers
+/// The cart token the request carries. A session sent with it (`X-Shopper-Token`)
+/// attaches the cart to the shopper, and on a B2B channel to the company they
+/// buy for; a guest cart stays a guest cart.
+pub(crate) async fn cart_token(
+    principal: &Principal,
+    headers: &HeaderMap,
+) -> Result<String, Response> {
+    let token = headers
         .get("x-cart-token")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| refuse(Refusal::CartNotFound))
+        .ok_or_else(|| refuse(Refusal::CartNotFound))?;
+    if let Some(loaded) = shopper::optional(principal, headers).await? {
+        let who = orders::attach_of(&loaded, principal.channel.audience == "b2b");
+        carts::attach(&cart::ctx(principal), &token, &who)
+            .await
+            .map_err(|e| internal(&e, "The cart could not be attached"))?;
+    }
+    Ok(token)
 }

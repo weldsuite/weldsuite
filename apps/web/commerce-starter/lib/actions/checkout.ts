@@ -142,27 +142,41 @@ export async function placeOrderAction(_prev: PlaceOrderState, form: FormData): 
   await setCheckoutState({
     orderId: result.order.id,
     orderNumber: result.order.orderNumber,
+    paymentMethod,
     paymentId: result.payment?.id ?? null,
     orderToken: result.orderToken,
   });
   revalidatePath('/', 'layout');
+  // Mollie sends the shopper back with ?order=…&payment=…. A Mollie order
+  // that waits for approval has no payment yet: straight to the return page.
   if (result.payment?.checkoutUrl) redirect(result.payment.checkoutUrl);
-  redirect(`/checkout/return?order=${encodeURIComponent(result.order.id)}`);
+  redirect(returnPath(result.order.id, result.payment?.id ?? null));
+}
+
+/** The return page of an order (and its payment). */
+function returnPath(orderId: string, paymentId: string | null, error?: string): string {
+  const query = new URLSearchParams({ order: orderId });
+  if (paymentId) query.set('payment', paymentId);
+  if (error) query.set('error', error);
+  return `/checkout/return?${query.toString()}`;
 }
 
 /** Return page: a new Mollie payment after a failed, cancelled or expired one. */
-export async function retryPaymentAction(): Promise<void> {
-  const state = await getCheckoutState();
-  if (!state?.paymentId) redirect('/');
+export async function retryPaymentAction(form: FormData): Promise<void> {
+  const orderId = text(form, 'orderId');
+  const paymentId = text(form, 'paymentId');
+  if (!orderId || !paymentId) redirect('/');
   let checkoutUrl: string | null = null;
   try {
-    const payment = await storefront().payments.retry(state.paymentId, await requestOptions());
-    await setCheckoutState({ ...state, paymentId: payment.id });
+    const payment = await storefront().payments.retry(paymentId, await requestOptions());
+    // Keep the fallback cookie in step when it is this checkout's.
+    const state = await getCheckoutState();
+    if (state?.orderId === orderId) await setCheckoutState({ ...state, paymentId: payment.id });
     checkoutUrl = payment.checkoutUrl;
   } catch (error) {
     const code = isStorefrontError(error) ? error.code : 'UNKNOWN';
     if (!isStorefrontError(error)) console.error('[checkout]', error);
-    redirect(`/checkout/return?order=${encodeURIComponent(state.orderId)}&error=${encodeURIComponent(code)}`);
+    redirect(returnPath(orderId, paymentId, code));
   }
-  redirect(checkoutUrl ?? `/checkout/return?order=${encodeURIComponent(state.orderId)}`);
+  redirect(checkoutUrl ?? returnPath(orderId, paymentId));
 }

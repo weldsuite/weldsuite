@@ -11,12 +11,12 @@ export function ProductCard({
   product,
   locale,
   eager = false,
-}: {
+}: Readonly<{
   product: StorefrontProduct;
   locale: string;
   /** The first cards of a page are above the fold: don't lazy-load them. */
   eager?: boolean;
-}) {
+}>) {
   const image = product.featuredImageUrl ?? product.images[0]?.url ?? null;
   const fromPrice = product.variants.length > 1 && new Set(product.variants.map((v) => v.price)).size > 1;
   return (
@@ -48,8 +48,9 @@ export function ProductCard({
   );
 }
 
-export function ProductGrid({ products, locale }: { products: StorefrontProduct[]; locale: string }) {
+export function ProductGrid({ products, locale }: Readonly<{ products: StorefrontProduct[]; locale: string }>) {
   return (
+    // role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none.
     <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-4">
       {products.map((product, index) => (
         <li key={product.id} className="flex">

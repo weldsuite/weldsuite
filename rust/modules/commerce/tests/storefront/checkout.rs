@@ -15,6 +15,7 @@ async fn b2b(env: &Env) -> (String, String, String) {
         .await;
     let key = env.key(&channel, "private", &[]).await;
     let rate = env.rate(&channel, &["NL", "DE"], "5.00", None).await;
+    env.buyer_for_key(&channel, &key).await;
     (channel, key, rate)
 }
 
@@ -310,9 +311,11 @@ async fn a_cart_that_is_not_ready_says_what_is_missing() {
         .ok(StatusCode::CREATED)
         .await;
     let token = empty["cartToken"].as_str().expect("token").to_owned();
+    // As a guest (an empty session header opts out of the planted buyer).
     let reply = app
         .post("/cart/checkout", &key, invoice())
         .token(&token)
+        .header("x-shopper-token", " ")
         .send()
         .await;
     assert_eq!(

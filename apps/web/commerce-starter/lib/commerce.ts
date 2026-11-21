@@ -1,11 +1,22 @@
 import 'server-only';
 
-import { createStorefrontClient, type RequestOptions, type StorefrontClient } from '@weldsuite/commerce-sdk';
+import {
+  createStorefrontClient,
+  type RequestOptions,
+  type SignInLocale,
+  type StorefrontClient,
+} from '@weldsuite/commerce-sdk';
 import { headers } from 'next/headers';
 
 /** The shop's settings, read from the environment (see .env.example). */
 export const shopLocale = process.env.SHOP_LOCALE || 'en-IE';
 export const shopTimeZone = process.env.SHOP_TIME_ZONE || 'Europe/Amsterdam';
+
+/** The sign-in email's language: the shop's, when WeldCommerce writes it (en, nl). */
+export function emailLocale(): SignInLocale | undefined {
+  const language = shopLocale.slice(0, 2).toLowerCase();
+  return language === 'en' || language === 'nl' ? language : undefined;
+}
 
 export class ShopNotConfiguredError extends Error {
   constructor() {

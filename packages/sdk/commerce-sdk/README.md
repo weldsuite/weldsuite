@@ -67,7 +67,8 @@ With a private key the requests come from your server, so tell the API who
 the shopper is; rate limits then count per shopper instead of per server:
 
 ```ts
-await storefront.products.list({ search: 'shirt' }, { shopperIp: request.ip });
+await storefront.products.list({ search: 'shirt', shopperIp: request.ip });
+await storefront.products.get('linen-shirt', { shopperIp: request.ip });
 ```
 
 In the browser, use a publishable key from an allowed origin:
@@ -93,7 +94,10 @@ your self-hosted install's. The client adds `/storefront/v1`.
 | `rateLimitRetries` | Retry a 429 this many times, waiting `Retry-After` each time. Default `0`. |
 | `maxRetryAfter` | The longest wait (seconds) worth retrying for. Default `10`. |
 
-Every method also takes `{ signal }` to abort it, and `{ shopperIp }`.
+Every method takes an options object last, with `signal` (to abort it) and
+`shopperIp`. Where a call has optional fields of its own (`products.list`,
+`cart.create`, `orders.list`, `auth.requestCode`, `approvals.approve`) they go
+in that same object, so you never pass `undefined` to reach the options.
 
 ## Products and categories
 
@@ -101,7 +105,7 @@ Every method also takes `{ signal }` to abort it, and `{ shopperIp }`.
 // One page (≤ 100, default 24); filter by category id or slug, search, sort.
 const page = await storefront.products.list({ category: 'shirts', search: 'linen', sort: 'price', limit: 24 });
 const next = page.pagination.hasMore
-  ? await storefront.products.list({ category: 'shirts', cursor: page.pagination.cursor! })
+  ? await storefront.products.list({ category: 'shirts', sort: 'price', cursor: page.pagination.cursor! })
   : null;
 
 // Or every product, page after page:
@@ -109,6 +113,11 @@ for await (const product of storefront.products.iterate({ category: 'shirts' }))
   console.log(product.name, product.price);
 }
 ```
+
+A cursor is opaque: pass back the one a page gave you, with the same `sort`.
+One the list didn't give out (an edited link, another sort) is 400
+`INVALID_CURSOR`; start again from the first page. Products that disappear
+between pages don't throw paging off.
 
 A product has `options` (e.g. `Size: S, M, L`) and `variants`, each with
 `optionValues`, a `price` and `available`. A product without variants has an
@@ -185,28 +194,35 @@ const result = await storefront.cart.checkout(
 
 // result.order: the placed order (status pending until Mollie says paid)
 // result.payment: { id, status, checkoutUrl }
-// result.orderToken: a guest's order link token (shown once), null when signed in
+// result.orderToken: a guest's order link token (wot_…, shown once); null when signed in
+if (result.orderToken) keepForTheOrderPage(result.order.id, result.orderToken);
 redirect(result.payment!.checkoutUrl!);
 ```
 
 - **Idempotency.** Retrying a checkout with the same `idempotencyKey` (after
   a timeout, a double click) returns the first attempt's result instead of a
-  second order. If the order was placed but Mollie could not start the
-  payment, checkout fails with 502 `PROVIDER_ERROR` (`details.orderId`);
-  retrying with the same key tries the payment again.
+  second order (without `orderToken`: it is shown once). If the order was
+  placed but Mollie could not start the payment, checkout fails with 502
+  `PROVIDER_ERROR` (`details.orderId`); retrying with the same key tries the
+  payment again.
 - **`redirectUrl`** must be `https://`. With a publishable key its origin
   must be one of the key's allowed origins (`REDIRECT_NOT_ALLOWED`). Mollie
-  sends the shopper back to it with `?order=<orderId>` added.
-- **Remember the payment id** (for example in a cookie) before you redirect:
-  the return page needs it.
+  sends the shopper back to it with `?order=<orderId>&payment=<paymentId>`
+  added.
+- **`orderUrl`** is the link in the confirmation email: `https://` with
+  `{orderId}` and `{token}` (empty for a signed-in shopper). Another shape is
+  400 `VALIDATION_ERROR`; a publishable key's origins apply
+  (`ORDER_URL_NOT_ALLOWED`).
 
 ### The return page
 
 Coming back from Mollie never marks anything paid by itself: the API reads
-the payment back from Mollie (and Mollie's webhook settles it too).
+the payment back from Mollie (and Mollie's webhook settles it too). Read the
+payment id from the return URL's `payment` parameter:
 
 ```ts
-const payment = await storefront.payments.get(paymentId);
+const paymentId = new URL(request.url).searchParams.get('payment')!;
+const payment = await storefront.payments.get(paymentId); // 404 for a payment of another channel
 switch (payment.status) {
   case 'paid':
   case 'authorized':
@@ -226,11 +242,17 @@ switch (payment.status) {
 }
 ```
 
+An order paid by Mollie on a B2B channel that needs approval has no payment
+yet (`result.payment` is `null`, `result.order.approvalStatus` is
+`'pending'`): it gets one once an approver says yes, and the buyer is emailed
+the link. Until then `payments.retry` is 409 `ORDER_NOT_PAYABLE`.
+
 ### Guest order links
 
-A guest checkout returns `orderToken` once. With the order id it opens the
-order without a session, e.g. on an order status page or from the link in the
-confirmation email (`orderUrl`). Only a hash of the token is stored.
+A guest checkout returns `orderToken` (`wot_…`) once. With the order id it
+opens the order without a session, e.g. on an order status page or from the
+link in the confirmation email (`orderUrl`). Only a hash of the token is
+stored; a wrong token is 404 `NOT_FOUND`.
 
 ```ts
 const order = await storefront.orders.getGuest(orderId, orderToken);
@@ -239,34 +261,46 @@ const order = await storefront.orders.getGuest(orderId, orderToken);
 ## Shopper sign-in and accounts
 
 Shoppers sign in with a 6-digit code sent by email; there are no passwords.
-A session token (`wss_…`) comes back, valid for 30 days; send it as
-`shopperToken`.
+A session token (`wss_…`) comes back, valid for 30 days on this channel;
+send it as `shopperToken`.
 
 ```ts
-await storefront.auth.requestCode('ada@example.com'); // always { sent: true }: no account enumeration
+await storefront.auth.requestCode('ada@example.com', { locale: 'nl' }); // always { sent: true }: no account enumeration
 const { sessionToken, expiresAt, shopper } = await storefront.auth.verify('ada@example.com', '123456');
 
 const me = await storefront.account.get(sessionToken);
 await storefront.account.update(sessionToken, { firstName: 'Ada', phone: '+31 6 12345678' });
 
-const { data: orders } = await storefront.orders.list(sessionToken);
+const { data: orders, pagination } = await storefront.orders.list(sessionToken, { limit: 25 });
 const order = await storefront.orders.get(sessionToken, orders[0].id);
 const { cart, cartToken, problems } = await storefront.orders.reorder(sessionToken, order.id, { cartToken: existing });
 
-await storefront.auth.signOut(sessionToken);
+await storefront.auth.signOut(sessionToken); // fine when the session has ended already
 ```
 
+Every order has `approvalStatus` (`not_required` unless a B2B approval is
+involved) and `placedBy` (`{ personId, name }`, `null` for a guest order).
+
 Send the shopper token with cart calls too: a session on a cart attaches the
-cart to the shopper (and lets them check out on channels without guest
-checkout).
+cart to the shopper (and, on a B2B channel, to their active company, and lets
+them check out on channels without guest checkout). Leave it out for guests.
 
 ```ts
 await storefront.cart.get(cartToken, { shopperToken: sessionToken });
 ```
 
-Codes: 5 requests per email per 15 minutes, 8 attempts per code, valid for
-15 minutes. A wrong code is `INVALID_CODE` (`details.attemptsLeft`), an old
-one `CODE_EXPIRED`.
+**Sessions.** A route that needs a shopper answers 401 `SESSION_REQUIRED`
+without a token. A token that is no longer good (expired, signed out, or from
+another channel) is 401 `SESSION_EXPIRED` on any route, cart and checkout
+included: forget it and treat the shopper as a guest (or ask them to sign in
+again).
+
+**Codes.** 5 requests per email per 15 minutes (429 `RATE_LIMITED`), 8
+attempts per code, valid for 15 minutes. The email is in English or Dutch
+(`locale: 'en' | 'nl'`). A wrong code is 401 `INVALID_CODE`
+(`details.attemptsLeft`); an expired, used or never-requested code, or one
+with 8 wrong guesses, is 410 `CODE_EXPIRED`: ask for a new one. When the
+server can't send codes it answers 503 `SIGN_IN_UNAVAILABLE`.
 
 ## B2B
 
@@ -281,9 +315,10 @@ than one, let them pick:
 await storefront.account.selectCompany(sessionToken, companyId); // NOT_A_BUYER if they can't
 ```
 
-Checkout without an active company fails with `COMPANY_REQUIRED`. Add the
-buyer's VAT number (reverse charge, checked against VIES) and their PO
-reference to the cart:
+Checkout without a signed-in buyer with an active company fails with 409
+`COMPANY_REQUIRED` (403 `NOT_A_BUYER` when the shopper can't buy for it).
+Add the buyer's VAT number (reverse charge, checked against VIES) and their
+PO reference to the cart:
 
 ```ts
 await storefront.cart.update(cartToken, { buyerVatNumber: 'NL123456789B01', customerReference: 'PO-2026-117' }, { shopperToken });
@@ -302,20 +337,28 @@ created in WeldBooks with the company's terms.
 
 **Approvals.** An order above the buyer's spend limit or the company's
 approval threshold is placed with `approvalStatus: 'pending'` and waits for
-an approver. Approvers and admins see them:
+an approver. Approvers and admins of the active company see them (others get
+403 `NOT_AN_APPROVER`):
 
 ```ts
 const approvals = await storefront.approvals.list(sessionToken); // [{ order, reason, requestedBy }]
-await storefront.approvals.approve(sessionToken, orderId, { comment: 'OK for Q4 budget' });
+const approved = await storefront.approvals.approve(sessionToken, orderId, { comment: 'OK for Q4 budget' });
 await storefront.approvals.reject(sessionToken, orderId, { comment: 'Too many chairs' });
 ```
 
-A Mollie order that needs approval gets its payment link after approval (it
-is emailed to the buyer).
+Approving an invoice order confirms it. Approving a Mollie order starts its
+payment: `approved.payment` is `{ id, status, checkoutUrl }`, and the buyer is
+emailed the link. Rejecting cancels the order. An order decided already is
+409 `NOT_PENDING`.
 
-**Quick order.** Add lines by SKU, or paste a `sku,quantity` CSV (header
-optional, up to 500 rows). Lines that can't be added come back as
-`problems`; the rest are added.
+**Quick order.** Add lines by SKU, or paste a `sku,quantity` CSV (`;` or a
+tab work too, header optional; up to 500 rows in all, more is 400
+`VALIDATION_ERROR`). SKUs match exactly but case-insensitively, variants
+first; with both, `lines` come before the CSV. Every line that can be added
+is; the others come back as `problems` with their `row` (the position in
+`lines`, or the CSV line number, header included). An `OUT_OF_STOCK` line is
+added *and* reported, so the shopper knows there are fewer on hand; a row
+without a SKU is `UNKNOWN_SKU`. Reorder reports the same way, with `row: null`.
 
 ```ts
 const { cart, cartToken: created, problems } = await storefront.cart.quickOrder(
@@ -324,11 +367,12 @@ const { cart, cartToken: created, problems } = await storefront.cart.quickOrder(
 );
 ```
 
-**Buyers** (company admins):
+**Buyers** (company admins; others get 403 `NOT_AN_ADMIN`). The answers are
+`Buyer`s; a spend limit is in the channel's currency.
 
 ```ts
 await storefront.buyers.list(sessionToken);
-await storefront.buyers.invite(sessionToken, { email: 'piet@acme.example', role: 'buyer', spendLimit: '500.00' });
+await storefront.buyers.invite(sessionToken, { email: 'piet@acme.example', role: 'buyer', spendLimit: '500.00' }); // BUYER_EXISTS
 await storefront.buyers.update(sessionToken, buyerId, { role: 'approver' });
 await storefront.buyers.remove(sessionToken, buyerId); // LAST_ADMIN for the last admin
 ```
@@ -381,7 +425,10 @@ shape. Validation failures are 400 `VALIDATION_ERROR` with
 | `RATE_LIMITED` | 429 | Too many requests; `retryAfter` says how long to wait |
 | `WORKSPACE_MOVING` | 503 | The shop is being moved; `retryAfter` (30 s) |
 | `VALIDATION_ERROR` | 400 | A field is wrong: `details.fields` |
-| `NOT_FOUND` | 404 | No such product, category, order or payment on this channel |
+| `NOT_FOUND` | 404 | No such product, category, order, payment or buyer on this channel (also a wrong guest order token) |
+| `INVALID_CURSOR` | 400 | A cursor the list didn't give out, or one of another sort: start from the first page |
+| `SESSION_REQUIRED` | 401 | The route needs a signed-in shopper: send `shopperToken` |
+| `SESSION_EXPIRED` | 401 | The shopper token is expired, signed out or from another channel: drop it |
 | `CART_NOT_FOUND` | 404 | Missing, unknown or someone else's cart token |
 | `CART_NOT_OPEN` | 409 | The cart was checked out or expired: `details.status`. Start a new cart |
 | `CART_TOO_LARGE` | 409 | More than 100 lines |
@@ -402,16 +449,21 @@ shape. Validation failures are 400 `VALIDATION_ERROR` with
 | `REDIRECT_NOT_ALLOWED` | 400 | `redirectUrl` isn't on the key's allowed origins |
 | `ORDER_URL_NOT_ALLOWED` | 400 | `orderUrl` isn't on the key's allowed origins |
 | `PROVIDER_ERROR` | 502 | Mollie refused; the order exists: `details.orderId`. Retry with the same key |
-| `COMPANY_REQUIRED` | 409 | B2B checkout without an active company |
+| `COMPANY_REQUIRED` | 409 | B2B checkout without a signed-in buyer with an active company |
 | `NO_PAYMENT_TERMS` | 409 | Pay on invoice without payment terms on the company |
 | `CREDIT_LIMIT_EXCEEDED` | 409 | Over the company's credit limit: `details.available` |
 | `ALREADY_PAID` | 409 | Retrying a payment for a paid order |
-| `ORDER_NOT_PAYABLE` | 409 | The order can't be paid (cancelled, on invoice) |
+| `ORDER_NOT_PAYABLE` | 409 | The order can't be paid now (cancelled, on invoice, waiting for approval) |
+| `PAYMENT_IN_PROGRESS` | 409 | The order has a payment in progress |
+| `APPROVAL_PENDING` | 409 | The order waits for approval |
+| `SIGN_IN_UNAVAILABLE` | 503 | Sign-in codes can't be sent right now; try again shortly |
 | `INVALID_CODE` | 401 | Wrong sign-in code: `details.attemptsLeft` |
-| `CODE_EXPIRED` | 410 | Request a new code |
+| `CODE_EXPIRED` | 410 | Expired, used, never requested or guessed wrong 8 times: request a new code |
 | `NOT_A_BUYER` | 403 | The shopper can't buy for that company |
 | `NOT_AN_APPROVER` | 403 | Only approvers and admins decide approvals |
+| `NOT_AN_ADMIN` | 403 | Only company admins manage buyers |
 | `NOT_PENDING` | 409 | The approval was already decided |
+| `BUYER_EXISTS` | 409 | That person is a buyer of the company already |
 | `LAST_ADMIN` | 409 | A company keeps at least one admin |
 | `NETWORK_ERROR` | 0 | Raised by the SDK: the API couldn't be reached (`cause` has the reason) |
 | `UNEXPECTED_RESPONSE` | any | Raised by the SDK: the answer wasn't the API's JSON |

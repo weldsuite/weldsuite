@@ -65,14 +65,31 @@ function failureText(status: string | undefined): string {
   return 'The payment failed.';
 }
 
-function CheckAgain({ orderId }: { orderId: string }) {
+/** This page again, for the same order and payment. */
+function returnHref(orderId: string, paymentId: string | null): string {
+  const query = new URLSearchParams({ order: orderId });
+  if (paymentId) query.set('payment', paymentId);
+  return `/checkout/return?${query.toString()}`;
+}
+
+function CheckAgain({ href }: Readonly<{ href: string }>) {
   return (
     <p>
-      <Link href={`/checkout/return?order=${encodeURIComponent(orderId)}`} className="btn btn-secondary">
+      <Link href={href} className="btn btn-secondary">
         Check again
       </Link>
     </p>
   );
+}
+
+/** What an order without a payment (yet) waits for. */
+function placedText(awaitingApproval: boolean, method: 'mollie' | 'invoice'): string {
+  if (awaitingApproval && method === 'mollie') {
+    return 'is waiting for approval by your company. Once it is approved, we email you a link to pay.';
+  }
+  if (awaitingApproval) return 'is waiting for approval by your company. We let you know once it is decided.';
+  if (method === 'invoice') return 'will be invoiced. You will get a confirmation email.';
+  return 'is placed. You will get a confirmation email.';
 }
 
 function NotFound() {
@@ -87,29 +104,58 @@ function NotFound() {
   );
 }
 
-function OutcomeMessage({
-  outcome,
-  number,
-  orderId,
-  payment,
-  awaitingApproval,
-}: {
+/** Everything the page shows about one checkout. */
+interface ReturnView {
+  orderId: string;
+  paymentId: string | null;
+  payment: PaymentInfo | null;
+  order: StorefrontOrder | null;
+  link: string | null;
   outcome: Outcome;
   number: string;
-  orderId: string;
-  payment: PaymentInfo | null;
-  awaitingApproval: boolean;
-}) {
+  method: 'mollie' | 'invoice';
+}
+
+/**
+ * The checkout behind `?order=…&payment=…` (Mollie's return URL carries
+ * both). The checkout cookie is a fallback for the payment id and holds a
+ * guest's order token; without either, there is nothing to show.
+ */
+async function resolveReturn(params: Record<string, string | string[] | undefined>): Promise<ReturnView | null> {
+  const orderId = single(params.order);
+  if (!orderId) return null;
+  const state = await getCheckoutState();
+  const own = state?.orderId === orderId ? state : undefined;
+  const paymentId = single(params.payment) ?? own?.paymentId ?? null;
+  const read = await loadPayment(paymentId);
+  // A payment of another order (a copied or edited link) counts as none.
+  const payment = read?.orderId === orderId ? read : null;
+  if (!own && !payment) return null;
+  const signedIn = Boolean(await getSessionToken());
+  const orderToken = own?.orderToken ?? null;
+  const order = await loadOrder(orderId, orderToken);
+  return {
+    orderId,
+    paymentId,
+    payment,
+    order,
+    link: orderLink(orderId, orderToken, signedIn),
+    outcome: outcomeOf(paymentId, payment),
+    number: payment?.orderNumber ?? order?.orderNumber ?? own?.orderNumber ?? '',
+    method: own?.paymentMethod ?? (paymentId ? 'mollie' : 'invoice'),
+  };
+}
+
+function OutcomeMessage({ view }: Readonly<{ view: ReturnView }>) {
+  const { outcome, number, payment } = view;
+  const again = returnHref(view.orderId, view.paymentId);
   switch (outcome) {
     case 'placed':
       return (
         <>
           <h1 className="text-3xl font-semibold">Thank you, your order is placed</h1>
           <p>
-            Order <strong>{number}</strong>{' '}
-            {awaitingApproval
-              ? 'is waiting for approval by your company. We let you know once it is decided.'
-              : 'will be invoiced. You will get a confirmation email.'}
+            Order <strong>{number}</strong> {placedText(view.order?.approvalStatus === 'pending', view.method)}
           </p>
         </>
       );
@@ -130,7 +176,7 @@ function OutcomeMessage({
             Your order <strong>{number}</strong> is saved. We couldn&apos;t reach the payment service just now: check again in a
             moment.
           </p>
-          <CheckAgain orderId={orderId} />
+          <CheckAgain href={again} />
         </>
       );
     case 'waiting':
@@ -140,7 +186,7 @@ function OutcomeMessage({
           <p>
             Mollie hasn&apos;t confirmed the payment for order <strong>{number}</strong> yet. This usually takes a few seconds.
           </p>
-          <CheckAgain orderId={orderId} />
+          <CheckAgain href={again} />
         </>
       );
     case 'failed':
@@ -156,33 +202,21 @@ function OutcomeMessage({
 }
 
 /**
- * Where Mollie sends the shopper back (`?order=<orderId>`), and the
- * confirmation of an order on invoice. Coming back never marks anything
- * paid: the payment is read back from Mollie through the API.
+ * Where Mollie sends the shopper back (`?order=<orderId>&payment=<paymentId>`),
+ * and the confirmation of an order on invoice. Coming back never marks
+ * anything paid: the payment is read back from Mollie through the API.
  */
-export default async function CheckoutReturnPage({ searchParams }: Props) {
+export default async function CheckoutReturnPage({ searchParams }: Readonly<Props>) {
   const params = await searchParams;
-  const orderId = single(params.order);
   const error = single(params.error);
-  const state = await getCheckoutState();
-  if (!orderId || !state || state.orderId !== orderId) return <NotFound />;
-
-  const payment = await loadPayment(state.paymentId);
-  const signedIn = Boolean(await getSessionToken());
-  const order = await loadOrder(state.orderId, state.orderToken);
-  const link = orderLink(state.orderId, state.orderToken, signedIn);
-  const outcome = outcomeOf(state.paymentId, payment);
+  const view = await resolveReturn(params);
+  if (!view) return <NotFound />;
+  const { order, link } = view;
 
   return (
     <div className="flex flex-col gap-8">
       <div className="flex max-w-2xl flex-col gap-3">
-        <OutcomeMessage
-          outcome={outcome}
-          number={payment?.orderNumber ?? order?.orderNumber ?? state.orderNumber}
-          orderId={state.orderId}
-          payment={payment}
-          awaitingApproval={order?.approvalStatus === 'pending'}
-        />
+        <OutcomeMessage view={view} />
 
         {error ? (
           <p role="alert" className="rounded-lg border border-danger bg-danger-soft px-4 py-3 text-danger">
@@ -190,8 +224,10 @@ export default async function CheckoutReturnPage({ searchParams }: Props) {
           </p>
         ) : null}
 
-        {outcome === 'failed' ? (
+        {view.outcome === 'failed' && view.paymentId ? (
           <form action={retryPaymentAction}>
+            <input type="hidden" name="orderId" value={view.orderId} />
+            <input type="hidden" name="paymentId" value={view.paymentId} />
             <SubmitButton pendingText="Starting the payment…">Try paying again</SubmitButton>
           </form>
         ) : null}

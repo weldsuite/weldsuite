@@ -13,6 +13,7 @@ export type StorefrontErrorCode =
   | 'WORKSPACE_MOVING'
   | 'VALIDATION_ERROR'
   | 'NOT_FOUND'
+  | 'INVALID_CURSOR'
   | 'INTERNAL_ERROR'
   // Carts
   | 'CART_NOT_FOUND'
@@ -43,14 +44,21 @@ export type StorefrontErrorCode =
   // Payments
   | 'ALREADY_PAID'
   | 'ORDER_NOT_PAYABLE'
-  // Shopper sign-in and accounts
+  | 'PAYMENT_IN_PROGRESS'
+  | 'APPROVAL_PENDING'
+  // Shopper sign-in, sessions and accounts
+  | 'SIGN_IN_UNAVAILABLE'
   | 'INVALID_CODE'
   | 'CODE_EXPIRED'
+  | 'SESSION_REQUIRED'
+  | 'SESSION_EXPIRED'
   | 'NOT_A_BUYER'
   // B2B approvals and buyers
   | 'NOT_AN_APPROVER'
+  | 'NOT_AN_ADMIN'
   | 'NOT_PENDING'
   | 'LAST_ADMIN'
+  | 'BUYER_EXISTS'
   // Raised by this SDK, not the server
   | 'NETWORK_ERROR'
   | 'UNEXPECTED_RESPONSE';

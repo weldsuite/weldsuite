@@ -272,7 +272,7 @@ fn strip_order(redirect: &str) -> String {
     };
     let kept: Vec<(String, String)> = url
         .query_pairs()
-        .filter(|(name, _)| name != "order")
+        .filter(|(name, _)| name != "order" && name != "payment")
         .map(|(n, v)| (n.into_owned(), v.into_owned()))
         .collect();
     url.set_query(None);

@@ -429,6 +429,9 @@ export const platformSyncMap: EntitySyncMap = {
   commerce_shipping_rate: inv(['weldcommerce', 'channels']),
   // The Mollie connection and the payment queries share the `payments` prefix (phase 5).
   commerce_payment_connection: inv(['weldcommerce', 'payments']),
+  // B2B buyers and the company's approval threshold (phase 6); order approvals invalidate through `order`.
+  commerce_buyer: inv(['weldcommerce', 'buyers']),
+  commerce_company_settings: inv(['weldcommerce', 'company-settings']),
 
   // =========================================================================
   // WeldDesk — Helpdesk

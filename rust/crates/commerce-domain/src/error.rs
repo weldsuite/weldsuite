@@ -67,6 +67,32 @@ pub enum Error {
     TaxEngineUnavailable(String),
     /// The order's tax is locked: it is not editable (409 `ORDER_TAX_LOCKED`).
     TaxLocked,
+    /// The order has a Mollie payment in progress, so its total cannot
+    /// change (409 `PAYMENT_IN_PROGRESS`).
+    PaymentInProgress,
+    /// The order waits for an approval and cannot move on (409
+    /// `APPROVAL_PENDING`).
+    ApprovalPending,
+    /// The person is a buyer of the company already (409 `BUYER_EXISTS`).
+    BuyerExists,
+    /// The company's last admin cannot lose the role (409 `LAST_ADMIN`).
+    LastAdmin,
+    /// The shopper is not an active buyer of the company (403 `NOT_A_BUYER`).
+    NotABuyer,
+    /// The shopper may not decide this order (403 `NOT_AN_APPROVER`).
+    NotAnApprover,
+    /// The order is not waiting for an approval (409 `NOT_PENDING`).
+    NotPending,
+    /// A B2B channel orders for a company: sign in and pick one (409
+    /// `COMPANY_REQUIRED`).
+    CompanyRequired,
+    /// The company's party has no payment terms (409 `NO_PAYMENT_TERMS`).
+    NoPaymentTerms,
+    /// The order would take the party past its credit limit (409
+    /// `CREDIT_LIMIT_EXCEEDED`); what is left, in cents.
+    CreditLimitExceeded {
+        available: crate::money::Cents,
+    },
 }
 
 impl Error {
@@ -125,6 +151,26 @@ impl fmt::Display for Error {
             }
             Self::TaxEngineUnavailable(why) => {
                 write!(f, "The VAT could not be calculated: {why}")
+            }
+            Self::PaymentInProgress => f.write_str(
+                "The order has a payment in progress: wait until it is paid, failed or expired before changing the order",
+            ),
+            Self::BuyerExists => f.write_str("This person is a buyer of the company already"),
+            Self::LastAdmin => f.write_str("A company needs at least one admin"),
+            Self::NotABuyer => f.write_str("You are not a buyer of that company"),
+            Self::NotAnApprover => f.write_str("You cannot approve orders of this company"),
+            Self::NotPending => f.write_str("The order is not waiting for an approval"),
+            Self::CompanyRequired => {
+                f.write_str("Sign in and choose the company you are ordering for")
+            }
+            Self::NoPaymentTerms => {
+                f.write_str("The company has no payment terms, so it cannot pay on invoice")
+            }
+            Self::CreditLimitExceeded { .. } => {
+                f.write_str("The order would take the company past its credit limit")
+            }
+            Self::ApprovalPending => {
+                f.write_str("The order is waiting for approval and cannot move on yet")
             }
             Self::TaxLocked => f.write_str(
                 "The VAT of this order is locked: it can no longer be edited, so it is not recalculated",

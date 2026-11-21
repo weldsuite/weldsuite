@@ -247,8 +247,60 @@ struct ListQuery {
     category: Option<String>,
     search: Option<String>,
     sort: String,
-    cursor: Option<String>,
+    /// The keyset the page starts after (an opaque cursor, decoded).
+    cursor: Option<PageCursor>,
+    /// A cursor was sent and cannot be read: 400 `INVALID_CURSOR`.
+    cursor_invalid: bool,
     limit: usize,
+}
+
+/// Where a page ends: the sort it belongs to, the sort value and the id of
+/// the last product. Keyset paging: a product that is gone from the list
+/// does not reset it, the next page starts after where it was.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PageCursor {
+    s: String,
+    k: String,
+    /// The product's name, the tie-break of the price sorts.
+    n: String,
+    i: String,
+}
+
+fn encode_cursor(sort: &str, last: &Listed) -> String {
+    use base64::Engine as _;
+    let key = match sort {
+        "price" | "-price" => last.price.to_string(),
+        "newest" => last.created_at.clone(),
+        _ => last.name.to_lowercase(),
+    };
+    let cursor = PageCursor {
+        s: sort.to_owned(),
+        k: key,
+        n: last.name.to_lowercase(),
+        i: last.id.clone(),
+    };
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&cursor).unwrap_or_default())
+}
+
+fn decode_cursor(raw: &str, sort: &str) -> Option<PageCursor> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(raw)
+        .ok()?;
+    let cursor: PageCursor = serde_json::from_slice(&bytes).ok()?;
+    (cursor.s == sort && cursor.i.len() <= 64 && cursor.k.len() <= 200 && cursor.n.len() <= 500)
+        .then_some(cursor)
+}
+
+/// The listed product a cursor stands for, to compare the others with.
+fn at_cursor(cursor: &PageCursor) -> Listed {
+    Listed {
+        id: cursor.i.clone(),
+        name: cursor.n.clone(),
+        created_at: cursor.k.clone(),
+        price: cursor.k.parse().unwrap_or(0),
+    }
 }
 
 fn read_query(query: Option<&str>) -> Result<ListQuery, Vec<(String, String)>> {
@@ -257,8 +309,10 @@ fn read_query(query: Option<&str>) -> Result<ListQuery, Vec<(String, String)>> {
         search: None,
         sort: "name".to_owned(),
         cursor: None,
+        cursor_invalid: false,
         limit: 24,
     };
+    let mut raw_cursor: Option<String> = None;
     let mut problems = Vec::new();
     for (key, value) in url_pairs(query.unwrap_or_default()) {
         match key.as_str() {
@@ -280,13 +334,17 @@ fn read_query(query: Option<&str>) -> Result<ListQuery, Vec<(String, String)>> {
                     ));
                 }
             }
-            "cursor" if !value.is_empty() => out.cursor = Some(value),
+            "cursor" if !value.is_empty() => raw_cursor = Some(value),
             "limit" if !value.is_empty() => match value.parse::<usize>() {
                 Ok(n) if (1..=100).contains(&n) => out.limit = n,
                 _ => problems.push(("limit".to_owned(), "Must be from 1 to 100".to_owned())),
             },
             _ => {}
         }
+    }
+    if let Some(raw) = raw_cursor {
+        out.cursor = decode_cursor(&raw, &out.sort);
+        out.cursor_invalid = out.cursor.is_none();
     }
     if problems.is_empty() {
         Ok(out)
@@ -357,6 +415,14 @@ pub(crate) async fn products(
         Ok(query) => query,
         Err(problems) => return validation(&problems),
     };
+    if query.cursor_invalid {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "INVALID_CURSOR",
+            "The cursor is not one this list gave out (or is for another sort)",
+            None,
+        );
+    }
     match list(&principal, &query).await {
         Ok(Some((items, more, cursor))) => {
             let body = json!({
@@ -419,17 +485,18 @@ async fn list(principal: &Principal, query: &ListQuery) -> Result<Option<Page>, 
         })
         .collect();
     listed.sort_by(|a, b| compare(&query.sort, a, b));
-    let start = query
-        .cursor
-        .as_ref()
-        .and_then(|c| listed.iter().position(|l| l.id == *c))
-        .map_or(0, |at| at + 1);
+    let start = query.cursor.as_ref().map_or(0, |cursor| {
+        let after = at_cursor(cursor);
+        listed.partition_point(|l| compare(&query.sort, l, &after) != Ordering::Greater)
+    });
     let page: Vec<&Listed> = listed.iter().skip(start).take(query.limit + 1).collect();
     let more = page.len() > query.limit;
     let page = &page[..page.len().min(query.limit)];
     let ids: Vec<String> = page.iter().map(|l| l.id.clone()).collect();
     let built = build(&mut conn, &principal.channel.currency, &ids).await?;
-    let cursor = more.then(|| page.last().map(|l| l.id.clone())).flatten();
+    let cursor = more
+        .then(|| page.last().map(|l| encode_cursor(&query.sort, l)))
+        .flatten();
     Ok(Some((built, more, cursor)))
 }
 

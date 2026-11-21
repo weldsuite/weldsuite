@@ -31,7 +31,7 @@ function SetupNotice() {
   );
 }
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   if (!isConfigured()) {
     return (
       <html lang="en">
@@ -82,6 +82,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </form>
             </search>
             <nav aria-label="Your shop" className="ml-auto">
+              {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
               <ul role="list" className="flex items-center gap-5">
                 {b2b ? (
                   <li>
@@ -93,8 +94,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </li>
                 <li>
                   <NavLink href="/cart">
-                    Cart
-                    <span className="ml-1 inline-flex min-w-6 justify-center rounded-full bg-brand px-1.5 text-sm text-brand-ink">
+                    <span>Cart</span>{' '}
+                    <span className="inline-flex min-w-6 justify-center rounded-full bg-brand px-1.5 text-sm text-brand-ink">
                       {itemCount}
                       <span className="sr-only">{itemCount === 1 ? ' item' : ' items'}</span>
                     </span>

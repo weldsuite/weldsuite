@@ -1,9 +1,10 @@
+import { isStorefrontError } from '@weldsuite/commerce-sdk';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { requestOptions, shopLocale, shopTimeZone, storefront } from '@/lib/commerce';
-import { getSessionToken } from '@/lib/data';
+import { getSessionToken, getShopper } from '@/lib/data';
 import { date, money, statusLabel } from '@/lib/format';
 import { single } from '@/lib/params';
 
@@ -11,13 +12,24 @@ export const metadata: Metadata = { title: 'Your orders', robots: { index: false
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-export default async function OrdersPage({ searchParams }: Props) {
-  const session = await getSessionToken();
-  if (!session) redirect('/account/sign-in?next=/account/orders');
+/** A page of the shopper's orders; an old or foreign cursor sends them back to the newest. */
+async function loadPage(session: string, cursor: string | undefined) {
+  try {
+    return await storefront().orders.list(session, { cursor, limit: 20, ...(await requestOptions()) });
+  } catch (error) {
+    if (cursor && isStorefrontError(error, 'INVALID_CURSOR')) redirect('/account/orders');
+    throw error;
+  }
+}
+
+export default async function OrdersPage({ searchParams }: Readonly<Props>) {
+  const [session, shopper] = await Promise.all([getSessionToken(), getShopper()]);
+  if (!session || !shopper) redirect('/account/sign-in?next=/account/orders');
   const cursor = single((await searchParams).cursor);
-  const page = await storefront().orders.list(session, { cursor, limit: 20 }, await requestOptions());
-  const showApproval = page.data.some((order) => order.approvalStatus && order.approvalStatus !== 'not_required');
-  const showPlacedBy = page.data.some((order) => order.placedBy?.name);
+  const page = await loadPage(session, cursor);
+  const showApproval = page.data.some((order) => order.approvalStatus !== 'not_required');
+  // Approvers and admins also see orders other buyers of the company placed.
+  const showPlacedBy = page.data.some((order) => order.placedBy && order.placedBy.personId !== shopper.personId);
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,6 +45,7 @@ export default async function OrdersPage({ searchParams }: Props) {
       {page.data.length === 0 ? (
         <p className="rounded-lg bg-surface-muted p-6">{cursor ? 'No older orders.' : 'You have no orders yet.'}</p>
       ) : (
+        // tabIndex: keyboard users can scroll a table wider than the screen (a focusable region).
         <div role="region" aria-labelledby="orders-caption" tabIndex={0} className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
             <caption id="orders-caption" className="sr-only">
@@ -63,7 +76,7 @@ export default async function OrdersPage({ searchParams }: Props) {
                   <td className="py-3 pr-4">{statusLabel(order.paymentStatus)}</td>
                   {showApproval ? (
                     <td className="py-3 pr-4">
-                      {order.approvalStatus && order.approvalStatus !== 'not_required' ? statusLabel(order.approvalStatus) : ''}
+                      {order.approvalStatus === 'not_required' ? '' : statusLabel(order.approvalStatus)}
                     </td>
                   ) : null}
                   <td className="py-3 text-right tabular-nums whitespace-nowrap">{money(order.total, order.currency, shopLocale)}</td>

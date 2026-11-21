@@ -16,7 +16,7 @@ import { idle } from '@/lib/actions/state';
 
 import { Field, FormMessage, PendingButton, SubmitButton, submitKeepingValues, useFormFocus } from './form-bits';
 
-export function ProfileForm({ shopper }: { shopper: Shopper }) {
+export function ProfileForm({ shopper }: Readonly<{ shopper: Shopper }>) {
   const [state, action] = useActionState(updateProfileAction, idle);
   return (
     <form action={action} className="grid gap-4 sm:grid-cols-2">
@@ -47,7 +47,7 @@ export function ProfileForm({ shopper }: { shopper: Shopper }) {
 const ROLES = { buyer: 'Buyer', approver: 'Approver', admin: 'Admin' } as const;
 
 /** B2B: the company the shopper buys for. */
-export function CompanyForm({ shopper }: { shopper: Shopper }) {
+export function CompanyForm({ shopper }: Readonly<{ shopper: Shopper }>) {
   const [state, action] = useActionState(selectCompanyAction, idle);
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -75,7 +75,7 @@ export function CompanyForm({ shopper }: { shopper: Shopper }) {
 }
 
 /** Order page: put the order's items in the cart again. */
-export function ReorderForm({ orderId }: { orderId: string }) {
+export function ReorderForm({ orderId }: Readonly<{ orderId: string }>) {
   const [state, action] = useActionState<ReorderState, FormData>(reorderAction, idle);
   return (
     <form action={action} className="flex flex-col gap-3">
@@ -84,10 +84,10 @@ export function ReorderForm({ orderId }: { orderId: string }) {
         <SubmitButton pendingText="Adding to your cart…">Order these items again</SubmitButton>
       </div>
       <FormMessage state={state} />
-      {state.problems && state.problems.length > 0 ? (
+      {(state.problems?.length ?? 0) > 0 ? (
         <ul className="list-disc pl-6 text-sm">
-          {state.problems.map((problem, index) => (
-            <li key={index}>
+          {state.problems?.map((problem) => (
+            <li key={problem.id}>
               {problem.sku ? <strong>{problem.sku}: </strong> : null}
               {problem.message}
             </li>
@@ -111,7 +111,7 @@ export function ReorderForm({ orderId }: { orderId: string }) {
  * submit buttons in a form with a function action, so two named buttons
  * would not say which was pressed).
  */
-export function ApprovalForm({ orderId, orderNumber }: { orderId: string; orderNumber: string }) {
+export function ApprovalForm({ orderId, orderNumber }: Readonly<{ orderId: string; orderNumber: string }>) {
   const [state, action, pending] = useActionState(decideApprovalAction, idle);
   const id = useId();
   return (
@@ -121,11 +121,11 @@ export function ApprovalForm({ orderId, orderNumber }: { orderId: string; orderN
         <legend className="label mb-2">Your decision on order {orderNumber}</legend>
         <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border-2 border-line px-3 has-checked:border-brand has-checked:bg-brand-soft">
           <input type="radio" name="decision" value="approve" required />
-          Approve
+          <span>Approve</span>
         </label>
         <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border-2 border-line px-3 has-checked:border-danger has-checked:bg-danger-soft">
           <input type="radio" name="decision" value="reject" required />
-          Reject
+          <span>Reject</span>
         </label>
       </fieldset>
       <div className="field">
@@ -185,26 +185,29 @@ export function QuickOrderForm() {
         </div>
       </form>
 
-      {state.problems && state.problems.length > 0 ? (
+      {(state.problems?.length ?? 0) > 0 ? (
         <section aria-labelledby="problems" className="flex flex-col gap-3">
           <h2 id="problems" className="text-lg font-semibold">
-            Lines we couldn&apos;t add
+            Lines to check
           </h2>
+          {/* tabIndex: keyboard users can scroll a table wider than the screen (a focusable region). */}
           <div role="region" aria-labelledby="problems" tabIndex={0} className="overflow-x-auto">
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="border-b border-line text-sm text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-medium">Line</th>
                   <th scope="col" className="py-2 pr-4 font-medium">SKU</th>
-                  <th scope="col" className="py-2 font-medium">Problem</th>
+                  <th scope="col" className="py-2 pr-4 font-medium">Problem</th>
+                  <th scope="col" className="py-2 font-medium">In your cart</th>
                 </tr>
               </thead>
               <tbody>
-                {state.problems.map((problem, index) => (
-                  <tr key={index} className="border-b border-line">
+                {state.problems?.map((problem) => (
+                  <tr key={problem.id} className="border-b border-line">
                     <td className="py-2 pr-4 tabular-nums">{problem.row ?? '–'}</td>
                     <th scope="row" className="py-2 pr-4 font-mono font-normal">{problem.sku ?? '–'}</th>
-                    <td className="py-2">{problem.message}</td>
+                    <td className="py-2 pr-4">{problem.message}</td>
+                    <td className="py-2">{problem.added ? 'Yes, fewer in stock' : 'No'}</td>
                   </tr>
                 ))}
               </tbody>

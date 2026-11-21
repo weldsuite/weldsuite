@@ -229,13 +229,13 @@ async fn resolve_warehouse(db: &PgPool, requested: Option<&str>) -> Result<Strin
 /// best bucket that can cover it; the stock is allocated.
 #[allow(clippy::too_many_lines)] // one statement per step, as the TypeScript
 pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, PickError> {
-    let order: Option<(Option<String>,)> = sqlx::query_as(
-        "select fulfillment_status from orders where id = $1 and deleted_at is null limit 1",
+    let order: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "select fulfillment_status, approval_status from orders          where id = $1 and deleted_at is null limit 1",
     )
     .bind(&params.order_id)
     .fetch_optional(db)
     .await?;
-    let Some((fulfillment,)) = order else {
+    let Some((fulfillment, approval)) = order else {
         return Err(pick(
             "ORDER_NOT_FOUND",
             format!("Order {} not found", params.order_id),
@@ -243,6 +243,23 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
     };
     if fulfillment.as_deref() == Some("fulfilled") {
         return Err(pick("ALREADY_PICKING", "Order is already fulfilled"));
+    }
+    // A B2B order that waits for its company's approval (WeldCommerce, ADR
+    // COM-012), or was refused, is not released to the warehouse.
+    match approval.as_deref() {
+        Some("pending") => {
+            return Err(pick(
+                "APPROVAL_PENDING",
+                "Order is waiting for approval and is not released to the warehouse",
+            ));
+        }
+        Some("rejected") => {
+            return Err(pick(
+                "APPROVAL_REJECTED",
+                "Order was rejected and is not released to the warehouse",
+            ));
+        }
+        _ => {}
     }
     let warehouse_id = resolve_warehouse(db, params.warehouse_id.as_deref()).await?;
     // Nothing is picked or allocated in a warehouse another system owns

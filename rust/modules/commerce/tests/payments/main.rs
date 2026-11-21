@@ -10,6 +10,8 @@
 // Each test is a scenario, read top to bottom.
 #![allow(clippy::too_many_lines)]
 
+mod accounts;
+mod b2b;
 mod books;
 mod checkout;
 mod connection;

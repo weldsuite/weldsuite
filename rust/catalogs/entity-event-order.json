@@ -117,6 +117,8 @@
   "commerce_channel_key",
   "commerce_shipping_rate",
   "commerce_payment_connection",
+  "commerce_buyer",
+  "commerce_company_settings",
   "website",
   "website_domain",
   "website_page",

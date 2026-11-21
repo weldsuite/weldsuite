@@ -59,7 +59,10 @@ async fn a_secret_is_shown_once_and_only_its_hash_is_stored() {
         &json!({ "kind": "publishable", "name": "Web", "allowedOrigins": ["https://Shop.Example.com", "http://localhost:3000"] }),
     )
     .await;
-    assert!(secret.starts_with("wcp_"), "{secret}");
+    assert!(
+        secret.starts_with("wcp_"),
+        "a publishable key starts with wcp_"
+    );
     assert!(secret[4..].bytes().all(|b| b.is_ascii_alphanumeric()));
     let key_id = key["id"].as_str().unwrap();
     assert_eq!(key["kind"], "publishable");

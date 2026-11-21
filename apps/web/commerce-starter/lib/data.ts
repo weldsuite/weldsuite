@@ -15,14 +15,18 @@ export const getChannel = cache(async () => storefront().channel.get(await reque
 
 export const getCategories = cache(async () => storefront().categories.list(await requestOptions()));
 
-/** The signed-in shopper, or null (no session, or it expired). */
+/**
+ * The signed-in shopper, or null (no session, or it expired). Only a live
+ * session is ever sent with other calls (`getSessionToken`), so a stale
+ * cookie never turns a guest's cart call into a 401 `SESSION_EXPIRED`.
+ */
 export const getShopper = cache(async (): Promise<Shopper | null> => {
   const token = await getShopperToken();
   if (!token) return null;
   try {
     return await storefront().account.get(token, await requestOptions());
   } catch (error) {
-    if (isStorefrontError(error) && (error.status === 401 || error.status === 403)) return null;
+    if (isStorefrontError(error, 'SESSION_EXPIRED', 'SESSION_REQUIRED')) return null;
     throw error;
   }
 });

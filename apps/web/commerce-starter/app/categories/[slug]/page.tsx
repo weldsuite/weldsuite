@@ -22,12 +22,12 @@ const getCategory = cache(async (slug: string) => {
   }
 });
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params }: Readonly<Props>): Promise<Metadata> {
   const category = await getCategory(segment((await params).slug));
   return { title: category.name, description: category.description ?? undefined };
 }
 
-export default async function CategoryPage({ params, searchParams }: Props) {
+export default async function CategoryPage({ params, searchParams }: Readonly<Props>) {
   const slug = segment((await params).slug);
   const category = await getCategory(slug);
   return (
@@ -38,6 +38,7 @@ export default async function CategoryPage({ params, searchParams }: Props) {
       </div>
       {category.children.length > 0 ? (
         <nav aria-label={`In ${category.name}`}>
+          {/* role="list": Safari/VoiceOver drops list semantics from lists styled with list-style: none. */}
           <ul role="list" className="flex flex-wrap gap-2">
             {category.children.map((child) => (
               <li key={child.id}>

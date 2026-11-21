@@ -15,10 +15,10 @@ import { Price } from './price';
  * values (not a variant id), so it works before JavaScript loads too: the
  * server finds the variant. Script only updates the price and stock shown.
  */
-export function AddToCartForm({ product, locale }: { product: StorefrontProduct; locale: string }) {
+export function AddToCartForm({ product, locale }: Readonly<{ product: StorefrontProduct; locale: string }>) {
   const [state, action, pending] = useActionState(addItemAction, idle);
   const firstAvailable = product.variants.find((v) => v.available) ?? product.variants[0];
-  const [selected, setSelected] = useState<Record<string, string>>(() => ({ ...(firstAvailable?.optionValues ?? {}) }));
+  const [selected, setSelected] = useState<Record<string, string>>(() => ({ ...firstAvailable?.optionValues }));
   const id = useId();
 
   const variant = useMemo(

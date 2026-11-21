@@ -92,9 +92,13 @@ async fn checkout_with_mollie_places_a_pending_order_and_starts_the_payment() {
     let create = &ctx.fake.requests_to("POST", "/payments")[0];
     let sent: Value = serde_json::from_str(&create.body).expect("json");
     assert_eq!(sent["metadata"]["orderId"], order_id.as_str());
-    assert_eq!(
-        sent["redirectUrl"],
-        format!("https://shop.example/thanks?order={order_id}")
+    // The return URL carries the order and the payment the return page reads.
+    let redirect = sent["redirectUrl"].as_str().expect("redirect url");
+    assert!(
+        redirect.starts_with(&format!(
+            "https://shop.example/thanks?order={order_id}&payment=cpay_"
+        )),
+        "{redirect}"
     );
     assert!(
         sent["webhookUrl"]
@@ -315,12 +319,27 @@ async fn a_provider_failure_leaves_a_pending_order_and_a_retry_starts_the_paymen
             .body,
     )
     .expect("json");
-    assert_eq!(
-        sent["redirectUrl"],
-        format!("https://shop.example/thanks?order={order_id}")
+    // The return URL carries the order and the payment the return page reads.
+    let redirect = sent["redirectUrl"].as_str().expect("redirect url");
+    assert!(
+        redirect.starts_with(&format!(
+            "https://shop.example/thanks?order={order_id}&payment=cpay_"
+        )),
+        "{redirect}"
     );
     let (_, body) = staff.get(&format!("/orders/{order_id}/payments")).await;
     assert_eq!(body["data"]["payments"].as_array().expect("list").len(), 2);
+}
+
+async fn place_invoice(app: &Storefront, key: &str, cart: &str, session: &str) -> Reply {
+    app.call(
+        "POST",
+        "/cart/checkout",
+        key,
+        &[("x-cart-token", cart), ("x-shopper-token", session)],
+        Some(json!({ "paymentMethod": "invoice" })),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -328,15 +347,13 @@ async fn an_order_placed_on_invoice_gets_an_unpaid_invoice() {
     let Some(ctx) = setup().await else { return };
     let app = ctx.storefront();
     let (key, product, _) = ctx.shop_with("private", &[], "b2b", &["invoice"]).await;
+    // A B2B channel orders for a company: a buyer signed in, a party with terms.
+    let (company, party) = ctx.company("Invoice BV", Some("30"), None).await;
+    let email = format!("{}@example.com", crate::harness::fresh("buyer"));
+    ctx.buyer(&company, &email, "buyer", "active", None).await;
+    let session = app.sign_in(&ctx, &key, &email).await;
     let token = app.cart(&key, &product).await;
-    let reply = checkout(
-        &app,
-        &key,
-        &token,
-        None,
-        json!({ "paymentMethod": "invoice" }),
-    )
-    .await;
+    let reply = place_invoice(&app, &key, &token, &session).await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
     let order_id = reply.body["data"]["order"]["id"]
         .as_str()
@@ -346,18 +363,12 @@ async fn an_order_placed_on_invoice_gets_an_unpaid_invoice() {
     assert_eq!(reply.body["data"]["payment"], Value::Null);
     assert_eq!(ctx.books.calls(), vec![format!("invoice:{order_id}")]);
     assert_eq!(*ctx.books.paid_amounts.lock().expect("lock"), vec![None]);
-    // The guest got a customer to invoice.
+    // The company's party is the customer, the buyer the person.
     let row = ctx.order_row(&order_id).await;
-    assert!(row["personId"].is_string() && row["counterpartyId"].is_string());
+    assert!(row["personId"].is_string());
+    assert_eq!(row["counterpartyId"], party.as_str());
     // A replay of the checkout does not invoice again.
-    let reply = checkout(
-        &app,
-        &key,
-        &token,
-        None,
-        json!({ "paymentMethod": "invoice" }),
-    )
-    .await;
+    let reply = place_invoice(&app, &key, &token, &session).await;
     assert_eq!(reply.status, StatusCode::CONFLICT);
     assert_eq!(ctx.books.calls().len(), 1);
 }
