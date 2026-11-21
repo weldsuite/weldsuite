@@ -336,6 +336,7 @@ export const weldchat = {
     },
     groupSettings: {
       nav: {
+        heading: 'Settings',
         general: 'General',
         visibility: 'Visibility',
         channels: 'Channels',
@@ -435,6 +436,7 @@ export const weldchat = {
         moveToTopHint: 'Channels matching any of these float above the others. Stack as many as you like.',
         moveToBottom: 'Move to bottom',
         moveToBottomHint: 'Channels matching any of these sink below the others.',
+        noneChosen: 'None',
         channelLimit: 'Channel limit',
         channelLimitHint: 'Show only the top N channels. Leave blank to show all.',
         allChannels: 'All channels',

@@ -335,6 +335,7 @@ export const weldchat = {
     },
     groupSettings: {
       nav: {
+        heading: 'Instellingen',
         general: 'Algemeen',
         visibility: 'Zichtbaarheid',
         channels: 'Kanalen',
@@ -434,6 +435,7 @@ export const weldchat = {
         moveToTopHint: 'Kanalen die aan een van deze voorwaarden voldoen, verschijnen bovenaan. Combineer meerdere naar wens.',
         moveToBottom: 'Naar onderen verplaatsen',
         moveToBottomHint: 'Kanalen die aan een van deze voorwaarden voldoen, verschijnen onderaan.',
+        noneChosen: 'Geen',
         channelLimit: 'Kanaallimiet',
         channelLimitHint: 'Toon alleen de bovenste N kanalen. Laat leeg om alles te tonen.',
         allChannels: 'Alle kanalen',

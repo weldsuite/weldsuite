@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
+import { MultiSelect } from '@weldsuite/ui/components/multi-select';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -41,6 +42,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -471,6 +473,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
           <Sidebar collapsible="none" className="hidden md:flex border-r">
             <SidebarContent>
               <SidebarGroup>
+                <SidebarGroupLabel>{t.weldchat.groupSettings.nav.heading}</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {visibleNav.map((item) => (
@@ -983,15 +986,19 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.moveToTop}</Label>
+                      <Label htmlFor="group-settings-move-to-top" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.moveToTop}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.moveToTopHint}
                       </p>
                     </div>
-                    <ChipToggleGroup
+                    <ToggleMultiSelect
+                      id="group-settings-move-to-top"
+                      placeholder={t.weldchat.groupSettings.display.noneChosen}
                       options={BOOST_OPTIONS.map((o) => ({ ...o, label: { boostActiveCall: t.weldchat.groupSettings.display.boostOptions.activeCalls, boostPinned: t.weldchat.groupSettings.display.boostOptions.pinned, boostFavorite: t.weldchat.groupSettings.display.boostOptions.favorited, boostMentions: t.weldchat.groupSettings.display.boostOptions.mentions, boostUnread: t.weldchat.groupSettings.display.boostOptions.unread }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key, !draft[key])}
+                      onChange={(key, on) => update(key, on)}
                     />
                   </div>
 
@@ -999,15 +1006,19 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.moveToBottom}</Label>
+                      <Label htmlFor="group-settings-move-to-bottom" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.moveToBottom}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.moveToBottomHint}
                       </p>
                     </div>
-                    <ChipToggleGroup
+                    <ToggleMultiSelect
+                      id="group-settings-move-to-bottom"
+                      placeholder={t.weldchat.groupSettings.display.noneChosen}
                       options={SINK_OPTIONS.map((o) => ({ ...o, label: { sinkRead: t.weldchat.groupSettings.display.sinkOptions.alreadyRead, sinkInactive: t.weldchat.groupSettings.display.sinkOptions.inactive, sinkEmpty: t.weldchat.groupSettings.display.sinkOptions.noMessages, sinkMuted: t.weldchat.groupSettings.display.sinkOptions.muted, sinkArchived: t.weldchat.groupSettings.display.sinkOptions.archived }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key, !draft[key])}
+                      onChange={(key, on) => update(key, on)}
                     />
                   </div>
 
@@ -1748,6 +1759,46 @@ function SortSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/**
+ * Several on/off settings as one multi-select (Move to top, Move to bottom):
+ * the ones switched on show as chips in the field, each option has a box in
+ * the list.
+ */
+function ToggleMultiSelect<K extends string>({
+  id,
+  options,
+  isOn,
+  onChange,
+  placeholder,
+}: Readonly<{
+  id: string;
+  options: { key: K; label: string; icon: React.ComponentType<{ className?: string }> }[];
+  isOn: (key: K) => boolean;
+  /** Each option, switched on or off. */
+  onChange: (key: K, on: boolean) => void;
+  placeholder: string;
+}>) {
+  const value = options.filter((o) => isOn(o.key)).map((o) => o.key);
+  return (
+    <MultiSelect
+      id={id}
+      // Inside the dialog: keeps the portaled list clickable.
+      modal
+      searchable={false}
+      placeholder={placeholder}
+      className="w-full sm:w-[420px]"
+      options={options.map((o) => ({ value: o.key, label: o.label, icon: <o.icon className="size-4" /> }))}
+      value={value}
+      onChange={(next) => {
+        for (const o of options) {
+          const on = next.includes(o.key);
+          if (on !== isOn(o.key)) onChange(o.key, on);
+        }
+      }}
+    />
   );
 }
 
