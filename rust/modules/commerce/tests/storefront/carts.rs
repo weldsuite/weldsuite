@@ -631,3 +631,46 @@ async fn a_completed_cart_can_no_longer_change() {
         .await;
     assert_eq!(read["status"], "expired");
 }
+
+#[tokio::test]
+async fn every_cart_change_is_an_event() {
+    let Some(env) = env().await else { return };
+    let app = env.app();
+    let channel = env.channel(&json!({})).await;
+    let key = env.key(&channel, "private", &[]).await;
+    let widget = env.product(&json!({ "price": "10.00" })).await;
+
+    let (token, made) = cart(&app, &key, json!([])).await;
+    let added = app
+        .post(
+            "/cart/items",
+            &key,
+            json!({ "productId": widget, "quantity": 2 }),
+        )
+        .token(&token)
+        .ok(StatusCode::OK)
+        .await;
+    let line = added["items"][0]["id"].as_str().expect("line").to_owned();
+    app.patch("/cart", &key, json!({ "email": "shopper@example.com" }))
+        .token(&token)
+        .ok(StatusCode::OK)
+        .await;
+    app.delete(&format!("/cart/items/{line}"), &key)
+        .token(&token)
+        .ok(StatusCode::OK)
+        .await;
+    // A read changes nothing and publishes nothing.
+    app.get("/cart", &key)
+        .token(&token)
+        .ok(StatusCode::OK)
+        .await;
+
+    let counts: Vec<_> = app
+        .events()
+        .await
+        .into_iter()
+        .filter(|e| e["eventType"] == "cart:updated" && e["entityId"] == made["id"])
+        .map(|e| e["data"]["itemCount"].clone())
+        .collect();
+    assert_eq!(counts, vec![json!(1), json!(1), json!(0)]);
+}

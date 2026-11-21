@@ -108,6 +108,24 @@ fn finish(quote: Quote) -> Response {
     data(quote.json)
 }
 
+/// A cart write's answer, after publishing `cart:updated` (the same data as
+/// `cart:created`): every change to a cart is an event.
+fn updated(principal: &Principal, quote: Quote) -> Response {
+    publish_entity_event(
+        &principal.state.events,
+        &principal.events,
+        CART_UPDATED,
+        quote.cart_id.clone(),
+        &json!({
+            "id": quote.cart_id,
+            "channelId": principal.channel.id,
+            "currency": principal.channel.currency,
+            "itemCount": quote.lines.len(),
+        }),
+    );
+    finish(quote)
+}
+
 pub(crate) async fn create(Extension(principal): Extension<Principal>, body: Bytes) -> Response {
     let body = match body_object(&body) {
         Ok(body) => body,
@@ -185,7 +203,7 @@ pub(crate) async fn add_item(
         return validation(&problems);
     }
     match carts::add_item(&ctx(&principal), &token, &input).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -208,7 +226,7 @@ pub(crate) async fn set_quantity(
         return validation(&[("quantity".to_owned(), "Must be a whole number".to_owned())]);
     };
     match carts::set_quantity(&ctx(&principal), &token, &line_id, quantity).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -223,7 +241,7 @@ pub(crate) async fn remove_item(
         Err(response) => return response,
     };
     match carts::set_quantity(&ctx(&principal), &token, &line_id, 0).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -267,7 +285,7 @@ pub(crate) async fn patch(
         return validation(&problems);
     }
     match carts::patch(&ctx(&principal), &token, &patch).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -317,7 +335,7 @@ pub(crate) async fn set_rate(
         return validation(&[("shippingRateId".to_owned(), "Required".to_owned())]);
     };
     match carts::set_rate(&ctx(&principal), &token, rate).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -347,7 +365,7 @@ pub(crate) async fn apply_discount(
         )]);
     };
     match carts::set_discount(&ctx(&principal), &token, Some(code)).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
@@ -361,7 +379,7 @@ pub(crate) async fn remove_discount(
         Err(response) => return response,
     };
     match carts::set_discount(&ctx(&principal), &token, None).await {
-        Ok(quote) => finish(quote),
+        Ok(quote) => updated(&principal, quote),
         Err(refusal) => refuse(refusal),
     }
 }
