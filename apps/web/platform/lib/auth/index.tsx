@@ -27,6 +27,7 @@
  *   2FA, sessions) only on Clerk, a fallback elsewhere.
  * - `redirectToSignIn()` / `completeSignIn()` / `getAccountUrl()`: the
  *   OIDC redirect that starts and finishes a sign-in on OIDC.
+ * - `isWeldIdProvider()`: the OIDC provider is WeldID, WeldSuite's own.
  * - `usesPlatformSignIn()`: on OIDC, WeldSuite shows the sign-in screens
  *   itself (the ones Global shows, `lib/auth/oidc/sign-in-api.ts`) rather
  *   than the provider.
@@ -178,6 +179,15 @@ export async function completeSignIn(): Promise<string> {
 /** Where the person manages their account when the provider owns it (OIDC); undefined on Clerk. */
 export function getAccountUrl(): string | undefined {
   return active.accountUrl;
+}
+
+/**
+ * True when WeldID, WeldSuite's own provider, signs people in
+ * (`auth.identityProvider: "weldid"`): the account lives in WeldID, not with
+ * a customer's own identity provider.
+ */
+export function isWeldIdProvider(): boolean {
+  return active.identityProvider === 'weldid';
 }
 
 /**
