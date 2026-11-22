@@ -77,6 +77,8 @@ export interface PanelEntityListProps<T extends { id: string }> {
   searchFields?: (keyof T)[];
   activeFilters?: ActiveFilter[];
   onFiltersChange?: (filters: ActiveFilter[]) => void;
+  /** Applies the picked filters to `items` in the list itself, when `activeFilters` is not controlled. */
+  applyFilters?: (items: T[], activeFilters: ActiveFilter[]) => T[];
 
   createButton?: { label: string; onClick: () => void };
   actionButtons?: ReactNode;
@@ -126,6 +128,7 @@ export function PanelEntityList<T extends { id: string }>({
   searchFields,
   activeFilters,
   onFiltersChange,
+  applyFilters,
   createButton,
   actionButtons,
   leftActionButtons,
@@ -260,6 +263,7 @@ export function PanelEntityList<T extends { id: string }>({
       searchFields={searchFields ?? (onSearchChange ? (['id'] as (keyof T)[]) : undefined)}
       activeFilters={activeFilters}
       onFiltersChange={onFiltersChange}
+      applyFilters={applyFilters}
       createButton={createButton}
       actionButtons={actionButtons}
       leftActionButtons={leftActionButtons}

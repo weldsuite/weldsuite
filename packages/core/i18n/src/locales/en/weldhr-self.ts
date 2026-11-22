@@ -130,19 +130,13 @@ export const weldhrSelf = {
       markReadFailed: 'Could not mark this announcement as read.',
     },
     leave: {
-      loadFailed: 'Could not load your leave.',
       requestLeave: 'Request leave',
       requestsOff: 'Leave requests are turned off in your workspace. Ask your HR team to file leave for you.',
       balances: {
-        title: 'Balances',
         empty: 'No leave balances yet.',
         unlimited: 'Unlimited',
-        used: '{used} used',
-        usedOf: '{used} of {allowance} used',
-        pending: '{pending} pending',
       },
       requests: {
-        title: 'My requests',
         empty: 'You have not requested any leave yet.',
         table: {
           type: 'Type',
@@ -260,6 +254,36 @@ export const weldhrSelf = {
         worked: 'Worked',
         status: 'Status',
         client: 'Client',
+      },
+    },
+    timeOff: {
+      tabs: {
+        leave: 'Leave',
+        balances: 'Balances',
+        sick: 'Sick reports',
+      },
+      balances: {
+        type: 'Leave type',
+        allowance: 'Allowance',
+        used: 'Used',
+        pending: 'Pending',
+        remaining: 'Remaining',
+      },
+      search: {
+        leave: 'Search leave...',
+        balances: 'Search leave types...',
+        sick: 'Search sick reports...',
+      },
+      filters: {
+        status: 'Status',
+        type: 'Leave type',
+        pay: 'Pay',
+        paid: 'Paid',
+        unpaid: 'Unpaid',
+      },
+      empty: {
+        leave: 'Leave you request shows up here, with its approval.',
+        balances: 'Your HR team sets your allowance per leave type.',
       },
     },
     tasks: {

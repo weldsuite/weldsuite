@@ -302,18 +302,10 @@ export const weldhrTime = {
     reportSick: 'Ziek melden',
     reportRecovered: 'Beter melden',
     mine: {
-      loadFailed: 'Je ziekmeldingen konden niet worden geladen.',
       well: {
         title: 'Je bent niet ziek gemeld',
-        description: 'Voel je je niet goed? Meld je hier ziek, dan weet je werkgever het meteen.',
-      },
-      sick: {
-        title: 'Je bent ziek gemeld',
-        days: 'Werkdagen afwezig tot nu toe: {days}',
-        description: 'Voel je je weer beter? Meld je beter, dan weet je werkgever dat je terug bent.',
       },
       history: {
-        title: 'Eerdere ziekmeldingen',
         empty: 'Geen eerdere ziekmeldingen.',
       },
     },

@@ -302,18 +302,10 @@ export const weldhrTime = {
     reportSick: 'Report sick',
     reportRecovered: 'Report recovered',
     mine: {
-      loadFailed: 'Could not load your sick reports.',
       well: {
         title: 'You are not reported sick',
-        description: 'Not feeling well? Report sick here and your employer knows right away.',
-      },
-      sick: {
-        title: 'You are reported sick',
-        days: 'Working days absent so far: {days}',
-        description: 'Feeling better? Report recovered so your employer knows you are back.',
       },
       history: {
-        title: 'Earlier sick reports',
         empty: 'No earlier sick reports.',
       },
     },

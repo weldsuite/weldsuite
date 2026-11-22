@@ -130,20 +130,14 @@ export const weldhrSelf = {
       markReadFailed: 'Deze mededeling kon niet als gelezen worden gemarkeerd.',
     },
     leave: {
-      loadFailed: 'Je verlof kon niet worden geladen.',
       requestLeave: 'Verlof aanvragen',
       requestsOff:
         'Verlofaanvragen staan uit in jouw werkruimte. Vraag je HR-team om verlof voor je in te voeren.',
       balances: {
-        title: 'Saldo',
         empty: 'Nog geen verlofsaldo.',
         unlimited: 'Onbeperkt',
-        used: '{used} opgenomen',
-        usedOf: '{used} van {allowance} opgenomen',
-        pending: '{pending} in afwachting',
       },
       requests: {
-        title: 'Mijn aanvragen',
         empty: 'Je hebt nog geen verlof aangevraagd.',
         table: {
           type: 'Type',
@@ -261,6 +255,36 @@ export const weldhrSelf = {
         worked: 'Gewerkt',
         status: 'Status',
         client: 'Klant',
+      },
+    },
+    timeOff: {
+      tabs: {
+        leave: 'Verlof',
+        balances: 'Saldi',
+        sick: 'Ziekmeldingen',
+      },
+      balances: {
+        type: 'Verlofsoort',
+        allowance: 'Tegoed',
+        used: 'Opgenomen',
+        pending: 'In aanvraag',
+        remaining: 'Over',
+      },
+      search: {
+        leave: 'Verlof zoeken...',
+        balances: 'Verlofsoorten zoeken...',
+        sick: 'Ziekmeldingen zoeken...',
+      },
+      filters: {
+        status: 'Status',
+        type: 'Verlofsoort',
+        pay: 'Betaling',
+        paid: 'Betaald',
+        unpaid: 'Onbetaald',
+      },
+      empty: {
+        leave: 'Verlof dat je aanvraagt staat hier, met de goedkeuring.',
+        balances: 'Je HR-team stelt je tegoed per verlofsoort in.',
       },
     },
     tasks: {
