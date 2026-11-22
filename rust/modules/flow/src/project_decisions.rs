@@ -24,7 +24,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
-use serde_json::{Value, json};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
+use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_DELETED, PROJECT_DECISION_CREATED, PROJECT_DECISION_DECIDED,
     PROJECT_DECISION_DELETED, PROJECT_DECISION_SUPERSEDED, PROJECT_DECISION_UPDATED,
@@ -36,10 +42,14 @@ use weldsuite_flow_domain::decisions::{
     options_after_decide, options_error, present_decision, present_decision_approval,
     supersede_source_error, supersede_target_error,
 };
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::js::{contains_pattern, js_date_millis};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_control_links;
+use weldsuite_schema::tenant::project_decisions::{self, Column};
 
 use crate::approvals::announce::announce_approvals_cancelled;
 use crate::governance_approvals::{announce_decision_asked, register_decision_subject};
@@ -47,14 +57,12 @@ use crate::governance_body::{
     RegisterQuery, decision_list_query, read_create_decision, read_decide, read_supersede,
     read_update_decision,
 };
-use crate::governance_store::{
-    decisions_replaced_by, find_decision, find_decision_ref, insert_statement, update_statement,
-};
-use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms, or_null, parse_limit, to_date};
+use crate::governance_store::{decisions_replaced_by, find_decision, find_decision_ref};
+use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, or_null, parse_limit, to_date};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
 use crate::{
-    Caller, FlowState, Refusal, Reply, access_scope, keyset_cursor, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, access_scope, in_accessible, outside, page, paged, reply,
 };
 use weldsuite_flow_domain::approvals::{
     ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
@@ -62,6 +70,9 @@ use weldsuite_flow_domain::approvals::{
 };
 
 const DECISION_LABEL: &str = "Decision";
+/// `project_decisions`, written from `{ column: value }` objects as Drizzle's
+/// `insert(...).values(...)` and `update(...).set(...)` wrote them.
+const DECISIONS: JsonTable = JsonTable::of::<project_decisions::Entity>();
 pub(crate) const PROJECT_MANAGE_DENIED: &str = "You do not have manage access to this project";
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -90,6 +101,17 @@ where
 
 fn text<'a>(body: &'a Body, key: &str) -> Option<&'a str> {
     body.get(key).and_then(Value::as_str)
+}
+
+/// `new Date(millis)`, as the row stores it.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// `new Date(millis).toISOString()`, as the row's JSON writes it.
+fn iso(millis: i64) -> String {
+    weldsuite_events::iso_timestamp(instant(millis))
 }
 
 /// `publishDecision(c, action, row, extra)`.
@@ -146,20 +168,44 @@ async fn ask_decider(
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-/// The list's `where`, without the cursor: the project scope (`$1` the
-/// project, else `$2`/`$3` the accessible ones), the status and the search.
-macro_rules! decision_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ")",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::text is null or t.title ilike $5 or t.context ilike $5)"
-        )
+/// The list's `where`, without the cursor: the project scope (the project,
+/// else the accessible ones), the status and the search.
+fn decision_filters(q: &RegisterQuery, scope: &(bool, Vec<String>)) -> Condition {
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    filters = match q.project_id.as_deref() {
+        Some(project_id) => filters.add(Column::ProjectId.eq(project_id)),
+        None => filters.add(in_accessible(Column::ProjectId, scope)),
     };
+    if let Some(status) = q.status.as_deref() {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = q.search.as_deref() {
+        let pattern = contains_pattern(search);
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(pattern.as_str()))
+                .add(Column::Context.ilike(pattern.as_str())),
+        );
+    }
+    filters
+}
+
+/// The keyset cursor row (`select createdAt, id where id = cursor`):
+/// `created_at` as Drizzle reads it back (milliseconds), and the id.
+async fn decision_cursor(
+    db: &DatabaseConnection,
+    cursor: &str,
+) -> Result<Option<(OffsetDateTime, String)>, DbErr> {
+    let created: Option<OffsetDateTime> = project_decisions::Entity::find_by_id(cursor)
+        .select_only()
+        .column(Column::CreatedAt)
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(created.map(|at| {
+        let at = at.replace_millisecond(at.millisecond()).unwrap_or(at);
+        (at, cursor.to_owned())
+    }))
 }
 
 /// `projectScope(c, projectId)` of the registers.
@@ -182,25 +228,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let limit = parse_limit(q.limit.as_deref(), 25, 100);
-    let (all, ids) = match project_scope(&caller, q.project_id.as_deref()).await {
+    let scope = match project_scope(&caller, q.project_id.as_deref()).await {
         Ok(scope) => scope,
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
-            &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_decisions where id = $1 limit 1",
-            cursor,
-        )
-        .await
-        {
+        Some(cursor) => match decision_cursor(&orm(&caller.db), cursor).await {
             Ok(found) => found,
             Err(error) => return outside(Err(error.into())),
         },
         None => None,
     };
     reply(
-        list_decisions(&caller, &q, limit, (all, &ids), cursor).await,
+        list_decisions(&caller, &q, limit, &scope, cursor).await,
         "Failed to list decisions",
     )
 }
@@ -209,40 +249,37 @@ async fn list_decisions(
     caller: &Caller,
     q: &RegisterQuery,
     limit: i64,
-    (all, ids): (bool, &[String]),
-    cursor: Option<(String, String)>,
+    scope: &(bool, Vec<String>),
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
-    let db = &caller.db;
-    let search = q.search.as_deref().map(contains_pattern);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(t) from project_decisions t where ",
-        decision_filters!(),
-        " and ($6::timestamptz is null or t.created_at < $6::timestamptz",
-        " or (t.created_at = $6::timestamptz and t.id < $7))",
-        " order by t.created_at desc, t.id desc limit $8"
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_decisions t where ",
-        decision_filters!()
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(weldsuite_db::js_row).collect(), limit);
+    let db = &orm(&caller.db);
+    let filters = decision_filters(q, scope);
+    let mut select = project_decisions::Entity::find().filter(filters.clone());
+    if let Some((at, id)) = cursor {
+        select = select.filter(
+            Condition::any().add(Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(at))
+                    .add(Column::Id.lt(id)),
+            ),
+        );
+    }
+    let rows = select
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(db)
+        .await?;
+    let total = project_decisions::Entity::find()
+        .filter(filters)
+        .count(db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (rows, has_more, next) = page(rows, limit);
     let items = rows.iter().map(present_decision).collect();
     Ok(paged(items, total, has_more, next))
 }
@@ -351,15 +388,13 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
     .await;
     if result.is_err() {
         // The decision is taken back out when asking the decider failed.
-        let taken = iso_ms(crate::now_ms());
-        if let Err(error) = sqlx::query(
-            "update project_decisions set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(taken)
-        .execute(&caller.db)
-        .await
+        let taken = instant(crate::now_ms());
+        if let Err(error) = project_decisions::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(taken))
+            .col_expr(Column::UpdatedAt, Expr::value(taken))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
         {
             tracing::error!(%error, "[flow-api/project-decisions] decision rollback failed");
         }
@@ -376,12 +411,13 @@ async fn create_decision(
     input: &Body,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso_ms(crate::now_ms());
+    let now = iso(crate::now_ms());
     let number = allocate_number(db, &decision_sequence(project_id)).await?;
     let decided = status == "decided";
-    let mut values = Body::new();
+    // `{ column: value }`, each converted to its column's type by Postgres.
+    let mut values = Map::new();
     values.insert("id".to_owned(), json!(id));
-    values.insert("projectId".to_owned(), json!(project_id));
+    values.insert("project_id".to_owned(), json!(project_id));
     values.insert("number".to_owned(), json!(number));
     values.insert("title".to_owned(), or_null(input, "title"));
     values.insert("status".to_owned(), json!(status));
@@ -395,7 +431,7 @@ async fn create_decision(
             .unwrap_or_else(|| json!([])),
     );
     values.insert(
-        "deciderId".to_owned(),
+        "decider_id".to_owned(),
         if decided {
             Value::Null
         } else {
@@ -403,7 +439,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decisionDueAt".to_owned(),
+        "decision_due_at".to_owned(),
         if decided {
             Value::Null
         } else {
@@ -411,7 +447,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decidedBy".to_owned(),
+        "decided_by".to_owned(),
         if decided {
             match input.get("decidedBy") {
                 Some(Value::String(by)) => json!(by),
@@ -422,7 +458,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decidedAt".to_owned(),
+        "decided_at".to_owned(),
         if decided {
             match to_date(input.get("decidedAt")) {
                 Value::Null => json!(now),
@@ -432,10 +468,10 @@ async fn create_decision(
             Value::Null
         },
     );
-    values.insert("createdBy".to_owned(), json!(caller.user_id));
-    values.insert("createdAt".to_owned(), json!(now));
-    values.insert("updatedAt".to_owned(), json!(now));
-    weldsuite_db::atomically(db, [insert_statement("project_decisions", &values)]).await?;
+    values.insert("created_by".to_owned(), json!(caller.user_id));
+    values.insert("created_at".to_owned(), json!(now));
+    values.insert("updated_at".to_owned(), json!(now));
+    DECISIONS.insert(&orm(db), values).await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::Internal("the new decision is missing".to_owned()));
     };
@@ -502,12 +538,19 @@ async fn update_decision(
     input: &Body,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso_ms(crate::now_ms());
-    let mut set = Body::new();
-    set.insert("updatedAt".to_owned(), json!(now));
-    for key in ["title", "context", "consequences", "deciderId"] {
+    let now = iso(crate::now_ms());
+    // `{ column: value }` of the fields sent, each converted to its column's
+    // type by Postgres.
+    let mut set = Map::new();
+    set.insert("updated_at".to_owned(), json!(now));
+    for (key, column) in [
+        ("title", "title"),
+        ("context", "context"),
+        ("consequences", "consequences"),
+        ("deciderId", "decider_id"),
+    ] {
         if let Some(value) = input.get(key) {
-            set.insert(key.to_owned(), value.clone());
+            set.insert(column.to_owned(), value.clone());
         }
     }
     if input.contains_key("options") {
@@ -515,7 +558,7 @@ async fn update_decision(
     }
     if input.contains_key("decisionDueAt") {
         set.insert(
-            "decisionDueAt".to_owned(),
+            "decision_due_at".to_owned(),
             to_date(input.get("decisionDueAt")),
         );
     }
@@ -548,7 +591,7 @@ async fn update_decision(
                 .any(|approval| approval.decision == "rejected"),
         );
 
-    weldsuite_db::atomically(db, [update_statement("project_decisions", &set, id)]).await?;
+    DECISIONS.update(&orm(db), id, set, true).await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::not_found(DECISION_LABEL, id));
     };
@@ -588,38 +631,40 @@ async fn remove_decision(state: &FlowState, caller: &Caller, id: &str) -> Reply 
     }
 
     let links = links_of_object(db, "decision", id).await?;
-    let now = iso_ms(crate::now_ms());
-    let replaced: Vec<String> = sqlx::query_scalar(
-        "select id from project_decisions where superseded_by_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let now = instant(crate::now_ms());
+    let replaced: Vec<String> = project_decisions::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::SupersededById.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     // The decision's links go with it, and the decisions it replaced take their place again.
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "update project_decisions set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "delete from project_control_links
-                 where (from_type = 'decision' and from_id = $1)
-                    or (to_type = 'decision' and to_id = $1)",
-            )
-            .bind(id.to_owned()),
-            sqlx::query(
-                "update project_decisions set status = 'decided', superseded_by_id = null,
-                        updated_at = $2::timestamptz
-                 where superseded_by_id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-        ],
-    )
+    let id_owned = id.to_owned();
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            let id = id_owned.as_str();
+            project_decisions::Entity::update_many()
+                .col_expr(Column::DeletedAt, Expr::value(now))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            delete_links(&tx, "decision", id).await?;
+            project_decisions::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("decided"))
+                .col_expr(Column::SupersededById, Expr::value(Option::<String>::None))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::SupersededById.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     let number = existing["number"].as_i64().unwrap_or_default();
     caller.publish(
@@ -645,6 +690,29 @@ async fn remove_decision(state: &FlowState, caller: &Caller, id: &str) -> Reply 
         }
     }
     Ok(NoContent.into_response())
+}
+
+/// `delete from project_control_links where (from_type = kind and from_id =
+/// id) or (to_type = kind and to_id = id)`: the links of a deleted object.
+pub(crate) async fn delete_links(tx: &OrmConn<'_>, kind: &str, id: &str) -> Result<(), DbErr> {
+    use project_control_links::Column as Link;
+    project_control_links::Entity::delete_many()
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(Link::FromType.eq(kind))
+                        .add(Link::FromId.eq(id)),
+                )
+                .add(
+                    Condition::all()
+                        .add(Link::ToType.eq(kind))
+                        .add(Link::ToId.eq(id)),
+                ),
+        )
+        .exec(tx)
+        .await?;
+    Ok(())
 }
 
 // ── POST /:id/decide ────────────────────────────────────────────────────────
@@ -709,23 +777,31 @@ async fn record_decision(
 ) -> Reply {
     let db = &caller.db;
     let now_ms = crate::now_ms();
-    let now = iso_ms(now_ms);
-    let decided_at = match to_date(input.get("decidedAt")) {
-        Value::String(at) => at,
-        _ => now.clone(),
+    let now = instant(now_ms);
+    // `toDate(decidedAt) ?? now`: the body's moment as `new Date()` reads it.
+    let decided_at = match input.get("decidedAt") {
+        Some(Value::String(raw)) if !raw.is_empty() => js_date_millis(raw)
+            .map(instant)
+            .ok_or_else(|| Refusal::Internal(format!("invalid decidedAt: {raw}")))?,
+        _ => now,
     };
-    sqlx::query(
-        "update project_decisions set status = 'decided', options = $2::jsonb,
-                decided_by = $3, decided_at = $4::timestamptz, updated_at = $5::timestamptz
-         where id = $1 and status = 'proposed' and deleted_at is null",
-    )
-    .bind(id)
-    .bind(options_json(&options_after_decide(options, chosen)))
-    .bind(text(input, "decidedBy").unwrap_or(&caller.user_id))
-    .bind(decided_at)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    project_decisions::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("decided"))
+        .col_expr(
+            Column::Options,
+            Expr::value(options_json(&options_after_decide(options, chosen))),
+        )
+        .col_expr(
+            Column::DecidedBy,
+            Expr::value(text(input, "decidedBy").unwrap_or(&caller.user_id)),
+        )
+        .col_expr(Column::DecidedAt, Expr::value(decided_at))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("proposed"))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::Internal("the decision is missing".to_owned()));
     };
@@ -796,17 +872,18 @@ async fn supersede(
 
 async fn supersede_decision(state: &FlowState, caller: &Caller, id: &str, target: &Value) -> Reply {
     let db = &caller.db;
-    let now = iso_ms(crate::now_ms());
-    sqlx::query(
-        "update project_decisions set status = 'superseded', superseded_by_id = $2,
-                updated_at = $3::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(target["id"].as_str().unwrap_or_default())
-    .bind(now)
-    .execute(db)
-    .await?;
+    let now = instant(crate::now_ms());
+    project_decisions::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("superseded"))
+        .col_expr(
+            Column::SupersededById,
+            Expr::value(target["id"].as_str().unwrap_or_default()),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::Internal("the decision is missing".to_owned()));
     };

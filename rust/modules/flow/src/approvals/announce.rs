@@ -289,7 +289,7 @@ pub(crate) struct AftermathInfo {
 }
 
 pub(crate) type AftermathFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send + 'a>>;
+    Pin<Box<dyn Future<Output = Result<(), sea_orm::DbErr>> + Send + 'a>>;
 
 /// A hook: publish the subject's own entity events (and anything else that needs the request).
 pub(crate) type Aftermath =

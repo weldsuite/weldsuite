@@ -5,8 +5,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row, js_timestamp};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::benefits::benefit_code;
 use weldsuite_flow_domain::decisions::decision_code;
 use weldsuite_flow_domain::deliverables::deliverable_code;
@@ -14,33 +20,40 @@ use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::raid::{
     LinkEnd, PROGRESS_RELATIONS, RaidKind, present_control_link, raid_code,
 };
+use weldsuite_schema::tenant::{
+    milestones, project_benefits, project_change_requests, project_control_links as links,
+    project_decisions, project_deliverables, project_raid_items, projects, tasks,
+};
 
 use crate::Caller;
 
+/// A row as the route returns it: the entity serializes as Drizzle returned
+/// the row.
+pub(crate) fn model_json<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// `liveProjectExists(db, projectId)`.
-pub(crate) async fn live_project_exists(
-    db: &PgPool,
-    project_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?;
+pub(crate) async fn live_project_exists(db: &PgPool, project_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
 /// `findRaidItem(db, id)`: a live register item, as Drizzle reads it.
-pub(crate) async fn find_raid_item(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        raid_json!("r"),
-        " from project_raid_items r where r.id = $1 and r.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn find_raid_item(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = project_raid_items::Entity::find()
+        .filter(project_raid_items::Column::Id.eq(id))
+        .filter(project_raid_items::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(model_json).transpose()
 }
 
 /// `taskProgressFor(db, itemIds)`: per item, the live, non-cancelled tasks
@@ -49,23 +62,34 @@ pub(crate) async fn find_raid_item(db: &PgPool, id: &str) -> Result<Option<Value
 pub(crate) async fn task_progress_for(
     db: &PgPool,
     item_ids: &[String],
-) -> Result<HashMap<String, (i64, i64)>, sqlx::Error> {
+) -> Result<HashMap<String, (i64, i64)>, DbErr> {
     if item_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
-        "select l.to_id, count(*)::int8,
-                (count(*) filter (where t.status = 'done'))::int8
-         from project_control_links l
-         inner join tasks t on t.id = l.from_id
-         where l.to_type = 'raid_item' and l.to_id = any($1) and l.from_type = 'task'
-           and l.relation = any($2) and t.deleted_at is null and t.status <> 'cancelled'
-         group by l.to_id",
-    )
-    .bind(item_ids)
-    .bind(PROGRESS_RELATIONS.as_slice())
-    .fetch_all(db)
-    .await?;
+    // `count(*) filter (where t.status = 'done')`: the rows the case keeps.
+    let done = Func::count(Expr::case(tasks::Column::Status.eq("done"), 1));
+    let rows: Vec<(String, i64, i64)> = links::Entity::find()
+        .select_only()
+        .column(links::Column::ToId)
+        .column_as(Func::count(Expr::col(Asterisk)), "total")
+        .column_as(done, "done")
+        .join(
+            JoinType::InnerJoin,
+            links::Entity::belongs_to(tasks::Entity)
+                .from(links::Column::FromId)
+                .to(tasks::Column::Id)
+                .into(),
+        )
+        .filter(links::Column::ToType.eq("raid_item"))
+        .filter(links::Column::ToId.is_in(item_ids))
+        .filter(links::Column::FromType.eq("task"))
+        .filter(links::Column::Relation.is_in(PROGRESS_RELATIONS))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(tasks::Column::Status.ne("cancelled"))
+        .group_by(links::Column::ToId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, total, done)| (id, (done, total)))
@@ -118,39 +142,298 @@ impl ResolvedEnd {
 }
 
 /// One end as each table answers it: id, project, kind and number (register
-/// items only), title, status, owner, due date as text.
-type EndRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<i32>,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-);
+/// items only), title, status, owner, due date as `toISOString()`.
+struct EndRow {
+    id: String,
+    project_id: Option<String>,
+    kind: Option<String>,
+    number: Option<i32>,
+    title: String,
+    status: String,
+    owner_id: Option<String>,
+    due: Option<String>,
+}
 
-const RAID_ENDS: &str = "select id, project_id, kind, number, title, status, owner_id,
-        to_jsonb(due_at) #>> '{}'
-    from project_raid_items where id = any($1) and deleted_at is null";
-const TASK_ENDS: &str = "select id, project_id, null::text, null::int, title, status,
-        assignee_id, to_jsonb(due_date) #>> '{}'
-    from tasks where id = any($1) and deleted_at is null";
-const DECISION_ENDS: &str = "select id, project_id, null::text, number, title, status,
-        coalesce(decider_id, decided_by), to_jsonb(decision_due_at) #>> '{}'
-    from project_decisions where id = any($1) and deleted_at is null";
-const CHANGE_REQUEST_ENDS: &str = "select id, project_id, null::text, number, title, status,
-        requested_by, null::text
-    from project_change_requests where id = any($1) and deleted_at is null";
-const DELIVERABLE_ENDS: &str = "select id, project_id, null::text, number, title, status,
-        owner_id, to_jsonb(planned_end) #>> '{}'
-    from project_deliverables where id = any($1) and deleted_at is null";
-const BENEFIT_ENDS: &str = "select id, project_id, null::text, number, title, status,
-        owner_id, to_jsonb(realise_by) #>> '{}'
-    from project_benefits where id = any($1) and deleted_at is null";
-const MILESTONE_ENDS: &str = "select id, project_id, null::text, null::int, name, status,
-        owner_id, to_jsonb(due_date) #>> '{}'
-    from milestones where id = any($1) and deleted_at is null";
+/// A `timestamptz` as Drizzle's `Date` prints it.
+fn iso_tz(at: OffsetDateTime) -> String {
+    iso_timestamp(at)
+}
+
+/// A `timestamp` (UTC) as Drizzle's `Date` prints it.
+fn iso_ts(at: PrimitiveDateTime) -> String {
+    iso_timestamp(at.assume_utc())
+}
+
+/// The live rows of one table by id, each as an [`EndRow`].
+#[allow(clippy::too_many_lines)] // one select per table
+async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<EndRow>, DbErr> {
+    let db = &orm(db);
+    Ok(match link_type {
+        "raid_item" => {
+            use project_raid_items::{Column, Entity};
+            let rows: Vec<(
+                String,
+                String,
+                String,
+                i32,
+                String,
+                String,
+                Option<String>,
+                Option<OffsetDateTime>,
+            )> = Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::ProjectId,
+                    Column::Kind,
+                    Column::Number,
+                    Column::Title,
+                    Column::Status,
+                    Column::OwnerId,
+                    Column::DueAt,
+                ])
+                .filter(Column::Id.is_in(ids))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
+            rows.into_iter()
+                .map(
+                    |(id, project_id, kind, number, title, status, owner_id, due)| EndRow {
+                        id,
+                        project_id: Some(project_id),
+                        kind: Some(kind),
+                        number: Some(number),
+                        title,
+                        status,
+                        owner_id,
+                        due: due.map(iso_tz),
+                    },
+                )
+                .collect()
+        }
+        "task" => {
+            use tasks::{Column, Entity};
+            let rows: Vec<(
+                String,
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Option<PrimitiveDateTime>,
+            )> = Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::ProjectId,
+                    Column::Title,
+                    Column::Status,
+                    Column::AssigneeId,
+                    Column::DueDate,
+                ])
+                .filter(Column::Id.is_in(ids))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
+            rows.into_iter()
+                .map(|(id, project_id, title, status, owner_id, due)| EndRow {
+                    id,
+                    project_id,
+                    kind: None,
+                    number: None,
+                    title,
+                    status,
+                    owner_id,
+                    due: due.map(iso_ts),
+                })
+                .collect()
+        }
+        "decision" => {
+            use project_decisions::{Column, Entity};
+            let rows: Vec<(
+                String,
+                String,
+                i32,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<OffsetDateTime>,
+            )> = Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::ProjectId,
+                    Column::Number,
+                    Column::Title,
+                    Column::Status,
+                    Column::DeciderId,
+                    Column::DecidedBy,
+                    Column::DecisionDueAt,
+                ])
+                .filter(Column::Id.is_in(ids))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
+            rows.into_iter()
+                .map(
+                    |(id, project_id, number, title, status, decider, decided_by, due)| EndRow {
+                        id,
+                        project_id: Some(project_id),
+                        kind: None,
+                        number: Some(number),
+                        title,
+                        status,
+                        // `coalesce(decider_id, decided_by)`.
+                        owner_id: decider.or(decided_by),
+                        due: due.map(iso_tz),
+                    },
+                )
+                .collect()
+        }
+        "change_request" => {
+            use project_change_requests::{Column, Entity};
+            let rows: Vec<(String, String, i32, String, String, Option<String>)> =
+                Entity::find()
+                    .select_only()
+                    .columns([
+                        Column::Id,
+                        Column::ProjectId,
+                        Column::Number,
+                        Column::Title,
+                        Column::Status,
+                        Column::RequestedBy,
+                    ])
+                    .filter(Column::Id.is_in(ids))
+                    .filter(Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(db)
+                    .await?;
+            rows.into_iter()
+                .map(|(id, project_id, number, title, status, owner_id)| EndRow {
+                    id,
+                    project_id: Some(project_id),
+                    kind: None,
+                    number: Some(number),
+                    title,
+                    status,
+                    owner_id,
+                    due: None,
+                })
+                .collect()
+        }
+        "deliverable" => {
+            use project_deliverables::{Column, Entity};
+            numbered_ends(
+                Entity::find()
+                    .select_only()
+                    .columns([
+                        Column::Id,
+                        Column::ProjectId,
+                        Column::Number,
+                        Column::Title,
+                        Column::Status,
+                        Column::OwnerId,
+                        Column::PlannedEnd,
+                    ])
+                    .filter(Column::Id.is_in(ids))
+                    .filter(Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(db)
+                    .await?,
+            )
+        }
+        "benefit" => {
+            use project_benefits::{Column, Entity};
+            numbered_ends(
+                Entity::find()
+                    .select_only()
+                    .columns([
+                        Column::Id,
+                        Column::ProjectId,
+                        Column::Number,
+                        Column::Title,
+                        Column::Status,
+                        Column::OwnerId,
+                        Column::RealiseBy,
+                    ])
+                    .filter(Column::Id.is_in(ids))
+                    .filter(Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(db)
+                    .await?,
+            )
+        }
+        _ => {
+            use milestones::{Column, Entity};
+            let rows: Vec<(
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                PrimitiveDateTime,
+            )> = Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::ProjectId,
+                    Column::Name,
+                    Column::Status,
+                    Column::OwnerId,
+                    Column::DueDate,
+                ])
+                .filter(Column::Id.is_in(ids))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
+            rows.into_iter()
+                .map(|(id, project_id, title, status, owner_id, due)| EndRow {
+                    id,
+                    project_id: Some(project_id),
+                    kind: None,
+                    number: None,
+                    title,
+                    status,
+                    owner_id,
+                    due: Some(iso_ts(due)),
+                })
+                .collect()
+        }
+    })
+}
+
+/// Deliverables and benefits: id, project, number, title, status, owner and
+/// a `timestamptz` due date.
+fn numbered_ends(
+    rows: Vec<(
+        String,
+        String,
+        i32,
+        String,
+        String,
+        Option<String>,
+        Option<OffsetDateTime>,
+    )>,
+) -> Vec<EndRow> {
+    rows.into_iter()
+        .map(
+            |(id, project_id, number, title, status, owner_id, due)| EndRow {
+                id,
+                project_id: Some(project_id),
+                kind: None,
+                number: Some(number),
+                title,
+                status,
+                owner_id,
+                due: due.map(iso_tz),
+            },
+        )
+        .collect()
+}
 
 /// `resolveEnds(db, type, ids)`: live objects of one type by id. A task
 /// without a project cannot be part of project control, so it is treated
@@ -159,35 +442,38 @@ async fn resolve_ends(
     db: &PgPool,
     link_type: &str,
     ids: &[String],
-) -> Result<HashMap<String, ResolvedEnd>, sqlx::Error> {
+) -> Result<HashMap<String, ResolvedEnd>, DbErr> {
     let mut out = HashMap::new();
     if ids.is_empty() {
         return Ok(out);
     }
-    let (link_type, sql) = match link_type {
-        "raid_item" => ("raid_item", RAID_ENDS),
-        "task" => ("task", TASK_ENDS),
-        "decision" => ("decision", DECISION_ENDS),
-        "change_request" => ("change_request", CHANGE_REQUEST_ENDS),
-        "deliverable" => ("deliverable", DELIVERABLE_ENDS),
-        "benefit" => ("benefit", BENEFIT_ENDS),
-        _ => ("milestone", MILESTONE_ENDS),
+    let link_type = match link_type {
+        "raid_item" => "raid_item",
+        "task" => "task",
+        "decision" => "decision",
+        "change_request" => "change_request",
+        "deliverable" => "deliverable",
+        "benefit" => "benefit",
+        _ => "milestone",
     };
-    let rows: Vec<EndRow> = sqlx::query_as(sql).bind(ids).fetch_all(db).await?;
-    for (id, project_id, kind, number, title, status, owner_id, due) in rows {
-        let Some(project_id) = project_id.filter(|p| link_type != "task" || !p.is_empty()) else {
+    for row in end_rows(db, link_type, ids).await? {
+        let Some(project_id) = row
+            .project_id
+            .filter(|p| link_type != "task" || !p.is_empty())
+        else {
             continue;
         };
-        let kind = kind.as_deref().and_then(RaidKind::parse);
+        let kind = row.kind.as_deref().and_then(RaidKind::parse);
+        let number = row.number;
         out.insert(
-            id.clone(),
+            row.id.clone(),
             ResolvedEnd {
                 link_type,
-                id,
+                id: row.id,
                 project_id,
                 kind,
-                title,
-                status,
+                title: row.title,
+                status: row.status,
                 code: match link_type {
                     "raid_item" => kind
                         .zip(number)
@@ -198,8 +484,8 @@ async fn resolve_ends(
                     "benefit" => number.map(|number| benefit_code(i64::from(number))),
                     _ => None,
                 },
-                owner_id,
-                due_date: due.as_deref().and_then(js_timestamp),
+                owner_id: row.owner_id,
+                due_date: row.due,
             },
         );
     }
@@ -211,7 +497,7 @@ pub(crate) async fn resolve_end(
     db: &PgPool,
     link_type: &str,
     id: &str,
-) -> Result<Option<ResolvedEnd>, sqlx::Error> {
+) -> Result<Option<ResolvedEnd>, DbErr> {
     Ok(resolve_ends(db, link_type, &[id.to_owned()])
         .await?
         .remove(id))
@@ -253,7 +539,7 @@ pub(crate) async fn present_linked_objects(
     caller: &Caller,
     rows: Vec<Value>,
     direction_of: impl Fn(&Value) -> Direction,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     // `loadOtherEnds`: the ids wanted per type, in the order first seen.
     let mut wanted: Vec<(String, Vec<String>)> = Vec::new();
     for row in &rows {
@@ -310,14 +596,12 @@ pub(crate) async fn present_linked_objects(
 }
 
 /// A `project_control_links` row by id, as Drizzle reads it.
-pub(crate) async fn link_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from project_control_links l where l.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn link_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = links::Entity::find()
+        .filter(links::Column::Id.eq(id))
+        .one(&orm(db))
+        .await?;
+    row.map(model_json).transpose()
 }
 
 /// `linksOfObject(db, type, id)`: every link with the object at either end,
@@ -326,25 +610,30 @@ pub(crate) async fn links_of_object(
     db: &PgPool,
     link_type: &str,
     id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from project_control_links l
-         where (l.from_type = $1 and l.from_id = $2)
-            or (l.to_type = $1 and l.to_id = $2)
-         order by l.created_at asc, l.id asc",
-    )
-    .bind(link_type)
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    let rows = links::Entity::find()
+        .filter(
+            sea_orm::Condition::any()
+                .add(
+                    sea_orm::Condition::all()
+                        .add(links::Column::FromType.eq(link_type))
+                        .add(links::Column::FromId.eq(id)),
+                )
+                .add(
+                    sea_orm::Condition::all()
+                        .add(links::Column::ToType.eq(link_type))
+                        .add(links::Column::ToId.eq(id)),
+                ),
+        )
+        .order_by_asc(links::Column::CreatedAt)
+        .order_by_asc(links::Column::Id)
+        .all(&orm(db))
+        .await?;
+    rows.into_iter().map(model_json).collect()
 }
 
 /// `linksOfRaidItem(db, itemId)`: every link with the item at either end,
 /// oldest first.
-pub(crate) async fn links_of_raid_item(
-    db: &PgPool,
-    item_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn links_of_raid_item(db: &PgPool, item_id: &str) -> Result<Vec<Value>, DbErr> {
     links_of_object(db, "raid_item", item_id).await
 }

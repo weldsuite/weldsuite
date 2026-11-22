@@ -166,7 +166,7 @@ pub(crate) fn uuid() -> String {
 }
 
 fn db_error(error: impl std::fmt::Display) -> Refusal {
-    Refusal::Database(sqlx::Error::Protocol(error.to_string()))
+    Refusal::from(sqlx::Error::Protocol(error.to_string()))
 }
 
 /// The connection row (`to_jsonb`, `snake_case`), not deleted.

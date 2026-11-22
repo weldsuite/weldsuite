@@ -1061,7 +1061,7 @@ async fn write_custom_fields(
     .await
     .map_err(|error| match error {
         custom_values::ValuesError::Invalid(message) => Refusal::bad_request(message),
-        custom_values::ValuesError::Database(error) => Refusal::Database(error),
+        custom_values::ValuesError::Database(error) => Refusal::from(error),
     })
 }
 

@@ -10,20 +10,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_TRIGGER_CREATED, WORKFLOW_TRIGGER_DELETED, WORKFLOW_TRIGGER_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflow_triggers::{self, Column};
+use weldsuite_schema::tenant::workflows;
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::schedules::{CreateError, NewSchedule, create_schedule};
 use crate::sync::SyncContext;
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 const CATEGORIES: &[&str] = &["schedule", "entity_event", "webhook", "manual", "api"];
 
@@ -56,16 +64,62 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/{id}/disable", patch(disable).route_layer(update()))
 }
 
-const JOINED: &str = "to_jsonb(t) || jsonb_build_object('workflowName', w.name)";
+/// A row as Drizzle returned it.
+fn js(model: workflow_triggers::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
 
-/// `{ ...trigger, workflowName }`: the row read as Drizzle reads it.
-fn joined(row: Value) -> Value {
-    let name = row.get("workflowName").cloned().unwrap_or(Value::Null);
-    let mut row = js_row(row);
-    if let Value::Object(map) = &mut row {
-        map.insert("workflowName".into(), name);
+/// `leftJoin(workflows, eq(workflowTriggers.workflowId, workflows.id))`.
+fn workflow() -> RelationDef {
+    workflow_triggers::Entity::belongs_to(workflows::Entity)
+        .from(Column::WorkflowId)
+        .to(workflows::Column::Id)
+        .into()
+}
+
+/// A trigger with its workflow's name.
+#[derive(FromQueryResult)]
+struct Joined {
+    #[sea_orm(nested)]
+    trigger: workflow_triggers::Model,
+    workflow_name: Option<String>,
+}
+
+impl Joined {
+    fn query() -> sea_orm::Select<workflow_triggers::Entity> {
+        workflow_triggers::Entity::find()
+            .column_as(workflows::Column::Name, "workflow_name")
+            .join(JoinType::LeftJoin, workflow())
     }
-    row
+
+    /// `{ ...trigger, workflowName }`: the row read as Drizzle reads it.
+    fn into_json(self) -> Value {
+        let mut row = js(self.trigger);
+        if let Value::Object(map) = &mut row {
+            map.insert("workflowName".into(), json!(self.workflow_name));
+        }
+        row
+    }
+}
+
+/// The list's filters: not deleted, the `workflowId`, `category` and
+/// `isEnabled` sent.
+fn filtered(
+    workflow_id: Option<&str>,
+    category: Option<&str>,
+    enabled: Option<bool>,
+) -> Condition {
+    let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(workflow_id) = workflow_id {
+        filter = filter.add(Column::WorkflowId.eq(workflow_id));
+    }
+    if let Some(category) = category {
+        filter = filter.add(Column::Category.eq(category));
+    }
+    if let Some(enabled) = enabled {
+        filter = filter.add(Column::IsEnabled.eq(enabled));
+    }
+    filter
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -75,70 +129,65 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let category = query_truthy(query, "category");
     let enabled = query_param(query, "isEnabled").map(|v| v == "true");
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.workflow_id = $1)
-        and ($2::text is null or t.category = $2) and ($3::boolean is null or t.is_enabled = $3)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {JOINED} from workflow_triggers t left join workflows w on t.workflow_id = w.id
-         where {FILTER} and ($4::text is null or t.id < $4)
-         order by t.created_at desc, t.id desc limit $5"
-    )))
-    .bind(&workflow_id)
-    .bind(&category)
-    .bind(enabled)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_triggers t where {FILTER}"
-    )))
-    .bind(&workflow_id)
-    .bind(&category)
-    .bind(enabled)
-    .fetch_one(&caller.db)
-    .await;
+    let filters = || filtered(workflow_id.as_deref(), category.as_deref(), enabled);
+    let db = orm(&caller.db);
+    let mut rows = Joined::query().filter(filters());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .into_model::<Joined>()
+        .all(&db)
+        .await;
+    let count = workflow_triggers::Entity::find()
+        .filter(filters())
+        .count(&db)
+        .await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(joined).collect(), limit);
+            let (data, has_more) = page(rows.into_iter().map(Joined::into_json).collect(), limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow triggers"),
     }
 }
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {JOINED} from workflow_triggers t left join workflows w on t.workflow_id = w.id
-         where t.id = $1 and t.deleted_at is null limit 1"
-    )))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = Joined::query()
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .into_model::<Joined>()
+        .one(&orm(&caller.db))
+        .await;
     match row {
-        Ok(Some(row)) => Data(joined(row)).into_response(),
+        Ok(Some(row)) => Data(row.into_json()).into_response(),
         Ok(None) => ApiError::not_found("Workflow trigger", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to fetch workflow trigger"),
     }
 }
 
-async fn trigger_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_triggers t where t.id = $1 and ($2 = false or t.deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn trigger_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut row = workflow_triggers::Entity::find_by_id(id.to_owned());
+    if live {
+        row = row.filter(Column::DeletedAt.is_null());
+    }
+    Ok(row.one(&orm(db)).await?.map(js))
 }
 
-async fn workflow_exists(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from workflows where id = $1 and deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+async fn workflow_exists(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Id)
+        .filter(workflows::Column::Id.eq(id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -155,20 +204,21 @@ async fn insert_trigger(
     category: &str,
     config: &Value,
     enabled: bool,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("trg");
-    sqlx::query(
-        "insert into workflow_triggers (id, workflow_id, name, category, config, is_enabled, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $7::timestamp)",
-    )
-    .bind(&id)
-    .bind(workflow_id)
-    .bind(name)
-    .bind(category)
-    .bind(config)
-    .bind(enabled)
-    .bind(now())
-    .execute(db)
+    let stamp = utc_now();
+    workflow_triggers::Entity::insert(workflow_triggers::ActiveModel {
+        id: Set(id.clone()),
+        workflow_id: Set(workflow_id.to_owned()),
+        name: Set(name.to_owned()),
+        category: Set(category.to_owned()),
+        config: Set(config.clone()),
+        is_enabled: Set(enabled),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(id)
 }
@@ -432,26 +482,24 @@ async fn update_route(
         let Some(existing) = trigger_row(&caller.db, &id, true).await? else {
             return Err(Refusal::not_found("Workflow trigger", &id));
         };
-        sqlx::query(
-            "update workflow_triggers set updated_at = $2::timestamp,
-                name = case when $3 then $4 else name end,
-                category = case when $5 then $6 else category end,
-                config = case when $7 then $8 else config end,
-                is_enabled = case when $9 then $10 else is_enabled end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(!name.is_absent())
-        .bind(name.as_set())
-        .bind(!category.is_absent())
-        .bind(category.as_set())
-        .bind(!config.is_absent())
-        .bind(config.as_set())
-        .bind(!enabled.is_absent())
-        .bind(enabled.as_set().copied())
-        .execute(&caller.db)
-        .await?;
+        let mut update = workflow_triggers::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        if !name.is_absent() {
+            update = update.col_expr(Column::Name, Expr::value(name.as_set().cloned()));
+        }
+        if !category.is_absent() {
+            update = update.col_expr(Column::Category, Expr::value(category.as_set().cloned()));
+        }
+        if !config.is_absent() {
+            update = update.col_expr(Column::Config, Expr::value(config.as_set().cloned()));
+        }
+        if !enabled.is_absent() {
+            update = update.col_expr(Column::IsEnabled, Expr::value(enabled.as_set().copied()));
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let trigger = trigger_row(&caller.db, &id, false).await?;
         caller.publish(
             &state,
@@ -471,11 +519,11 @@ async fn set_enabled(state: &ConnectState, caller: &Caller, id: &str, enabled: b
         let Some(existing) = trigger_row(&caller.db, id, true).await? else {
             return Err(Refusal::not_found("Workflow trigger", id));
         };
-        sqlx::query("update workflow_triggers set is_enabled = $2, updated_at = $3::timestamp where id = $1")
-            .bind(id)
-            .bind(enabled)
-            .bind(now())
-            .execute(&caller.db)
+        workflow_triggers::Entity::update_many()
+            .col_expr(Column::IsEnabled, Expr::value(enabled))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id))
+            .exec(&orm(&caller.db))
             .await?;
         let trigger = trigger_row(&caller.db, id, false).await?;
         caller.publish(
@@ -516,11 +564,12 @@ async fn delete(
         let Some(existing) = trigger_row(&caller.db, &id, true).await? else {
             return Err(Refusal::not_found("Workflow trigger", &id));
         };
-        let stamp = now();
-        sqlx::query("update workflow_triggers set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&stamp)
-            .execute(&caller.db)
+        let stamp = utc_now();
+        workflow_triggers::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(
             &state,

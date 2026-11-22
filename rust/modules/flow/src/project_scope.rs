@@ -20,9 +20,12 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{PROJECT_SCOPE_CREATED, PROJECT_SCOPE_UPDATED};
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_flow_domain::decisions::decision_code;
 use weldsuite_flow_domain::scope::{
     ScopeLinkTarget, messages, normalize_out_of_scope, out_of_scope_link_error, present_scope,
@@ -30,9 +33,10 @@ use weldsuite_flow_domain::scope::{
 };
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_change_requests, project_decisions, project_scope, projects};
 
 use crate::governance_body::read_put_scope;
-use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms};
+use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::live_project_exists;
 use crate::{Caller, FlowState, Refusal, Reply, outside, reply};
@@ -56,14 +60,19 @@ where
 }
 
 /// `findScope(db, projectId)`.
-async fn find_scope(caller: &Caller, project_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from project_scope s where s.project_id = $1 limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+async fn find_scope(caller: &Caller, project_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = project_scope::Entity::find()
+        .filter(project_scope::Column::ProjectId.eq(project_id))
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
+        .transpose()
+}
+
+/// `new Date(millis)`, as the row stores it.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 /// `resolveScopeLinks(c, projectId, items)`: what the out-of-scope links of a
@@ -74,7 +83,7 @@ async fn resolve_scope_links(
     caller: &Caller,
     project_id: &str,
     items: &[Value],
-) -> Result<HashMap<String, ScopeLinkTarget>, sqlx::Error> {
+) -> Result<HashMap<String, ScopeLinkTarget>, Refusal> {
     let mut decisions: Vec<String> = Vec::new();
     let mut changes: Vec<String> = Vec::new();
     let mut projects: Vec<String> = Vec::new();
@@ -96,17 +105,19 @@ async fn resolve_scope_links(
             list.push(link_id.to_owned());
         }
     }
-    let db = &caller.db;
+    let db = &orm(&caller.db);
     let mut out = HashMap::new();
     if !decisions.is_empty() {
-        let rows: Vec<(String, i32, String, String)> = sqlx::query_as(
-            "select id, number, title, status from project_decisions
-             where id = any($1) and project_id = $2 and deleted_at is null",
-        )
-        .bind(&decisions)
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
+        use project_decisions::Column;
+        let rows: Vec<(String, i32, String, String)> = project_decisions::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Number, Column::Title, Column::Status])
+            .filter(Column::Id.is_in(decisions))
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, number, title, status) in rows {
             out.insert(
                 format!("decision:{id}"),
@@ -121,14 +132,16 @@ async fn resolve_scope_links(
         }
     }
     if !changes.is_empty() {
-        let rows: Vec<(String, i32, String, String)> = sqlx::query_as(
-            "select id, number, title, status from project_change_requests
-             where id = any($1) and project_id = $2 and deleted_at is null",
-        )
-        .bind(&changes)
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
+        use project_change_requests::Column;
+        let rows: Vec<(String, i32, String, String)> = project_change_requests::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Number, Column::Title, Column::Status])
+            .filter(Column::Id.is_in(changes))
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, number, title, status) in rows {
             out.insert(
                 format!("change_request:{id}"),
@@ -143,12 +156,15 @@ async fn resolve_scope_links(
         }
     }
     if !projects.is_empty() {
-        let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-            "select id, name, status from projects where id = any($1) and deleted_at is null",
-        )
-        .bind(&projects)
-        .fetch_all(db)
-        .await?;
+        use projects::Column;
+        let rows: Vec<(String, String, Option<String>)> = projects::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Name, Column::Status])
+            .filter(Column::Id.is_in(projects))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, name, status) in rows {
             if !caller.can_access(&id).await? {
                 continue;
@@ -247,7 +263,7 @@ async fn save_scope(state: &FlowState, caller: &Caller, project_id: &str, input:
         }
     }
 
-    let now = iso_ms(crate::now_ms());
+    let now = instant(crate::now_ms());
     let existing = find_scope(caller, project_id).await?;
     let statement = match input.get("statement") {
         Some(statement) => statement.clone(),
@@ -268,22 +284,29 @@ async fn save_scope(state: &FlowState, caller: &Caller, project_id: &str, input:
         },
         Value::Array,
     );
-    sqlx::query(
-        "insert into project_scope (id, project_id, statement, in_scope, out_of_scope, created_by,
-             updated_by, created_at, updated_at)
-         values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $6, $7::timestamptz, $7::timestamptz)
-         on conflict (project_id) do update set statement = excluded.statement,
-             in_scope = excluded.in_scope, out_of_scope = excluded.out_of_scope,
-             updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+    project_scope::Entity::insert(project_scope::ActiveModel {
+        id: Set(generate_id("scope")),
+        project_id: Set(project_id.to_owned()),
+        statement: Set(statement.as_str().map(str::to_owned)),
+        in_scope: Set(in_scope),
+        out_of_scope: Set(out_of_scope),
+        created_by: Set(caller.user_id.clone()),
+        updated_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .on_conflict(
+        OnConflict::column(project_scope::Column::ProjectId)
+            .update_columns([
+                project_scope::Column::Statement,
+                project_scope::Column::InScope,
+                project_scope::Column::OutOfScope,
+                project_scope::Column::UpdatedBy,
+                project_scope::Column::UpdatedAt,
+            ])
+            .to_owned(),
     )
-    .bind(generate_id("scope"))
-    .bind(project_id)
-    .bind(statement.as_str())
-    .bind(in_scope)
-    .bind(out_of_scope)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(&caller.db)
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     let Some(row) = find_scope(caller, project_id).await? else {
         return Err(Refusal::Internal("the saved scope is missing".to_owned()));

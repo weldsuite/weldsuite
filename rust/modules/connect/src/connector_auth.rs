@@ -9,6 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{OriginalUri, Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CONNECTOR_CONNECTION_CONNECTED, CONNECTOR_CONNECTION_DISCONNECTED, CONNECTOR_CONNECTION_UPDATED,
@@ -31,8 +32,11 @@ use weldsuite_connect_domain::webhooks::{
     put_webhook_mapping, register_connection_webhooks, stripe_account_kv_key,
     unregister_connection_webhooks, webhook_base_url,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{accounting_entity_settings as entity_settings, entities};
 
 use crate::connector_sync::{Background, spawn_sync, sync_env};
 use crate::{Caller, ConnectState, Overrides, validate};
@@ -282,15 +286,22 @@ fn syncs_list(issues: &mut Issues, b: &Map<String, Value>) -> Option<Vec<String>
 
 /// `accountingEntityExists(db, id)`: a live legal entity WeldBooks is
 /// enabled for (it has an extension row).
-async fn entity_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select e.id from entities e \
-         join accounting_entity_settings s on s.entity_id = e.id \
-         where e.id = $1 and e.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+async fn entity_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .join(
+            JoinType::InnerJoin,
+            entities::Entity::belongs_to(entity_settings::Entity)
+                .from(entities::Column::Id)
+                .to(entity_settings::Column::EntityId)
+                .into(),
+        )
+        .filter(entities::Column::Id.eq(id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -726,14 +737,19 @@ async fn tenant_for(
     };
     let db = tenants(clerk_org_id.clone()).await?;
     let workspace_id = match caller.overrides.master(state) {
-        Some(master) => sqlx::query_scalar::<_, String>(
-            "select id from workspaces where clerk_org_id = $1 or id = $1 limit 1",
-        )
-        .bind(&clerk_org_id)
-        .fetch_optional(&master)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or(clerk_org_id),
+        Some(master) => workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::ClerkOrgId.eq(&clerk_org_id))
+                    .add(workspaces::Column::Id.eq(&clerk_org_id)),
+            )
+            .into_tuple::<String>()
+            .one(&orm(&master))
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or(clerk_org_id),
         None => clerk_org_id,
     };
     Ok(TenantRef { db, workspace_id })

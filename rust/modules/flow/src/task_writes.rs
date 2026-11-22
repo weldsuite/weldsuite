@@ -62,7 +62,7 @@ fn text_of<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 impl From<CreateError> for Refusal {
     fn from(error: CreateError) -> Self {
         match error {
-            CreateError::Database(error) => Self::Database(error),
+            CreateError::Database(error) => Self::from(error),
             CreateError::InvalidDate => Self::Internal("Invalid time value".to_owned()),
         }
     }

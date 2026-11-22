@@ -30,7 +30,7 @@
 //! * The handler's `on_resolved` has no request: to publish your own entity
 //!   events when `/decide` settles the subject, register an aftermath hook
 //!   with `announce::register_aftermath` (`for<'a> fn(&FlowState, &Caller,
-//!   &AftermathInfo) -> Pin<Box<dyn Future<Output = Result<(), sqlx::Error>>>>`).
+//!   &AftermathInfo) -> Pin<Box<dyn Future<Output = Result<(), sea_orm::DbErr>>>>`).
 //! * `store::load_subject_info` shows a subject in My reviews; the seven
 //!   subject types are already covered.
 //!

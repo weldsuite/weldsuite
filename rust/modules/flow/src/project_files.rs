@@ -623,7 +623,7 @@ async fn create_file(
         )
         .await
         .map_err(|error| match error {
-            FolderError::Database(error) => Refusal::Database(error),
+            FolderError::Database(error) => Refusal::from(error),
             FolderError::Required => Refusal::Internal("Folder name is required".to_owned()),
             FolderError::ParentNotFound => Refusal::Internal("Parent folder not found".to_owned()),
             FolderError::CrossProject => {

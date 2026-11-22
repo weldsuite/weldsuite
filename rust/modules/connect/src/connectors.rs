@@ -18,6 +18,8 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CONNECTOR_CONNECTION_PAUSED, CONNECTOR_CONNECTION_RESUMED,
@@ -33,15 +35,16 @@ use weldsuite_connect_domain::connections::{
 };
 use weldsuite_connect_domain::moneybird_push;
 use weldsuite_connect_domain::provider::test_connector_credentials;
-use weldsuite_db::{Keyring, js_row};
+use weldsuite_db::{Keyring, orm, utc_now};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{connector_connections, integration_field_mappings as mappings};
 
 use crate::integrations::{field_mappings_body, replace_mappings};
 use crate::js::{page_limit, query_truthy};
-use crate::{Caller, ConnectState, internal, now, validate};
+use crate::{Caller, ConnectState, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -138,7 +141,7 @@ pub(crate) fn keyring(caller: &Caller, state: &ConnectState) -> Keyring {
 }
 
 /// An unhandled failure: Hono's error handler answers a plain 500.
-fn unhandled(error: &sqlx::Error) -> Response {
+fn unhandled(error: &dyn std::fmt::Display) -> Response {
     tracing::error!(%error, "[connect-api/connectors] request failed");
     ApiError::internal().into_response()
 }
@@ -259,16 +262,17 @@ async fn field_mappings(
         return response;
     }
     let entity_type = query_truthy(query.as_deref(), "entityType");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(m) from integration_field_mappings m
-         where m.connection_id = $1 and ($2::text is null or m.entity_type = $2)",
-    )
-    .bind(&id)
-    .bind(&entity_type)
-    .fetch_all(&caller.db)
-    .await;
+    let mut rows = mappings::Entity::find().filter(mappings::Column::ConnectionId.eq(&id));
+    if let Some(entity_type) = &entity_type {
+        rows = rows.filter(mappings::Column::EntityType.eq(entity_type));
+    }
+    let rows = rows.all(&orm(&caller.db)).await.and_then(|rows| {
+        rows.into_iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()
+    });
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to fetch field mappings"),
     }
 }
@@ -370,14 +374,12 @@ async fn set_status(
         Err(response) => return response,
     };
     let row_id = row["id"].as_str().unwrap_or_default();
-    if let Err(error) = sqlx::query(
-        "update connector_connections set status = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(row_id)
-    .bind(status)
-    .bind(now())
-    .execute(&caller.db)
-    .await
+    if let Err(error) = connector_connections::Entity::update_many()
+        .col_expr(connector_connections::Column::Status, Expr::value(status))
+        .col_expr(connector_connections::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(connector_connections::Column::Id.eq(row_id))
+        .exec(&orm(&caller.db))
+        .await
     {
         return unhandled(&error);
     }

@@ -17,15 +17,22 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     TASK_COMMENT_CREATED, TASK_COMMENT_DELETED, TASK_COMMENT_UPDATED,
 };
-use weldsuite_db::js_row;
+use sea_orm::sea_query::{Expr, Query as Subquery};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Number, Presence};
+use weldsuite_schema::tenant::task_comments::{self, Column as Comment};
+use weldsuite_schema::tenant::{tasks, workspace_members};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::notify;
-use crate::tasks::{TaskAccess, task_access};
+use crate::tasks::{TaskAccess, row_json, task_access};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, now, outside, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, outside, reply, validate,
     validate_value,
 };
 
@@ -111,7 +118,7 @@ async fn list_comments(caller: &Caller, f: Filters) -> Reply {
     let task_type = f.task_type.filter(|t| !t.is_empty());
     let author_id = f.author_id.filter(|a| !a.is_empty());
     // A comment's access follows its task's project.
-    let (scoped, all, ids) = if let Some(task_id) = &task_id {
+    let (scoped, all_projects, ids) = if let Some(task_id) = &task_id {
         match task_access(caller, task_id, false).await? {
             TaskAccess::Ok => {}
             TaskAccess::NotFound => return Err(Refusal::not_found("Task", task_id)),
@@ -125,46 +132,57 @@ async fn list_comments(caller: &Caller, f: Filters) -> Reply {
     let result = async {
         // Without a task: comments of live tasks in accessible projects, and
         // personal tasks.
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(c) from task_comments c where c.deleted_at is null",
-            " and ($1::text is null or c.task_id = $1)",
-            " and ($2::text is null or c.task_type = $2)",
-            " and ($3::text is null or c.author_id = $3)",
-            " and ($4::bool is not true or c.task_id in (select t.id from tasks t",
-            " where t.deleted_at is null and ($5::bool or t.project_id is null",
-            " or t.project_id = any($6::text[]))))",
-            " order by c.created_at desc limit $7 offset $8"
-        ))
-        .bind(task_id.as_deref())
-        .bind(task_type.as_deref())
-        .bind(author_id.as_deref())
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(concat!(
-            "select count(*)::int from task_comments c where c.deleted_at is null",
-            " and ($1::text is null or c.task_id = $1)",
-            " and ($2::text is null or c.task_type = $2)",
-            " and ($3::text is null or c.author_id = $3)",
-            " and ($4::bool is not true or c.task_id in (select t.id from tasks t",
-            " where t.deleted_at is null and ($5::bool or t.project_id is null",
-            " or t.project_id = any($6::text[]))))"
-        ))
-        .bind(task_id.as_deref())
-        .bind(task_type.as_deref())
-        .bind(author_id.as_deref())
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .fetch_one(db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let filters = || {
+            let mut all = Condition::all().add(Comment::DeletedAt.is_null());
+            if let Some(task_id) = &task_id {
+                all = all.add(Comment::TaskId.eq(task_id));
+            }
+            if let Some(task_type) = &task_type {
+                all = all.add(Comment::TaskType.eq(task_type));
+            }
+            if let Some(author_id) = &author_id {
+                all = all.add(Comment::AuthorId.eq(author_id));
+            }
+            if scoped {
+                let mut visible = Condition::all().add(tasks::Column::DeletedAt.is_null());
+                if !all_projects {
+                    visible = visible.add(
+                        Condition::any()
+                            .add(tasks::Column::ProjectId.is_null())
+                            .add(tasks::Column::ProjectId.is_in(ids.iter().map(String::as_str))),
+                    );
+                }
+                all = all.add(
+                    Comment::TaskId.in_subquery(
+                        Subquery::select()
+                            .column(tasks::Column::Id)
+                            .from(tasks::Entity)
+                            .cond_where(visible)
+                            .to_owned(),
+                    ),
+                );
+            }
+            all
+        };
+        let db = &orm(db);
+        let rows: Vec<Value> = task_comments::Entity::find()
+            .filter(filters())
+            .order_by_desc(Comment::CreatedAt)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .offset(u64::try_from(offset).unwrap_or(0))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<_, DbErr>>()?;
+        // `count(*)::int`.
+        let total = task_comments::Entity::find()
+            .filter(filters())
+            .count(db)
+            .await?;
+        let total = i32::try_from(total).unwrap_or(i32::MAX);
         let returned = i64::try_from(rows.len()).unwrap_or(i64::MAX);
-        let rows = with_authors(db, caller.request_master(), rows).await?;
+        let rows = with_authors(&caller.db, caller.request_master(), rows).await?;
         let total = i64::from(total);
         Ok(weldsuite_kit::List::new(
             rows,
@@ -186,7 +204,7 @@ async fn with_authors(
     db: &weldsuite_db::PgPool,
     master: Option<&weldsuite_db::PgPool>,
     rows: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let mut author_ids: Vec<String> = Vec::new();
     for row in &rows {
         if let Some(author) = row["authorId"].as_str().filter(|a| !a.is_empty())
@@ -198,11 +216,14 @@ async fn with_authors(
     if author_ids.is_empty() {
         return Ok(rows);
     }
-    let authors: Vec<(String, Option<String>)> =
-        sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
-            .bind(&author_ids)
-            .fetch_all(db)
-            .await?;
+    let authors: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.is_in(author_ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     // `new Map(authors.map(...))`: a later row for the same user wins.
     let names: HashMap<String, Option<String>> = authors.into_iter().collect();
     // Avatars are account pictures, not the member row's copy.
@@ -228,14 +249,13 @@ async fn with_authors(
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn comment_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from task_comments c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn comment_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    task_comments::Entity::find_by_id(id.to_owned())
+        .filter(Comment::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -306,18 +326,18 @@ async fn create(
 
 async fn create_comment(state: &FlowState, caller: &Caller, data: NewComment) -> Reply {
     let id = generate_id("tcmt");
-    let now = now();
-    sqlx::query(
-        "insert into task_comments (id, task_id, task_type, content, author_id, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(&data.task_id)
-    .bind(&data.task_type)
-    .bind(&data.content)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(&caller.db)
+    let at = utc_now();
+    task_comments::Entity::insert(task_comments::ActiveModel {
+        id: Set(id.clone()),
+        task_id: Set(data.task_id.clone()),
+        task_type: Set(data.task_type.clone()),
+        content: Set(data.content.clone()),
+        author_id: Set(caller.user_id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     caller.publish(
         state,
@@ -363,26 +383,27 @@ async fn update(
     };
     reply(
         async {
-            let author: Option<String> = sqlx::query_scalar(
-                "select author_id from task_comments where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let db = &orm(&caller.db);
+            let author: Option<String> = task_comments::Entity::find()
+                .select_only()
+                .column(Comment::AuthorId)
+                .filter(Comment::Id.eq(&id))
+                .filter(Comment::DeletedAt.is_null())
+                .into_tuple()
+                .one(db)
+                .await?;
             let Some(author) = author else {
                 return Err(Refusal::not_found("Task comment", &id));
             };
             if author != caller.user_id {
                 return Err(Refusal::forbidden("You can only edit your own comments"));
             }
-            sqlx::query(
-                "update task_comments set content = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&content)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            task_comments::Entity::update_many()
+                .col_expr(Comment::Content, Expr::value(&content))
+                .col_expr(Comment::UpdatedAt, Expr::value(utc_now()))
+                .filter(Comment::Id.eq(&id))
+                .exec(db)
+                .await?;
             caller.publish(
                 &state,
                 TASK_COMMENT_UPDATED,
@@ -399,12 +420,14 @@ async fn update(
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
 /// `canModerateComment`: the caller manages the task's project.
-async fn can_moderate(caller: &Caller, task_id: &str) -> Result<bool, sqlx::Error> {
-    let project: Option<Option<String>> =
-        sqlx::query_scalar("select project_id from tasks where id = $1 limit 1")
-            .bind(task_id)
-            .fetch_optional(&caller.db)
-            .await?;
+async fn can_moderate(caller: &Caller, task_id: &str) -> Result<bool, DbErr> {
+    let project: Option<Option<String>> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::ProjectId)
+        .filter(tasks::Column::Id.eq(task_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     match project.flatten().filter(|p| !p.is_empty()) {
         Some(project) => caller.can_manage(&project).await,
         None => Ok(false),
@@ -418,25 +441,29 @@ async fn remove(
 ) -> Response {
     reply(
         async {
-            let existing: Option<(String, String)> = sqlx::query_as(
-                "select author_id, task_id from task_comments where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let db = &orm(&caller.db);
+            let existing: Option<(String, String)> = task_comments::Entity::find()
+                .select_only()
+                .column(Comment::AuthorId)
+                .column(Comment::TaskId)
+                .filter(Comment::Id.eq(&id))
+                .filter(Comment::DeletedAt.is_null())
+                .into_tuple()
+                .one(db)
+                .await?;
             let Some((author, task_id)) = existing else {
                 return Err(Refusal::not_found("Task comment", &id));
             };
             if author != caller.user_id && !can_moderate(&caller, &task_id).await? {
                 return Err(Refusal::forbidden("You can only delete your own comments"));
             }
-            sqlx::query(
-                "update task_comments set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let at = utc_now();
+            task_comments::Entity::update_many()
+                .col_expr(Comment::DeletedAt, Expr::value(at))
+                .col_expr(Comment::UpdatedAt, Expr::value(at))
+                .filter(Comment::Id.eq(&id))
+                .exec(db)
+                .await?;
             caller.publish(&state, TASK_COMMENT_DELETED, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

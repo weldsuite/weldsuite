@@ -48,8 +48,8 @@ use crate::governance_body::{
     read_request_signoff, read_update_deliverable, sent,
 };
 use crate::governance_store::{
-    find_deliverable, insert_statement, next_deliverable_position, raid_for_deliverables,
-    task_progress_for_deliverables, update_statement,
+    DELIVERABLES, find_deliverable, insert_values, next_deliverable_position,
+    raid_for_deliverables, task_progress_for_deliverables, update_values,
 };
 use crate::project_decisions::{PROJECT_MANAGE_DENIED, project_scope};
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms, or_null, parse_limit, to_date};
@@ -358,7 +358,7 @@ async fn create_deliverable(
     values.insert("createdBy".to_owned(), json!(caller.user_id));
     values.insert("createdAt".to_owned(), json!(now));
     values.insert("updatedAt".to_owned(), json!(now));
-    weldsuite_db::atomically(db, [insert_statement("project_deliverables", &values)]).await?;
+    insert_values(db, DELIVERABLES, &values).await?;
     let Some(row) = find_deliverable(db, &id).await? else {
         return Err(Refusal::Internal(
             "the new deliverable is missing".to_owned(),
@@ -452,7 +452,7 @@ async fn update_deliverable(
         );
     }
 
-    weldsuite_db::atomically(db, [update_statement("project_deliverables", &set, id)]).await?;
+    update_values(db, DELIVERABLES, &set, id).await?;
     let Some(row) = find_deliverable(db, id).await? else {
         return Err(Refusal::not_found(DELIVERABLE_LABEL, id));
     };

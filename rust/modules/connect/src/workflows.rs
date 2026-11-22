@@ -11,29 +11,60 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{WORKFLOW_CREATED, WORKFLOW_DELETED, WORKFLOW_UPDATED};
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    workflow_executions, workflow_integrations, workflow_trigger_index, workflows,
+};
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::mvp::{
     Issue, SEQUENCE_WORKFLOW_TAG, is_sequence_workflow, validate_integrations, validate_workflow,
     workflow_complete_sources,
 };
 use crate::schemas::{WorkflowBody, json_list, json_tags, workflow_body};
 use crate::sync::{SyncContext, sync_schedules, sync_webhooks, write_trigger_index};
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
-/// A `workflows` row as Drizzle reads it (`numeric` as text).
-pub(crate) const ROW: &str =
-    "to_jsonb(w) || jsonb_build_object('average_execution_time', w.average_execution_time::text)";
-
-/// `notSequenceWorkflow` over the alias `w`.
+/// `notSequenceWorkflow` over the alias `w`, for the SQL that still embeds
+/// it ([`not_sequence`] is the ORM's).
 pub(crate) const NOT_SEQUENCE: &str = "not (coalesce(w.tags, '[]'::jsonb) ? '__type:sequence')";
+
+/// `coalesce(workflows.tags, '[]'::jsonb) ? tag`: the tags array holds
+/// `tag`, written as the containment of `[tag]`.
+pub(crate) fn has_tag(tag: &str) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(
+        Expr::from(Func::coalesce([
+            Expr::col((workflows::Entity, workflows::Column::Tags)),
+            Expr::val(json!([])),
+        ])),
+        json!([tag]),
+    )
+}
+
+/// `notSequenceWorkflow`: not a CRM sequence's workflow.
+pub(crate) fn not_sequence() -> Condition {
+    Condition::all().add(has_tag(SEQUENCE_WORKFLOW_TAG)).not()
+}
+
+/// A `workflows` row as Drizzle reads it (`averageExecutionTime`, a
+/// `numeric`, as its text): the entity's JSON.
+fn workflow_json(model: workflows::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -70,14 +101,13 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
 }
 
 /// `getWorkflow(db, id)`: a live workflow.
-pub(crate) async fn get_workflow(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {ROW} from workflows w where w.id = $1 and w.deleted_at is null limit 1"
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn get_workflow(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    workflows::Entity::find_by_id(id.to_owned())
+        .filter(workflows::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(workflow_json)
+        .transpose()
 }
 
 fn split_tags(value: Option<&str>) -> Vec<String> {
@@ -99,62 +129,116 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let tags = split_tags(query_param(query, "tags").as_deref());
     let exclude = split_tags(query_param(query, "excludeTags").as_deref());
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "w.deleted_at is null
-        and ($1::text is null or (w.name like $1 or w.description like $1))
-        and ($2::text is null or w.status = $2)
-        and ($3::text is null or w.folder_id = $3)
-        and not exists (select 1 from unnest($4::text[]) tag where not (coalesce(w.tags, '[]'::jsonb) ? tag))
-        and not exists (select 1 from unnest($5::text[]) tag where coalesce(w.tags, '[]'::jsonb) ? tag)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {ROW} from workflows w where {FILTER} and ($6::text is null or w.id < $6)
-         order by w.updated_at desc, w.id desc limit $7"
-    )))
-    .bind(&search)
-    .bind(&status)
-    .bind(&folder)
-    .bind(&tags)
-    .bind(&exclude)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflows w where {FILTER}"
-    )))
-    .bind(&search)
-    .bind(&status)
-    .bind(&folder)
-    .bind(&tags)
-    .bind(&exclude)
-    .fetch_one(&caller.db)
-    .await;
+    // Live, the search on name or description, the status and folder, every
+    // tag in `tags` and none in `excludeTags`.
+    let mut filter = Condition::all().add(workflows::Column::DeletedAt.is_null());
+    if let Some(search) = &search {
+        filter = filter.add(
+            Condition::any()
+                .add(workflows::Column::Name.like(search))
+                .add(workflows::Column::Description.like(search)),
+        );
+    }
+    if let Some(status) = &status {
+        filter = filter.add(workflows::Column::Status.eq(status));
+    }
+    if let Some(folder) = &folder {
+        filter = filter.add(workflows::Column::FolderId.eq(folder));
+    }
+    for tag in &tags {
+        filter = filter.add(has_tag(tag));
+    }
+    for tag in &exclude {
+        filter = filter.add(Condition::all().add(has_tag(tag)).not());
+    }
+    let db = orm(&caller.db);
+    let mut rows = workflows::Entity::find().filter(filter.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(workflows::Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(workflows::Column::UpdatedAt)
+        .order_by_desc(workflows::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .and_then(|rows| rows.into_iter().map(workflow_json).collect());
+    let count = workflows::Entity::find().filter(filter).count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let (data, has_more) = page(rows, limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflows"),
     }
 }
 
+/// `count(*)`, and `count(*) filter (where status = …)` for each status:
+/// the rows the case keeps (it is null otherwise).
+fn status_counts<E: EntityTrait>(
+    status: E::Column,
+    statuses: [&str; 4],
+) -> sea_orm::Select<E> {
+    let [a, b, c, d] = statuses;
+    let count = |s: &str| Expr::from(Func::count(Expr::case(status.eq(s), 1)));
+    E::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+        .column_as(count(a), "a")
+        .column_as(count(b), "b")
+        .column_as(count(c), "c")
+        .column_as(count(d), "d")
+}
+
+/// `notSequenceRun`: the run's workflow is not a CRM sequence's (`not exists`
+/// over `workflows`, whose id is never null).
+fn not_sequence_run() -> Expr {
+    workflow_executions::Column::WorkflowId.not_in_subquery(
+        Query::select()
+            .column(workflows::Column::Id)
+            .from(workflows::Entity)
+            .and_where(has_tag(SEQUENCE_WORKFLOW_TAG))
+            .to_owned(),
+    )
+}
+
+/// `notTestRun`: `coalesce(execution_context->>'isTest', 'false') <> 'true'`.
+fn not_test_run() -> Expr {
+    sea_orm::ExprTrait::ne(
+        Expr::from(Func::coalesce([
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col(workflow_executions::Column::ExecutionContext),
+                "isTest",
+            ),
+            Expr::val("false"),
+        ])),
+        "true",
+    )
+}
+
 async fn stats(caller: Caller) -> Response {
-    let counts: Result<(i64, i64, i64, i64, i64), sqlx::Error> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select count(*), count(*) filter (where status = 'active'), count(*) filter (where status = 'draft'),
-                count(*) filter (where status = 'paused'), count(*) filter (where status = 'archived')
-         from workflows w where w.deleted_at is null and {NOT_SEQUENCE}"
-    )))
-    .fetch_one(&caller.db)
-    .await;
-    let runs: Result<(i64, i64, i64, i64, i64), sqlx::Error> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select count(*), count(*) filter (where status = 'running'), count(*) filter (where status = 'completed'),
-                count(*) filter (where status = 'failed'), count(*) filter (where status = 'queued')
-         from workflow_executions e where {} and {}",
-        crate::executions::NOT_SEQUENCE_RUN,
-        crate::executions::NOT_TEST_RUN
-    )))
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let counts = status_counts::<workflows::Entity>(
+        workflows::Column::Status,
+        ["active", "draft", "paused", "archived"],
+    )
+    .filter(workflows::Column::DeletedAt.is_null())
+    .filter(not_sequence())
+    .into_tuple::<(i64, i64, i64, i64, i64)>()
+    .one(&db)
+    .await
+    .map(Option::unwrap_or_default);
+    let runs = status_counts::<workflow_executions::Entity>(
+        workflow_executions::Column::Status,
+        ["running", "completed", "failed", "queued"],
+    )
+    .filter(not_sequence_run())
+    .filter(not_test_run())
+    .into_tuple::<(i64, i64, i64, i64, i64)>()
+    .one(&db)
+    .await
+    .map(Option::unwrap_or_default);
     match (counts, runs) {
         (Ok((total, active, draft, paused, archived)), Ok((ex_total, running, completed, failed, queued))) => {
             Data(json!({
@@ -175,16 +259,33 @@ async fn stats(caller: Caller) -> Response {
     }
 }
 
+/// A workflow the "workflow completed" trigger can chain from.
+#[derive(Debug, sea_orm::FromQueryResult, Serialize)]
+struct Chainable {
+    id: String,
+    name: String,
+    status: String,
+}
+
 async fn for_chaining(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let exclude = query_truthy(query.as_deref(), "exclude");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select jsonb_build_object('id', w.id, 'name', w.name, 'status', w.status) from workflows w
-         where w.deleted_at is null and {NOT_SEQUENCE} and ($1::text is null or w.id != $1)
-         order by w.name"
-    )))
-    .bind(&exclude)
-    .fetch_all(&caller.db)
-    .await;
+    let mut rows = workflows::Entity::find()
+        .select_only()
+        .columns([
+            workflows::Column::Id,
+            workflows::Column::Name,
+            workflows::Column::Status,
+        ])
+        .filter(workflows::Column::DeletedAt.is_null())
+        .filter(not_sequence());
+    if let Some(exclude) = &exclude {
+        rows = rows.filter(workflows::Column::Id.ne(exclude));
+    }
+    let rows = rows
+        .order_by_asc(workflows::Column::Name)
+        .into_model::<Chainable>()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to list workflows for chaining"),
@@ -202,15 +303,17 @@ async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
 async fn metrics(caller: Caller, Path(id): Path<String>) -> Response {
     let found = async {
         let Some(workflow) = get_workflow(&caller.db, &id).await? else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
-        let recent: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(e) from workflow_executions e where e.workflow_id = $1
-             order by e.started_at desc limit 10",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
+        let recent = workflow_executions::Entity::find()
+            .filter(workflow_executions::Column::WorkflowId.eq(&id))
+            .order_by_desc(workflow_executions::Column::StartedAt)
+            .limit(10)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(|run| serde_json::to_value(run).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
         let average = workflow["averageExecutionTime"]
             .as_str()
             .and_then(|v| v.parse::<f64>().ok())
@@ -220,7 +323,7 @@ async fn metrics(caller: Caller, Path(id): Path<String>) -> Response {
             "successCount": workflow["successCount"].as_i64().unwrap_or(0),
             "failureCount": workflow["failureCount"].as_i64().unwrap_or(0),
             "averageExecutionTime": number_json(average),
-            "recentExecutions": recent.into_iter().map(js_row).collect::<Vec<_>>(),
+            "recentExecutions": recent,
         })))
     };
     match found.await {
@@ -248,7 +351,7 @@ pub(crate) async fn reject_activation(
     steps: Option<&Value>,
     tags: Option<&Value>,
     workflow_id: Option<&str>,
-) -> Result<Option<Response>, sqlx::Error> {
+) -> Result<Option<Response>, DbErr> {
     if is_sequence_workflow(tags) {
         return Ok(None);
     }
@@ -260,11 +363,17 @@ pub(crate) async fn reject_activation(
             .is_some_and(|t| t.contains('.'))
     });
     if has_provider_step {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "select id, type, status from workflow_integrations where deleted_at is null",
-        )
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, String, String)> = workflow_integrations::Entity::find()
+            .select_only()
+            .columns([
+                workflow_integrations::Column::Id,
+                workflow_integrations::Column::Type,
+                workflow_integrations::Column::Status,
+            ])
+            .filter(workflow_integrations::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         issues.extend(validate_integrations(steps, &rows));
     }
     if issues.is_empty() {
@@ -286,7 +395,7 @@ pub(crate) async fn reject_activation(
 async fn missing_source_workflows(
     db: &PgPool,
     triggers: Option<&Value>,
-) -> Result<Vec<Issue>, sqlx::Error> {
+) -> Result<Vec<Issue>, DbErr> {
     let sources = workflow_complete_sources(triggers);
     if sources.is_empty() {
         return Ok(vec![]);
@@ -297,12 +406,16 @@ async fn missing_source_workflows(
             ids.push(source.clone());
         }
     }
-    let existing: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select w.id from workflows w where w.id = any($1) and w.deleted_at is null and {NOT_SEQUENCE}"
-    )))
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    // `ids` holds at least one source.
+    let existing: Vec<String> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Id)
+        .filter(workflows::Column::Id.is_in(ids))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .filter(not_sequence())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(sources
         .into_iter()
         .filter(|(_, source)| !existing.contains(source))
@@ -329,6 +442,74 @@ pub(crate) struct NewWorkflow {
     pub(crate) template_id: Option<String>,
 }
 
+/// What a workflow write's transaction fails with: the ORM's error, whether
+/// the statement was the ORM's or SQL (`atomically_with` converts from
+/// `sqlx::Error`).
+struct Rollback(DbErr);
+
+impl From<DbErr> for Rollback {
+    fn from(error: DbErr) -> Self {
+        Self(error)
+    }
+}
+
+impl From<sqlx::Error> for Rollback {
+    fn from(error: sqlx::Error) -> Self {
+        Self(weldsuite_db::orm_error(error))
+    }
+}
+
+/// The `workflows` row a create or a duplicate inserts: version 1 and no
+/// runs yet; the columns it doesn't name keep their defaults.
+fn new_row(
+    id: &str,
+    data: &NewWorkflow,
+    created_by: &str,
+    stamp: PrimitiveDateTime,
+) -> workflows::ActiveModel {
+    workflows::ActiveModel {
+        id: Set(id.to_owned()),
+        name: Set(data.name.clone()),
+        description: Set(data.description.clone()),
+        status: Set(data.status.clone()),
+        triggers: Set(Some(data.triggers.clone())),
+        steps: Set(Some(data.steps.clone())),
+        settings: Set(Some(data.settings.clone())),
+        tags: Set(Some(data.tags.clone())),
+        folder_id: Set(data.folder_id.clone()),
+        template_id: Set(data.template_id.clone()),
+        created_by: Set(Some(created_by.to_owned())),
+        version: Set(1),
+        execution_count: Set(Some(0)),
+        success_count: Set(Some(0)),
+        failure_count: Set(Some(0)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    }
+}
+
+/// The new row and its trigger index, in one transaction.
+async fn insert_with_index(
+    db: &PgPool,
+    row: workflows::ActiveModel,
+    id: &str,
+    triggers: Value,
+    active: bool,
+) -> Result<(), Rollback> {
+    let id = id.to_owned();
+    weldsuite_db::atomically_with(db, move |conn| {
+        Box::pin(async move {
+            workflows::Entity::insert(row)
+                .exec_without_returning(&OrmConn::new(&mut *conn))
+                .await?;
+            write_trigger_index(conn, &id, Some(&triggers), active).await?;
+            Ok(())
+        })
+    })
+    .await
+}
+
 /// `createWorkflow`: the row and its trigger index in one transaction, then
 /// the schedule and webhook syncs.
 pub(crate) async fn create_workflow(
@@ -338,50 +519,12 @@ pub(crate) async fn create_workflow(
     user_id: &str,
 ) -> Result<String, crate::sync::SyncError> {
     let id = generate_id("wf");
-    let stamp = now();
+    let stamp = utc_now();
     let active = data.status == "active";
-    {
-        let id = id.clone();
-        let user_id = user_id.to_owned();
-        let triggers = data.triggers.clone();
-        let data = &data;
-        let name = data.name.clone();
-        let description = data.description.clone();
-        let status = data.status.clone();
-        let steps = data.steps.clone();
-        let settings = data.settings.clone();
-        let tags = data.tags.clone();
-        let folder_id = data.folder_id.clone();
-        let template_id = data.template_id.clone();
-        weldsuite_db::atomically_with(db, move |conn| {
-            Box::pin(async move {
-                sqlx::query(
-                    "insert into workflows
-                        (id, name, description, status, triggers, steps, settings, tags, folder_id,
-                         template_id, created_by, version, execution_count, success_count,
-                         failure_count, created_at, updated_at)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1, 0, 0, 0,
-                             $12::timestamp, $12::timestamp)",
-                )
-                .bind(&id)
-                .bind(&name)
-                .bind(&description)
-                .bind(&status)
-                .bind(&triggers)
-                .bind(&steps)
-                .bind(&settings)
-                .bind(&tags)
-                .bind(&folder_id)
-                .bind(&template_id)
-                .bind(&user_id)
-                .bind(&stamp)
-                .execute(&mut *conn)
-                .await?;
-                write_trigger_index(conn, &id, Some(&triggers), active).await
-            })
-        })
-        .await?;
-    }
+    let row = new_row(&id, &data, user_id, stamp);
+    insert_with_index(db, row, &id, data.triggers.clone(), active)
+        .await
+        .map_err(|Rollback(error)| error)?;
     sync_schedules(db, ctx, &id, None, Some(&data.triggers), active).await?;
     sync_webhooks(db, ctx, &id, None, Some(&data.triggers)).await?;
     Ok(id)
@@ -419,6 +562,29 @@ fn update_of(body: &WorkflowBody) -> WorkflowUpdate {
     out
 }
 
+/// `update` on the workflow `id` and its trigger index rewritten, in one
+/// transaction.
+async fn update_with_index(
+    db: &PgPool,
+    update: sea_orm::UpdateMany<workflows::Entity>,
+    id: &str,
+    triggers: Value,
+    active: bool,
+) -> Result<(), Rollback> {
+    let id = id.to_owned();
+    weldsuite_db::atomically_with(db, move |conn| {
+        Box::pin(async move {
+            update
+                .filter(workflows::Column::Id.eq(&id))
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
+            write_trigger_index(conn, &id, Some(&triggers), active).await?;
+            Ok(())
+        })
+    })
+    .await
+}
+
 /// `updateWorkflow(db, id, data, scheduleSync, webhookSync)`: `false` when
 /// the workflow is gone.
 pub(crate) async fn update_workflow(
@@ -441,53 +607,33 @@ pub(crate) async fn update_workflow(
         .unwrap_or(&existing["triggers"])
         .clone();
     let active = next_status == "active";
-    {
-        let id = id.to_owned();
-        let data = data.clone();
-        let triggers = next_triggers.clone();
-        let stamp = now();
-        weldsuite_db::atomically_with(db, move |conn| {
-            Box::pin(async move {
-                let set = |k: &str| data.contains_key(k);
-                let value = |k: &str| data.get(k).cloned().unwrap_or(Value::Null);
-                let text = |k: &str| data.get(k).and_then(Value::as_str).map(str::to_owned);
-                sqlx::query(
-                    "update workflows set updated_at = $2::timestamp,
-                        name = case when $3 then $4 else name end,
-                        description = case when $5 then $6 else description end,
-                        status = case when $7 then $8 else status end,
-                        triggers = case when $9 then $10 else triggers end,
-                        steps = case when $11 then $12 else steps end,
-                        settings = case when $13 then $14 else settings end,
-                        tags = case when $15 then $16 else tags end,
-                        folder_id = case when $17 then $18 else folder_id end
-                     where id = $1",
-                )
-                .bind(&id)
-                .bind(&stamp)
-                .bind(set("name"))
-                .bind(text("name"))
-                .bind(set("description"))
-                .bind(text("description"))
-                .bind(set("status"))
-                .bind(text("status"))
-                .bind(set("triggers"))
-                .bind(value("triggers"))
-                .bind(set("steps"))
-                .bind(value("steps"))
-                .bind(set("settings"))
-                .bind(value("settings"))
-                .bind(set("tags"))
-                .bind(value("tags"))
-                .bind(set("folderId"))
-                .bind(text("folderId"))
-                .execute(&mut *conn)
-                .await?;
-                write_trigger_index(conn, &id, Some(&triggers), active).await
-            })
-        })
-        .await?;
+    // `updated_at`, and only the fields that were sent.
+    let mut update = workflows::Entity::update_many()
+        .col_expr(workflows::Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("name", workflows::Column::Name),
+        ("description", workflows::Column::Description),
+        ("status", workflows::Column::Status),
+        ("folderId", workflows::Column::FolderId),
+    ] {
+        if let Some(value) = data.get(key) {
+            let text = value.as_str().map(str::to_owned);
+            update = update.col_expr(column, Expr::value(text));
+        }
     }
+    for (key, column) in [
+        ("triggers", workflows::Column::Triggers),
+        ("steps", workflows::Column::Steps),
+        ("settings", workflows::Column::Settings),
+        ("tags", workflows::Column::Tags),
+    ] {
+        if let Some(value) = data.get(key) {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    update_with_index(db, update, id, next_triggers.clone(), active)
+        .await
+        .map_err(|Rollback(error)| error)?;
     sync_schedules(
         db,
         ctx,
@@ -690,10 +836,10 @@ async fn update_route(
 /// A sync failure as the route's 500.
 pub(crate) fn sync_refusal(error: crate::sync::SyncError) -> Refusal {
     match error {
-        crate::sync::SyncError::Database(error) => Refusal::Database(error),
+        crate::sync::SyncError::Database(error) => Refusal::from(error),
         crate::sync::SyncError::Registry(error) => {
             tracing::error!(%error, "[connect-api] webhook registry failed");
-            Refusal::Database(sqlx::Error::Protocol(error.to_string()))
+            Refusal::from(sqlx::Error::Protocol(error.to_string()))
         }
     }
 }
@@ -749,24 +895,18 @@ async fn status_route(
             return Err(Refusal::not_found("Workflow", &id));
         };
         let active = status == "active";
-        {
-            let id = id.clone();
-            let status = status.clone();
-            let triggers = existing["triggers"].clone();
-            let stamp = now();
-            weldsuite_db::atomically_with(&caller.db, move |conn| {
-                Box::pin(async move {
-                    sqlx::query("update workflows set status = $2, updated_at = $3::timestamp where id = $1")
-                        .bind(&id)
-                        .bind(&status)
-                        .bind(&stamp)
-                        .execute(&mut *conn)
-                        .await?;
-                    write_trigger_index(conn, &id, Some(&triggers), active).await
-                })
-            })
-            .await?;
-        }
+        let update = workflows::Entity::update_many()
+            .col_expr(workflows::Column::Status, Expr::value(status.clone()))
+            .col_expr(workflows::Column::UpdatedAt, Expr::value(utc_now()));
+        update_with_index(
+            &caller.db,
+            update,
+            &id,
+            existing["triggers"].clone(),
+            active,
+        )
+        .await
+        .map_err(|Rollback(error)| error)?;
         sync_schedules(
             &caller.db,
             &ctx,
@@ -834,44 +974,21 @@ async fn duplicate(
             Some(Value::Null) | None => fallback,
             Some(value) => value.clone(),
         };
-        {
-            let new_id = new_id.clone();
-            let name = name.clone();
-            let description = original["description"].as_str().map(str::to_owned);
-            let triggers = or("triggers", json!([]));
-            let steps = or("steps", json!([]));
-            let settings = or("settings", json!({}));
-            let tags = or("tags", json!([]));
-            let folder_id = original["folderId"].as_str().map(str::to_owned);
-            let user_id = caller.user_id.clone();
-            let stamp = now();
-            weldsuite_db::atomically_with(&caller.db, move |conn| {
-                Box::pin(async move {
-                    sqlx::query(
-                        "insert into workflows
-                            (id, name, description, status, triggers, steps, settings, tags, folder_id,
-                             created_by, version, execution_count, success_count, failure_count,
-                             created_at, updated_at)
-                         values ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, 1, 0, 0, 0,
-                                 $10::timestamp, $10::timestamp)",
-                    )
-                    .bind(&new_id)
-                    .bind(&name)
-                    .bind(&description)
-                    .bind(&triggers)
-                    .bind(&steps)
-                    .bind(&settings)
-                    .bind(&tags)
-                    .bind(&folder_id)
-                    .bind(&user_id)
-                    .bind(&stamp)
-                    .execute(&mut *conn)
-                    .await?;
-                    write_trigger_index(conn, &new_id, Some(&triggers), false).await
-                })
-            })
-            .await?;
-        }
+        let copy = NewWorkflow {
+            name: name.clone(),
+            description: original["description"].as_str().map(str::to_owned),
+            status: "draft".to_owned(),
+            triggers: or("triggers", json!([])),
+            steps: or("steps", json!([])),
+            settings: or("settings", json!({})),
+            tags: or("tags", json!([])),
+            folder_id: original["folderId"].as_str().map(str::to_owned),
+            template_id: None,
+        };
+        let row = new_row(&new_id, &copy, &caller.user_id, utc_now());
+        insert_with_index(&caller.db, row, &new_id, copy.triggers, false)
+            .await
+            .map_err(|Rollback(error)| error)?;
         let after = get_workflow(&caller.db, &new_id).await?;
         let name = after.as_ref().map_or(json!(""), |a| a["name"].clone());
         let status = after.as_ref().map_or(Value::Null, |a| a["status"].clone());
@@ -894,33 +1011,37 @@ pub(crate) async fn delete_workflow(
     ctx: &SyncContext,
     id: &str,
 ) -> Result<(), crate::sync::SyncError> {
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select coalesce(triggers, 'null'::jsonb) from workflows where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    // The live row's triggers (`null` when it has none).
+    let existing: Option<Value> = workflows::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(workflows::Column::Triggers)
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple::<Option<Value>>()
+        .one(&orm(db))
+        .await?
+        .map(Option::unwrap_or_default);
     {
         let id = id.to_owned();
-        let stamp = now();
+        let stamp = utc_now();
         weldsuite_db::atomically_with(db, move |conn| {
             Box::pin(async move {
-                sqlx::query(
-                    "update workflows set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                     where id = $1 and deleted_at is null",
-                )
-                .bind(&id)
-                .bind(&stamp)
-                .execute(&mut *conn)
-                .await?;
-                sqlx::query("delete from workflow_trigger_index where workflow_id = $1")
-                    .bind(&id)
-                    .execute(&mut *conn)
+                let tx = OrmConn::new(conn);
+                workflows::Entity::update_many()
+                    .col_expr(workflows::Column::DeletedAt, Expr::value(Some(stamp)))
+                    .col_expr(workflows::Column::UpdatedAt, Expr::value(stamp))
+                    .filter(workflows::Column::Id.eq(&id))
+                    .filter(workflows::Column::DeletedAt.is_null())
+                    .exec(&tx)
                     .await?;
-                Ok::<_, sqlx::Error>(())
+                workflow_trigger_index::Entity::delete_many()
+                    .filter(workflow_trigger_index::Column::WorkflowId.eq(&id))
+                    .exec(&tx)
+                    .await?;
+                Ok::<_, Rollback>(())
             })
         })
-        .await?;
+        .await
+        .map_err(|Rollback(error)| error)?;
     }
     if let Some(triggers) = existing {
         sync_schedules(db, ctx, id, Some(&triggers), None, false).await?;

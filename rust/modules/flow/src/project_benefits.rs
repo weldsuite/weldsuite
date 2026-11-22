@@ -50,7 +50,7 @@ use crate::governance_body::{
     read_create_measurement, read_update_benefit,
 };
 use crate::governance_store::{
-    find_benefit, insert_statement, latest_measurements, measurements_of, update_statement,
+    BENEFITS, find_benefit, insert_values, latest_measurements, measurements_of, update_values,
     upsert_measurement,
 };
 use crate::project_decisions::project_scope;
@@ -535,7 +535,7 @@ async fn create_benefit(
     values.insert("createdBy".to_owned(), json!(caller.user_id));
     values.insert("createdAt".to_owned(), json!(now));
     values.insert("updatedAt".to_owned(), json!(now));
-    weldsuite_db::atomically(db, [insert_statement("project_benefits", &values)]).await?;
+    insert_values(db, BENEFITS, &values).await?;
     let Some(row) = find_benefit(db, &id).await? else {
         return Err(Refusal::Internal("the new benefit is missing".to_owned()));
     };
@@ -644,7 +644,7 @@ async fn update_benefit(
         );
     }
 
-    weldsuite_db::atomically(db, [update_statement("project_benefits", &set, id)]).await?;
+    update_values(db, BENEFITS, &set, id).await?;
     let Some(row) = find_benefit(db, id).await? else {
         return Err(Refusal::not_found(BENEFIT_LABEL, id));
     };

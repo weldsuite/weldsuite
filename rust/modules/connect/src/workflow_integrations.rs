@@ -466,7 +466,7 @@ async fn connect(
 /// `c.env.WORKSPACE_CACHE`, which the OAuth flows require.
 fn kv(caller: &Caller, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusal> {
     caller.overrides.kv(state).ok_or_else(|| {
-        Refusal::Database(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into()))
+        Refusal::from(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into()))
     })
 }
 
@@ -486,7 +486,7 @@ async fn disconnect(
             .await?;
         let cache = kv(&caller, &state)?;
         let gone = |error: weldsuite_ports::PortError| {
-            Refusal::Database(sqlx::Error::Protocol(error.to_string()))
+            Refusal::from(sqlx::Error::Protocol(error.to_string()))
         };
         cache
             .delete_boxed(&format!("intconn:{id}"))
@@ -1117,7 +1117,7 @@ async fn put_mapping(cache: &Arc<dyn DynCache>, key: &str, value: &str) -> Resul
     cache
         .put_boxed(key, value, None)
         .await
-        .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error.to_string())))
+        .map_err(|error| Refusal::from(sqlx::Error::Protocol(error.to_string())))
 }
 
 async fn callback(
@@ -1182,9 +1182,9 @@ async fn callback(
             .http(&state)
             .send(request)
             .await
-            .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error.to_string())))?;
+            .map_err(|error| Refusal::from(sqlx::Error::Protocol(error.to_string())))?;
         let token =
-            json_of(&response).map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))?;
+            json_of(&response).map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))?;
         let token_error = token.get("error").filter(|e| crate::js::truthy(e));
         if token["ok"] == json!(false) || token_error.is_some() || !response.ok() {
             let reason = token_error.map_or_else(
@@ -1201,7 +1201,7 @@ async fn callback(
         let keyring = caller.keyring(&state);
         let seal = |value: &str| {
             seal_if_keyed(value, &keyring)
-                .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))
+                .map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))
         };
         let mut oauth_tokens = Map::new();
         oauth_tokens.insert("accessToken".into(), json!(seal(access_token)?));
@@ -1355,7 +1355,7 @@ async fn apikey(
         let mut sealed = Map::new();
         for (key, value) in &credentials {
             let value = seal_if_keyed(value, &keyring)
-                .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))?;
+                .map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))?;
             sealed.insert(key.clone(), json!(value));
         }
         let id = generate_id("int");

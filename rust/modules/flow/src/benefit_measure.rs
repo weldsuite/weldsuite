@@ -10,14 +10,16 @@
 //! next month boundary. A workspace is next due on the first day of the next
 //! month while an open benefit with a metric remains, else the row is dropped.
 
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use time::OffsetDateTime;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_flow_domain::benefit_metrics::{
     measure_metric, next_month_start_ms, previous_period,
 };
 use weldsuite_flow_domain::benefits::BENEFIT_OPEN_STATUSES;
 use weldsuite_flow_domain::js::iso_from_millis;
+use weldsuite_schema::tenant::project_benefits;
 
 use crate::governance_store::upsert_measurement;
 use crate::import_tasks::TenantDatabases;
@@ -40,28 +42,37 @@ pub struct BenefitMeasureTick {
 /// `(id, project id, metric, metric params)`.
 async fn open_measured_benefits(
     db: &PgPool,
-    limit: Option<i64>,
-) -> Result<Vec<(String, String, String, serde_json::Value)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, project_id, metric, metric_params from project_benefits
-         where deleted_at is null and closed_at is null and metric <> 'manual'
-           and status = any($1)
-         limit $2",
-    )
-    .bind(BENEFIT_OPEN_STATUSES.as_slice())
-    .bind(limit)
-    .fetch_all(db)
-    .await
+    limit: Option<u64>,
+) -> Result<Vec<(String, String, String, serde_json::Value)>, DbErr> {
+    project_benefits::Entity::find()
+        .select_only()
+        .columns([
+            project_benefits::Column::Id,
+            project_benefits::Column::ProjectId,
+            project_benefits::Column::Metric,
+            project_benefits::Column::MetricParams,
+        ])
+        .filter(project_benefits::Column::DeletedAt.is_null())
+        .filter(project_benefits::Column::ClosedAt.is_null())
+        .filter(project_benefits::Column::Metric.ne("manual"))
+        .filter(project_benefits::Column::Status.is_in(BENEFIT_OPEN_STATUSES))
+        .limit(limit)
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `measureDueBenefits(db, now)`: measure the month before `now` for every
 /// open benefit of one workspace; how many got a value.
-pub async fn measure_due_benefits(db: &PgPool, now_ms: i64) -> Result<usize, sqlx::Error> {
+pub async fn measure_due_benefits(db: &PgPool, now_ms: i64) -> Result<usize, DbErr> {
     let period = previous_period(now_ms);
     let now = iso_from_millis(now_ms).unwrap_or_default();
     let mut measured = 0;
     for (id, project_id, metric, params) in open_measured_benefits(db, None).await? {
-        let Some(value) = measure_metric(db, &metric, &params, &period).await? else {
+        let Some(value) = measure_metric(db, &metric, &params, &period)
+            .await
+            .map_err(orm_error)?
+        else {
             continue;
         };
         upsert_measurement(db, &id, &project_id, &period, &value, None, &now).await?;
@@ -75,7 +86,7 @@ pub async fn measure_due_benefits(db: &PgPool, now_ms: i64) -> Result<usize, sql
 pub async fn next_benefit_measure_due_at(
     db: &PgPool,
     now_ms: i64,
-) -> Result<Option<OffsetDateTime>, sqlx::Error> {
+) -> Result<Option<OffsetDateTime>, DbErr> {
     if open_measured_benefits(db, Some(1)).await?.is_empty() {
         return Ok(None);
     }
