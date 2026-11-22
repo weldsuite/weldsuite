@@ -20,6 +20,11 @@ pub trait DnsOverHttps: Send + Sync {
     fn get<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<(u16, String), String>>;
 }
 
+/// A request's own DNS-over-HTTPS client (conformance: the test's `fetch`
+/// stub, through the outbound bridge), ahead of the app's.
+#[derive(Clone)]
+pub struct RequestDoh(pub Arc<dyn DnsOverHttps>);
+
 /// `z.string().email().safeParse(address).success`.
 pub fn is_email(address: &str) -> bool {
     let mut body = Map::new();

@@ -8,6 +8,10 @@
 # that asks; nothing in the base layers needs it (no cloud controller manager,
 # no CSI driver; Talos reads it at boot, outside any pod).
 #
+# A policy holds a pod only once kube-router has built its chain, about a
+# second after the pod starts; metadata-guard.yaml rejects the metadata
+# service for every pod until then.
+#
 # Egress only: what may reach these pods is unchanged. Only the one address:
 # Talos' host DNS, which CoreDNS forwards to, is link-local too
 # (169.254.116.108), so 169.254.0.0/16 would cut the cluster's DNS.

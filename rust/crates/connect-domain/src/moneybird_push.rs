@@ -14,6 +14,8 @@ use crate::clients::{ConnectorError, Kind, as_text, decrypt_credentials};
 use crate::js::{now_ms, string};
 use crate::moneybird::Moneybird;
 
+pub mod two_way;
+
 pub const SYNC_NAME: &str = "moneybird-push";
 pub const MB_INVOICE_TYPE: &str = "moneybird_external_sales_invoice";
 pub const MB_STATEMENT_TYPE: &str = "moneybird_financial_statement";
@@ -376,6 +378,8 @@ pub struct PushResult {
     pub invoices_pushed: u64,
     pub statements_pushed: u64,
     pub lines_booked: u64,
+    /// Two-way records created, changed or removed in Moneybird.
+    pub records_synced: u64,
     pub failed: u64,
     pub remaining: bool,
     pub skipped: Option<String>,
@@ -431,6 +435,13 @@ struct Pass<'a> {
     db: &'a PgPool,
     env: &'a crate::sync::SyncEnv,
     http: Option<&'a OutboundHttp>,
+    /// The connection as the pass started with it (two-way directions).
+    connection: Value,
+    /// `workspaces.id` (the due index's), for importing Moneybird's side of
+    /// a conflict; empty when the caller had none.
+    workspace_id: String,
+    /// Two-way records created, changed or removed.
+    updated: u64,
     connection_id: String,
     settings: Map<String, Value>,
     client: Moneybird,
@@ -737,7 +748,9 @@ async fn resolve_contact(pass: &mut Pass<'_>, party_id: &str) -> Step<String> {
     let mapped: Option<String> = sqlx::query_scalar(
         "select external_entity_id from integration_entity_mappings
          where connection_id = $1 and external_entity_type = $2 and internal_entity_type = 'party'
-           and internal_entity_id = $3 limit 1",
+           and internal_entity_id = $3
+           and external_entity_id not like 'pending:%' and external_entity_id not like 'failed:%'
+         limit 1",
     )
     .bind(&pass.connection_id)
     .bind(MB_CONTACT_TYPE)
@@ -855,11 +868,28 @@ fn resolve_tax_rate(
     all: &[crate::moneybird::TaxRate],
     overrides: &Map<String, Value>,
 ) -> Result<String, String> {
+    resolve_tax_rate_of("sales_invoice", percentage, breakdown, all, overrides)
+}
+
+/// [`resolve_tax_rate`] among the rates of one Moneybird type
+/// (`sales_invoice` or `purchase_invoice`).
+fn resolve_tax_rate_of(
+    kind: &str,
+    percentage: Option<f64>,
+    breakdown: &[Value],
+    all: &[crate::moneybird::TaxRate],
+    overrides: &Map<String, Value>,
+) -> Result<String, String> {
     let same = |a: Option<f64>, b: f64| a.is_some_and(|a| (a - b).abs() < 0.005);
     let rates: Vec<&crate::moneybird::TaxRate> = all
         .iter()
-        .filter(|r| r.active && matches!(r.tax_rate_type.as_deref(), Some("sales_invoice") | None))
+        .filter(|r| r.active && r.tax_rate_type.as_deref().is_none_or(|t| t == kind))
         .collect();
+    let noun = if kind == "purchase_invoice" {
+        "purchase"
+    } else {
+        "sales"
+    };
     let row = percentage.and_then(|pct| {
         breakdown
             .iter()
@@ -887,7 +917,7 @@ fn resolve_tax_rate(
         let place = country.map_or_else(String::new, |c| format!(" for {c}"));
         return matched.map(|r| r.id.clone()).ok_or_else(|| {
             format!(
-                "No {}% sales tax rate in Moneybird{place}",
+                "No {}% {noun} tax rate in Moneybird{place}",
                 crate::js::number_text(pct)
             )
         });
@@ -944,7 +974,7 @@ fn resolve_tax_rate(
         _ => "no VAT",
     };
     picked.map(|r| r.id.clone()).ok_or_else(|| {
-        format!("No Moneybird sales tax rate for {label} lines: pick one under tax rates on the Moneybird connection")
+        format!("No Moneybird {noun} tax rate for {label} lines: pick one under tax rates on the Moneybird connection")
     })
 }
 
@@ -1060,7 +1090,10 @@ fn invoice_payload(
         ),
     );
     payload.insert("prices_are_incl_tax".to_owned(), json!(false));
-    payload.insert("source".to_owned(), json!("Stripe"));
+    payload.insert(
+        "source".to_owned(),
+        json!(string(invoice.get("source")).unwrap_or("Stripe")),
+    );
     if let Some(link) = string(invoice.get("paymentLink")).filter(|l| !l.is_empty()) {
         payload.insert("source_url".to_owned(), json!(link));
     }
@@ -1119,7 +1152,30 @@ async fn mark_paid(pass: &mut Pass<'_>, moneybird_id: &str, invoice: &Value) -> 
     Ok(())
 }
 
-async fn push_invoice(pass: &mut Pass<'_>, invoice_id: &str, force: bool) -> Step<()> {
+/// Where an invoice going to Moneybird as an external sales invoice came
+/// from: Stripe (INT-011, settled through statements or marked paid) or
+/// WeldBooks itself (INT-013, its payments follow one by one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InvoiceSource {
+    Stripe,
+    WeldBooks,
+}
+
+impl InvoiceSource {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Stripe => "Stripe",
+            Self::WeldBooks => "WeldBooks",
+        }
+    }
+}
+
+async fn push_invoice(
+    pass: &mut Pass<'_>,
+    invoice_id: &str,
+    force: bool,
+    source: InvoiceSource,
+) -> Step<()> {
     let Some(claim_id) = claim(
         pass.db,
         &pass.connection_id.clone(),
@@ -1170,7 +1226,7 @@ async fn push_invoice(pass: &mut Pass<'_>, invoice_id: &str, force: bool) -> Ste
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let payload = invoice_payload(&json!({ "invoiceNumber": label, "id": invoice_id, "issueDate": invoice["issueDate"], "dueDate": invoice["dueDate"], "currency": invoice["currency"], "paymentLink": invoice["paymentLink"], "taxBreakdown": invoice["taxBreakdown"] }), &items, &contact_id, &revenue, &rates, &overrides)
+        let payload = invoice_payload(&json!({ "invoiceNumber": label, "id": invoice_id, "issueDate": invoice["issueDate"], "dueDate": invoice["dueDate"], "currency": invoice["currency"], "paymentLink": invoice["paymentLink"], "taxBreakdown": invoice["taxBreakdown"], "source": source.label() }), &items, &contact_id, &revenue, &rates, &overrides)
             .map_err(PushError::Other)?;
         pass.spend()?;
         let created = pass.client.create_external_sales_invoice(pass.http, payload).await?;
@@ -1222,7 +1278,10 @@ async fn push_invoice(pass: &mut Pass<'_>, invoice_id: &str, force: bool) -> Ste
                 )
                 .await?;
         }
-        if invoice["status"] == "paid" && pass.setting("financialAccountId").is_none() {
+        if source == InvoiceSource::Stripe
+            && invoice["status"] == "paid"
+            && pass.setting("financialAccountId").is_none()
+        {
             mark_paid(pass, &moneybird_id, &invoice).await?;
             complete_claim(pass.db, &claim_id, &moneybird_id, "paid").await?;
         }
@@ -1252,13 +1311,18 @@ async fn follow_up_rows(
          from integration_entity_mappings m inner join invoices i on i.id = m.internal_entity_id
          where m.connection_id = $1 and m.external_entity_type = $2 and m.sync_checksum = 'open'
            and m.external_entity_id not like 'pending:%' and m.external_entity_id not like 'failed:%'
-           and (case when $3 then i.status = 'cancelled' else i.status in ('cancelled', 'paid') end)
+           and (i.status = 'cancelled' or (not $3 and i.status = 'paid' and exists (
+             select 1 from integration_entity_mappings s
+             where s.internal_entity_id = i.id and s.external_entity_type = $5)))
          limit $4",
     )
     .bind(scope.connection_id)
     .bind(MB_INVOICE_TYPE)
     .bind(with_account)
     .bind(limit)
+    // A WeldBooks invoice's payments follow one by one (two_way), so only a
+    // Stripe one is marked paid at once.
+    .bind(STRIPE_INVOICE_TYPE)
     .fetch_all(db)
     .await?;
     Ok(rows
@@ -1843,14 +1907,20 @@ pub async fn push_to_moneybird(
     trigger: &str,
     force: bool,
 ) -> Result<PushResult, sqlx::Error> {
-    let Some(settings) =
-        settings_of(connection).filter(|s| s.get("enabled").is_some_and(crate::js::truthy))
-    else {
+    // The Stripe push (INT-011) is a setting; the two-way sync (INT-013)
+    // follows the objects' directions. Either makes a pass.
+    let stored = settings_of(connection);
+    let stripe_push = stored
+        .as_ref()
+        .and_then(|s| s.get("enabled"))
+        .is_some_and(crate::js::truthy);
+    let two_way_on = !two_way::outbound_objects(connection).is_empty();
+    if !stripe_push && !two_way_on {
         return Ok(PushResult {
             skipped: Some("Sending to Moneybird is off".to_owned()),
             ..PushResult::default()
         });
-    };
+    }
     let status = connection["status"].as_str().unwrap_or_default();
     if status == "paused" || status == "auth_error" || !connection["deleted_at"].is_null() {
         return Ok(PushResult {
@@ -1858,14 +1928,31 @@ pub async fn push_to_moneybird(
             ..PushResult::default()
         });
     }
+    let connection = if two_way_on {
+        two_way::stamp_since(db, connection).await?
+    } else {
+        connection.clone()
+    };
+    let settings = stored.unwrap_or_else(default_settings);
     let connection_id = connection["id"].as_str().unwrap_or_default().to_owned();
-    let sources = source_stripe_connection_ids(db, &settings).await?;
+    let sources = if stripe_push {
+        source_stripe_connection_ids(db, &settings).await?
+    } else {
+        Vec::new()
+    };
     let mut pass = Pass {
         db,
         env,
         http: env.http.as_ref(),
+        client: client_for(&connection, &env.keyring),
+        workspace_id: env
+            .due
+            .as_ref()
+            .map(|due| due.workspace_id.clone())
+            .unwrap_or_default(),
+        connection,
+        updated: 0,
         connection_id: connection_id.clone(),
-        client: client_for(connection, &env.keyring),
         settings,
         sources,
         budget: REQUEST_BUDGET,
@@ -1878,7 +1965,9 @@ pub async fn push_to_moneybird(
         tax_rates: None,
         account_currency: None,
     };
-    if !has_work(db, &pass.scope(), force).await? {
+    let stripe_work = stripe_push && has_work(db, &pass.scope(), force).await?;
+    let two_way_work = two_way_on && two_way::has_work(db, &pass.connection, force).await?;
+    if !stripe_work && !two_way_work {
         return Ok(PushResult::default());
     }
     let run_id = crate::sync::start_sync_run(
@@ -1892,25 +1981,35 @@ pub async fn push_to_moneybird(
     .await?;
     let mut auth_error = false;
     let outcome: Step<()> = async {
-        let invoices = {
-            let scope = pass.scope();
-            pending_invoice_ids(db, &scope, force, MAX_INVOICES_PER_PASS).await?
-        };
-        for invoice in invoices {
-            push_invoice(&mut pass, &invoice, force).await?;
+        if stripe_push {
+            let invoices = {
+                let scope = pass.scope();
+                pending_invoice_ids(db, &scope, force, MAX_INVOICES_PER_PASS).await?
+            };
+            for invoice in invoices {
+                push_invoice(&mut pass, &invoice, force, InvoiceSource::Stripe).await?;
+            }
         }
-        follow_up_invoices(&mut pass).await?;
-        let payouts = {
-            let scope = pass.scope();
-            pending_payout_ids(db, &scope, force, MAX_PAYOUTS_PER_PASS).await?
-        };
-        for payout in payouts {
-            push_payout(&mut pass, &payout, force).await?;
+        if two_way_on {
+            two_way::run(&mut pass, force).await?;
         }
-        book_lines(&mut pass).await?;
+        if stripe_push || two_way::is_outbound(&pass.connection, "invoices") {
+            follow_up_invoices(&mut pass).await?;
+        }
+        if stripe_push {
+            let payouts = {
+                let scope = pass.scope();
+                pending_payout_ids(db, &scope, force, MAX_PAYOUTS_PER_PASS).await?
+            };
+            for payout in payouts {
+                push_payout(&mut pass, &payout, force).await?;
+            }
+            book_lines(&mut pass).await?;
+        }
         if !pass.remaining {
             let scope = pass.scope();
-            pass.remaining = has_work(db, &scope, false).await?;
+            pass.remaining = (stripe_push && has_work(db, &scope, false).await?)
+                || (two_way_on && two_way::has_work(db, &pass.connection, false).await?);
         }
         Ok(())
     }
@@ -1926,7 +2025,7 @@ pub async fn push_to_moneybird(
     }
     let mut applied = crate::ingest::IngestResult {
         created: pass.invoices + pass.statements,
-        modified: pass.lines,
+        modified: pass.lines + pass.updated,
         failed: pass.failed,
         ..crate::ingest::IngestResult::default()
     };
@@ -1964,6 +2063,7 @@ pub async fn push_to_moneybird(
         invoices_pushed: pass.invoices,
         statements_pushed: pass.statements,
         lines_booked: pass.lines,
+        records_synced: pass.updated,
         failed: pass.failed,
         remaining: pass.remaining,
         skipped: None,
@@ -1982,7 +2082,8 @@ pub async fn schedule_backlog(env: &crate::sync::SyncEnv) {
 }
 
 /// `pushAllMoneybirdConnections({ trigger, stripeConnectionId })`: a pass for
-/// every Moneybird connection sending (that Stripe account's) sales.
+/// every Moneybird connection sending (that Stripe account's) sales, and,
+/// without a Stripe account named, for every one that syncs two ways.
 pub async fn push_all(
     db: &PgPool,
     env: &crate::sync::SyncEnv,
@@ -1993,11 +2094,12 @@ pub async fn push_all(
         .await?
         .into_iter()
         .filter(|connection| {
+            let two_way = !two_way::outbound_objects(connection).is_empty();
             let Some(settings) = settings_of(connection) else {
-                return false;
+                return stripe_connection_id.is_none() && two_way;
             };
             if !settings.get("enabled").is_some_and(crate::js::truthy) {
-                return false;
+                return stripe_connection_id.is_none() && two_way;
             }
             let sources: Vec<&str> = settings
                 .get("sourceConnectionIds")

@@ -8,6 +8,7 @@
 //! | `audienceScope` | `urn:zitadel:iam:org:project:id:{audience}:aud` | `null` (none) |
 //! | `organizationScope` | `urn:zitadel:iam:org:roles:id:{orgId}` | `null` (none: switching workspace never signs in again) |
 //! | `accountUrl` | `null` | WeldID: `{issuer}/account`; otherwise `null` |
+//! | `identityProvider` | `null` | WeldID: `weldid`; otherwise `null` |
 //! | `workspaceSource` | `claim` | `header`: every request names its workspace in `X-Weld-Workspace` |
 //! | `orgClaim` | `OIDC_ORG_CLAIM` | `null`: no claim names the workspace |
 //!
@@ -83,6 +84,9 @@ pub(crate) fn oidc_public_auth(clients: &OidcClients<'_>) -> Value {
         "audienceScope": zitadel_scope(ZITADEL_AUDIENCE_SCOPE),
         "organizationScope": zitadel_scope(ZITADEL_ORGANIZATION_SCOPE),
         "accountUrl": account_url,
+        // WeldSuite's own provider: the platform says the account lives in
+        // WeldID, not with "your organization's identity provider".
+        "identityProvider": clients.weldid.then_some("weldid"),
         "workspaceSource": settings.workspace_source.as_str(),
     });
     if clients.platform_sign_in {
@@ -128,6 +132,7 @@ mod tests {
                 "audienceScope": "urn:zitadel:iam:org:project:id:{audience}:aud",
                 "organizationScope": "urn:zitadel:iam:org:roles:id:{orgId}",
                 "accountUrl": null,
+                "identityProvider": null,
                 "workspaceSource": "claim",
                 "signIn": "platform",
             })
@@ -153,6 +158,7 @@ mod tests {
         assert_eq!(public["organizationScope"], Value::Null);
         assert_eq!(public["orgClaim"], Value::Null);
         assert_eq!(public["accountUrl"], "https://auth.eu.example/account");
+        assert_eq!(public["identityProvider"], "weldid");
         assert_eq!(public["workspaceSource"], "header");
         assert_eq!(public["desktopClientId"], "weldsuite-desktop");
         assert!(public.get("signIn").is_none());
@@ -167,6 +173,7 @@ mod tests {
             weldid: false,
         });
         assert_eq!(byo["accountUrl"], Value::Null);
+        assert_eq!(byo["identityProvider"], Value::Null);
         assert_eq!(byo["workspaceSource"], "header");
     }
 }

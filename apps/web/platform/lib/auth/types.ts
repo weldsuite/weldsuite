@@ -182,6 +182,11 @@ export interface AuthImplementation {
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */
   accountUrl?: string;
   /**
+   * WeldID, WeldSuite's own provider (`auth.identityProvider: "weldid"`),
+   * rather than a customer's own. Unset on Clerk and on other OIDC providers.
+   */
+  identityProvider?: 'weldid';
+  /**
    * WeldSuite shows its own sign-in screens over this provider (OIDC with
    * `auth.signIn: "platform"`, ADR SEC-016) rather than sending people to
    * the provider's pages. Clerk has its own screens and leaves this unset.

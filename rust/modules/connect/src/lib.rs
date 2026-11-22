@@ -48,6 +48,7 @@ mod github_app;
 mod github_connections;
 mod integrations;
 mod js;
+mod moneybird_sync;
 mod mvp;
 mod picqer_push;
 mod public_webhook;
@@ -108,6 +109,7 @@ pub use cron::compute_next_run_at;
 pub use entity_workflows::EntityWorkflowsSubscriber;
 pub use integrations::RequestCrmSyncRuns;
 pub use integrations::internal::is_internal_call as is_internal_integrations_call;
+pub use moneybird_sync::{MONEYBIRD_SYNC_CONSUMER, MONEYBIRD_SYNC_TOPICS, MoneybirdSyncSubscriber};
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,

@@ -127,6 +127,12 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             "/connections/{id}/moneybird/push",
             post(crate::connector_push::push_now).route_layer(update()),
         )
+        // Rust only (ADR INT-013): register a Moneybird connection's webhooks
+        // again when live updates are off.
+        .route(
+            "/connections/{id}/live-updates",
+            post(crate::connector_auth::repair_live_updates).route_layer(update()),
+        )
 }
 
 /// `keyringFromEnv(c.env)`.

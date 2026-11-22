@@ -207,6 +207,14 @@ export const EDITION_FEATURES = [
    */
   'mail-threat-protection',
   /**
+   * Two-way Moneybird sync (ADR INT-013): live webhook updates and sending
+   * contacts, products, invoices and bills made in WeldBooks to Moneybird, per
+   * object direction. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the Moneybird connection screen
+   * keeps its one-way import.
+   */
+  'moneybirdTwoWay',
+  /**
    * WeldBooks annual reports (jaarrekening) for Dutch entities
    * (`/api/annual-reports`, the Annual reports screen). Built only in Rust, so
    * it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the screen.

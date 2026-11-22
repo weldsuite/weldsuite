@@ -77,6 +77,10 @@
  *     "audienceScope": "urn:zitadel:iam:org:project:id:{audience}:aud",  // "" = none
  *     "organizationScope": "urn:zitadel:iam:org:roles:id:{orgId}",      // "" = no switching
  *     "accountUrl": "https://id.example.eu/ui/console/users/me",
+ *     // "weldid" when the provider is WeldID, WeldSuite's own (IDENTITY_PROVIDER=weldid):
+ *     // Settings › Security then names WeldID rather than "your organization's
+ *     // identity provider". Absent or null: some other provider.
+ *     "identityProvider": "weldid",
  *     // Who shows the sign-in screens. "platform": WeldSuite's own, the ones
  *     // Global shows, over the backend's /api/sign-in (OIDC_SIGN_IN=platform,
  *     // ADR SEC-016). Absent or "provider": the provider's pages.

@@ -204,12 +204,16 @@ dbg_macro = "warn"
 todo = "warn"
 unwrap_used = "warn"
 
-# The binary links every module. With full debug info its test binary
-# outgrows what MSVC's linker writes into one PDB (LNK1318 on Windows), so it
-# keeps line tables only: backtraces still name files and lines. The crates
-# it links keep full debug info.
-[profile.dev.package.weldsuite]
+# Dev and test builds keep line tables only: panics and backtraces still name
+# files and lines. Full debug info made every target folder tens of GB and
+# slowed linking; for the binary, which links every module, its test binary
+# outgrew what MSVC's linker writes into one PDB (LNK1318 on Windows).
+# Dependencies carry no debug info.
+[profile.dev]
 debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"

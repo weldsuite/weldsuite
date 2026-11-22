@@ -51,6 +51,11 @@ pub(crate) const PORTED: [&str; 6] = [
     "realtime",
 ];
 
+/// The Moneybird two-way sync (ADR INT-013): a consumer of its own on the
+/// hub, Rust only (not in the TypeScript registry), when WeldConnect is
+/// served.
+pub(crate) const MONEYBIRD_SYNC: &str = "moneybird-sync";
+
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
 pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
@@ -270,6 +275,12 @@ fn mail_served() -> bool {
     weldsuite_catalogs::api_modules()
         .iter()
         .any(|m| m.id == "mail" && m.rust)
+}
+
+fn connect_served() -> bool {
+    weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "connect" && m.rust)
 }
 
 #[derive(Clone)]
@@ -494,6 +505,7 @@ impl ConsumeConfig {
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
                 .chain(mail_served().then_some(MAIL_SENDING_EVENTS))
+                .chain(connect_served().then_some(MONEYBIRD_SYNC))
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
@@ -528,6 +540,7 @@ impl ConsumeConfig {
                 continue;
             }
             if id == MAIL_SENDING_EVENTS
+                || id == MONEYBIRD_SYNC
                 || id == REACH_SEND
                 || id == REACH_WARMUP_SEND
                 || id == REACH_WARMUP_ENGAGE
@@ -717,6 +730,9 @@ mod tests {
         let mut expected: Vec<&str> = PORTED.to_vec();
         if mail_served() {
             expected.push(MAIL_SENDING_EVENTS);
+        }
+        if connect_served() {
+            expected.push(MONEYBIRD_SYNC);
         }
         assert_eq!(config.subscribers, expected);
         assert_eq!(config.stream, "ENTITY_EVENTS");

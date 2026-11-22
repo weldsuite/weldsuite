@@ -49,6 +49,8 @@ export interface MoneybirdPushSettings {
   enabled: boolean;
   sourceConnectionIds: string[];
   revenueLedgerAccountId: string | null;
+  /** Moneybird ledger for bills sent to Moneybird (two-way sync, Rust only). */
+  expenseLedgerAccountId?: string | null;
   financialAccountId: string | null;
   feeLedgerAccountId: string | null;
   payoutLedgerAccountId: string | null;
@@ -326,6 +328,26 @@ export function useTriggerConnectorSync() {
       );
     },
     onSuccess: (_data, vars) => invalidateConnectorQueries(queryClient, vars.connectionId),
+  });
+}
+
+/**
+ * Register a Moneybird connection's webhooks again when live updates are off
+ * (Rust only, ADR INT-013: gate on `isFeatureAvailable('moneybirdTwoWay')`).
+ * `warning` is set when live updates are still off afterwards.
+ */
+export function useRepairLiveUpdates() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (connectionId: string) => {
+      const client = await getClient();
+      return client.post<{ data: { connection: ConnectorConnection; warning: string | null } }>(
+        `/connectors/connections/${connectionId}/live-updates`,
+        {},
+      );
+    },
+    onSuccess: (_data, connectionId) => invalidateConnectorQueries(queryClient, connectionId),
   });
 }
 

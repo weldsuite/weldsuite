@@ -54,6 +54,7 @@ mod index;
 mod know;
 mod legal_entities;
 mod list;
+mod mail;
 mod oauth;
 mod odata;
 mod project_sheets;
@@ -111,6 +112,18 @@ pub struct ExternalApiState {
     pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
     /// Outbound HTTP (PostPeer, for social publishing).
     pub http: Option<weldsuite_ports::OutboundHttp>,
+    /// WeldMail's sending: customer mail and the outbound guard's ledgers,
+    /// and the MX lookups' DNS-over-HTTPS client.
+    pub mail: MailBindings,
+}
+
+/// What `/v1/mail-*` sends through (`SEND_EMAIL`, `OUTBOUND_LEDGER`, …):
+/// the deployment's, shared with WeldMail's own routes. Conformance builds
+/// keep none here and take the test's per request.
+#[derive(Clone, Default)]
+pub struct MailBindings {
+    pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
+    pub doh: Option<Arc<dyn weldsuite_mail_domain::recipients::DnsOverHttps>>,
 }
 
 impl std::fmt::Debug for ExternalApiState {
@@ -144,8 +157,13 @@ pub(crate) fn master_db_of(state: &ExternalApiState, caller: &crud::Caller) -> P
         .unwrap_or_else(|| state.master.clone())
 }
 
-/// The settings [`ExternalApiState::env`] holds.
-pub const ENV_KEYS: [&str; 2] = ["ENVIRONMENT", "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS"];
+/// The settings [`ExternalApiState::env`] holds (`R2_PUBLIC_URL`: contact
+/// avatars, for the recipients a send records).
+pub const ENV_KEYS: [&str; 3] = [
+    "ENVIRONMENT",
+    "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS",
+    "R2_PUBLIC_URL",
+];
 
 impl ExternalApiState {
     /// The env settings this crate reads, from the process environment.
@@ -232,6 +250,11 @@ where
     };
     let router = if mounts("sheets") {
         project_sheets::routes(router)
+    } else {
+        router
+    };
+    let router = if mounts("mail") {
+        mail::routes(router)
     } else {
         router
     };

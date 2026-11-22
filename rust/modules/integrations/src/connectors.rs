@@ -6,7 +6,12 @@
 //!   (`WooCommerce`, Shopify, Moneybird, Picqer), handed with its signature
 //!   headers to WeldConnect's internal
 //!   `/api/integrations/connections/:id/connector-event` for the workspace the
-//!   KV entry `connconn:<id>` names, and its answer relayed;
+//!   KV entry `connconn:<id>` names, and its answer relayed. While the
+//!   connection's webhooks are being registered (`connreg:<id>`, ADR
+//!   INT-013) a call is answered 200 and not forwarded: Moneybird checks the
+//!   URL as it registers, before the secret that would verify the call
+//!   exists. `GET` answers 200 for a known connection, for a provider that
+//!   checks with one;
 //! - `POST /webhooks/stripe-connect`: the Stripe platform's Connect webhook,
 //!   verified with `STRIPE_CONNECT_WEBHOOK_SECRET` and handed, marked as
 //!   verified, to every connection of the event's account (`stripeacct:`);
@@ -32,7 +37,8 @@ use time::OffsetDateTime;
 use weldsuite_connect_domain::catchup::{self, Backoff};
 use weldsuite_connect_domain::sync::SyncEnv;
 use weldsuite_connect_domain::webhooks::{
-    STRIPE_CONNECT_VERIFIED_HEADER, connection_kv_key, stripe_account_kv_key, verify,
+    STRIPE_CONNECT_VERIFIED_HEADER, connection_kv_key, registration_kv_key, stripe_account_kv_key,
+    verify,
 };
 use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
@@ -60,7 +66,7 @@ where
     Router::new()
         .route(
             "/webhooks/connectors/{connection_id}",
-            post(connector_webhook),
+            post(connector_webhook).get(connector_webhook_check),
         )
         .route("/webhooks/stripe-connect", post(stripe_connect))
         .with_state(state)
@@ -87,6 +93,48 @@ fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty())
 }
 
+/// Whether a webhook registration for the connection is in flight
+/// ([`registration_kv_key`]): the provider is checking the delivery URL with
+/// a call nobody can verify yet.
+async fn registering(ctx: &PublicCtx, state: &IntegrationsState, connection_id: &str) -> bool {
+    match ctx.cache(state) {
+        Some(cache) => cache
+            .get_boxed(&registration_kv_key(connection_id))
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|flag| !flag.is_empty()),
+        None => false,
+    }
+}
+
+/// `GET /webhooks/connectors/:connectionId`: a provider checking that the
+/// delivery URL answers; a 200 for a known connection, nothing read or
+/// written.
+async fn connector_webhook_check(
+    State(state): State<IntegrationsState>,
+    ctx: PublicCtx,
+    Path(connection_id): Path<String>,
+) -> Response {
+    let known = match ctx.cache(&state) {
+        Some(cache) => cache
+            .get_boxed(&connection_kv_key(&connection_id))
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|entry| !entry.is_empty()),
+        None => false,
+    };
+    if known || registering(&ctx, &state, &connection_id).await {
+        answer(StatusCode::OK, json!({ "ok": true }))
+    } else {
+        answer(
+            StatusCode::NOT_FOUND,
+            json!({ "error": "Unknown connector" }),
+        )
+    }
+}
+
 async fn connector_webhook(
     State(state): State<IntegrationsState>,
     ctx: PublicCtx,
@@ -94,6 +142,16 @@ async fn connector_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if registering(&ctx, &state, &connection_id).await {
+        // The provider's own check while it registers (Moneybird refuses the
+        // webhook without a 200): answered, never forwarded or imported.
+        tracing::info!(
+            connection_id,
+            bytes = body.len(),
+            "[Webhook/connectors] answered a registration check"
+        );
+        return answer(StatusCode::OK, json!({ "ok": true }));
+    }
     let cached = match ctx.cache(&state) {
         Some(cache) => match cache.get_boxed(&connection_kv_key(&connection_id)).await {
             Ok(value) => value,

@@ -24,12 +24,14 @@ use weldsuite_connect_domain::connections::{
     mark_connection_disconnected, sanitize_connection, sanitize_with_entity,
     seed_default_field_mappings, update_connection_settings, upsert_connection,
 };
+use weldsuite_connect_domain::moneybird_push::two_way;
 use weldsuite_connect_domain::provider::test_connector_credentials;
 use weldsuite_connect_domain::sync::Trigger;
 use weldsuite_connect_domain::webhooks::{
-    delete_stripe_account_mapping, delete_webhook_mapping, generate_webhook_secret,
-    put_webhook_mapping, register_connection_webhooks, stripe_account_kv_key,
-    unregister_connection_webhooks, webhook_base_url,
+    EnsureWebhooks, delete_stripe_account_mapping, delete_webhook_mapping,
+    ensure_connection_webhooks, generate_webhook_secret, put_webhook_mapping,
+    register_connection_webhooks, stripe_account_kv_key, unregister_connection_webhooks,
+    webhook_base_url,
 };
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
@@ -55,6 +57,107 @@ pub(crate) fn auth_env(overrides: &Overrides, state: &ConnectState) -> AuthEnv {
             env("ENVIRONMENT").as_deref(),
         ),
     }
+}
+
+/// Repairs a Moneybird connection's webhooks in the background
+/// ([`ensure_connection_webhooks`]): the KV mapping, and the registrations
+/// when they are missing, stale or gone at Moneybird. Sync now, a change of
+/// the enabled syncs and the scheduled catch-up call it, so a connection
+/// whose registration failed (or that predates the fix) starts receiving
+/// live updates without being reconnected.
+pub(crate) fn spawn_ensure_webhooks(
+    state: &ConnectState,
+    overrides: &Overrides,
+    db: weldsuite_db::PgPool,
+    connection: Value,
+    workspace_id: String,
+) {
+    // Moneybird is the provider whose registration needs the repair (its
+    // check of the delivery URL failed before the mapping existed); the
+    // stores keep registering on connect only.
+    if connection["provider"] != "moneybird" {
+        return;
+    }
+    let env = auth_env(overrides, state);
+    state.events.tracker().spawn(async move {
+        let credentials = decrypt_credentials(connection.get("credentials"), &env.sync.keyring);
+        let args = EnsureWebhooks {
+            db: &db,
+            http: env.sync.http.as_ref(),
+            keyring: &env.sync.keyring,
+            cache: env.cache.as_ref(),
+            base_url: &env.webhook_base_url,
+            workspace_id: &workspace_id,
+            force: false,
+        };
+        match ensure_connection_webhooks(&args, &connection, &credentials).await {
+            Ok(Some(registered)) => {
+                if let Some(warning) = registered.warning {
+                    tracing::warn!(warning, "[connectors/webhooks] re-registration incomplete");
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::error!(%error, "[connectors/webhooks] ensuring webhooks failed");
+            }
+        }
+    });
+}
+
+/// `POST /connections/:id/live-updates` (Rust only, ADR INT-013): a
+/// Moneybird connection's webhooks made again when they are missing, stale
+/// or gone at Moneybird ("Turn on live updates"). Answers the connection as
+/// it is after, and a warning when live updates are still off.
+pub(crate) async fn repair_live_updates(
+    State(state): State<ConnectState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    let db = caller.db.clone();
+    let row = match get_connection(&db, &id).await {
+        Ok(Some(row)) if row["provider"] == "moneybird" => row,
+        Ok(_) => return ApiError::not_found("Moneybird connection", Some(&id)).into_response(),
+        Err(error) => return failed(&error),
+    };
+    if row["status"] == "paused" {
+        return ApiError::bad_request("Connection is paused").into_response();
+    }
+    let env = auth_env(&caller.overrides, &state);
+    let credentials = decrypt_credentials(row.get("credentials"), &env.sync.keyring);
+    let args = EnsureWebhooks {
+        db: &db,
+        http: env.sync.http.as_ref(),
+        keyring: &env.sync.keyring,
+        cache: env.cache.as_ref(),
+        base_url: &env.webhook_base_url,
+        workspace_id: &caller.workspace_id,
+        force: false,
+    };
+    let mut warning = match ensure_connection_webhooks(&args, &row, &credentials).await {
+        Ok(Some(registered)) => registered.warning,
+        Ok(None) => None,
+        Err(error) => {
+            tracing::error!(%error, "[app-api/connectors] live updates repair failed");
+            Some("Moneybird did not accept the webhook. Try again later.".to_owned())
+        }
+    };
+    let fresh = match get_connection(&db, &id).await {
+        Ok(Some(fresh)) => fresh,
+        Ok(None) => return ApiError::internal().into_response(),
+        Err(error) => return failed(&error),
+    };
+    let live = fresh["webhook_registrations"]
+        .as_array()
+        .is_some_and(|list| !list.is_empty());
+    if !live && warning.is_none() {
+        warning = Some(
+            "Live updates could not be turned on for this install. Sync now still imports your changes."
+                .to_owned(),
+        );
+    }
+    let sanitized = sanitize_with_entity(&fresh, &env.sync.keyring);
+    caller.publish(&state, CONNECTOR_CONNECTION_UPDATED, &id, &sanitized);
+    Data(json!({ "connection": sanitized, "warning": warning })).into_response()
 }
 
 fn failed(error: &dyn std::fmt::Display) -> Response {
@@ -166,6 +269,12 @@ pub(crate) fn read_settings(
                 ] {
                     let id = moneybird_id(issues, push, key);
                     out.insert(key.to_owned(), id);
+                }
+                // The two-way sync's bills ledger (ADR INT-013), kept only
+                // when sent so the Stripe push's settings read as before.
+                if push.get("expenseLedgerAccountId").is_some() {
+                    let id = moneybird_id(issues, push, "expenseLedgerAccountId");
+                    out.insert("expenseLedgerAccountId".to_owned(), id);
                 }
                 let overrides = issues
                     .nested(push, "taxRateOverrides", Presence::Optional, |issues, o| {
@@ -494,6 +603,15 @@ pub(crate) async fn connect(
     if let Err(error) = seed_default_field_mappings(&db, &id, &provider).await {
         return failed(&error);
     }
+    // The KV mapping first, so a provider that calls the delivery URL while
+    // registering reaches WeldSuite.
+    if !caller.workspace_id.is_empty()
+        && !caller.clerk_org_id.is_empty()
+        && let Some(cache) = env.cache.as_ref()
+        && let Err(error) = put_webhook_mapping(cache, &id, &caller.workspace_id, &provider).await
+    {
+        tracing::error!(%error, "[app-api/connectors] webhook KV mapping failed");
+    }
     let warning = match register_connection_webhooks(
         &db,
         env.sync.http.as_ref(),
@@ -511,13 +629,6 @@ pub(crate) async fn connect(
             Some("Connected. Webhook registration failed — use Sync now until the store can push updates.".to_owned())
         }
     };
-    if !caller.workspace_id.is_empty()
-        && !caller.clerk_org_id.is_empty()
-        && let Some(cache) = env.cache.as_ref()
-        && let Err(error) = put_webhook_mapping(cache, &id, &caller.workspace_id, &provider).await
-    {
-        tracing::error!(%error, "[app-api/connectors] webhook KV mapping failed");
-    }
     let fresh = match get_connection(&db, &id).await {
         Ok(fresh) => fresh.unwrap_or(row),
         Err(error) => return failed(&error),
@@ -977,8 +1088,41 @@ pub(crate) async fn patch_connection(
         Ok(None) => return ApiError::internal().into_response(),
         Err(error) => return failed(&error),
     };
+    // Two-way (ADR INT-013): an object switched to outbound is stamped now,
+    // so only what WeldBooks makes from here on is created in Moneybird.
+    let updated = if updated["provider"] == "moneybird" {
+        match two_way::stamp_since(&db, &updated).await {
+            Ok(stamped) => stamped,
+            Err(error) => return failed(&error),
+        }
+    } else {
+        updated
+    };
     if !caller.clerk_org_id.is_empty() && settings.is_some() {
         after_settings_change(&state, &caller, &env, &db, &row, &updated);
+    }
+    let directions_changed = row["direction"] != updated["direction"]
+        || row["object_sync_directions"] != updated["object_sync_directions"]
+        || row["enabled_syncs"] != updated["enabled_syncs"];
+    if settings.is_none() && directions_changed && !two_way::outbound_objects(&updated).is_empty() {
+        // Baselines for what is synced already, and anything due.
+        crate::connector_push::spawn_push(
+            &state,
+            db.clone(),
+            crate::connector_sync::sync_env_for(&caller.overrides, &state, &caller.workspace_id),
+            updated.clone(),
+            false,
+        );
+    }
+    if row["enabled_syncs"] != updated["enabled_syncs"] {
+        // The provider topics follow the enabled syncs.
+        spawn_ensure_webhooks(
+            &state,
+            &caller.overrides,
+            db.clone(),
+            updated.clone(),
+            caller.workspace_id.clone(),
+        );
     }
     let sanitized = sanitize_with_entity(&updated, &keyring);
     caller.publish(&state, CONNECTOR_CONNECTION_UPDATED, &id, &sanitized);
@@ -1013,7 +1157,8 @@ fn after_settings_change(
         );
     }
     if after["provider"] == "moneybird"
-        && weldsuite_connect_domain::js::truthy(&after["settings"]["moneybirdPush"]["enabled"])
+        && (weldsuite_connect_domain::js::truthy(&after["settings"]["moneybirdPush"]["enabled"])
+            || !two_way::outbound_objects(after).is_empty())
     {
         crate::connector_push::spawn_push(
             state,
