@@ -8387,6 +8387,7 @@ dependencies = [
  "axum",
  "http",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8406,6 +8407,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9272,13 +9274,16 @@ name = "weldsuite-outside-eu"
 version = "0.0.0"
 dependencies = [
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]

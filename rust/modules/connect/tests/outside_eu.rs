@@ -9,6 +9,11 @@
 //! `WELDSUITE_TEST_TENANT_URL` is set, and returns early otherwise. It only
 //! switches `asana`, and leaves it off.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -94,7 +94,7 @@ impl ActionError {
                 }),
             )),
             Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => {
-                Err(Self::database(&error))
+                Err(Self::plain(&error.to_string()))
             }
         }
     }

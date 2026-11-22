@@ -149,7 +149,7 @@ pub enum OutsideEuError {
     /// The workspace hasn't switched it on.
     Off(ServiceId),
     /// The switch could not be read: refused, as off would be.
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl OutsideEuError {

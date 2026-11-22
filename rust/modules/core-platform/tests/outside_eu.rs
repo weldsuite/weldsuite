@@ -12,6 +12,11 @@
 //! (`SettingsSnapshot`), so tests of other crates on the same database never
 //! see its rows.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;

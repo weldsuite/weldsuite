@@ -31,15 +31,18 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_outside_eu::catalog::INTEGRATION_CODES;
 use weldsuite_outside_eu::store::{self, Change, OptIn, OptIns, Via};
 use weldsuite_outside_eu::{Enforcement, NOT_ACKNOWLEDGED_CODE, SERVICES, Service, ServiceId};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workspace_members as members;
 
-use crate::{Caller, CorePlatformState, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, answer, now, validate};
 
 /// The permission that switches a service on or off: workspace admins and
 /// owners.
@@ -66,17 +69,22 @@ async fn member_names(caller: &Caller, opt_ins: &OptIns) -> HashMap<String, Stri
     if ids.is_empty() {
         return HashMap::new();
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email from workspace_members
-         where user_id = any($1) and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(&caller.db)
-    .await
-    .unwrap_or_else(|error| {
-        tracing::warn!(%error, "outside-eu: could not read the members' names");
-        Vec::new()
-    });
+    let rows: Vec<(String, Option<String>, Option<String>)> = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::UserId,
+            members::Column::Name,
+            members::Column::Email,
+        ])
+        .filter(members::Column::UserId.is_in(ids))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "outside-eu: could not read the members' names");
+            Vec::new()
+        });
     rows.into_iter()
         .filter_map(|(id, name, email)| {
             let shown = name
@@ -130,7 +138,9 @@ fn integration_map() -> Map<String, Value> {
 async fn list(State(_state): State<CorePlatformState>, caller: Caller) -> Response {
     answer(
         async {
-            let opt_ins = store::read(&caller.db).await?;
+            let opt_ins = store::read(&caller.db)
+                .await
+                .map_err(|error| PlatformError::internal("Failed to read the services", error))?;
             let names = member_names(&caller, &opt_ins).await;
             let services: Vec<Value> = SERVICES
                 .iter()
@@ -210,7 +220,8 @@ async fn switch(
                     at: &at,
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| PlatformError::internal("Failed to switch the service", error))?;
             if before != after {
                 caller.publish(
                     &state,

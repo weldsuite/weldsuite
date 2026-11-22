@@ -1,5 +1,5 @@
 //! A workspace's opt-ins, in its tenant database: the `outsideEu` object of
-//! `workspace_settings.features` (`packages/core/db/src/schema/workspace-settings.ts`),
+//! `workspace_settings.features` (`weldsuite_schema::tenant::workspace_settings`),
 //! keyed by [`ServiceId`]:
 //!
 //! ```json
@@ -17,13 +17,24 @@
 //! `weldsuite admin outside-eu` ([`Via::Staff`]), and the move from Global,
 //! which records the non-EU integrations a workspace already connected
 //! there ([`Via::Move`], ADR OPS-025 decision 6) by calling [`set`].
+//!
+//! Queries go through the SeaORM entity (ADR DATA-019). Like every settings
+//! writer, they read and update the workspace's oldest settings row, and
+//! insert one only when there is none.
 
 use std::collections::BTreeMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::workspace_settings::{self as settings, Column};
 
 use crate::catalog::ServiceId;
 
@@ -174,47 +185,52 @@ pub fn merge(features: Option<&Value>, service: ServiceId, entry: &OptIn) -> Val
     Value::Object(features)
 }
 
-/// The workspace's opt-ins.
-pub async fn read(db: &PgPool) -> Result<OptIns, sqlx::Error> {
-    let features: Option<Option<Value>> = sqlx::query_scalar(
-        "select features from workspace_settings
-         where deleted_at is null
-         order by created_at asc
-         limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(features.flatten().map(|f| parse(&f)).unwrap_or_default())
+/// The workspace's settings row every settings reader and writer uses: the
+/// oldest one not deleted.
+fn oldest() -> sea_orm::Select<settings::Entity> {
+    settings::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
 }
 
-/// Whether `service` is switched on, without reading the rest.
-pub async fn is_on(db: &PgPool, service: ServiceId) -> Result<bool, sqlx::Error> {
-    let on: Option<bool> = sqlx::query_scalar(
-        "select coalesce((features -> 'outsideEu' -> $1 ->> 'enabled') = 'true', false)
-         from workspace_settings
-         where deleted_at is null
-         order by created_at asc
-         limit 1",
-    )
-    .bind(service.as_str())
-    .fetch_optional(db)
-    .await?;
-    Ok(on.unwrap_or(false))
+/// The `features` of the workspace's settings row; `None` without one.
+async fn features(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    let features: Option<Option<Value>> = oldest()
+        .select_only()
+        .column(Column::Features)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(features.flatten())
+}
+
+/// The workspace's opt-ins.
+pub async fn read(db: &PgPool) -> Result<OptIns, DbErr> {
+    Ok(features(db)
+        .await?
+        .map(|features| parse(&features))
+        .unwrap_or_default())
+}
+
+/// Whether `service` is switched on.
+pub async fn is_on(db: &PgPool, service: ServiceId) -> Result<bool, DbErr> {
+    Ok(read(db)
+        .await?
+        .get(&service)
+        .is_some_and(|opt_in| opt_in.enabled))
 }
 
 /// Switches one service on or off: `(before, after)`. A workspace without a
 /// `workspace_settings` row gets one; one with a row keeps it.
-pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), sqlx::Error> {
-    let mut tx = db.begin().await?;
-    let row: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, features from workspace_settings
-         where deleted_at is null
-         order by created_at asc
-         limit 1
-         for update",
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
+pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), DbErr> {
+    let tx = orm(db).begin().await?;
+    let row: Option<(String, Option<Value>)> = oldest()
+        .select_only()
+        .columns([Column::Id, Column::Features])
+        .lock_exclusive()
+        .into_tuple()
+        .one(&tx)
+        .await?;
     let current = row
         .as_ref()
         .and_then(|(_, features)| features.as_ref())
@@ -230,30 +246,25 @@ pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), sql
         );
         match &row {
             Some((id, _)) => {
-                sqlx::query(
-                    "update workspace_settings
-                     set features = $2::jsonb, updated_at = $3::timestamptz
-                     where id = $1",
-                )
-                .bind(id)
-                .bind(&features)
-                .bind(change.at)
-                .execute(&mut *tx)
-                .await?;
+                settings::Entity::update_many()
+                    .col_expr(Column::Features, Expr::value(features))
+                    .col_expr(Column::UpdatedAt, Expr::value(OffsetDateTime::now_utc()))
+                    .filter(Column::Id.eq(id.as_str()))
+                    .exec(&tx)
+                    .await?;
             }
             // The workspace's one settings row. Every settings writer updates
             // the existing row and inserts only when there is none, so this
             // never becomes an older second row that would shadow a later
             // one (billing's buyer and the settings routes read the oldest).
-            // Stamped with the database's clock, never the caller's `at`.
+            // `created_at` and `updated_at` take the table's `now()`.
             None => {
-                sqlx::query(
-                    "insert into workspace_settings (id, features, created_at, updated_at)
-                     values ($1, $2::jsonb, now(), now())",
-                )
-                .bind(generate_id("ws"))
-                .bind(&features)
-                .execute(&mut *tx)
+                settings::Entity::insert(settings::ActiveModel {
+                    id: Set(generate_id("ws")),
+                    features: Set(Some(features)),
+                    ..Default::default()
+                })
+                .exec_without_returning(&tx)
                 .await?;
             }
         }
@@ -272,25 +283,34 @@ pub struct SettingsSnapshot {
 }
 
 impl SettingsSnapshot {
-    pub async fn take(db: &PgPool) -> Result<Self, sqlx::Error> {
-        let rows = sqlx::query_as("select id, features from workspace_settings")
-            .fetch_all(db)
+    pub async fn take(db: &PgPool) -> Result<Self, DbErr> {
+        let rows = settings::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Features])
+            .into_tuple()
+            .all(&orm(db))
             .await?;
         Ok(Self { rows })
     }
 
     /// Deletes the rows created since, and puts every row's `features` back.
-    pub async fn restore(&self, db: &PgPool) -> Result<(), sqlx::Error> {
-        let ids: Vec<&str> = self.rows.iter().map(|(id, _)| id.as_str()).collect();
-        sqlx::query("delete from workspace_settings where not (id = any($1))")
-            .bind(&ids)
-            .execute(db)
-            .await?;
+    pub async fn restore(&self, db: &PgPool) -> Result<(), DbErr> {
+        let conn = orm(db);
+        let ids: Vec<String> = self.rows.iter().map(|(id, _)| id.clone()).collect();
+        let created = settings::Entity::delete_many();
+        if ids.is_empty() {
+            created.exec(&conn).await?;
+        } else {
+            created
+                .filter(Column::Id.is_not_in(ids))
+                .exec(&conn)
+                .await?;
+        }
         for (id, features) in &self.rows {
-            sqlx::query("update workspace_settings set features = $2 where id = $1")
-                .bind(id)
-                .bind(features)
-                .execute(db)
+            settings::Entity::update_many()
+                .col_expr(Column::Features, Expr::value(features.clone()))
+                .filter(Column::Id.eq(id.as_str()))
+                .exec(&conn)
                 .await?;
         }
         Ok(())

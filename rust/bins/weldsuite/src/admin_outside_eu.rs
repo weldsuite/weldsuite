@@ -133,6 +133,13 @@ async fn tenant_db(master: &PgPool, workspace_id: &str) -> StaffResult<PgPool> {
         })
 }
 
+/// A failed read or write of the switch, for the person at the terminal.
+fn switch_error(error: impl std::fmt::Display) -> StaffError {
+    StaffError::Refused(format!(
+        "The workspace's switches could not be read or saved: {error}"
+    ))
+}
+
 fn opt_in_json(service: ServiceId, opt_in: Option<&OptIn>) -> Value {
     let opt_in = opt_in.cloned().unwrap_or_default();
     json!({
@@ -203,7 +210,7 @@ pub(crate) async fn execute(
         OutsideEuCommand::List { workspace } => {
             let found = find_workspace(master, workspace).await?;
             let db = tenant_db(master, &found.id).await?;
-            let opt_ins = store::read(&db).await?;
+            let opt_ins = store::read(&db).await.map_err(switch_error)?;
             let rows: Vec<Value> = SERVICES
                 .iter()
                 .map(|s| opt_in_json(s.id, opt_ins.get(&s.id)))
@@ -281,7 +288,7 @@ pub(crate) async fn execute(
                     }
                     Err(error) => {
                         record_failure(master, &entry, &error.to_string()).await;
-                        return Err(error.into());
+                        return Err(switch_error(error));
                     }
                 }
             }

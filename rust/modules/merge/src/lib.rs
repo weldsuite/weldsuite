@@ -774,7 +774,9 @@ pub(crate) async fn require_provider(
         Err(weldsuite_outside_eu::OutsideEuError::Off(service)) => {
             Err(MergeError::OutsideEu(service))
         }
-        Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => Err(MergeError::Db(error)),
+        Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => {
+            Err(MergeError::Unexpected(error.to_string()))
+        }
     }
 }
 
