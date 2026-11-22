@@ -119,7 +119,10 @@ pub(crate) async fn list_shift_requests(
     let mut requests = hr_shift_requests::Entity::find()
         .column_as(hr_employees::Column::FirstName, "employee_first_name")
         .column_as(hr_employees::Column::LastName, "employee_last_name")
-        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
         .join(
             JoinType::InnerJoin,
             hr_shift_requests::Entity::belongs_to(hr_employees::Entity)
@@ -464,7 +467,12 @@ async fn review_shift_request(
         .col_expr(Column::Status, Expr::value(decision))
         .col_expr(
             Column::ShiftId,
-            Expr::value(shift.as_ref().and_then(|s| s["id"].as_str()).map(str::to_owned)),
+            Expr::value(
+                shift
+                    .as_ref()
+                    .and_then(|s| s["id"].as_str())
+                    .map(str::to_owned),
+            ),
         )
         .col_expr(Column::ReviewNote, Expr::value(trimmed(note)))
         .col_expr(Column::ReviewedBy, Expr::value(reviewed_by))

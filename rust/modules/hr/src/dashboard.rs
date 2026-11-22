@@ -243,7 +243,11 @@ async fn hr_dashboard(pool: &PgPool, scope: &Scope) -> Result<Value, HrError> {
     let upcoming: Vec<Value> = upcoming
         .into_iter()
         .map(|row| {
-            let name = display_name(&row.first_name, &row.last_name, row.preferred_name.as_deref());
+            let name = display_name(
+                &row.first_name,
+                &row.last_name,
+                row.preferred_name.as_deref(),
+            );
             let mut row = to_json(row)?;
             if let Some(map) = row.as_object_mut() {
                 map.insert("displayName".to_owned(), Value::String(name));

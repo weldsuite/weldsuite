@@ -15,20 +15,20 @@ use std::str::FromStr;
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
-    JoinType, QueryFilter, QueryOrder, QuerySelect, Select,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Value, json};
 use time::Date;
 use weldsuite_db::{Keyring, OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_payroll_domain::components::{ComponentEntry, component_def};
+use weldsuite_payroll_domain::periods::{period_containing, weekdays_between};
 use weldsuite_schema::tenant::{
     hr_absences, hr_attendance_records, hr_declarations, hr_employees, hr_leave_requests,
     hr_leave_types, hr_pay_run_inputs, hr_pay_runs, hr_pay_schedules, hr_payroll_employers,
     hr_payroll_profiles, hr_payslips,
 };
-use weldsuite_payroll_domain::components::{ComponentEntry, component_def};
-use weldsuite_payroll_domain::periods::{period_containing, weekdays_between};
 
 use super::common::{
     BOOKS_NOT_ENABLED, decimal2, decimal4, is_iso_date, num, ranges_overlap, sort_issues,
@@ -243,23 +243,28 @@ pub(crate) async fn candidate_employee_ids(
     let Some(schedule) = run["payScheduleId"].as_str().filter(|s| !s.is_empty()) else {
         return Ok(vec![]);
     };
-    let rows: Vec<(String, Option<Date>, Option<Date>, Option<Date>, Option<Date>)> =
-        hr_payroll_profiles::Entity::find()
-            .select_only()
-            .columns([
-                hr_payroll_profiles::Column::EmployeeId,
-                hr_payroll_profiles::Column::StartDate,
-                hr_payroll_profiles::Column::EndDate,
-            ])
-            .column(hr_employees::Column::StartDate)
-            .column(hr_employees::Column::EndDate)
-            .join(JoinType::InnerJoin, profile_employee())
-            .filter(hr_payroll_profiles::Column::PayScheduleId.eq(schedule))
-            .filter(hr_payroll_profiles::Column::Status.eq("active"))
-            .filter(hr_employees::Column::DeletedAt.is_null())
-            .into_tuple()
-            .all(&orm(db))
-            .await?;
+    let rows: Vec<(
+        String,
+        Option<Date>,
+        Option<Date>,
+        Option<Date>,
+        Option<Date>,
+    )> = hr_payroll_profiles::Entity::find()
+        .select_only()
+        .columns([
+            hr_payroll_profiles::Column::EmployeeId,
+            hr_payroll_profiles::Column::StartDate,
+            hr_payroll_profiles::Column::EndDate,
+        ])
+        .column(hr_employees::Column::StartDate)
+        .column(hr_employees::Column::EndDate)
+        .join(JoinType::InnerJoin, profile_employee())
+        .filter(hr_payroll_profiles::Column::PayScheduleId.eq(schedule))
+        .filter(hr_payroll_profiles::Column::Status.eq("active"))
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter(|(_, start, end, employee_start, employee_end)| {
@@ -1084,7 +1089,7 @@ async fn create_correction_run(
             corrects_run_id: Set(Some(corrected_id.to_owned())),
             tax_year: Set(i32::try_from(int_of(&corrected, "taxYear")).unwrap_or_default()),
             period_number: Set(
-                i32::try_from(int_of(&corrected, "periodNumber")).unwrap_or_default(),
+                i32::try_from(int_of(&corrected, "periodNumber")).unwrap_or_default()
             ),
             status: Set("draft".to_owned()),
             employee_count: Set(i32::try_from(selected.len()).unwrap_or_default()),
@@ -1335,9 +1340,8 @@ pub(crate) async fn run_input_rows(
     let mut inputs =
         hr_pay_run_inputs::Entity::find().filter(hr_pay_run_inputs::Column::RunId.eq(run_id));
     if let Some(ids) = employee_ids {
-        inputs = inputs.filter(
-            hr_pay_run_inputs::Column::EmployeeId.is_in(ids.iter().map(String::as_str)),
-        );
+        inputs = inputs
+            .filter(hr_pay_run_inputs::Column::EmployeeId.is_in(ids.iter().map(String::as_str)));
     }
     let rows = inputs.all(&orm(db)).await?;
     Ok(rows
@@ -1435,7 +1439,8 @@ pub(crate) async fn create_run_input(
     }
     touch_run(db, run_id).await?;
     let id = generate_id("hrpi");
-    let decimal = |key: &str, fixed: fn(f64) -> String| sql_numeric_opt(number(key).map(fixed).as_deref());
+    let decimal =
+        |key: &str, fixed: fn(f64) -> String| sql_numeric_opt(number(key).map(fixed).as_deref());
     hr_pay_run_inputs::Entity::insert(hr_pay_run_inputs::ActiveModel {
         id: Set(id.clone()),
         run_id: Set(run_id.to_owned()),
@@ -1618,7 +1623,8 @@ pub(crate) async fn collect_run_inputs(
         s(&run, "periodEnd").to_owned(),
     );
 
-    let taken_rows = taken_in_other_runs(db, &employee_ids, run_id, &period_start, &period_end).await?;
+    let taken_rows =
+        taken_in_other_runs(db, &employee_ids, run_id, &period_start, &period_end).await?;
     let mut taken: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for (reference, start, end) in taken_rows {
         if let Some(reference) = reference.filter(|r| !r.is_empty()) {

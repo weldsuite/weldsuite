@@ -38,14 +38,16 @@ use crate::runs::{RESUME_SIGNAL, WorkflowRuns};
 use crate::{Caller, ConnectState, Refusal, internal, now, validate};
 
 /// `coalesce(<tags>, '[]'::jsonb) ? '__type:sequence'`: the tags of a
-/// WeldReach sequence's workflow.
+/// WeldReach sequence's workflow. The tags are a jsonb array of strings, so
+/// containment (`@> '["__type:sequence"]'`) is the same test; it is written
+/// with an operator, not `jsonb_exists(…)`, because Postgres estimates an
+/// operator as it does `?` and a function call differently, and the plan
+/// decides the order of rows that tie on `started_at`.
 pub(crate) fn sequence_tagged(tags: Expr) -> Expr {
-    Func::cust("jsonb_exists")
-        .args([
-            Func::coalesce([tags, Expr::val(json!([]))]).into(),
-            Expr::val("__type:sequence"),
-        ])
-        .into()
+    pg::PgExpr::contains(
+        Expr::from(Func::coalesce([tags, Expr::val(json!([]))])),
+        Expr::val(json!(["__type:sequence"])),
+    )
 }
 
 /// `notSequence` over `workflows`: not a sequence's workflow.

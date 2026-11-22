@@ -62,7 +62,8 @@ pub(crate) async fn ensure_hr_defaults(request: Request, next: Next) -> Response
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .contains(&key);
     if !known {
-        if let Err(error) = seed(&tenant.db).await {
+        // Boxed: the four probes' ORM futures together are large.
+        if let Err(error) = Box::pin(seed(&tenant.db)).await {
             return error.into_response();
         }
         SEEDED

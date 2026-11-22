@@ -902,9 +902,10 @@ pub(crate) async fn upsert_profile(
             );
         }
         if nl.get("contractHoursPerWeek").is_none_or(Value::is_null) {
+            // As `to_jsonb` read the column: `40`, not the model's `40.0`.
             nl.insert(
                 "contractHoursPerWeek".into(),
-                employee["weeklyHours"].clone(),
+                weldsuite_core_domain::js::whole_numbers(&employee["weeklyHours"]),
             );
         }
     }

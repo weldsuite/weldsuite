@@ -22,8 +22,8 @@ use http::HeaderMap;
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -189,7 +189,10 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     let mut select = declarations::Entity::find()
         .column_as(hr_employees::Column::FirstName, "employee_first_name")
         .column_as(hr_employees::Column::LastName, "employee_last_name")
-        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
         .join(
             JoinType::InnerJoin,
             declarations::Entity::belongs_to(hr_employees::Entity)
@@ -531,10 +534,7 @@ async fn update(
         update = update.col_expr(declarations::Column::Category, Expr::value(category));
     }
     if let Some(description) = input.description.as_set() {
-        update = update.col_expr(
-            declarations::Column::Description,
-            Expr::value(description),
-        );
+        update = update.col_expr(declarations::Column::Description, Expr::value(description));
     }
     if let Some(amount) = input.amount.as_set() {
         update = update.col_expr(

@@ -203,7 +203,8 @@ pub(crate) async fn employees_in_departments(
         .filter(hr_employees::Column::DeletedAt.is_null())
         .filter(hr_employees::Column::Status.ne("terminated"));
     if let Some(reach) = &reach {
-        rows = rows.filter(hr_employees::Column::DepartmentId.is_in(reach.iter().map(String::as_str)));
+        rows =
+            rows.filter(hr_employees::Column::DepartmentId.is_in(reach.iter().map(String::as_str)));
     }
     let rows: Vec<(String, Option<String>, String, String, Option<String>)> =
         rows.into_tuple().all(&orm(db)).await?;
@@ -311,7 +312,10 @@ async fn update(
         (hr_departments::Column::Name, &input.name),
         (hr_departments::Column::Description, &input.description),
         (hr_departments::Column::ParentId, &input.parent_id),
-        (hr_departments::Column::HeadEmployeeId, &input.head_employee_id),
+        (
+            hr_departments::Column::HeadEmployeeId,
+            &input.head_employee_id,
+        ),
         (hr_departments::Column::Color, &input.color),
     ] {
         if let (true, value) = change(field) {

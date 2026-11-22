@@ -11,8 +11,8 @@ use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
 use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -30,9 +30,7 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::assignments::end_assignments_for;
-use crate::employees::{
-    display_name, no_row, pg_date, pg_date_opt, require_employee, to_json,
-};
+use crate::employees::{display_name, no_row, pg_date, pg_date_opt, require_employee, to_json};
 use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, change, id, int, iso_date, short_text, text_max};
 use crate::{
@@ -259,7 +257,9 @@ async fn create_template(caller: Caller, headers: HeaderMap, body: Bytes) -> HrR
         description: Set(input.description.as_set().cloned()),
         kind: Set(kind),
         department_id: Set(input.department_id.as_set().cloned()),
-        items: Set(Value::Array(input.items.as_set().cloned().unwrap_or_default())),
+        items: Set(Value::Array(
+            input.items.as_set().cloned().unwrap_or_default(),
+        )),
         is_default: Set(input.is_default.as_set().copied().unwrap_or(false)),
         ..Default::default()
     })
@@ -298,7 +298,10 @@ async fn update_template(
         }
     }
     if let (true, items) = change(&input.items) {
-        update = update.col_expr(templates::Column::Items, Expr::value(items.map(Value::Array)));
+        update = update.col_expr(
+            templates::Column::Items,
+            Expr::value(items.map(Value::Array)),
+        );
     }
     if let (true, default) = change(&input.is_default) {
         update = update.col_expr(templates::Column::IsDefault, Expr::value(default));
@@ -357,7 +360,10 @@ pub(crate) async fn list_checklists(
     let mut select = checklists::Entity::find()
         .column_as(hr_employees::Column::FirstName, "employee_first_name")
         .column_as(hr_employees::Column::LastName, "employee_last_name")
-        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
         .join(
             JoinType::InnerJoin,
             checklists::Entity::belongs_to(hr_employees::Entity)
@@ -720,7 +726,10 @@ pub(crate) async fn settle_checklist(
                 .map_or_else(today_iso, str::to_owned);
             hr_employees::Entity::update_many()
                 .col_expr(hr_employees::Column::Status, Expr::value("terminated"))
-                .col_expr(hr_employees::Column::EndDate, Expr::value(pg_date(&end_date)?))
+                .col_expr(
+                    hr_employees::Column::EndDate,
+                    Expr::value(pg_date(&end_date)?),
+                )
                 .col_expr(hr_employees::Column::UpdatedAt, Expr::value(now))
                 .filter(hr_employees::Column::Id.eq(outcome.employee_id.as_str()))
                 .exec(&orm(db))
@@ -842,7 +851,9 @@ async fn delete_checklist_route(
         .filter(tasks::Column::ChecklistId.eq(id.as_str()))
         .exec(db)
         .await?;
-    checklists::Entity::delete_by_id(id.clone()).exec(db).await?;
+    checklists::Entity::delete_by_id(id.clone())
+        .exec(db)
+        .await?;
     restore_status_after_offboarding(&caller.db, &existing).await?;
     caller.emit(
         &state,

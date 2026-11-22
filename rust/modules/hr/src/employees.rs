@@ -117,7 +117,11 @@ pub(crate) fn display_name_of(row: &Value) -> String {
 /// [`display_name_of`] over the name columns themselves.
 pub(crate) fn display_name(first: &str, last: &str, preferred: Option<&str>) -> String {
     let preferred = preferred.map(str::trim).unwrap_or_default();
-    let first = if preferred.is_empty() { first } else { preferred };
+    let first = if preferred.is_empty() {
+        first
+    } else {
+        preferred
+    };
     format!("{first} {last}").trim().to_owned()
 }
 
@@ -204,7 +208,10 @@ pub(crate) async fn active_clients_for(
             hr_client_assignments::Column::CompanyId,
             hr_client_assignments::Column::IsPrimary,
         ])
-        .filter(hr_client_assignments::Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(
+            hr_client_assignments::Column::EmployeeId
+                .is_in(employee_ids.iter().map(String::as_str)),
+        )
         .filter(hr_client_assignments::Column::StartDate.lte(on))
         .filter(
             Condition::any()
@@ -800,7 +807,10 @@ pub(crate) async fn link_invited_employees(
         workspace_members::Entity,
         sea_orm::ExprTrait::eq(
             Func::lower(Expr::col((workspace_members::Entity, Member::Email))),
-            Func::lower(Expr::col((hr_employees::Entity, hr_employees::Column::Email))),
+            Func::lower(Expr::col((
+                hr_employees::Entity,
+                hr_employees::Column::Email,
+            ))),
         ),
     );
     let candidates: Vec<(String, String)> = candidates.limit(50).into_tuple().all(db).await?;
@@ -1367,7 +1377,10 @@ async fn assert_email_free(
     let dupe: Option<String> = hr_employees::Entity::find()
         .select_only()
         .column(hr_employees::Column::Id)
-        .filter(lower_email_is(hr_employees::Column::Email, email.to_lowercase()))
+        .filter(lower_email_is(
+            hr_employees::Column::Email,
+            email.to_lowercase(),
+        ))
         .filter(hr_employees::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&orm(db))
@@ -1996,7 +2009,10 @@ async fn write_sensitive_route(
     if !changed.is_empty() {
         let sealed = encrypt_sensitive(&Value::Object(next), &keyring)?;
         hr_employees::Entity::update_many()
-            .col_expr(hr_employees::Column::SensitiveEncrypted, Expr::value(sealed))
+            .col_expr(
+                hr_employees::Column::SensitiveEncrypted,
+                Expr::value(sealed),
+            )
             .col_expr(hr_employees::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(hr_employees::Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))

@@ -40,19 +40,18 @@ use crate::schemas::{WorkflowBody, json_list, json_tags, workflow_body};
 use crate::sync::{SyncContext, sync_schedules, sync_webhooks, write_trigger_index};
 use crate::{Caller, ConnectState, Refusal, internal, validate};
 
-/// `coalesce(tags, '[]'::jsonb) ? tag` (`jsonb_exists`, the operator's
-/// function): the workflow carries `tag`.
+/// `coalesce(tags, '[]'::jsonb) ? tag`: the workflow carries `tag`. The
+/// tags are a jsonb array of strings, so containment (`@> '[tag]'`) is the
+/// same test, planned as Postgres plans `?` (see
+/// [`crate::executions::sequence_tagged`]).
 fn has_tag(tag: &str) -> Expr {
-    Func::cust("jsonb_exists")
-        .args([
-            Func::coalesce([
-                Expr::col((workflows::Entity, workflows::Column::Tags)),
-                Expr::val(json!([])),
-            ])
-            .into(),
-            Expr::val(tag),
-        ])
-        .into()
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(
+        Expr::from(Func::coalesce([
+            Expr::col((workflows::Entity, workflows::Column::Tags)),
+            Expr::val(json!([])),
+        ])),
+        Expr::val(json!([tag])),
+    )
 }
 
 /// A `workflows` row as Drizzle reads it (`averageExecutionTime`, a

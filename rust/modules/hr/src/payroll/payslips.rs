@@ -19,7 +19,9 @@ use weldsuite_payroll_domain::payslip_pdf::{
 use weldsuite_payroll_domain::types::PayslipLine;
 use weldsuite_ports::PutOptions;
 use weldsuite_schema::js;
-use weldsuite_schema::tenant::{hr_employees, hr_payroll_employers, hr_payroll_profiles, hr_payslips};
+use weldsuite_schema::tenant::{
+    hr_employees, hr_payroll_employers, hr_payroll_profiles, hr_payslips,
+};
 
 use super::Deps;
 use super::common::{address_lines, mask_iban, mask_national_id, sort_issues, truthy_str};

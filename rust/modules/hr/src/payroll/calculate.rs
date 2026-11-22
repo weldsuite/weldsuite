@@ -515,9 +515,9 @@ fn draft_payslip(
 }
 
 /// In ONE transaction: the run's drafts of people no longer in it (`kept`
-/// are the ones calculated) go, then
-/// each draft is inserted or, while still a draft, overwritten
-/// (`on conflict (run_id, employee_id) do update … where status = 'draft'`).
+/// are the ones calculated) go, then each draft is inserted or, while still
+/// a draft, overwritten (`on conflict (run_id, employee_id) do update …
+/// where status = 'draft'`), `updated_at` only on an overwrite.
 async fn store_drafts(
     db: &PgPool,
     run_id: &str,

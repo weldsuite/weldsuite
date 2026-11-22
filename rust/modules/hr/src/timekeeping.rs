@@ -869,8 +869,7 @@ pub(crate) async fn list_attendance(
         .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_owned).collect());
     let conn = orm(db);
-    let cursor: Option<(Date, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty())
-    {
+    let cursor: Option<(Date, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty()) {
         Some(cursor) => {
             hr_attendance_records::Entity::find()
                 .select_only()
@@ -893,9 +892,8 @@ pub(crate) async fn list_attendance(
         ));
     }
     // A negative `limit` is Postgres's error, as the TypeScript route's.
-    let fetch = u64::try_from(limit + 1).map_err(|_| {
-        HrError::Database(DbErr::Custom("LIMIT must not be negative".to_owned()))
-    })?;
+    let fetch = u64::try_from(limit + 1)
+        .map_err(|_| HrError::Database(DbErr::Custom("LIMIT must not be negative".to_owned())))?;
     let rows: Vec<AttendanceRow> = page
         .order_by_desc(Attendance::Date)
         .order_by_desc(Attendance::Id)
@@ -989,11 +987,7 @@ fn attendance_condition(
         .add_option(
             statuses.map(|statuses| Attendance::Status.is_in(statuses.iter().map(String::as_str))),
         )
-        .add_option(
-            filters
-                .unapproved
-                .then(|| Attendance::ApprovedAt.is_null()),
-        )
+        .add_option(filters.unapproved.then(|| Attendance::ApprovedAt.is_null()))
         .add(filters.entity.condition(Employee::LegalEntityId)))
 }
 
@@ -1270,7 +1264,10 @@ pub(crate) async fn attendance_summary(
     // `coalesce(sum(minutes), 0)`: `sum` of an integer column is a bigint.
     let total = |column: Attendance| {
         Expr::from(Func::coalesce([
-            Expr::from(Func::sum(Expr::col((hr_attendance_records::Entity, column)))),
+            Expr::from(Func::sum(Expr::col((
+                hr_attendance_records::Entity,
+                column,
+            )))),
             Expr::val(0i64),
         ]))
     };
@@ -1284,9 +1281,10 @@ pub(crate) async fn attendance_summary(
         .filter(Attendance::Date.lte(pg_date(to)?))
         .filter(
             Condition::all()
-                .add_option(employee_ids.map(|ids| {
-                    Attendance::EmployeeId.is_in(ids.iter().map(String::as_str))
-                }))
+                .add_option(
+                    employee_ids
+                        .map(|ids| Attendance::EmployeeId.is_in(ids.iter().map(String::as_str))),
+                )
                 .add_option(company_id.map(|id| Attendance::CompanyId.eq(id))),
         )
         .filter(scope.employee_id_in(Attendance::EmployeeId))
@@ -2515,7 +2513,10 @@ async fn review_leave_route(
     let at = utc_now();
     let row = hr_leave_requests::Entity::update_many()
         .col_expr(LeaveRequest::Status, Expr::value(decision.as_str()))
-        .col_expr(LeaveRequest::ReviewNote, Expr::value(note.as_set().cloned()))
+        .col_expr(
+            LeaveRequest::ReviewNote,
+            Expr::value(note.as_set().cloned()),
+        )
         .col_expr(
             LeaveRequest::ReviewedBy,
             Expr::value(caller.user_id.as_str()),

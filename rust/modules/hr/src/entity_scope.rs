@@ -64,22 +64,7 @@ impl Scope {
         )))
     }
 
-    /// The `$ids` bind of the scope condition the queries carry
-    /// ([`EntityScopeCondition::sql`] over their own column, or through
-    /// `hr_employees` / `hr_payroll_employers` for a table keyed by employee
-    /// or employer: `employeeIdIn` / `employerIdIn`): `None` for no filter,
-    /// an empty list for nothing.
-    pub(crate) fn ids(&self) -> Option<Vec<String>> {
-        self.0.ids_bind()
-    }
-
-    /// The `$unassigned` bind of the scope condition (rows without an entity
-    /// count as the default entity's).
-    pub(crate) fn unassigned(&self) -> bool {
-        self.0.unassigned_bind()
-    }
-
-    /// [`EntityScopeCondition::sql`] over `column` as a condition: no filter,
+    /// `entityScopeCondition(column, …)` as a condition: no filter,
     /// none of the rows, or the entities allowed (and the rows without an
     /// entity when the default one is among them).
     pub(crate) fn condition(&self, column: impl ColumnTrait) -> Condition {
@@ -406,29 +391,10 @@ mod tests {
     }
 
     #[test]
-    fn the_scope_binds_match_the_condition() {
-        // The queries inline `EntityScopeCondition::sql` over their own column.
-        assert_eq!(
-            EntityScopeCondition::sql("e.legal_entity_id", 5, 6),
-            "($5::text[] is null or e.legal_entity_id = any($5) or ($6::boolean and \
-             e.legal_entity_id is null))"
-        );
-        assert_eq!(Scope::ALL.ids(), None);
-        assert!(!Scope::ALL.unassigned());
-        assert_eq!(Scope::default(), Scope::ALL);
-        let named = Scope(EntityScopeCondition::In {
-            ids: vec!["ent_a".to_owned()],
-            include_unassigned: true,
-        });
-        assert_eq!(named.ids(), Some(vec!["ent_a".to_owned()]));
-        assert!(named.unassigned());
-        assert_eq!(Scope(EntityScopeCondition::Nothing).ids(), Some(Vec::new()));
-    }
-
-    #[test]
     fn the_scope_as_a_condition_matches_the_sql() {
         use sea_orm::{DbBackend, QueryTrait};
         use weldsuite_schema::tenant::hr_absences;
+        assert_eq!(Scope::default(), Scope::ALL);
         let employees = |scope: &Scope| {
             hr_employees::Entity::find()
                 .select_only()

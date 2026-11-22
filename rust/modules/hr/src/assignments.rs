@@ -169,7 +169,10 @@ pub(crate) async fn list_assignments(
     let mut select = assignments::Entity::find()
         .column_as(hr_employees::Column::FirstName, "employee_first_name")
         .column_as(hr_employees::Column::LastName, "employee_last_name")
-        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
         .column_as(hr_employees::Column::JobTitle, "employee_job_title")
         .column_as(hr_employees::Column::AvatarUrl, "employee_avatar_url")
         .column_as(hr_employees::Column::Status, "employee_status")
@@ -222,7 +225,10 @@ pub(crate) async fn list_assignments(
                     employee.employee_preferred_name.as_deref(),
                 )),
             );
-            map.insert("employeeJobTitle".to_owned(), json!(employee.employee_job_title));
+            map.insert(
+                "employeeJobTitle".to_owned(),
+                json!(employee.employee_job_title),
+            );
             map.insert(
                 "employeeAvatarUrl".to_owned(),
                 json!(employee.employee_avatar_url),

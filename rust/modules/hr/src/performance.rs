@@ -17,8 +17,8 @@ use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
 use sea_orm::sea_query::{Expr, Func, NullOrdering, OnConflict};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
-    Order, QueryFilter, QueryOrder, QuerySelect, Select,
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, Order,
+    QueryFilter, QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -275,7 +275,10 @@ fn with_employee<E: EntityTrait>(select: Select<E>, employee_id: E::Column) -> S
     select
         .column_as(hr_employees::Column::FirstName, "employee_first_name")
         .column_as(hr_employees::Column::LastName, "employee_last_name")
-        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
         .join(
             JoinType::InnerJoin,
             E::belongs_to(hr_employees::Entity)
@@ -350,8 +353,8 @@ struct CoachingRow {
 /// `c.follow_up_date is not null and c.follow_up_date <= current_date and
 /// c.status <> 'closed'`.
 fn follow_up_due() -> Condition {
-    use sea_orm::ExprTrait as _;
     use hr_coaching_logs::{Column, Entity};
+    use sea_orm::ExprTrait as _;
     Condition::all()
         .add(Column::FollowUpDate.is_not_null())
         .add(Expr::col((Entity, Column::FollowUpDate)).lte(Expr::current_date()))
@@ -390,7 +393,11 @@ pub(crate) async fn list_coaching_logs(
         logs = logs.filter(follow_up_due());
     }
     let rows: Vec<CoachingRow> = logs
-        .filter(filters.entity.condition(hr_employees::Column::LegalEntityId))
+        .filter(
+            filters
+                .entity
+                .condition(hr_employees::Column::LegalEntityId),
+        )
         .order_by_desc(Column::SessionDate)
         .order_by_desc(Column::CreatedAt)
         .limit(1000)
@@ -1043,8 +1050,8 @@ struct EvaluationRow {
 /// `coalesce(ev.<column>, ev.created_at::date)`: an evaluation without its
 /// period counts from the day it was made.
 fn evaluation_day(column: hr_evaluations::Column) -> Expr {
-    use sea_orm::ExprTrait as _;
     use hr_evaluations::{Column, Entity};
+    use sea_orm::ExprTrait as _;
     let created = Expr::col((Entity, Column::CreatedAt)).cast_as("date");
     Expr::from(Func::coalesce([Expr::col((Entity, column)), created]))
 }
@@ -1095,7 +1102,11 @@ pub(crate) async fn list_evaluations(
         evaluations = evaluations.filter(evaluation_starts_by(sql_date(to)?));
     }
     let rows: Vec<EvaluationRow> = evaluations
-        .filter(filters.entity.condition(hr_employees::Column::LegalEntityId))
+        .filter(
+            filters
+                .entity
+                .condition(hr_employees::Column::LegalEntityId),
+        )
         .order_by_desc(Column::CreatedAt)
         .limit(1000)
         .into_model()
@@ -1609,13 +1620,18 @@ async fn delete_kpi(caller: Caller, Path(id): Path<String>) -> HrResult {
     if used.is_some() {
         hr_kpi_definitions::Entity::update_many()
             .col_expr(hr_kpi_definitions::Column::IsActive, Expr::value(false))
-            .col_expr(hr_kpi_definitions::Column::UpdatedAt, Expr::value(utc_now()))
+            .col_expr(
+                hr_kpi_definitions::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
             .filter(hr_kpi_definitions::Column::Id.eq(id.as_str()))
             .exec(&db)
             .await?;
         return Ok(Data(json!({ "archived": true })).into_response());
     }
-    hr_kpi_definitions::Entity::delete_by_id(id).exec(&db).await?;
+    hr_kpi_definitions::Entity::delete_by_id(id)
+        .exec(&db)
+        .await?;
     Ok(Data(json!({ "archived": false })).into_response())
 }
 
@@ -2289,6 +2305,11 @@ async fn delete_milestone(
 
 /// `ensureDefaultEvaluationForm(db)`: the starter scorecard.
 pub(crate) async fn ensure_default_evaluation_form(db: &PgPool) -> Result<(), HrError> {
+    // Boxed: the ORM's futures are large, and the seed runs four at once.
+    Box::pin(default_evaluation_form(db)).await
+}
+
+async fn default_evaluation_form(db: &PgPool) -> Result<(), HrError> {
     let db = orm(db);
     let existing: Option<String> = hr_evaluation_forms::Entity::find()
         .select_only()
@@ -2321,6 +2342,11 @@ pub(crate) async fn ensure_default_evaluation_form(db: &PgPool) -> Result<(), Hr
 
 /// `ensureDefaultKpis(db)`: the starter KPI definitions.
 pub(crate) async fn ensure_default_kpis(db: &PgPool) -> Result<(), HrError> {
+    // Boxed, as [`ensure_default_evaluation_form`].
+    Box::pin(default_kpis(db)).await
+}
+
+async fn default_kpis(db: &PgPool) -> Result<(), HrError> {
     let db = orm(db);
     let existing: Option<String> = hr_kpi_definitions::Entity::find()
         .select_only()
@@ -2331,7 +2357,12 @@ pub(crate) async fn ensure_default_kpis(db: &PgPool) -> Result<(), HrError> {
     if existing.is_some() {
         return Ok(());
     }
-    let kpi = |id: &str, name: &str, unit: &str, direction: &str, target: f64, description: Option<&str>| {
+    let kpi = |id: &str,
+               name: &str,
+               unit: &str,
+               direction: &str,
+               target: f64,
+               description: Option<&str>| {
         hr_kpi_definitions::ActiveModel {
             id: Set(id.to_owned()),
             name: Set(name.to_owned()),

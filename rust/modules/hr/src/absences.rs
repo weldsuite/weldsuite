@@ -344,7 +344,10 @@ impl AbsenceListRow {
         absences::Entity::find()
             .column_as(hr_employees::Column::FirstName, "employee_first_name")
             .column_as(hr_employees::Column::LastName, "employee_last_name")
-            .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+            .column_as(
+                hr_employees::Column::PreferredName,
+                "employee_preferred_name",
+            )
             .column_as(hr_employees::Column::UserId, "employee_user_id")
             .column_as(hr_departments::Column::Name, "department_name")
             .column_as(Expr::exists(relapse), "relapse")
@@ -489,7 +492,10 @@ async fn update(
         _ => note_value(&note_field),
     };
     let mut update = absences::Entity::update_many()
-        .col_expr(absences::Column::StartDate, Expr::value(pg_date(&start_date)?))
+        .col_expr(
+            absences::Column::StartDate,
+            Expr::value(pg_date(&start_date)?),
+        )
         .col_expr(
             absences::Column::EndDate,
             Expr::value(pg_date_opt(end_date.as_deref())?),
