@@ -14,11 +14,17 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_desk_domain::notify::EntityKind;
 use weldsuite_desk_domain::realtime::{
     Attachment, conversation_message, conversation_system, defined,
@@ -27,14 +33,17 @@ use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::RealtimeMessage;
+use weldsuite_schema::tenant;
+use weldsuite_schema::tenant::{
+    helpdesk_conversation_messages as conv_messages, helpdesk_conversations as convs, people,
+};
 
 use crate::crud::{page_of, soft_delete, write_failed};
 use crate::js::{js_date_iso, js_limit, query_param, sql_limit, text};
 use crate::link::{Link, link_conversation_to_ticket};
 use crate::notify::{Assigned, assigned};
 use crate::tables::{
-    AUDIT_LOGS, HELPDESK_CONVERSATION_EVENTS, HELPDESK_CONVERSATION_MESSAGES,
-    HELPDESK_CONVERSATIONS, HELPDESK_TICKETS, PEOPLE,
+    HELPDESK_CONVERSATION_MESSAGES, HELPDESK_CONVERSATIONS, HELPDESK_TICKETS, PEOPLE,
 };
 use crate::tickets::base36_now;
 use crate::{Caller, DeskState, Refusal, now, validate};
@@ -166,6 +175,58 @@ async fn load(db: &PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
     CONV.find_live(db, id).await
 }
 
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `new Date()` once: as the route's JSON writes it, and as the `timestamp`
+/// it stores.
+fn now_and_stamp() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
+}
+
+/// `leftJoin(people, eq(conv.contactId, people.id))`.
+fn contact() -> RelationDef {
+    convs::Entity::belongs_to(people::Entity)
+        .from(convs::Column::ContactId)
+        .to(people::Column::Id)
+        .into()
+}
+
+/// A conversation with its linked contact's name, email and avatar.
+#[derive(Debug, FromQueryResult)]
+struct WithContact {
+    #[sea_orm(nested)]
+    conversation: convs::Model,
+    contact_full_name: Option<String>,
+    contact_email: Option<String>,
+    contact_avatar_url: Option<String>,
+}
+
+impl WithContact {
+    /// `select({ conv, contact: people })` with the left join, to filter
+    /// and order before `into_model`.
+    fn query() -> sea_orm::Select<convs::Entity> {
+        convs::Entity::find()
+            .column_as(people::Column::FullName, "contact_full_name")
+            .column_as(people::Column::Email, "contact_email")
+            .column_as(people::Column::AvatarUrl, "contact_avatar_url")
+            .join(JoinType::LeftJoin, contact())
+    }
+
+    /// `withContact(conv, contact)`.
+    fn into_json(self) -> Result<Value, DbErr> {
+        Ok(with_contact(
+            js(self.conversation)?,
+            self.contact_full_name.as_deref(),
+            self.contact_email.as_deref(),
+            self.contact_avatar_url.as_deref(),
+        ))
+    }
+}
+
 /// Fire-and-forget work (`c.executionCtx.waitUntil`).
 fn background(state: &DeskState, work: impl Future<Output = ()> + Send + 'static) {
     state.events.tracker().spawn(work);
@@ -247,65 +308,9 @@ fn publish(state: &DeskState, caller: &Caller, event: EventName, id: &str, data:
 
 // ── list and counts ─────────────────────────────────────────────────────────
 
-const LIST_SQL: &str = "select to_jsonb(t), p.full_name, p.email, p.avatar_url
-    from helpdesk_conversations t left join people p on t.contact_id = p.id
-    where t.deleted_at is null
-      and (t.channel <> 'chat' or t.last_customer_message_at is not null)
-      and t.has_active_workflow = false
-      and ($1::text is null or t.status = $1)
-      and ($2::text is null or t.status <> $2)
-      and ($3::text is null or t.priority = $3)
-      and ($4::text is null or t.channel = $4)
-      and ($5::text is null or t.department_id = $5)
-      and ($6::text is null or t.contact_id = $6)
-      and ($7::text is null or t.customer_email = $7)
-      and (case $8::text
-             when 'unassigned' then t.assignee_id is null
-             when 'mine' then (t.assignee_id is null or t.assignee_id = $9)
-             when 'assignee' then t.assignee_id = $10
-             else true end)
-      and ($11::boolean is null or t.is_read = $11)
-      and ($12::boolean is null or t.is_starred = $12)
-      and ($13::boolean is null or t.is_archived = $13)
-      and ($14::text is null or (t.subject like $14 or t.customer_email like $14 or t.customer_name like $14
-           or t.conversation_number like $14 or p.full_name like $14 or p.email like $14))
-      and ($15::text is null or (t.created_at < $15::timestamp or (t.created_at = $15::timestamp and t.id < $16)))
-    order by t.created_at desc, t.id desc
-    limit $17";
-
-const COUNT_SQL: &str = "select count(*)
-    from helpdesk_conversations t left join people p on t.contact_id = p.id
-    where t.deleted_at is null
-      and (t.channel <> 'chat' or t.last_customer_message_at is not null)
-      and t.has_active_workflow = false
-      and ($1::text is null or t.status = $1)
-      and ($2::text is null or t.status <> $2)
-      and ($3::text is null or t.priority = $3)
-      and ($4::text is null or t.channel = $4)
-      and ($5::text is null or t.department_id = $5)
-      and ($6::text is null or t.contact_id = $6)
-      and ($7::text is null or t.customer_email = $7)
-      and (case $8::text
-             when 'unassigned' then t.assignee_id is null
-             when 'mine' then (t.assignee_id is null or t.assignee_id = $9)
-             when 'assignee' then t.assignee_id = $10
-             else true end)
-      and ($11::boolean is null or t.is_read = $11)
-      and ($12::boolean is null or t.is_starred = $12)
-      and ($13::boolean is null or t.is_archived = $13)
-      and ($14::text is null or (t.subject like $14 or t.customer_email like $14 or t.customer_name like $14
-           or t.conversation_number like $14 or p.full_name like $14 or p.email like $14))";
-
-/// A conversation row with its contact's name and email.
-type ConversationWithContact = (Value, Option<String>, Option<String>);
-
-type ContactRow = (Value, Option<String>, Option<String>, Option<String>);
-
-async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
-    const MESSAGE: &str = "Failed to list conversations";
-    let query = query.as_deref();
+/// The list's filters from the query string.
+fn list_filters(query: Option<&str>, user_id: &str) -> Condition {
     let q = |key: &str| query_param(query, key).filter(|v| !v.is_empty());
-    let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
     let assignment = if query_param(query, "unassigned").as_deref() == Some("true") {
         Some("unassigned")
     } else if query_param(query, "myConversations").as_deref() == Some("true") {
@@ -321,6 +326,72 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         _ => None,
     };
     let search = q("search").map(|s| format!("%{s}%"));
+    let mut filters = Condition::all()
+        .add(convs::Column::DeletedAt.is_null())
+        .add(
+            Condition::any()
+                .add(convs::Column::Channel.ne("chat"))
+                .add(convs::Column::LastCustomerMessageAt.is_not_null()),
+        )
+        .add(convs::Column::HasActiveWorkflow.eq(false));
+    if let Some(status) = q("status") {
+        filters = filters.add(convs::Column::Status.eq(status));
+    }
+    if let Some(status) = q("excludeStatus") {
+        filters = filters.add(convs::Column::Status.ne(status));
+    }
+    for (key, column) in [
+        ("priority", convs::Column::Priority),
+        ("channel", convs::Column::Channel),
+        ("departmentId", convs::Column::DepartmentId),
+        ("contactId", convs::Column::ContactId),
+        ("customerEmail", convs::Column::CustomerEmail),
+    ] {
+        if let Some(value) = q(key) {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    match assignment {
+        Some("unassigned") => filters = filters.add(convs::Column::AssigneeId.is_null()),
+        Some("mine") => {
+            filters = filters.add(
+                Condition::any()
+                    .add(convs::Column::AssigneeId.is_null())
+                    .add(convs::Column::AssigneeId.eq(user_id)),
+            );
+        }
+        // `$10` is `q("assigneeId")`, there whenever this branch is taken.
+        Some(_) => filters = filters.add(convs::Column::AssigneeId.eq(q("assigneeId"))),
+        None => {}
+    }
+    for (key, column) in [
+        ("isRead", convs::Column::IsRead),
+        ("isStarred", convs::Column::IsStarred),
+        ("isArchived", convs::Column::IsArchived),
+    ] {
+        if let Some(flag) = flag(key) {
+            filters = filters.add(column.eq(flag));
+        }
+    }
+    if let Some(search) = &search {
+        filters = filters.add(
+            Condition::any()
+                .add(convs::Column::Subject.like(search))
+                .add(convs::Column::CustomerEmail.like(search))
+                .add(convs::Column::CustomerName.like(search))
+                .add(convs::Column::ConversationNumber.like(search))
+                .add(people::Column::FullName.like(search))
+                .add(people::Column::Email.like(search)),
+        );
+    }
+    filters
+}
+
+async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
+    const MESSAGE: &str = "Failed to list conversations";
+    let query = query.as_deref();
+    let q = |key: &str| query_param(query, key).filter(|v| !v.is_empty());
+    let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
     // The cursor lookup runs before the route's `try`.
     let cursor = match q("cursor") {
         Some(cursor) => match crate::crud::cursor_row(&caller.db, CONV, &cursor).await {
@@ -332,97 +403,136 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         },
         None => None,
     };
-    macro_rules! filters {
-        ($query:expr) => {
-            $query
-                .bind(q("status"))
-                .bind(q("excludeStatus"))
-                .bind(q("priority"))
-                .bind(q("channel"))
-                .bind(q("departmentId"))
-                .bind(q("contactId"))
-                .bind(q("customerEmail"))
-                .bind(assignment)
-                .bind(&caller.user_id)
-                .bind(q("assigneeId"))
-                .bind(flag("isRead"))
-                .bind(flag("isStarred"))
-                .bind(flag("isArchived"))
-                .bind(search.as_deref())
-        };
+    let filters = list_filters(query, &caller.user_id);
+    let mut page = WithContact::query().filter(filters.clone());
+    if let Some((at, cursor_id)) = &cursor {
+        page = page.filter(
+            Condition::any().add(convs::Column::CreatedAt.lt(*at)).add(
+                Condition::all()
+                    .add(convs::Column::CreatedAt.eq(*at))
+                    .add(convs::Column::Id.lt(cursor_id)),
+            ),
+        );
     }
-    let rows: Result<Vec<ContactRow>, _> = filters!(sqlx::query_as(LIST_SQL))
-        .bind(cursor.as_ref().map(|(at, _)| *at))
-        .bind(cursor.as_ref().map(|(_, id)| id.as_str()))
-        .bind(sql_limit(limit))
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = filters!(sqlx::query_scalar(COUNT_SQL))
-        .fetch_one(&caller.db)
+    page = page
+        .order_by_desc(convs::Column::CreatedAt)
+        .order_by_desc(convs::Column::Id);
+    if let Some(limit) = sql_limit(limit) {
+        page = page.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    let db = orm(&caller.db);
+    let rows = page.into_model::<WithContact>().all(&db).await;
+    let total = convs::Entity::find()
+        .join(JoinType::LeftJoin, contact())
+        .filter(filters)
+        .count(&db)
         .await;
     let (rows, total) = match (rows, total) {
         (Ok(rows), Ok(total)) => (rows, total),
         (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
     };
-    let rows: Vec<Value> = rows
-        .into_iter()
-        .map(|(row, name, email, avatar)| {
-            with_contact(
-                CONV.js(row),
-                name.as_deref(),
-                email.as_deref(),
-                avatar.as_deref(),
-            )
-        })
-        .collect();
+    let rows: Vec<Value> = match rows.into_iter().map(WithContact::into_json).collect() {
+        Ok(rows) => rows,
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
+    };
     let (data, has_more, cursor) = page_of(rows, limit, |row| text(row, "id"));
     weldsuite_kit::List::new(
         data,
-        weldsuite_kit::Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
+        weldsuite_kit::Pagination::new(total, has_more, cursor),
     )
     .into_response()
 }
 
+/// The inbox folders' counts.
+#[derive(Debug, FromQueryResult)]
+struct FolderCounts {
+    all: i64,
+    chat: i64,
+    unassigned: i64,
+    mine: i64,
+    active: i64,
+    pending: i64,
+    resolved: i64,
+    closed: i64,
+}
+
 async fn folder_counts(caller: Caller) -> Response {
-    let counts: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object(
-            'all', count(*) filter (where t.is_read = false and (t.assignee_id is null or t.assignee_id = $1))::int,
-            'chat', count(*) filter (where t.is_read = false and t.channel = 'chat' and (t.assignee_id is null or t.assignee_id = $1))::int,
-            'unassigned', count(*) filter (where t.is_read = false and t.assignee_id is null)::int,
-            'mine', count(*) filter (where t.is_read = false and t.assignee_id = $1)::int,
-            'active', count(*) filter (where t.status = 'active')::int,
-            'pending', count(*) filter (where t.status = 'pending')::int,
-            'resolved', count(*) filter (where t.status = 'resolved')::int,
-            'closed', count(*) filter (where t.status = 'closed')::int)
-         from helpdesk_conversations t where t.deleted_at is null and t.is_archived = false",
-    )
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    // `count(*) filter (where …)`: the rows the case keeps (it is null otherwise).
+    let count = |condition: Condition| Expr::from(Func::count(Expr::case(condition, 1)));
+    let unread = || Condition::all().add(convs::Column::IsRead.eq(false));
+    let unassigned_or_mine = || {
+        Condition::any()
+            .add(convs::Column::AssigneeId.is_null())
+            .add(convs::Column::AssigneeId.eq(&caller.user_id))
+    };
+    let status = |status: &str| Condition::all().add(convs::Column::Status.eq(status));
+    let counts = convs::Entity::find()
+        .select_only()
+        .column_as(count(unread().add(unassigned_or_mine())), "all")
+        .column_as(
+            count(
+                unread()
+                    .add(convs::Column::Channel.eq("chat"))
+                    .add(unassigned_or_mine()),
+            ),
+            "chat",
+        )
+        .column_as(
+            count(unread().add(convs::Column::AssigneeId.is_null())),
+            "unassigned",
+        )
+        .column_as(
+            count(unread().add(convs::Column::AssigneeId.eq(&caller.user_id))),
+            "mine",
+        )
+        .column_as(count(status("active")), "active")
+        .column_as(count(status("pending")), "pending")
+        .column_as(count(status("resolved")), "resolved")
+        .column_as(count(status("closed")), "closed")
+        .filter(convs::Column::DeletedAt.is_null())
+        .filter(convs::Column::IsArchived.eq(false))
+        .into_model::<FolderCounts>()
+        .one(&orm(&caller.db))
+        .await;
     match counts {
-        Ok(counts) => Data(counts).into_response(),
+        Ok(counts) => {
+            let counts = counts.unwrap_or(FolderCounts {
+                all: 0,
+                chat: 0,
+                unassigned: 0,
+                mine: 0,
+                active: 0,
+                pending: 0,
+                resolved: 0,
+                closed: 0,
+            });
+            Data(json!({
+                "active": counts.active,
+                "all": counts.all,
+                "chat": counts.chat,
+                "closed": counts.closed,
+                "mine": counts.mine,
+                "pending": counts.pending,
+                "resolved": counts.resolved,
+                "unassigned": counts.unassigned,
+            }))
+            .into_response()
+        }
         Err(error) => Refusal::from(error).respond("Failed to fetch folder counts"),
     }
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const MESSAGE: &str = "Failed to fetch conversation";
-    let row: Result<Option<ContactRow>, sqlx::Error> = sqlx::query_as(
-        "select to_jsonb(t), p.full_name, p.email, p.avatar_url
-         from helpdesk_conversations t left join people p on t.contact_id = p.id
-         where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
-    match row {
-        Ok(Some((row, name, email, avatar))) => Data(with_contact(
-            CONV.js(row),
-            name.as_deref(),
-            email.as_deref(),
-            avatar.as_deref(),
-        ))
-        .into_response(),
+    let row = WithContact::query()
+        .filter(convs::Column::Id.eq(&id))
+        .filter(convs::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_model::<WithContact>()
+        .one(&orm(&caller.db))
+        .await;
+    match row.and_then(|row| row.map(WithContact::into_json).transpose()) {
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Conversation", &id).respond(MESSAGE),
         Err(error) => Refusal::from(error).respond(MESSAGE),
     }
@@ -480,13 +590,16 @@ fn message_dto(msg: &Value) -> Value {
     Value::Object(out)
 }
 
-async fn exists(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from helpdesk_conversations where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+async fn exists(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = convs::Entity::find()
+        .select_only()
+        .column(convs::Column::Id)
+        .filter(convs::Column::Id.eq(id))
+        .filter(convs::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -497,20 +610,15 @@ async fn messages(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(false) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(m) from helpdesk_conversation_messages m
-         where m.conversation_id = $1 and m.deleted_at is null order by m.created_at",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = conv_messages::Entity::find()
+        .filter(conv_messages::Column::ConversationId.eq(&id))
+        .filter(conv_messages::Column::DeletedAt.is_null())
+        .order_by_asc(conv_messages::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(js).collect::<Result<Vec<_>, _>>());
     match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
-                .map(|row| message_dto(&HELPDESK_CONVERSATION_MESSAGES.js(row)))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+        Ok(rows) => Data(rows.iter().map(message_dto).collect::<Vec<_>>()).into_response(),
         Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
@@ -597,16 +705,13 @@ async fn send_message(
     let current = text(&conversation, "assigneeId").filter(|a| !a.is_empty());
     let auto_assign = !internal && (current.is_none() || current == Some("ai-agent"));
     if auto_assign {
-        let assigned = sqlx::query(
-            "update helpdesk_conversations set assignee_id = $2, assignee_name = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&caller.user_id)
-        .bind(&author_name)
-        .bind(now())
-        .execute(&caller.db)
-        .await;
+        let assigned = convs::Entity::update_many()
+            .col_expr(convs::Column::AssigneeId, Expr::value(&caller.user_id))
+            .col_expr(convs::Column::AssigneeName, Expr::value(&author_name))
+            .col_expr(convs::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(convs::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await;
         if let Err(error) = assigned {
             return Refusal::from(error).respond(MESSAGE);
         }
@@ -628,7 +733,7 @@ async fn send_message(
     }
     // `createAgentMessage`.
     let message_id = generate_id("msg");
-    let now = now();
+    let (now, stamp) = now_and_stamp();
     let has_attachments = input.attachments.as_ref().is_some_and(|a| !a.is_empty());
     let table = &HELPDESK_CONVERSATION_MESSAGES;
     let mut values = Map::new();
@@ -684,18 +789,25 @@ async fn send_message(
     } else {
         input.content.clone()
     };
-    let rolled = sqlx::query(
-        "update helpdesk_conversations set last_message = $2, last_message_at = $3::timestamp,
-             last_agent_message_at = $3::timestamp, message_count = message_count + 1,
-             has_attachments = case when $4 then true else has_attachments end, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(substring(&last, 500))
-    .bind(&now)
-    .bind(has_attachments)
-    .execute(&caller.db)
-    .await;
+    let mut roll = convs::Entity::update_many()
+        .col_expr(
+            convs::Column::LastMessage,
+            Expr::value(substring(&last, 500)),
+        )
+        .col_expr(convs::Column::LastMessageAt, Expr::value(stamp))
+        .col_expr(convs::Column::LastAgentMessageAt, Expr::value(stamp))
+        .col_expr(
+            convs::Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(convs::Column::MessageCount), 1),
+        );
+    if has_attachments {
+        roll = roll.col_expr(convs::Column::HasAttachments, Expr::value(true));
+    }
+    let rolled = roll
+        .col_expr(convs::Column::UpdatedAt, Expr::value(stamp))
+        .filter(convs::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = rolled {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -772,15 +884,15 @@ async fn respond(
         Ok(read) => read,
         Err(refusal) => return refusal.respond(MESSAGE),
     };
-    let found: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(m) from helpdesk_conversation_messages m where m.id = $1 and m.conversation_id = $2 limit 1",
-    )
-    .bind(&message_id)
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let found = conv_messages::Entity::find()
+        .filter(conv_messages::Column::Id.eq(&message_id))
+        .filter(conv_messages::Column::ConversationId.eq(&id))
+        .limit(1)
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(js).transpose());
     let message = match found {
-        Ok(Some(row)) => HELPDESK_CONVERSATION_MESSAGES.js(row),
+        Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Message", &message_id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
@@ -816,14 +928,15 @@ async fn respond(
     }
     entry.insert("respondedAt".to_owned(), json!(now()));
     responses.insert(action_id.clone(), Value::Object(entry));
-    let stored = sqlx::query(
-        "update helpdesk_conversation_messages set block_responses = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&message_id)
-    .bind(Value::Object(responses.clone()))
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let stored = conv_messages::Entity::update_many()
+        .col_expr(
+            conv_messages::Column::BlockResponses,
+            Expr::value(Value::Object(responses.clone())),
+        )
+        .col_expr(conv_messages::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conv_messages::Column::Id.eq(&message_id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = stored {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -851,17 +964,16 @@ async fn events(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuer
     let query = query.as_deref();
     let kind = query_param(query, "type").filter(|t| !t.is_empty());
     let public = query_param(query, "isPublic").map(|p| p == "true");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(e) from helpdesk_conversation_events e where e.conversation_id = $1
-         order by e.created_at limit 200",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = tenant::helpdesk_conversation_events::Entity::find()
+        .filter(tenant::helpdesk_conversation_events::Column::ConversationId.eq(&id))
+        .order_by_asc(tenant::helpdesk_conversation_events::Column::CreatedAt)
+        .limit(200)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(js).collect::<Result<Vec<_>, _>>());
     match rows {
         Ok(rows) => Data(
             rows.into_iter()
-                .map(|row| HELPDESK_CONVERSATION_EVENTS.js(row))
                 .filter(|event| {
                     let event_type = event["eventType"].as_str().unwrap_or_default();
                     kind.as_ref()
@@ -876,45 +988,38 @@ async fn events(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuer
 }
 
 async fn review(caller: Caller, Path(id): Path<String>) -> Response {
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(r) from helpdesk_reviews r where r.conversation_id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = tenant::helpdesk_reviews::Entity::find()
+        .filter(tenant::helpdesk_reviews::Column::ConversationId.eq(&id))
+        .filter(tenant::helpdesk_reviews::Column::DeletedAt.is_null())
+        .limit(1)
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(js).transpose());
     match row {
         Ok(None) => Data(Value::Null).into_response(),
-        Ok(Some(row)) => {
-            let review = crate::tables::HELPDESK_REVIEWS.js(row);
-            Data(json!({
-                "id": review["id"],
-                "rating": review["rating"],
-                "content": review["content"],
-                "reviewerName": review["reviewerName"],
-                "reviewerEmail": review["reviewerEmail"],
-                "createdAt": review["createdAt"],
-            }))
-            .into_response()
-        }
+        Ok(Some(review)) => Data(json!({
+            "id": review["id"],
+            "rating": review["rating"],
+            "content": review["content"],
+            "reviewerName": review["reviewerName"],
+            "reviewerEmail": review["reviewerEmail"],
+            "createdAt": review["createdAt"],
+        }))
+        .into_response(),
         Err(error) => Refusal::from(error).respond("Failed to fetch review"),
     }
 }
 
 async fn audit_logs(caller: Caller, Path(id): Path<String>) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(a) from audit_logs a
-         where a.entity_type = 'helpdesk_conversation' and a.entity_id = $1 order by a.created_at desc",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = tenant::audit_logs::Entity::find()
+        .filter(tenant::audit_logs::Column::EntityType.eq("helpdesk_conversation"))
+        .filter(tenant::audit_logs::Column::EntityId.eq(&id))
+        .order_by_desc(tenant::audit_logs::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(js).collect::<Result<Vec<_>, _>>());
     match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
-                .map(|row| AUDIT_LOGS.js(row))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to fetch audit logs"),
     }
 }
@@ -1462,23 +1567,28 @@ async fn assign(
     }
     let name = name.filter(|n| !n.is_empty());
     let avatar = avatar.filter(|a| !a.is_empty());
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update helpdesk_conversations as t set assignee_id = $2,
-             assignee_name = case when $3::text is not null then $3 else t.assignee_name end,
-             assignee_avatar = case when $4::text is not null then $4 else t.assignee_avatar end,
-             updated_at = $5::timestamp
-         where t.id = $1 and t.deleted_at is null and (t.assignee_id is null or t.assignee_id <> $2)
-         returning to_jsonb(t)",
-    )
-    .bind(&id)
-    .bind(&assignee)
-    .bind(name.as_deref())
-    .bind(avatar.as_deref())
-    .bind(now())
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update =
+        convs::Entity::update_many().col_expr(convs::Column::AssigneeId, Expr::value(&assignee));
+    if let Some(name) = &name {
+        update = update.col_expr(convs::Column::AssigneeName, Expr::value(name));
+    }
+    if let Some(avatar) = &avatar {
+        update = update.col_expr(convs::Column::AssigneeAvatar, Expr::value(avatar));
+    }
+    let updated = update
+        .col_expr(convs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(convs::Column::Id.eq(&id))
+        .filter(convs::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(convs::Column::AssigneeId.is_null())
+                .add(convs::Column::AssigneeId.ne(&assignee)),
+        )
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js).transpose());
     let conv = match updated {
-        Ok(Some(row)) => CONV.js(row),
+        Ok(Some(row)) => row,
         Ok(None) => {
             return match load(&caller.db, &id).await {
                 Ok(row) => Data(assignment_answer(&id, row.as_ref())).into_response(),
@@ -1677,16 +1787,25 @@ async fn convert_to_ticket(
             Ok(read) => read,
             Err(refusal) => return refusal.respond(MESSAGE),
         };
-    let row: Result<Option<ConversationWithContact>, sqlx::Error> = sqlx::query_as(
-        "select to_jsonb(t), p.full_name, p.email
-         from helpdesk_conversations t left join people p on t.contact_id = p.id
-         where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = WithContact::query()
+        .filter(convs::Column::Id.eq(&id))
+        .filter(convs::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_model::<WithContact>()
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| {
+            row.map(|row| {
+                Ok((
+                    js(row.conversation)?,
+                    row.contact_full_name,
+                    row.contact_email,
+                ))
+            })
+            .transpose()
+        });
     let (conv, contact_name, contact_email) = match row {
-        Ok(Some((row, name, email))) => (CONV.js(row), name, email),
+        Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
@@ -2009,11 +2128,15 @@ async fn auto_link_contact(
         Ok(false) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
-    let found: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from people where email = $1 and deleted_at is null limit 1")
-            .bind(&email)
-            .fetch_optional(&caller.db)
-            .await;
+    let found: Result<Option<String>, DbErr> = people::Entity::find()
+        .select_only()
+        .column(people::Column::Id)
+        .filter(people::Column::Email.eq(&email))
+        .filter(people::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let contact_id = match found {
         Ok(Some(found)) => found,
         Ok(None) => {
@@ -2059,11 +2182,11 @@ async fn auto_link_contact(
         }
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
-    let linked = sqlx::query("update helpdesk_conversations set contact_id = $2, updated_at = $3::timestamp where id = $1")
-        .bind(&id)
-        .bind(&contact_id)
-        .bind(now())
-        .execute(&caller.db)
+    let linked = convs::Entity::update_many()
+        .col_expr(convs::Column::ContactId, Expr::value(&contact_id))
+        .col_expr(convs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(convs::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
         .await;
     if let Err(error) = linked {
         return Refusal::from(error).respond(MESSAGE);

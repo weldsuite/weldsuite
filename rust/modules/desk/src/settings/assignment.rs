@@ -16,15 +16,18 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_settings::{self, Column};
 
-use crate::{Caller, DeskState, Refusal, now, validate};
+use crate::{Caller, DeskState, Refusal, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -111,12 +114,15 @@ fn normalize(raw: Option<&Value>) -> Assignment {
 }
 
 /// `getDeskAssignmentSettings(db)`: the settings row's id and the rules.
-async fn current(db: &PgPool) -> Result<(Option<String>, Assignment), sqlx::Error> {
-    let row: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, automation from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+async fn current(db: &PgPool) -> Result<(Option<String>, Assignment), DbErr> {
+    let row: Option<(String, Option<Value>)> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column(Column::Automation)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match row {
         Some((id, automation)) => {
             let raw = automation.as_ref().and_then(|a| a.get("deskAssignment"));
@@ -142,36 +148,58 @@ async fn read(caller: Caller) -> Response {
     }
 }
 
+/// A new settings row whose `automation` holds only `deskAssignment`.
+async fn insert_settings(db: &PgPool, assignment: Map<String, Value>) -> Result<(), DbErr> {
+    let now = utc_now();
+    helpdesk_settings::Entity::insert(helpdesk_settings::ActiveModel {
+        id: Set(generate_id("hds")),
+        automation: Set(Some(
+            json!({ "enabled": false, "deskAssignment": assignment }),
+        )),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
+    .await?;
+    Ok(())
+}
+
 /// `saveDeskAssignmentSettings(db, generateId, patch)`.
-async fn save_rules(db: &PgPool, patch: &Map<String, Value>) -> Result<Assignment, sqlx::Error> {
+async fn save_rules(db: &PgPool, patch: &Map<String, Value>) -> Result<Assignment, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
     let (settings_id, _) = current(db).await?;
     if let Some(id) = settings_id {
-        sqlx::query(
-            "update helpdesk_settings set
-               automation = coalesce(automation, '{}'::jsonb) || jsonb_build_object('deskAssignment', coalesce(automation->'deskAssignment', '{}'::jsonb) || $2::jsonb),
-               updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(Value::Object(patch.clone()))
-        .bind(now())
-        .execute(db)
-        .await?;
+        // `coalesce(automation, '{}') || jsonb_build_object('deskAssignment',
+        // coalesce(automation->'deskAssignment', '{}') || patch)`: the rest of
+        // `automation` and of the rules stays as it is, in the same statement.
+        let rules = Expr::from(Func::coalesce([
+            Expr::col(Column::Automation).get_json_field("deskAssignment"),
+            Expr::val(json!({})),
+        ]))
+        .concat(Expr::val(Value::Object(patch.clone())));
+        let rules = Expr::from(
+            Func::cust("jsonb_build_object")
+                .arg(Expr::val("deskAssignment"))
+                .arg(rules),
+        );
+        let automation = Expr::from(Func::coalesce([
+            Expr::col(Column::Automation),
+            Expr::val(json!({})),
+        ]))
+        .concat(rules);
+        helpdesk_settings::Entity::update_many()
+            .col_expr(Column::Automation, automation)
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     } else {
         let mut assignment = default_assignment();
         for (key, value) in patch {
             assignment.insert(key.clone(), value.clone());
         }
-        let now = now();
-        sqlx::query(
-            "insert into helpdesk_settings (id, automation, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        )
-        .bind(generate_id("hds"))
-        .bind(json!({ "enabled": false, "deskAssignment": assignment }))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        insert_settings(db, assignment).await?;
     }
     Ok(current(db).await?.1)
 }
@@ -251,7 +279,7 @@ async fn save(
 }
 
 /// `setDeskMemberAway(db, generateId, userId, away)`.
-async fn set_away(db: &PgPool, user_id: &str, away: bool) -> Result<Assignment, sqlx::Error> {
+async fn set_away(db: &PgPool, user_id: &str, away: bool) -> Result<Assignment, DbErr> {
     let (settings_id, _) = current(db).await?;
     let Some(id) = settings_id else {
         if !away {
@@ -259,18 +287,19 @@ async fn set_away(db: &PgPool, user_id: &str, away: bool) -> Result<Assignment, 
         }
         let mut assignment = default_assignment();
         assignment.insert("awayMemberIds".to_owned(), json!([user_id]));
-        let now = now();
-        sqlx::query(
-            "insert into helpdesk_settings (id, automation, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        )
-        .bind(generate_id("hds"))
-        .bind(json!({ "enabled": false, "deskAssignment": assignment }))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        insert_settings(db, assignment).await?;
         return Ok(current(db).await?.1);
     };
+    mark_away(db, &id, user_id, away).await?;
+    Ok(current(db).await?.1)
+}
+
+/// Add the member to the stored away list (once) or take them off it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one statement on purpose: the away list is rebuilt from the stored one inside the update (a distinct union, or a removal), so teammates going away at the same moment don't overwrite each other"
+)]
+async fn mark_away(db: &PgPool, id: &str, user_id: &str, away: bool) -> Result<(), DbErr> {
     let sql = if away {
         "update helpdesk_settings set
            automation = coalesce(automation, '{}'::jsonb) || jsonb_build_object('deskAssignment', coalesce(automation->'deskAssignment', '{}'::jsonb) || jsonb_build_object('awayMemberIds',
@@ -285,12 +314,13 @@ async fn set_away(db: &PgPool, user_id: &str, away: bool) -> Result<Assignment, 
          where id = $1"
     };
     sqlx::query(sql)
-        .bind(&id)
+        .bind(id)
         .bind(user_id)
-        .bind(now())
+        .bind(utc_now())
         .execute(db)
-        .await?;
-    Ok(current(db).await?.1)
+        .await
+        .map_err(orm_error)?;
+    Ok(())
 }
 
 async fn away(

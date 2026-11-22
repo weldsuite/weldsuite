@@ -14,15 +14,17 @@
 
 use axum::extract::RawQuery;
 use axum::response::{IntoResponse, Response};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::Row;
 use sqlx::postgres::PgRow;
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{desk_phone_routes, helpdesk_departments, voip_calls};
 
 use super::reports::{
-    self, Binds, Period, Unit, date_key, day_start, float_or_null, int, int_or_null, iso_of,
+    self, Binds, Period, Unit, date_key, day_of, float_or_null, get, int, int_or_null, iso_of,
     opt_int, overview_unit, pair, period_of, previous_of, range_of, rows, trunc,
 };
 use crate::js::query_param;
@@ -32,31 +34,33 @@ const DUE_SOON_LIMIT: u32 = 8;
 const AGENTS_LIMIT: u32 = 50;
 
 /// `num(value)`: a count, 0 when the row has none.
-fn count(row: &PgRow, column: &str) -> Result<i32, sqlx::Error> {
-    Ok(row.try_get::<Option<i32>, _>(column)?.unwrap_or_default())
+fn count(row: &PgRow, column: &str) -> Result<i32, DbErr> {
+    Ok(get::<Option<i32>>(row, column)?.unwrap_or_default())
 }
 
-fn text(row: &PgRow, column: &str) -> Result<Option<String>, sqlx::Error> {
-    row.try_get::<Option<String>, _>(column)
+fn text(row: &PgRow, column: &str) -> Result<Option<String>, DbErr> {
+    get::<Option<String>>(row, column)
 }
 
 // ── wallboard ───────────────────────────────────────────────────────────────
 
 /// `deskTeamExists(db, teamId)`: whether `team_id` names a team
 /// (`helpdesk_departments` row) that is not deleted.
-async fn team_exists(db: &PgPool, team_id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(
-        "select 1 as found from helpdesk_departments where id = $1 and deleted_at is null",
-    )
-    .bind(team_id)
-    .fetch_optional(db)
-    .await?;
+async fn team_exists(db: &PgPool, team_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = helpdesk_departments::Entity::find()
+        .select_only()
+        .column(helpdesk_departments::Column::Id)
+        .filter(helpdesk_departments::Column::Id.eq(team_id))
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
 /// `deskWallboard(db, now, teamId)`.
 #[allow(clippy::too_many_lines)] // one statement per block of the wallboard
-async fn wallboard(db: &PgPool, now: i64, team_id: Option<&str>) -> Result<Value, sqlx::Error> {
+async fn wallboard(db: &PgPool, now: i64, team_id: Option<&str>) -> Result<Value, DbErr> {
     let today = period_of("today", now, None);
 
     let mut binds = Binds::default();
@@ -160,12 +164,10 @@ async fn wallboard(db: &PgPool, now: i64, team_id: Option<&str>) -> Result<Value
     );
     let agent_rows = rows(db, &agent_sql, binds).await?;
 
-    let route_rows = rows(
-        db,
-        "select count(*)::int as routes from desk_phone_routes where action in ('agents', 'menu')",
-        Binds::default(),
-    )
-    .await?;
+    let routes = desk_phone_routes::Entity::find()
+        .filter(desk_phone_routes::Column::Action.is_in(["agents", "menu"]))
+        .count(&orm(db))
+        .await?;
 
     let mut binds = Binds::default();
     let now_at = binds.ts(now);
@@ -194,7 +196,7 @@ async fn wallboard(db: &PgPool, now: i64, team_id: Option<&str>) -> Result<Value
     let q = queue_rows.first();
     let t = today_rows.first();
     let p = call_rows.first();
-    let phone_enabled = int(route_rows.first(), "routes")? > 0;
+    let phone_enabled = routes > 0;
 
     let mut due_soon = Vec::with_capacity(due_rows.len());
     for row in &due_rows {
@@ -225,7 +227,7 @@ async fn wallboard(db: &PgPool, now: i64, team_id: Option<&str>) -> Result<Value
             "id": text(row, "id")?.unwrap_or_default(),
             "name": text(row, "name")?.unwrap_or_default(),
             "open": count(row, "open")?,
-            "away": row.try_get::<Option<bool>, _>("away")? == Some(true),
+            "away": get::<Option<bool>>(row, "away")? == Some(true),
         }));
     }
     let phone = if phone_enabled {
@@ -301,13 +303,14 @@ const ANSWERED_WITH_HANDLE: &str =
 const ABANDONED_WITH_WAIT: &str = "v.outcome = 'abandoned' and v.ended_at is not null";
 
 /// The first day a call waited, for `all_time`.
-async fn first_call(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
-    let first: Option<String> = sqlx::query_scalar(
-        "select to_char(min(queue_entered_at), 'YYYY-MM-DD') as first from voip_calls",
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(first.as_deref().and_then(day_start))
+async fn first_call(db: &PgPool) -> Result<Option<i64>, DbErr> {
+    let first: Option<Option<PrimitiveDateTime>> = voip_calls::Entity::find()
+        .select_only()
+        .column_as(voip_calls::Column::QueueEnteredAt.min(), "first")
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(first.flatten().map(day_of))
 }
 
 /// `kpiColumns(period, suffix)`: the KPI aggregates of one period, as SQL
@@ -347,7 +350,7 @@ fn kpi_columns(binds: &mut Binds, period: Period, s: &str) -> String {
 
 /// `deskPhoneReport(db, range, now)`.
 #[allow(clippy::too_many_lines)] // one statement per block of the report
-async fn phone_report(db: &PgPool, range: Option<&str>, now: i64) -> Result<Value, sqlx::Error> {
+async fn phone_report(db: &PgPool, range: Option<&str>, now: i64) -> Result<Value, DbErr> {
     let range = range_of(range);
     let first = if range == "all_time" {
         first_call(db).await?
@@ -442,13 +445,13 @@ async fn phone_report(db: &PgPool, range: Option<&str>, now: i64) -> Result<Valu
     let hour_rows = rows(db, &hour_sql, binds).await?;
 
     let t = totals.first();
-    let counts = |key: &str| -> Result<Value, sqlx::Error> {
+    let counts = |key: &str| -> Result<Value, DbErr> {
         Ok(pair(
             int(t, &format!("{key}_cur"))?.into(),
             int(t, &format!("{key}_prev"))?.into(),
         ))
     };
-    let seconds = |key: &str| -> Result<Value, sqlx::Error> {
+    let seconds = |key: &str| -> Result<Value, DbErr> {
         Ok(pair(
             int_or_null(t, &format!("{key}_cur"))?,
             int_or_null(t, &format!("{key}_prev"))?,
@@ -471,7 +474,7 @@ async fn phone_report(db: &PgPool, range: Option<&str>, now: i64) -> Result<Valu
             "id": text(row, "id")?.unwrap_or_default(),
             "name": text(row, "name")?.unwrap_or_default(),
             "answered": count(row, "answered")?,
-            "handleAvg": opt_int(row.try_get("handle_avg")?),
+            "handleAvg": opt_int(get(row, "handle_avg")?),
             "handleTotal": count(row, "handle_total")?,
         }));
     }
@@ -484,7 +487,7 @@ async fn phone_report(db: &PgPool, range: Option<&str>, now: i64) -> Result<Valu
             "answered": count(row, "answered")?,
             "missed": count(row, "missed")?,
             "abandoned": count(row, "abandoned")?,
-            "waitAvg": opt_int(row.try_get("wait_avg")?),
+            "waitAvg": opt_int(get(row, "wait_avg")?),
         }));
     }
     let mut hours = Vec::with_capacity(hour_rows.len());

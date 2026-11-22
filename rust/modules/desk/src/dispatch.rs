@@ -8,14 +8,19 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::http::{DeskHttp, HttpRequest};
 use weldsuite_mail_domain::outbound::{
     CheckOutboundInput, GuardedSendError, OutboundGuard, OutboundKind, SendEmailParams,
     SubjectInput, TransmitError, guarded_send, send_email,
 };
 use weldsuite_ports::MailTransport;
+use weldsuite_schema::tenant::{
+    helpdesk_channel_integrations, helpdesk_conversation_messages, helpdesk_conversations,
+};
 
 use crate::js::text;
 use crate::{Caller, DeskState};
@@ -192,17 +197,19 @@ async fn dispatch_email(
             return;
         }
     };
-    let stored =
-        sqlx::query("update helpdesk_conversation_messages set metadata = $2 where id = $1")
-            .bind(&message.id)
-            .bind(json!({
+    let stored = helpdesk_conversation_messages::Entity::update_many()
+        .col_expr(
+            helpdesk_conversation_messages::Column::Metadata,
+            Expr::value(json!({
                 "emailMessageId": message_id,
                 "emailFrom": helpdesk_address,
                 "emailTo": [customer],
                 "emailSubject": subject,
-            }))
-            .execute(db)
-            .await;
+            })),
+        )
+        .filter(helpdesk_conversation_messages::Column::Id.eq(&message.id))
+        .exec(&orm(db))
+        .await;
     if let Err(error) = stored {
         tracing::error!(%error, "[ChannelDispatch:Email] Failed to send");
         return;
@@ -215,10 +222,13 @@ async fn dispatch_email(
     let mut next = metadata.as_object().cloned().unwrap_or_default();
     next.insert("lastEmailMessageId".to_owned(), json!(message_id));
     next.insert("emailReferences".to_owned(), Value::Array(updated));
-    let stored = sqlx::query("update helpdesk_conversations set metadata = $2 where id = $1")
-        .bind(id)
-        .bind(Value::Object(next))
-        .execute(db)
+    let stored = helpdesk_conversations::Entity::update_many()
+        .col_expr(
+            helpdesk_conversations::Column::Metadata,
+            Expr::value(Value::Object(next)),
+        )
+        .filter(helpdesk_conversations::Column::Id.eq(id))
+        .exec(&orm(db))
         .await;
     if let Err(error) = stored {
         tracing::error!(%error, "[ChannelDispatch:Email] Failed to send");
@@ -242,12 +252,17 @@ async fn dispatch_slack(
         tracing::warn!("[ChannelDispatch:Slack] Missing slackChannelId for conversation {id}");
         return;
     };
-    let integration: Result<Option<StatusAndConfig>, sqlx::Error> = sqlx::query_as(
-        "select status, config from helpdesk_channel_integrations
-         where provider = 'slack' and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await;
+    let integration: Result<Option<StatusAndConfig>, DbErr> =
+        helpdesk_channel_integrations::Entity::find()
+            .select_only()
+            .column(helpdesk_channel_integrations::Column::Status)
+            .column(helpdesk_channel_integrations::Column::Config)
+            .filter(helpdesk_channel_integrations::Column::Provider.eq("slack"))
+            .filter(helpdesk_channel_integrations::Column::DeletedAt.is_null())
+            .limit(1)
+            .into_tuple()
+            .one(&orm(db))
+            .await;
     let integration = match integration {
         Ok(row) => row,
         Err(error) => {

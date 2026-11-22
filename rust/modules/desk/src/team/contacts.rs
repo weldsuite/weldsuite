@@ -16,14 +16,23 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_conversations;
+use weldsuite_schema::tenant::people::{self, Column};
 
-use crate::crud::{Slots, page_list, write_failed};
+use crate::crud::{CursorRow, Slots, page_list, write_failed};
 use crate::js::{js_limit, query_param, sql_limit};
 use crate::tables::PEOPLE;
 use crate::{Caller, DeskState, Refusal, now, validate};
@@ -46,29 +55,6 @@ where
             patch(update).route_layer(gate.require([perm::CONVERSATIONS_UPDATE.to_owned()])),
         )
 }
-
-/// `$1` live-only skip, `($2, $3)` status, `($4, $5)` search, the cursor
-/// `($6, $7 updatedAt, $8 id)`, `$9` the limit.
-const LIST: &str = "select to_jsonb(t), coalesce((
-        select count(*)::int from helpdesk_conversations hc
-        where hc.contact_id = hc.id and hc.deleted_at is null
-    ), 0)
-    from people t
-    where ($1::boolean or t.deleted_at is null)
-      and ($2::boolean or t.status = $3::text)
-      and ($4::boolean or (t.first_name like $5::text or t.last_name like $5::text
-           or t.full_name like $5::text or t.email like $5::text))
-      and ($6::boolean or (t.updated_at < $7::timestamp
-           or (t.updated_at = $7::timestamp and t.id < $8::text)))
-    order by t.updated_at desc, t.id desc limit $9";
-
-const COUNT: &str = "select count(*) from people t
-    where ($1::boolean or t.deleted_at is null)
-      and ($2::boolean or t.status = $3::text)
-      and ($4::boolean or (t.first_name like $5::text or t.last_name like $5::text
-           or t.full_name like $5::text or t.email like $5::text))
-      and ($6::boolean or (t.updated_at < $7::timestamp
-           or (t.updated_at = $7::timestamp and t.id < $8::text)))";
 
 /// The columns the list picks, in its order.
 const LIST_FIELDS: [&str; 14] = [
@@ -109,20 +95,61 @@ fn pick(row: &Value, fields: &[&str]) -> Map<String, Value> {
 }
 
 /// The cursor row's `updatedAt` (as JavaScript read it) and id.
-async fn cursor_row(
-    db: &weldsuite_db::PgPool,
-    id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(Option<String>, String)> =
-        sqlx::query_as("select to_jsonb(updated_at)#>>'{}', id from people where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.and_then(|(stamp, id)| {
-        stamp
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
-    }))
+async fn cursor_row(db: &DatabaseConnection, id: &str) -> Result<Option<CursorRow>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = people::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(Column::UpdatedAt)
+        .column(Column::Id)
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(row.map(|(updated_at, id)| (weldsuite_db::utc_timestamp(updated_at.assume_utc()), id)))
+}
+
+/// `or(like(t.firstName, term), like(t.lastName, term), like(t.fullName,
+/// term), like(t.email, term))`.
+fn matches(term: &str) -> Condition {
+    Condition::any()
+        .add(Column::FirstName.like(term))
+        .add(Column::LastName.like(term))
+        .add(Column::FullName.like(term))
+        .add(Column::Email.like(term))
+}
+
+/// The list's conditions the slots keep: live only, `status`, the search,
+/// then the cursor (newest `updatedAt` first).
+fn conditions(
+    slots: &Slots,
+    status: Option<&str>,
+    search: Option<&str>,
+    cursor: Option<&CursorRow>,
+) -> Condition {
+    let mut all = Condition::all();
+    if !slots.skip[0] {
+        all = all.add(Column::DeletedAt.is_null());
+    }
+    if !slots.skip[1]
+        && let Some(status) = status
+    {
+        all = all.add(Column::Status.eq(status));
+    }
+    if !slots.skip[2]
+        && let Some(search) = search
+    {
+        all = all.add(matches(search));
+    }
+    if !slots.skip[3]
+        && let Some((at, id)) = cursor
+    {
+        all = all.add(
+            Condition::any().add(Column::UpdatedAt.lt(*at)).add(
+                Condition::all()
+                    .add(Column::UpdatedAt.eq(*at))
+                    .add(Column::Id.lt(id.as_str())),
+            ),
+        );
+    }
+    all
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -133,10 +160,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let search = query_param(query, "search")
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
+    let db = orm(&caller.db);
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
     // The cursor lookup runs before the route's `try`: the app's 500.
     let cursor_row = match &cursor {
-        Some(cursor) => match cursor_row(&caller.db, cursor).await {
+        Some(cursor) => match cursor_row(&db, cursor).await {
             Ok(row) => row,
             Err(error) => {
                 tracing::error!(%error, "desk: contact cursor lookup failed");
@@ -152,46 +180,55 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         cursor_row.is_some(),
     ];
     let (page, count) = Slots::page_and_count(&active, cursor.is_some());
-    let (stamp, id) = match &cursor_row {
-        Some((stamp, id)) => (Some(stamp.as_str()), Some(id.as_str())),
-        None => (None, None),
+    let (status, search) = (status.as_deref(), search.as_deref());
+    let cursor_row = cursor_row.as_ref();
+    let mut rows = people::Entity::find()
+        .filter(conditions(&page, status, search, cursor_row))
+        .order_by_desc(Column::UpdatedAt)
+        .order_by_desc(Column::Id);
+    if let Some(limit) = sql_limit(limit) {
+        rows = rows.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    let listed = async {
+        let rows = rows.all(&db).await?;
+        // The `conversationCount` subquery doesn't depend on the person (see
+        // the module docs): the one count, on every row.
+        let conversations = if rows.is_empty() {
+            0
+        } else {
+            helpdesk_conversations::Entity::find()
+                .filter(sea_orm::ExprTrait::eq(
+                    Expr::col(helpdesk_conversations::Column::ContactId),
+                    Expr::col(helpdesk_conversations::Column::Id),
+                ))
+                .filter(helpdesk_conversations::Column::DeletedAt.is_null())
+                .count(&db)
+                .await?
+        };
+        let total = people::Entity::find()
+            .filter(conditions(&count, status, search, cursor_row))
+            .count(&db)
+            .await?;
+        Ok::<_, DbErr>((rows, conversations, total))
     };
-    let rows: Result<Vec<(Value, i32)>, _> = sqlx::query_as(LIST)
-        .bind(page.skip[0])
-        .bind(page.skip[1])
-        .bind(status.as_deref())
-        .bind(page.skip[2])
-        .bind(search.as_deref())
-        .bind(page.skip[3])
-        .bind(stamp)
-        .bind(id)
-        .bind(sql_limit(limit))
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = sqlx::query_scalar(COUNT)
-        .bind(count.skip[0])
-        .bind(count.skip[1])
-        .bind(status.as_deref())
-        .bind(count.skip[2])
-        .bind(search.as_deref())
-        .bind(count.skip[3])
-        .bind(stamp)
-        .bind(id)
-        .fetch_one(&caller.db)
-        .await;
-    let (rows, total) = match (rows, total) {
-        (Ok(rows), Ok(total)) => (rows, total),
-        (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
+    let (rows, conversations, total) = match listed.await {
+        Ok(listed) => listed,
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows = rows
         .into_iter()
-        .map(|(row, conversations)| {
-            let mut out = pick(&PEOPLE.js(row), &LIST_FIELDS);
+        .map(|person| {
+            let mut out = pick(&person_json(person), &LIST_FIELDS);
             out.insert("conversationCount".to_owned(), json!(conversations));
             Value::Object(out)
         })
         .collect();
-    page_list(rows, limit, total)
+    page_list(rows, limit, i64::try_from(total).unwrap_or(i64::MAX))
+}
+
+/// A `people` row as Drizzle's `select()` returns it.
+fn person_json(person: people::Model) -> Value {
+    serde_json::to_value(person).unwrap_or(Value::Null)
 }
 
 async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -199,19 +236,17 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
         return Data(json!([])).into_response();
     };
     let term = format!("%{q}%");
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from people t
-         where t.deleted_at is null
-           and (t.first_name like $1 or t.last_name like $1 or t.full_name like $1 or t.email like $1)
-         order by t.updated_at desc limit 20",
-    )
-    .bind(&term)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = people::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(matches(&term))
+        .order_by_desc(Column::UpdatedAt)
+        .limit(20)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
-                .map(|row| Value::Object(pick(&PEOPLE.js(row), &SEARCH_FIELDS)))
+                .map(|person| Value::Object(pick(&person_json(person), &SEARCH_FIELDS)))
                 .collect(),
         ))
         .into_response(),

@@ -22,19 +22,45 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::{NotSet, Set},
+    ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    helpdesk_analytics_charts as charts, helpdesk_analytics_reports as reports_table,
+};
 
 use super::reports::{self, ChartQuery};
-use super::{export, lenient_json, live, schedules};
+use super::{export, lenient_json, live, schedules, stamp};
 use crate::crud::write_failed;
 use crate::js::query_param;
 use crate::tables::{HELPDESK_ANALYTICS_CHARTS as CHARTS, HELPDESK_ANALYTICS_REPORTS as REPORTS};
 use crate::{Caller, DeskState, Refusal, now, validate};
+
+/// `update(helpdeskAnalyticsReports).set({ chartCount: count, updatedAt })`
+/// of the report `id`.
+async fn set_chart_count(
+    db: &PgPool,
+    id: &str,
+    count: Expr,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    reports_table::Entity::update_many()
+        .col_expr(reports_table::Column::ChartCount, count)
+        .col_expr(reports_table::Column::UpdatedAt, Expr::value(at))
+        .filter(reports_table::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -291,17 +317,13 @@ async fn live_report(db: &PgPool, id: &str) -> Result<Option<Value>, sea_orm::Db
 }
 
 async fn list_reports(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_analytics_reports t where t.deleted_at is null
-         order by t.updated_at desc",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = reports_table::Entity::find()
+        .filter(reports_table::Column::DeletedAt.is_null())
+        .order_by_desc(reports_table::Column::UpdatedAt)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter().map(|row| REPORTS.js(row)).collect(),
-        ))
-        .into_response(),
+        Ok(rows) => Data(json!(rows)).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to fetch analytics reports"),
     }
 }
@@ -400,30 +422,28 @@ async fn delete_report(
     Path(id): Path<String>,
 ) -> Response {
     let message = "Failed to delete analytics report";
-    let now = now();
+    let now = utc_now();
     match live_report(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Report", &id).respond(message),
         Err(error) => return Refusal::from(error).respond(message),
     }
+    let db = orm(&caller.db);
     // Every chart of the report, those deleted before included.
-    let charts = sqlx::query(
-        "update helpdesk_analytics_charts set deleted_at = $2::timestamp where report_id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
-    if let Err(error) = charts {
+    let deleted = charts::Entity::update_many()
+        .col_expr(charts::Column::DeletedAt, Expr::value(now))
+        .filter(charts::Column::ReportId.eq(&id))
+        .exec(&db)
+        .await;
+    if let Err(error) = deleted {
         return Refusal::from(error).respond(message);
     }
-    let report = sqlx::query(
-        "update helpdesk_analytics_reports set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let report = reports_table::Entity::update_many()
+        .col_expr(reports_table::Column::DeletedAt, Expr::value(now))
+        .col_expr(reports_table::Column::UpdatedAt, Expr::value(now))
+        .filter(reports_table::Column::Id.eq(&id))
+        .exec(&db)
+        .await;
     if let Err(error) = report {
         return Refusal::from(error).respond(message);
     }
@@ -449,80 +469,76 @@ async fn duplicate_report(caller: Caller, Path(report_id): Path<String>) -> Resp
     }
 }
 
-async fn duplicate(
-    caller: &Caller,
-    report_id: &str,
-    original: &Value,
-) -> Result<String, sqlx::Error> {
+async fn duplicate(caller: &Caller, report_id: &str, original: &Value) -> Result<String, DbErr> {
     let new_id = generate_id("rpt");
-    let now = now();
+    let now = utc_now();
     let title = format!("{} (Copy)", original["title"].as_str().unwrap_or_default());
-    sqlx::query(
-        "insert into helpdesk_analytics_reports (id, title, description, chart_count, created_by_id, created_at, updated_at)
-         values ($1, $2, $3, 0, $4, $5::timestamp, $5::timestamp)",
-    )
-    .bind(&new_id)
-    .bind(&title)
-    .bind(original["description"].as_str())
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(&caller.db)
+    let db = orm(&caller.db);
+    reports_table::Entity::insert(reports_table::ActiveModel {
+        id: Set(new_id.clone()),
+        title: Set(title),
+        description: Set(original["description"].as_str().map(str::to_owned)),
+        chart_count: Set(0),
+        created_by_id: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     // The live charts, in the order the select returns them (no ORDER BY).
-    let charts: Vec<String> = sqlx::query_scalar(
-        "select id from helpdesk_analytics_charts where report_id = $1 and deleted_at is null",
-    )
-    .bind(report_id)
-    .fetch_all(&caller.db)
-    .await?;
-    if charts.is_empty() {
+    let originals = charts::Entity::find()
+        .filter(charts::Column::ReportId.eq(report_id))
+        .filter(charts::Column::DeletedAt.is_null())
+        .all(&db)
+        .await?;
+    if originals.is_empty() {
         return Ok(new_id);
     }
-    let copies: Vec<String> = charts.iter().map(|_| generate_id("cht")).collect();
-    sqlx::query(
-        "insert into helpdesk_analytics_charts
-           (id, report_id, title, description, chart_type, entity, metric, color, smooth_curve, fill_area,
-            show_data_labels, show_legend, time_range, group_by, aggregation, sort_order, \"limit\",
-            compare_with, layout, sort_index, created_at, updated_at)
-         select u.new_id, $3, c.title, c.description, c.chart_type, c.entity, c.metric, c.color, c.smooth_curve,
-                c.fill_area, c.show_data_labels, c.show_legend, c.time_range, c.group_by, c.aggregation,
-                c.sort_order, c.\"limit\", c.compare_with, c.layout, c.sort_index, $4::timestamp, $4::timestamp
-         from unnest($1::varchar[], $2::varchar[]) with ordinality as u(new_id, old_id, ord)
-         join helpdesk_analytics_charts c on c.id = u.old_id
-         order by u.ord",
-    )
-    .bind(&copies)
-    .bind(&charts)
-    .bind(&new_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
-    sqlx::query(
-        "update helpdesk_analytics_reports set chart_count = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&new_id)
-    .bind(i32::try_from(charts.len()).unwrap_or(i32::MAX))
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
+    let count = i32::try_from(originals.len()).unwrap_or(i32::MAX);
+    let copies = originals.into_iter().map(|chart| charts::ActiveModel {
+        id: Set(generate_id("cht")),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: NotSet,
+        report_id: Set(new_id.clone()),
+        title: Set(chart.title),
+        description: Set(chart.description),
+        chart_type: Set(chart.chart_type),
+        entity_: Set(chart.entity_),
+        metric: Set(chart.metric),
+        color: Set(chart.color),
+        smooth_curve: Set(chart.smooth_curve),
+        fill_area: Set(chart.fill_area),
+        show_data_labels: Set(chart.show_data_labels),
+        show_legend: Set(chart.show_legend),
+        time_range: Set(chart.time_range),
+        group_by: Set(chart.group_by),
+        aggregation: Set(chart.aggregation),
+        sort_order: Set(chart.sort_order),
+        limit: Set(chart.limit),
+        compare_with: Set(chart.compare_with),
+        layout: Set(chart.layout),
+        sort_index: Set(chart.sort_index),
+    });
+    charts::Entity::insert_many(copies)
+        .exec_without_returning(&db)
+        .await?;
+    set_chart_count(&caller.db, &new_id, Expr::value(count), now).await?;
     Ok(new_id)
 }
 
 // ── charts ──────────────────────────────────────────────────────────────────
 
 async fn list_charts(caller: Caller, Path(report_id): Path<String>) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_analytics_charts t
-         where t.report_id = $1 and t.deleted_at is null order by t.sort_index asc",
-    )
-    .bind(&report_id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = charts::Entity::find()
+        .filter(charts::Column::ReportId.eq(&report_id))
+        .filter(charts::Column::DeletedAt.is_null())
+        .order_by_asc(charts::Column::SortIndex)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter().map(|row| CHARTS.js(row)).collect(),
-        ))
-        .into_response(),
+        Ok(rows) => Data(json!(rows)).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to fetch charts"),
     }
 }
@@ -536,19 +552,20 @@ async fn create_chart(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
         Err(refusal) => return refusal.respond(message),
     };
     let report_id = data["reportId"].as_str().unwrap_or_default().to_owned();
-    let max: Result<i32, _> = sqlx::query_scalar(
-        "select coalesce(max(sort_index), -1)::int from helpdesk_analytics_charts
-         where report_id = $1 and deleted_at is null",
-    )
-    .bind(&report_id)
-    .fetch_one(&caller.db)
-    .await;
+    let max: Result<Option<Option<i32>>, _> = charts::Entity::find()
+        .select_only()
+        .column_as(charts::Column::SortIndex.max(), "max")
+        .filter(charts::Column::ReportId.eq(&report_id))
+        .filter(charts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let next = match max {
-        Ok(max) => max + 1,
+        Ok(max) => max.flatten().unwrap_or(-1) + 1,
         Err(error) => return Refusal::from(error).respond(message),
     };
     let id = generate_id("cht");
-    let now = now();
+    let (now, at) = stamp();
     let mut values = Map::new();
     let mut set = |prop: &str, value: Value| CHARTS.set(&mut values, prop, value);
     set("id", json!(id));
@@ -588,14 +605,8 @@ async fn create_chart(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
     {
         return write_failed(&error, message);
     }
-    let counted = sqlx::query(
-        "update helpdesk_analytics_reports set chart_count = chart_count + 1, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&report_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
-    if let Err(error) = counted {
+    let count = sea_orm::ExprTrait::add(Expr::col(reports_table::Column::ChartCount), 1);
+    if let Err(error) = set_chart_count(&caller.db, &report_id, count, at).await {
         return Refusal::from(error).respond(message);
     }
     Created(json!({ "id": id })).into_response()
@@ -647,23 +658,26 @@ async fn update_layouts(caller: Caller, Path(report_id): Path<String>, body: Byt
         },
         Some(_) => return ApiError::internal().with_message(message).into_response(),
     };
-    let now = now();
+    let now = utc_now();
+    let db = orm(&caller.db);
     for item in &layouts {
         let Value::Object(item) = item else {
             return ApiError::internal().with_message(message).into_response();
         };
-        let changed = sqlx::query(
-            "update helpdesk_analytics_charts
-             set layout = case when $3::boolean then $4::jsonb else layout end, updated_at = $5::timestamp
-             where id = $1 and report_id = $2",
-        )
-        .bind(item.get("chartId").and_then(Value::as_str))
-        .bind(&report_id)
-        .bind(item.contains_key("layout"))
-        .bind(item.get("layout"))
-        .bind(&now)
-        .execute(&caller.db)
-        .await;
+        // `eq(id, item.chartId)`: anything but a string matches no chart.
+        let Some(chart_id) = item.get("chartId").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut update = charts::Entity::update_many();
+        if let Some(layout) = item.get("layout") {
+            update = update.col_expr(charts::Column::Layout, Expr::value(layout.clone()));
+        }
+        let changed = update
+            .col_expr(charts::Column::UpdatedAt, Expr::value(now))
+            .filter(charts::Column::Id.eq(chart_id))
+            .filter(charts::Column::ReportId.eq(&report_id))
+            .exec(&db)
+            .await;
         if let Err(error) = changed {
             return Refusal::from(error).respond(message);
         }
@@ -678,27 +692,24 @@ async fn delete_chart(caller: Caller, Path(chart_id): Path<String>) -> Response 
         Ok(None) => return Refusal::not_found("Chart", &chart_id).respond(message),
         Err(error) => return Refusal::from(error).respond(message),
     };
-    let now = now();
-    let deleted = sqlx::query(
-        "update helpdesk_analytics_charts set deleted_at = $2::timestamp where id = $1",
-    )
-    .bind(&chart_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let now = utc_now();
+    let deleted = charts::Entity::update_many()
+        .col_expr(charts::Column::DeletedAt, Expr::value(now))
+        .filter(charts::Column::Id.eq(&chart_id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = deleted {
         return Refusal::from(error).respond(message);
     }
-    let counted = sqlx::query(
-        "update helpdesk_analytics_reports set chart_count = greatest(chart_count - 1, 0), updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(chart["reportId"].as_str())
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
-    if let Err(error) = counted {
-        return Refusal::from(error).respond(message);
+    // `reportId` is never null on a stored chart.
+    if let Some(report_id) = chart["reportId"].as_str() {
+        let count = Expr::from(Func::greatest([
+            sea_orm::ExprTrait::sub(Expr::col(reports_table::Column::ChartCount), 1),
+            Expr::value(0),
+        ]));
+        if let Err(error) = set_chart_count(&caller.db, report_id, count, now).await {
+            return Refusal::from(error).respond(message);
+        }
     }
     Data(json!({ "id": chart_id })).into_response()
 }

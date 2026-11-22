@@ -19,8 +19,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use http::HeaderMap;
-use sea_orm::{ColumnTrait, Condition};
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Order};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_desk_domain::articles::{article_slug, normalize_locale};
@@ -28,12 +33,16 @@ use weldsuite_kit::validation::{Issues, Number, Presence, Text, js_trim, query_v
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::crud::{Filter, Listing, fetch, page_list, soft_delete, write_failed};
+use crate::crud::{CursorRow, Filter, Listing, fetch, page_list, soft_delete, write_failed};
 use crate::js::{js_parse_int, query_param};
 use crate::library::{ARTICLES, CANNED_RESPONSES, TICKETS};
-use crate::tables::{HELPDESK_ARTICLES, HELPDESK_CANNED_RESPONSES, HELPDESK_CHANGELOG};
+use crate::tables::{HELPDESK_ARTICLES, HELPDESK_CANNED_RESPONSES};
 use crate::{Caller, DeskState, Refusal, now, validate};
-use weldsuite_schema::tenant::helpdesk_articles::Column as Article;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::helpdesk_articles::{self, Column as Article};
+use weldsuite_schema::tenant::{
+    helpdesk_article_folders, helpdesk_canned_responses, helpdesk_changelog, helpdesk_tickets,
+};
 
 /// The routes, relative to `/api`, each with its `requirePermission`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -245,7 +254,7 @@ fn js_slice_text(text: &str, n: usize) -> String {
 async fn resolve_folder(
     db: &weldsuite_db::PgPool,
     data: &Map<String, Value>,
-) -> Result<Option<[(&'static str, Value); 3]>, sqlx::Error> {
+) -> Result<Option<[(&'static str, Value); 3]>, DbErr> {
     let raw = if data.contains_key("folderId") {
         data.get("folderId")
     } else if data.contains_key("categoryId") {
@@ -262,9 +271,12 @@ async fn resolve_folder(
         ]));
     };
     let folder: Option<(String, Option<String>)> =
-        sqlx::query_as("select name, path from helpdesk_article_folders where id = $1 limit 1")
-            .bind(raw)
-            .fetch_optional(db)
+        helpdesk_article_folders::Entity::find_by_id(raw)
+            .select_only()
+            .column(helpdesk_article_folders::Column::Name)
+            .column(helpdesk_article_folders::Column::Path)
+            .into_tuple()
+            .one(&orm(db))
             .await?;
     let (name, category) = match folder {
         Some((name, path)) => (json!(name.clone()), json!(path.unwrap_or(name))),
@@ -541,7 +553,7 @@ async fn locale_conflict(
     id: &str,
     translation_of: Option<&str>,
     locale: Option<&str>,
-) -> Result<Option<&'static str>, sqlx::Error> {
+) -> Result<Option<&'static str>, DbErr> {
     if translation_of.is_some() && locale.is_none() {
         return Ok(Some("A language version needs a language"));
     }
@@ -549,16 +561,20 @@ async fn locale_conflict(
         return Ok(None);
     };
     let root = translation_of.unwrap_or(id);
-    let taken: Option<String> = sqlx::query_scalar(
-        "select id from helpdesk_articles
-         where deleted_at is null and (id = $1 or translation_of_id = $1) and id <> $2 and locale = $3
-         limit 1",
-    )
-    .bind(root)
-    .bind(id)
-    .bind(locale)
-    .fetch_optional(db)
-    .await?;
+    let taken: Option<String> = helpdesk_articles::Entity::find()
+        .select_only()
+        .column(Article::Id)
+        .filter(Article::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(Article::Id.eq(root))
+                .add(Article::TranslationOfId.eq(root)),
+        )
+        .filter(Article::Id.ne(id))
+        .filter(Article::Locale.eq(locale))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(taken.map(|_| "This article already has a version in that language"))
 }
 
@@ -602,22 +618,29 @@ async fn list_translations(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_articles t
-         where t.deleted_at is null and (t.id = $1 or t.translation_of_id = $1)
-         order by (t.translation_of_id is not null), t.locale asc nulls first, t.id",
-    )
-    .bind(original["id"].as_str())
-    .fetch_all(&caller.db)
-    .await;
+    let original_id = original["id"].as_str();
+    let rows = helpdesk_articles::Entity::find()
+        .filter(Article::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(Article::Id.eq(original_id))
+                .add(Article::TranslationOfId.eq(original_id)),
+        )
+        .order_by_asc(sea_orm::ExprTrait::is_not_null(Expr::col(
+            Article::TranslationOfId,
+        )))
+        .order_by_with_nulls(Article::Locale, Order::Asc, NullOrdering::First)
+        .order_by_asc(Article::Id)
+        .all(&orm(&caller.db))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let data: Vec<Value> = rows
         .into_iter()
-        .map(|row| {
-            let a = HELPDESK_ARTICLES.js(row);
+        .map(|article| {
+            let a = serde_json::to_value(article).unwrap_or(Value::Null);
             json!({
                 "id": a["id"], "title": a["title"], "slug": a["slug"], "status": a["status"],
                 "visibility": a["visibility"], "locale": a["locale"],
@@ -750,13 +773,6 @@ async fn create_translation(
 // Canned responses: search, categories, use
 // ---------------------------------------------------------------------------
 
-/// `$1` skips the term, `$2` the `%term%`, `$3` the caller, `$4` the limit.
-const CANNED_SEARCH: &str = "select to_jsonb(t) from helpdesk_canned_responses t
-    where t.deleted_at is null and t.is_active = true
-      and ($1::boolean or (t.name ilike $2::text or t.content ilike $2::text or t.shortcut ilike $2::text))
-      and ((t.scope = 'personal' and t.agent_id = $3::text) or t.scope != 'personal')
-    order by t.usage_count desc, t.name asc limit $4";
-
 /// `zValidator('query', searchQuerySchema)`: `q` trimmed (max 200, default
 /// `''`), `limit` coerced (1..50, default 10).
 fn search_query(query: Option<&str>) -> Result<(String, f64), Box<Response>> {
@@ -798,17 +814,39 @@ async fn search_canned(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit.round() as i64;
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(CANNED_SEARCH)
-        .bind(q.is_empty())
-        .bind(format!("%{q}%"))
-        .bind(&caller.user_id)
-        .bind(limit)
-        .fetch_all(&caller.db)
+    use helpdesk_canned_responses::Column as Canned;
+    let mut select = helpdesk_canned_responses::Entity::find()
+        .filter(Canned::DeletedAt.is_null())
+        .filter(Canned::IsActive.eq(true));
+    if !q.is_empty() {
+        let term = format!("%{q}%");
+        select = select.filter(
+            Condition::any()
+                .add(Canned::Name.ilike(&term))
+                .add(Canned::Content.ilike(&term))
+                .add(Canned::Shortcut.ilike(&term)),
+        );
+    }
+    // A personal response is its owner's only.
+    let rows = select
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(Canned::Scope.eq("personal"))
+                        .add(Canned::AgentId.eq(&caller.user_id)),
+                )
+                .add(Canned::Scope.ne("personal")),
+        )
+        .order_by_desc(Canned::UsageCount)
+        .order_by_asc(Canned::Name)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(&caller.db))
         .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
-                .map(|row| HELPDESK_CANNED_RESPONSES.js(row))
+                .map(|row| serde_json::to_value(row).unwrap_or(Value::Null))
                 .collect(),
         ))
         .into_response(),
@@ -841,12 +879,16 @@ fn locale_compare(a: &str, b: &str) -> Ordering {
 }
 
 async fn canned_categories(caller: Caller) -> Response {
-    let rows: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select distinct category from helpdesk_canned_responses
-         where deleted_at is null and category is not null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    use helpdesk_canned_responses::Column as Canned;
+    let rows: Result<Vec<String>, DbErr> = helpdesk_canned_responses::Entity::find()
+        .select_only()
+        .column(Canned::Category)
+        .distinct()
+        .filter(Canned::DeletedAt.is_null())
+        .filter(Canned::Category.is_not_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(mut categories) => {
             categories.sort_by(|a, b| locale_compare(a, b));
@@ -974,15 +1016,24 @@ async fn use_canned(
         Some(subject) if !subject.is_empty() => json!(interpolate(subject, &variables)),
         _ => Value::Null,
     };
-    let bumped = sqlx::query(
-        "update helpdesk_canned_responses
-         set usage_count = coalesce(usage_count, 0) + 1, last_used_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    use helpdesk_canned_responses::Column as Canned;
+    let now = weldsuite_db::utc_now();
+    let bumped = helpdesk_canned_responses::Entity::update_many()
+        .col_expr(
+            Canned::UsageCount,
+            sea_orm::ExprTrait::add(
+                Expr::from(Func::coalesce([
+                    Expr::col(Canned::UsageCount),
+                    Expr::val(0),
+                ])),
+                1,
+            ),
+        )
+        .col_expr(Canned::LastUsedAt, Expr::value(now))
+        .col_expr(Canned::UpdatedAt, Expr::value(now))
+        .filter(Canned::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = bumped {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -997,21 +1048,41 @@ async fn use_canned(
 // Changelog
 // ---------------------------------------------------------------------------
 
-/// `$1/$2` status, `$3/$4` type, `$5/$6` search, the cursor `$7` skip, `$8`
-/// release date, `$9` id; `$10` limit, `$11` offset. Newest release first.
-const CHANGELOG_LIST: &str = "select to_jsonb(t) from helpdesk_changelog t
-    where t.deleted_at is null
-      and ($1::boolean or t.status = $2::text)
-      and ($3::boolean or t.type = $4::text)
-      and ($5::boolean or (t.title like $6::text or t.version like $6::text or t.description like $6::text))
-      and ($7::boolean or (t.release_date < $8::timestamp or (t.release_date = $8::timestamp and t.id < $9::text)))
-    order by t.release_date desc, t.id desc limit $10 offset $11";
-
-const CHANGELOG_COUNT: &str = "select count(*) from helpdesk_changelog t
-    where t.deleted_at is null
-      and ($1::boolean or t.status = $2::text)
-      and ($3::boolean or t.type = $4::text)
-      and ($5::boolean or (t.title like $6::text or t.version like $6::text or t.description like $6::text))";
+/// The changelog list's conditions: live entries, `status`, `type` and the
+/// search, then (for the page) the cursor, newest release first.
+fn changelog_conditions(
+    status: Option<&str>,
+    kind: Option<&str>,
+    search: Option<&str>,
+    cursor: Option<&CursorRow>,
+) -> Condition {
+    use helpdesk_changelog::Column as Entry;
+    let mut all = Condition::all().add(Entry::DeletedAt.is_null());
+    if let Some(status) = status {
+        all = all.add(Entry::Status.eq(status));
+    }
+    if let Some(kind) = kind {
+        all = all.add(Entry::Type.eq(kind));
+    }
+    if let Some(search) = search {
+        all = all.add(
+            Condition::any()
+                .add(Entry::Title.like(search))
+                .add(Entry::Version.like(search))
+                .add(Entry::Description.like(search)),
+        );
+    }
+    if let Some((at, id)) = cursor {
+        all = all.add(
+            Condition::any().add(Entry::ReleaseDate.lt(*at)).add(
+                Condition::all()
+                    .add(Entry::ReleaseDate.eq(*at))
+                    .add(Entry::Id.lt(id.as_str())),
+            ),
+        );
+    }
+    all
+}
 
 /// `Math.min(Math.max(x, lo), hi)` with JavaScript's NaN.
 fn clamp_js(value: f64, lo: f64, hi: f64) -> f64 {
@@ -1102,37 +1173,41 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     #[allow(clippy::cast_possible_truncation)]
     let sql_offset = (!offset.is_nan() && offset > 0.0).then_some(offset as i64);
 
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(CHANGELOG_LIST)
-        .bind(status.is_none())
-        .bind(status.as_deref())
-        .bind(kind.is_none())
-        .bind(kind.as_deref())
-        .bind(search.is_none())
-        .bind(search.as_deref())
-        .bind(cursor_row.is_none())
-        .bind(cursor_row.as_ref().map(|(stamp, _)| stamp.as_str()))
-        .bind(cursor_row.as_ref().map(|(_, id)| id.as_str()))
-        .bind(drizzle_limit(fetch_limit))
-        .bind(sql_offset)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(CHANGELOG_COUNT)
-        .bind(status.is_none())
-        .bind(status.as_deref())
-        .bind(kind.is_none())
-        .bind(kind.as_deref())
-        .bind(search.is_none())
-        .bind(search.as_deref())
-        .fetch_one(&caller.db)
-        .await;
-    let (rows, total) = match (rows, total) {
-        (Ok(rows), Ok(total)) => (rows, total),
-        (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
+    let (status, kind, search) = (status.as_deref(), kind.as_deref(), search.as_deref());
+    let db = orm(&caller.db);
+    let listed = async {
+        use helpdesk_changelog::Column as Entry;
+        let mut select = helpdesk_changelog::Entity::find()
+            .filter(changelog_conditions(
+                status,
+                kind,
+                search,
+                cursor_row.as_ref(),
+            ))
+            .order_by_desc(Entry::ReleaseDate)
+            .order_by_desc(Entry::Id);
+        if let Some(limit) = drizzle_limit(fetch_limit) {
+            select = select.limit(u64::try_from(limit).unwrap_or(0));
+        }
+        if let Some(offset) = sql_offset {
+            select = select.offset(u64::try_from(offset).unwrap_or(0));
+        }
+        let rows = select
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<Value>, DbErr>>()?;
+        let total = helpdesk_changelog::Entity::find()
+            .filter(changelog_conditions(status, kind, search, None))
+            .count(&db)
+            .await?;
+        Ok::<_, DbErr>((rows, i64::try_from(total).unwrap_or(i64::MAX)))
     };
-    let rows: Vec<Value> = rows
-        .into_iter()
-        .map(|row| HELPDESK_CHANGELOG.js(row))
-        .collect();
+    let (rows, total) = match listed.await {
+        Ok(listed) => listed,
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
+    };
 
     if use_cursor {
         return page_list(rows, limit, total);
@@ -1141,20 +1216,18 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 /// The cursor row's release date (as JavaScript read it) and id.
-async fn changelog_cursor(
-    db: &weldsuite_db::PgPool,
-    id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(Option<String>, String)> = sqlx::query_as(
-        "select to_jsonb(release_date)#>>'{}', id from helpdesk_changelog where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.and_then(|(stamp, id)| {
-        stamp
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
+async fn changelog_cursor(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<CursorRow>, DbErr> {
+    use helpdesk_changelog::Column as Entry;
+    let row: Option<(PrimitiveDateTime, String)> = helpdesk_changelog::Entity::find_by_id(id)
+        .select_only()
+        .column(Entry::ReleaseDate)
+        .column(Entry::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(release_date, id)| {
+        // JavaScript reads the stamp to the millisecond.
+        (weldsuite_db::utc_timestamp(release_date.assume_utc()), id)
     }))
 }
 
@@ -1190,20 +1263,26 @@ fn offset_page(rows: &[Value], total: i64, offset: f64, page: f64, page_size: f6
 // ---------------------------------------------------------------------------
 
 async fn helpdesk_stats(caller: Caller) -> Response {
-    type Counts = (i32, i32, i32, i32, i32, i32, i32, i32);
-    let row: Result<Counts, sqlx::Error> = sqlx::query_as(
-        "select count(*)::int,
-                (count(*) filter (where status = 'open'))::int,
-                (count(*) filter (where status = 'pending'))::int,
-                (count(*) filter (where status = 'resolved'))::int,
-                (count(*) filter (where status = 'closed'))::int,
-                (count(*) filter (where status = 'new'))::int,
-                (count(*) filter (where priority = 'urgent'))::int,
-                (count(*) filter (where priority = 'high'))::int
-         from helpdesk_tickets where deleted_at is null",
-    )
-    .fetch_one(&caller.db)
-    .await;
+    use helpdesk_tickets::Column as Ticket;
+    type Counts = (i64, i64, i64, i64, i64, i64, i64, i64);
+    // `count(*) filter (where …)`.
+    let counted =
+        |condition: sea_orm::sea_query::Expr| Expr::from(Func::count(Expr::case(condition, 1)));
+    let row: Result<Option<Counts>, DbErr> = helpdesk_tickets::Entity::find()
+        .select_only()
+        .column_as(Ticket::Id.count(), "total")
+        .column_as(counted(Ticket::Status.eq("open")), "open")
+        .column_as(counted(Ticket::Status.eq("pending")), "pending")
+        .column_as(counted(Ticket::Status.eq("resolved")), "resolved")
+        .column_as(counted(Ticket::Status.eq("closed")), "closed")
+        .column_as(counted(Ticket::Status.eq("new")), "new")
+        .column_as(counted(Ticket::Priority.eq("urgent")), "urgent")
+        .column_as(counted(Ticket::Priority.eq("high")), "high")
+        .filter(Ticket::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
+    let row = row.map(Option::unwrap_or_default);
     match row {
         Ok((total, open, pending, resolved, closed, new, urgent, high)) => Data(json!({
             "totalTickets": total,
