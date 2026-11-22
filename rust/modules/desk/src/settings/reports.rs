@@ -323,8 +323,8 @@ where
     row.try_get(column).map_err(orm_error)
 }
 
-/// `new Date(`${to_char(at, 'YYYY-MM-DD')}T00:00:00.000Z`).getTime()`:
-/// midnight UTC of the moment's day.
+/// The worker's day of `to_char(at, 'YYYY-MM-DD')`, read back as a `Date`
+/// at midnight UTC: its time value in milliseconds.
 pub(super) fn day_of(at: PrimitiveDateTime) -> i64 {
     at.date().midnight().assume_utc().unix_timestamp() * 1000
 }

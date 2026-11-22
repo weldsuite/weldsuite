@@ -27,11 +27,11 @@ use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_db::{PgPool, orm, utc_timestamp};
-use weldsuite_events::iso_timestamp;
 use weldsuite_desk_domain::report_schedule::{
     DUE_KIND, Frequency, ReportTiming, is_time_zone, next_report_run,
 };
 use weldsuite_desk_domain::sla::instant;
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -110,15 +110,6 @@ pub(crate) struct ScheduleRow {
     last_error: Option<String>,
 }
 
-/// A `timestamp` as `to_jsonb` writes it (`2026-03-16T08:00:00.123456`, the
-/// fraction left out when it is zero).
-fn pg_timestamp(text: &str) -> Option<PrimitiveDateTime> {
-    let format = time::macros::format_description!(
-        "[year]-[month]-[day]T[hour]:[minute]:[second][optional [.[subsecond]]]"
-    );
-    PrimitiveDateTime::parse(text, format).ok()
-}
-
 /// A moment the report clock gives (milliseconds) as its `timestamp`
 /// column holds it: `$n::timestamp` of `iso_of(ms)`.
 fn timestamp_of(ms: i64) -> PrimitiveDateTime {
@@ -151,34 +142,6 @@ impl ScheduleRow {
             last_run_at: row.last_run_at,
             last_status: row.last_status,
             last_error: row.last_error,
-        }
-    }
-
-    /// A row selected as `to_jsonb(t)` (the report sweep's due list).
-    pub(crate) fn from_json(raw: Value) -> Self {
-        let text = |key: &str| raw[key].as_str().map(str::to_owned);
-        let stamp = |key: &str| raw[key].as_str().and_then(pg_timestamp);
-        Self {
-            id: text("id").unwrap_or_default(),
-            created_at: stamp("created_at"),
-            updated_at: stamp("updated_at"),
-            name: text("name").unwrap_or_default(),
-            report_id: text("report_id"),
-            range: text("range").unwrap_or_default(),
-            frequency: text("frequency").unwrap_or_default(),
-            day_of_week: raw["day_of_week"].as_i64(),
-            day_of_month: raw["day_of_month"].as_i64(),
-            hour: raw["hour"].as_i64().unwrap_or_default(),
-            timezone: text("timezone").unwrap_or_default(),
-            recipients: raw["recipients"].clone(),
-            attach_csv: raw["attach_csv"].as_bool().unwrap_or(false),
-            locale: text("locale").unwrap_or_default(),
-            enabled: raw["enabled"].as_bool().unwrap_or(false),
-            created_by_id: text("created_by_id"),
-            next_run_at: stamp("next_run_at"),
-            last_run_at: stamp("last_run_at"),
-            last_status: text("last_status"),
-            last_error: text("last_error"),
         }
     }
 
@@ -572,28 +535,29 @@ async fn insert(
         None
     };
     let at = timestamp_of(now);
-    let created = helpdesk_report_schedules::Entity::insert(helpdesk_report_schedules::ActiveModel {
-        id: Set(generate_id("rsch")),
-        created_at: Set(at),
-        updated_at: Set(at),
-        name: Set(data.name.unwrap_or_default()),
-        report_id: Set(report_id),
-        range: Set(data.range.unwrap_or_else(|| "last_7_days".to_owned())),
-        frequency: Set(timing.frequency.as_str().to_owned()),
-        day_of_week: Set(day_column(timing.day_of_week)),
-        day_of_month: Set(day_column(timing.day_of_month)),
-        hour: Set(i32::try_from(timing.hour).unwrap_or_default()),
-        timezone: Set(timing.timezone.clone()),
-        recipients: Set(json!(data.recipients.unwrap_or_default())),
-        attach_csv: Set(data.attach_csv.unwrap_or(true)),
-        locale: Set(data.locale.unwrap_or_else(|| "en".to_owned())),
-        enabled: Set(enabled),
-        created_by_id: Set(Some(caller.user_id.clone())),
-        next_run_at: Set(next_run_at.map(timestamp_of)),
-        ..Default::default()
-    })
-    .exec_with_returning(&orm(db))
-    .await?;
+    let created =
+        helpdesk_report_schedules::Entity::insert(helpdesk_report_schedules::ActiveModel {
+            id: Set(generate_id("rsch")),
+            created_at: Set(at),
+            updated_at: Set(at),
+            name: Set(data.name.unwrap_or_default()),
+            report_id: Set(report_id),
+            range: Set(data.range.unwrap_or_else(|| "last_7_days".to_owned())),
+            frequency: Set(timing.frequency.as_str().to_owned()),
+            day_of_week: Set(day_column(timing.day_of_week)),
+            day_of_month: Set(day_column(timing.day_of_month)),
+            hour: Set(i32::try_from(timing.hour).unwrap_or_default()),
+            timezone: Set(timing.timezone.clone()),
+            recipients: Set(json!(data.recipients.unwrap_or_default())),
+            attach_csv: Set(data.attach_csv.unwrap_or(true)),
+            locale: Set(data.locale.unwrap_or_else(|| "en".to_owned())),
+            enabled: Set(enabled),
+            created_by_id: Set(Some(caller.user_id.clone())),
+            next_run_at: Set(next_run_at.map(timestamp_of)),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(db))
+        .await?;
     let created = ScheduleRow::from_model(created);
     let dto = dto_of(db, &created).await?;
     mark_report_due(state, caller, next_run_at);
@@ -711,8 +675,14 @@ async fn apply(
     }
     update = update
         .col_expr(Column::Frequency, Expr::value(timing.frequency.as_str()))
-        .col_expr(Column::DayOfWeek, Expr::value(day_column(timing.day_of_week)))
-        .col_expr(Column::DayOfMonth, Expr::value(day_column(timing.day_of_month)))
+        .col_expr(
+            Column::DayOfWeek,
+            Expr::value(day_column(timing.day_of_week)),
+        )
+        .col_expr(
+            Column::DayOfMonth,
+            Expr::value(day_column(timing.day_of_month)),
+        )
         .col_expr(
             Column::Hour,
             Expr::value(i32::try_from(timing.hour).unwrap_or_default()),
@@ -1008,29 +978,38 @@ mod tests {
     }
 
     #[test]
+    fn report_clock_moments_are_stored_to_the_millisecond() {
+        // `$n::timestamp` of `iso_of(ms)`.
+        assert_eq!(
+            timestamp_of(1_773_576_000_123).to_string(),
+            "2026-03-15 12:00:00.123"
+        );
+    }
+
+    #[test]
     fn rows_answer_as_the_api_does() {
-        let row = ScheduleRow::from_json(json!({
-            "id": "rsch_1",
-            "created_at": "2026-03-15T12:00:00",
-            "updated_at": "2026-03-15T12:00:00.5",
-            "name": "Weekly",
-            "report_id": null,
-            "range": "forever",
-            "frequency": "weekly",
-            "day_of_week": 1,
-            "day_of_month": null,
-            "hour": 9,
-            "timezone": "Europe/Amsterdam",
-            "recipients": ["lead@example.com"],
-            "attach_csv": true,
-            "locale": "fr",
-            "enabled": true,
-            "created_by_id": "user_1",
-            "next_run_at": "2026-03-16T08:00:00",
-            "last_run_at": null,
-            "last_status": null,
-            "last_error": null,
-        }));
+        let row = ScheduleRow::from_model(helpdesk_report_schedules::Model {
+            id: "rsch_1".to_owned(),
+            created_at: time::macros::datetime!(2026-03-15 12:00:00),
+            updated_at: time::macros::datetime!(2026-03-15 12:00:00.5004),
+            name: "Weekly".to_owned(),
+            report_id: None,
+            range: "forever".to_owned(),
+            frequency: "weekly".to_owned(),
+            day_of_week: Some(1),
+            day_of_month: None,
+            hour: 9,
+            timezone: "Europe/Amsterdam".to_owned(),
+            recipients: json!(["lead@example.com"]),
+            attach_csv: true,
+            locale: "fr".to_owned(),
+            enabled: true,
+            created_by_id: Some("user_1".to_owned()),
+            next_run_at: Some(time::macros::datetime!(2026-03-16 08:00:00)),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+        });
         let dto = row.dto(None);
         assert_eq!(dto["createdAt"], "2026-03-15T12:00:00.000Z");
         assert_eq!(dto["updatedAt"], "2026-03-15T12:00:00.500Z");

@@ -24,13 +24,12 @@
 use std::sync::Arc;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
-use weldsuite_db::{PgPool, orm};
 use weldsuite_db::due_index::{list_due, settle};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::report_schedule::{DUE_KIND, next_report_run};
-use weldsuite_desk_domain::sla_calendar::iso;
 use weldsuite_mail_domain::outbound::OutboundBindings;
 use weldsuite_ports::DynCache;
 use weldsuite_schema::tenant::helpdesk_report_schedules::{self, Column};
@@ -124,41 +123,34 @@ async fn sweep_workspace(
     limit: usize,
 ) -> Result<WorkspaceSweep, String> {
     let db = &mailer.db;
-    let failed = |error: sqlx::Error| error.to_string();
+    let failed = |error: DbErr| error.to_string();
     let mut result = WorkspaceSweep::default();
-    let now_text = iso(now);
     let now_stamp = report_stamp(now);
 
-    let due: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_report_schedules t
-         where t.enabled = true and t.next_run_at is not null and t.next_run_at <= $1::timestamp
-         order by t.next_run_at asc
-         limit $2",
-    )
-    .bind(&now_text)
-    .bind(i64::try_from(limit).unwrap_or(i64::MAX))
-    .fetch_all(db)
-    .await
-    .map_err(failed)?;
+    let due = helpdesk_report_schedules::Entity::find()
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::NextRunAt.is_not_null())
+        .filter(Column::NextRunAt.lte(now_stamp))
+        .order_by_asc(Column::NextRunAt)
+        .limit(u64::try_from(limit).unwrap_or(u64::MAX))
+        .all(&orm(db))
+        .await
+        .map_err(failed)?;
 
-    for schedule in due.into_iter().map(ScheduleRow::from_json) {
+    for schedule in due.into_iter().map(ScheduleRow::from_model) {
         let timing = schedule
             .timing()
             .ok_or_else(|| format!("unknown frequency {}", schedule.frequency))?;
         // Claim the slot: only the tick that moves `next_run_at` off the value it read sends.
         let next = next_report_run(&timing, now)?;
-        let claimed: Option<String> = sqlx::query_scalar(
-            "update helpdesk_report_schedules set next_run_at = $2::timestamp
-             where id = $1 and next_run_at = $3::timestamp
-             returning id",
-        )
-        .bind(&schedule.id)
-        .bind(iso(next))
-        .bind(&schedule.next_run_at)
-        .fetch_optional(db)
-        .await
-        .map_err(failed)?;
-        if claimed.is_none() {
+        let claimed = helpdesk_report_schedules::Entity::update_many()
+            .col_expr(Column::NextRunAt, Expr::value(report_stamp(next)))
+            .filter(Column::Id.eq(&schedule.id))
+            .filter(Column::NextRunAt.eq(schedule.next_run_at))
+            .exec(&orm(db))
+            .await
+            .map_err(failed)?;
+        if claimed.rows_affected == 0 {
             continue;
         }
 
@@ -173,7 +165,7 @@ async fn sweep_workspace(
                     .filter(Column::Id.eq(&schedule.id))
                     .exec(&orm(db))
                     .await
-                    .map_err(|error| error.to_string())?;
+                    .map_err(failed)?;
                 result.disabled += 1;
             }
             SendOutcome::Sent => {
@@ -199,7 +191,7 @@ async fn sweep_workspace(
         .into_tuple()
         .one(&orm(db))
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(failed)?;
     // To the millisecond, as the TypeScript sweep reads it.
     result.next = earliest
         .flatten()
