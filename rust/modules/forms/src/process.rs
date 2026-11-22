@@ -358,8 +358,8 @@ async fn finish_action(
         Ok(StepResult::Skipped(reason)) => ("skipped", Some(reason.as_str()), None),
         Err(error) => ("failed", Some(error), None),
     };
-    let mut update = form_response_actions::Entity::update_many()
-        .col_expr(Column::Status, Expr::value(status));
+    let mut update =
+        form_response_actions::Entity::update_many().col_expr(Column::Status, Expr::value(status));
     if let Some((entity_type, entity_id)) = entity {
         update = update
             .col_expr(Column::EntityType, Expr::value(entity_type.clone()))
@@ -459,15 +459,17 @@ impl Job for ProcessResponseJob {
                 || async {
                     let tenant = self.tenant(&params).await?;
                     let db = tenant.db.clone();
-                    let Some(process) = load_context(self, &tenant, &params)
-                        .await
-                        .map_err(failed)?
+                    let Some(process) =
+                        load_context(self, &tenant, &params).await.map_err(failed)?
                     else {
                         return Ok(None);
                     };
                     let rows: Vec<(String, String)> = form_integrations::Entity::find()
                         .select_only()
-                        .columns([form_integrations::Column::Id, form_integrations::Column::Kind])
+                        .columns([
+                            form_integrations::Column::Id,
+                            form_integrations::Column::Kind,
+                        ])
                         .filter(form_integrations::Column::FormId.eq(text(&process.form, "id")))
                         .filter(form_integrations::Column::Enabled.eq(true))
                         .into_tuple()

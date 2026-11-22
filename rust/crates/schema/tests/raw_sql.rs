@@ -63,7 +63,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/data",
     "modules/docs",
     "modules/external-api",
-    "modules/forms",
     "modules/host",
     "modules/hr",
     "modules/integrations",

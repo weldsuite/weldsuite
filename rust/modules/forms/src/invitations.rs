@@ -464,7 +464,10 @@ pub(crate) async fn create_invitations(
     let db = orm(&ctx.db);
     let existing: Vec<(String, String)> = form_invitations::Entity::find()
         .select_only()
-        .columns([form_invitations::Column::Email, form_invitations::Column::Status])
+        .columns([
+            form_invitations::Column::Email,
+            form_invitations::Column::Status,
+        ])
         .filter(form_invitations::Column::FormId.eq(form_id.as_str()))
         .filter(form_invitations::Column::Status.ne("revoked"))
         .into_tuple()
@@ -484,10 +487,10 @@ pub(crate) async fn create_invitations(
             .all(&db)
             .await?
             .into_iter()
-        .flatten()
-        .filter(|e| !e.is_empty())
-        .map(|e| e.to_lowercase())
-        .collect()
+            .flatten()
+            .filter(|e| !e.is_empty())
+            .map(|e| e.to_lowercase())
+            .collect()
     } else {
         HashSet::new()
     };
@@ -525,11 +528,11 @@ pub(crate) async fn create_invitations(
             .one(&db)
             .await?
             .and_then(|definition| FormDefinition::parse(&definition).ok())
-        .and_then(|definition| {
-            serde_json::to_value(definition.presentation.language)
-                .ok()
-                .and_then(|language| language.as_str().map(str::to_owned))
-        }),
+            .and_then(|definition| {
+                serde_json::to_value(definition.presentation.language)
+                    .ok()
+                    .and_then(|language| language.as_str().map(str::to_owned))
+            }),
         None => None,
     };
     let locale = input
@@ -618,7 +621,10 @@ pub(crate) async fn create_invitations(
                 form_invitations::Column::NextReminderAt,
                 Expr::value(next.map(instant)),
             )
-            .col_expr(form_invitations::Column::UpdatedAt, Expr::value(instant(now)))
+            .col_expr(
+                form_invitations::Column::UpdatedAt,
+                Expr::value(instant(now)),
+            )
             .filter(form_invitations::Column::Id.is_in(ok.iter().map(String::as_str)))
             .exec(&db)
             .await?;
@@ -943,7 +949,10 @@ async fn remind_batch(
                 form_invitations::Column::NextReminderAt,
                 Expr::value(next.map(instant)),
             )
-            .col_expr(form_invitations::Column::UpdatedAt, Expr::value(instant(now)))
+            .col_expr(
+                form_invitations::Column::UpdatedAt,
+                Expr::value(instant(now)),
+            )
             .filter(form_invitations::Column::Id.eq(text(row, "id")))
             .exec(&orm(&ctx.db))
             .await?;
@@ -1037,12 +1046,18 @@ pub(crate) async fn revoke_invitation(
     }
     let updated = form_invitations::Entity::update_many()
         .col_expr(form_invitations::Column::Status, Expr::value("revoked"))
-        .col_expr(form_invitations::Column::RevokedAt, Expr::value(instant(now)))
+        .col_expr(
+            form_invitations::Column::RevokedAt,
+            Expr::value(instant(now)),
+        )
         .col_expr(
             form_invitations::Column::NextReminderAt,
             Expr::value(Option::<OffsetDateTime>::None),
         )
-        .col_expr(form_invitations::Column::UpdatedAt, Expr::value(instant(now)))
+        .col_expr(
+            form_invitations::Column::UpdatedAt,
+            Expr::value(instant(now)),
+        )
         .filter(form_invitations::Column::Id.eq(text(&row, "id")))
         .exec_with_returning(&db)
         .await?
@@ -1109,7 +1124,10 @@ pub(crate) async fn send_due_reminders(
                     form_invitations::Column::NextReminderAt,
                     Expr::value(Option::<OffsetDateTime>::None),
                 )
-                .col_expr(form_invitations::Column::UpdatedAt, Expr::value(instant(now)))
+                .col_expr(
+                    form_invitations::Column::UpdatedAt,
+                    Expr::value(instant(now)),
+                )
                 .filter(form_invitations::Column::Id.is_in(ids.iter().map(String::as_str)))
                 .exec(&db)
                 .await?;
@@ -1130,7 +1148,10 @@ pub(crate) async fn send_due_reminders(
                     form_invitations::Column::NextReminderAt,
                     Expr::value(instant(now + REFUSED_RETRY_MS)),
                 )
-                .col_expr(form_invitations::Column::UpdatedAt, Expr::value(instant(now)))
+                .col_expr(
+                    form_invitations::Column::UpdatedAt,
+                    Expr::value(instant(now)),
+                )
                 .filter(form_invitations::Column::Id.is_in(unsent.into_iter().map(String::as_str)))
                 .exec(&db)
                 .await?;

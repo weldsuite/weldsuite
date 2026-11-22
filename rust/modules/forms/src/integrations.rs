@@ -494,9 +494,16 @@ pub(crate) async fn update_integration(
         .filter(form_integrations::Column::Id.eq(text(row, "id")))
         .exec_with_returning(&orm(&ctx.db))
         .await?;
-    updated.into_iter().next().map(row_json).transpose()?.ok_or_else(|| {
-        crate::common::Fail::Internal("forms: the integration update returned nothing".to_owned())
-    })
+    updated
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| {
+            crate::common::Fail::Internal(
+                "forms: the integration update returned nothing".to_owned(),
+            )
+        })
 }
 
 /// `deleteIntegration(ctx, row)`.

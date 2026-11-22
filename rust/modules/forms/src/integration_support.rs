@@ -262,7 +262,10 @@ pub(crate) async fn remember_entity(
             form_response_actions::Column::EntityType,
             Expr::value(entity_type),
         )
-        .col_expr(form_response_actions::Column::EntityId, Expr::value(entity_id))
+        .col_expr(
+            form_response_actions::Column::EntityId,
+            Expr::value(entity_id),
+        )
         .filter(form_response_actions::Column::ResponseId.eq(response_id))
         .filter(form_response_actions::Column::IntegrationId.eq(integration_id))
         .exec(&orm(db))

@@ -21,9 +21,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::ActiveValue::Set;
-use sea_orm::{
-    ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Served, Task, Tier};
 use weldsuite_db::orm;
