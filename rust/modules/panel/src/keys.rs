@@ -30,7 +30,7 @@ use weldsuite_schema::master::panel_key_registry as key_registry;
 
 use crate::projects::{live_project, registry_for};
 use crate::registry::{Registry, RegistryError};
-use crate::saved::{field, text};
+use crate::saved::{field, js_row, text};
 use crate::schemas_gen::CREATE_PANEL_KEY;
 use crate::{Caller, PanelState, unexpected};
 
@@ -55,11 +55,6 @@ fn generate_secret_key() -> String {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).expect("the operating system has a random source");
     format!("wps_{}", hex::encode(bytes))
-}
-
-/// A row as Drizzle returns it.
-fn js_row(model: key_registry::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `toKeyDto(row)`.

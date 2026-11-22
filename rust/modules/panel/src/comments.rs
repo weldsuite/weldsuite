@@ -30,17 +30,12 @@ use weldsuite_schema::tenant::{
     panel_comments as comments, user_preferences, workspace_members, workspace_settings,
 };
 
-use crate::saved::{Actor, Target, can_see, field, get_target, target_label, text};
+use crate::saved::{Actor, Target, can_see, field, get_target, js_row, target_label, text};
 use crate::schemas_gen::{CREATE_PANEL_COMMENT, PANEL_TARGET_QUERY, UPDATE_PANEL_COMMENT};
 use crate::{Caller, PanelState, unexpected};
 
 /// Comments listed per target, oldest first (`MAX_LISTED_COMMENTS`).
 const MAX_LISTED: u64 = 500;
-
-/// A row as Drizzle returns it.
-fn js_row(model: comments::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// `toCommentDto(c)`: `edited` when changed more than a second after posting.
 fn dto(row: &Value) -> Value {

@@ -48,7 +48,6 @@ use sea_orm::{
     ActiveValue, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
 use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_RECEIVED;
 use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_UPDATE;
@@ -70,7 +69,7 @@ use crate::po_actions::{ORDER, event_data, lock_order, receipt_json, require_sta
 use crate::po_guard::refuse_odoo_managed;
 use crate::po_totals::recompute_po_totals;
 use crate::tables::{PURCHASE_ORDER_ITEMS, PURCHASE_ORDERS};
-use crate::{Caller, Refusal, StashState, now, validate};
+use crate::{Caller, Refusal, StashState, validate};
 
 const FAILED: &str = "Failed to receive purchase order";
 
@@ -452,16 +451,53 @@ async fn replay(db: &PgPool, order_id: &str, receipt: &Value) -> Result<Received
 
 // ── Writing ─────────────────────────────────────────────────────────────────
 
+/// `i.quantity_ordered - coalesce(i.quantity_received, 0) -
+/// coalesce(i.quantity_rejected, 0)`: what a line still has to come.
+fn left_to_come() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let or_zero = |column: items::Column| Func::coalesce([column.into_expr(), Expr::val(0)]);
+    items::Column::QuantityOrdered
+        .into_expr()
+        .sub(or_zero(items::Column::QuantityReceived))
+        .sub(or_zero(items::Column::QuantityRejected))
+}
+
 /// After the line updates: `received` (and `received_date`) once no line
-/// has anything left to come, else `partial`.
-const FINISH: &str = "update purchase_orders t set \
-    status = case when exists (select 1 from purchase_order_items i where i.purchase_order_id = t.id \
-      and i.quantity_ordered - coalesce(i.quantity_received, 0) - coalesce(i.quantity_rejected, 0) > 0) \
-      then 'partial' else 'received' end, \
-    received_date = case when exists (select 1 from purchase_order_items i where i.purchase_order_id = t.id \
-      and i.quantity_ordered - coalesce(i.quantity_received, 0) - coalesce(i.quantity_rejected, 0) > 0) \
-      then t.received_date else $2::timestamp end, \
-    updated_at = $2::timestamp where t.id = $1";
+/// has anything left to come, else `partial`. One statement, so the status
+/// and the date read the lines alike.
+async fn finish(
+    db: &OrmConn<'_>,
+    order_id: &str,
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let open = || {
+        Condition::all().add(Expr::exists(
+            Query::select()
+                .expr(Expr::val(1))
+                .from(items::Entity)
+                .and_where(items::Column::PurchaseOrderId.eq(order_id))
+                .and_where(left_to_come().gt(0))
+                .to_owned(),
+        ))
+    };
+    orders::Entity::update_many()
+        .col_expr(
+            orders::Column::Status,
+            Expr::case(open(), "partial").finally("received").into(),
+        )
+        .col_expr(
+            orders::Column::ReceivedDate,
+            Expr::case(open(), orders::Column::ReceivedDate.into_expr())
+                .finally(now)
+                .into(),
+        )
+        .col_expr(orders::Column::UpdatedAt, Expr::value(now))
+        .filter(orders::Column::Id.eq(order_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
 
 /// What the transaction writes.
 struct Write {
@@ -473,7 +509,7 @@ struct Write {
     changes: Vec<Option<StockChange>>,
     user_id: String,
     notes: Option<String>,
-    now: String,
+    now: PrimitiveDateTime,
 }
 
 /// How the transaction ended.
@@ -486,28 +522,38 @@ enum Written {
 
 /// Add a line's units, unless a concurrent receipt took them.
 async fn add_units(
-    conn: &mut PgConnection,
+    db: &OrmConn<'_>,
     order_id: &str,
     line: &Planned,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), Refusal> {
-    let updated: Option<String> = sqlx::query_scalar(
-        "update purchase_order_items set quantity_received = coalesce(quantity_received, 0) + $3, \
-         quantity_rejected = coalesce(quantity_rejected, 0) + $4, \
-         quantity_pending = greatest(quantity_ordered - (coalesce(quantity_received, 0) + $3), 0), \
-         last_received_date = $5::timestamp, updated_at = $5::timestamp \
-         where id = $1 and purchase_order_id = $2 \
-         and quantity_ordered - coalesce(quantity_received, 0) - coalesce(quantity_rejected, 0) >= $3 + $4 \
-         returning id",
-    )
-    .bind(&line.item_id)
-    .bind(order_id)
-    .bind(line.quantity)
-    .bind(line.rejected)
-    .bind(now)
-    .fetch_optional(&mut *conn)
-    .await?;
-    if updated.is_none() {
+    use sea_orm::ExprTrait as _;
+    let or_zero = |column: items::Column| {
+        Expr::from(Func::coalesce([column.into_expr(), Expr::val(0)]))
+    };
+    let received = || or_zero(items::Column::QuantityReceived).add(line.quantity);
+    let updated = items::Entity::update_many()
+        .col_expr(items::Column::QuantityReceived, received())
+        .col_expr(
+            items::Column::QuantityRejected,
+            or_zero(items::Column::QuantityRejected).add(line.rejected),
+        )
+        .col_expr(
+            items::Column::QuantityPending,
+            Func::greatest([
+                items::Column::QuantityOrdered.into_expr().sub(received()),
+                Expr::val(0),
+            ])
+            .into(),
+        )
+        .col_expr(items::Column::LastReceivedDate, Expr::value(now))
+        .col_expr(items::Column::UpdatedAt, Expr::value(now))
+        .filter(items::Column::Id.eq(line.item_id.as_str()))
+        .filter(items::Column::PurchaseOrderId.eq(order_id))
+        .filter(left_to_come().gte(line.quantity + line.rejected))
+        .exec(db)
+        .await?;
+    if updated.rows_affected == 0 {
         return Err(Refusal::bad_request(format!(
             "Cannot receive {} of {}: another receipt was saved for it first",
             line.quantity + line.rejected,
@@ -537,6 +583,33 @@ fn posting_order(changes: &[Option<StockChange>]) -> Vec<usize> {
     order
 }
 
+/// Claim the idempotency key: the receipt row, its lines without
+/// adjustments yet (`on conflict (idempotency_key) do nothing`). `false`
+/// when another receipt holds the key.
+async fn claim_key(db: &OrmConn<'_>, write: &Write) -> Result<bool, DbErr> {
+    let receipt = receipts::ActiveModel {
+        id: ActiveValue::Set(write.receipt_id.clone()),
+        created_at: ActiveValue::Set(write.now),
+        purchase_order_id: ActiveValue::Set(write.order_id.clone()),
+        idempotency_key: ActiveValue::Set(write.key.clone()),
+        lines: ActiveValue::Set(receipt_lines(&write.plan, &[])),
+        received_at: ActiveValue::Set(write.now),
+        received_by: ActiveValue::Set(Some(write.user_id.clone())),
+        received_by_name: ActiveValue::Set(None),
+        notes: ActiveValue::Set(write.notes.clone()),
+    };
+    let inserted = receipts::Entity::insert(receipt)
+        .on_conflict(
+            OnConflict::column(receipts::Column::IdempotencyKey)
+                .do_nothing()
+                .to_owned(),
+        )
+        .try_insert()
+        .exec_without_returning(db)
+        .await?;
+    Ok(matches!(inserted, sea_orm::TryInsertResult::Inserted(rows) if rows > 0))
+}
+
 /// The whole receipt in one transaction: claim the key, lock the purchase
 /// order and check it again, add the units, post every line through the
 /// ledger (audit rows and roll-ups included), keep the adjustment ids, set
@@ -548,29 +621,14 @@ async fn write_receipt(db: &PgPool, write: Write) -> Result<Written, Refusal> {
             // A request with the same key that is still running holds it:
             // this insert waits until that one commits (then this is a
             // replay) or rolls back (then the key is ours).
-            let inserted: Option<String> = sqlx::query_scalar(
-                "insert into purchase_order_receipts (id, created_at, purchase_order_id, \
-                 idempotency_key, lines, received_at, received_by, received_by_name, notes) \
-                 values ($1, $2::timestamp, $3, $4, $5, $2::timestamp, $6, null, $7) \
-                 on conflict (idempotency_key) do nothing returning id",
-            )
-            .bind(&write.receipt_id)
-            .bind(&write.now)
-            .bind(&write.order_id)
-            .bind(&write.key)
-            .bind(receipt_lines(&write.plan, &[]))
-            .bind(&write.user_id)
-            .bind(write.notes.as_deref())
-            .fetch_optional(&mut *conn)
-            .await?;
-            if inserted.is_none() {
+            if !claim_key(&OrmConn::new(&mut *conn), &write).await? {
                 return Ok(Written::Taken);
             }
-            let order = lock_order(conn, &write.order_id).await?;
+            let order = lock_order(&OrmConn::new(&mut *conn), &write.order_id).await?;
             refuse_odoo_managed(&order)?;
             require_status(&order, RECEIVABLE, NOT_RECEIVABLE)?;
             for line in write.plan.iter().filter(|line| line.counts()) {
-                add_units(conn, &write.order_id, line, &write.now).await?;
+                add_units(&OrmConn::new(&mut *conn), &write.order_id, line, write.now).await?;
             }
             let mut adjustments = vec![Vec::new(); write.plan.len()];
             for index in posting_order(&write.changes) {
@@ -581,17 +639,17 @@ async fn write_receipt(db: &PgPool, write: Write) -> Result<Written, Refusal> {
                     adjustments[index] = vec![posted.adjustment_id];
                 }
             }
-            sqlx::query("update purchase_order_receipts set lines = $2 where id = $1")
-                .bind(&write.receipt_id)
-                .bind(receipt_lines(&write.plan, &adjustments))
-                .execute(&mut *conn)
+            let db = OrmConn::new(conn);
+            receipts::Entity::update_many()
+                .col_expr(
+                    receipts::Column::Lines,
+                    Expr::value(receipt_lines(&write.plan, &adjustments)),
+                )
+                .filter(receipts::Column::Id.eq(write.receipt_id.as_str()))
+                .exec(&db)
                 .await?;
-            sqlx::query(FINISH)
-                .bind(&write.order_id)
-                .bind(&write.now)
-                .execute(&mut *conn)
-                .await?;
-            recompute_po_totals(&mut *conn, &write.order_id, &write.now).await?;
+            finish(&db, &write.order_id, write.now).await?;
+            recompute_po_totals(&db, &write.order_id, write.now).await?;
             Ok::<_, Refusal>(Written::Done)
         })
     })
@@ -641,7 +699,7 @@ async fn receive_order(caller: &Caller, id: &str, input: ReceiveIn) -> Result<Re
             changes,
             user_id: caller.user_id.clone(),
             notes: input.notes.clone(),
-            now: now(),
+            now: utc_now(),
         },
     )
     .await?;

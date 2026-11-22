@@ -15,7 +15,7 @@
 //! `id` through).
 
 use sea_orm::sea_query::{Alias, Expr, Query};
-use sea_orm::{ConnectionTrait, DbBackend, DbErr};
+use sea_orm::{ConnectionTrait, DbBackend, DbErr, Statement};
 use serde_json::{Map, Value};
 use weldsuite_db::record::JsonTable;
 use weldsuite_db::{OrmConn, PgPool, js_timestamp, orm};
@@ -240,10 +240,7 @@ impl Table {
         Ok(row.map(|row| self.drizzle(row)))
     }
 
-    /// `update t set id = $new where id = $id [and deleted_at is null]
-    /// returning id`, `$new` converted to text as `jsonb_populate_record`
-    /// converts it (`{ id }->>'id'`). The new id, or `None` when no row
-    /// matched.
+    /// The new id, or `None` when no row matched ([`Table::rename_statement`]).
     async fn rename<C: ConnectionTrait>(
         &self,
         db: &C,
@@ -251,6 +248,15 @@ impl Table {
         new_id: Value,
         live_only: bool,
     ) -> Result<Option<String>, DbErr> {
+        let statement = self.rename_statement(id, new_id, live_only);
+        let row = db.query_one_raw(statement).await?;
+        row.map(|row| row.try_get::<String>("", "id")).transpose()
+    }
+
+    /// `update t set id = $new where id = $id [and deleted_at is null]
+    /// returning id`, `$new` converted to text as `jsonb_populate_record`
+    /// converts it (`{ id }->>'id'`).
+    fn rename_statement(&self, id: &str, new_id: Value, live_only: bool) -> Statement {
         use sea_orm::ExprTrait as _;
         let table = Alias::new(self.entity.table_name());
         let mut object = Map::new();
@@ -268,8 +274,7 @@ impl Table {
             update.and_where(deleted_at.is_null());
         }
         update.returning_col(Alias::new("id"));
-        let row = db.query_one_raw(DbBackend::Postgres.build(&update)).await?;
-        row.map(|row| row.try_get::<String>("", "id")).transpose()
+        DbBackend::Postgres.build(&update)
     }
 
     /// The live row `id` (`deleted_at is null` where the table has it), as
@@ -325,6 +330,19 @@ mod tests {
         for table in crate::tables::ALL {
             assert_eq!(table.entity_drift(), (vec![], vec![]), "{}", table.name);
         }
+    }
+
+    #[test]
+    fn a_patch_renames_with_the_id_as_postgres_reads_it() {
+        let statement =
+            crate::tables::BOXES.rename_statement("box_1", json!("box_2"), true);
+        assert_eq!(
+            statement.sql,
+            r#"UPDATE "boxes" SET "id" = (CAST($1 AS jsonb) ->> $2) WHERE "boxes"."id" = $3 AND "boxes"."deleted_at" IS NULL RETURNING "id""#
+        );
+        let statement =
+            crate::tables::INVENTORY_MOVEMENTS.rename_statement("mov_1", json!(7), true);
+        assert!(!statement.sql.contains("deleted_at"), "{}", statement.sql);
     }
 
     #[test]

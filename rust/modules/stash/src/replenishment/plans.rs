@@ -491,14 +491,14 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch plan";
-    match plan_detail(&orm(&caller.db), &caller.db, &id).await {
+    match plan_detail(&orm(&caller.db), &id).await {
         Ok(data) => Data(data).into_response(),
         Err(refusal) => refusal.respond(FAILED),
     }
 }
 
 /// `{ plan, rule, productSupplier }`.
-async fn plan_detail(db: &DatabaseConnection, pool: &PgPool, id: &str) -> Result<Value, Refusal> {
+async fn plan_detail(db: &DatabaseConnection, id: &str) -> Result<Value, Refusal> {
     let Some(plan) = find_plan(db, id).await? else {
         return Err(Refusal::not_found(RESOURCE, id));
     };
@@ -511,7 +511,7 @@ async fn plan_detail(db: &DatabaseConnection, pool: &PgPool, id: &str) -> Result
         .map(|rule| model_json!(rule))
         .transpose()?;
     let product_supplier = match plan["productSupplierId"].as_str() {
-        Some(link) => crate::product_suppliers::find_item(pool, link).await?,
+        Some(link) => crate::product_suppliers::find_item(db, link).await?,
         None => None,
     };
     Ok(json!({

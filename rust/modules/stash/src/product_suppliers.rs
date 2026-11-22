@@ -27,8 +27,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, Order, Query};
+use sea_orm::{
+    ActiveValue, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PRODUCT_SUPPLIER_CREATED, PRODUCT_SUPPLIER_DELETED, PRODUCT_SUPPLIER_UPDATED,
 };
@@ -37,10 +43,13 @@ use weldsuite_catalogs::permission_keys::{
 };
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::product_suppliers::{ActiveModel, Column, Entity, Model};
+use weldsuite_schema::tenant::{product_variants, products, suppliers};
 
 use crate::js::{number_text, query_set};
-use crate::{Caller, Refusal, StashState, internal, now, validate};
+use crate::{Caller, Refusal, StashState, internal, validate};
 
 const RESOURCE: &str = "Product supplier";
 
@@ -66,81 +75,134 @@ where
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/// A link with its names, at `$1`–`$5`: the id (or null), the product (or
-/// null), the variant mode (`any` | `none` | `only`), the variant, the
-/// supplier (or null). Live links only.
-const ITEMS: &str = "select jsonb_build_object(\
-    'row', to_jsonb(t) || jsonb_build_object('unit_cost', t.unit_cost::text), \
-    'supplierName', s.name, 'supplierCode', s.code, 'supplierCurrency', s.currency, \
-    'supplierLeadTimeDays', s.default_lead_time_days, 'productName', p.name, 'productSku', p.sku) \
-    from product_suppliers t \
-    left join suppliers s on s.id = t.supplier_id \
-    left join products p on p.id = t.product_id \
-    where t.deleted_at is null \
-    and ($1::text is null or t.id = $1) \
-    and ($2::text is null or t.product_id = $2) \
-    and ($3::text = 'any' \
-         or ($3::text = 'none' and coalesce(t.variant_id, '') = '') \
-         or ($3::text = 'only' and t.variant_id = $4)) \
-    and ($5::text is null or t.supplier_id = $5) \
-    order by t.is_preferred desc, t.created_at asc, t.id asc";
+/// A link with its names (left joins): its supplier's name, code,
+/// currency and default lead time, its product's name and SKU.
+#[derive(Debug, FromQueryResult)]
+struct Linked {
+    #[sea_orm(nested)]
+    row: Model,
+    supplier_name: Option<String>,
+    supplier_code: Option<String>,
+    supplier_currency: Option<String>,
+    supplier_lead_time_days: Option<i32>,
+    product_name: Option<String>,
+    product_sku: Option<String>,
+}
 
 /// `{ ...row, supplierName, supplierCode, supplierCurrency,
 /// supplierLeadTimeDays, productName, productSku }`.
-fn item(joined: &Value) -> Value {
-    let mut row = match weldsuite_db::js_row(joined.get("row").cloned().unwrap_or(Value::Null)) {
+fn item(linked: Linked) -> Result<Value, DbErr> {
+    let row = serde_json::to_value(linked.row).map_err(|error| DbErr::Json(error.to_string()))?;
+    let mut row = match row {
         Value::Object(row) => row,
         _ => Map::new(),
     };
-    for key in [
-        "supplierName",
-        "supplierCode",
-        "supplierCurrency",
-        "supplierLeadTimeDays",
-        "productName",
-        "productSku",
+    for (key, value) in [
+        ("supplierName", json!(linked.supplier_name)),
+        ("supplierCode", json!(linked.supplier_code)),
+        ("supplierCurrency", json!(linked.supplier_currency)),
+        ("supplierLeadTimeDays", json!(linked.supplier_lead_time_days)),
+        ("productName", json!(linked.product_name)),
+        ("productSku", json!(linked.product_sku)),
     ] {
-        row.insert(
-            key.to_owned(),
-            joined.get(key).cloned().unwrap_or(Value::Null),
-        );
+        row.insert(key.to_owned(), value);
     }
-    Value::Object(row)
+    Ok(Value::Object(row))
+}
+
+/// `coalesce(variant_id, '')`: the item key's variant part.
+fn variant_key() -> Expr {
+    Func::coalesce([Column::VariantId.into_expr(), Expr::val("")]).into()
+}
+
+/// The live links of one product/variant (`coalesce(variant_id, '') =
+/// coalesce($variant, '')`).
+fn of_item(product_id: &str, variant_id: Option<&str>) -> Condition {
+    use sea_orm::ExprTrait as _;
+    Condition::all()
+        .add(Column::ProductId.eq(product_id))
+        .add(variant_key().eq(variant_id.unwrap_or("")))
+        .add(Column::DeletedAt.is_null())
+}
+
+/// Which variants' links a list reads.
+enum Variant<'a> {
+    /// Every link, with or without a variant.
+    Any,
+    /// The links without a variant (`variantId=none`).
+    None,
+    /// The links of this variant.
+    Only(&'a str),
 }
 
 /// The filters of a list.
 struct Filters<'a> {
     id: Option<&'a str>,
     product_id: Option<&'a str>,
-    /// `any`, `none` or `only` (with the variant).
-    variant: (&'static str, Option<&'a str>),
+    variant: Variant<'a>,
     supplier_id: Option<&'a str>,
 }
 
-async fn items<'e>(
-    db: impl sqlx::PgExecutor<'e>,
-    filters: &Filters<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(ITEMS)
-        .bind(filters.id)
-        .bind(filters.product_id)
-        .bind(filters.variant.0)
-        .bind(filters.variant.1)
-        .bind(filters.supplier_id)
-        .fetch_all(db)
-        .await?;
-    Ok(rows.iter().map(item).collect())
+/// The live links `filters` selects, preferred first, then oldest.
+async fn items<C: ConnectionTrait>(db: &C, filters: &Filters<'_>) -> Result<Vec<Value>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let mut condition = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(id) = filters.id {
+        condition = condition.add(Column::Id.eq(id));
+    }
+    if let Some(product) = filters.product_id {
+        condition = condition.add(Column::ProductId.eq(product));
+    }
+    match filters.variant {
+        Variant::Any => {}
+        Variant::None => condition = condition.add(variant_key().eq("")),
+        Variant::Only(variant) => condition = condition.add(Column::VariantId.eq(variant)),
+    }
+    if let Some(supplier) = filters.supplier_id {
+        condition = condition.add(Column::SupplierId.eq(supplier));
+    }
+    Entity::find()
+        .column_as(suppliers::Column::Name, "supplier_name")
+        .column_as(suppliers::Column::Code, "supplier_code")
+        .column_as(suppliers::Column::Currency, "supplier_currency")
+        .column_as(
+            suppliers::Column::DefaultLeadTimeDays,
+            "supplier_lead_time_days",
+        )
+        .column_as(products::Column::Name, "product_name")
+        .column_as(products::Column::Sku, "product_sku")
+        .join(
+            JoinType::LeftJoin,
+            Entity::belongs_to(suppliers::Entity)
+                .from(Column::SupplierId)
+                .to(suppliers::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            Entity::belongs_to(products::Entity)
+                .from(Column::ProductId)
+                .to(products::Column::Id)
+                .into(),
+        )
+        .filter(condition)
+        .order_by(Column::IsPreferred, Order::Desc)
+        .order_by(Column::CreatedAt, Order::Asc)
+        .order_by(Column::Id, Order::Asc)
+        .into_model::<Linked>()
+        .all(db)
+        .await?
+        .into_iter()
+        .map(item)
+        .collect()
 }
 
 /// The live link `id` with its names.
-pub(crate) async fn find_item<'e>(
-    db: impl sqlx::PgExecutor<'e>,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn find_item<C: ConnectionTrait>(db: &C, id: &str) -> Result<Option<Value>, DbErr> {
     let filters = Filters {
         id: Some(id),
         product_id: None,
-        variant: ("any", None),
+        variant: Variant::Any,
         supplier_id: None,
     };
     Ok(items(db, &filters).await?.into_iter().next())
@@ -156,13 +218,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         id: None,
         product_id: product_id.as_deref(),
         variant: match variant.as_deref() {
-            None => ("any", None),
-            Some("none") => ("none", None),
-            Some(id) => ("only", Some(id)),
+            None => Variant::Any,
+            Some("none") => Variant::None,
+            Some(id) => Variant::Only(id),
         },
         supplier_id: supplier_id.as_deref(),
     };
-    match items(&caller.db, &filters).await {
+    match items(&orm(&caller.db), &filters).await {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
             List::new(rows, Pagination::new(total, false, None)).into_response()
@@ -288,41 +350,53 @@ fn slot<T: Clone>(field: &Field<T>) -> (bool, Option<T>) {
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 /// Serialise the changes to one product/variant's links for the rest of
-/// the transaction.
-async fn lock_item(
-    conn: &mut PgConnection,
+/// the transaction: `pg_advisory_xact_lock(hashtext('product_suppliers:'
+/// || product || ':' || coalesce(variant, '')))`.
+async fn lock_item<C: ConnectionTrait>(
+    db: &C,
     product_id: &str,
     variant_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("select pg_advisory_xact_lock(hashtext('product_suppliers:' || $1 || ':' || coalesce($2, '')))")
-        .bind(product_id)
-        .bind(variant_id)
-        .execute(&mut *conn)
-        .await?;
+) -> Result<(), DbErr> {
+    let key = format!(
+        "product_suppliers:{product_id}:{}",
+        variant_id.unwrap_or("")
+    );
+    let lock = Query::select()
+        .expr(Func::cust("pg_advisory_xact_lock").arg(Func::cust("hashtext").arg(key)))
+        .to_owned();
+    db.execute(&lock).await?;
     Ok(())
 }
 
+/// The event data of a link row: `{ id, productId, variantId, supplierId,
+/// isPreferred }`.
+fn link_event(row: &Model) -> Value {
+    json!({
+        "id": row.id,
+        "productId": row.product_id,
+        "variantId": row.variant_id,
+        "supplierId": row.supplier_id,
+        "isPreferred": row.is_preferred,
+    })
+}
+
 /// Take the preference from the item's other links; the ones that had it.
-async fn unset_preferred(
-    conn: &mut PgConnection,
+async fn unset_preferred<C: ConnectionTrait>(
+    db: &C,
     product_id: &str,
     variant_id: Option<&str>,
     except: &str,
-    now: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "update product_suppliers set is_preferred = false, updated_at = $4::timestamp \
-         where product_id = $1 and coalesce(variant_id, '') = coalesce($2, '') and id <> $3 \
-         and deleted_at is null and is_preferred \
-         returning jsonb_build_object('id', id, 'productId', product_id, 'variantId', variant_id, \
-         'supplierId', supplier_id, 'isPreferred', is_preferred)",
-    )
-    .bind(product_id)
-    .bind(variant_id)
-    .bind(except)
-    .bind(now)
-    .fetch_all(&mut *conn)
-    .await
+    now: PrimitiveDateTime,
+) -> Result<Vec<Value>, DbErr> {
+    let rows = Entity::update_many()
+        .col_expr(Column::IsPreferred, Expr::value(false))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(of_item(product_id, variant_id))
+        .filter(Column::Id.ne(except))
+        .filter(Column::IsPreferred.eq(true))
+        .exec_with_returning(db)
+        .await?;
+    Ok(rows.iter().map(link_event).collect())
 }
 
 /// The event data of a link.
@@ -382,88 +456,133 @@ async fn create(
 
 /// The checks (404s, 409), then the insert with its preference, in one
 /// transaction. The new item and the links that lost the preference.
+/// Whether a live row matches `condition` (`select id … where … and
+/// deleted_at is null limit 1`).
+async fn exists<E: EntityTrait>(
+    db: &weldsuite_db::PgPool,
+    id: E::Column,
+    deleted_at: E::Column,
+    condition: Condition,
+) -> Result<bool, DbErr> {
+    let found: Option<String> = E::find()
+        .select_only()
+        .column(id)
+        .filter(condition)
+        .filter(deleted_at.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
+}
+
+/// `$n::numeric` of a number as JavaScript prints it.
+fn decimal(number: f64) -> Result<BigDecimal, DbErr> {
+    let text = number_text(number);
+    text.parse()
+        .map_err(|_| DbErr::Type(format!("invalid input syntax for type numeric: \"{text}\"")))
+}
+
+/// An integer the schema bounded, as its `integer` column.
+fn integer(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
+}
+
+/// The new link's row.
+fn new_row(
+    id: &str,
+    link: &NewLink,
+    preferred: bool,
+    now: PrimitiveDateTime,
+) -> Result<ActiveModel, DbErr> {
+    let terms = &link.terms;
+    Ok(ActiveModel {
+        id: ActiveValue::Set(id.to_owned()),
+        created_at: ActiveValue::Set(now),
+        updated_at: ActiveValue::Set(now),
+        product_id: ActiveValue::Set(link.product_id.clone()),
+        variant_id: ActiveValue::Set(link.variant_id.clone()),
+        supplier_id: ActiveValue::Set(link.supplier_id.clone()),
+        supplier_sku: ActiveValue::Set(terms.supplier_sku.as_set().cloned()),
+        supplier_product_name: ActiveValue::Set(terms.supplier_product_name.as_set().cloned()),
+        unit_cost: ActiveValue::Set(terms.unit_cost.as_set().copied().map(decimal).transpose()?),
+        currency: ActiveValue::Set(terms.currency.as_set().cloned()),
+        lead_time_days: ActiveValue::Set(
+            terms.lead_time_days.as_set().copied().map(integer).transpose()?,
+        ),
+        min_order_qty: ActiveValue::Set(
+            terms.min_order_qty.as_set().copied().map(integer).transpose()?,
+        ),
+        order_multiple: ActiveValue::Set(integer(
+            terms.order_multiple.as_set().copied().unwrap_or(1),
+        )?),
+        is_preferred: ActiveValue::Set(preferred),
+        ..Default::default()
+    })
+}
+
+/// The checks (404s, 409), then the insert with its preference, in one
+/// transaction. The new item and the links that lost the preference.
 async fn create_link(caller: &Caller, link: NewLink) -> Result<(Value, Vec<Value>), Refusal> {
     let db = &caller.db;
-    let product: Option<String> =
-        sqlx::query_scalar("select id from products where id = $1 and deleted_at is null limit 1")
-            .bind(&link.product_id)
-            .fetch_optional(db)
-            .await?;
-    if product.is_none() {
+    let product = Condition::all().add(products::Column::Id.eq(link.product_id.as_str()));
+    if !exists::<products::Entity>(db, products::Column::Id, products::Column::DeletedAt, product)
+        .await?
+    {
         return Err(Refusal::not_found("Product", &link.product_id));
     }
     if let Some(variant) = &link.variant_id {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from product_variants where id = $1 and product_id = $2 \
-             and deleted_at is null limit 1",
+        let of_product = Condition::all()
+            .add(product_variants::Column::Id.eq(variant.as_str()))
+            .add(product_variants::Column::ProductId.eq(link.product_id.as_str()));
+        if !exists::<product_variants::Entity>(
+            db,
+            product_variants::Column::Id,
+            product_variants::Column::DeletedAt,
+            of_product,
         )
-        .bind(variant)
-        .bind(&link.product_id)
-        .fetch_optional(db)
-        .await?;
-        if found.is_none() {
+        .await?
+        {
             return Err(Refusal::not_found("Product variant", variant));
         }
     }
-    let supplier: Option<String> =
-        sqlx::query_scalar("select id from suppliers where id = $1 and deleted_at is null limit 1")
-            .bind(&link.supplier_id)
-            .fetch_optional(db)
-            .await?;
-    if supplier.is_none() {
+    let supplier = Condition::all().add(suppliers::Column::Id.eq(link.supplier_id.as_str()));
+    if !exists::<suppliers::Entity>(db, suppliers::Column::Id, suppliers::Column::DeletedAt, supplier)
+        .await?
+    {
         return Err(Refusal::not_found("Supplier", &link.supplier_id));
     }
     let id = generate_id("psup");
-    let at = now();
+    let at = weldsuite_db::utc_now();
     let written = weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
+            let db = OrmConn::new(conn);
             let variant = link.variant_id.as_deref();
-            lock_item(conn, &link.product_id, variant).await?;
-            let links: Vec<(String, String)> = sqlx::query_as(
-                "select id, supplier_id from product_suppliers where product_id = $1 \
-                 and coalesce(variant_id, '') = coalesce($2, '') and deleted_at is null",
-            )
-            .bind(&link.product_id)
-            .bind(variant)
-            .fetch_all(&mut *conn)
-            .await?;
+            lock_item(&db, &link.product_id, variant).await?;
+            let links: Vec<(String, String)> = Entity::find()
+                .select_only()
+                .columns([Column::Id, Column::SupplierId])
+                .filter(of_item(&link.product_id, variant))
+                .into_tuple()
+                .all(&db)
+                .await?;
             if links.iter().any(|(_, supplier)| *supplier == link.supplier_id) {
                 return Err(duplicate());
             }
-            let terms = &link.terms;
-            let preferred = links.is_empty() || terms.is_preferred.as_set() == Some(&true);
+            let preferred = links.is_empty() || link.terms.is_preferred.as_set() == Some(&true);
             let demoted = if preferred && !links.is_empty() {
-                unset_preferred(conn, &link.product_id, variant, &id, &at).await?
+                unset_preferred(&db, &link.product_id, variant, &id, at).await?
             } else {
                 Vec::new()
             };
-            let inserted = sqlx::query(
-                "insert into product_suppliers (id, created_at, updated_at, product_id, variant_id, \
-                 supplier_id, supplier_sku, supplier_product_name, unit_cost, currency, \
-                 lead_time_days, min_order_qty, order_multiple, is_preferred) values \
-                 ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8::numeric, $9, $10, $11, $12, $13)",
-            )
-            .bind(&id)
-            .bind(&at)
-            .bind(&link.product_id)
-            .bind(variant)
-            .bind(&link.supplier_id)
-            .bind(terms.supplier_sku.as_set())
-            .bind(terms.supplier_product_name.as_set())
-            .bind(terms.unit_cost.as_set().map(|cost| number_text(*cost)))
-            .bind(terms.currency.as_set())
-            .bind(terms.lead_time_days.as_set())
-            .bind(terms.min_order_qty.as_set())
-            .bind(terms.order_multiple.as_set().copied().unwrap_or(1))
-            .bind(preferred)
-            .execute(&mut *conn)
-            .await;
+            let inserted = Entity::insert(new_row(&id, &link, preferred, at)?)
+                .exec_without_returning(&db)
+                .await;
             match inserted {
                 Ok(_) => {}
                 Err(error) if weldsuite_db::is_unique_violation(&error) => return Err(duplicate()),
                 Err(error) => return Err(error.into()),
             }
-            let row = find_item(&mut *conn, &id)
+            let row = find_item(&db, &id)
                 .await?
                 .ok_or_else(|| Refusal::not_found(RESOURCE, &id))?;
             Ok::<_, Refusal>((row, demoted))
@@ -471,6 +590,67 @@ async fn create_link(caller: &Caller, link: NewLink) -> Result<(Value, Vec<Value
     })
     .await?;
     Ok(written)
+}
+
+/// The live link's item: its product and variant.
+async fn link_key<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+) -> Result<Option<(String, Option<String>)>, DbErr> {
+    Entity::find()
+        .select_only()
+        .columns([Column::ProductId, Column::VariantId])
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await
+}
+
+/// Write the terms the body sent (a field left out keeps its value, a
+/// null clears it) on the live link `id`; `false` when there is none.
+async fn change_terms<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    terms: &Terms,
+    now: PrimitiveDateTime,
+) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let mut update = Entity::update_many();
+    if let (true, sku) = slot(&terms.supplier_sku) {
+        update = update.col_expr(Column::SupplierSku, Expr::value(sku));
+    }
+    if let (true, name) = slot(&terms.supplier_product_name) {
+        update = update.col_expr(Column::SupplierProductName, Expr::value(name));
+    }
+    if let (true, cost) = slot(&terms.unit_cost) {
+        update = update.col_expr(
+            Column::UnitCost,
+            Expr::val(cost.map(number_text)).cast_as("numeric"),
+        );
+    }
+    if let (true, currency) = slot(&terms.currency) {
+        update = update.col_expr(Column::Currency, Expr::value(currency));
+    }
+    for (column, field) in [
+        (Column::LeadTimeDays, &terms.lead_time_days),
+        (Column::MinOrderQty, &terms.min_order_qty),
+        (Column::OrderMultiple, &terms.order_multiple),
+    ] {
+        if let (true, value) = slot(field) {
+            update = update.col_expr(column, Expr::val(value).cast_as("integer"));
+        }
+    }
+    if let (true, preferred) = slot(&terms.is_preferred) {
+        update = update.col_expr(Column::IsPreferred, Expr::value(preferred));
+    }
+    let changed = update
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(db)
+        .await?;
+    Ok(changed.rows_affected > 0)
 }
 
 async fn update(
@@ -485,70 +665,23 @@ async fn update(
         Ok(terms) => terms,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let at = now();
+    let at = weldsuite_db::utc_now();
     let written = weldsuite_db::atomically_with(&caller.db, move |conn| {
         Box::pin(async move {
-            let key: Option<(String, Option<String>)> = sqlx::query_as(
-                "select product_id, variant_id from product_suppliers where id = $1 \
-                 and deleted_at is null",
-            )
-            .bind(&id)
-            .fetch_optional(&mut *conn)
-            .await?;
-            let Some((product_id, variant_id)) = key else {
+            let db = OrmConn::new(conn);
+            let Some((product_id, variant_id)) = link_key(&db, &id).await? else {
                 return Err(Refusal::not_found(RESOURCE, &id));
             };
-            lock_item(conn, &product_id, variant_id.as_deref()).await?;
+            lock_item(&db, &product_id, variant_id.as_deref()).await?;
             let demoted = if terms.is_preferred.as_set() == Some(&true) {
-                unset_preferred(conn, &product_id, variant_id.as_deref(), &id, &at).await?
+                unset_preferred(&db, &product_id, variant_id.as_deref(), &id, at).await?
             } else {
                 Vec::new()
             };
-            let (sku_set, sku) = slot(&terms.supplier_sku);
-            let (name_set, name) = slot(&terms.supplier_product_name);
-            let (cost_set, cost) = slot(&terms.unit_cost);
-            let (currency_set, currency) = slot(&terms.currency);
-            let (lead_set, lead) = slot(&terms.lead_time_days);
-            let (moq_set, moq) = slot(&terms.min_order_qty);
-            let (multiple_set, multiple) = slot(&terms.order_multiple);
-            let (preferred_set, preferred) = slot(&terms.is_preferred);
-            let changed: Option<String> = sqlx::query_scalar(
-                "update product_suppliers set \
-                 supplier_sku = case when $2 then $3 else supplier_sku end, \
-                 supplier_product_name = case when $4 then $5 else supplier_product_name end, \
-                 unit_cost = case when $6 then $7::numeric else unit_cost end, \
-                 currency = case when $8 then $9 else currency end, \
-                 lead_time_days = case when $10 then $11::integer else lead_time_days end, \
-                 min_order_qty = case when $12 then $13::integer else min_order_qty end, \
-                 order_multiple = case when $14 then $15::integer else order_multiple end, \
-                 is_preferred = case when $16 then $17::boolean else is_preferred end, \
-                 updated_at = $18::timestamp \
-                 where id = $1 and deleted_at is null returning id",
-            )
-            .bind(&id)
-            .bind(sku_set)
-            .bind(sku)
-            .bind(name_set)
-            .bind(name)
-            .bind(cost_set)
-            .bind(cost.map(number_text))
-            .bind(currency_set)
-            .bind(currency)
-            .bind(lead_set)
-            .bind(lead)
-            .bind(moq_set)
-            .bind(moq)
-            .bind(multiple_set)
-            .bind(multiple)
-            .bind(preferred_set)
-            .bind(preferred)
-            .bind(&at)
-            .fetch_optional(&mut *conn)
-            .await?;
-            if changed.is_none() {
+            if !change_terms(&db, &id, &terms, at).await? {
                 return Err(Refusal::not_found(RESOURCE, &id));
             }
-            let row = find_item(&mut *conn, &id)
+            let row = find_item(&db, &id)
                 .await?
                 .ok_or_else(|| Refusal::not_found(RESOURCE, &id))?;
             Ok::<_, Refusal>((row, demoted))
@@ -564,59 +697,64 @@ async fn update(
     }
 }
 
+/// Pass the preference to the item's oldest live link: `update … where id =
+/// (select id … order by created_at, id limit 1)`, one statement.
+async fn promote_oldest<C: ConnectionTrait>(
+    db: &C,
+    product_id: &str,
+    variant_id: Option<&str>,
+    now: PrimitiveDateTime,
+) -> Result<Vec<Value>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let oldest = Query::select()
+        .column(Column::Id)
+        .from(Entity)
+        .cond_where(of_item(product_id, variant_id))
+        .order_by(Column::CreatedAt, Order::Asc)
+        .order_by(Column::Id, Order::Asc)
+        .limit(1)
+        .to_owned();
+    let rows = Entity::update_many()
+        .col_expr(Column::IsPreferred, Expr::value(true))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.into_expr().eq(Expr::from(oldest)))
+        .exec_with_returning(db)
+        .await?;
+    Ok(rows.iter().map(link_event).collect())
+}
+
 async fn remove(
     State(state): State<StashState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
     const FAILED: &str = "Failed to delete product supplier";
-    let at = now();
+    let at = weldsuite_db::utc_now();
     let removed = weldsuite_db::atomically_with(&caller.db, move |conn| {
         Box::pin(async move {
-            let key: Option<(String, Option<String>)> = sqlx::query_as(
-                "select product_id, variant_id from product_suppliers where id = $1 \
-                 and deleted_at is null",
-            )
-            .bind(&id)
-            .fetch_optional(&mut *conn)
-            .await?;
-            let Some((product_id, variant_id)) = key else {
+            let db = OrmConn::new(conn);
+            let Some((product_id, variant_id)) = link_key(&db, &id).await? else {
                 return Err(Refusal::not_found(RESOURCE, &id));
             };
-            lock_item(conn, &product_id, variant_id.as_deref()).await?;
+            lock_item(&db, &product_id, variant_id.as_deref()).await?;
             // Checked again under the lock: a delete that got there first
             // answered and published already.
-            let row: Option<Value> = sqlx::query_scalar(
-                "update product_suppliers set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-                 where id = $1 and deleted_at is null \
-                 returning jsonb_build_object('id', id, 'productId', product_id, \
-                 'variantId', variant_id, 'supplierId', supplier_id, 'isPreferred', is_preferred)",
-            )
-            .bind(&id)
-            .bind(&at)
-            .fetch_optional(&mut *conn)
-            .await?;
-            let Some(row) = row else {
+            let deleted = Entity::update_many()
+                .col_expr(Column::DeletedAt, Expr::value(at))
+                .col_expr(Column::UpdatedAt, Expr::value(at))
+                .filter(Column::Id.eq(id.as_str()))
+                .filter(Column::DeletedAt.is_null())
+                .exec_with_returning(&db)
+                .await?;
+            let Some(row) = deleted.first() else {
                 return Err(Refusal::not_found(RESOURCE, &id));
             };
-            let promoted: Vec<Value> = if row["isPreferred"] == json!(true) {
-                sqlx::query_scalar(
-                    "update product_suppliers set is_preferred = true, updated_at = $3::timestamp \
-                     where id = (select id from product_suppliers where product_id = $1 \
-                       and coalesce(variant_id, '') = coalesce($2, '') and deleted_at is null \
-                       order by created_at asc, id asc limit 1) \
-                     returning jsonb_build_object('id', id, 'productId', product_id, \
-                     'variantId', variant_id, 'supplierId', supplier_id, 'isPreferred', is_preferred)",
-                )
-                .bind(&product_id)
-                .bind(variant_id.as_deref())
-                .bind(&at)
-                .fetch_all(&mut *conn)
-                .await?
+            let promoted: Vec<Value> = if row.is_preferred {
+                promote_oldest(&db, &product_id, variant_id.as_deref(), at).await?
             } else {
                 Vec::new()
             };
-            Ok::<_, Refusal>((row, promoted))
+            Ok::<_, Refusal>((link_event(row), promoted))
         })
     })
     .await;
@@ -706,20 +844,48 @@ mod tests {
 
     #[test]
     fn an_item_is_the_row_with_its_names() {
-        let joined = json!({
-            "row": { "id": "psup_1", "product_id": "prod_1", "unit_cost": "2.1250",
-                     "created_at": "2026-11-18T10:00:00.5", "is_preferred": true },
-            "supplierName": "Acme", "supplierCode": "AC", "supplierCurrency": "EUR",
-            "supplierLeadTimeDays": 14, "productName": "Lamp", "productSku": "L-1",
-        });
-        assert_eq!(
-            item(&joined),
-            json!({
-                "id": "psup_1", "productId": "prod_1", "unitCost": "2.1250",
-                "createdAt": "2026-11-18T10:00:00.500Z", "isPreferred": true,
-                "supplierName": "Acme", "supplierCode": "AC", "supplierCurrency": "EUR",
-                "supplierLeadTimeDays": 14, "productName": "Lamp", "productSku": "L-1",
-            })
-        );
+        let at = time::macros::datetime!(2026-11-18 10:00:00.5);
+        let linked = Linked {
+            row: Model {
+                id: "psup_1".to_owned(),
+                created_at: at,
+                updated_at: at,
+                deleted_at: None,
+                product_id: "prod_1".to_owned(),
+                variant_id: None,
+                supplier_id: "sup_1".to_owned(),
+                supplier_sku: None,
+                supplier_product_name: None,
+                unit_cost: Some("2.125".parse().expect("decimal")),
+                currency: None,
+                lead_time_days: None,
+                min_order_qty: None,
+                order_multiple: 1,
+                is_preferred: true,
+                metadata: None,
+            },
+            supplier_name: Some("Acme".to_owned()),
+            supplier_code: Some("AC".to_owned()),
+            supplier_currency: Some("EUR".to_owned()),
+            supplier_lead_time_days: Some(14),
+            product_name: Some("Lamp".to_owned()),
+            product_sku: Some("L-1".to_owned()),
+        };
+        let item = item(linked).expect("item");
+        assert_eq!(item["id"], json!("psup_1"));
+        assert_eq!(item["productId"], json!("prod_1"));
+        assert_eq!(item["unitCost"], json!("2.1250"));
+        assert_eq!(item["createdAt"], json!("2026-11-18T10:00:00.500Z"));
+        assert_eq!(item["isPreferred"], json!(true));
+        for (key, value) in [
+            ("supplierName", json!("Acme")),
+            ("supplierCode", json!("AC")),
+            ("supplierCurrency", json!("EUR")),
+            ("supplierLeadTimeDays", json!(14)),
+            ("productName", json!("Lamp")),
+            ("productSku", json!("L-1")),
+        ] {
+            assert_eq!(item[key], value, "{key}");
+        }
     }
 }

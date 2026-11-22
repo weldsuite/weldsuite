@@ -24,8 +24,8 @@ use http::HeaderMap;
 use http::header::ACCEPT_LANGUAGE;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
@@ -44,8 +44,8 @@ use weldsuite_zod::{Keys, Z};
 
 use crate::saved::{
     Actor, PROJECT_ID, SCOPES, can_change, can_see, dashboard_detail, dashboard_dto,
-    dashboard_event_data, field, get_dashboard, get_report, list_tiles, project_exists,
-    report_event_data, stored_filters, text, tile_dto,
+    dashboard_event_data, field, get_dashboard, get_report, js_row, list_tiles, project_exists,
+    report_event_data, scope_filter, stored_filters, text, tile_dto,
 };
 use crate::schemas_gen::{
     ADD_PANEL_DASHBOARD_TILE, CREATE_PANEL_DASHBOARD, CREATE_PANEL_DASHBOARD_FROM_TEMPLATE,
@@ -66,22 +66,6 @@ const LIST_QUERY: Z = Z::Obj(
 );
 
 const TEMPLATES_QUERY: Z = Z::Obj(&[("locale", Z::Opt(&Z::Enum(LOCALES, None)))], Keys::Strip);
-
-/// A row as Drizzle returns it.
-fn js_row<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
-
-/// `scopeCondition(scope, userId)` on dashboards: `mine`, `shared`, or both.
-fn scope_condition(user_id: &str, scope: &str) -> Condition {
-    let mine = dashboards::Column::OwnerUserId.eq(user_id);
-    let shared = dashboards::Column::Visibility.eq("workspace");
-    match scope {
-        "mine" => Condition::all().add(mine),
-        "shared" => Condition::all().add(shared),
-        _ => Condition::any().add(mine).add(shared),
-    }
-}
 
 fn publish(caller: &Caller, state: &PanelState, dashboard: &Value, event: EventName) {
     caller.publish(
@@ -185,7 +169,9 @@ pub(crate) async fn list(
     let actor = Actor::of(&caller, &permissions);
     let mut find = dashboards::Entity::find()
         .filter(dashboards::Column::DeletedAt.is_null())
-        .filter(scope_condition(
+        .filter(scope_filter(
+            dashboards::Column::OwnerUserId,
+            dashboards::Column::Visibility,
             &actor.user_id,
             query.text("scope").unwrap_or("all"),
         ));

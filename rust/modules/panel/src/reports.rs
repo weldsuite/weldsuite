@@ -17,24 +17,33 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, TransactionTrait,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_REPORT_CREATED, PANEL_REPORT_DELETED, PANEL_REPORT_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::panel_reports::{self as reports, Column};
+use weldsuite_schema::tenant::{panel_dashboard_tiles, panel_report_versions as versions};
 use weldsuite_zod::{Keys, Z};
 
 use crate::saved::{
-    Actor, PROJECT_ID, REPORT_SPEC_KINDS, SCOPES, can_change, can_see, field, get_report,
-    project_exists, report_dto, report_event_data, report_spec, rows, scope_condition, text,
+    Actor, PROJECT_ID, REPORT_SPEC_KINDS, SCOPES, can_change, can_see, field, get_report, js_row,
+    js_rows, project_exists, report_dto, report_event_data, report_spec, scope_filter, text,
 };
 use crate::schemas_gen::{CREATE_PANEL_REPORT, UPDATE_PANEL_REPORT};
 use crate::{Caller, PanelState, unexpected};
 
 /// Versions listed per report, newest first (`MAX_LISTED_VERSIONS`).
-const MAX_LISTED_VERSIONS: i64 = 100;
+const MAX_LISTED_VERSIONS: u64 = 100;
+/// Reports listed at most.
+const MAX_LISTED: u64 = 500;
 
 /// The list's query: `projectId`, `kind` and `scope`, each optional.
 const LIST_QUERY: Z = Z::Obj(
@@ -61,24 +70,29 @@ pub(crate) async fn list(
         Err(response) => return response,
     };
     let actor = Actor::of(&caller, &permissions);
-    let sql = format!(
-        "select to_jsonb(r) from panel_reports r
-         where r.deleted_at is null and {}
-           and ($3::text is null or r.project_id = $3)
-           and ($4::text is null or r.kind = $4)
-         order by r.updated_at desc limit 500",
-        scope_condition("r")
-    );
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(&actor.user_id)
-        .bind(query.text("scope").unwrap_or("all"))
-        .bind(query.text("projectId"))
-        .bind(query.text("kind"))
-        .fetch_all(&caller.db)
-        .await;
+    let mut select = reports::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(scope_filter(
+            Column::OwnerUserId,
+            Column::Visibility,
+            &actor.user_id,
+            query.text("scope").unwrap_or("all"),
+        ));
+    if let Some(project_id) = query.text("projectId") {
+        select = select.filter(Column::ProjectId.eq(project_id));
+    }
+    if let Some(kind) = query.text("kind") {
+        select = select.filter(Column::Kind.eq(kind));
+    }
+    let found = select
+        .order_by_desc(Column::UpdatedAt)
+        .limit(MAX_LISTED)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match found {
         Ok(found) => {
-            let reports: Vec<Value> = rows(found).iter().map(report_dto).collect();
+            let reports: Vec<Value> = found.iter().map(report_dto).collect();
             let count = reports.len() as u64;
             List::new(reports, Pagination::new(count, false, None)).into_response()
         }
@@ -91,30 +105,24 @@ async fn insert_report(
     db: &PgPool,
     input: &Map<String, Value>,
     user_id: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let spec = input.get("spec").cloned().unwrap_or(Value::Null);
-    let row: Value = sqlx::query_scalar(
-        "insert into panel_reports as r
-           (id, project_id, kind, name, description, spec, owner_user_id, visibility)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         returning to_jsonb(r)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnr"))
-    .bind(input.get("projectId").and_then(Value::as_str))
-    .bind(spec.get("kind").and_then(Value::as_str))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(&spec)
-    .bind(user_id)
-    .bind(
-        input
-            .get("visibility")
-            .and_then(Value::as_str)
-            .unwrap_or("private"),
-    )
-    .fetch_one(db)
+    let text_of = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
+    let row = reports::Entity::insert(reports::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnr")),
+        // The route checked these against the schema: never missing.
+        project_id: Set(text_of(input.get("projectId")).unwrap_or_default()),
+        kind: Set(text_of(spec.get("kind")).unwrap_or_default()),
+        name: Set(text_of(input.get("name")).unwrap_or_default()),
+        description: Set(text_of(input.get("description"))),
+        spec: Set(spec),
+        owner_user_id: Set(user_id.to_owned()),
+        visibility: Set(text_of(input.get("visibility")).unwrap_or_else(|| "private".to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(weldsuite_db::js_row(row))
+    js_row(row)
 }
 
 /// `POST /`.
@@ -201,63 +209,93 @@ fn changes_content(existing: &Value, input: &Map<String, Value>) -> bool {
 }
 
 /// `keepVersion(handle, report, userId)`: the report's current state as its
-/// next version.
+/// next version, numbered in the same statement (one more than the
+/// report's highest).
 async fn keep_version(
-    tx: &mut sqlx::PgConnection,
+    db: &impl ConnectionTrait,
     report: &Value,
     user_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into panel_report_versions
-           (id, report_id, version, name, description, spec, created_by_user_id)
-         values ($1, $2,
-           (select coalesce(max(v.version), 0) + 1 from panel_report_versions v where v.report_id = $2),
-           $3, $4, $5, $6)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnrv"))
-    .bind(text(report, "id"))
-    .bind(text(report, "name"))
-    .bind(report.get("description").and_then(Value::as_str))
-    .bind(field(report, "spec"))
-    .bind(user_id)
-    .execute(tx)
-    .await?;
+) -> Result<(), DbErr> {
+    let report_id = text(report, "id");
+    let next_version = Query::select()
+        .expr(sea_orm::ExprTrait::add(
+            Func::coalesce([
+                Func::max(Expr::col((versions::Entity, versions::Column::Version))).into(),
+                Expr::value(0),
+            ]),
+            1,
+        ))
+        .from(versions::Entity)
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((versions::Entity, versions::Column::ReportId)),
+            report_id,
+        ))
+        .to_owned();
+    let insert = Query::insert()
+        .into_table(versions::Entity)
+        .columns([
+            versions::Column::Id,
+            versions::Column::ReportId,
+            versions::Column::Version,
+            versions::Column::Name,
+            versions::Column::Description,
+            versions::Column::Spec,
+            versions::Column::CreatedByUserId,
+        ])
+        .values([
+            Expr::value(weldsuite_kit::id::generate_id("pnrv")),
+            Expr::value(report_id),
+            next_version.into(),
+            Expr::value(text(report, "name")),
+            Expr::value(report.get("description").and_then(Value::as_str)),
+            Expr::value(field(report, "spec")),
+            Expr::value(user_id),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .to_owned();
+    db.execute(&insert).await?;
     Ok(())
 }
 
 /// `reportChanges(input)` applied to a live report: the row after, or
 /// `None` when it is gone.
 async fn change_report(
-    tx: impl sqlx::PgExecutor<'_>,
+    db: &impl ConnectionTrait,
     id: &str,
     input: &Map<String, Value>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let spec = input.get("spec");
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_reports as r set
-           name = case when $2 then $3 else r.name end,
-           description = case when $4 then $5 else r.description end,
-           visibility = coalesce($6, r.visibility),
-           spec = coalesce($7, r.spec),
-           kind = coalesce($8, r.kind),
-           updated_at = now()
-         where r.id = $1 and r.deleted_at is null
-         returning to_jsonb(r)",
-    )
-    .bind(id)
-    .bind(input.contains_key("name"))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.contains_key("description"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(input.get("visibility").and_then(Value::as_str))
-    .bind(spec)
-    .bind(
-        spec.and_then(|spec| spec.get("kind"))
-            .and_then(Value::as_str),
-    )
-    .fetch_optional(tx)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    let mut change = reports::Entity::update_many();
+    if input.contains_key("name") {
+        change = change.col_expr(
+            Column::Name,
+            Expr::value(input.get("name").and_then(Value::as_str)),
+        );
+    }
+    if input.contains_key("description") {
+        change = change.col_expr(
+            Column::Description,
+            Expr::value(input.get("description").and_then(Value::as_str)),
+        );
+    }
+    if let Some(visibility) = input.get("visibility").and_then(Value::as_str) {
+        change = change.col_expr(Column::Visibility, Expr::value(visibility));
+    }
+    if let Some(spec) = input.get("spec") {
+        change = change.col_expr(Column::Spec, Expr::value(spec.clone()));
+        if let Some(kind) = spec.get("kind").and_then(Value::as_str) {
+            change = change.col_expr(Column::Kind, Expr::value(kind));
+        }
+    }
+    change
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(db)
+        .await?
+        .into_iter()
+        .next()
+        .map(js_row)
+        .transpose()
 }
 
 /// `updateReportWithHistory`: when the name, description or spec changes,
@@ -267,14 +305,14 @@ async fn update_with_history(
     existing: &Value,
     input: &Map<String, Value>,
     user_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let id = text(existing, "id");
     if !changes_content(existing, input) {
-        return change_report(db, id, input).await;
+        return change_report(&orm(db), id, input).await;
     }
-    let mut tx = db.begin().await?;
-    keep_version(&mut tx, existing, user_id).await?;
-    let row = change_report(&mut *tx, id, input).await?;
+    let tx = orm(db).begin().await?;
+    keep_version(&tx, existing, user_id).await?;
+    let row = change_report(&tx, id, input).await?;
     tx.commit().await?;
     Ok(row)
 }
@@ -334,22 +372,22 @@ pub(crate) async fn remove(
             .with_message("Only the owner can delete this report")
             .into_response();
     }
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_reports as r set deleted_at = now(), updated_at = now()
-         where r.id = $1 and r.deleted_at is null
-         returning to_jsonb(r)",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let deleted = reports::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let report = match deleted {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Report", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete report"),
     };
-    if let Err(error) = sqlx::query("delete from panel_dashboard_tiles where report_id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    if let Err(error) = panel_dashboard_tiles::Entity::delete_many()
+        .filter(panel_dashboard_tiles::Column::ReportId.eq(&id))
+        .exec(&orm(&caller.db))
         .await
     {
         return unexpected(&error, "delete report");
@@ -405,16 +443,14 @@ async fn get_version(
     db: &PgPool,
     report_id: &str,
     version: i32,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from panel_report_versions v
-         where v.report_id = $1 and v.version = $2 limit 1",
-    )
-    .bind(report_id)
-    .bind(version)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    versions::Entity::find()
+        .filter(versions::Column::ReportId.eq(report_id))
+        .filter(versions::Column::Version.eq(version))
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `GET /:id/versions`.
@@ -428,17 +464,16 @@ pub(crate) async fn versions(
         Ok(report) => report,
         Err(response) => return *response,
     };
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(v) from panel_report_versions v
-         where v.report_id = $1 order by v.version desc limit $2",
-    )
-    .bind(text(&report, "id"))
-    .bind(MAX_LISTED_VERSIONS)
-    .fetch_all(&caller.db)
-    .await;
+    let found = versions::Entity::find()
+        .filter(versions::Column::ReportId.eq(text(&report, "id")))
+        .order_by_desc(versions::Column::Version)
+        .limit(MAX_LISTED_VERSIONS)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match found {
         Ok(found) => {
-            let versions: Vec<Value> = rows(found).iter().map(version_dto).collect();
+            let versions: Vec<Value> = found.iter().map(version_dto).collect();
             let count = versions.len() as u64;
             List::new(versions, Pagination::new(count, false, None)).into_response()
         }
@@ -509,11 +544,11 @@ pub(crate) async fn restore(
     changes.insert("description".to_owned(), field(&row, "description"));
     changes.insert("spec".to_owned(), Value::Object(spec));
     let restored = async {
-        let mut tx = caller.db.begin().await?;
-        keep_version(&mut tx, &report, &actor.user_id).await?;
-        let row = change_report(&mut *tx, text(&report, "id"), &changes).await?;
+        let tx = orm(&caller.db).begin().await?;
+        keep_version(&tx, &report, &actor.user_id).await?;
+        let row = change_report(&tx, text(&report, "id"), &changes).await?;
         tx.commit().await?;
-        Ok::<_, sqlx::Error>(row)
+        Ok::<_, DbErr>(row)
     }
     .await;
     match restored {

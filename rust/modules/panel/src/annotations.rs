@@ -31,7 +31,7 @@ use weldsuite_panel_domain::js;
 use weldsuite_permissions::Permissions;
 use weldsuite_schema::tenant::panel_annotations as annotations;
 
-use crate::saved::{Actor, can_change, can_see, field, get_report, project_exists, text};
+use crate::saved::{Actor, can_change, can_see, field, get_report, js_row, project_exists, text};
 use crate::schemas_gen::{
     CREATE_PANEL_ANNOTATION, PANEL_ANNOTATION_LIST_QUERY, UPDATE_PANEL_ANNOTATION,
 };
@@ -39,11 +39,6 @@ use crate::{Caller, PanelState, unexpected};
 
 /// Annotations listed per request (`MAX_LISTED_ANNOTATIONS`).
 const MAX_LISTED: u64 = 1000;
-
-/// A row as Drizzle returns it.
-fn js_row(model: annotations::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// `toAnnotationDto(a)`.
 fn dto(row: &Value) -> Value {

@@ -33,7 +33,7 @@ use weldsuite_schema::tenant::panel_group_types as group_types;
 use crate::project_state::{PanelProjectState, ProjectRef};
 use crate::projects::live_project;
 use crate::query::QueryFailure;
-use crate::saved::{field, text};
+use crate::saved::{field, js_row, text};
 use crate::schemas_gen::{
     CREATE_PANEL_GROUP_TYPE, PANEL_GROUP_TYPE_LIST_QUERY, UPDATE_PANEL_GROUP_TYPE,
 };
@@ -65,11 +65,6 @@ fn default_names(group_type: &str) -> (String, String) {
         format!("{singular}s")
     };
     (singular, plural)
-}
-
-/// A row as Drizzle returns it.
-fn js_row(model: group_types::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `toGroupTypeDto(row, collecting)`.

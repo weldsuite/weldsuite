@@ -20,18 +20,27 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{COMPANIES_READ, TICKETS_READ};
 use weldsuite_chat_domain::access::{Can, can_access_channel};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    merge_issue_pull_requests, merge_issues, merge_record_links, merge_release_pull_requests,
+    merge_releases, merge_teams,
+};
 
-use crate::db::{Row, rows_of, text};
+use crate::db::{Row, text};
 use crate::github::millis_of;
 use crate::issues::find_issue;
 use crate::mappers::{record_link_dto, record_link_event_data};
-use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate};
+use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate};
 
 /// `MERGE_RECORD_TYPES`.
 pub(crate) const RECORD_TYPES: [&str; 3] = ["desk_ticket", "crm_company", "chat_channel"];
@@ -80,15 +89,22 @@ pub(crate) fn read_link(issues: &mut Issues, item: &Value) -> Option<RecordLinkI
     read_link_fields(issues, fields)
 }
 
+/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
+/// of the model).
+fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
+    row.map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// `insertRecordLinks(db, issueId, links, userId)`: a repeated record is
 /// stored once (the first mention wins: it may carry the title), and a record
-/// the issue is already linked to is skipped. The rows inserted.
+/// the issue is already linked to is skipped (`onConflictDoNothing`). The
+/// rows inserted.
 pub(crate) async fn insert_record_links(
     db: &PgPool,
     issue_id: &str,
     links: &[RecordLinkInput],
     user_id: Option<&str>,
-) -> Result<Vec<Row>, sqlx::Error> {
+) -> Result<Vec<Row>, DbErr> {
     if links.is_empty() {
         return Ok(Vec::new());
     }
@@ -101,39 +117,34 @@ pub(crate) async fn insert_record_links(
             unique.push(link);
         }
     }
-    let now = now();
+    let at = utc_now().assume_utc();
     let ids: Vec<String> = unique.iter().map(|_| generate_id("mrk")).collect();
-    let types: Vec<String> = unique.iter().map(|l| l.record_type.clone()).collect();
-    let records: Vec<String> = unique.iter().map(|l| l.record_id.clone()).collect();
-    // `l.title?.trim() || null`
-    let titles: Vec<Option<String>> = unique
+    let models = unique
         .iter()
-        .map(|l| {
-            l.title
+        .zip(&ids)
+        .map(|(link, id)| merge_record_links::ActiveModel {
+            id: Set(id.clone()),
+            issue_id: Set(issue_id.to_owned()),
+            record_type: Set(link.record_type.clone()),
+            record_id: Set(link.record_id.clone()),
+            // `l.title?.trim() || null`
+            title: Set(link
+                .title
                 .as_deref()
                 .map(weldsuite_kit::validation::js_trim)
                 .filter(|t| !t.is_empty())
-                .map(str::to_owned)
-        })
-        .collect();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "insert into merge_record_links (id, issue_id, record_type, record_id, title, created_by_user_id, created_at) \
-         select l.id, $2, l.record_type, l.record_id, l.title, $3, $4::timestamptz \
-         from unnest($1::varchar[], $5::varchar[], $6::varchar[], $7::varchar[]) \
-           with ordinality as l(id, record_type, record_id, title, n) \
-         order by l.n \
-         on conflict do nothing returning to_jsonb(merge_record_links.*)",
-    )
-    .bind(&ids)
-    .bind(issue_id)
-    .bind(user_id)
-    .bind(&now)
-    .bind(&types)
-    .bind(&records)
-    .bind(&titles)
-    .fetch_all(db)
-    .await?;
-    let mut rows = rows_of(rows);
+                .map(str::to_owned)),
+            created_by_user_id: Set(user_id.map(str::to_owned)),
+            created_at: Set(at),
+        });
+    let inserted = merge_record_links::Entity::insert_many(models)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_with_returning(&orm(db))
+        .await?;
+    let mut rows = inserted
+        .into_iter()
+        .map(|link| js(serde_json::to_value(link)))
+        .collect::<Result<Vec<Row>, DbErr>>()?;
     // In the order they were given.
     rows.sort_by_key(|row| {
         ids.iter()
@@ -144,19 +155,16 @@ pub(crate) async fn insert_record_links(
 }
 
 /// `listRecordLinks(db, issueId)`: oldest first.
-pub(crate) async fn list_record_links(
-    db: &PgPool,
-    issue_id: &str,
-) -> Result<Vec<Row>, sqlx::Error> {
-    Ok(rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(l) from merge_record_links l where l.issue_id = $1 \
-             order by l.created_at asc, l.id asc",
-        )
-        .bind(issue_id)
-        .fetch_all(db)
-        .await?,
-    ))
+pub(crate) async fn list_record_links(db: &PgPool, issue_id: &str) -> Result<Vec<Row>, DbErr> {
+    merge_record_links::Entity::find()
+        .filter(merge_record_links::Column::IssueId.eq(issue_id))
+        .order_by_asc(merge_record_links::Column::CreatedAt)
+        .order_by_asc(merge_record_links::Column::Id)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(|link| js(serde_json::to_value(link)))
+        .collect()
 }
 
 /// `recordTitleAccess(db, userId, can)`: a link's stored title is the
@@ -200,7 +208,7 @@ impl<'a> TitleAccess<'a> {
         &mut self,
         record_type: &str,
         record_id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, DbErr> {
         let key = if record_type == "chat_channel" {
             format!("chat_channel:{record_id}")
         } else {
@@ -209,12 +217,13 @@ impl<'a> TitleAccess<'a> {
         if let Some(answer) = self.answers.get(&key) {
             return Ok(*answer);
         }
+        // WeldChat's and the permissions' lookups are not on the entities yet.
         let answer = match record_type {
-            "chat_channel" => {
-                can_access_channel(self.db, record_id, self.user_id, Some(&self.can)).await?
-            }
-            "desk_ticket" => self.can.can(TICKETS_READ).await?,
-            "crm_company" => self.can.can(COMPANIES_READ).await?,
+            "chat_channel" => can_access_channel(self.db, record_id, self.user_id, Some(&self.can))
+                .await
+                .map_err(orm_error)?,
+            "desk_ticket" => self.can.can(TICKETS_READ).await.map_err(orm_error)?,
+            "crm_company" => self.can.can(COMPANIES_READ).await.map_err(orm_error)?,
             _ => false,
         };
         self.answers.insert(key, answer);
@@ -223,7 +232,7 @@ impl<'a> TitleAccess<'a> {
 
     /// `withVisibleTitles(access, links)`: `title` null on each link DTO
     /// (`recordType`, `recordId`, `title`) whose record the caller may not read.
-    pub(crate) async fn hide_titles(&mut self, links: &mut [Value]) -> Result<(), sqlx::Error> {
+    pub(crate) async fn hide_titles(&mut self, links: &mut [Value]) -> Result<(), DbErr> {
         for link in links.iter_mut() {
             if link.get("title").is_none_or(Value::is_null) {
                 continue;
@@ -242,10 +251,7 @@ impl<'a> TitleAccess<'a> {
 
 /// `visibleDetail(c, detail)`: an issue detail with the linked records'
 /// titles the caller may not read left out.
-pub(crate) async fn visible_detail(
-    caller: &Caller,
-    mut detail: Value,
-) -> Result<Value, sqlx::Error> {
+pub(crate) async fn visible_detail(caller: &Caller, mut detail: Value) -> Result<Value, DbErr> {
     if let Some(links) = detail.get_mut("recordLinks").and_then(Value::as_array_mut) {
         TitleAccess::of(caller).hide_titles(links).await?;
     }
@@ -307,22 +313,28 @@ pub(crate) async fn remove(
     if find_issue(db, &id).await?.is_none() {
         return Err(Refusal::not_found("Issue", Some(&id)));
     }
-    let link: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from merge_record_links l where l.id = $1 and l.issue_id = $2 limit 1",
-    )
-    .bind(&link_id)
-    .bind(&id)
-    .fetch_optional(db)
-    .await?;
-    let Some(link) = link.map(js_row) else {
+    let link = merge_record_links::Entity::find()
+        .filter(merge_record_links::Column::Id.eq(&link_id))
+        .filter(merge_record_links::Column::IssueId.eq(&id))
+        .one(&orm(db))
+        .await?;
+    let Some(link) = link else {
         return Err(Refusal::not_found("Link", Some(&link_id)));
     };
-    sqlx::query("delete from merge_record_links where id = $1")
-        .bind(&link_id)
-        .execute(db)
+    merge_record_links::Entity::delete_by_id(link_id.clone())
+        .exec(&orm(db))
         .await?;
+    let link = js(serde_json::to_value(link))?;
     publish(&state, &caller.events, vec![link_event(&link, "deleted")]);
     Ok(NoContent.into_response())
+}
+
+/// A release with the issue whose pull request it carries.
+#[derive(FromQueryResult)]
+struct ShippedRelease {
+    #[sea_orm(nested)]
+    release: merge_releases::Model,
+    link_issue_id: String,
 }
 
 /// `shippedReleases(db, issueIds)`: for each issue, the latest shipped release
@@ -330,23 +342,40 @@ pub(crate) async fn remove(
 async fn shipped_releases(
     db: &PgPool,
     issue_ids: &[String],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut best: HashMap<String, (f64, String, Value)> = HashMap::new();
     if issue_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Value)> = sqlx::query_as(
-        "select l.issue_id, to_jsonb(r) from merge_issue_pull_requests l \
-         inner join merge_release_pull_requests rp on rp.pull_request_id = l.pull_request_id \
-         inner join merge_releases r on r.id = rp.release_id \
-         where l.issue_id = any($1) and l.dismissed_at is null \
-           and r.status = 'shipped' and r.deleted_at is null",
+    // `merge_releases r` ⋈ `merge_release_pull_requests rp` ⋈ `merge_issue_pull_requests l`.
+    let release_pull_requests: RelationDef = merge_releases::Entity::belongs_to(
+        merge_release_pull_requests::Entity,
     )
-    .bind(issue_ids)
-    .fetch_all(db)
-    .await?;
-    for (issue_id, release) in rows {
-        let release = js_row(release);
+    .from(merge_releases::Column::Id)
+    .to(merge_release_pull_requests::Column::ReleaseId)
+    .into();
+    let issue_links: RelationDef =
+        merge_release_pull_requests::Entity::belongs_to(merge_issue_pull_requests::Entity)
+            .from(merge_release_pull_requests::Column::PullRequestId)
+            .to(merge_issue_pull_requests::Column::PullRequestId)
+            .into();
+    let rows = merge_releases::Entity::find()
+        .column_as(merge_issue_pull_requests::Column::IssueId, "link_issue_id")
+        .join(JoinType::InnerJoin, release_pull_requests)
+        .join(JoinType::InnerJoin, issue_links)
+        .filter(merge_issue_pull_requests::Column::IssueId.is_in(issue_ids))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_releases::Column::Status.eq("shipped"))
+        .filter(merge_releases::Column::DeletedAt.is_null())
+        .into_model::<ShippedRelease>()
+        .all(&orm(db))
+        .await?;
+    for ShippedRelease {
+        release,
+        link_issue_id: issue_id,
+    } in rows
+    {
+        let release = js(serde_json::to_value(release))?;
         let shipped_at = release.get("shippedAt").cloned().unwrap_or(Value::Null);
         let at = shipped_at.as_str().and_then(millis_of).unwrap_or(0.0);
         let id = text(&release, "id").to_owned();
@@ -372,51 +401,70 @@ async fn shipped_releases(
         .collect())
 }
 
+/// A record's link with what the list shows of its issue and team.
+#[derive(FromQueryResult)]
+struct LinkedIssue {
+    #[sea_orm(nested)]
+    link: merge_record_links::Model,
+    issue_number: i32,
+    issue_title: String,
+    issue_status: String,
+    issue_team_id: String,
+    team_key: String,
+}
+
 /// `listLinkedIssues(db, recordType, recordId)`: newest link first, each with
 /// the release that shipped it (if any).
 pub(crate) async fn list_linked_issues(
     db: &PgPool,
     record_type: &str,
     record_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<(Value, Value, String)> = sqlx::query_as(
-        "select to_jsonb(l), to_jsonb(i), t.key from merge_record_links l \
-         inner join merge_issues i on i.id = l.issue_id \
-         inner join merge_teams t on t.id = i.team_id \
-         where l.record_type = $1 and l.record_id = $2 \
-           and i.deleted_at is null and t.deleted_at is null \
-         order by l.created_at desc, l.id desc",
-    )
-    .bind(record_type)
-    .bind(record_id)
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<(Row, Row, String)> = rows
-        .into_iter()
-        .map(|(link, issue, key)| (js_row(link), js_row(issue), key))
-        .collect();
-    let issue_ids: Vec<String> = rows
-        .iter()
-        .map(|(_, issue, _)| text(issue, "id").to_owned())
-        .collect();
+) -> Result<Vec<Value>, DbErr> {
+    let issue: RelationDef = merge_record_links::Entity::belongs_to(merge_issues::Entity)
+        .from(merge_record_links::Column::IssueId)
+        .to(merge_issues::Column::Id)
+        .into();
+    let team: RelationDef = merge_issues::Entity::belongs_to(merge_teams::Entity)
+        .from(merge_issues::Column::TeamId)
+        .to(merge_teams::Column::Id)
+        .into();
+    let rows = merge_record_links::Entity::find()
+        .column_as(merge_issues::Column::Number, "issue_number")
+        .column_as(merge_issues::Column::Title, "issue_title")
+        .column_as(merge_issues::Column::Status, "issue_status")
+        .column_as(merge_issues::Column::TeamId, "issue_team_id")
+        .column_as(merge_teams::Column::Key, "team_key")
+        .join(JoinType::InnerJoin, issue)
+        .join(JoinType::InnerJoin, team)
+        .filter(merge_record_links::Column::RecordType.eq(record_type))
+        .filter(merge_record_links::Column::RecordId.eq(record_id))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .filter(merge_teams::Column::DeletedAt.is_null())
+        .order_by_desc(merge_record_links::Column::CreatedAt)
+        .order_by_desc(merge_record_links::Column::Id)
+        .into_model::<LinkedIssue>()
+        .all(&orm(db))
+        .await?;
+    let issue_ids: Vec<String> = rows.iter().map(|row| row.link.issue_id.clone()).collect();
     let releases = shipped_releases(db, &issue_ids).await?;
-    Ok(rows
-        .iter()
-        .map(|(link, issue, team_key)| {
-            json!({
-                "link": record_link_dto(link),
+    rows.into_iter()
+        .map(|row| {
+            let issue_id = row.link.issue_id.clone();
+            let team_key = row.team_key;
+            Ok(json!({
+                "link": record_link_dto(&js(serde_json::to_value(row.link))?),
                 "issue": {
-                    "id": issue["id"],
-                    "key": format!("{team_key}-{}", issue["number"]),
-                    "title": issue["title"],
-                    "status": issue["status"],
-                    "teamId": issue["teamId"],
+                    "id": issue_id,
+                    "key": format!("{team_key}-{}", row.issue_number),
+                    "title": row.issue_title,
+                    "status": row.issue_status,
+                    "teamId": row.issue_team_id,
                     "teamKey": team_key,
                 },
-                "release": releases.get(text(issue, "id")).cloned().unwrap_or(Value::Null),
-            })
+                "release": releases.get(&issue_id).cloned().unwrap_or(Value::Null),
+            }))
         })
-        .collect())
+        .collect()
 }
 
 /// `GET /record-links?recordType=&recordId=`.

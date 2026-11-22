@@ -26,16 +26,11 @@ use weldsuite_permissions::Permissions;
 use weldsuite_schema::tenant::panel_cohorts as cohorts;
 use weldsuite_zod::{Keys, Z};
 
-use crate::saved::{PROJECT_ID, field, project_exists, text};
+use crate::saved::{PROJECT_ID, field, js_row, project_exists, text};
 use crate::schemas_gen::{CREATE_PANEL_COHORT, UPDATE_PANEL_COHORT};
 use crate::{Caller, PanelState, unexpected};
 
 const LIST_QUERY: Z = Z::Obj(&[("projectId", Z::Opt(&PROJECT_ID))], Keys::Strip);
-
-/// A row as Drizzle returns it.
-fn js_row(model: cohorts::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// `toCohortDto(c)`.
 fn dto(row: &Value) -> Value {

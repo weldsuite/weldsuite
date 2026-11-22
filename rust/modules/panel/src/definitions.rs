@@ -34,7 +34,7 @@ use weldsuite_panel_domain::expression::{
 };
 use weldsuite_zod::Z;
 
-use crate::saved::{PROJECT_QUERY, field, project_exists, text};
+use crate::saved::{PROJECT_QUERY, field, js_row, project_exists, text};
 use crate::schemas_gen::{
     CREATE_PANEL_COMPUTED_PROPERTY, CREATE_PANEL_CUSTOM_EVENT, PANEL_COMPUTED_PROPERTY_DEFINITION,
     PANEL_CUSTOM_EVENT_DEFINITION, UPDATE_PANEL_COMPUTED_PROPERTY, UPDATE_PANEL_CUSTOM_EVENT,
@@ -65,11 +65,6 @@ macro_rules! on_table {
             }
         }
     };
-}
-
-/// A row as Drizzle returns it.
-fn js_row<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// One kind of definition: its table, id prefix, schemas, events and names.

@@ -412,13 +412,10 @@ pub(crate) async fn demand_days(
     Ok(out)
 }
 
-/// `nullif(<column>, '')`.
-fn nullif_empty(column: impl Into<Expr>) -> Expr {
-    Func::cust("nullif").arg(column).arg("").into()
-}
-
 /// On hand and allocated per item key, sellable buckets only: not
-/// quarantined, damaged or expired.
+/// quarantined, damaged or expired. Grouped by `variant_id` as stored, the
+/// `null` and `''` groups (`nullif(variant_id, '')`, the product itself)
+/// added up here.
 async fn stock(
     db: &DatabaseConnection,
     products: &[String],
@@ -428,12 +425,13 @@ async fn stock(
     let total = |expr: Expr| {
         Expr::from(Func::coalesce([Expr::from(Func::sum(expr)), Expr::val(0)])).cast_as("bigint")
     };
-    let variant = || nullif_empty(Expr::col(inventory::Column::VariantId));
     let rows: Vec<(String, Option<String>, String, i64, i64)> = inventory::Entity::find()
         .select_only()
-        .column(inventory::Column::ProductId)
-        .column_as(variant(), "variant_id")
-        .column(inventory::Column::WarehouseId)
+        .columns([
+            inventory::Column::ProductId,
+            inventory::Column::VariantId,
+            inventory::Column::WarehouseId,
+        ])
         .column_as(
             total(Expr::col(inventory::Column::QuantityOnHand)),
             "on_hand",
@@ -463,20 +461,21 @@ async fn stock(
                 .add(inventory::Column::Status.is_not_in(["quarantine", "damaged", "expired"])),
         )
         .group_by(inventory::Column::ProductId)
-        .group_by(variant())
+        .group_by(inventory::Column::VariantId)
         .group_by(inventory::Column::WarehouseId)
         .into_tuple()
         .all(db)
         .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(product, variant, warehouse, on_hand, allocated)| {
-            (
-                item_key(&product, variant.as_deref(), &warehouse),
-                (on_hand, allocated),
-            )
-        })
-        .collect())
+    let mut out: HashMap<String, (i64, i64)> = HashMap::new();
+    for (product, variant, warehouse, on_hand, allocated) in rows {
+        let variant = variant.filter(|variant| !variant.is_empty());
+        let sums = out
+            .entry(item_key(&product, variant.as_deref(), &warehouse))
+            .or_default();
+        sums.0 = sums.0.saturating_add(on_hand);
+        sums.1 = sums.1.saturating_add(allocated);
+    }
+    Ok(out)
 }
 
 /// Open demand per `(product, variant)`.

@@ -11,10 +11,15 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, Set};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Format, Presence, Text, js_date_iso};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::chat_user_status as statuses;
 
 use crate::ChatState;
 use crate::access::{Caller, answer, validate};
@@ -42,6 +47,18 @@ fn millis_of(iso: &str) -> Option<i64> {
     let parsed =
         time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()?;
     i64::try_from(parsed.unix_timestamp_nanos() / 1_000_000).ok()
+}
+
+/// A `timestamp` as Drizzle hands it back (`toISOString()`).
+fn iso(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
+
+/// `toISOString()` text as `$n::timestamp` reads it.
+fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|error| DbErr::Custom(format!("invalid timestamp {iso:?}: {error}")))
 }
 
 /// `isStatusExpired(expiresAt, now)`.
@@ -85,14 +102,7 @@ fn effective(chosen: &str, live: Option<&str>) -> Value {
 
 async fn list(State(state): State<ChatState>, caller: Caller) -> Response {
     let result = async {
-        let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, String)> =
-            sqlx::query_as(
-                "select user_id, status, status_text, status_emoji,
-                        to_jsonb(status_expires_at) #>> '{}', to_jsonb(updated_at) #>> '{}'
-                 from chat_user_status",
-            )
-            .fetch_all(&caller.db)
-            .await?;
+        let rows = statuses::Entity::find().all(&orm(&caller.db)).await?;
         let live: Vec<(String, String)> = match (caller.org_id.as_deref(), caller.presence(&state)) {
             (Some(org), Some(presence)) if !org.is_empty() => {
                 match presence.0.presence(org, &[]).await {
@@ -113,20 +123,21 @@ async fn list(State(state): State<ChatState>, caller: Caller) -> Response {
         let now = now_ms();
         let mut statuses: Vec<Value> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
-        for (user_id, status, text, emoji, expires_at, updated_at) in rows {
-            let expires_at = expires_at.map(|at| crate::util::ms_timestamp(&at));
+        for row in rows {
+            let user_id = row.user_id;
+            let expires_at = row.status_expires_at.map(iso);
             let expired = is_expired(expires_at.as_deref(), now);
-            let manual = chosen_from_stored(Some(&status), expires_at.as_deref(), now);
+            let manual = chosen_from_stored(Some(&row.status), expires_at.as_deref(), now);
             let member_live = live_of(&user_id);
             let entry = json!({
                 "userId": user_id,
                 "status": effective(manual, member_live),
                 "manualStatus": manual,
                 "live": member_live,
-                "statusText": if expired { None } else { text },
-                "statusEmoji": if expired { None } else { emoji },
+                "statusText": if expired { None } else { row.status_text },
+                "statusEmoji": if expired { None } else { row.status_emoji },
                 "statusExpiresAt": if expired { None } else { expires_at },
-                "updatedAt": crate::util::ms_timestamp(&updated_at),
+                "updatedAt": iso(row.updated_at),
             });
             if let Some(at) = seen.iter().position(|s| *s == user_id) {
                 statuses[at] = entry;
@@ -205,24 +216,30 @@ async fn set_status(
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let at = now();
+        let stamp = utc_now();
+        let at = iso(stamp);
         let expires_at = input.expires_at.as_deref().and_then(js_date_iso);
-        sqlx::query(
-            "insert into chat_user_status
-                (id, user_id, status, status_text, status_emoji, status_expires_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6::timestamp, $7::timestamp)
-             on conflict (user_id) do update set status = excluded.status,
-                status_text = excluded.status_text, status_emoji = excluded.status_emoji,
-                status_expires_at = excluded.status_expires_at, updated_at = excluded.updated_at",
+        statuses::Entity::insert(statuses::ActiveModel {
+            id: Set(generate_id("cus")),
+            user_id: Set(caller.user_id.clone()),
+            status: Set(stored_for(&input.status).to_owned()),
+            status_text: Set(input.text.clone()),
+            status_emoji: Set(input.emoji.clone()),
+            status_expires_at: Set(expires_at.as_deref().map(timestamp_of).transpose()?),
+            updated_at: Set(stamp),
+        })
+        .on_conflict(
+            OnConflict::column(statuses::Column::UserId)
+                .update_columns([
+                    statuses::Column::Status,
+                    statuses::Column::StatusText,
+                    statuses::Column::StatusEmoji,
+                    statuses::Column::StatusExpiresAt,
+                    statuses::Column::UpdatedAt,
+                ])
+                .to_owned(),
         )
-        .bind(generate_id("cus"))
-        .bind(&caller.user_id)
-        .bind(stored_for(&input.status))
-        .bind(&input.text)
-        .bind(&input.emoji)
-        .bind(&expires_at)
-        .bind(&at)
-        .execute(&caller.db)
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let change = json!({
             "userId": caller.user_id,
@@ -255,9 +272,9 @@ async fn clear_status(State(state): State<ChatState>, caller: Caller) -> Respons
         Err(error) => return error.respond(""),
     };
     let result = async {
-        sqlx::query("delete from chat_user_status where user_id = $1")
-            .bind(&caller.user_id)
-            .execute(&caller.db)
+        statuses::Entity::delete_many()
+            .filter(statuses::Column::UserId.eq(&caller.user_id))
+            .exec(&orm(&caller.db))
             .await?;
         Caller::realtime(&state)
             .workspace(

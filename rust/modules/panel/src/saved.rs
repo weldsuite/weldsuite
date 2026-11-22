@@ -1,6 +1,6 @@
 //! What reports, dashboards, cohorts and the objects that hang off them share
 //! (`services/saved-objects.ts`, `services/dashboard-filters.ts`): the rows
-//! (`to_jsonb` read as Drizzle reads them), their DTOs and event payloads, the
+//! (the entities, read as Drizzle reads them), their DTOs and event payloads, the
 //! visibility rule and the dashboard filters every report tile runs with.
 //!
 //! Visibility: a `private` report or dashboard is its owner's alone (anyone
@@ -85,11 +85,6 @@ pub(crate) fn can_change(row: &Value, actor: &Actor) -> bool {
         || (text(row, "visibility") == "workspace" && actor.can_manage)
 }
 
-/// Rows of `select to_jsonb(x) …` as Drizzle returns them.
-pub(crate) fn rows(rows: Vec<Value>) -> Vec<Value> {
-    rows.into_iter().map(weldsuite_db::js_row).collect()
-}
-
 /// An entity's row as Drizzle returns it: the entity serializes as Drizzle
 /// did.
 pub(crate) fn js_row(model: impl Serialize) -> Result<Value, DbErr> {
@@ -134,16 +129,6 @@ pub(crate) fn scope_filter(
             .add(owner.eq(user_id))
             .add(visibility.eq("workspace")),
     }
-}
-
-/// The `where` of a scoped list on `alias` (`scopeCondition`), with the
-/// user as `$1` and the scope as `$2`.
-pub(crate) fn scope_condition(alias: &str) -> String {
-    format!(
-        "case $2 when 'mine' then {alias}.owner_user_id = $1
-                 when 'shared' then {alias}.visibility = 'workspace'
-                 else ({alias}.owner_user_id = $1 or {alias}.visibility = 'workspace') end"
-    )
 }
 
 // ---------------------------------------------------------------------------

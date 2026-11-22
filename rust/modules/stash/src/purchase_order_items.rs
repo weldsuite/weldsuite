@@ -22,14 +22,17 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_UPDATED;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
+use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{projects, purchase_order_items as items};
 
 use crate::crud::write_failed;
-use crate::rows::purchase_order_item_row;
+use crate::po_receive::load_items;
 use crate::tables::{PURCHASE_ORDER_ITEMS, PURCHASE_ORDERS};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -301,17 +304,17 @@ async fn find_order(caller: &Caller, id: &str) -> Result<Value, Refusal> {
 
 /// A line of the purchase order, or the 404.
 async fn find_line(caller: &Caller, order_id: &str, item_id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        purchase_order_item_row!(),
-        " from purchase_order_items t where t.id = $1 and t.purchase_order_id = $2 limit 1"
-    ))
-    .bind(item_id)
-    .bind(order_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let row = items::Entity::find()
+        .filter(items::Column::Id.eq(item_id))
+        .filter(items::Column::PurchaseOrderId.eq(order_id))
+        .one(&orm(&caller.db))
+        .await?;
     match row {
-        Some(row) => Ok(PURCHASE_ORDER_ITEMS.js(row)),
+        Some(row) => {
+            let row = serde_json::to_value(row)
+                .map_err(|error| sea_orm::DbErr::Json(error.to_string()))?;
+            Ok(PURCHASE_ORDER_ITEMS.drizzle(row))
+        }
         None => Err(Refusal::not_found(LINE, item_id)),
     }
 }
@@ -325,11 +328,14 @@ async fn check_project(caller: &Caller, project: &Field<String>) -> Result<(), R
     if project_id.is_empty() {
         return Ok(());
     }
-    let found: Option<String> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(project_id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let found: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(project_id.as_str()))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if found.is_none() {
         return Err(Refusal::bad_request(format!(
             "Project {project_id} does not exist"
@@ -377,25 +383,10 @@ async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     if let Err(refusal) = find_order(&caller, &id).await {
         return refusal.respond(FAILED);
     }
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(concat!(
-        "select ",
-        purchase_order_item_row!(),
-        " from purchase_order_items t where t.purchase_order_id = $1",
-        " order by t.created_at asc, t.id asc"
-    ))
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
+    match load_items(&caller.db, &id).await {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
-            List::new(
-                rows.into_iter()
-                    .map(|row| PURCHASE_ORDER_ITEMS.js(row))
-                    .collect(),
-                Pagination::new(total, false, None),
-            )
-            .into_response()
+            List::new(rows, Pagination::new(total, false, None)).into_response()
         }
         Err(error) => internal(&error, FAILED),
     }
@@ -560,9 +551,8 @@ async fn remove(
     if let Err(refusal) = find_line(&caller, &id, &item_id).await {
         return refusal.respond(FAILED);
     }
-    if let Err(error) = sqlx::query("delete from purchase_order_items where id = $1")
-        .bind(&item_id)
-        .execute(&caller.db)
+    if let Err(error) = items::Entity::delete_by_id(item_id.clone())
+        .exec(&orm(&caller.db))
         .await
     {
         return internal(&error, FAILED);

@@ -12,9 +12,16 @@
 //! Times are computed in the object's time zone, as `Intl` does, so a
 //! daylight-saving change moves a 09:00 report with the clock, not with UTC.
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_panel_domain::js;
+use weldsuite_schema::master::panel_schedule_registry as registry;
+
+use crate::saved::instant;
 
 pub(crate) const MINUTE: i64 = 60_000;
 pub(crate) const HOUR: i64 = 60 * MINUTE;
@@ -258,11 +265,16 @@ fn timestamp(millis: i64) -> String {
     js::iso_string(millis)
 }
 
-fn millis_of(text: Option<String>) -> Option<i64> {
-    text.and_then(|text| {
-        weldsuite_db::js_row(serde_json::json!({ "t": text }))["t"]
-            .as_str()
-            .and_then(js::parse_iso)
+/// A `timestamptz` as `new Date(…).getTime()`: whole milliseconds.
+fn millis_of(at: OffsetDateTime) -> Option<i64> {
+    i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).ok()
+}
+
+/// `locked_until is not distinct from <held>`.
+fn held_by(held: Option<i64>) -> sea_orm::Condition {
+    sea_orm::Condition::all().add(match held {
+        Some(held) => registry::Column::LockedUntil.eq(instant(held)),
+        None => registry::Column::LockedUntil.is_null(),
     })
 }
 
@@ -274,24 +286,26 @@ pub(crate) async fn upsert_schedule(
     kind: &str,
     object_id: &str,
     next_run_at: Option<i64>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(next) = next_run_at else {
         return delete_schedule(master, kind, object_id).await;
     };
     let now = js::now_millis();
-    sqlx::query(
-        "insert into panel_schedule_registry (id, workspace_id, kind, object_id, next_run_at)
-         values ($1, $2, $3, $4, $5::timestamptz)
-         on conflict (kind, object_id) do update
-           set workspace_id = $2, next_run_at = $5::timestamptz, updated_at = $6::timestamptz",
+    registry::Entity::insert(registry::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnsr")),
+        workspace_id: Set(workspace_id.to_owned()),
+        kind: Set(kind.to_owned()),
+        object_id: Set(object_id.to_owned()),
+        next_run_at: Set(instant(next)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([registry::Column::Kind, registry::Column::ObjectId])
+            .update_columns([registry::Column::WorkspaceId, registry::Column::NextRunAt])
+            .value(registry::Column::UpdatedAt, Expr::value(instant(now)))
+            .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("pnsr"))
-    .bind(workspace_id)
-    .bind(kind)
-    .bind(object_id)
-    .bind(timestamp(next))
-    .bind(timestamp(now))
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }
@@ -301,11 +315,11 @@ pub(crate) async fn delete_schedule(
     master: &PgPool,
     kind: &str,
     object_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from panel_schedule_registry where kind = $1 and object_id = $2")
-        .bind(kind)
-        .bind(object_id)
-        .execute(master)
+) -> Result<(), DbErr> {
+    registry::Entity::delete_many()
+        .filter(registry::Column::Kind.eq(kind))
+        .filter(registry::Column::ObjectId.eq(object_id))
+        .exec(&orm(master))
         .await?;
     Ok(())
 }
@@ -315,18 +329,18 @@ pub(crate) async fn next_runs_of(
     master: &PgPool,
     kind: &str,
     object_ids: &[String],
-) -> Result<Vec<(String, String)>, sqlx::Error> {
+) -> Result<Vec<(String, String)>, DbErr> {
     if object_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select object_id, to_jsonb(next_run_at) #>> '{}' from panel_schedule_registry
-         where kind = $1 and object_id = any($2)",
-    )
-    .bind(kind)
-    .bind(object_ids)
-    .fetch_all(master)
-    .await?;
+    let rows: Vec<(String, OffsetDateTime)> = registry::Entity::find()
+        .select_only()
+        .columns([registry::Column::ObjectId, registry::Column::NextRunAt])
+        .filter(registry::Column::Kind.eq(kind))
+        .filter(registry::Column::ObjectId.is_in(object_ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(id, at)| millis_of(at).map(|at| (id, js::iso_string(at))))
@@ -353,11 +367,15 @@ fn schedule_row(row: Value) -> Option<ScheduleRow> {
 /// the locked row. The select is a CTE, which Postgres runs once; as an
 /// `in (…)` subquery the planner may run it again and take more than
 /// `limit` rows.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a claim: the locked select (`for update skip locked`, a CTE) and the update must be one statement"
+)]
 pub async fn claim_due(
     master: &PgPool,
     now: i64,
     limit: i64,
-) -> Result<Vec<ScheduleRow>, sqlx::Error> {
+) -> Result<Vec<ScheduleRow>, DbErr> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "with due as (
              select id from panel_schedule_registry
@@ -378,7 +396,8 @@ pub async fn claim_due(
     .bind(timestamp(now + LOCK_MS))
     .bind(limit)
     .fetch_all(master)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(rows.into_iter().filter_map(schedule_row).collect())
 }
 
@@ -389,31 +408,31 @@ pub async fn release_schedule(
     master: &PgPool,
     row: &ScheduleRow,
     next_run_at: Option<i64>,
-) -> Result<(), sqlx::Error> {
-    let held = row.locked_until.map(timestamp);
+) -> Result<(), DbErr> {
+    let master = orm(master);
     match next_run_at {
         None => {
-            sqlx::query(
-                "delete from panel_schedule_registry
-                  where id = $1 and locked_until is not distinct from $2::timestamptz",
-            )
-            .bind(&row.id)
-            .bind(held)
-            .execute(master)
-            .await?;
+            registry::Entity::delete_many()
+                .filter(registry::Column::Id.eq(&row.id))
+                .filter(held_by(row.locked_until))
+                .exec(&master)
+                .await?;
         }
         Some(next) => {
-            sqlx::query(
-                "update panel_schedule_registry
-                    set next_run_at = $3::timestamptz, locked_until = null, updated_at = $4::timestamptz
-                  where id = $1 and locked_until is not distinct from $2::timestamptz",
-            )
-            .bind(&row.id)
-            .bind(held)
-            .bind(timestamp(next))
-            .bind(timestamp(js::now_millis()))
-            .execute(master)
-            .await?;
+            registry::Entity::update_many()
+                .col_expr(registry::Column::NextRunAt, Expr::value(instant(next)))
+                .col_expr(
+                    registry::Column::LockedUntil,
+                    Expr::value(Option::<OffsetDateTime>::None),
+                )
+                .col_expr(
+                    registry::Column::UpdatedAt,
+                    Expr::value(instant(js::now_millis())),
+                )
+                .filter(registry::Column::Id.eq(&row.id))
+                .filter(held_by(row.locked_until))
+                .exec(&master)
+                .await?;
         }
     }
     Ok(())

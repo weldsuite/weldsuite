@@ -19,16 +19,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::schemas::PanelQuerySpec;
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{panel_metric_trees, panel_reports};
 use weldsuite_zod::{Keys, Z};
 
 use crate::projects::live_project;
 use crate::query::{QueryDeps, QueryFailure, run_cached_query};
-use crate::saved::{Actor, can_see};
+use crate::saved::{Actor, can_see, js_row};
 use crate::schemas_gen::{
     PANEL_METRIC_TREE_NODES, PANEL_METRIC_TREE_VALUES, PANEL_SAVED_METRIC_TREE_VALUES, TRENDS_SPEC,
 };
@@ -79,7 +82,7 @@ async fn report_specs(
     actor: &Actor,
     project_id: &str,
     nodes: &[Value],
-) -> Result<HashMap<String, Resolved>, sqlx::Error> {
+) -> Result<HashMap<String, Resolved>, DbErr> {
     let ids = js::distinct(
         nodes
             .iter()
@@ -89,15 +92,15 @@ async fn report_specs(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_reports r
-         where r.project_id = $1 and r.id = any($2) and r.deleted_at is null",
-    )
-    .bind(project_id)
-    .bind(&ids)
-    .fetch_all(&caller.db)
-    .await?;
-    let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let rows: Vec<Value> = panel_reports::Entity::find()
+        .filter(panel_reports::Column::ProjectId.eq(project_id))
+        .filter(panel_reports::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(panel_reports::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect::<Result<_, _>>()?;
     for id in ids {
         let row = rows.iter().find(|r| r["id"].as_str() == Some(id.as_str()));
         let resolved = match row {
@@ -408,14 +411,13 @@ pub(crate) async fn saved(
         return ApiError::org_required().into_response();
     }
     let actor = Actor::of(&caller, &permissions);
-    let tree: Option<Value> = match sqlx::query_scalar(
-        "select to_jsonb(t) from panel_metric_trees t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await
-    {
-        Ok(tree) => tree.map(weldsuite_db::js_row),
+    let tree = panel_metric_trees::Entity::find_by_id(id.as_str())
+        .filter(panel_metric_trees::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|tree| tree.map(js_row).transpose());
+    let tree: Option<Value> = match tree {
+        Ok(tree) => tree,
         Err(error) => return unexpected(&error, "get metric tree"),
     };
     let Some(tree) = tree.filter(|tree| can_see(tree, &actor)) else {

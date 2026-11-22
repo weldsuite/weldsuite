@@ -39,7 +39,6 @@ mod purchase_order_items;
 mod purchasing_tests;
 mod putaway;
 pub mod replenishment;
-mod rows;
 mod stock_adjustments;
 mod table;
 #[rustfmt::skip]
