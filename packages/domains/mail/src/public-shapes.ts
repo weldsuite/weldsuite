@@ -144,7 +144,10 @@ export function publicAttachment(row: AttachmentRow) {
  * for new pages, which works in every mailbox store mode.
  */
 export function encodeOffsetCursor(offset: number): string {
-  return btoa(`o:${offset}`).replace(/=+$/, '');
+  // Base64 without its `=` padding (at most two), trimmed without a regex.
+  let cursor = btoa(`o:${offset}`);
+  while (cursor.endsWith('=')) cursor = cursor.slice(0, -1);
+  return cursor;
 }
 
 export function decodeOffsetCursor(cursor: string | undefined): number | null {
