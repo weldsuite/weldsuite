@@ -7,6 +7,8 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::document_contact_fields;
@@ -30,13 +32,16 @@ use weldsuite_books_domain::tax::{
     resolve_gst_supply,
 };
 use weldsuite_catalogs::entity_events::{INVOICE_CREATED, INVOICE_DELETED, INVOICE_UPDATED};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{invoice_items, invoices};
 
-use super::{fields_of, js_date, total_or_zero};
+use super::{fields_of, js_date, now_stamped, total_or_zero};
 use crate::body::{InvoiceInput, LineInput, read_invoice};
 use crate::errors::SalesError;
 use crate::finalize::{load_invoice, load_items};
+use crate::orm_bridge::sqlx_error;
 use crate::persist::{
     Drafted, calculate_draft_tax, engine_unavailable_warning, invoice_document_context,
     invoice_item_to_tax_item, invoice_kind, invoice_tax_columns, item_tax_columns,
@@ -697,17 +702,15 @@ async fn update_invoice(
     }
 
     // Replace the lines and update the header together.
-    let replaced_at = now();
+    let (replaced_at, replaced_stamp) = now_stamped();
     let mut tx = db.begin().await?;
     if let Some(items) = &new_items {
-        sqlx::query(
-            "update invoice_items set deleted_at = $1::timestamp \
-             where invoice_id = $2 and deleted_at is null",
-        )
-        .bind(&replaced_at)
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+        invoice_items::Entity::update_many()
+            .col_expr(invoice_items::Column::DeletedAt, Expr::value(replaced_stamp))
+            .filter(invoice_items::Column::InvoiceId.eq(id))
+            .filter(invoice_items::Column::DeletedAt.is_null())
+            .exec(&OrmConn::new(&mut tx))
+            .await?;
         for item in items {
             INVOICE_ITEMS
                 .insert_raw(&mut *tx, INVOICE_ITEMS.values(&fields_of(item)))
@@ -930,7 +933,7 @@ pub(crate) async fn remove(
 
 async fn delete_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(invoice) = load_invoice(db, id).await? else {
+    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Invoice", id));
     };
     if text(&invoice, "status") != Some("draft") {
@@ -938,14 +941,14 @@ async fn delete_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply 
             "Only draft invoices can be deleted — finalized invoices are immutable. Corrections go through a credit note (POST /:id/credit-note).",
         ));
     }
-    let at = now();
-    sqlx::query(
-        "update invoices set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-    )
-    .bind(&at)
-    .bind(id)
-    .execute(db)
-    .await?;
+    let at = utc_now();
+    invoices::Entity::update_many()
+        .col_expr(invoices::Column::DeletedAt, Expr::value(at))
+        .col_expr(invoices::Column::UpdatedAt, Expr::value(at))
+        .filter(invoices::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(sqlx_error)?;
     write_accounting_audit(
         caller,
         db,

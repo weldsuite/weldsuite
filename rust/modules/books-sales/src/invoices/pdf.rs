@@ -6,6 +6,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE, HeaderValue};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value};
 use weldsuite_books_domain::accounting_entity::load_invoice_entity;
 use weldsuite_books_domain::compliance::{
@@ -20,8 +21,11 @@ use weldsuite_books_domain::invoice_html::{
 };
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::pix::{PixPayloadInput, build_pix_payload};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{exemption_certificates, fiscal_documents};
 
 use crate::finalize::{load_invoice, load_items};
+use crate::orm_bridge::sqlx_error;
 use crate::persist::{owned, text};
 use crate::templates::resolve_invoice_template;
 
@@ -45,17 +49,21 @@ async fn fiscal_document(
     db: &weldsuite_db::PgPool,
     entity: &Value,
     invoice_id: &str,
-) -> Result<Option<FiscalDocument>, sqlx::Error> {
+) -> Result<Option<FiscalDocument>, DbErr> {
     if entity["jurisdictionCode"] != "BR" {
         return Ok(None);
     }
-    let doc: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select kind, number, access_key from fiscal_documents \
-         where source_id = $1 and status = 'authorized' order by created_at desc limit 1",
-    )
-    .bind(invoice_id)
-    .fetch_optional(db)
-    .await?;
+    let doc: Option<(String, Option<String>, Option<String>)> = fiscal_documents::Entity::find()
+        .select_only()
+        .column(fiscal_documents::Column::Kind)
+        .column(fiscal_documents::Column::Number)
+        .column(fiscal_documents::Column::AccessKey)
+        .filter(fiscal_documents::Column::SourceId.eq(invoice_id))
+        .filter(fiscal_documents::Column::Status.eq("authorized"))
+        .order_by_desc(fiscal_documents::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(doc.map(|(kind, number, access_key)| FiscalDocument {
         label: match kind.as_str() {
             "nfe" => "NF-e".to_owned(),
@@ -157,10 +165,10 @@ async fn invoice_html(
     keyring: &weldsuite_db::Keyring,
     id: &str,
 ) -> Result<(String, String), Refusal> {
-    let Some(invoice) = load_invoice(db, id).await? else {
+    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Invoice", id));
     };
-    let items = load_items(db, id, true).await?;
+    let items = load_items(db, id, true).await.map_err(sqlx_error)?;
     let entity_id = text(&invoice, "entityId").unwrap_or_default().to_owned();
     // Extension values merged in; the bank account printed is the one chosen
     // for invoices, else `bank_details` (`loadInvoiceEntity(db, id, c.env)`).
@@ -198,12 +206,15 @@ async fn invoice_html(
     }
     let mut certificate_numbers = Map::new();
     if !certificate_ids.is_empty() {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select id, certificate_number from exemption_certificates where id = any($1)",
-        )
-        .bind(&certificate_ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, Option<String>)> = exemption_certificates::Entity::find()
+            .select_only()
+            .column(exemption_certificates::Column::Id)
+            .column(exemption_certificates::Column::CertificateNumber)
+            .filter(exemption_certificates::Column::Id.is_in(certificate_ids))
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         for (cid, number) in rows {
             certificate_numbers.insert(cid, number.map_or(Value::Null, Value::String));
         }
@@ -274,10 +285,14 @@ async fn invoice_html(
         amount_paid: owned(&invoice, "amountPaid"),
         balance_due: owned(&invoice, "balanceDue"),
         tax_breakdown: breakdown,
-        fiscal_document: fiscal_document(db, &entity, id).await?,
+        fiscal_document: fiscal_document(db, &entity, id)
+            .await
+            .map_err(sqlx_error)?,
         pix: pix_of(&entity, &invoice)?,
     };
-    let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id).await?;
+    let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id)
+        .await
+        .map_err(sqlx_error)?;
     let html = match template {
         Some(template) => generate_templated_invoice_html(&template, &data, &entity),
         None => generate_invoice_html(&data, &entity),

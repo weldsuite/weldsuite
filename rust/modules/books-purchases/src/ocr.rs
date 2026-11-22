@@ -11,12 +11,17 @@
 //! file checks (type from the bytes, the size caps), the prompt and the
 //! shape of the answer are the worker's.
 
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, Document, JsonSchema, Served};
 use weldsuite_books_domain::js::{math_round, number_text, number_value};
 use weldsuite_books_domain::jurisdictions::js_trim;
 use weldsuite_kit::ApiError;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::StorageBuckets;
+use weldsuite_schema::tenant::{companies, parties};
 
 /// `asNumber(value)`: a finite number, else `None`.
 fn as_number(value: Option<&Value>) -> Option<f64> {
@@ -227,9 +232,9 @@ pub(crate) fn line_items_for_bill(ocr: &Value) -> Vec<Value> {
 /// escaped). A party has no tax number of its own: it is its company's
 /// `vat_number`.
 pub(crate) async fn match_vendor_to_contact(
-    db: &sqlx::PgPool,
+    db: &PgPool,
     ocr: &Value,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let vendor = &ocr["vendor"];
     let text_of = |value: Option<Value>| {
         value.map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
@@ -240,21 +245,34 @@ pub(crate) async fn match_vendor_to_contact(
     if tax_number.is_none() && iban.is_none() && name.is_none() {
         return Ok(None);
     }
-    sqlx::query_scalar(
-        "select p.id from parties p
-         where p.deleted_at is null and (
-           ($1::text is not null and p.company_id in (
-              select c.id from companies c where c.vat_number = $1 and c.deleted_at is null))
-           or ($2::text is not null and p.iban = $2)
-           or ($3::text is not null and p.display_name ilike '%' || $3 || '%')
-         )
-         limit 1",
-    )
-    .bind(tax_number)
-    .bind(iban)
-    .bind(name.as_deref().map(escape_like))
-    .fetch_optional(db)
-    .await
+    let mut matches = Condition::any();
+    if let Some(tax_number) = tax_number {
+        let companies = Query::select()
+            .column(companies::Column::Id)
+            .from(companies::Entity)
+            .and_where(companies::Column::VatNumber.eq(tax_number))
+            .and_where(companies::Column::DeletedAt.is_null())
+            .to_owned();
+        matches = matches.add(parties::Column::CompanyId.in_subquery(companies));
+    }
+    if let Some(iban) = iban {
+        matches = matches.add(parties::Column::Iban.eq(iban));
+    }
+    if let Some(name) = name {
+        // `ilike '%' || name || '%'`.
+        matches = matches.add(PgExpr::ilike(
+            Expr::col((parties::Entity, parties::Column::DisplayName)),
+            format!("%{}%", escape_like(&name)),
+        ));
+    }
+    parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(parties::Column::DeletedAt.is_null())
+        .filter(matches)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `value` as a literal inside an `ILIKE` pattern: `\`, `%` and `_` escaped.

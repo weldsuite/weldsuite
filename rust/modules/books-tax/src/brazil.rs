@@ -31,6 +31,7 @@ use crate::apuracao::{
     ApuracaoError, book_apuracao, compute_entity_apuracao, month_range, stored_apuracao,
 };
 use crate::ecd::{EcdError, Signatory, build_entity_ecd, encode_latin1};
+use crate::orm_bridge::refused;
 use crate::vat_returns::{entity_row, has_feature};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -57,7 +58,10 @@ async fn br_entity(caller: &Caller, feature: &str) -> Result<Value, Refusal> {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let Some(entity) = entity_row(&caller.db, &entity_id, false).await? else {
+    let Some(entity) = entity_row(&caller.db, &entity_id, false)
+        .await
+        .map_err(refused)?
+    else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     if !has_feature(entity["jurisdictionCode"].as_str(), feature) {
@@ -73,7 +77,7 @@ fn apuracao_refusal(error: ApuracaoError) -> Refusal {
         ApuracaoError::User(message) => Refusal::bad_request(message),
         ApuracaoError::Post(PostError::Posting(message)) => Refusal::bad_request(message),
         ApuracaoError::Post(other) => Refusal::Internal(other.to_string()),
-        ApuracaoError::Database(error) => Refusal::Database(error),
+        ApuracaoError::Database(error) => refused(error),
     }
 }
 
@@ -313,7 +317,7 @@ async fn ecd(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                 .await
                 .map_err(|error| match error {
                     EcdError::User(message) => Refusal::bad_request(message),
-                    EcdError::Database(error) => Refusal::Database(error),
+                    EcdError::Database(error) => refused(error),
                 })?;
             let cnpj: String = entity
                 .get("taxIdentifiers")

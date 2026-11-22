@@ -15,20 +15,24 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::StatusCode;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Query as SqlQuery};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, ok, reply};
 use weldsuite_books_domain::js::locale_compare;
 use weldsuite_books_domain::nexus::{
     NexusRule, NexusSale, get_nexus_rule, nexus_monitor, nexus_monitored_codes,
 };
-use weldsuite_books_domain::tables::TAX_LINES;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{invoices, tax_lines};
 
 use crate::common::{is_iso_date_text, text, today_in};
+use crate::orm_bridge::refusal;
 use crate::returns::common::{
-    add_months, bad, load_agencies, n, next_day, num, num_at, registered_on, round2, s,
-    start_of_day, state_of_address, sum_money, us_entity_of,
+    add_months, bad, day_start, day_text, decimal_num, load_agencies, n, next_day, num_at,
+    parse_day, registered_on, round2, rows_json, s, state_of_address, sum_money, us_entity_of,
 };
 use crate::returns::documents::{anchor_rows, document_key};
 
@@ -71,20 +75,16 @@ pub(crate) async fn load_nexus_documents(
     db: &PgPool,
     entity_id: &str,
     as_of: &str,
-) -> Result<Vec<NexusDocument>, sqlx::Error> {
+) -> Result<Vec<NexusDocument>, DbErr> {
     let from = history_start(as_of);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.direction = 'sales' \
-         and t.tax_date >= $2::date and t.tax_date <= $3::date"
-    ))
-    .bind(entity_id)
-    .bind(&from)
-    .bind(as_of)
-    .fetch_all(db)
-    .await?;
-    let rows = TAX_LINES.js_rows(rows);
+    let rows = tax_lines::Entity::find()
+        .filter(tax_lines::Column::EntityId.eq(entity_id))
+        .filter(tax_lines::Column::Direction.eq("sales"))
+        .filter(tax_lines::Column::TaxDate.gte(parse_day(&from)?))
+        .filter(tax_lines::Column::TaxDate.lte(parse_day(as_of)?))
+        .all(&orm(db))
+        .await?;
+    let rows = rows_json(rows)?;
     let mut by_document: Vec<(String, Vec<&Value>)> = Vec::new();
     for r in &rows {
         let key = document_key(r);
@@ -133,48 +133,83 @@ pub(crate) async fn load_nexus_documents(
         }
     }
 
-    let bare: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', inv.id, 'type', inv.type, \
-         'issueDate', to_char(inv.issue_date, 'YYYY-MM-DD'), 'subtotal', inv.subtotal::text, \
-         'shipping', inv.shipping_address, 'billing', inv.billing_address, \
-         'marketplace', inv.marketplace_facilitated) from invoices inv \
-         where inv.entity_id = $1 and inv.deleted_at is null \
-         and inv.type in ('standard', 'correction', 'credit_note') and inv.journal_entry_id is not null \
-         and inv.issue_date >= $2::timestamp and inv.issue_date <= $3::timestamp \
-         and not exists (select 1 from tax_lines t where t.source_id = inv.id \
-         and t.source_type in ('invoice', 'credit_note'))",
-    )
-    .bind(entity_id)
-    .bind(start_of_day(&from))
-    .bind(start_of_day(&next_day(as_of)))
-    .fetch_all(db)
-    .await?;
-    for i in bare {
-        let shipping = state_of_address(&i["shipping"]);
+    for i in bare_invoices(db, entity_id, &from, as_of).await? {
+        let null = Value::Null;
+        let shipping = state_of_address(i.shipping_address.as_ref().unwrap_or(&null));
         let state_code = if shipping.is_empty() {
-            state_of_address(&i["billing"])
+            state_of_address(i.billing_address.as_ref().unwrap_or(&null))
         } else {
             shipping
         };
         if state_code.is_empty() {
             continue;
         }
-        let sign = if s(&i, "type") == "credit_note" {
-            -1.0
-        } else {
-            1.0
-        };
-        let amount = round2(num(&i["subtotal"]) * sign);
+        let sign = if i.kind == "credit_note" { -1.0 } else { 1.0 };
+        let amount = round2(decimal_num(i.subtotal.as_ref()) * sign);
         docs.push(NexusDocument {
-            date: s(&i, "issueDate").to_owned(),
+            // `to_char(issue_date, 'YYYY-MM-DD')`.
+            date: day_text(i.issue_date.date()),
             state_code,
             gross: amount,
             taxable: amount,
             retail: amount,
-            marketplace_facilitated: i["marketplace"].as_bool() == Some(true),
+            marketplace_facilitated: i.marketplace_facilitated == Some(true),
         });
     }
     Ok(docs)
+}
+
+/// A posted invoice that wrote no tax-ledger rows.
+#[derive(Debug, sea_orm::FromQueryResult)]
+struct BareInvoice {
+    /// `type`.
+    kind: String,
+    issue_date: time::PrimitiveDateTime,
+    subtotal: Option<BigDecimal>,
+    shipping_address: Option<Value>,
+    billing_address: Option<Value>,
+    marketplace_facilitated: Option<bool>,
+}
+
+/// The entity's posted invoices, credit notes and corrections issued from
+/// `from` through `as_of` that have no `tax_lines` rows (`not exists`).
+async fn bare_invoices(
+    db: &PgPool,
+    entity_id: &str,
+    from: &str,
+    as_of: &str,
+) -> Result<Vec<BareInvoice>, DbErr> {
+    use invoices::Column;
+    use sea_orm::ExprTrait as _;
+    let ledger = SqlQuery::select()
+        .expr(Expr::val(1))
+        .from(tax_lines::Entity)
+        .and_where(
+            Expr::col((tax_lines::Entity, tax_lines::Column::SourceId))
+                .equals((invoices::Entity, Column::Id)),
+        )
+        .and_where(tax_lines::Column::SourceType.is_in(["invoice", "credit_note"]))
+        .to_owned();
+    invoices::Entity::find()
+        .select_only()
+        .column_as(Column::Type, "kind")
+        .columns([
+            Column::IssueDate,
+            Column::Subtotal,
+            Column::ShippingAddress,
+            Column::BillingAddress,
+            Column::MarketplaceFacilitated,
+        ])
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Type.is_in(["standard", "correction", "credit_note"]))
+        .filter(Column::JournalEntryId.is_not_null())
+        .filter(Column::IssueDate.gte(day_start(from)?))
+        .filter(Column::IssueDate.lte(day_start(&next_day(as_of))?))
+        .filter(Expr::not_exists(ledger))
+        .into_model::<BareInvoice>()
+        .all(&orm(db))
+        .await
 }
 
 fn base_amount(rule: &NexusRule, d: &NexusDocument) -> f64 {
@@ -259,7 +294,7 @@ pub(crate) async fn nexus_overview(
     db: &PgPool,
     entity_id: &str,
     as_of: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let docs = load_nexus_documents(db, entity_id, as_of).await?;
     let agencies = load_agencies(db, entity_id).await?;
     let mut rows: Vec<(Map<String, Value>, f64, String)> = nexus_monitored_codes()
@@ -289,7 +324,7 @@ pub(crate) async fn nexus_detail(
     entity_id: &str,
     state_code: &str,
     as_of: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let code = weldsuite_kit::validation::js_trim(state_code).to_uppercase();
     let docs = load_nexus_documents(db, entity_id, as_of).await?;
     let agencies = load_agencies(db, entity_id).await?;
@@ -390,7 +425,9 @@ async fn overview(
             let as_of = as_of_of(&q)?;
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
-            Ok(ok(nexus_overview(&caller.db, s(&entity, "id"), &day).await?))
+            Ok(ok(nexus_overview(&caller.db, s(&entity, "id"), &day)
+                .await
+                .map_err(refusal)?))
         }
         .await,
         "Failed to fetch the nexus monitor",
@@ -409,7 +446,10 @@ async fn detail(
             let as_of = as_of_of(&q)?;
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
-            match nexus_detail(&caller.db, s(&entity, "id"), &code, &day).await? {
+            match nexus_detail(&caller.db, s(&entity, "id"), &code, &day)
+                .await
+                .map_err(refusal)?
+            {
                 Some(detail) => Ok(ok(detail)),
                 None => Ok((
                     StatusCode::NOT_FOUND,

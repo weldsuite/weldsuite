@@ -3,6 +3,7 @@
 //! `@weldsuite/crm-domain`), and a company's contact person (its billing
 //! contact). Errors are the route's `ContactIdentityError` and the CRM's.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::contacts::{clear_billing_contact, set_billing_contact};
 use weldsuite_books_domain::http::{BooksState, Caller};
@@ -14,10 +15,12 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_crm_domain::DomainError;
 use weldsuite_crm_domain::companies::{create_company, update_company};
 use weldsuite_crm_domain::people::{create_person_with, update_person};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{companies, parties, people, workspace_members};
 
 use super::body::{ContactPayload, ContactPersonInput};
+use crate::rows::js;
 
 /// Why a contact write stopped.
 #[derive(Debug)]
@@ -34,9 +37,16 @@ pub(crate) enum ContactError {
     Failed(String),
 }
 
+impl From<DbErr> for ContactError {
+    fn from(error: DbErr) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+/// The books domain's statements (not on the entities yet) fail the same way.
 impl From<sqlx::Error> for ContactError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Failed(error.to_string())
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -375,39 +385,47 @@ fn present_only(mut input: Map<String, Value>) -> Map<String, Value> {
 }
 
 /// `ownerIdFor(c, db)`: the caller when they are a live workspace member.
-async fn owner_id_for(caller: &Caller) -> Result<Option<String>, sqlx::Error> {
+async fn owner_id_for(caller: &Caller) -> Result<Option<String>, DbErr> {
     let Some(user) = caller.user() else {
         return Ok(None);
     };
-    let member: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(member)
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.eq(user))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
-async fn live_row(db: &PgPool, table: &str, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let sql = match table {
-        "companies" => concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(companies),
-            " from companies t where t.id = $1 and t.deleted_at is null limit 1"
-        ),
-        _ => concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(people),
-            " from people t where t.id = $1 and t.deleted_at is null limit 1"
-        ),
-    };
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    let table = if table == "companies" {
-        weldsuite_books_domain::tables::COMPANIES
+async fn live_row(db: &PgPool, table: &str, id: &str) -> Result<Option<Value>, DbErr> {
+    let db = orm(db);
+    let row = if table == "companies" {
+        companies::Entity::find()
+            .filter(companies::Column::Id.eq(id))
+            .filter(companies::Column::DeletedAt.is_null())
+            .one(&db)
+            .await?
+            .map(|row| js!(row))
     } else {
-        weldsuite_books_domain::tables::PEOPLE
+        people::Entity::find()
+            .filter(people::Column::Id.eq(id))
+            .filter(people::Column::DeletedAt.is_null())
+            .one(&db)
+            .await?
+            .map(|row| js!(row))
     };
-    Ok(row.map(|row| table.js(row)))
+    row.transpose()
+}
+
+/// The person `id`, deleted or not.
+async fn any_person(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    people::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
 }
 
 /// `assertNotWrapped(db, kind, id)` / `assertPersonNotWrapped`: a CRM
@@ -416,15 +434,19 @@ async fn wrapped_by(
     db: &PgPool,
     company: bool,
     identity_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let sql = if company {
-        "select id from parties where company_id = $1 and deleted_at is null limit 1"
+) -> Result<Option<String>, DbErr> {
+    let wraps = if company {
+        parties::Column::CompanyId.eq(identity_id)
     } else {
-        "select id from parties where person_id = $1 and deleted_at is null limit 1"
+        parties::Column::PersonId.eq(identity_id)
     };
-    sqlx::query_scalar(sql)
-        .bind(identity_id)
-        .fetch_optional(db)
+    parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(wraps)
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
         .await
 }
 
@@ -598,16 +620,7 @@ async fn create_person_identity(
         Err(DomainError::DuplicateEmail {
             existing_person_id, ..
         }) => {
-            let existing: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(people),
-                " from people t where t.id = $1 limit 1"
-            ))
-            .bind(&existing_person_id)
-            .fetch_optional(db)
-            .await?;
-            let Some(existing) = existing.map(|row| weldsuite_books_domain::tables::PEOPLE.js(row))
-            else {
+            let Some(existing) = any_person(db, &existing_person_id).await? else {
                 return Err(ContactError::DuplicateEmail(existing_person_id));
             };
             let existing_id = text(&existing, "id").unwrap_or_default().to_owned();
@@ -721,15 +734,7 @@ async fn fill_person_gaps(
     candidates: &Map<String, Value>,
 ) -> Result<Value, ContactError> {
     let db = &caller.db;
-    let existing: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(people),
-        " from people t where t.id = $1 limit 1"
-    ))
-    .bind(person_id)
-    .fetch_optional(db)
-    .await?;
-    let existing = existing.map(|row| weldsuite_books_domain::tables::PEOPLE.js(row));
+    let existing = any_person(db, person_id).await?;
     let Some(existing) = existing.filter(|row| row.get("deletedAt").is_none_or(Value::is_null))
     else {
         return Err(bad_request(
