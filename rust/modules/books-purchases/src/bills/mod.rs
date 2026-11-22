@@ -372,6 +372,30 @@ async fn default_expense_account(caller: Caller) -> Response {
 
 // ── POST /:id/record-payment ────────────────────────────────────────────────
 
+/// `select amount_paid::text, balance_due::text, status from bills`: the
+/// bill after a payment, `null`s when it is gone.
+async fn paid_state(db: &PgPool, id: &str) -> Result<(Value, Value, Value), DbErr> {
+    let updated: Option<(Option<BigDecimal>, Option<BigDecimal>, String)> = bills::Entity::find()
+        .select_only()
+        .columns([
+            bills::Column::AmountPaid,
+            bills::Column::BalanceDue,
+            bills::Column::Status,
+        ])
+        .filter(bills::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(match updated {
+        Some((paid, balance, status)) => (
+            json!(paid.as_ref().map(money_text)),
+            json!(balance.as_ref().map(money_text)),
+            json!(status),
+        ),
+        None => (Value::Null, Value::Null, Value::Null),
+    })
+}
+
 /// Pay this bill (posted: Dr payable / Cr bank, and the bill's paid amount
 /// and status updated). Overpaying is refused.
 async fn record_bill_payment(
@@ -421,27 +445,7 @@ async fn record_bill_payment(
         )
         .await
         .map_err(post_refusal)?;
-        let updated: Option<(Option<BigDecimal>, Option<BigDecimal>, String)> = bills::Entity::find()
-            .select_only()
-            .columns([
-                bills::Column::AmountPaid,
-                bills::Column::BalanceDue,
-                bills::Column::Status,
-            ])
-            .filter(bills::Column::Id.eq(id.as_str()))
-            .into_tuple()
-            .one(&orm(db))
-            .await
-            .map_err(refused)?;
-        // `amount_paid::text`, `balance_due::text`.
-        let (paid, balance, status) = match updated {
-            Some((paid, balance, status)) => (
-                json!(paid.as_ref().map(money_text)),
-                json!(balance.as_ref().map(money_text)),
-                json!(status),
-            ),
-            None => (Value::Null, Value::Null, Value::Null),
-        };
+        let (paid, balance, status) = paid_state(db, &id).await.map_err(refused)?;
         let mut changes = Map::new();
         changes.insert(
             "amountPaid".into(),

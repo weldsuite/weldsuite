@@ -24,6 +24,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::{HeaderMap, HeaderValue, header};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -38,6 +39,7 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::tax_returns;
 
 use self::calculate::{CalculationInput, calculate_return};
 use self::common::{
@@ -47,6 +49,7 @@ use self::common::{
 use self::documents::{load_certificate_refs, return_documents};
 use self::payment::{PaymentFailure, PaymentInput, record_return_payment};
 use crate::common::{is_iso_date_text, text, today_in};
+use crate::orm_bridge::refusal;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -185,7 +188,7 @@ async fn periods(
                 q.get("to"),
                 &today,
             )
-            .await?))
+            .await.map_err(refusal)?))
         }
         .await,
         "Failed to fetch periods",
@@ -203,7 +206,7 @@ async fn overview(caller: Caller, State(state): State<BooksState>) -> Response {
             Ok(ok(lifecycle::sales_tax_overview(
                 &caller.db, &entity, &now, &today,
             )
-            .await?))
+            .await.map_err(refusal)?))
         }
         .await,
         "Failed to fetch the sales tax overview",
@@ -333,6 +336,31 @@ async fn create(
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
+/// An amendment of a return as the detail lists it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Amendment {
+    id: String,
+    status: String,
+    /// `to_char(filed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    filed_at: Option<time::PrimitiveDateTime>,
+}
+
+/// The live returns amending `return_id`.
+async fn amendments_of(db: &weldsuite_db::PgPool, return_id: &str) -> Result<Vec<Value>, DbErr> {
+    use tax_returns::Column;
+    let rows = tax_returns::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Status, Column::FiledAt])
+        .filter(Column::AmendsReturnId.eq(return_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_model::<Amendment>()
+        .all(&weldsuite_db::orm(db))
+        .await?;
+    rows.into_iter().map(common::row_json).collect()
+}
+
 async fn fetch(
     caller: Caller,
     State(state): State<BooksState>,
@@ -345,14 +373,9 @@ async fn fetch(
                 ret,
                 agency,
             } = return_context(&caller, &id).await?;
-            let amendments: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', id, 'status', status, 'filedAt', \
-                 case when filed_at is null then null else to_char(filed_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') end) \
-                 from tax_returns where amends_return_id = $1 and deleted_at is null",
-            )
-            .bind(s(&ret, "id"))
-            .fetch_all(&caller.db)
-            .await?;
+            let amendments = amendments_of(&caller.db, s(&ret, "id"))
+                .await
+                .map_err(refusal)?;
             let today = today_of(&caller, &state, &entity);
             let due = text(&ret, "dueDate").filter(|d| !d.is_empty());
             let overdue = !is_filed(&ret)
@@ -586,7 +609,7 @@ async fn documents(
                 agency,
             } = return_context(&caller, &id).await?;
             let rows = if is_filed(&ret) {
-                rows::load_filed_rows(&caller.db, s(&entity, "id"), &agency, &ret).await?
+                rows::load_filed_rows(&caller.db, s(&entity, "id"), &agency, &ret).await.map_err(refusal)?
             } else {
                 let now = now_iso(&caller, &state);
                 let today = today_of(&caller, &state, &entity);
@@ -601,10 +624,10 @@ async fn documents(
                         created_not_after: None,
                     },
                 )
-                .await?
+                .await.map_err(refusal)?
                 .rows
             };
-            let documents = return_documents(&caller.db, s(&entity, "id"), &rows.entries).await?;
+            let documents = return_documents(&caller.db, s(&entity, "id"), &rows.entries).await.map_err(refusal)?;
             let limit = clamp_limit(q.get("limit"), 100, 500);
             let offset = q
                 .get("cursor")
@@ -629,7 +652,7 @@ async fn documents(
                         .map(str::to_owned)
                 })
                 .collect();
-            let certificates = load_certificate_refs(&caller.db, s(&entity, "id"), &ids).await?;
+            let certificates = load_certificate_refs(&caller.db, s(&entity, "id"), &ids).await.map_err(refusal)?;
             let has_more = offset + limit < total;
             let page: Vec<Value> = page
                 .into_iter()
@@ -677,7 +700,7 @@ async fn pre_file(
             Ok(ok(checks::pre_file_check(
                 &caller.db, &entity, &agency, &ret, &now, &today,
             )
-            .await?))
+            .await.map_err(refusal)?))
         }
         .await,
         "Failed to run the pre-file check",
@@ -698,7 +721,7 @@ async fn liability(
             } = return_context(&caller, &id).await?;
             let today = today_of(&caller, &state, &entity);
             let returns =
-                common::load_agency_returns(&caller.db, s(&entity, "id"), s(&agency, "id")).await?;
+                common::load_agency_returns(&caller.db, s(&entity, "id"), s(&agency, "id")).await.map_err(refusal)?;
             let liability = checks::agency_liability(
                 &caller.db,
                 s(&entity, "id"),
@@ -707,7 +730,7 @@ async fn liability(
                 true,
                 &returns,
             )
-            .await?;
+            .await.map_err(refusal)?;
             let mut out = Map::new();
             out.insert("returnId".into(), ret["id"].clone());
             out.extend(liability.json);
@@ -722,7 +745,7 @@ async fn exceptions(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
             let ReturnContext { ret, agency, .. } = return_context(&caller, &id).await?;
-            let result = filing::list_exceptions(&caller.db, &agency, &ret).await?;
+            let result = filing::list_exceptions(&caller.db, &agency, &ret).await.map_err(refusal)?;
             Ok(ok(result.to_json(s(&ret, "id"))))
         }
         .await,
@@ -753,7 +776,7 @@ async fn export(
             let now = now_iso(&caller, &state);
             let today = today_of(&caller, &state, &entity);
             let artifact =
-                lifecycle::export_return(&caller.db, &entity, &agency, &ret, &now, &today).await?;
+                lifecycle::export_return(&caller.db, &entity, &agency, &ret, &now, &today).await.map_err(refusal)?;
             if format == "json" {
                 return Ok(ok(artifact));
             }

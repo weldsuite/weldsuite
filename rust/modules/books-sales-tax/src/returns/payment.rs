@@ -3,6 +3,8 @@
 //! uncured exempt sales as an expense, each adjustment on its own account,
 //! the bank), posted once per return; the return becomes `paid` with it.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, UpdateMany};
 use serde_json::{Value, json};
 use weldsuite_books_domain::guards::PostingLockKind;
 use weldsuite_books_domain::js::to_fixed;
@@ -10,14 +12,15 @@ use weldsuite_books_domain::posting::{
     EntityAccounts, PostJournalEntryInput, PostingLine, account_for_role, load_entity_accounts,
     post_journal_entry,
 };
-use weldsuite_books_domain::tables::TAX_RETURNS;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm};
+use weldsuite_schema::tenant::{bank_accounts, tax_returns};
 
 use super::common::{
-    adjustments_of, bad, bad_with, compute_total_due, conflict, n, not_found, num, num_at,
-    return_by_id, round2, s, sum_money,
+    adjustments_of, bad, bad_with, compute_total_due, conflict, decimal, n, not_found, num,
+    num_at, parse_instant, return_by_id, round2, s, sum_money,
 };
 use crate::common::text;
+use crate::orm_bridge::{refusal, sqlx_error};
 
 fn adjustment_label(kind: &str) -> &str {
     match kind {
@@ -40,6 +43,12 @@ pub(crate) enum PaymentFailure {
 impl From<sqlx::Error> for PaymentFailure {
     fn from(error: sqlx::Error) -> Self {
         Self::Refused(error.into())
+    }
+}
+
+impl From<DbErr> for PaymentFailure {
+    fn from(error: DbErr) -> Self {
+        Self::Refused(refusal(error))
     }
 }
 
@@ -222,7 +231,14 @@ struct PaidMark<'a> {
     now: &'a str,
 }
 
-fn mark_paid_values(ret: &Value, mark: &PaidMark<'_>) -> serde_json::Map<String, Value> {
+/// The return marked paid, as long as it is still filed: its status, the
+/// payment's day, amount (`toFixed(2)`), bank account and journal entry, the
+/// summary with the payment, the total due (`toFixed(2)`) and `updated_at`.
+fn mark_paid(
+    ret: &Value,
+    mark: &PaidMark<'_>,
+) -> Result<UpdateMany<tax_returns::Entity>, DbErr> {
+    use tax_returns::Column;
     let PaidMark {
         paid_at,
         amount,
@@ -236,24 +252,44 @@ fn mark_paid_values(ret: &Value, mark: &PaidMark<'_>) -> serde_json::Map<String,
     let mut payment = payment.clone();
     payment["journalEntryId"] = json!(journal_entry_id);
     summary.insert("payment".into(), payment);
-    let mut values = serde_json::Map::new();
-    values.insert("status".into(), json!("paid"));
-    values.insert("paid_at".into(), json!(paid_at));
-    values.insert("payment_amount".into(), json!(to_fixed(amount, 2)));
-    values.insert("payment_bank_account_id".into(), json!(bank_id));
-    values.insert("payment_journal_entry_id".into(), json!(journal_entry_id));
-    values.insert("summary".into(), Value::Object(summary));
-    values.insert("total_due".into(), json!(to_fixed(total_due, 2)));
-    values.insert("updated_at".into(), json!(now));
-    values
+    Ok(tax_returns::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("paid"))
+        .col_expr(Column::PaidAt, Expr::value(parse_instant(paid_at)?))
+        .col_expr(
+            Column::PaymentAmount,
+            Expr::value(decimal(&to_fixed(amount, 2))?),
+        )
+        .col_expr(Column::PaymentBankAccountId, Expr::value(bank_id))
+        .col_expr(
+            Column::PaymentJournalEntryId,
+            Expr::value(journal_entry_id.map(str::to_owned)),
+        )
+        .col_expr(Column::Summary, Expr::value(Value::Object(summary)))
+        .col_expr(
+            Column::TotalDue,
+            Expr::value(decimal(&to_fixed(total_due, 2))?),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(parse_instant(now)?))
+        .filter(Column::Id.eq(s(ret, "id")))
+        .filter(Column::Status.eq("filed")))
 }
 
-const MARK_PAID: &str = "update tax_returns as t set status = r.status, paid_at = r.paid_at, \
-     payment_amount = r.payment_amount, payment_bank_account_id = r.payment_bank_account_id, \
-     payment_journal_entry_id = r.payment_journal_entry_id, summary = r.summary, \
-     total_due = r.total_due, updated_at = r.updated_at \
-     from jsonb_populate_record(null::tax_returns, $1::jsonb) as r \
-     where t.id = $2 and t.status = 'filed'";
+/// `id, ledger_account_id, name` of the entity's bank account `id`.
+async fn bank_account(
+    db: &PgPool,
+    entity_id: &str,
+    id: &str,
+) -> Result<Option<(String, Option<String>, String)>, DbErr> {
+    use bank_accounts::Column;
+    bank_accounts::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::LedgerAccountId, Column::Name])
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
 
 /// `recordReturnPayment(db, input)`.
 #[allow(
@@ -305,20 +341,13 @@ pub(crate) async fn record_return_payment(
         .into());
     }
 
-    let bank: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, ledger_account_id, name from bank_accounts where id = $1 and entity_id = $2 limit 1",
-    )
-    .bind(input.bank_account_id)
-    .bind(s(entity, "id"))
-    .fetch_optional(db)
-    .await?;
+    let bank = bank_account(db, s(entity, "id"), input.bank_account_id).await?;
     let Some((bank_id, ledger_account_id, bank_name)) = bank else {
         return Err(not_found(format!("Bank account {} not found", input.bank_account_id)).into());
     };
     let Some(ledger_account_id) = ledger_account_id.filter(|l| !l.is_empty()) else {
         return Err(bad(format!(
-            "Bank account {} is not linked to a ledger account",
-            bank_name.unwrap_or_default()
+            "Bank account {bank_name} is not linked to a ledger account"
         ))
         .into());
     };
@@ -377,9 +406,8 @@ pub(crate) async fn record_return_payment(
         let bank_id = bank_id.clone();
         let payment = payment.clone();
         let now = input.now.to_owned();
-        let return_id = return_id.clone();
         Box::new(move |conn, posted| {
-            let values = mark_paid_values(
+            let update = mark_paid(
                 &ret,
                 &PaidMark {
                     paid_at: &paid_at,
@@ -391,12 +419,15 @@ pub(crate) async fn record_return_payment(
                     now: &now,
                 },
             );
+            // `AlsoWrite` still speaks `sqlx::Error` (books-domain is not
+            // converted yet).
             Box::pin(async move {
-                sqlx::query(MARK_PAID)
-                    .bind(Value::Object(values))
-                    .bind(&return_id)
-                    .execute(&mut *conn)
-                    .await?;
+                let conn = OrmConn::new(conn);
+                update
+                    .map_err(sqlx_error)?
+                    .exec(&conn)
+                    .await
+                    .map_err(sqlx_error)?;
                 Ok(())
             })
         })
@@ -427,7 +458,7 @@ pub(crate) async fn record_return_payment(
 
     let current = return_by_id(db, &return_id).await?;
     if current.as_ref().is_some_and(|c| s(c, "status") == "filed") {
-        let values = mark_paid_values(
+        mark_paid(
             ret,
             &PaidMark {
                 paid_at: &paid_at,
@@ -438,16 +469,11 @@ pub(crate) async fn record_return_payment(
                 total_due,
                 now: input.now,
             },
-        );
-        sqlx::query(MARK_PAID)
-            .bind(Value::Object(values))
-            .bind(&return_id)
-            .execute(db)
-            .await?;
+        )?
+        .exec(&orm(db))
+        .await?;
     }
-    let updated = return_by_id(db, &return_id)
-        .await?
-        .unwrap_or_else(|| TAX_RETURNS.js(Value::Null));
+    let updated = return_by_id(db, &return_id).await?.unwrap_or(Value::Null);
     Ok(PaymentResult {
         ret: updated,
         journal_entry_id: posted.journal_entry_id,

@@ -9,12 +9,19 @@
 //! reversals on their tax date, in proportion to the share of the original
 //! invoice paid by the end of the period; every other row on its tax date.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Query as SqlQuery};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::Value;
 use weldsuite_books_domain::sales_tax::worksheet::WorksheetLine;
-use weldsuite_books_domain::tables::TAX_LINES;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{invoices, payment_allocations, payments, tax_lines};
 
-use super::common::{next_day, num, num_at, round2, s, start_of_day};
+use super::common::{
+    decimal_num, next_day, num_at, parse_day, parse_instant, round2, rows_json, s, start_of_day,
+};
 use crate::common::text;
 
 /// Source types that reduce an earlier sale.
@@ -157,18 +164,14 @@ fn stamp_matches(row: &Value, include: &[String]) -> bool {
 }
 
 /// Tax-ledger rows by id, in chunks.
-pub(crate) async fn rows_by_ids(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn rows_by_ids(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, DbErr> {
     let mut out = Vec::new();
     for part in ids.chunks(ID_CHUNK) {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(tax_lines),
-            " from tax_lines t where t.id = any($1)"
-        ))
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        out.extend(TAX_LINES.js_rows(rows));
+        let rows = tax_lines::Entity::find()
+            .filter(tax_lines::Column::Id.is_in(part.iter().map(String::as_str)))
+            .all(&orm(db))
+            .await?;
+        out.extend(rows_json(rows)?);
     }
     Ok(out)
 }
@@ -177,7 +180,7 @@ async fn carried_entries(
     db: &PgPool,
     opts: &LoadRowsOptions,
     taken: &[String],
-) -> Result<Vec<LoadedEntry>, sqlx::Error> {
+) -> Result<Vec<LoadedEntry>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for id in &opts.carried_ids {
         if !ids.contains(id) && !taken.contains(id) {
@@ -216,32 +219,35 @@ async fn dated_rows(
     db: &PgPool,
     opts: &LoadRowsOptions,
     non_invoice: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.agency_id = $2 \
-         and t.tax_date >= $3::date and t.tax_date <= $4::date \
-         and t.direction in ('sales', 'use') \
-         and ($5::boolean is false or t.source_type <> 'invoice') \
-         and (t.tax_return_id is null or t.tax_return_id = any($6)) \
-         and ($7::timestamp is null or t.created_at <= $7::timestamp) \
-         and ($8::timestamp is null or t.created_at > $8::timestamp)"
-    ))
-    .bind(&opts.entity_id)
-    .bind(&opts.agency_id)
-    .bind(&opts.period_start)
-    .bind(&opts.period_end)
-    .bind(non_invoice)
-    .bind(&opts.include_stamped_by)
-    .bind(&opts.created_not_after)
-    .bind(&opts.created_after)
-    .fetch_all(db)
-    .await?;
-    Ok(TAX_LINES.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    use tax_lines::Column;
+    let mut select = tax_lines::Entity::find()
+        .filter(Column::EntityId.eq(opts.entity_id.as_str()))
+        .filter(Column::AgencyId.eq(opts.agency_id.as_str()))
+        .filter(Column::TaxDate.gte(parse_day(&opts.period_start)?))
+        .filter(Column::TaxDate.lte(parse_day(&opts.period_end)?))
+        .filter(Column::Direction.is_in(LEDGER_DIRECTIONS));
+    if non_invoice {
+        select = select.filter(Column::SourceType.ne("invoice"));
+    }
+    // `tax_return_id is null or tax_return_id = any($ids)`: `any('{}')` is false.
+    let mut unstamped = Condition::any().add(Column::TaxReturnId.is_null());
+    if !opts.include_stamped_by.is_empty() {
+        unstamped = unstamped.add(
+            Column::TaxReturnId.is_in(opts.include_stamped_by.iter().map(String::as_str)),
+        );
+    }
+    select = select.filter(unstamped);
+    if let Some(at) = &opts.created_not_after {
+        select = select.filter(Column::CreatedAt.lte(parse_instant(at)?));
+    }
+    if let Some(at) = &opts.created_after {
+        select = select.filter(Column::CreatedAt.gt(parse_instant(at)?));
+    }
+    rows_json(select.all(&orm(db)).await?)
 }
 
-async fn load_accrual(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, sqlx::Error> {
+async fn load_accrual(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, DbErr> {
     let rows = dated_rows(db, opts, false).await?;
     let mut entries: Vec<LoadedEntry> = rows
         .into_iter()
@@ -263,11 +269,16 @@ pub(crate) struct ReceivedFilter<'a> {
     pub created_after: Option<String>,
 }
 
-fn add_total(totals: &mut Vec<(String, f64)>, invoice_id: Option<String>, amount: &Value) {
+/// Adds `amount` (a `numeric` read as text, as a number) to the invoice's total.
+fn add_total(
+    totals: &mut Vec<(String, f64)>,
+    invoice_id: Option<String>,
+    amount: Option<&BigDecimal>,
+) {
     let Some(id) = invoice_id.filter(|i| !i.is_empty()) else {
         return;
     };
-    let value = num(amount);
+    let value = decimal_num(amount);
     match totals.iter_mut().find(|(k, _)| *k == id) {
         Some(entry) => entry.1 += value,
         None => totals.push((id, value)),
@@ -280,60 +291,111 @@ pub(crate) async fn received_by_invoice(
     db: &PgPool,
     entity_id: &str,
     filter: &ReceivedFilter<'_>,
-) -> Result<Vec<(String, f64)>, sqlx::Error> {
+) -> Result<Vec<(String, f64)>, DbErr> {
     let mut totals: Vec<(String, f64)> = Vec::new();
     let parts: Vec<Option<&[String]>> = match filter.invoice_ids {
         Some(ids) => ids.chunks(ID_CHUNK).map(Some).collect(),
         None => vec![None],
     };
+    let window = received_window(entity_id, filter)?;
     for part in parts {
-        let allocated: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-            "select pa.invoice_id, sum(pa.amount)::text from payment_allocations pa \
-             inner join payments p on p.id = pa.payment_id \
-             where p.entity_id = $1 and p.deleted_at is null and p.type = 'received' \
-             and ($2::timestamp is null or p.date >= $2::timestamp) \
-             and ($3::timestamp is null or p.date < $3::timestamp) \
-             and ($4::timestamp is null or p.created_at <= $4::timestamp) \
-             and ($5::timestamp is null or p.created_at > $5::timestamp) \
-             and pa.deleted_at is null and pa.invoice_id is not null \
-             and ($6::text[] is null or pa.invoice_id = any($6)) \
-             group by pa.invoice_id",
-        )
-        .bind(entity_id)
-        .bind(&filter.from)
-        .bind(&filter.before)
-        .bind(&filter.created_not_after)
-        .bind(&filter.created_after)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        for (id, amount) in allocated {
-            add_total(&mut totals, id, &amount.map_or(Value::Null, Value::String));
+        for (id, amount) in allocated_payments(db, window.clone(), part).await? {
+            add_total(&mut totals, id, amount.as_ref());
         }
-        let legacy: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-            "select p.invoice_id, p.amount::text from payments p \
-             where p.entity_id = $1 and p.deleted_at is null and p.type = 'received' \
-             and ($2::timestamp is null or p.date >= $2::timestamp) \
-             and ($3::timestamp is null or p.date < $3::timestamp) \
-             and ($4::timestamp is null or p.created_at <= $4::timestamp) \
-             and ($5::timestamp is null or p.created_at > $5::timestamp) \
-             and p.invoice_id is not null \
-             and not exists (select 1 from payment_allocations pa where pa.payment_id = p.id and pa.deleted_at is null) \
-             and ($6::text[] is null or p.invoice_id = any($6))",
-        )
-        .bind(entity_id)
-        .bind(&filter.from)
-        .bind(&filter.before)
-        .bind(&filter.created_not_after)
-        .bind(&filter.created_after)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        for (id, amount) in legacy {
-            add_total(&mut totals, id, &amount.map_or(Value::Null, Value::String));
+        for (id, amount) in unallocated_payments(db, window.clone(), part).await? {
+            add_total(&mut totals, id, Some(&amount));
         }
     }
     Ok(totals)
+}
+
+/// The entity's live received payments dated and created in the filter's
+/// window (each bound left out when the filter has none).
+fn received_window(entity_id: &str, filter: &ReceivedFilter<'_>) -> Result<Condition, DbErr> {
+    use payments::Column;
+    let mut window = Condition::all()
+        .add(Column::EntityId.eq(entity_id))
+        .add(Column::DeletedAt.is_null())
+        .add(Column::Type.eq("received"));
+    if let Some(from) = &filter.from {
+        window = window.add(Column::Date.gte(parse_instant(from)?));
+    }
+    if let Some(before) = &filter.before {
+        window = window.add(Column::Date.lt(parse_instant(before)?));
+    }
+    if let Some(at) = &filter.created_not_after {
+        window = window.add(Column::CreatedAt.lte(parse_instant(at)?));
+    }
+    if let Some(at) = &filter.created_after {
+        window = window.add(Column::CreatedAt.gt(parse_instant(at)?));
+    }
+    Ok(window)
+}
+
+/// `sum(pa.amount)` per invoice of the live allocations of the payments in
+/// `window` (`payment_allocations pa inner join payments p`), of the
+/// invoices in `part` when given.
+async fn allocated_payments(
+    db: &PgPool,
+    window: Condition,
+    part: Option<&[String]>,
+) -> Result<Vec<(Option<String>, Option<BigDecimal>)>, DbErr> {
+    use payment_allocations::Column;
+    let mut select = payment_allocations::Entity::find()
+        .select_only()
+        .column(Column::InvoiceId)
+        .column_as(Column::Amount.sum(), "amount")
+        .join(
+            JoinType::InnerJoin,
+            payment_allocations::Entity::belongs_to(payments::Entity)
+                .from(Column::PaymentId)
+                .to(payments::Column::Id)
+                .into(),
+        )
+        .filter(window)
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::InvoiceId.is_not_null());
+    if let Some(part) = part {
+        select = select.filter(Column::InvoiceId.is_in(part.iter().map(String::as_str)));
+    }
+    select
+        .group_by(Column::InvoiceId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The payments in `window` made straight to an invoice (no live
+/// allocations: `not exists`), of the invoices in `part` when given.
+async fn unallocated_payments(
+    db: &PgPool,
+    window: Condition,
+    part: Option<&[String]>,
+) -> Result<Vec<(Option<String>, BigDecimal)>, DbErr> {
+    use payments::Column;
+    use sea_orm::ExprTrait as _;
+    let allocations = SqlQuery::select()
+        .expr(Expr::val(1))
+        .from(payment_allocations::Entity)
+        .and_where(
+            Expr::col((
+                payment_allocations::Entity,
+                payment_allocations::Column::PaymentId,
+            ))
+            .equals((payments::Entity, Column::Id)),
+        )
+        .and_where(payment_allocations::Column::DeletedAt.is_null())
+        .to_owned();
+    let mut select = payments::Entity::find()
+        .select_only()
+        .columns([Column::InvoiceId, Column::Amount])
+        .filter(window)
+        .filter(Column::InvoiceId.is_not_null())
+        .filter(Expr::not_exists(allocations));
+    if let Some(part) = part {
+        select = select.filter(Column::InvoiceId.is_in(part.iter().map(String::as_str)));
+    }
+    select.into_tuple().all(&orm(db)).await
 }
 
 fn total_of(totals: &[(String, f64)], id: &str) -> Option<f64> {
@@ -345,23 +407,21 @@ async fn invoice_totals(
     db: &PgPool,
     entity_id: &str,
     ids: &[String],
-) -> Result<Vec<(String, f64, Option<String>)>, sqlx::Error> {
+) -> Result<Vec<(String, f64, Option<String>)>, DbErr> {
+    use invoices::Column;
     let mut out = Vec::new();
     for part in ids.chunks(ID_CHUNK) {
-        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, total::text, credit_note_for_invoice_id from invoices \
-             where entity_id = $1 and id = any($2)",
-        )
-        .bind(entity_id)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, Option<BigDecimal>, Option<String>)> = invoices::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Total, Column::CreditNoteForInvoiceId])
+            .filter(Column::EntityId.eq(entity_id))
+            .filter(Column::Id.is_in(part.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         for (id, total, credit_note_for) in rows {
-            out.push((
-                id,
-                num(&total.map_or(Value::Null, Value::String)),
-                credit_note_for,
-            ));
+            // `total::text`, read as a number.
+            out.push((id, decimal_num(total.as_ref()), credit_note_for));
         }
     }
     Ok(out)
@@ -378,7 +438,7 @@ fn unique(ids: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 #[allow(clippy::too_many_lines, reason = "mirrors rows.ts's loadCash()")]
-async fn load_cash(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, sqlx::Error> {
+async fn load_cash(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, DbErr> {
     let start = start_of_day(&opts.period_start);
     let after = start_of_day(&next_day(&opts.period_end));
     let mut entries: Vec<LoadedEntry> = Vec::new();
@@ -434,19 +494,16 @@ async fn load_cash(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, sq
         let share_ids: Vec<String> = shares.iter().map(|(id, _, _)| id.clone()).collect();
         let mut rows: Vec<Value> = Vec::new();
         for part in share_ids.chunks(ID_CHUNK) {
-            let found: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(tax_lines),
-                " from tax_lines t where t.entity_id = $1 and t.agency_id = $2 \
-                 and t.source_type = 'invoice' and t.source_id = any($3) \
-                 and t.direction in ('sales', 'use')"
-            ))
-            .bind(&opts.entity_id)
-            .bind(&opts.agency_id)
-            .bind(part)
-            .fetch_all(db)
-            .await?;
-            rows.extend(TAX_LINES.js_rows(found));
+            use tax_lines::Column;
+            let found = tax_lines::Entity::find()
+                .filter(Column::EntityId.eq(opts.entity_id.as_str()))
+                .filter(Column::AgencyId.eq(opts.agency_id.as_str()))
+                .filter(Column::SourceType.eq("invoice"))
+                .filter(Column::SourceId.is_in(part.iter().map(String::as_str)))
+                .filter(Column::Direction.is_in(LEDGER_DIRECTIONS))
+                .all(&orm(db))
+                .await?;
+            rows.extend(rows_json(found)?);
         }
         for row in rows {
             let Some((_, scale, is_settled)) = shares
@@ -553,7 +610,7 @@ async fn load_cash(db: &PgPool, opts: &LoadRowsOptions) -> Result<LoadedRows, sq
 pub(crate) async fn load_worksheet_rows(
     db: &PgPool,
     opts: &LoadRowsOptions,
-) -> Result<LoadedRows, sqlx::Error> {
+) -> Result<LoadedRows, DbErr> {
     if opts.cash {
         load_cash(db, opts).await
     } else {
@@ -567,39 +624,38 @@ pub(crate) async fn load_filed_rows(
     entity_id: &str,
     agency: &Value,
     ret: &Value,
-) -> Result<LoadedRows, sqlx::Error> {
+) -> Result<LoadedRows, DbErr> {
+    use tax_lines::Column;
     let return_id = s(ret, "id");
     let period_start = s(ret, "periodStart");
     let period_end = s(ret, "periodEnd");
     if super::common::reporting_basis_of(agency) != "cash" {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(tax_lines),
-            " from tax_lines t where t.entity_id = $1 and t.tax_return_id = $2 \
-             and t.direction in ('sales', 'use')"
-        ))
-        .bind(entity_id)
-        .bind(return_id)
-        .fetch_all(db)
-        .await?;
-        let entries: Vec<LoadedEntry> = TAX_LINES
-            .js_rows(rows)
+        let rows = tax_lines::Entity::find()
+            .filter(Column::EntityId.eq(entity_id))
+            .filter(Column::TaxReturnId.eq(return_id))
+            .filter(Column::Direction.is_in(LEDGER_DIRECTIONS))
+            .all(&orm(db))
+            .await?;
+        let entries: Vec<LoadedEntry> = rows_json(rows)?
             .into_iter()
             .map(|row| entry(row, period_start, period_end, 1.0, None, None))
             .collect();
         let settled = entries.iter().map(|e| s(&e.row, "id").to_owned()).collect();
         return Ok(finish(entries, settled));
     }
-    let outside: Vec<String> = sqlx::query_scalar(
-        "select id from tax_lines where entity_id = $1 and tax_return_id = $2 \
-         and (tax_date < $3::date or tax_date > $4::date)",
-    )
-    .bind(entity_id)
-    .bind(return_id)
-    .bind(period_start)
-    .bind(period_end)
-    .fetch_all(db)
-    .await?;
+    let outside: Vec<String> = tax_lines::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::TaxReturnId.eq(return_id))
+        .filter(
+            Condition::any()
+                .add(Column::TaxDate.lt(parse_day(period_start)?))
+                .add(Column::TaxDate.gt(parse_day(period_end)?)),
+        )
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     load_cash(
         db,
         &LoadRowsOptions {

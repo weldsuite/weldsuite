@@ -4,13 +4,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_books_domain::js::locale_compare;
 use weldsuite_books_domain::sales_tax::worksheet::level_rank;
-use weldsuite_books_domain::tables::EXEMPTION_CERTIFICATES;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{bills, exemption_certificates, invoices, journal_entries};
 
-use super::common::{n, num_at, s, sum_money};
+use super::common::{day_text, n, num_at, rows_json, s, sum_money};
 use super::rows::LoadedEntry;
 use crate::common::text;
 
@@ -55,6 +56,100 @@ fn info(
     })
 }
 
+/// An invoice or bill as `describeDocuments` reads it.
+#[derive(Debug, FromQueryResult)]
+struct DocumentRow {
+    id: String,
+    number: Option<String>,
+    contact_id: String,
+    contact_name: Option<String>,
+    issue_date: time::PrimitiveDateTime,
+    status: String,
+    currency: Option<String>,
+    kind: String,
+}
+
+impl DocumentRow {
+    /// The row as `jsonb_build_object` built it (`issueDate` is cut to its
+    /// day when read).
+    fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "number": self.number,
+            "contactId": self.contact_id,
+            "contactName": self.contact_name,
+            "issueDate": day_text(self.issue_date.date()),
+            "status": self.status,
+            "currency": self.currency,
+            "type": self.kind,
+        })
+    }
+}
+
+/// The entity's invoices among `ids`.
+async fn invoice_rows(db: &PgPool, entity_id: &str, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    use invoices::Column;
+    let rows = invoices::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column_as(Column::InvoiceNumber, "number")
+        .columns([Column::ContactId, Column::ContactName, Column::IssueDate])
+        .columns([Column::Status, Column::Currency])
+        .column_as(Column::Type, "kind")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_model::<DocumentRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(DocumentRow::to_json).collect())
+}
+
+/// The entity's bills among `ids`.
+async fn bill_rows(db: &PgPool, entity_id: &str, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    use bills::Column;
+    let rows = bills::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column_as(Column::BillNumber, "number")
+        .columns([Column::ContactId, Column::ContactName, Column::IssueDate])
+        .columns([Column::Status, Column::Currency])
+        .column_as(Column::Type, "kind")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_model::<DocumentRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(DocumentRow::to_json).collect())
+}
+
+/// `id, entry_number, date, description, status` of a journal entry.
+type EntryRow = (
+    String,
+    Option<String>,
+    time::PrimitiveDateTime,
+    Option<String>,
+    String,
+);
+
+/// The entity's journal entries among `ids`.
+async fn entry_rows(db: &PgPool, entity_id: &str, ids: &[String]) -> Result<Vec<EntryRow>, DbErr> {
+    use journal_entries::Column;
+    journal_entries::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EntryNumber,
+            Column::Date,
+            Column::Description,
+            Column::Status,
+        ])
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `describeDocuments(db, entityId, rows)`: number, counterparty and date of
 /// the documents the rows came from, by `documentKey`.
 #[allow(
@@ -65,7 +160,7 @@ pub(crate) async fn describe_documents(
     db: &PgPool,
     entity_id: &str,
     rows: &[&Value],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut invoice_ids: Vec<String> = Vec::new();
     let mut bill_ids: Vec<String> = Vec::new();
     let mut entry_ids: Vec<String> = Vec::new();
@@ -85,15 +180,7 @@ pub(crate) async fn describe_documents(
 
     let mut invoices: HashMap<String, Value> = HashMap::new();
     for part in invoice_ids.chunks(1000) {
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'number', invoice_number, 'contactId', contact_id, \
-             'contactName', contact_name, 'issueDate', to_jsonb(issue_date), 'status', status, \
-             'currency', currency, 'type', type) from invoices where entity_id = $1 and id = any($2)",
-        )
-        .bind(entity_id)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
+        let found = invoice_rows(db, entity_id, part).await?;
         for r in found {
             let kind = if s(&r, "type") == "credit_note" {
                 "credit_note"
@@ -115,15 +202,7 @@ pub(crate) async fn describe_documents(
     }
     let mut bills: HashMap<String, Value> = HashMap::new();
     for part in bill_ids.chunks(1000) {
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'number', bill_number, 'contactId', contact_id, \
-             'contactName', contact_name, 'issueDate', to_jsonb(issue_date), 'status', status, \
-             'currency', currency, 'type', type) from bills where entity_id = $1 and id = any($2)",
-        )
-        .bind(entity_id)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
+        let found = bill_rows(db, entity_id, part).await?;
         for r in found {
             let kind = if s(&r, "type") == "credit_note" {
                 "bill_credit_note"
@@ -145,28 +224,20 @@ pub(crate) async fn describe_documents(
     }
     let mut entries: HashMap<String, Value> = HashMap::new();
     for part in entry_ids.chunks(1000) {
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'number', entry_number, 'date', to_jsonb(date), \
-             'description', description, 'status', status) from journal_entries \
-             where entity_id = $1 and id = any($2)",
-        )
-        .bind(entity_id)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        for r in found {
+        for (id, number, date, description, status) in entry_rows(db, entity_id, part).await? {
             entries.insert(
-                s(&r, "id").to_owned(),
+                id.clone(),
                 json!({
                     "type": "journal_entry",
-                    "id": r["id"],
-                    "number": r["number"],
+                    "id": id,
+                    "number": number,
                     "contactId": null,
                     "contactName": null,
-                    "date": day_of(&r["date"]),
-                    "status": r["status"],
+                    // `to_jsonb(date)` cut to its day.
+                    "date": day_text(date.date()),
+                    "status": status,
                     "currency": null,
-                    "description": r["description"],
+                    "description": description,
                 }),
             );
         }
@@ -258,7 +329,7 @@ pub(crate) async fn return_documents(
     db: &PgPool,
     entity_id: &str,
     entries: &[LoadedEntry],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let rows: Vec<&Value> = entries.iter().map(|e| &e.row).collect();
     let info = describe_documents(db, entity_id, &rows).await?;
     let mut by_doc: Vec<(String, Vec<&LoadedEntry>)> = Vec::new();
@@ -355,7 +426,8 @@ pub(crate) async fn load_certificate_refs(
     db: &PgPool,
     entity_id: &str,
     ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use exemption_certificates::Column;
     let mut unique: Vec<String> = Vec::new();
     for id in ids {
         if !unique.contains(id) {
@@ -364,16 +436,12 @@ pub(crate) async fn load_certificate_refs(
     }
     let mut out = Vec::new();
     for part in unique.chunks(1000) {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(exemption_certificates),
-            " from exemption_certificates t where t.entity_id = $1 and t.id = any($2)"
-        ))
-        .bind(entity_id)
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        for row in EXEMPTION_CERTIFICATES.js_rows(rows) {
+        let rows = exemption_certificates::Entity::find()
+            .filter(Column::EntityId.eq(entity_id))
+            .filter(Column::Id.is_in(part.iter().map(String::as_str)))
+            .all(&orm(db))
+            .await?;
+        for row in rows_json(rows)? {
             out.push(json!({
                 "id": row["id"],
                 "certificateNumber": row["certificateNumber"],

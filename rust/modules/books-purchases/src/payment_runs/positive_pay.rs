@@ -82,18 +82,16 @@ pub(crate) async fn generate_positive_pay(
     let mut checks: Vec<PositivePayCheck> = Vec::with_capacity(rows.len());
     for row in rows {
         let (payment, payee) = (js!(row.payment)?, row.payee_name);
-        checks.push({
-            let deleted = text(&payment, "deletedAt");
-            let voided = deleted.is_some() || text(&payment, "checkStatus") == Some("voided");
-            PositivePayCheck {
-                check_number: s(&payment, "checkNumber").to_owned(),
-                issue_date: iso_day(s(&payment, "date")),
-                amount: payment_net_amount(&payment),
-                payee: payee.unwrap_or_else(|| s(&payment, "contactId").to_owned()),
-                voided,
-                void_date: voided.then(|| iso_day(deleted.unwrap_or(s(&payment, "updatedAt")))),
-                account_number: None,
-            }
+        let deleted = text(&payment, "deletedAt");
+        let voided = deleted.is_some() || text(&payment, "checkStatus") == Some("voided");
+        checks.push(PositivePayCheck {
+            check_number: s(&payment, "checkNumber").to_owned(),
+            issue_date: iso_day(s(&payment, "date")),
+            amount: payment_net_amount(&payment),
+            payee: payee.unwrap_or_else(|| s(&payment, "contactId").to_owned()),
+            voided,
+            void_date: voided.then(|| iso_day(deleted.unwrap_or(s(&payment, "updatedAt")))),
+            account_number: None,
         });
     }
 

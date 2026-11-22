@@ -365,7 +365,7 @@ fn via_core(error: LegalEntityError) -> HrError {
                 HrError::validation(message)
             }
         },
-        LegalEntityError::Database(error) => HrError::Database(error),
+        LegalEntityError::Database(error) => HrError::Database(weldsuite_db::orm_error(error)),
         LegalEntityError::Internal(message) => HrError::internal(message),
     }
 }

@@ -461,7 +461,7 @@ pub(crate) enum HrError {
     /// A response the route writes itself (403, a validation failure, …).
     Response(Box<Response>),
     /// A failing statement: the router's `onError` (500 `INTERNAL_ERROR`).
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     /// Anything else unexpected, logged with its reason: also a 500.
     Internal(String),
 }
@@ -580,9 +580,17 @@ fn unexpected() -> Response {
     .into_response()
 }
 
+impl From<sea_orm::DbErr> for HrError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted to the ORM yet, report
+/// through the same error ([`weldsuite_db::orm_error`]).
 impl From<sqlx::Error> for HrError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

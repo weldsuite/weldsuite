@@ -11,7 +11,7 @@
 //! file checks (type from the bytes, the size caps), the prompt and the
 //! shape of the answer are the worker's.
 
-use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
@@ -260,7 +260,7 @@ pub(crate) async fn match_vendor_to_contact(
     }
     if let Some(name) = name {
         // `ilike '%' || name || '%'`.
-        matches = matches.add(PgExpr::ilike(
+        matches = matches.add(pg::PgExpr::ilike(
             Expr::col((parties::Entity, parties::Column::DisplayName)),
             format!("%{}%", escape_like(&name)),
         ));

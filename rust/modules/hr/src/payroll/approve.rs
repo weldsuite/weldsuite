@@ -227,7 +227,7 @@ struct Approved {
 }
 
 fn is_unique_violation(error: &HrError) -> bool {
-    matches!(error, HrError::Database(e) if e.as_database_error().and_then(sqlx::error::DatabaseError::code).is_some_and(|c| c == "23505"))
+    matches!(error, HrError::Database(e) if weldsuite_db::is_unique_violation(e))
 }
 
 /// `claimAndFinalise(db, runId, deps, ctx)`: one attempt.

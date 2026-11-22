@@ -2,6 +2,11 @@
 //! (`services/sales-tax-returns/lifecycle.ts`), the Sales Tax Center's
 //! periods and overview (`overview.ts`) and the CSV export (`export.ts`).
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::http::Refusal;
 use weldsuite_books_domain::js::to_fixed;
@@ -11,20 +16,25 @@ use weldsuite_books_domain::sales_tax::worksheet::{
     WorksheetLine, build_us_sales_tax_return, csv_cell, csv_cell_number,
 };
 use weldsuite_books_domain::sales_tax::{from_cents, to_cents};
-use weldsuite_books_domain::tables::TAX_RETURNS;
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::tax_returns;
 
 use super::calculate::{Calculation, CalculationInput, calculate_return};
 use super::common::{
-    FILED_STATUSES, add_months, adjustments_of, bad, compute_total_due, conflict, is_editable,
-    is_filed, load_agencies, load_agency_returns, n, num, num_at, reporting_basis_of, return_by_id,
-    s,
+    FILED_STATUSES, add_months, adjustments_of, bad, compute_total_due, conflict, decimal,
+    is_editable, is_filed, load_agencies, load_agency_returns, n, num, num_at, parse_day,
+    parse_instant, reporting_basis_of, return_by_id, rows_json, s,
 };
 use super::filing::release_amended_exceptions;
 use super::periods::{PeriodRow, build_period_rows, match_period, next_period_to_open};
 use super::rows::load_filed_rows;
 use crate::common::text;
+use crate::orm_bridge::refusal;
+
+/// `tax_returns` written from a `{ column: value }` object.
+pub(crate) const RETURN_ROWS: JsonTable = JsonTable::of::<tax_returns::Entity>();
 
 /// `createReturn(db, input)`: an open return for a period of the agency's
 /// grid (the next one without a return when no dates are given).
@@ -42,7 +52,9 @@ pub(crate) async fn create_return(
             "The agency is only being monitored for nexus; register it before preparing a return",
         ));
     }
-    let returns = load_agency_returns(db, s(entity, "id"), s(agency, "id")).await?;
+    let returns = load_agency_returns(db, s(entity, "id"), s(agency, "id"))
+        .await
+        .map_err(refusal)?;
     let period = match (period_start, period_end) {
         (Some(start), Some(end)) => match_period(agency, start, end).ok_or_else(|| {
             bad(format!(
@@ -91,8 +103,14 @@ pub(crate) async fn create_return(
     ] {
         values.insert(key.to_owned(), value);
     }
-    TAX_RETURNS.insert_raw(db, values).await?;
-    Ok(return_by_id(db, &id).await?.unwrap_or(Value::Null))
+    RETURN_ROWS
+        .insert(&orm(db), values)
+        .await
+        .map_err(refusal)?;
+    Ok(return_by_id(db, &id)
+        .await
+        .map_err(refusal)?
+        .unwrap_or(Value::Null))
 }
 
 /// `calculateAndStore(db, { entity, agency, ret })`.
@@ -121,24 +139,45 @@ pub(crate) async fn calculate_and_store(
             created_not_after: None,
         },
     )
-    .await?;
-    sqlx::query(
-        "update tax_returns set status = 'calculated', summary = $3, lines = $4, adjustments = $5, \
-         total_due = $6::numeric, updated_at = $7::timestamp where id = $1 and status = $2",
-    )
-    .bind(s(ret, "id"))
-    .bind(s(ret, "status"))
-    .bind(&calc.summary)
-    .bind(Value::Array(calc.lines))
-    .bind(Value::Array(calc.adjustments))
-    .bind(to_fixed(calc.total_due, 2))
-    .bind(now)
-    .execute(db)
-    .await?;
-    let updated = return_by_id(db, s(ret, "id")).await?;
+    .await
+    .map_err(refusal)?;
+    store_calculation(db, ret, calc, now)
+        .await
+        .map_err(refusal)?;
+    let updated = return_by_id(db, s(ret, "id")).await.map_err(refusal)?;
     updated
         .filter(|u| s(u, "status") == "calculated")
         .ok_or_else(|| conflict("This return was changed meanwhile; reload it and try again"))
+}
+
+/// The calculation written onto the return, as long as its status is still
+/// the one it was calculated from.
+async fn store_calculation(
+    db: &PgPool,
+    ret: &Value,
+    calc: Calculation,
+    now: &str,
+) -> Result<(), DbErr> {
+    use tax_returns::Column;
+    tax_returns::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("calculated"))
+        .col_expr(Column::Summary, Expr::value(calc.summary))
+        .col_expr(Column::Lines, Expr::value(Value::Array(calc.lines)))
+        .col_expr(
+            Column::Adjustments,
+            Expr::value(Value::Array(calc.adjustments)),
+        )
+        // `toFixed(2)` of the total, as `$n::numeric`.
+        .col_expr(
+            Column::TotalDue,
+            Expr::value(decimal(&to_fixed(calc.total_due, 2))?),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(parse_instant(now)?))
+        .filter(Column::Id.eq(s(ret, "id")))
+        .filter(Column::Status.eq(s(ret, "status")))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// `patchReturn(db, ret, patch)`: adjustments (before filing) and notes.
@@ -169,9 +208,10 @@ pub(crate) async fn patch_return(
     if let Some(notes) = notes {
         set.insert("notes".into(), notes.clone());
     }
-    Ok(TAX_RETURNS
-        .patch_raw(db, s(ret, "id"), set, false)
-        .await?
+    Ok(RETURN_ROWS
+        .update(&orm(db), s(ret, "id"), set, false)
+        .await
+        .map_err(refusal)?
         .unwrap_or(Value::Null))
 }
 
@@ -183,15 +223,19 @@ pub(crate) async fn review_return(db: &PgPool, ret: &Value, now: &str) -> Result
         "open" => return Err(bad("Calculate the return before reviewing it")),
         other => return Err(bad(format!("A {other} return cannot be reviewed"))),
     }
-    sqlx::query(
-        "update tax_returns set status = 'reviewed', updated_at = $2::timestamp \
-         where id = $1 and status = 'calculated'",
-    )
-    .bind(s(ret, "id"))
-    .bind(now)
-    .execute(db)
-    .await?;
-    Ok(return_by_id(db, s(ret, "id")).await?.unwrap_or(Value::Null))
+    let at = parse_instant(now).map_err(refusal)?;
+    tax_returns::Entity::update_many()
+        .col_expr(tax_returns::Column::Status, Expr::value("reviewed"))
+        .col_expr(tax_returns::Column::UpdatedAt, Expr::value(at))
+        .filter(tax_returns::Column::Id.eq(s(ret, "id")))
+        .filter(tax_returns::Column::Status.eq("calculated"))
+        .exec(&orm(db))
+        .await
+        .map_err(refusal)?;
+    Ok(return_by_id(db, s(ret, "id"))
+        .await
+        .map_err(refusal)?
+        .unwrap_or(Value::Null))
 }
 
 /// `deleteReturn(db, ret)`: soft-deletes a return that is not filed.
@@ -201,15 +245,18 @@ pub(crate) async fn delete_return(db: &PgPool, ret: &Value, now: &str) -> Result
             "Only an open, calculated or reviewed return can be deleted",
         ));
     }
-    sqlx::query(
-        "update tax_returns set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-         where id = $1 and deleted_at is null",
-    )
-    .bind(s(ret, "id"))
-    .bind(now)
-    .execute(db)
-    .await?;
-    release_amended_exceptions(db, ret, now).await?;
+    let at = parse_instant(now).map_err(refusal)?;
+    tax_returns::Entity::update_many()
+        .col_expr(tax_returns::Column::DeletedAt, Expr::value(at))
+        .col_expr(tax_returns::Column::UpdatedAt, Expr::value(at))
+        .filter(tax_returns::Column::Id.eq(s(ret, "id")))
+        .filter(tax_returns::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await
+        .map_err(refusal)?;
+    release_amended_exceptions(db, ret, now)
+        .await
+        .map_err(refusal)?;
     Ok(())
 }
 
@@ -249,6 +296,27 @@ pub(crate) struct ListFilter<'a> {
     pub cursor: Option<&'a str>,
 }
 
+/// The entity's live returns the filter lets through.
+fn listed_returns(entity_id: &str, filter: &ListFilter<'_>) -> Result<Condition, DbErr> {
+    use tax_returns::Column;
+    let mut listed = Condition::all()
+        .add(Column::EntityId.eq(entity_id))
+        .add(Column::DeletedAt.is_null());
+    if let Some(agency) = filter.agency_id {
+        listed = listed.add(Column::AgencyId.eq(agency));
+    }
+    if let Some(status) = filter.status {
+        listed = listed.add(Column::Status.eq(status));
+    }
+    if let Some(from) = filter.from {
+        listed = listed.add(Column::PeriodEnd.gte(parse_day(from)?));
+    }
+    if let Some(to) = filter.to {
+        listed = listed.add(Column::PeriodStart.lte(parse_day(to)?));
+    }
+    Ok(listed)
+}
+
 /// `listReturns(db, entityId, filter)`: newest period first, with a keyset
 /// cursor over (period end, id).
 pub(crate) async fn list_returns(
@@ -256,41 +324,40 @@ pub(crate) async fn list_returns(
     entity_id: &str,
     filter: &ListFilter<'_>,
 ) -> Result<(Vec<Value>, i64, bool, Option<String>), Refusal> {
+    use tax_returns::Column;
     let after = filter.cursor.and_then(decode_cursor);
     if filter.cursor.is_some() && after.is_none() {
         return Err(bad("Invalid cursor"));
     }
-    macro_rules! base {
-        () => {
-            " from tax_returns t where t.entity_id = $1 and t.deleted_at is null              and ($2::text is null or t.agency_id = $2) and ($3::text is null or t.status = $3)              and ($4::date is null or t.period_end >= $4::date)              and ($5::date is null or t.period_start <= $5::date)"
-        };
+    let listed = listed_returns(entity_id, filter).map_err(refusal)?;
+    let mut page = listed.clone();
+    if let Some((after_end, after_id)) = &after {
+        // `period_end < $end or (period_end = $end and id < $id)`.
+        let end = parse_day(after_end).map_err(refusal)?;
+        page = page.add(
+            Condition::any().add(Column::PeriodEnd.lt(end)).add(
+                Condition::all()
+                    .add(Column::PeriodEnd.eq(end))
+                    .add(Column::Id.lt(after_id.as_str())),
+            ),
+        );
     }
-    let (after_end, after_id) = after.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_returns),
-        base!(),
-        " and ($6::date is null or t.period_end < $6::date or (t.period_end = $6::date and t.id < $7))          order by t.period_end desc, t.id desc limit $8"
-    ))
-    .bind(entity_id)
-    .bind(filter.agency_id)
-    .bind(filter.status)
-    .bind(filter.from)
-    .bind(filter.to)
-    .bind(&after_end)
-    .bind(&after_id)
-    .bind(filter.limit + 1)
-    .fetch_all(db)
-    .await?;
-    let count: i64 = sqlx::query_scalar(concat!("select count(*)::bigint", base!()))
-        .bind(entity_id)
-        .bind(filter.agency_id)
-        .bind(filter.status)
-        .bind(filter.from)
-        .bind(filter.to)
-        .fetch_one(db)
-        .await?;
-    let mut rows = TAX_RETURNS.js_rows(rows);
+    let db = orm(db);
+    let rows = tax_returns::Entity::find()
+        .filter(page)
+        .order_by_desc(Column::PeriodEnd)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(filter.limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(refusal)?;
+    let count = tax_returns::Entity::find()
+        .filter(listed)
+        .count(&db)
+        .await
+        .map_err(refusal)?;
+    let count = i64::try_from(count).unwrap_or(i64::MAX);
+    let mut rows = rows_json(rows).map_err(refusal)?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > filter.limit;
     if has_more {
         rows.truncate(usize::try_from(filter.limit).unwrap_or(0));
@@ -313,7 +380,7 @@ pub(crate) async fn list_periods(
     from: Option<&str>,
     to: Option<&str>,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let from = from.map_or_else(|| add_months(today, -12), str::to_owned);
     let to = to.map_or_else(|| add_months(today, 3), str::to_owned);
     let agencies: Vec<Value> = load_agencies(db, s(entity, "id"))
@@ -388,7 +455,7 @@ pub(crate) async fn sales_tax_overview(
     entity: &Value,
     now: &str,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let agencies: Vec<Value> = load_agencies(db, s(entity, "id"))
         .await?
         .into_iter()
@@ -561,7 +628,7 @@ pub(crate) async fn export_return(
     ret: &Value,
     now: &str,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let adjustments = adjustments_of(ret);
     let mut total_due = num_at(ret, "totalDue");
     let summary: Value;

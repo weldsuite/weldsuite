@@ -18,11 +18,15 @@
 //! A record's entity is its employee's `legal_entity_id` (its employer's for
 //! payroll setup); a row without one counts as the default entity's.
 
+use sea_orm::sea_query::Query;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::orm;
 use weldsuite_legal_entities::{
     EntityRecordGuard, EntityRecordGuardLayer, EntityScopeCondition, LegalEntityApp, RequestEntity,
     can_see_entity, default_entity_id_for, entity_scope_condition, record_in_request_entity,
     request_entity_scope,
 };
+use weldsuite_schema::tenant::{hr_employees, hr_payroll_employers};
 
 use crate::{Caller, HrError};
 
@@ -73,6 +77,65 @@ impl Scope {
     /// count as the default entity's).
     pub(crate) fn unassigned(&self) -> bool {
         self.0.unassigned_bind()
+    }
+
+    /// [`EntityScopeCondition::sql`] over `column` as a condition: no filter,
+    /// none of the rows, or the entities allowed (and the rows without an
+    /// entity when the default one is among them).
+    pub(crate) fn condition(&self, column: impl ColumnTrait) -> Condition {
+        match &self.0 {
+            EntityScopeCondition::All => Condition::all(),
+            EntityScopeCondition::Nothing => {
+                Condition::all().add(column.is_in(Vec::<String>::new()))
+            }
+            EntityScopeCondition::In {
+                ids,
+                include_unassigned,
+            } => {
+                let scoped = Condition::any().add(column.is_in(ids.iter().map(String::as_str)));
+                if *include_unassigned {
+                    scoped.add(column.is_null())
+                } else {
+                    scoped
+                }
+            }
+        }
+    }
+
+    /// `employeeIdIn(column, scope)`: `column in (select id from
+    /// hr_employees where <scope on legal_entity_id>)`; no filter for
+    /// [`Scope::ALL`].
+    pub(crate) fn employee_id_in(&self, column: impl ColumnTrait) -> Condition {
+        if !self.0.is_filtered() {
+            return Condition::all();
+        }
+        Condition::all().add(
+            column.in_subquery(
+                Query::select()
+                    .column(hr_employees::Column::Id)
+                    .from(hr_employees::Entity)
+                    .cond_where(self.condition(hr_employees::Column::LegalEntityId))
+                    .to_owned(),
+            ),
+        )
+    }
+
+    /// `employerIdIn(column, scope)`: `column in (select id from
+    /// hr_payroll_employers where <scope on legal_entity_id>)`; no filter for
+    /// [`Scope::ALL`].
+    pub(crate) fn employer_id_in(&self, column: impl ColumnTrait) -> Condition {
+        if !self.0.is_filtered() {
+            return Condition::all();
+        }
+        Condition::all().add(
+            column.in_subquery(
+                Query::select()
+                    .column(hr_payroll_employers::Column::Id)
+                    .from(hr_payroll_employers::Entity)
+                    .cond_where(self.condition(hr_payroll_employers::Column::LegalEntityId))
+                    .to_owned(),
+            ),
+        )
     }
 }
 
@@ -153,11 +216,14 @@ impl Caller {
         Ok(record_in_request_entity(request, effective.as_deref()))
     }
 
-    /// A 404 (`resource`) unless the record `sql` finds is in an entity this
-    /// request may touch. A missing record is left to the caller.
-    async fn assert_record_visible(
+    /// A 404 (`resource`) unless the record of `entity` (its id column,
+    /// `id_column`, and its `legal_entity_id`, `entity_column`) is in an
+    /// entity this request may touch. A missing record is left to the
+    /// caller.
+    async fn assert_record_visible<E: EntityTrait>(
         &self,
-        sql: &'static str,
+        id_column: E::Column,
+        entity_column: E::Column,
         resource: &str,
         id: Option<&str>,
     ) -> Result<(), HrError> {
@@ -171,9 +237,12 @@ impl Caller {
         {
             return Ok(());
         }
-        let row: Option<Option<String>> = sqlx::query_scalar(sql)
-            .bind(id)
-            .fetch_optional(&self.db)
+        let row: Option<Option<String>> = E::find()
+            .select_only()
+            .column(entity_column)
+            .filter(id_column.eq(id))
+            .into_tuple()
+            .one(&orm(&self.db))
             .await?;
         if let Some(entity) = row
             && !self.entity_allowed(entity.as_deref()).await?
@@ -183,16 +252,26 @@ impl Caller {
         Ok(())
     }
 
-    /// `assertEmployeeVisible(c, employeeId)`.
+    /// `assertEmployeeVisible(c, employeeId)` ([`EMPLOYEE_RECORD`]).
     pub(crate) async fn assert_employee_visible(&self, id: Option<&str>) -> Result<(), HrError> {
-        self.assert_record_visible(EMPLOYEE_RECORD, "Employee", id)
-            .await
+        self.assert_record_visible::<hr_employees::Entity>(
+            hr_employees::Column::Id,
+            hr_employees::Column::LegalEntityId,
+            "Employee",
+            id,
+        )
+        .await
     }
 
-    /// `assertEmployerVisible(c, employerId)`.
+    /// `assertEmployerVisible(c, employerId)` ([`EMPLOYER_RECORD`]).
     pub(crate) async fn assert_employer_visible(&self, id: Option<&str>) -> Result<(), HrError> {
-        self.assert_record_visible(EMPLOYER_RECORD, "Payroll employer", id)
-            .await
+        self.assert_record_visible::<hr_payroll_employers::Entity>(
+            hr_payroll_employers::Column::Id,
+            hr_payroll_employers::Column::LegalEntityId,
+            "Payroll employer",
+            id,
+        )
+        .await
     }
 
     /// `assertEntityUsable(c, entityId)`: a legal entity this request may put

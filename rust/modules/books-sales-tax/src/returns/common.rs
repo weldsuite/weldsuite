@@ -153,6 +153,32 @@ pub(crate) fn day_start(day: &str) -> Result<time::PrimitiveDateTime, DbErr> {
     parse_day(day).map(time::Date::midnight)
 }
 
+/// An instant bound as `$n::timestamp` (`toISOString()` text, or a day): the
+/// wall time it names, any zone ignored as Postgres ignores it for a
+/// `timestamp`; text Postgres can't read fails the statement.
+pub(crate) fn parse_instant(text: &str) -> Result<time::PrimitiveDateTime, DbErr> {
+    if text.len() == 10 {
+        return day_start(text);
+    }
+    time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+        .map(|at| time::PrimitiveDateTime::new(at.date(), at.time()))
+        .map_err(|error| {
+            DbErr::Custom(format!(
+                "invalid input syntax for type timestamp: \"{text}\" ({error})"
+            ))
+        })
+}
+
+/// A money amount written as `$n::numeric` from its text (`toFixed(2)`);
+/// text Postgres can't read fails the statement.
+pub(crate) fn decimal(text: &str) -> Result<BigDecimal, DbErr> {
+    text.parse::<BigDecimal>().map_err(|error| {
+        DbErr::Custom(format!(
+            "invalid input syntax for type numeric: \"{text}\" ({error})"
+        ))
+    })
+}
+
 /// `Number(value)` of a `numeric` column read as text (`num`), 0 for null.
 pub(crate) fn decimal_num(value: Option<&BigDecimal>) -> f64 {
     value.map_or(0.0, |value| num(&Value::String(value.to_plain_string())))

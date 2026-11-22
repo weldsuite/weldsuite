@@ -7,67 +7,118 @@
 //! filing); the user amends the return or carries the rows forward, and the
 //! choice is recorded per row on the filed return's `exceptions`.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::js::locale_compare;
-use weldsuite_books_domain::tables::{TAX_LINES, TAX_RETURNS};
-use weldsuite_db::PgPool;
+use weldsuite_books_domain::tables::TAX_RETURNS;
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{tax_lines, tax_returns};
 
 use super::calculate::{Calculation, CalculationInput, calculate_return, same_worksheet};
 use super::common::{
-    FILED_STATUSES, add_months, bad, bad_with, conflict, is_filed, n, num_at, reporting_basis_of,
-    return_by_id, s, sum_money,
+    FILED_STATUSES, add_months, bad, bad_with, conflict, day_text, is_filed, n, num_at,
+    parse_day, parse_instant, reporting_basis_of, return_by_id, rows_json, s, sum_money,
 };
 use super::documents::{describe_documents, document_key};
+use super::lifecycle::RETURN_ROWS;
 use super::periods::build_period_rows;
 use super::rows::{LoadedRows, ReceivedFilter, received_by_invoice, rows_by_ids};
 use crate::common::text;
+use crate::orm_bridge::refusal;
 use weldsuite_books_domain::http::Refusal;
 
 /// The statements that stamp the rows a return counted with its id, run on
 /// `conn`. Rows another return stamped stay as they are.
 async fn stamp_rows(
-    conn: &mut sqlx::PgConnection,
+    conn: &OrmConn<'_>,
     entity_id: &str,
     agency: &Value,
     ret: &Value,
     rows: &LoadedRows,
     cutoff: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use tax_lines::Column;
     let return_id = s(ret, "id");
     if reporting_basis_of(agency) == "cash" {
         return stamp_ids(conn, return_id, &rows.settled_ids).await;
     }
-    sqlx::query(
-        "update tax_lines set tax_return_id = $1 where entity_id = $2 and agency_id = $3 \
-         and tax_date >= $4::date and tax_date <= $5::date and direction in ('sales', 'use') \
-         and tax_return_id is null and created_at <= $6::timestamp",
-    )
-    .bind(return_id)
-    .bind(entity_id)
-    .bind(s(agency, "id"))
-    .bind(s(ret, "periodStart"))
-    .bind(s(ret, "periodEnd"))
-    .bind(cutoff)
-    .execute(&mut *conn)
-    .await?;
+    tax_lines::Entity::update_many()
+        .col_expr(Column::TaxReturnId, Expr::value(return_id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(s(agency, "id")))
+        .filter(Column::TaxDate.gte(parse_day(s(ret, "periodStart"))?))
+        .filter(Column::TaxDate.lte(parse_day(s(ret, "periodEnd"))?))
+        .filter(Column::Direction.is_in(["sales", "use"]))
+        .filter(Column::TaxReturnId.is_null())
+        .filter(Column::CreatedAt.lte(parse_instant(cutoff)?))
+        .exec(conn)
+        .await?;
     stamp_ids(conn, return_id, &rows.carried_ids).await
 }
 
-async fn stamp_ids(
-    conn: &mut sqlx::PgConnection,
-    return_id: &str,
-    ids: &[String],
-) -> Result<(), sqlx::Error> {
+async fn stamp_ids(conn: &OrmConn<'_>, return_id: &str, ids: &[String]) -> Result<(), DbErr> {
+    use tax_lines::Column;
     for part in ids.chunks(2000) {
-        sqlx::query(
-            "update tax_lines set tax_return_id = $1 where id = any($2) and tax_return_id is null",
-        )
-        .bind(return_id)
-        .bind(part)
-        .execute(&mut *conn)
-        .await?;
+        tax_lines::Entity::update_many()
+            .col_expr(Column::TaxReturnId, Expr::value(return_id))
+            .filter(Column::Id.is_in(part.iter().map(String::as_str)))
+            .filter(Column::TaxReturnId.is_null())
+            .exec(conn)
+            .await?;
     }
+    Ok(())
+}
+
+/// The return marked filed (while it is still calculated or reviewed), then
+/// the rows it counted stamped with its id: one transaction.
+async fn mark_filed(
+    conn: &OrmConn<'_>,
+    input: &FileInput<'_>,
+    calc: &Calculation,
+    filed_at: &str,
+) -> Result<(), DbErr> {
+    use tax_returns::Column;
+    let ret = input.ret;
+    tax_returns::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("filed"))
+        .col_expr(Column::FiledAt, Expr::value(parse_instant(filed_at)?))
+        .col_expr(Column::FiledBy, Expr::value(input.user_id.map(str::to_owned)))
+        .col_expr(
+            Column::ConfirmationNumber,
+            Expr::value(weldsuite_kit::validation::js_trim(input.confirmation_number)),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(parse_instant(input.now)?))
+        .filter(Column::Id.eq(s(ret, "id")))
+        .filter(Column::Status.is_in(["calculated", "reviewed"]))
+        .exec(conn)
+        .await?;
+    stamp_rows(
+        conn,
+        s(ret, "entityId"),
+        input.agency,
+        ret,
+        &calc.rows,
+        input.now,
+    )
+    .await
+}
+
+/// `exceptions` of a return set, with `updated_at`.
+async fn set_exceptions(
+    conn: &impl sea_orm::ConnectionTrait,
+    return_id: &str,
+    exceptions: Vec<Value>,
+    now: &str,
+) -> Result<(), DbErr> {
+    use tax_returns::Column;
+    tax_returns::Entity::update_many()
+        .col_expr(Column::Exceptions, Expr::value(Value::Array(exceptions)))
+        .col_expr(Column::UpdatedAt, Expr::value(parse_instant(now)?))
+        .filter(Column::Id.eq(return_id))
+        .exec(conn)
+        .await?;
     Ok(())
 }
 
@@ -123,7 +174,8 @@ pub(crate) async fn file_return(
             created_not_after: Some(now),
         },
     )
-    .await?;
+    .await
+    .map_err(refusal)?;
     if !same_worksheet(&ret["summary"], &calc.summary) {
         return Err(conflict(
             "The ledger changed since this return was calculated. Recalculate it, review the worksheet and file again.",
@@ -131,23 +183,11 @@ pub(crate) async fn file_return(
     }
 
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update tax_returns set status = 'filed', filed_at = $2::timestamp, filed_by = $3, \
-         confirmation_number = $4, updated_at = $5::timestamp \
-         where id = $1 and status in ('calculated', 'reviewed')",
-    )
-    .bind(s(ret, "id"))
-    .bind(&filed_at)
-    .bind(input.user_id)
-    .bind(weldsuite_kit::validation::js_trim(
-        input.confirmation_number,
-    ))
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
-    stamp_rows(&mut tx, s(ret, "entityId"), agency, ret, &calc.rows, now).await?;
+    mark_filed(&OrmConn::new(&mut tx), &input, &calc, &filed_at)
+        .await
+        .map_err(refusal)?;
     tx.commit().await?;
-    let updated = return_by_id(db, s(ret, "id")).await?;
+    let updated = return_by_id(db, s(ret, "id")).await.map_err(refusal)?;
     let Some(updated) = updated.filter(|u| s(u, "status") == "filed" && !u["filedAt"].is_null())
     else {
         return Err(conflict(
@@ -176,8 +216,9 @@ pub(crate) async fn file_return(
             }));
         }
     }
-    let returns =
-        super::common::load_agency_returns(db, s(ret, "entityId"), s(agency, "id")).await?;
+    let returns = super::common::load_agency_returns(db, s(ret, "entityId"), s(agency, "id"))
+        .await
+        .map_err(refusal)?;
     let from = add_months(s(ret, "periodStart"), -24);
     let unfiled: Vec<String> = build_period_rows(
         agency,
@@ -225,15 +266,18 @@ fn stored_exceptions(ret: &Value) -> Vec<(String, String, Option<String>)> {
         .collect()
 }
 
-async fn is_latest_in_chain(db: &PgPool, ret: &Value) -> Result<bool, sqlx::Error> {
-    let later: Option<String> = sqlx::query_scalar(
-        "select id from tax_returns where entity_id = $1 and amends_return_id = $2 \
-         and deleted_at is null and status in ('filed', 'paid') limit 1",
-    )
-    .bind(s(ret, "entityId"))
-    .bind(s(ret, "id"))
-    .fetch_optional(db)
-    .await?;
+async fn is_latest_in_chain(db: &PgPool, ret: &Value) -> Result<bool, DbErr> {
+    use tax_returns::Column;
+    let later: Option<String> = tax_returns::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::EntityId.eq(s(ret, "entityId")))
+        .filter(Column::AmendsReturnId.eq(s(ret, "id")))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.is_in(FILED_STATUSES))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(later.is_none())
 }
 
@@ -241,31 +285,26 @@ async fn live_exception_rows(
     db: &PgPool,
     agency: &Value,
     ret: &Value,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use tax_lines::Column;
     let Some(filed_at) = text(ret, "filedAt").filter(|f| !f.is_empty()) else {
         return Ok(Vec::new());
     };
     if !is_latest_in_chain(db, ret).await? {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.agency_id = $2 \
-         and t.tax_date >= $3::date and t.tax_date <= $4::date \
-         and t.direction in ('sales', 'use') and t.tax_return_id is null \
-         and t.created_at > $5::timestamp \
-         and ($6::boolean is false or t.source_type <> 'invoice')"
-    ))
-    .bind(s(ret, "entityId"))
-    .bind(s(agency, "id"))
-    .bind(s(ret, "periodStart"))
-    .bind(s(ret, "periodEnd"))
-    .bind(filed_at)
-    .bind(reporting_basis_of(agency) == "cash")
-    .fetch_all(db)
-    .await?;
-    Ok(TAX_LINES.js_rows(rows))
+    let mut select = tax_lines::Entity::find()
+        .filter(Column::EntityId.eq(s(ret, "entityId")))
+        .filter(Column::AgencyId.eq(s(agency, "id")))
+        .filter(Column::TaxDate.gte(parse_day(s(ret, "periodStart"))?))
+        .filter(Column::TaxDate.lte(parse_day(s(ret, "periodEnd"))?))
+        .filter(Column::Direction.is_in(["sales", "use"]))
+        .filter(Column::TaxReturnId.is_null())
+        .filter(Column::CreatedAt.gt(parse_instant(filed_at)?));
+    if reporting_basis_of(agency) == "cash" {
+        select = select.filter(Column::SourceType.ne("invoice"));
+    }
+    rows_json(select.all(&orm(db)).await?)
 }
 
 /// An exception item (`ExceptionItem`), with the fields the actions read.
@@ -314,7 +353,7 @@ pub(crate) async fn list_exceptions(
     db: &PgPool,
     agency: &Value,
     ret: &Value,
-) -> Result<Exceptions, sqlx::Error> {
+) -> Result<Exceptions, DbErr> {
     if !is_filed(ret) {
         return Ok(Exceptions {
             applicable: false,
@@ -459,7 +498,7 @@ pub(crate) async fn list_exceptions(
     })
 }
 
-async fn late_payments(db: &PgPool, ret: &Value) -> Result<Vec<Value>, sqlx::Error> {
+async fn late_payments(db: &PgPool, ret: &Value) -> Result<Vec<Value>, DbErr> {
     let Some(filed_at) = text(ret, "filedAt").filter(|f| !f.is_empty()) else {
         return Ok(Vec::new());
     };
@@ -557,7 +596,7 @@ pub(crate) async fn carry_forward(
     if !is_filed(ret) {
         return Err(bad("Only a filed return has exceptions to carry forward"));
     }
-    let result = list_exceptions(db, agency, ret).await?;
+    let result = list_exceptions(db, agency, ret).await.map_err(refusal)?;
     let open = open_row_ids(&result);
     let mut ids: Vec<String> = Vec::new();
     for id in tax_line_ids
@@ -579,14 +618,12 @@ pub(crate) async fn carry_forward(
         return Err(bad("This return has no open exceptions to carry forward"));
     }
     let exceptions = with_resolutions(ret, &ids, "carried_forward", user_id, now, None);
-    sqlx::query("update tax_returns set exceptions = $2, updated_at = $3::timestamp where id = $1")
-        .bind(s(ret, "id"))
-        .bind(Value::Array(exceptions))
-        .bind(now)
-        .execute(db)
-        .await?;
+    set_exceptions(&orm(db), s(ret, "id"), exceptions, now)
+        .await
+        .map_err(refusal)?;
     let updated = return_by_id(db, s(ret, "id"))
-        .await?
+        .await
+        .map_err(refusal)?
         .unwrap_or_else(|| ret.clone());
     let tax_amount = sum_money(
         result
@@ -595,17 +632,44 @@ pub(crate) async fn carry_forward(
             .filter(|i| i.tax_line_ids.iter().any(|id| ids.contains(id)))
             .map(|i| i.tax_amount),
     );
-    let later: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'status', status, 'periodEnd', period_end) from tax_returns \
-         where entity_id = $1 and agency_id = $2 and deleted_at is null and period_start > $3::date \
-         and status in ('calculated', 'reviewed')",
-    )
-    .bind(s(ret, "entityId"))
-    .bind(s(agency, "id"))
-    .bind(s(ret, "periodEnd"))
-    .fetch_all(db)
-    .await?;
+    let later = later_calculated(db, s(ret, "entityId"), s(agency, "id"), s(ret, "periodEnd"))
+        .await
+        .map_err(refusal)?;
     Ok((updated, ids.len(), tax_amount, later))
+}
+
+/// A later return to recalculate.
+#[derive(Debug, FromQueryResult)]
+struct LaterReturn {
+    id: String,
+    status: String,
+    period_end: time::Date,
+}
+
+/// The agency's calculated or reviewed returns of periods starting after
+/// `period_end`, as `{ id, status, periodEnd }`.
+async fn later_calculated(
+    db: &PgPool,
+    entity_id: &str,
+    agency_id: &str,
+    period_end: &str,
+) -> Result<Vec<Value>, DbErr> {
+    use tax_returns::Column;
+    let rows = tax_returns::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Status, Column::PeriodEnd])
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(agency_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::PeriodStart.gt(parse_day(period_end)?))
+        .filter(Column::Status.is_in(["calculated", "reviewed"]))
+        .into_model::<LaterReturn>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| json!({ "id": r.id, "status": r.status, "periodEnd": day_text(r.period_end) }))
+        .collect())
 }
 
 /// `amendReturn(...)`: the new return and how many exception rows moved into it.
@@ -622,12 +686,15 @@ pub(crate) async fn amend_return(
     if !is_filed(ret) {
         return Err(bad("Only a filed return can be amended"));
     }
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select id, status from tax_returns where amends_return_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(s(ret, "id"))
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, String)> = tax_returns::Entity::find()
+        .select_only()
+        .columns([tax_returns::Column::Id, tax_returns::Column::Status])
+        .filter(tax_returns::Column::AmendsReturnId.eq(s(ret, "id")))
+        .filter(tax_returns::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(refusal)?;
     if let Some((id, status)) = existing {
         return Err(conflict(if FILED_STATUSES.contains(&status.as_str()) {
             format!("This return was already amended by {id}; amend that return instead")
@@ -635,7 +702,7 @@ pub(crate) async fn amend_return(
             format!("An amended return ({id}) is already open for this period")
         }));
     }
-    let exceptions = list_exceptions(db, agency, ret).await?;
+    let exceptions = list_exceptions(db, agency, ret).await.map_err(refusal)?;
     let take_ids: Vec<String> = exceptions
         .items
         .iter()
@@ -684,7 +751,8 @@ pub(crate) async fn amend_return(
             created_not_after: None,
         },
     )
-    .await?;
+    .await
+    .map_err(refusal)?;
     if take_ids.is_empty() && same_worksheet(&ret["summary"], &calculation.summary) {
         return Err(bad(
             "Nothing to amend: the ledger still matches the filed return",
@@ -711,26 +779,24 @@ pub(crate) async fn amend_return(
         )),
     );
     let mut tx = db.begin().await?;
-    TAX_RETURNS.insert_raw(&mut *tx, values).await?;
-    if !take_ids.is_empty() {
-        sqlx::query(
-            "update tax_returns set exceptions = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(s(ret, "id"))
-        .bind(Value::Array(with_resolutions(
-            ret,
-            &take_ids,
-            "amended",
-            user_id,
-            now,
-            Some(&id),
-        )))
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
+    {
+        let conn = OrmConn::new(&mut tx);
+        RETURN_ROWS
+            .insert(&conn, values)
+            .await
+            .map_err(refusal)?;
+        if !take_ids.is_empty() {
+            let marked = with_resolutions(ret, &take_ids, "amended", user_id, now, Some(&id));
+            set_exceptions(&conn, s(ret, "id"), marked, now)
+                .await
+                .map_err(refusal)?;
+        }
     }
     tx.commit().await?;
-    let created = return_by_id(db, &id).await?.unwrap_or(Value::Null);
+    let created = return_by_id(db, &id)
+        .await
+        .map_err(refusal)?
+        .unwrap_or(Value::Null);
     Ok((created, take_ids.len()))
 }
 
@@ -740,7 +806,7 @@ pub(crate) async fn release_amended_exceptions(
     db: &PgPool,
     amendment: &Value,
     now: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(original_id) = text(amendment, "amendsReturnId").filter(|a| !a.is_empty()) else {
         return Ok(());
     };
@@ -763,11 +829,5 @@ pub(crate) async fn release_amended_exceptions(
     if kept.len() == all.len() {
         return Ok(());
     }
-    sqlx::query("update tax_returns set exceptions = $2, updated_at = $3::timestamp where id = $1")
-        .bind(s(&original, "id"))
-        .bind(Value::Array(kept))
-        .bind(now)
-        .execute(db)
-        .await?;
-    Ok(())
+    set_exceptions(&orm(db), s(&original, "id"), kept, now).await
 }

@@ -688,6 +688,29 @@ fn setup(error: weldsuite_books_domain::sales_tax::errors::SalesTaxError) -> Ref
     Refusal::Response(Box::new(error.response()))
 }
 
+/// The rates being closed (ended the day before the new one starts), then
+/// the new rate, in one transaction.
+async fn close_and_add(
+    conn: &OrmConn<'_>,
+    closing: &[(String, String)],
+    rate: &Value,
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use sales_tax_jurisdiction_rates::Column;
+    for (closed_id, until) in closing {
+        sales_tax_jurisdiction_rates::Entity::update_many()
+            .col_expr(Column::EffectiveTo, Expr::value(parse_day(until)?))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(closed_id.as_str()))
+            .exec(conn)
+            .await?;
+    }
+    RATE_ROWS
+        .insert(conn, R.values(rate.as_object().unwrap_or(&Map::new())))
+        .await?;
+    Ok(())
+}
+
 async fn rate_create(caller: &Caller, state: &BooksState, id: &str, data: RateBody) -> Reply {
     let entity = require_sales_tax_entity(caller).await?;
     let entity_id = entity_id_of(&entity);
@@ -742,26 +765,14 @@ async fn rate_create(caller: &Caller, state: &BooksState, id: &str, data: RateBo
         "updatedAt": at,
     });
     let mut tx = caller.db.begin().await?;
-    {
-        use sales_tax_jurisdiction_rates::Column;
-        let conn = OrmConn::new(&mut tx);
-        for (closed_id, until) in &closing {
-            sales_tax_jurisdiction_rates::Entity::update_many()
-                .col_expr(
-                    Column::EffectiveTo,
-                    Expr::value(parse_day(until).map_err(refusal)?),
-                )
-                .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(instant)))
-                .filter(Column::Id.eq(closed_id.as_str()))
-                .exec(&conn)
-                .await
-                .map_err(refusal)?;
-        }
-        RATE_ROWS
-            .insert(&conn, R.values(rate.as_object().unwrap_or(&Map::new())))
-            .await
-            .map_err(refusal)?;
-    }
+    close_and_add(
+        &OrmConn::new(&mut tx),
+        &closing,
+        &rate,
+        utc_timestamp(instant),
+    )
+    .await
+    .map_err(refusal)?;
     tx.commit().await?;
     let mut audit_changes = Map::new();
     audit_changes.insert("rate".into(), json!({ "old": null, "new": rate["rate"] }));

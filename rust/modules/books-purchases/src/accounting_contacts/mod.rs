@@ -18,6 +18,12 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query as Sql, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::load_billing_contacts;
@@ -29,7 +35,7 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::identifiers::{check_vat_number_format, invalid_iban_message};
 use weldsuite_books_domain::jurisdictions::{br, india, js_trim, nl};
-use weldsuite_books_domain::tables::{BILLS, COMPANIES, INVOICES, PARTIES, PEOPLE, TAX_ID_REVEALS};
+use weldsuite_books_domain::tables::PARTIES;
 use weldsuite_books_domain::vendor_tax::{
     NO_KEY_MESSAGE, SecretField, VendorTaxError, build_vendor_tax_change, format_tin, is_tin_type,
     reveal_party_secret, strip_tax_fields_for_event, vendor_tax_derived,
@@ -44,7 +50,12 @@ use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_legal_entities::{
     EntityScopeCondition, entity_scope_condition, request_entity_scope,
 };
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    bills, companies, documents, entities, form_1099_filing_lines, invoices, journal_lines,
+    parties, payment_runs, payments, people, recurring_invoices, tax_id_reveals,
+};
 
 pub(crate) use body::hook_message;
 use body::{ContactPayload, PAYLOAD_KEYS, normalize, read_payload};
@@ -52,6 +63,9 @@ use identity::{
     ContactError, IdentityLink, bad_request, create_identity, person_phone, sync_contact_person,
     sync_identity,
 };
+
+use crate::orm_bridge::refused;
+use crate::rows::{js, js_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -264,37 +278,33 @@ fn by_id(rows: Vec<Value>) -> HashMap<String, Value> {
         .collect()
 }
 
-async fn load_identities(db: &sqlx::PgPool, rows: &[Value]) -> Result<Identities, sqlx::Error> {
+async fn load_identities(db: &PgPool, rows: &[Value]) -> Result<Identities, DbErr> {
     let company_ids = ids_of(rows, "companyId");
     let person_ids = ids_of(rows, "personId");
     let companies: Vec<Value> = if company_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(companies),
-            " from companies t where t.id = any($1)"
-        ))
-        .bind(&company_ids)
-        .fetch_all(db)
-        .await?
+        let rows = companies::Entity::find()
+            .filter(companies::Column::Id.is_in(&company_ids))
+            .all(&orm(db))
+            .await?;
+        js_rows!(rows)?
     };
     let people: Vec<Value> = if person_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(people),
-            " from people t where t.id = any($1)"
-        ))
-        .bind(&person_ids)
-        .fetch_all(db)
-        .await?
+        let rows = people::Entity::find()
+            .filter(people::Column::Id.is_in(&person_ids))
+            .all(&orm(db))
+            .await?;
+        js_rows!(rows)?
     };
     Ok(Identities {
-        companies: by_id(COMPANIES.js_rows(companies)),
-        people: by_id(PEOPLE.js_rows(people)),
-        billing: load_billing_contacts(db, &company_ids).await?,
+        companies: by_id(companies),
+        people: by_id(people),
+        billing: load_billing_contacts(db, &company_ids)
+            .await
+            .map_err(orm_error)?,
     })
 }
 
@@ -310,20 +320,18 @@ fn view_with(party: &Value, identities: &Identities) -> Value {
 }
 
 /// The live party row.
-async fn find_party(db: &sqlx::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| PARTIES.js(row)))
+async fn find_party(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    parties::Entity::find()
+        .filter(parties::Column::Id.eq(id))
+        .filter(parties::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
 }
 
 /// `loadContactView(db, id)`.
-async fn load_contact_view(db: &sqlx::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn load_contact_view(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(party) = find_party(db, id).await? else {
         return Ok(None);
     };
@@ -344,10 +352,43 @@ fn parse_page(q: &Query, key: &str, fallback: i64) -> Option<i64> {
 }
 
 /// The list filters: archived, role, search, kind and 1099 vendors.
-macro_rules! contacts_where {
-    () => {
-        "t.deleted_at is null          and ($1 = 'include' or ($1 = 'only' and t.archived_at is not null) or ($1 = 'hide' and t.archived_at is null))          and ($2::text is null or ($2 in ('customer', 'supplier') and (t.role = $2 or t.role = 'both'))               or ($2 not in ('customer', 'supplier') and t.role = $2))          and ($3::text is null or t.display_name ilike $3)          and ($4::text is null or t.kind = $4)          and ($5 = false or t.is_1099_vendor = true)"
-    };
+fn contacts_where(
+    archived: &str,
+    role: Option<&str>,
+    search: Option<&str>,
+    kind: Option<&str>,
+    vendors_1099: bool,
+) -> Condition {
+    let mut condition = Condition::all().add(parties::Column::DeletedAt.is_null());
+    match archived {
+        "only" => condition = condition.add(parties::Column::ArchivedAt.is_not_null()),
+        "hide" => condition = condition.add(parties::Column::ArchivedAt.is_null()),
+        _ => {}
+    }
+    match role {
+        None => {}
+        Some(role @ ("customer" | "supplier")) => {
+            condition = condition.add(
+                Condition::any()
+                    .add(parties::Column::Role.eq(role))
+                    .add(parties::Column::Role.eq("both")),
+            );
+        }
+        Some(role) => condition = condition.add(parties::Column::Role.eq(role)),
+    }
+    if let Some(search) = search {
+        condition = condition.add(pg::PgExpr::ilike(
+            Expr::col((parties::Entity, parties::Column::DisplayName)),
+            search,
+        ));
+    }
+    if let Some(kind) = kind {
+        condition = condition.add(parties::Column::Kind.eq(kind));
+    }
+    if vendors_1099 {
+        condition = condition.add(parties::Column::Is1099Vendor.eq(true));
+    }
+    condition
 }
 
 async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
@@ -365,35 +406,26 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
     let search = q.present("search").map(|s| format!("%{s}%"));
     let kind = q.get("kind").filter(|k| *k == "company" || *k == "person");
     let vendors_1099 = q.get("is1099Vendor") == Some("true");
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where ",
-        contacts_where!(),
-        " order by t.created_at desc limit $6 offset $7"
-    ))
-    .bind(archived)
-    .bind(role)
-    .bind(&search)
-    .bind(kind)
-    .bind(vendors_1099)
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*)::bigint from parties t where ",
-        contacts_where!()
-    ))
-    .bind(archived)
-    .bind(role)
-    .bind(&search)
-    .bind(kind)
-    .bind(vendors_1099)
-    .fetch_one(&caller.db)
-    .await?;
-    let rows = PARTIES.js_rows(rows);
-    let identities = load_identities(&caller.db, &rows).await?;
+    let listed = || contacts_where(archived, role, search.as_deref(), kind, vendors_1099);
+    let db = orm(&caller.db);
+    let rows = parties::Entity::find()
+        .filter(listed())
+        .order_by_desc(parties::Column::CreatedAt)
+        .limit(u64::try_from(size).unwrap_or(0))
+        .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(refused)?;
+    let total = parties::Entity::find()
+        .filter(listed())
+        .count(&db)
+        .await
+        .map_err(refused)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = js_rows!(rows).map_err(refused)?;
+    let identities = load_identities(&caller.db, &rows)
+        .await
+        .map_err(refused)?;
     let data = rows.iter().map(|row| view_with(row, &identities)).collect();
     Ok(paged(data, total, page * size < total, None))
 }
@@ -402,7 +434,7 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        match load_contact_view(&caller.db, &id).await? {
+        match load_contact_view(&caller.db, &id).await.map_err(refused)? {
             Some(view) => Ok(ok(view)),
             None => Err(Refusal::not_found("Contact", &id)),
         }
@@ -414,8 +446,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 /// Contacts belong to the workspace, their documents to entities: a member
 /// who is not allowed everywhere only sees the documents of the entity the
 /// request is scoped to (per-entity access; `entityScopeCondition(column,
-/// await requestEntityScope(c), null)`). Bound as `$2` and `$3` of
-/// `scoped_documents!()` / `scoped_rows!()`.
+/// await requestEntityScope(c), null)`), as [`in_scope`].
 async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Error> {
     let request = request_entity(caller).await?;
     Ok(entity_scope_condition(
@@ -424,36 +455,41 @@ async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Err
     ))
 }
 
-/// `EntityScopeCondition::sql("t.entity_id", 2, 3)`, for the document lists.
-macro_rules! scoped_documents {
-    () => {
-        "($2::text[] is null or t.entity_id = any($2) or ($3::boolean and t.entity_id is null))"
-    };
-}
-
-/// `EntityScopeCondition::sql("entity_id", 2, 3)`, for the balance sums.
-macro_rules! scoped_rows {
-    () => {
-        "($2::text[] is null or entity_id = any($2) or ($3::boolean and entity_id is null))"
-    };
+/// `EntityScopeCondition::sql(column, …)` as a condition: no filter, none of
+/// the rows, or the entities allowed (and rows without an entity when the
+/// default one is among them).
+fn in_scope(scope: &EntityScopeCondition, column: impl ColumnTrait) -> Condition {
+    match scope {
+        EntityScopeCondition::All => Condition::all(),
+        EntityScopeCondition::Nothing => {
+            Condition::all().add(column.is_in(Vec::<String>::new()))
+        }
+        EntityScopeCondition::In {
+            ids,
+            include_unassigned,
+        } => {
+            let scoped = Condition::any().add(column.is_in(ids));
+            if *include_unassigned {
+                scoped.add(column.is_null())
+            } else {
+                scoped
+            }
+        }
+    }
 }
 
 async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(invoices),
-            " from invoices t where t.contact_id = $1 and t.deleted_at is null and ",
-            scoped_documents!(),
-            " order by t.issue_date desc"
-        ))
-        .bind(&id)
-        .bind(scope.ids_bind())
-        .bind(scope.unassigned_bind())
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(INVOICES.js_rows(rows))))
+        let rows = invoices::Entity::find()
+            .filter(invoices::Column::ContactId.eq(id.as_str()))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .filter(in_scope(&scope, invoices::Column::EntityId))
+            .order_by_desc(invoices::Column::IssueDate)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
     }
     .await;
     reply(result, "Failed to fetch contact invoices")
@@ -462,56 +498,73 @@ async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
 async fn bills(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bills),
-            " from bills t where t.contact_id = $1 and t.deleted_at is null and ",
-            scoped_documents!(),
-            " order by t.issue_date desc"
-        ))
-        .bind(&id)
-        .bind(scope.ids_bind())
-        .bind(scope.unassigned_bind())
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(BILLS.js_rows(rows))))
+        let rows = bills::Entity::find()
+            .filter(bills::Column::ContactId.eq(id.as_str()))
+            .filter(bills::Column::DeletedAt.is_null())
+            .filter(in_scope(&scope, bills::Column::EntityId))
+            .order_by_desc(bills::Column::IssueDate)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
     }
     .await;
     reply(result, "Failed to fetch contact bills")
 }
 
-/// What is open, and what of it is overdue, as text.
-macro_rules! balance_sums {
-    () => {
-        "coalesce(sum(balance_due::numeric), 0)::text,          coalesce(sum(case when due_date < now() and balance_due::numeric > 0 then balance_due::numeric else 0 end), 0)::text"
+/// What is open, and what of it is overdue, as text (`coalesce(sum(…),
+/// 0)::text`: `0` when nothing counts, else the sum's own scale).
+async fn balance_sums<E: EntityTrait>(
+    db: &PgPool,
+    rows: Select<E>,
+    balance_due: E::Column,
+    due_date: E::Column,
+) -> Result<(String, String), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let total = |amount: Expr| {
+        Expr::from(Func::coalesce([Expr::from(Func::sum(amount)), Expr::val(0)])).cast_as("text")
     };
+    let overdue = Expr::case(
+        Condition::all()
+            .add(Expr::col(due_date).lt(Expr::from(Func::cust("now"))))
+            .add(Expr::col(balance_due).gt(0)),
+        Expr::col(balance_due),
+    )
+    .finally(0);
+    rows.select_only()
+        .column_as(total(Expr::col(balance_due)), "outstanding")
+        .column_as(total(overdue.into()), "overdue")
+        .into_tuple()
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("the balance sums".to_owned()))
 }
 
 async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let scope = entity_scope(&caller).await?;
-        let (inv_out, inv_due): (String, String) = sqlx::query_as(concat!(
-            "select ",
-            balance_sums!(),
-            " from invoices where contact_id = $1 and deleted_at is null and ",
-            scoped_rows!()
-        ))
-        .bind(&id)
-        .bind(scope.ids_bind())
-        .bind(scope.unassigned_bind())
-        .fetch_one(&caller.db)
-        .await?;
-        let (bill_out, bill_due): (String, String) = sqlx::query_as(concat!(
-            "select ",
-            balance_sums!(),
-            " from bills where contact_id = $1 and deleted_at is null and ",
-            scoped_rows!()
-        ))
-        .bind(&id)
-        .bind(scope.ids_bind())
-        .bind(scope.unassigned_bind())
-        .fetch_one(&caller.db)
-        .await?;
+        let (inv_out, inv_due) = balance_sums(
+            &caller.db,
+            invoices::Entity::find()
+                .filter(invoices::Column::ContactId.eq(id.as_str()))
+                .filter(invoices::Column::DeletedAt.is_null())
+                .filter(in_scope(&scope, invoices::Column::EntityId)),
+            invoices::Column::BalanceDue,
+            invoices::Column::DueDate,
+        )
+        .await
+        .map_err(refused)?;
+        let (bill_out, bill_due) = balance_sums(
+            &caller.db,
+            bills::Entity::find()
+                .filter(bills::Column::ContactId.eq(id.as_str()))
+                .filter(bills::Column::DeletedAt.is_null())
+                .filter(in_scope(&scope, bills::Column::EntityId)),
+            bills::Column::BalanceDue,
+            bills::Column::DueDate,
+        )
+        .await
+        .map_err(refused)?;
         Ok(ok(json!({
             "receivable": { "totalOutstanding": inv_out, "totalOverdue": inv_due },
             "payable": { "totalOutstanding": bill_out, "totalOverdue": bill_due },
@@ -578,7 +631,7 @@ fn contact_refusal(error: ContactError, fallback: &str) -> Refusal {
 }
 
 /// `assertW9Document(db, data)`.
-async fn assert_w9_document(db: &sqlx::PgPool, data: &ContactPayload) -> Result<(), ContactError> {
+async fn assert_w9_document(db: &PgPool, data: &ContactPayload) -> Result<(), ContactError> {
     let Some(document_id) = data
         .tax
         .w9
@@ -589,11 +642,14 @@ async fn assert_w9_document(db: &sqlx::PgPool, data: &ContactPayload) -> Result<
     else {
         return Ok(());
     };
-    let found: Option<String> =
-        sqlx::query_scalar("select id from documents where id = $1 and deleted_at is null limit 1")
-            .bind(document_id)
-            .fetch_optional(db)
-            .await?;
+    let found: Option<String> = documents::Entity::find()
+        .select_only()
+        .column(documents::Column::Id)
+        .filter(documents::Column::Id.eq(document_id))
+        .filter(documents::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if found.is_none() {
         return Err(VendorTaxError::Invalid(format!(
             "w9.documentId: document {document_id} not found"
@@ -686,15 +742,17 @@ fn check_kvk_format(
 }
 
 /// The entity's jurisdiction, upper-cased (`entity?.jurisdictionCode?.toUpperCase()`).
-async fn entity_jurisdiction(caller: &Caller) -> Result<Option<String>, sqlx::Error> {
-    let Some(entity_id) = resolve_entity_id(caller).await? else {
+async fn entity_jurisdiction(caller: &Caller) -> Result<Option<String>, DbErr> {
+    let Some(entity_id) = resolve_entity_id(caller).await.map_err(orm_error)? else {
         return Ok(None);
     };
-    let code: Option<Option<String>> =
-        sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-            .bind(entity_id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let code: Option<Option<String>> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::Id.eq(entity_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(code.flatten().map(|c| c.to_uppercase()))
 }
 
@@ -1096,32 +1154,75 @@ const USAGE: [(&str, &str, &str); 7] = [
 ];
 
 /// `getContactUsage(db, id)`.
-async fn contact_usage(
-    db: &sqlx::PgPool,
-    id: &str,
-) -> Result<Vec<(&'static str, i64)>, sqlx::Error> {
-    let (invoices, bills, payments, recurring, runs, lines, journal): (i64, i64, i64, i64, i64, i64, i64) =
-        sqlx::query_as(
-            "select \
-               (select count(*) from invoices where contact_id = $1 and deleted_at is null), \
-               (select count(*) from bills where contact_id = $1 and deleted_at is null), \
-               (select count(*) from payments where contact_id = $1 and deleted_at is null), \
-               (select count(*) from recurring_invoices where contact_id = $1 and deleted_at is null), \
-               (select count(*) from payment_runs where deleted_at is null and items @> jsonb_build_array(jsonb_build_object('partyId', $1::text))), \
-               (select count(*) from form_1099_filing_lines where party_id = $1), \
-               (select count(*) from journal_lines where contact_id = $1 and deleted_at is null)",
-        )
-        .bind(id)
-        .fetch_one(db)
-        .await?;
+async fn contact_usage(db: &PgPool, id: &str) -> Result<Vec<(&'static str, i64)>, DbErr> {
+    /// `(select count(*) from table where …)`.
+    fn counted(table: impl sea_orm::Iden + 'static, condition: Condition) -> Expr {
+        let count: SelectStatement = Sql::select()
+            .expr(Func::count(Expr::col(Asterisk)))
+            .from(table)
+            .cond_where(condition)
+            .to_owned();
+        Expr::SubQuery(None, Box::new(count.into()))
+    }
+    // One statement, as the worker's: every count from the same snapshot.
+    let usage = Sql::select()
+        .expr(counted(
+            invoices::Entity,
+            Condition::all()
+                .add(invoices::Column::ContactId.eq(id))
+                .add(invoices::Column::DeletedAt.is_null()),
+        ))
+        .expr(counted(
+            bills::Entity,
+            Condition::all()
+                .add(bills::Column::ContactId.eq(id))
+                .add(bills::Column::DeletedAt.is_null()),
+        ))
+        .expr(counted(
+            payments::Entity,
+            Condition::all()
+                .add(payments::Column::ContactId.eq(id))
+                .add(payments::Column::DeletedAt.is_null()),
+        ))
+        .expr(counted(
+            recurring_invoices::Entity,
+            Condition::all()
+                .add(recurring_invoices::Column::ContactId.eq(id))
+                .add(recurring_invoices::Column::DeletedAt.is_null()),
+        ))
+        .expr(counted(
+            payment_runs::Entity,
+            Condition::all()
+                .add(payment_runs::Column::DeletedAt.is_null())
+                .add(pg::PgExpr::contains(
+                    Expr::col(payment_runs::Column::Items),
+                    json!([{ "partyId": id }]),
+                )),
+        ))
+        .expr(counted(
+            form_1099_filing_lines::Entity,
+            Condition::all().add(form_1099_filing_lines::Column::PartyId.eq(id)),
+        ))
+        .expr(counted(
+            journal_lines::Entity,
+            Condition::all()
+                .add(journal_lines::Column::ContactId.eq(id))
+                .add(journal_lines::Column::DeletedAt.is_null()),
+        ))
+        .to_owned();
+    let row = orm(db)
+        .query_one(&usage)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("the contact's usage".to_owned()))?;
+    let count = |index: usize| row.try_get_by_index::<i64>(index);
     Ok(vec![
-        ("invoices", invoices),
-        ("bills", bills),
-        ("payments", payments),
-        ("recurringInvoices", recurring),
-        ("paymentRuns", runs),
-        ("form1099Lines", lines),
-        ("journalLines", journal),
+        ("invoices", count(0)?),
+        ("bills", count(1)?),
+        ("payments", count(2)?),
+        ("recurringInvoices", count(3)?),
+        ("paymentRuns", count(4)?),
+        ("form1099Lines", count(5)?),
+        ("journalLines", count(6)?),
     ])
 }
 
@@ -1148,11 +1249,12 @@ async fn remove(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(contact) = find_party(db, &id).await? else {
+        let Some(contact) = find_party(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         let used: Vec<(&str, i64)> = contact_usage(db, &id)
-            .await?
+            .await
+            .map_err(refused)?
             .into_iter()
             .filter(|(_, n)| *n > 0)
             .collect();
@@ -1174,12 +1276,14 @@ async fn remove(
                 json!({ "code": "CONTACT_IN_USE", "references": references, "openBalance": open_balance, "canArchive": true }),
             ));
         }
-        let now = now();
-        sqlx::query("update parties set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(db)
-            .await?;
+        let at = utc_now();
+        parties::Entity::update_many()
+            .col_expr(parties::Column::DeletedAt, Expr::value(at))
+            .col_expr(parties::Column::UpdatedAt, Expr::value(at))
+            .filter(parties::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(
             &caller,
             db,
@@ -1219,22 +1323,26 @@ async fn unarchive(
 async fn set_archived(caller: &Caller, state: &BooksState, id: &str, archived: bool) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(contact) = find_party(db, id).await? else {
+        let Some(contact) = find_party(db, id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Contact", id));
         };
         let is_archived = contact.get("archivedAt").is_some_and(|v| !v.is_null());
         if is_archived != archived {
-            let now = now();
-            sqlx::query(
-                "update parties set archived_at = case when $2 then $3::timestamp else null end, \
-                 status = $4, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(id)
-            .bind(archived)
-            .bind(&now)
-            .bind(if archived { "archived" } else { "active" })
-            .execute(db)
-            .await?;
+            let at = utc_now();
+            parties::Entity::update_many()
+                .col_expr(
+                    parties::Column::ArchivedAt,
+                    Expr::value(archived.then_some(at)),
+                )
+                .col_expr(
+                    parties::Column::Status,
+                    Expr::value(if archived { "archived" } else { "active" }),
+                )
+                .col_expr(parties::Column::UpdatedAt, Expr::value(at))
+                .filter(parties::Column::Id.eq(id))
+                .exec(&orm(db))
+                .await
+                .map_err(refused)?;
             write_accounting_audit(
                 caller,
                 db,
@@ -1254,7 +1362,7 @@ async fn set_archived(caller: &Caller, state: &BooksState, id: &str, archived: b
             };
             caller.publish(state, event, id, json!({ "id": id, "archived": archived }));
         }
-        match load_contact_view(db, id).await? {
+        match load_contact_view(db, id).await.map_err(refused)? {
             Some(view) => Ok(ok(view)),
             None => Err(Refusal::not_found("Contact", id)),
         }
@@ -1288,11 +1396,14 @@ async fn promote_role(
     };
     let result: Reply = async {
         let db = &caller.db;
-        let row: Option<(String, Option<String>)> =
-            sqlx::query_as("select id, role from parties where id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(db)
-                .await?;
+        let row: Option<(String, Option<String>)> = parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::Role])
+            .filter(parties::Column::Id.eq(id.as_str()))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(refused)?;
         let Some((_, role)) = row else {
             return Err(Refusal::not_found("Party", &id));
         };
@@ -1305,12 +1416,13 @@ async fn promote_role(
         } else {
             "both"
         };
-        sqlx::query("update parties set role = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(next)
-            .bind(now())
-            .execute(db)
-            .await?;
+        parties::Entity::update_many()
+            .col_expr(parties::Column::Role, Expr::value(next))
+            .col_expr(parties::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(parties::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(refused)?;
         caller.publish(
             &state,
             ACCOUNTING_CONTACT_UPDATED,
@@ -1370,7 +1482,7 @@ async fn reveal(
     }
     let result: Reply = async {
         let db = &caller.db;
-        let Some(party) = find_party(db, id).await? else {
+        let Some(party) = find_party(db, id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Contact", id));
         };
         let user = if caller.user_id.is_empty() {
@@ -1449,18 +1561,31 @@ async fn reveal(
 
 async fn reveal_log(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(tax_id_reveals),
-            " from tax_id_reveals t where (t.subject_type = 'party' and t.subject_id = $1) \
-             or (t.subject_type = 'form_1099_line' and t.subject_id in \
-                 (select l.id from form_1099_filing_lines l where l.party_id = $1)) \
-             order by t.created_at desc limit 200"
-        ))
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows = TAX_ID_REVEALS.js_rows(rows);
+        let lines = Sql::select()
+            .column(form_1099_filing_lines::Column::Id)
+            .from(form_1099_filing_lines::Entity)
+            .and_where(form_1099_filing_lines::Column::PartyId.eq(id.as_str()))
+            .to_owned();
+        let rows = tax_id_reveals::Entity::find()
+            .filter(
+                Condition::any()
+                    .add(
+                        Condition::all()
+                            .add(tax_id_reveals::Column::SubjectType.eq("party"))
+                            .add(tax_id_reveals::Column::SubjectId.eq(id.as_str())),
+                    )
+                    .add(
+                        Condition::all()
+                            .add(tax_id_reveals::Column::SubjectType.eq("form_1099_line"))
+                            .add(tax_id_reveals::Column::SubjectId.in_subquery(lines)),
+                    ),
+            )
+            .order_by_desc(tax_id_reveals::Column::CreatedAt)
+            .limit(200)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        let rows = js_rows!(rows).map_err(refused)?;
         let total = i64::try_from(rows.len()).unwrap_or(0);
         Ok(paged(rows, total, false, None))
     }
@@ -1475,29 +1600,28 @@ async fn verify_bank_details(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(party) = find_party(db, &id).await? else {
+        let Some(party) = find_party(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         let filled = |key: &str| text(&party, key).is_some_and(|v| !v.is_empty());
         if !filled("achRoutingNumber") || !filled("achAccountLast4") {
             return Err(Refusal::bad_request("This contact has no bank details to verify"));
         }
-        let now = now();
+        let at = utc_now();
         let user = if caller.user_id.is_empty() {
             "unknown".to_owned()
         } else {
             caller.user_id.clone()
         };
-        sqlx::query(
-            "update parties set bank_details_verified_at = $2::timestamp, bank_details_verified_by = $3, \
-             updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .bind(&user)
-        .execute(db)
-        .await?;
-        let Some(updated) = load_contact_view(db, &id).await? else {
+        parties::Entity::update_many()
+            .col_expr(parties::Column::BankDetailsVerifiedAt, Expr::value(at))
+            .col_expr(parties::Column::BankDetailsVerifiedBy, Expr::value(user))
+            .col_expr(parties::Column::UpdatedAt, Expr::value(at))
+            .filter(parties::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(refused)?;
+        let Some(updated) = load_contact_view(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         write_accounting_audit(
@@ -1530,11 +1654,38 @@ mod tests {
 
     #[test]
     fn the_document_scope_is_the_shared_condition() {
+        use sea_orm::{DbBackend, QueryTrait};
+        // `($2::text[] is null or entity_id = any($2) or ($3 and entity_id is null))`.
+        let sql = |scope: EntityScopeCondition| {
+            let built = bills::Entity::find()
+                .filter(bills::Column::ContactId.eq("pty_1"))
+                .filter(in_scope(&scope, bills::Column::EntityId))
+                .build(DbBackend::Postgres)
+                .to_string();
+            built[built.find(" WHERE ").unwrap_or_default()..].to_owned()
+        };
         assert_eq!(
-            scoped_documents!(),
-            EntityScopeCondition::sql("t.entity_id", 2, 3)
+            sql(EntityScopeCondition::All),
+            r#" WHERE "bills"."contact_id" = 'pty_1'"#
         );
-        assert_eq!(scoped_rows!(), EntityScopeCondition::sql("entity_id", 2, 3));
+        assert_eq!(
+            sql(EntityScopeCondition::Nothing),
+            r#" WHERE "bills"."contact_id" = 'pty_1' AND 1 = 2"#
+        );
+        assert_eq!(
+            sql(EntityScopeCondition::In {
+                ids: vec!["ent_a".to_owned()],
+                include_unassigned: true,
+            }),
+            r#" WHERE "bills"."contact_id" = 'pty_1' AND ("bills"."entity_id" IN ('ent_a') OR "bills"."entity_id" IS NULL)"#
+        );
+        assert_eq!(
+            sql(EntityScopeCondition::In {
+                ids: vec!["ent_a".to_owned()],
+                include_unassigned: false,
+            }),
+            r#" WHERE "bills"."contact_id" = 'pty_1' AND "bills"."entity_id" IN ('ent_a')"#
+        );
     }
 
     #[test]

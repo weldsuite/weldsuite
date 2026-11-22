@@ -20,7 +20,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
-use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Asterisk, Expr, Func};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -162,6 +162,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn stats(caller: Caller) -> Response {
+    use sea_orm::ExprTrait as _;
     let result: Reply = async {
         let rows: Vec<(Option<String>, i32)> = documents::Entity::find()
             .select_only()
@@ -314,7 +315,7 @@ async fn is_tax_form_document(db: &PgPool, doc: &Value) -> Result<bool, DbErr> {
     let w9 = sea_orm::sea_query::Query::select()
         .expr(Expr::val(1))
         .from(parties::Entity)
-        .and_where(PgExpr::cast_json_field(Expr::col(parties::Column::W9), "documentId").eq(id))
+        .and_where(pg::PgExpr::cast_json_field(Expr::col(parties::Column::W9), "documentId").eq(id))
         .to_owned();
     let certificate = sea_orm::sea_query::Query::select()
         .expr(Expr::val(1))
