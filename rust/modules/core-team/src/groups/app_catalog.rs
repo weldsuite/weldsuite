@@ -31,8 +31,8 @@ use http::StatusCode;
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, IntoCondition, OnConflict};
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationDef,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
 };
 use serde_json::{Map, Value, json};
 use weldsuite_db::{PgPool, orm, utc_now};
@@ -46,7 +46,9 @@ use weldsuite_schema::master::{
     app_catalog as catalog, partners, workspace_app_access as app_access,
     workspace_licences as licences, workspaces,
 };
-use weldsuite_schema::tenant::{workspace_installed_apps as installed, workspace_members as members};
+use weldsuite_schema::tenant::{
+    workspace_installed_apps as installed, workspace_members as members,
+};
 
 use crate::access::js;
 use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer};
@@ -113,10 +115,7 @@ fn workspace_app_access() -> sea_orm::RelationBuilder<workspaces::Entity, app_ac
 }
 
 /// `listAccessStatuses`: the workspace's access status per app code.
-async fn access_statuses(
-    master: &PgPool,
-    org_ref: &str,
-) -> Result<HashMap<String, String>, DbErr> {
+async fn access_statuses(master: &PgPool, org_ref: &str) -> Result<HashMap<String, String>, DbErr> {
     let rows: Vec<(String, String)> = workspaces::Entity::find()
         .select_only()
         .columns([app_access::Column::AppCode, app_access::Column::Status])

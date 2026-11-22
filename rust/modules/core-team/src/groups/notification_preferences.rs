@@ -138,10 +138,12 @@ impl Patch {
         let flag = |(column, value): (prefs::Column, Option<bool>)| {
             value.map(|value| (column, sea_orm::Value::from(value)))
         };
-        let modules = self
-            .module_preferences
-            .clone()
-            .map(|value| (prefs::Column::ModulePreferences, sea_orm::Value::from(value)));
+        let modules = self.module_preferences.clone().map(|value| {
+            (
+                prefs::Column::ModulePreferences,
+                sea_orm::Value::from(value),
+            )
+        });
         flags
             .into_iter()
             .filter_map(flag)
@@ -232,13 +234,11 @@ async fn page(
     let mut select = prefs::Entity::find().filter(prefs::Column::UserId.eq(&caller.user_id));
     if let Some((at, id)) = after {
         select = select.filter(
-            Condition::any()
-                .add(prefs::Column::CreatedAt.lt(at))
-                .add(
-                    Condition::all()
-                        .add(prefs::Column::CreatedAt.eq(at))
-                        .add(prefs::Column::Id.lt(id)),
-                ),
+            Condition::any().add(prefs::Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(prefs::Column::CreatedAt.eq(at))
+                    .add(prefs::Column::Id.lt(id)),
+            ),
         );
     }
     let rows = select
@@ -325,7 +325,10 @@ fn new_row(caller: &Caller, id: String, patch: &Patch, at: OffsetDateTime) -> pr
 async fn upsert_row(caller: &Caller, patch: Patch) -> Result<Value, DbErr> {
     let mut row = new_row(caller, generate_id("npr"), &patch, utc_now().assume_utc());
     row.module_preferences = Set(Some(
-        patch.module_preferences.clone().unwrap_or_else(|| json!({})),
+        patch
+            .module_preferences
+            .clone()
+            .unwrap_or_else(|| json!({})),
     ));
     let mut written: Vec<prefs::Column> = patch.sent().into_iter().map(|(c, _)| c).collect();
     written.push(prefs::Column::UpdatedAt);
@@ -366,9 +369,9 @@ async fn merge_module(
                 return Err(TeamError::api(ApiError::bad_request("Invalid module name")));
             }
             let patch = json!({ module: channels });
-            let row = merge_row(&caller, patch)
-                .await
-                .map_err(|error| TeamError::internal("Failed to update module preferences", error))?;
+            let row = merge_row(&caller, patch).await.map_err(|error| {
+                TeamError::internal("Failed to update module preferences", error)
+            })?;
             Ok(Data(row).into_response())
         }
         .await,

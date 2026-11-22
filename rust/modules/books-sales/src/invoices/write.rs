@@ -706,7 +706,10 @@ async fn update_invoice(
     let mut tx = db.begin().await?;
     if let Some(items) = &new_items {
         invoice_items::Entity::update_many()
-            .col_expr(invoice_items::Column::DeletedAt, Expr::value(replaced_stamp))
+            .col_expr(
+                invoice_items::Column::DeletedAt,
+                Expr::value(replaced_stamp),
+            )
             .filter(invoice_items::Column::InvoiceId.eq(id))
             .filter(invoice_items::Column::DeletedAt.is_null())
             .exec(&OrmConn::new(&mut tx))

@@ -371,7 +371,12 @@ pub(crate) async fn accurate_member_count(
         .collect();
     let db_count = count_i64(
         rows.iter()
-            .filter(|r| matches!(r.status, MembershipStatus::ACTIVE | MembershipStatus::PENDING))
+            .filter(|r| {
+                matches!(
+                    r.status,
+                    MembershipStatus::ACTIVE | MembershipStatus::PENDING
+                )
+            })
             .count(),
     );
 
@@ -438,18 +443,17 @@ async fn drop_removed_memberships(
             emails,
         ));
     }
-    let refs: Result<Vec<MemberRef>, DbErr> =
-        members::Entity::find()
-            .select_only()
-            .columns([
-                members::Column::UserId,
-                members::Column::Email,
-                members::Column::DeletedAt,
-            ])
-            .filter(matching)
-            .into_tuple()
-            .all(&orm(&caller.db))
-            .await;
+    let refs: Result<Vec<MemberRef>, DbErr> = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::UserId,
+            members::Column::Email,
+            members::Column::DeletedAt,
+        ])
+        .filter(matching)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let refs = match refs {
         Ok(refs) => refs,
         Err(error) => {
@@ -545,7 +549,8 @@ async fn sync_user_workspaces(
                     .col_expr(
                         user_workspaces::Column::Status,
                         // The value as the `membership_status` enum.
-                        user_workspaces::Column::Status.save_as(Expr::value(MembershipStatus::ACTIVE)),
+                        user_workspaces::Column::Status
+                            .save_as(Expr::value(MembershipStatus::ACTIVE)),
                     )
                     .col_expr(
                         user_workspaces::Column::ClerkMembershipId,

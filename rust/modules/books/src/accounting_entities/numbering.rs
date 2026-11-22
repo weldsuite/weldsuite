@@ -122,9 +122,7 @@ pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Response {
         if find_active(&caller, &id).await?.is_none() {
             return Err(Refusal::not_found("Entity", &id));
         }
-        let sequences = list_sequences(&caller.db, &id)
-            .await
-            .map_err(sqlx_error)?;
+        let sequences = list_sequences(&caller.db, &id).await.map_err(sqlx_error)?;
         Ok(ok(sequences_json(&sequences)))
     }
     .await;
@@ -440,9 +438,7 @@ async fn update_numbering(
             // A document took a number mid-update: what was written before
             // that still gets its audit row and event.
             if !changes.is_empty() {
-                let sequences = list_sequences(&caller.db, id)
-                    .await
-                    .map_err(sqlx_error)?;
+                let sequences = list_sequences(&caller.db, id).await.map_err(sqlx_error)?;
                 record_changes(caller, state, &entity, changes, &sequences).await;
             }
             Err(Refusal::bad_request(NEXT_VALUE_FORWARD_ONLY))

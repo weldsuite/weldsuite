@@ -230,11 +230,8 @@ async fn run_delete(
         if org_deleted {
             deactivate = deactivate.col_expr(
                 workspaces::Column::DeletedAt,
-                Func::coalesce([
-                    Expr::col(workspaces::Column::DeletedAt),
-                    Expr::value(stamp),
-                ])
-                .into(),
+                Func::coalesce([Expr::col(workspaces::Column::DeletedAt), Expr::value(stamp)])
+                    .into(),
             );
         }
         deactivate

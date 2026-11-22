@@ -18,8 +18,8 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::tables::LOCK_DATE_EXCEPTIONS;
 use weldsuite_catalogs::entity_events::ACCOUNTING_ENTITY_UPDATED;
-use weldsuite_kit::generate_id;
 use weldsuite_db::orm;
+use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_schema::tenant::{entities, lock_date_exceptions};
 
@@ -177,7 +177,9 @@ pub(crate) async fn lock_dates(
                     return Err(Refusal::bad_request(HARD_LOCK_FORWARD_ONLY));
                 }
                 if hard > today_in(existing.get("timezone").and_then(Value::as_str)).as_str() {
-                    return Err(Refusal::bad_request("The hard lock date can't be in the future"));
+                    return Err(Refusal::bad_request(
+                        "The hard lock date can't be in the future",
+                    ));
                 }
             }
         }
@@ -197,7 +199,10 @@ pub(crate) async fn lock_dates(
             .map(|(field, value)| {
                 (
                     field.clone(),
-                    change(existing.get(field.as_str()).cloned().unwrap_or(Value::Null), value.clone()),
+                    change(
+                        existing.get(field.as_str()).cloned().unwrap_or(Value::Null),
+                        value.clone(),
+                    ),
                 )
             })
             .collect();
@@ -450,7 +455,10 @@ pub(crate) async fn revoke_exception(
             return Ok(ok(current.unwrap_or(existing)));
         };
         let mut changes = Map::new();
-        changes.insert("revokedAt".to_owned(), change(Value::Null, revoked["revokedAt"].clone()));
+        changes.insert(
+            "revokedAt".to_owned(),
+            change(Value::Null, revoked["revokedAt"].clone()),
+        );
         write_accounting_audit(
             &caller,
             &caller.db,

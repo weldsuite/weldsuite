@@ -26,9 +26,9 @@ use weldsuite_books_domain::tables::ACCOUNTING_DIMENSION_VALUES as T;
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_DIMENSION_CREATED, ACCOUNTING_DIMENSION_DELETED, ACCOUNTING_DIMENSION_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::cursor::{atob, btoa, decode_uri_component, encode_uri_component};
 use weldsuite_kit::generate_id;
-use weldsuite_db::orm;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::accounting_dimension_values::{self, Column};

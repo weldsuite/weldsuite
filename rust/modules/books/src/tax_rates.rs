@@ -255,10 +255,7 @@ fn json_text(value: &Value) -> Option<String> {
 /// current template gets its new rates (ICL goederen), the renamed services
 /// rate, box 1b for the reduced rate and 21% on the domestic reverse charge.
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
-pub(crate) async fn ensure_standard_tax_rates(
-    db: &PgPool,
-    entity_id: &str,
-) -> Result<(), DbErr> {
+pub(crate) async fn ensure_standard_tax_rates(db: &PgPool, entity_id: &str) -> Result<(), DbErr> {
     let code: Option<String> = entities::Entity::find()
         .select_only()
         .column(entities::Column::JurisdictionCode)

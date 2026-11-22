@@ -55,10 +55,7 @@ pub(crate) async fn apply_credit_note(
     invoice_id: Option<&str>,
     amount: Option<f64>,
 ) -> Result<Option<CreditApplication>, PostError> {
-    let Some(note) = load_invoice(db, credit_note_id)
-        .await
-        .map_err(sqlx_error)?
-    else {
+    let Some(note) = load_invoice(db, credit_note_id).await.map_err(sqlx_error)? else {
         return Err(posting("Credit note not found"));
     };
     if text(&note, "type") != Some("credit_note") {

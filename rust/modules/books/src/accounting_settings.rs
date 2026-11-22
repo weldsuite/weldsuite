@@ -26,9 +26,9 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::tables::{SETTINGS as T, WORKFLOW_TEMPLATES};
 use weldsuite_catalogs::entity_events::ACCOUNTING_SETTINGS_UPDATED;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
-use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::master::mail_account_registry;
 use weldsuite_schema::tenant::{settings, workflow_templates};
@@ -442,7 +442,11 @@ async fn inbox(
         .map_err(sqlx_error)?;
         if let Some(current) = find(&caller).await.map_err(sqlx_error)? {
             let id = current["id"].as_str().unwrap_or_default().to_owned();
-            let old = current.get("emailSettings").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!({}));
+            let old = current
+                .get("emailSettings")
+                .filter(|v| !v.is_null())
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             let mut next = old.as_object().cloned().unwrap_or_default();
             next.insert("inboxAddress".to_owned(), json!(email));
             next.insert("autoScanEnabled".to_owned(), json!(true));

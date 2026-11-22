@@ -42,9 +42,8 @@ use weldsuite_permissions::{
 };
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage, Room};
 use weldsuite_schema::tenant::{
-    chat_channel_members as channel_members, chat_channel_role_links as role_links,
-    chat_channels, custom_objects, roles, workspace_installed_apps as installed,
-    workspace_members as members,
+    chat_channel_members as channel_members, chat_channel_role_links as role_links, chat_channels,
+    custom_objects, roles, workspace_installed_apps as installed, workspace_members as members,
 };
 
 use crate::access::js;
@@ -260,10 +259,7 @@ async fn ensure_seeded(db: &PgPool) -> Result<Vec<RoleRecord>, DbErr> {
 
 /// `countMembersByRole`: an active member counts for their live custom role,
 /// else for the system role of their tier.
-async fn member_counts(
-    db: &PgPool,
-    roles: &[RoleRecord],
-) -> Result<HashMap<String, i64>, DbErr> {
+async fn member_counts(db: &PgPool, roles: &[RoleRecord]) -> Result<HashMap<String, i64>, DbErr> {
     let groups: Vec<(Option<String>, Option<String>, i64)> = members::Entity::find()
         .select_only()
         .columns([members::Column::Role, members::Column::RoleId])

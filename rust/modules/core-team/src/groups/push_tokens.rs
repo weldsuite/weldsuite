@@ -190,11 +190,7 @@ async fn register(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
 
 /// `registerPushToken`: upsert on `(user, device, app)`; the optional device
 /// details a re-registration leaves out stay as they were.
-async fn register_token(
-    db: &PgPool,
-    user_id: &str,
-    input: &Registration,
-) -> Result<(), DbErr> {
+async fn register_token(db: &PgPool, user_id: &str, input: &Registration) -> Result<(), DbErr> {
     let stamp = utc_now();
     // `coalesce($detail, device_tokens.detail)`: a detail the registration
     // sent replaces the stored one.

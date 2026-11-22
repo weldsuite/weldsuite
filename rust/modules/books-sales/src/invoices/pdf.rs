@@ -285,9 +285,7 @@ async fn invoice_html(
         amount_paid: owned(&invoice, "amountPaid"),
         balance_due: owned(&invoice, "balanceDue"),
         tax_breakdown: breakdown,
-        fiscal_document: fiscal_document(db, &entity, id)
-            .await
-            .map_err(sqlx_error)?,
+        fiscal_document: fiscal_document(db, &entity, id).await.map_err(sqlx_error)?,
         pix: pix_of(&entity, &invoice)?,
     };
     let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id)

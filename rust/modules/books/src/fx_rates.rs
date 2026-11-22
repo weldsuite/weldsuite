@@ -27,9 +27,9 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::tables::FX_RATES;
 use weldsuite_catalogs::entity_events::{FX_RATE_CREATED, FX_RATE_DELETED, FX_RATE_UPDATED};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Presence};
-use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::fx_rates::{self, Column};
 

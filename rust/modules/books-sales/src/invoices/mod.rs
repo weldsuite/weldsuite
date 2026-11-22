@@ -401,9 +401,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
         .filter(|s| !s.is_empty());
     let item_rows: Vec<Value> = match credit_for {
         Some(original) if invoice["type"] == "credit_note" => {
-            let originals = load_items(db, original, false)
-                .await
-                .map_err(sqlx_error)?;
+            let originals = load_items(db, original, false).await.map_err(sqlx_error)?;
             let credit_lines: Vec<CreditLine<'_>> = items.iter().map(credit_line).collect();
             let original_lines: Vec<OriginalLine<'_>> = originals
                 .iter()

@@ -557,7 +557,8 @@ async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): Raw
             return Err(Refusal::Internal("page is NaN".to_owned()));
         };
         // A negative `limit` or `offset` is Postgres's error: the route's 500.
-        let (Ok(limit), Ok(offset)) = (u64::try_from(size), u64::try_from((page - 1) * size)) else {
+        let (Ok(limit), Ok(offset)) = (u64::try_from(size), u64::try_from((page - 1) * size))
+        else {
             return Err(Refusal::Internal("OFFSET must not be negative".to_owned()));
         };
         let rows = ledger_lines(&caller.db, &id, limit, offset)
@@ -675,8 +676,10 @@ async fn deactivation_conflict(
         use sea_orm::ExprTrait as _;
         Expr::expr(Func::coalesce([
             Func::sum(
-                Expr::col((journal_lines::Entity, journal_lines::Column::Debit))
-                    .sub(Expr::col((journal_lines::Entity, journal_lines::Column::Credit))),
+                Expr::col((journal_lines::Entity, journal_lines::Column::Debit)).sub(Expr::col((
+                    journal_lines::Entity,
+                    journal_lines::Column::Credit,
+                ))),
             )
             .into(),
             Expr::val(0),
@@ -775,10 +778,7 @@ async fn update_account(
     {
         return Err(Refusal::bad_request(message));
     }
-    if let Some((message, details)) = tree_error(db, &account, &data)
-        .await
-        .map_err(sqlx_error)?
-    {
+    if let Some((message, details)) = tree_error(db, &account, &data).await.map_err(sqlx_error)? {
         return Err(Refusal::bad_request_with(message, details));
     }
     let mut set = data.clone();
@@ -838,7 +838,9 @@ async fn remove(
             .await
             .map_err(sqlx_error)?;
         if count > 0 {
-            return Err(Refusal::bad_request("Account has bookings — deactivate it instead"));
+            return Err(Refusal::bad_request(
+                "Account has bookings — deactivate it instead",
+            ));
         }
         let at = weldsuite_db::utc_now();
         accounts::Entity::update_many()

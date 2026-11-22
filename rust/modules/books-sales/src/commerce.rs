@@ -238,8 +238,11 @@ impl CommerceInvoicing {
                 // it again from the invoice rather than scale it twice.
                 if let Some((draft, _)) = earlier {
                     // `now() at time zone 'utc'`: the database's clock.
-                    let db_now =
-                        || Func::cust("timezone").arg("utc").arg(Expr::current_timestamp());
+                    let db_now = || {
+                        Func::cust("timezone")
+                            .arg("utc")
+                            .arg(Expr::current_timestamp())
+                    };
                     invoices::Entity::update_many()
                         .col_expr(invoices::Column::DeletedAt, db_now().into())
                         .col_expr(invoices::Column::UpdatedAt, db_now().into())
@@ -415,8 +418,14 @@ async fn scale_draft(
         let unit = format!("{:.4}", as_f64(net) / quantity);
         invoice_items::Entity::update_many()
             .col_expr(invoice_items::Column::UnitPrice, numeric(&unit)?)
-            .col_expr(invoice_items::Column::LineTotal, numeric(&money::format(net))?)
-            .col_expr(invoice_items::Column::TaxAmount, numeric(&money::format(tax))?)
+            .col_expr(
+                invoice_items::Column::LineTotal,
+                numeric(&money::format(net))?,
+            )
+            .col_expr(
+                invoice_items::Column::TaxAmount,
+                numeric(&money::format(tax))?,
+            )
             .col_expr(
                 invoice_items::Column::LineTotalWithTax,
                 numeric(&money::format(new_gross))?,
@@ -474,11 +483,8 @@ async fn scale_invoice<C: ConnectionTrait>(
 /// An amount the route formats as text (`$n::numeric`), as the exact
 /// decimal it reads as; text that is not one fails as Postgres refuses it.
 fn amount(text: &str) -> Result<BigDecimal, DbErr> {
-    BigDecimal::from_str(text).map_err(|_| {
-        DbErr::Custom(format!(
-            "invalid input syntax for type numeric: \"{text}\""
-        ))
-    })
+    BigDecimal::from_str(text)
+        .map_err(|_| DbErr::Custom(format!("invalid input syntax for type numeric: \"{text}\"")))
 }
 
 /// [`amount`] as the value a column is set to.
@@ -494,10 +500,7 @@ async fn tagged_credit_note(
     invoice_id: &str,
     tag: &str,
 ) -> Result<Option<(String, String)>, DbErr> {
-    let notes = Func::coalesce([
-        Expr::col(invoices::Column::InternalNotes),
-        Expr::value(""),
-    ]);
+    let notes = Func::coalesce([Expr::col(invoices::Column::InternalNotes), Expr::value("")]);
     let tagged = sea_orm::ExprTrait::gt(Func::cust("strpos").arg(notes).arg(tag), 0);
     invoices::Entity::find()
         .select_only()

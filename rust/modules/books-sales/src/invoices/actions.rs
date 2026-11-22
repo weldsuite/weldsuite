@@ -34,9 +34,7 @@ use weldsuite_kit::validation::Presence;
 use weldsuite_legal_entities::EntityTable;
 use weldsuite_schema::tenant::invoices;
 
-use super::{
-    event_data, fields_of, js_date, now_stamped, numeric_text, row_json, total_or_zero,
-};
+use super::{event_data, fields_of, js_date, now_stamped, numeric_text, row_json, total_or_zero};
 use crate::body::read_record_payment;
 use crate::credit_notes::{CreditApplication, apply_credit_note};
 use crate::errors::SalesError;
@@ -147,8 +145,8 @@ async fn send_invoice(
         journal_entry_id = json!(finalized.journal_entry_id);
     } else {
         // A finalized invoice becomes sent; any other keeps its status.
-        let mut sent = invoices::Entity::update_many()
-            .col_expr(invoices::Column::SentAt, Expr::value(stamp));
+        let mut sent =
+            invoices::Entity::update_many().col_expr(invoices::Column::SentAt, Expr::value(stamp));
         if current == "finalized" {
             sent = sent.col_expr(invoices::Column::Status, Expr::value("sent"));
         }
@@ -812,7 +810,11 @@ pub(crate) async fn record_payment_route(
                     date: paid_on,
                     payment_method: data.payment_method.clone(),
                     check_number: data.check_number.clone(),
-                    deposit_to: if refund { None } else { data.deposit_to.clone() },
+                    deposit_to: if refund {
+                        None
+                    } else {
+                        data.deposit_to.clone()
+                    },
                     reference: data.reference.clone(),
                     notes: data.notes.clone(),
                     contact_id: owned(&invoice, "contactId"),
@@ -846,8 +848,14 @@ pub(crate) async fn record_payment_route(
                 None => (Value::Null, Value::Null, Value::Null),
             };
             let mut changes = Map::new();
-            changes.insert("amountPaid".into(), change(invoice["amountPaid"].clone(), paid.clone()));
-            changes.insert("status".into(), change(invoice["status"].clone(), status.clone()));
+            changes.insert(
+                "amountPaid".into(),
+                change(invoice["amountPaid"].clone(), paid.clone()),
+            );
+            changes.insert(
+                "status".into(),
+                change(invoice["status"].clone(), status.clone()),
+            );
             write_accounting_audit(
                 &caller,
                 db,
@@ -855,7 +863,11 @@ pub(crate) async fn record_payment_route(
                     accounting_entity_id: text(&invoice, "entityId"),
                     entity_type: "invoice",
                     entity_id: &id,
-                    action: if refund { "refund_recorded" } else { "payment_recorded" },
+                    action: if refund {
+                        "refund_recorded"
+                    } else {
+                        "payment_recorded"
+                    },
                     changes: Some(changes),
                 },
             )

@@ -622,7 +622,10 @@ async fn set_status(
     };
     recurring_invoices::Entity::update_many()
         .col_expr(recurring_invoices::Column::Status, Expr::value(status))
-        .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(utc_now()))
+        .col_expr(
+            recurring_invoices::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
         .filter(recurring_invoices::Column::Id.eq(id))
         .exec(&orm(db))
         .await
@@ -1105,8 +1108,14 @@ async fn generate_on(
     }
     recurring_invoices::Entity::update_many()
         // An `int8` the column takes as Postgres casts it, as bound before.
-        .col_expr(recurring_invoices::Column::GeneratedCount, Expr::value(count))
-        .col_expr(recurring_invoices::Column::LastGeneratedAt, Expr::value(stamp))
+        .col_expr(
+            recurring_invoices::Column::GeneratedCount,
+            Expr::value(count),
+        )
+        .col_expr(
+            recurring_invoices::Column::LastGeneratedAt,
+            Expr::value(stamp),
+        )
         .col_expr(
             recurring_invoices::Column::LastGeneratedInvoiceId,
             Expr::value(invoice_id.as_str()),

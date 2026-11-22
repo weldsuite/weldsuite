@@ -39,8 +39,8 @@ use weldsuite_ports::{
 };
 use weldsuite_schema::master::workspaces;
 use weldsuite_schema::tenant::{
-    chat_channel_members as channel_members, chat_channel_role_links as role_links,
-    chat_channels, workspace_members as members,
+    chat_channel_members as channel_members, chat_channel_role_links as role_links, chat_channels,
+    workspace_members as members,
 };
 
 use crate::access::js;
@@ -528,8 +528,8 @@ async fn activate_pending_member(
         .exec(&db)
         .await?;
     let stamp = utc_now().assume_utc();
-    let mut link = members::Entity::update_many()
-        .col_expr(members::Column::UserId, Expr::value(user_id));
+    let mut link =
+        members::Entity::update_many().col_expr(members::Column::UserId, Expr::value(user_id));
     // `coalesce($name, name)`.
     if let Some(name) = name {
         link = link.col_expr(members::Column::Name, Expr::value(name));

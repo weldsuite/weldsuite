@@ -641,7 +641,10 @@ async fn common_channels(db: &PgPool, viewer: &str, subject: &str) -> Result<Vec
         .group_by(chat_channels::Column::Name)
         .group_by(chat_channels::Column::Type)
         .group_by(chat_channels::Column::MemberCount)
-        .having(both((channel_members::Entity, channel_members::Column::UserId)))
+        .having(both((
+            channel_members::Entity,
+            channel_members::Column::UserId,
+        )))
         .order_by_desc(chat_channels::Column::LastMessageAt)
         .limit(PER_CATEGORY_LIMIT)
         .into_tuple()
@@ -676,7 +679,10 @@ async fn common_projects(db: &PgPool, viewer: &str, subject: &str) -> Result<Vec
         .group_by(projects::Column::Name)
         .group_by(projects::Column::Status)
         .group_by(projects::Column::Color)
-        .having(both((project_members::Entity, project_members::Column::UserId)))
+        .having(both((
+            project_members::Entity,
+            project_members::Column::UserId,
+        )))
         .order_by_desc(projects::Column::UpdatedAt)
         .limit(PER_CATEGORY_LIMIT)
         .into_tuple()
@@ -795,9 +801,7 @@ async fn common_crm(db: &PgPool, viewer: &str, subject: &str) -> Result<Vec<Valu
         .into_tuple()
         .all(&db)
         .await?;
-    let item = |kind: &str, (id, name, status): (String, String, String)| {
-        json!({ "id": id, "kind": kind, "name": name, "status": status })
-    };
+    let item = |kind: &str, (id, name, status): (String, String, String)| json!({ "id": id, "kind": kind, "name": name, "status": status });
     let mut merged: Vec<Value> = opportunities
         .into_iter()
         .map(|row| item("opportunity", row))

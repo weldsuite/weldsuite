@@ -28,10 +28,10 @@ use weldsuite_books_domain::payments::{
 };
 use weldsuite_books_domain::posting::PostError;
 use weldsuite_catalogs::entity_events::{PAYMENT_CREATED, PAYMENT_DELETED};
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
-use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{payment_allocations, payments};
 
@@ -214,10 +214,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(sqlx_error)?;
             let mut out = payment.as_object().cloned().unwrap_or_default();
-            out.insert(
-                "allocations".into(),
-                Value::Array(allocations),
-            );
+            out.insert("allocations".into(), Value::Array(allocations));
             Ok(ok(Value::Object(out)))
         }
         .await,

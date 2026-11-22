@@ -207,15 +207,15 @@ async fn list_entries(caller: &Caller, q: &Query) -> Reply {
     };
     // `new Date(q.from)`: an invalid date makes the statement throw.
     let from = match q.present("from") {
-        Some(raw) => Some(
-            js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?,
-        ),
+        Some(raw) => {
+            Some(js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?)
+        }
         None => None,
     };
     let to = match q.present("to") {
-        Some(raw) => Some(
-            js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?,
-        ),
+        Some(raw) => {
+            Some(js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?)
+        }
         None => None,
     };
     let (Some(page), Some(page_size)) = (page, page_size) else {

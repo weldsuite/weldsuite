@@ -100,11 +100,7 @@ async fn prefs_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, DbErr> {
 /// `composeProfile`: the member row and the preferences projected into the
 /// response. `picture` is the account picture (`master`), not the member
 /// row's copy.
-async fn compose(
-    db: &PgPool,
-    master: Option<&PgPool>,
-    user_id: &str,
-) -> Result<Value, DbErr> {
+async fn compose(db: &PgPool, master: Option<&PgPool>, user_id: &str) -> Result<Value, DbErr> {
     let member = member_row(db, user_id).await?.unwrap_or(Value::Null);
     let picture = weldsuite_db::load_account_picture(master, user_id)
         .await
@@ -255,7 +251,10 @@ async fn update_profile(
     if let Some(name) = &changes.name {
         members::Entity::update_many()
             .col_expr(members::Column::Name, Expr::value(name))
-            .col_expr(members::Column::UpdatedAt, Expr::value(utc_now().assume_utc()))
+            .col_expr(
+                members::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
             .filter(members::Column::UserId.eq(user_id))
             .filter(members::Column::DeletedAt.is_null())
             .exec(&orm(db))
@@ -314,9 +313,7 @@ async fn upsert_preferences(
         }
         write
             .col_expr(user_preferences::Column::UpdatedAt, Expr::value(stamp))
-            .filter(
-                user_preferences::Column::Id.eq(existing["id"].as_str().unwrap_or_default()),
-            )
+            .filter(user_preferences::Column::Id.eq(existing["id"].as_str().unwrap_or_default()))
             .exec(&db)
             .await?;
         return Ok(());

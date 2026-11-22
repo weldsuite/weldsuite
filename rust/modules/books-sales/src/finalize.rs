@@ -14,12 +14,12 @@ use weldsuite_books_domain::compliance::{
     collect_invoice_tax_categories, get_contact_vat_number, validate_invoice_for_finalize,
 };
 use weldsuite_books_domain::document_posting::{PostInvoiceOptions, load_entity, post_invoice};
+use weldsuite_books_domain::js;
 use weldsuite_books_domain::sales_tax::document_tax::{
     Runtime, load_sales_tax_entity, uses_sales_tax,
 };
 use weldsuite_books_domain::sales_tax::errors::{SalesTaxError, engine_unavailable};
 use weldsuite_books_domain::tax::{GstSupply, SupplyArgs, TaxError, resolve_gst_supply};
-use weldsuite_books_domain::js;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::OutboundHttp;
 use weldsuite_schema::tenant::{invoice_items, invoices};
@@ -63,7 +63,12 @@ pub(crate) async fn load_items(
     if sorted {
         lines = lines.order_by_asc(invoice_items::Column::SortOrder);
     }
-    lines.all(&orm(db)).await?.into_iter().map(row_json).collect()
+    lines
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 /// `gstSplitMissing(invoice)`: GST charged at a slab rate that was not
