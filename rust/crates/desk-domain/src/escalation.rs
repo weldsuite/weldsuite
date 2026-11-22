@@ -22,8 +22,17 @@
 //! it and folds it into the due time writers copy into the index); the SLA
 //! sweep runs the due rules with [`run`].
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_messages, desk_sla_clocks, helpdesk_departments, workspace_members,
+    workspace_settings,
+};
+
+use crate::{at_ms, epoch_ms, json_text, upper_is};
 
 use crate::assignment::{Picker, auto_assign_with, team_member_ids};
 use crate::attributes::{self, Update, UpdateError};
@@ -65,19 +74,18 @@ pub fn customer_message(language: Option<&str>) -> &'static str {
 
 /// `customerLanguage(db, conversation)`: the conversation's language
 /// (detected by inbox translation), else the workspace's.
-async fn customer_language(
-    db: &PgPool,
-    conversation: &Value,
-) -> Result<Option<String>, sqlx::Error> {
+async fn customer_language(db: &PgPool, conversation: &Value) -> Result<Option<String>, DbErr> {
     let own = conversation["language"].as_str().unwrap_or_default();
     if !weldsuite_kit::validation::js_trim(own).is_empty() {
         return Ok(Some(own.to_owned()));
     }
-    let language: Option<Option<String>> = sqlx::query_scalar(
-        "select language from workspace_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let language: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Language)
+        .filter(workspace_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(language.flatten())
 }
 
@@ -303,17 +311,20 @@ pub fn due(
 // ── Reading what the derivation needs ───────────────────────────────────────
 
 /// `loadDeskTeamEscalationRules(db, teamId)`.
-pub async fn team_rules(db: &PgPool, team_id: Option<&str>) -> Result<Vec<RuleAt>, sqlx::Error> {
+pub async fn team_rules(db: &PgPool, team_id: Option<&str>) -> Result<Vec<RuleAt>, DbErr> {
     let Some(team_id) = team_id.filter(|id| !id.is_empty()) else {
         return Ok(Vec::new());
     };
-    let team: Option<(Option<Value>, bool)> = sqlx::query_as(
-        "select escalation_rules, is_active from helpdesk_departments
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(team_id)
-    .fetch_optional(db)
-    .await?;
+    let team: Option<(Option<Value>, bool)> = helpdesk_departments::Entity::find_by_id(team_id)
+        .select_only()
+        .columns([
+            helpdesk_departments::Column::EscalationRules,
+            helpdesk_departments::Column::IsActive,
+        ])
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match team {
         Some((rules, true)) => runnable_rules(&rules.unwrap_or(Value::Null)),
         _ => Vec::new(),
@@ -321,63 +332,59 @@ pub async fn team_rules(db: &PgPool, team_id: Option<&str>) -> Result<Vec<RuleAt
 }
 
 /// `loadDeskEscalationTimeline(db, conversationId)`.
-pub async fn timeline(
-    db: &PgPool,
-    conversation_id: &str,
-) -> Result<Vec<TimelineEntry>, sqlx::Error> {
-    #[allow(clippy::type_complexity)]
-    let rows: Vec<(
-        i64,
-        String,
-        String,
-        Option<String>,
-        bool,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
-        "select floor(extract(epoch from created_at) * 1000)::int8, kind, author_type,
-                    metadata->>'eventType',
-                    coalesce(metadata->'changes' @> '[{\"field\":\"team\"}]'::jsonb, false),
-                    metadata->>'teamId', metadata->>'ruleIndex'
-             from desk_messages where conversation_id = $1 and kind in ('message', 'event')
-             order by created_at asc, id asc",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await?;
+pub async fn timeline(db: &PgPool, conversation_id: &str) -> Result<Vec<TimelineEntry>, DbErr> {
+    use desk_messages::Column;
+    let rows: Vec<(PrimitiveDateTime, String, String, Option<Value>)> =
+        desk_messages::Entity::find()
+            .select_only()
+            .columns([
+                Column::CreatedAt,
+                Column::Kind,
+                Column::AuthorType,
+                Column::Metadata,
+            ])
+            .filter(Column::ConversationId.eq(conversation_id))
+            .filter(Column::Kind.is_in(["message", "event"]))
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     Ok(rows
         .into_iter()
-        .map(
-            |(at, kind, author_type, event_type, team_changed, team_id, rule_index)| {
-                TimelineEntry {
-                    at,
-                    kind,
-                    author_type,
-                    event_type,
-                    team_changed,
-                    team_id,
-                    rule_index: rule_index
-                        .filter(|text| !text.is_empty())
-                        .map(|text| text.trim().parse::<f64>().unwrap_or(f64::NAN)),
-                }
-            },
-        )
+        .map(|(created_at, kind, author_type, metadata)| {
+            let metadata = metadata.unwrap_or(Value::Null);
+            // `metadata->'changes' @> '[{"field":"team"}]'`.
+            let team_changed = metadata["changes"]
+                .as_array()
+                .is_some_and(|changes| changes.iter().any(|change| change["field"] == "team"));
+            TimelineEntry {
+                at: epoch_ms(created_at),
+                kind,
+                author_type,
+                event_type: json_text(metadata.get("eventType")),
+                team_changed,
+                team_id: json_text(metadata.get("teamId")),
+                rule_index: json_text(metadata.get("ruleIndex"))
+                    .filter(|text| !text.is_empty())
+                    .map(|text| text.trim().parse::<f64>().unwrap_or(f64::NAN)),
+            }
+        })
         .collect())
 }
 
 /// `loadDeskRunningBreach(db, conversationId)`: the earliest breach of a
 /// running SLA clock.
-pub async fn running_breach(
-    db: &PgPool,
-    conversation_id: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select floor(extract(epoch from min(breached_at)) * 1000)::int8 from desk_sla_clocks
-         where conversation_id = $1 and status = 'running'",
-    )
-    .bind(conversation_id)
-    .fetch_one(db)
-    .await
+pub async fn running_breach(db: &PgPool, conversation_id: &str) -> Result<Option<i64>, DbErr> {
+    let breach: Option<Option<PrimitiveDateTime>> = desk_sla_clocks::Entity::find()
+        .select_only()
+        .column_as(desk_sla_clocks::Column::BreachedAt.min(), "breached_at")
+        .filter(desk_sla_clocks::Column::ConversationId.eq(conversation_id))
+        .filter(desk_sla_clocks::Column::Status.eq("running"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(breach.flatten().map(epoch_ms))
 }
 
 /// `deskEscalationsDueFor(db, conversation, breachedAt)`.
@@ -385,7 +392,7 @@ pub async fn due_for(
     db: &PgPool,
     conversation: &Value,
     breached_at: Option<i64>,
-) -> Result<Vec<Due>, sqlx::Error> {
+) -> Result<Vec<Due>, DbErr> {
     let team_id = conversation["departmentId"]
         .as_str()
         .filter(|id| !id.is_empty());
@@ -438,27 +445,29 @@ pub async fn refresh_check(
 
 /// `listDueDeskEscalations(db, now, limit)`: conversations with a rule due
 /// by `now`, the most overdue first.
-pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from desk_conversations where escalation_check_at <= $1::timestamp
-         order by escalation_check_at asc, id asc limit $2",
-    )
-    .bind(iso(now))
-    .bind(limit)
-    .fetch_all(db)
-    .await
+pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, DbErr> {
+    use desk_conversations::Column;
+    desk_conversations::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::EscalationCheckAt.lte(at_ms(now)))
+        .order_by_asc(Column::EscalationCheckAt)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `backOffDeskEscalation(db, conversationId, retryAt)`.
-pub async fn back_off(
-    db: &PgPool,
-    conversation_id: &str,
-    retry_at: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("update desk_conversations set escalation_check_at = $2::timestamp where id = $1")
-        .bind(conversation_id)
-        .bind(iso(retry_at))
-        .execute(db)
+pub async fn back_off(db: &PgPool, conversation_id: &str, retry_at: i64) -> Result<(), DbErr> {
+    desk_conversations::Entity::update_many()
+        .col_expr(
+            desk_conversations::Column::EscalationCheckAt,
+            Expr::value(at_ms(retry_at)),
+        )
+        .filter(desk_conversations::Column::Id.eq(conversation_id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -494,8 +503,8 @@ impl std::fmt::Display for EscalationError {
     }
 }
 
-impl From<sqlx::Error> for EscalationError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for EscalationError {
+    fn from(error: DbErr) -> Self {
         Self(error.to_string())
     }
 }
@@ -520,30 +529,45 @@ impl From<UpdateError> for EscalationError {
 pub(crate) async fn member_user_id(
     db: &PgPool,
     reference: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
+    use workspace_members::Column;
     let Some(reference) = reference.filter(|r| !r.is_empty()) else {
         return Ok(None);
     };
-    sqlx::query_scalar(
-        "select user_id from workspace_members
-         where (user_id = $1 or id = $1) and deleted_at is null
-           and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-         order by user_id asc limit 1",
-    )
-    .bind(reference)
-    .fetch_optional(db)
-    .await
+    workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(
+            Condition::any()
+                .add(Column::UserId.eq(reference))
+                .add(Column::Id.eq(reference)),
+        )
+        .filter(Column::DeletedAt.is_null())
+        .filter(upper_is(Column::Status, "ACTIVE"))
+        .filter(upper_is(Column::MemberType, "INTERNAL"))
+        .order_by_asc(Column::UserId)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `nextDeskTeam(db, teamId)`: the active team after `team_id` in the teams'
 /// order (sort order, newest first, id).
-pub async fn next_team(db: &PgPool, team_id: &str) -> Result<Option<String>, sqlx::Error> {
-    let teams: Vec<(String, bool)> = sqlx::query_as(
-        "select id, is_active from helpdesk_departments where deleted_at is null
-         order by coalesce(sort_order, 0), created_at desc, id desc",
-    )
-    .fetch_all(db)
-    .await?;
+pub async fn next_team(db: &PgPool, team_id: &str) -> Result<Option<String>, DbErr> {
+    use helpdesk_departments::Column;
+    let teams: Vec<(String, bool)> = helpdesk_departments::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::IsActive])
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Expr::from(Func::coalesce([
+            Expr::col(Column::SortOrder),
+            Expr::val(0),
+        ])))
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let Some(at) = teams.iter().position(|(id, _)| id == team_id) else {
         return Ok(None);
     };
@@ -710,12 +734,13 @@ impl Fire<'_> {
         let mut to_team: Option<String> = None;
         match rule.escalate_to.as_str() {
             "manager" => {
-                let manager: Option<Option<String>> = sqlx::query_scalar(
-                    "select manager_id from helpdesk_departments where id = $1 limit 1",
-                )
-                .bind(&team_id)
-                .fetch_optional(db)
-                .await?;
+                let manager: Option<Option<String>> =
+                    helpdesk_departments::Entity::find_by_id(team_id.as_str())
+                        .select_only()
+                        .column(helpdesk_departments::Column::ManagerId)
+                        .into_tuple()
+                        .one(&orm(db))
+                        .await?;
                 assignee = member_user_id(db, manager.flatten().as_deref()).await?;
             }
             "specific_agent" => {

@@ -19,14 +19,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{
     BoxFuture, DynRealtimePublisher, Job, JobContext, JobError, RealtimeMessage, StepRetry, step,
+};
+use weldsuite_schema::tenant::{
+    helpdesk_conversations, helpdesk_workflow_executions as executions, helpdesk_workflows,
 };
 
 use super::TenantDatabases;
@@ -162,10 +166,6 @@ fn failed(error: impl std::fmt::Display) -> JobError {
     JobError::failed(error)
 }
 
-fn now_text() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
-}
-
 /// `(a.order ?? 0) - (b.order ?? 0)` as a sort order (`NaN` ties).
 fn by_sort_order(a: &Value, b: &Value) -> std::cmp::Ordering {
     let order = |s: &Value| match s.get("order") {
@@ -229,14 +229,22 @@ impl ConversationWorkflowJob {
         params: &ConversationWorkflowParams,
     ) -> Result<Vec<MatchedWorkflow>, JobError> {
         let db = self.db(&params.workspace_id).await?;
-        let rows: Vec<(String, String, Option<Value>, Option<Value>)> = sqlx::query_as(
-            "select id, name, steps, triggers from helpdesk_workflows
-             where status = 'active' and deleted_at is null
-             order by sort_order",
-        )
-        .fetch_all(&db)
-        .await
-        .map_err(failed)?;
+        let rows: Vec<(String, String, Option<Value>, Option<Value>)> =
+            helpdesk_workflows::Entity::find()
+                .select_only()
+                .columns([
+                    helpdesk_workflows::Column::Id,
+                    helpdesk_workflows::Column::Name,
+                    helpdesk_workflows::Column::Steps,
+                    helpdesk_workflows::Column::Triggers,
+                ])
+                .filter(helpdesk_workflows::Column::Status.eq("active"))
+                .filter(helpdesk_workflows::Column::DeletedAt.is_null())
+                .order_by_asc(helpdesk_workflows::Column::SortOrder)
+                .into_tuple()
+                .all(&orm(&db))
+                .await
+                .map_err(failed)?;
         let total = rows.len();
         let matched: Vec<MatchedWorkflow> = rows
             .into_iter()
@@ -274,16 +282,19 @@ impl ConversationWorkflowJob {
         active: bool,
     ) -> Result<(), JobError> {
         let db = self.db(&params.workspace_id).await?;
-        sqlx::query(
-            "update helpdesk_conversations set has_active_workflow = $2, updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(&params.conversation_id)
-        .bind(active)
-        .bind(now_text())
-        .execute(&db)
-        .await
-        .map_err(failed)?;
+        helpdesk_conversations::Entity::update_many()
+            .col_expr(
+                helpdesk_conversations::Column::HasActiveWorkflow,
+                Expr::value(active),
+            )
+            .col_expr(
+                helpdesk_conversations::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(helpdesk_conversations::Column::Id.eq(params.conversation_id.as_str()))
+            .exec(&orm(&db))
+            .await
+            .map_err(failed)?;
         Ok(())
     }
 
@@ -387,29 +398,33 @@ impl ConversationWorkflowJob {
         execution_id: &str,
         update: ExecutionUpdate,
     ) -> Result<(), JobError> {
+        use executions::Column;
         let db = self.db(&run.params.workspace_id).await?;
-        sqlx::query(
-            "update helpdesk_workflow_executions set
-               status = $2,
-               updated_at = $3::timestamp,
-               current_step_index = case when $4::int is null then current_step_index else $4 end,
-               current_step_id = case when $5::text is null then current_step_id else $5 end,
-               execution_context = case when $6::jsonb is null then execution_context else $6 end,
-               error = case when $7::jsonb is null then error else $7 end,
-               completed_at = case when $8 then $3::timestamp else completed_at end
-             where id = $1",
-        )
-        .bind(execution_id)
-        .bind(update.status)
-        .bind(now_text())
-        .bind(update.current_step_index)
-        .bind(update.current_step_id)
-        .bind(update.context)
-        .bind(update.error)
-        .bind(update.completed)
-        .execute(&db)
-        .await
-        .map_err(failed)?;
+        let now = utc_now();
+        let mut write = executions::Entity::update_many()
+            .col_expr(Column::Status, Expr::value(update.status))
+            .col_expr(Column::UpdatedAt, Expr::value(now));
+        // Only what the run set; the rest keeps its value.
+        if let Some(index) = update.current_step_index {
+            write = write.col_expr(Column::CurrentStepIndex, Expr::value(index));
+        }
+        if let Some(step_id) = update.current_step_id {
+            write = write.col_expr(Column::CurrentStepId, Expr::value(step_id));
+        }
+        if let Some(context) = update.context {
+            write = write.col_expr(Column::ExecutionContext, Expr::value(context));
+        }
+        if let Some(error) = update.error {
+            write = write.col_expr(Column::Error, Expr::value(error));
+        }
+        if update.completed {
+            write = write.col_expr(Column::CompletedAt, Expr::value(now));
+        }
+        write
+            .filter(Column::Id.eq(execution_id))
+            .exec(&orm(&db))
+            .await
+            .map_err(failed)?;
         Ok(())
     }
 
@@ -465,25 +480,32 @@ impl ConversationWorkflowJob {
             || async {
                 let db = self.db(&params.workspace_id).await?;
                 let id = generate_id("wex");
-                let channel = if params.channel.is_empty() { "web" } else { params.channel.as_str() };
-                sqlx::query(
-                    "insert into helpdesk_workflow_executions
-                       (id, helpdesk_workflow_id, workflow_version, workflow_name, status, triggered_by,
-                        trigger_type, trigger_data, started_at, total_steps, current_step_index,
-                        conversation_id, channel, execution_context, created_at, updated_at)
-                     values ($1, $2, 1, $3, 'running', 'system', 'entity_event', $4, $5::timestamp,
-                        $6, 0, $7, $8, $9, $5::timestamp, $5::timestamp)",
-                )
-                .bind(&id)
-                .bind(&workflow.id)
-                .bind(&workflow.name)
-                .bind(&params.trigger_data)
-                .bind(now_text())
-                .bind(total_steps)
-                .bind(&params.conversation_id)
-                .bind(channel)
-                .bind(json!({ "cfInstanceId": instance_id }))
-                .execute(&db)
+                let channel = if params.channel.is_empty() {
+                    "web"
+                } else {
+                    params.channel.as_str()
+                };
+                let now = utc_now();
+                executions::Entity::insert(executions::ActiveModel {
+                    id: Set(id.clone()),
+                    helpdesk_workflow_id: Set(workflow.id.clone()),
+                    workflow_version: Set(1),
+                    workflow_name: Set(Some(workflow.name.clone())),
+                    status: Set("running".to_owned()),
+                    triggered_by: Set(Some("system".to_owned())),
+                    trigger_type: Set(Some("entity_event".to_owned())),
+                    trigger_data: Set(Some(params.trigger_data.clone())),
+                    started_at: Set(Some(now)),
+                    total_steps: Set(Some(total_steps)),
+                    current_step_index: Set(Some(0)),
+                    conversation_id: Set(Some(params.conversation_id.clone())),
+                    channel: Set(Some(channel.to_owned())),
+                    execution_context: Set(Some(json!({ "cfInstanceId": instance_id }))),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .exec_without_returning(&orm(&db))
                 .await
                 .map_err(failed)?;
                 Ok(id)
@@ -510,17 +532,17 @@ impl ConversationWorkflowJob {
             || async {
                 let db = self.db(&params.workspace_id).await?;
                 let output = Value::Object(run.step_results.clone());
-                sqlx::query(
-                    "update helpdesk_workflow_executions set status = 'completed',
-                       completed_at = $2::timestamp, output = $3, updated_at = $2::timestamp
-                     where id = $1 and status = 'running'",
-                )
-                .bind(&execution_id)
-                .bind(now_text())
-                .bind(output)
-                .execute(&db)
-                .await
-                .map_err(failed)?;
+                let now = utc_now();
+                executions::Entity::update_many()
+                    .col_expr(executions::Column::Status, Expr::value("completed"))
+                    .col_expr(executions::Column::CompletedAt, Expr::value(now))
+                    .col_expr(executions::Column::Output, Expr::value(output))
+                    .col_expr(executions::Column::UpdatedAt, Expr::value(now))
+                    .filter(executions::Column::Id.eq(execution_id.as_str()))
+                    .filter(executions::Column::Status.eq("running"))
+                    .exec(&orm(&db))
+                    .await
+                    .map_err(failed)?;
                 Ok(())
             },
         )
@@ -698,14 +720,18 @@ impl ConversationWorkflowJob {
         step_id: &str,
     ) -> Result<Option<Value>, JobError> {
         let db = self.db(&run.params.workspace_id).await?;
-        let pending: Option<Option<Value>> = sqlx::query_scalar(
-            "select execution_context -> 'pendingResponse' from helpdesk_workflow_executions where id = $1",
-        )
-        .bind(&execution.id)
-        .fetch_optional(&db)
-        .await
-        .map_err(failed)?;
-        let Some(payload) = pending.flatten().filter(|p| !p.is_null()) else {
+        let context: Option<Option<Value>> = executions::Entity::find_by_id(execution.id.as_str())
+            .select_only()
+            .column(executions::Column::ExecutionContext)
+            .into_tuple()
+            .one(&orm(&db))
+            .await
+            .map_err(failed)?;
+        // `execution_context -> 'pendingResponse'`.
+        let pending = context
+            .flatten()
+            .and_then(|context| context.get("pendingResponse").cloned());
+        let Some(payload) = pending.filter(|p| !p.is_null()) else {
             return Ok(None);
         };
         let mut step_results = run.step_results.clone();
@@ -872,6 +898,10 @@ impl ConversationWorkflowJob {
     }
 
     /// The customer message [`super::engine`] left on the execution, taken off it.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "reads the pending message and clears it in one statement, so two runs never both take it"
+    )]
     async fn take_message(
         &self,
         run: &Run<'_>,

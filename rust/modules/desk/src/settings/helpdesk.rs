@@ -194,7 +194,7 @@ async fn overview(caller: Caller) -> Response {
         }))
         .into_response(),
         (Err(error), _) | (_, Err(error)) => {
-            Refusal::Database(error).respond("Failed to fetch helpdesk settings")
+            Refusal::from(error).respond("Failed to fetch helpdesk settings")
         }
     }
 }
@@ -343,7 +343,7 @@ async fn notifications(
     .await
     {
         Ok(()) => ok(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -409,7 +409,7 @@ async fn automation(
     .await
     {
         Ok(()) => ok(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -446,7 +446,7 @@ async fn merged_section(
     .await
     {
         Ok(()) => ok(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -560,7 +560,7 @@ async fn primary_widget(
     let message = "Failed to fetch widget settings";
     let existing = match first_widget(&caller.db).await {
         Ok(row) => row,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     match existing {
         None => {
@@ -609,7 +609,7 @@ async fn primary_widget(
             .execute(&caller.db)
             .await;
             if let Err(error) = updated {
-                return Refusal::Database(error).respond(message);
+                return Refusal::from(error).respond(message);
             }
             let name = row["widgetName"]
                 .as_str()
@@ -658,7 +658,7 @@ async fn save_primary(
     };
     let existing = match first_widget(&caller.db).await {
         Ok(row) => row,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let now = now();
     if let Some(existing) = existing {
@@ -741,7 +741,7 @@ async fn toggle_enabled(State(state): State<DeskState>, caller: Caller, body: By
     };
     let existing = match first_widget(&caller.db).await {
         Ok(row) => row,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let now = now();
     let event_data = |id: &str, widget_id: Option<&Value>| {
@@ -818,7 +818,7 @@ async fn list_widgets(caller: Caller) -> Response {
             rows.into_iter().map(|row| WIDGETS.js(row)).collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list widgets"),
+        Err(error) => Refusal::from(error).respond("Failed to list widgets"),
     }
 }
 
@@ -893,7 +893,7 @@ async fn widget_detail(caller: Caller, Path(widget_id): Path<String>) -> Respons
     match widget_by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -912,7 +912,7 @@ async fn update_widget(
     let existing = match widget_by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
     let mut values = Map::new();
@@ -952,7 +952,7 @@ async fn delete_widget(
     let existing = match widget_by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let count: Result<i32, _> = sqlx::query_scalar(
         "select count(*)::int from helpdesk_widget_settings where deleted_at is null",
@@ -968,7 +968,7 @@ async fn delete_widget(
                 .into_response();
         }
         Ok(_) => {}
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
     let now = now();
@@ -980,7 +980,7 @@ async fn delete_widget(
     .execute(&caller.db)
     .await;
     if let Err(error) = deleted {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     update_registry(
         &caller,

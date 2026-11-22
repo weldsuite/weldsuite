@@ -152,7 +152,7 @@ async fn suggestions(
             .await
         {
             Ok(found) => found,
-            Err(error) => return Refusal::Database(error).respond(MESSAGE),
+            Err(error) => return Refusal::from(error).respond(MESSAGE),
         };
     let Some(title) = conversation else {
         return Refusal::not_found("Conversation", &id).respond(MESSAGE);
@@ -171,7 +171,7 @@ async fn suggestions(
         .await
         {
             Ok(recent) => recent,
-            Err(error) => return Refusal::Database(error).respond(MESSAGE),
+            Err(error) => return Refusal::from(error).respond(MESSAGE),
         };
         let mut parts: Vec<String> = recent.into_iter().map(Option::unwrap_or_default).collect();
         parts.push(title.unwrap_or_default());
@@ -182,7 +182,7 @@ async fn suggestions(
 
     let base = match help_center_base_url(db).await {
         Ok(base) => base,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let found = match &search {
         Some(search) => {
@@ -190,7 +190,7 @@ async fn suggestions(
             let limit = limit.unwrap_or(5.0) as i64;
             match suggest(db, search, limit, base.as_deref()).await {
                 Ok(found) => found,
-                Err(error) => return Refusal::Database(error).respond(MESSAGE),
+                Err(error) => return Refusal::from(error).respond(MESSAGE),
             }
         }
         None => Vec::new(),
@@ -362,7 +362,7 @@ async fn draft_article(
     .await
     {
         Ok(found) => found,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let Some((title, number)) = conversation else {
         return Refusal::not_found("Conversation", &id).respond(MESSAGE);
@@ -377,7 +377,7 @@ async fn draft_article(
     .await
     {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let (title, content, excerpt) = draft_from(title.as_deref(), number, &timeline);
 

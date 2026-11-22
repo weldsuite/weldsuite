@@ -272,7 +272,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 domain_auto_renew();
                 Ok(())
             }
-            "desk-sla-sweep" => desk_sla_sweep(config).await,
+            "desk-sla-sweep" => Box::pin(desk_sla_sweep(config)).await,
             "desk-report-sweep" => desk_report_sweep(config).await,
             "asset-import-sweep" => asset_import_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,

@@ -9,8 +9,11 @@
 //! (the `notifications` row, in-app, email, push) is
 //! `createAndDeliverNotification`, the shared notifications crate.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{helpdesk_settings, workspace_members};
 
 /// What the notification points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,12 +92,14 @@ pub fn preview(text: Option<&str>, max: usize) -> String {
 
 /// `loadHelpdeskNotificationSettings` + `isHelpdeskNotificationEnabled`:
 /// on unless the stored settings say `false`.
-async fn enabled(db: &PgPool, key: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<Option<Value>> = sqlx::query_scalar(
-        "select notifications from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+async fn enabled(db: &PgPool, key: &str) -> Result<bool, DbErr> {
+    let row: Option<Option<Value>> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(helpdesk_settings::Column::Notifications)
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row
         .flatten()
         .is_none_or(|settings| settings[key] != Value::Bool(false)))
@@ -103,11 +108,13 @@ async fn enabled(db: &PgPool, key: &str) -> Result<bool, sqlx::Error> {
 /// `memberName(db, userId)`: the member's trimmed name, if any; a failed
 /// lookup is no name.
 async fn member_name(db: &PgPool, user_id: &str) -> Option<String> {
-    let row: Result<Option<Option<String>>, sqlx::Error> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await;
+    let row: Result<Option<Option<String>>, DbErr> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await;
     match row {
         Ok(name) => name
             .flatten()
@@ -132,7 +139,7 @@ pub async fn ticket_assigned(
     entity_id: &str,
     subject: Option<&str>,
     reference: Option<&str>,
-) -> Result<Option<HelpdeskNotification>, sqlx::Error> {
+) -> Result<Option<HelpdeskNotification>, DbErr> {
     if assignee_id.is_empty() || Some(assignee_id) == assigned_by {
         return Ok(None);
     }
@@ -196,7 +203,7 @@ pub async fn customer_reply(
     customer_contact_id: Option<&str>,
     message_body: Option<&str>,
     subject: Option<&str>,
-) -> Result<Option<HelpdeskNotification>, sqlx::Error> {
+) -> Result<Option<HelpdeskNotification>, DbErr> {
     let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) else {
         return Ok(None);
     };
@@ -238,21 +245,24 @@ const MAX_SLA_RECIPIENTS: i64 = 200;
 
 /// `slaRecipients(db, assigneeId)`: the assignee, else every active
 /// internal teammate who can work the inbox.
-async fn sla_recipients(
-    db: &PgPool,
-    assignee_id: Option<&str>,
-) -> Result<Vec<String>, sqlx::Error> {
+async fn sla_recipients(db: &PgPool, assignee_id: Option<&str>) -> Result<Vec<String>, DbErr> {
+    use workspace_members::Column;
     if let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) {
         return Ok(vec![assignee.to_owned()]);
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL' and upper(role) <> 'VIEWER'
-         limit $1",
-    )
-    .bind(MAX_SLA_RECIPIENTS)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(crate::upper_is(Column::Status, "ACTIVE"))
+        .filter(crate::upper_is(Column::MemberType, "INTERNAL"))
+        .filter(sea_orm::ExprTrait::ne(
+            Expr::from(Func::upper(Expr::col(Column::Role))),
+            "VIEWER",
+        ))
+        .limit(u64::try_from(MAX_SLA_RECIPIENTS).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out: Vec<String> = Vec::new();
     for user_id in rows {
         if !out.contains(&user_id) {
@@ -283,7 +293,7 @@ pub struct SlaAlert<'a> {
 pub async fn sla_alert(
     db: &PgPool,
     alert: &SlaAlert<'_>,
-) -> Result<Vec<HelpdeskNotification>, sqlx::Error> {
+) -> Result<Vec<HelpdeskNotification>, DbErr> {
     if !enabled(db, "notifyOnSLABreach").await? {
         return Ok(Vec::new());
     }

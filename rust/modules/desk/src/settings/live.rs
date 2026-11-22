@@ -276,12 +276,12 @@ pub(super) async fn wallboard_route(caller: Caller, RawQuery(query): RawQuery) -
         match team_exists(&caller.db, id).await {
             Ok(true) => {}
             Ok(false) => return Refusal::bad_request("Unknown team").respond(message),
-            Err(error) => return Refusal::Database(error).respond(message),
+            Err(error) => return Refusal::from(error).respond(message),
         }
     }
     match wallboard(&caller.db, reports::clock_ms(&caller), team_id.as_deref()).await {
         Ok(data) => Data(data).into_response(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -530,6 +530,6 @@ pub(super) async fn phone_route(caller: Caller, RawQuery(query): RawQuery) -> Re
     let range = query_param(query.as_deref(), "range");
     match phone_report(&caller.db, range.as_deref(), reports::clock_ms(&caller)).await {
         Ok(data) => Data(data).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch the phone report"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch the phone report"),
     }
 }

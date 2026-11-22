@@ -496,12 +496,12 @@ impl Translator {
 /// and the other refusals).
 enum Failure {
     Answer(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -540,7 +540,7 @@ impl Failure {
     /// The credit gate's refusal (402, or 503 without a provider).
     fn gate(error: AiError) -> Self {
         match error {
-            AiError::Database(error) => Self::Database(error),
+            AiError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
             other => Self::Answer(Box::new(other.into_api_error().into_response())),
         }
     }

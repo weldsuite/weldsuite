@@ -159,7 +159,7 @@ async fn read_links(ctx: Ctx, Path(id): Path<String>) -> Response {
     match links::links(&ctx.caller.db, &id).await {
         Ok(Some(links)) => Data(links).into_response(),
         Ok(None) => ApiError::not_found("Conversation", Some(&id)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load linked tickets"),
+        Err(error) => Refusal::from(error).respond("Failed to load linked tickets"),
     }
 }
 

@@ -314,7 +314,7 @@ async fn page(
         .await
     {
         Ok(total) => total,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let rows: Vec<Value> = match sqlx::query_scalar(sql.1)
         .bind(search.as_deref())
@@ -324,7 +324,7 @@ async fn page(
         .await
     {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let rows: Vec<Value> = rows
         .into_iter()
@@ -382,7 +382,7 @@ async fn pending(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch pending escalations"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch pending escalations"),
     }
 }
 
@@ -394,7 +394,7 @@ async fn existing(caller: &Caller, id: &str, message: &str) -> Result<Value, Res
     match CONV.find_live(&caller.db, id).await {
         Ok(Some(row)) => Ok(row),
         Ok(None) => Err(Refusal::not_found("Conversation", id).respond(message)),
-        Err(error) => Err(Refusal::Database(error).respond(message)),
+        Err(error) => Err(Refusal::from(error).respond(message)),
     }
 }
 
@@ -414,7 +414,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     .await;
     let messages = match messages {
         Ok(rows) => rows.into_iter().map(|row| MESSAGES.js(row)).collect(),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let mut out = match conversation {
         Value::Object(map) => map,
@@ -504,7 +504,7 @@ async fn send_message(
     .execute(&caller.db)
     .await;
     if let Err(error) = bumped {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     caller.publish(
         &state,
@@ -577,7 +577,7 @@ async fn transfer(
     .execute(&caller.db)
     .await;
     if let Err(error) = updated {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     let fields = [
         ("id", json!(generate_id("msg"))),
@@ -645,7 +645,7 @@ async fn accept(
     .execute(&caller.db)
     .await;
     if let Err(error) = updated {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     caller.publish(
         &state,
@@ -746,7 +746,7 @@ async fn convert(
     .execute(&caller.db)
     .await;
     if let Err(error) = closed {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     caller.publish(
         &state,

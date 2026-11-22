@@ -156,7 +156,7 @@ async fn accessible(
     principal: &Principal,
     id: &str,
     include_messages: bool,
-) -> Result<Option<(Value, Vec<Value>)>, sqlx::Error> {
+) -> Result<Option<(Value, Vec<Value>)>, sea_orm::DbErr> {
     let Some((conversation, messages)) = webchat::get(db, id, include_messages).await? else {
         return Ok(None);
     };
@@ -255,7 +255,7 @@ async fn list(
             rows.iter().map(|row| row["assigneeId"].as_str()).collect();
         let master = ctx.master(&state);
         let authors = resolve_authors(db, master.as_ref(), &assignees).await?;
-        Ok::<_, sqlx::Error>(
+        Ok::<_, sea_orm::DbErr>(
             rows.iter()
                 .map(|row| public_conversation(row, &authors))
                 .collect::<Vec<_>>(),
@@ -451,7 +451,7 @@ async fn conversation(
         );
         let master = ctx.master(&state);
         let authors = resolve_authors(db, master.as_ref(), &ids).await?;
-        Ok::<_, sqlx::Error>(Some(json!({
+        Ok::<_, sea_orm::DbErr>(Some(json!({
             "conversation": public_conversation(&conversation, &authors),
             "messages": visible.iter().map(|m| public_message(m, &authors)).collect::<Vec<_>>(),
         })))

@@ -6,6 +6,7 @@
 //! system message into the conversation and publishes it to the
 //! conversation room. Never fails the request: each half logs its error.
 
+use sea_orm::TransactionTrait;
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_desk_domain::realtime::{conversation_system, defined};
@@ -52,7 +53,7 @@ async fn copy_transcript(db: &PgPool, link: &Link<'_>) -> Result<(), crate::tabl
     if messages.is_empty() {
         return Ok(());
     }
-    let mut tx = db.begin().await?;
+    let tx = weldsuite_db::orm(db).begin().await?;
     for message in messages {
         let message = HELPDESK_CONVERSATION_MESSAGES.js(message);
         let mut values = Map::new();
@@ -102,7 +103,7 @@ async fn copy_transcript(db: &PgPool, link: &Link<'_>) -> Result<(), crate::tabl
             json!(text(&message, "updatedAt").unwrap_or(link.now)),
         );
         table
-            .insert(&mut *tx, values, &["createdAt", "updatedAt"])
+            .insert_on(&tx, values, &["createdAt", "updatedAt"])
             .await?;
     }
     tx.commit().await?;

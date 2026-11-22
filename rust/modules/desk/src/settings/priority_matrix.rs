@@ -41,7 +41,7 @@ where
 async fn read(caller: Caller) -> Response {
     match priority_matrix::read(&caller.db).await {
         Ok(matrix) => Data(matrix).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch the priority matrix"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch the priority matrix"),
     }
 }
 
@@ -87,7 +87,7 @@ async fn save(
             );
             Data(matrix).into_response()
         }
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 

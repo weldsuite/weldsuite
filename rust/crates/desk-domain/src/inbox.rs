@@ -16,14 +16,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, js_trim};
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, RealtimeMessage};
+use weldsuite_schema::tenant::{desk_conversations, desk_visitors, workspace_members};
 
 use crate::assignment::{Picker, auto_assign_with};
-use crate::attributes::{self, Update, UpdateError, Updated};
+use crate::attributes::{self, ReferenceTable, Update, UpdateError, Updated, reference_rows};
 use crate::notify::{self, EntityKind, HelpdeskNotification, PREVIEW_MAX};
 use crate::routing::{self, Keep};
 use crate::table::WriteError;
@@ -80,8 +83,8 @@ impl std::fmt::Display for InboxError {
 
 impl std::error::Error for InboxError {}
 
-impl From<sqlx::Error> for InboxError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for InboxError {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error.to_string())
     }
 }
@@ -245,25 +248,17 @@ fn json_text(value: Option<&str>) -> Value {
 }
 
 /// `findDeskConversationByExternalId(db, externalId)`.
-pub async fn find_by_external_id(
-    db: &PgPool,
-    external_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t where t.external_id = $1 limit 1",
-    )
-    .bind(external_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_CONVERSATIONS.js(row)))
+pub async fn find_by_external_id(db: &PgPool, external_id: &str) -> Result<Option<Value>, DbErr> {
+    let found = desk_conversations::Entity::find()
+        .filter(desk_conversations::Column::ExternalId.eq(external_id))
+        .one(&orm(db))
+        .await?;
+    Ok(found.map(crate::row))
 }
 
 /// Whether `error` is a unique violation, of `constraint` when given.
 fn unique_violation(error: &WriteError, constraint: Option<&str>) -> bool {
-    let WriteError::Database(sqlx::Error::Database(db)) = error else {
-        return false;
-    };
-    db.code().as_deref() == Some("23505") && constraint.is_none_or(|c| db.constraint() == Some(c))
+    error.is_unique_violation(constraint)
 }
 
 /// Why [`create_api_conversation`] stopped.
@@ -290,12 +285,14 @@ async fn create_api_conversation(
     let preview = preview_of(Some(&input.body));
     let title = trimmed(input.title.as_deref()).or_else(|| preview.clone());
     for attempt in 0.. {
-        let number: i64 = sqlx::query_scalar(
-            "select (coalesce(max(conversation_number), 0) + 1)::bigint from desk_conversations",
-        )
-        .fetch_one(db)
-        .await
-        .map_err(|e| CreateError::Other(e.into()))?;
+        let max: Option<Option<i32>> = desk_conversations::Entity::find()
+            .select_only()
+            .column_as(desk_conversations::Column::ConversationNumber.max(), "max")
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|e| CreateError::Other(e.into()))?;
+        let number = i64::from(max.flatten().unwrap_or(0)) + 1;
         let mut values = Map::new();
         values.insert("id".to_owned(), json!(id));
         values.insert("created_at".to_owned(), json!(now));
@@ -404,12 +401,11 @@ pub async fn ingest_desk_api(db: &PgPool, input: &IngestApi) -> Result<IngestedA
 
     let mut visitor_id: Option<String> = None;
     if let Some(email) = &email {
-        let known: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from desk_visitors t where t.email = $1 limit 1",
-        )
-        .bind(email)
-        .fetch_optional(db)
-        .await?;
+        let known: Option<Value> = desk_visitors::Entity::find()
+            .filter(desk_visitors::Column::Email.eq(email.as_str()))
+            .one(&orm(db))
+            .await?
+            .map(crate::row);
         let id = known
             .as_ref()
             .and_then(|v| v["id"].as_str())
@@ -490,28 +486,30 @@ fn has_ticket_fields(fields: &Update) -> bool {
 /// `assertUsableReferences(db, fields)`: a ticket type or team that doesn't
 /// exist or is inactive is refused before a conversation is opened.
 async fn assert_usable_references(db: &PgPool, fields: &Update) -> Result<(), InboxError> {
-    let refs: [(&str, &Field<String>, &'static str, &str); 2] = [
+    let refs: [(ReferenceTable, &Field<String>, &'static str, &str); 2] = [
         (
-            "select is_active, deleted_at is not null from helpdesk_ticket_types where id = $1 limit 1",
+            ReferenceTable::TicketTypes,
             &fields.ticket_type_id,
             "ticketTypeId",
             "Ticket type",
         ),
         (
-            "select is_active, deleted_at is not null from helpdesk_departments where id = $1 limit 1",
+            ReferenceTable::Departments,
             &fields.department_id,
             "departmentId",
             "Team",
         ),
     ];
-    for (sql, field, input, noun) in refs {
+    for (table, field, input, noun) in refs {
         let Field::Set(id) = field else { continue };
         if id.is_empty() {
             continue;
         }
-        let row: Option<(Option<bool>, bool)> =
-            sqlx::query_as(sql).bind(id).fetch_optional(db).await?;
-        if !matches!(row, Some((active, false)) if active != Some(false)) {
+        let row = reference_rows(db, table, vec![id.clone()])
+            .await?
+            .into_iter()
+            .next();
+        if !matches!(row, Some((_, _, active, false)) if active != Some(false)) {
             return Err(InboxError::Rejected {
                 field: input,
                 message: format!("{noun} '{id}' does not exist or is inactive"),
@@ -679,16 +677,23 @@ async fn publish_to_rooms(deps: &InboxDeps<'_>, events: &[InboxEvent]) -> Result
 }
 
 /// `teamRecipients(db)`: active internal teammates who can work the inbox.
-async fn team_recipients(db: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where deleted_at is null and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-           and upper(coalesce(role, '')) <> 'VIEWER'
-         limit $1",
-    )
-    .bind(MAX_RECIPIENTS)
-    .fetch_all(db)
-    .await?;
+async fn team_recipients(db: &PgPool) -> Result<Vec<String>, DbErr> {
+    use workspace_members::Column;
+    let role = Expr::from(Func::upper(Expr::from(Func::coalesce([
+        Expr::col(Column::Role),
+        Expr::val(""),
+    ]))));
+    let rows: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::DeletedAt.is_null())
+        .filter(crate::upper_is(Column::Status, "ACTIVE"))
+        .filter(crate::upper_is(Column::MemberType, "INTERNAL"))
+        .filter(sea_orm::ExprTrait::ne(role, "VIEWER"))
+        .limit(u64::try_from(MAX_RECIPIENTS).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out: Vec<String> = Vec::new();
     for user_id in rows {
         if !out.contains(&user_id) {

@@ -6,6 +6,8 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Response;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_desk_domain::realtime::now_ms;
@@ -26,16 +28,22 @@ const TEAM_CANDIDATES: i64 = 50;
 /// account has a picture (`master`), by first name. A failure is logged and
 /// leaves the team empty.
 async fn team(db: &PgPool, master: Option<&PgPool>) -> Vec<Value> {
-    let rows: Result<Vec<Face>, sqlx::Error> = sqlx::query_as(
-        "select user_id, name from workspace_members
-         where upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-           and deleted_at is null
-         order by created_at asc, id asc
-         limit $1",
-    )
-    .bind(TEAM_CANDIDATES)
-    .fetch_all(db)
-    .await;
+    use weldsuite_schema::tenant::workspace_members::{Column, Entity};
+    let upper_is = |column: Column, value: &str| {
+        sea_orm::ExprTrait::eq(Expr::from(Func::upper(Expr::col(column))), value)
+    };
+    let rows: Result<Vec<Face>, sea_orm::DbErr> = Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Name])
+        .filter(upper_is(Column::Status, "ACTIVE"))
+        .filter(upper_is(Column::MemberType, "INTERNAL"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(TEAM_CANDIDATES).unwrap_or(0))
+        .into_tuple()
+        .all(&weldsuite_db::orm(db))
+        .await;
     match rows {
         Ok(rows) => {
             let pictures = weldsuite_db::AccountPictures::load(
@@ -77,15 +85,15 @@ pub(crate) async fn get_config(
     let config = &widget.config;
     let branding = &config["branding"];
     let team = team(&widget.db, ctx.master(&state).as_ref()).await;
-    let away = config["away_message"]
+    let away = config["awayMessage"]
         .as_str()
         .map(js_trim)
         .filter(|message| !message.is_empty());
     success(
         StatusCode::OK,
         json!({
-            "widgetId": config["widget_id"],
-            "name": config["widget_name"],
+            "widgetId": config["widgetId"],
+            "name": config["widgetName"],
             "enabled": config["enabled"],
             "greeting": or(&config["greeting"], "Hi — how can we help?"),
             "branding": {
@@ -97,12 +105,12 @@ pub(crate) async fn get_config(
             "realtimeUrl": ctx.realtime_url(&state),
             "team": team,
             "availability": office_hours::availability(
-                &config["office_hours"],
+                &config["officeHours"],
                 config["timezone"].as_str(),
                 now_ms(),
             ),
             "awayMessage": away,
-            "expectedReplyTime": config["expected_reply_time"],
+            "expectedReplyTime": config["expectedReplyTime"],
         }),
     )
 }

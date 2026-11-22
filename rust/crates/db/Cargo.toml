@@ -19,6 +19,7 @@ hex = { workspace = true }
 http = { workspace = true }
 sea-orm = { workspace = true }
 sea-query-sqlx = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros", "parsing"] }

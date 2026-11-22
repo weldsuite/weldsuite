@@ -82,10 +82,8 @@ pub(super) fn read_query<T>(
 }
 
 /// `isDeskSchemaMissing(err)`.
-fn schema_missing(error: &sqlx::Error) -> bool {
-    let code = error
-        .as_database_error()
-        .and_then(|e| e.code().map(std::borrow::Cow::into_owned));
+fn schema_missing(error: &(dyn std::error::Error + 'static)) -> bool {
+    let code = weldsuite_db::pg_error_code(error);
     if matches!(code.as_deref(), Some("42P01" | "42703")) {
         return true;
     }
@@ -228,14 +226,14 @@ async fn detail(ctx: Ctx, Path(id): Path<String>, RawQuery(query): RawQuery) -> 
     let db = &ctx.caller.db;
     let found = match webchat::get(db, &id, with_messages).await {
         Ok(found) => found,
-        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to fetch conversation"),
     };
     let Some((mut conversation, messages)) = found else {
         return ApiError::not_found("Conversation", Some(&id)).into_response();
     };
     let custom_fields = match attributes::custom_fields(db, &conversation).await {
         Ok(fields) => fields,
-        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to fetch conversation"),
     };
     if let Some(object) = conversation.as_object_mut() {
         object.insert("customFields".to_owned(), Value::Object(custom_fields));
@@ -1319,7 +1317,7 @@ async fn manage(
             .await;
     let before = match before {
         Ok(before) => before.flatten(),
-        Err(error) => return Refusal::Database(error).respond("Failed to update conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to update conversation"),
     };
     let (event_type, assignee, is_assign) = match &action {
         Action::Close(_) => ("closed", None, false),

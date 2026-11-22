@@ -68,12 +68,16 @@ pub fn normalize(value: &Value) -> Value {
 
 /// `getDeskPriorityMatrix(db)`: the workspace's matrix, the default grid
 /// (off) when nothing is saved.
-pub async fn read(db: &PgPool) -> Result<Value, sqlx::Error> {
-    let tickets: Option<Option<Value>> = sqlx::query_scalar(
-        "select tickets from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+pub async fn read(db: &PgPool) -> Result<Value, sea_orm::DbErr> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+    use weldsuite_schema::tenant::helpdesk_settings;
+    let tickets: Option<Option<Value>> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(helpdesk_settings::Column::Tickets)
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&weldsuite_db::orm(db))
+        .await?;
     let tickets = tickets.flatten().unwrap_or(Value::Null);
     Ok(normalize(&tickets["priorityMatrix"]))
 }
@@ -124,7 +128,7 @@ pub async fn changes(
     current: &Value,
     impact: &Field<String>,
     urgency: &Field<String>,
-) -> Result<Changes, sqlx::Error> {
+) -> Result<Changes, sea_orm::DbErr> {
     let mut out = Changes::default();
     if let Some((next, entry)) = axis_change("impact", &current["impact"], impact) {
         out.impact = Some(next);

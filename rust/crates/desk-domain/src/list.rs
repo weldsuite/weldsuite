@@ -3,11 +3,17 @@
 //! (`/v1/conversations`) answers integrations with, and a conversation's
 //! timeline a page at a time.
 
-use serde_json::Value;
-use weldsuite_db::PgPool;
+use sea_orm::sea_query::{Alias, Expr, Func, NullOrdering, Order, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde_json::{Value, json};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{desk_conversations, desk_messages};
 
-use crate::webchat::{DESK_CONVERSATIONS, DESK_MESSAGES};
+use crate::row;
 
 /// `Number.parseInt(raw, 10)`: `None` for `NaN`.
 pub(crate) fn js_parse_int(raw: &str) -> Option<f64> {
@@ -71,48 +77,98 @@ pub(crate) fn conversation_number(term: &str) -> Option<i64> {
     digits.parse().ok()
 }
 
-const FILTERS: &str = "($1::text is null or t.state = $1)
-      and ($2::text is null or t.assignee_id = $2)
-      and (not $3::boolean or t.assignee_id is null)
-      and ($4::text is null or t.channel = $4)
-      and ($5::text is null or t.visitor_id = $5)
-      and ($6::text is null or lower(t.email) = $6)
-      and ($7::text is null or (t.name ILIKE $7 or t.email ILIKE $7 or t.title ILIKE $7
-           or t.last_message_preview ILIKE $7
-           or exists (select 1 from desk_messages m where m.conversation_id = t.id and m.kind <> 'event' and m.body ILIKE $7)
-           or ($8::integer is not null and t.conversation_number = $8)))
-      and ($9::text is null or (case when $9 = 'none' then t.priority is null else t.priority = $9 end))
-      and ($10::text is null or t.ticket_type_id = $10)
-      and ($11::text is null or t.department_id = $11)
-      and ($12::text is null or t.tags @> jsonb_build_array($12::text))
-      and ($13::text is null or t.external_id = $13)";
+/// `col ILIKE pattern`.
+pub(crate) fn ilike(column: impl sea_orm::sea_query::IntoColumnRef, pattern: &str) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::ilike(Expr::col(column), pattern)
+}
+
+/// The list's filters (`desk-list`'s `conversationFilters`); empty values
+/// filter nothing.
+fn filters(query: &ListQuery) -> Condition {
+    use desk_conversations::Column;
+    use sea_orm::ExprTrait as _;
+    let empty = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
+    let term = query.q.as_deref().map(js_trim).filter(|t| !t.is_empty());
+    let mut filters = Condition::all();
+    if let Some(state) = empty(&query.state) {
+        filters = filters.add(Column::State.eq(state));
+    }
+    if let Some(assignee) = empty(&query.assignee_id) {
+        filters = filters.add(Column::AssigneeId.eq(assignee));
+    }
+    if query.unassigned {
+        filters = filters.add(Column::AssigneeId.is_null());
+    }
+    if let Some(channel) = empty(&query.channel) {
+        filters = filters.add(Column::Channel.eq(channel));
+    }
+    if let Some(visitor) = empty(&query.visitor_id) {
+        filters = filters.add(Column::VisitorId.eq(visitor));
+    }
+    if let Some(email) = query.email.as_deref().filter(|e| !e.is_empty()) {
+        let email = js_trim(email).to_lowercase();
+        filters = filters.add(Expr::from(Func::lower(Expr::col(Column::Email))).eq(email));
+    }
+    if let Some(term) = term {
+        let pattern = like_pattern(term);
+        let message = Alias::new("m");
+        let in_messages = Query::select()
+            .expr(Expr::val(1))
+            .from_as(desk_messages::Entity, message.clone())
+            .and_where(
+                Expr::col((message.clone(), desk_messages::Column::ConversationId))
+                    .equals((desk_conversations::Entity, Column::Id)),
+            )
+            .and_where(Expr::col((message.clone(), desk_messages::Column::Kind)).ne("event"))
+            .and_where(ilike((message, desk_messages::Column::Body), &pattern))
+            .to_owned();
+        let mut any = Condition::any()
+            .add(ilike(Column::Name, &pattern))
+            .add(ilike(Column::Email, &pattern))
+            .add(ilike(Column::Title, &pattern))
+            .add(ilike(Column::LastMessagePreview, &pattern))
+            .add(Expr::exists(in_messages));
+        if let Some(number) = conversation_number(term) {
+            any = any.add(Column::ConversationNumber.eq(i32::try_from(number).unwrap_or(i32::MAX)));
+        }
+        filters = filters.add(any);
+    }
+    match empty(&query.priority).as_deref() {
+        Some("none") => filters = filters.add(Column::Priority.is_null()),
+        Some(priority) => filters = filters.add(Column::Priority.eq(priority)),
+        None => {}
+    }
+    if let Some(ticket_type) = empty(&query.ticket_type_id) {
+        filters = filters.add(Column::TicketTypeId.eq(ticket_type));
+    }
+    if let Some(team) = empty(&query.department_id) {
+        filters = filters.add(Column::DepartmentId.eq(team));
+    }
+    if let Some(tag) = empty(&query.tag) {
+        // `tags @> jsonb_build_array(tag)`.
+        filters = filters.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col(Column::Tags),
+            json!([tag]),
+        ));
+    }
+    if let Some(external_id) = query
+        .external_id
+        .as_deref()
+        .filter(|e| !e.is_empty())
+        .map(|e| js_trim(e).to_owned())
+    {
+        filters = filters.add(Column::ExternalId.eq(external_id));
+    }
+    filters
+}
 
 /// `listDeskConversations(db, query)`.
 pub async fn list(
     db: &PgPool,
     query: &ListQuery,
-) -> Result<(Vec<Value>, i64, bool, Option<String>), sqlx::Error> {
+) -> Result<(Vec<Value>, i64, bool, Option<String>), DbErr> {
+    use desk_conversations::Column;
     let limit = query.limit.unwrap_or(30.0).min(100.0);
-    let term = query.q.as_deref().map(js_trim).filter(|t| !t.is_empty());
-    let pattern = term.map(like_pattern);
-    let number = term.and_then(conversation_number);
-    let email = query
-        .email
-        .as_deref()
-        .filter(|e| !e.is_empty())
-        .map(|e| weldsuite_kit::validation::js_trim(e).to_lowercase());
-    let empty = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
-    let external_id = query
-        .external_id
-        .as_deref()
-        .filter(|e| !e.is_empty())
-        .map(|e| weldsuite_kit::validation::js_trim(e).to_owned());
-    let order = match query.sort.as_deref() {
-        Some("oldest") => "t.created_at, t.id",
-        Some("waiting_longest") => "t.waiting_since ASC NULLS LAST, t.id",
-        Some("sla_due") => "t.sla_due_at ASC NULLS LAST, t.id",
-        _ => "COALESCE(t.last_message_at, t.created_at) DESC, t.id desc",
-    };
     let offset = query
         .cursor
         .as_deref()
@@ -124,39 +180,37 @@ pub async fn list(
     let offset = offset as i64;
     #[allow(clippy::cast_possible_truncation)]
     let page = limit as i64;
-    macro_rules! bind {
-        ($q:expr) => {
-            $q.bind(empty(&query.state))
-                .bind(empty(&query.assignee_id))
-                .bind(query.unassigned)
-                .bind(empty(&query.channel))
-                .bind(empty(&query.visitor_id))
-                .bind(email.clone())
-                .bind(pattern.clone())
-                .bind(number.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
-                .bind(empty(&query.priority))
-                .bind(empty(&query.ticket_type_id))
-                .bind(empty(&query.department_id))
-                .bind(empty(&query.tag))
-                .bind(external_id.clone())
-        };
-    }
-    let count: i64 = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from desk_conversations t where {FILTERS}"
-    ))))
-    .fetch_one(db)
-    .await?;
-    let rows: Vec<Value> = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $14 offset $15"
-    ))))
-    .bind(page + 1)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
-    let mut rows: Vec<Value> = rows
-        .into_iter()
-        .map(|row| DESK_CONVERSATIONS.js(row))
-        .collect();
+    let orm_db = orm(db);
+    let filtered = desk_conversations::Entity::find().filter(filters(query));
+    let count = filtered.clone().count(&orm_db).await?;
+    let count = i64::try_from(count).unwrap_or(i64::MAX);
+    let ordered = match query.sort.as_deref() {
+        Some("oldest") => filtered.order_by_asc(Column::CreatedAt),
+        Some("waiting_longest") => {
+            filtered.order_by_with_nulls(Column::WaitingSince, Order::Asc, NullOrdering::Last)
+        }
+        Some("sla_due") => {
+            filtered.order_by_with_nulls(Column::SlaDueAt, Order::Asc, NullOrdering::Last)
+        }
+        _ => filtered.order_by_desc(Expr::from(Func::coalesce([
+            Expr::col(Column::LastMessageAt),
+            Expr::col(Column::CreatedAt),
+        ]))),
+    };
+    let ordered = if matches!(
+        query.sort.as_deref(),
+        Some("oldest" | "waiting_longest" | "sla_due")
+    ) {
+        ordered.order_by_asc(Column::Id)
+    } else {
+        ordered.order_by_desc(Column::Id)
+    };
+    let rows = ordered
+        .limit(u64::try_from(page + 1).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&orm_db)
+        .await?;
+    let mut rows: Vec<Value> = rows.into_iter().map(row).collect();
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > page;
     if has_more {
         rows.truncate(usize::try_from(page).unwrap_or(0));
@@ -181,7 +235,7 @@ pub async fn messages_page(
     conversation_id: &str,
     cursor: Option<&str>,
     limit: Option<f64>,
-) -> Result<MessagesPage, sqlx::Error> {
+) -> Result<MessagesPage, DbErr> {
     let limit = limit.unwrap_or(100.0).clamp(1.0, 200.0);
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit as i64;
@@ -190,16 +244,15 @@ pub async fn messages_page(
         .map_or(0.0, |c| js_parse_int(c).unwrap_or(0.0).max(0.0));
     #[allow(clippy::cast_possible_truncation)]
     let offset = offset as i64;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_messages t where t.conversation_id = $1
-         order by t.created_at, t.id limit $2 offset $3",
-    )
-    .bind(conversation_id)
-    .bind(limit + 1)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
-    let mut data: Vec<Value> = rows.into_iter().map(|row| DESK_MESSAGES.js(row)).collect();
+    let rows = desk_messages::Entity::find()
+        .filter(desk_messages::Column::ConversationId.eq(conversation_id))
+        .order_by_asc(desk_messages::Column::CreatedAt)
+        .order_by_asc(desk_messages::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&orm(db))
+        .await?;
+    let mut data: Vec<Value> = rows.into_iter().map(row).collect();
     let has_more = i64::try_from(data.len()).unwrap_or(i64::MAX) > limit;
     if has_more {
         data.truncate(usize::try_from(limit).unwrap_or(0));

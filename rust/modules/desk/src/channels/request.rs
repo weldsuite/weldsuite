@@ -150,7 +150,7 @@ fn answer(
     id: &str,
     conversation: &Value,
     changes: &[Appended],
-    request: Result<Option<Value>, sqlx::Error>,
+    request: Result<Option<Value>, sea_orm::DbErr>,
     failure: &str,
 ) -> Response {
     match request {
@@ -160,7 +160,7 @@ fn answer(
             "request": request,
         }))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond(failure),
+        Err(error) => Refusal::from(error).respond(failure),
     }
 }
 
@@ -174,11 +174,11 @@ async fn read_request(ctx: Ctx, Path(id): Path<String>) -> Response {
     match desk::get(db, &id, false).await {
         Ok(Some(_)) => {}
         Ok(None) => return conversation_not_found(&id),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     }
     match catalog::conversation_request(db, &id).await {
         Ok(request) => Data(request.unwrap_or(Value::Null)).into_response(),
-        Err(error) => Refusal::Database(error).respond(failure),
+        Err(error) => Refusal::from(error).respond(failure),
     }
 }
 
@@ -233,12 +233,12 @@ async fn attach(
     let found = match desk::get(db, &id, false).await {
         Ok(Some((conversation, _))) => conversation,
         Ok(None) => return conversation_not_found(&id),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     };
     let item = match catalog::get_item(db, &item_id).await {
         Ok(Some(item)) => item,
         Ok(None) => return ApiError::not_found("Catalogue item", Some(&item_id)).into_response(),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     };
     if item["isActive"] != true {
         return ApiError::conflict("This catalogue item is switched off")
@@ -385,7 +385,7 @@ async fn decide(
             // The decision stands, and so do its events.
             caller.publish_in_order(&state, events);
             spawn_realtime(&state, realtime);
-            return Refusal::Database(error).respond(failure);
+            return Refusal::from(error).respond(failure);
         }
     };
     let request = catalog::conversation_request(db, &id).await;
