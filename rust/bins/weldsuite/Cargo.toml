@@ -113,6 +113,8 @@ tower-http = { workspace = true, features = ["cors", "fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }

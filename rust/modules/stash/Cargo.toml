@@ -27,6 +27,8 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 # The fake Odoo server, for the RFQ push tests.

@@ -33,6 +33,8 @@ sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing", "formatting", "macros"] }
 tokio = { workspace = true, features = ["macros", "sync"] }
 tracing = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

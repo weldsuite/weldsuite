@@ -38,6 +38,9 @@ tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 unicode-normalization = { workspace = true }
 url = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
+time = { workspace = true, features = ["macros", "parsing", "formatting"] }
 
 [dev-dependencies]
 weldsuite-catalogs = { workspace = true }
