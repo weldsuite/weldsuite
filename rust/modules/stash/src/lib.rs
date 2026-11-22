@@ -230,13 +230,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// the route maps to its 500 with its own message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Write(WriteError),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the code not on the entities yet, fail with
+/// `sqlx::Error`: the same 500.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

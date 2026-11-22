@@ -3,11 +3,13 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use time::{Date, Month, OffsetDateTime};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{companies, hr_audit_events, workspace_members};
 
 use crate::HrError;
 
@@ -243,12 +245,17 @@ pub(crate) async fn member_names(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email from workspace_members where user_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (user_id, name, email) in rows {
         let label = name
             .filter(|name| !name.is_empty())
@@ -274,11 +281,13 @@ pub(crate) async fn company_names(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select id, display_name from companies where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = companies::Entity::find()
+        .select_only()
+        .columns([companies::Column::Id, companies::Column::DisplayName])
+        .filter(companies::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     out.extend(rows);
     Ok(out)
 }
@@ -297,19 +306,24 @@ pub(crate) async fn record_hr_audit(
     metadata: Value,
     ip: Option<&str>,
 ) -> Result<(), HrError> {
-    sqlx::query(
-        "insert into hr_audit_events (id, actor_id, action, employee_id, metadata, ip)
-         values ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(generate_id("hraud"))
-    .bind(actor_id)
-    .bind(action)
-    .bind(employee_id)
-    .bind(metadata)
-    .bind(ip)
-    .execute(db)
+    hr_audit_events::Entity::insert(hr_audit_events::ActiveModel {
+        id: Set(generate_id("hraud")),
+        actor_id: Set(actor_id.to_owned()),
+        action: Set(action.to_owned()),
+        employee_id: Set(employee_id.map(str::to_owned)),
+        metadata: Set(metadata),
+        ip: Set(ip.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
+}
+
+/// A row (an entity's model or a partial row) as the API returns it: the
+/// JSON Drizzle returned for it.
+pub(crate) fn row_json<T: serde::Serialize>(row: T) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `a.localeCompare(b)`: ICU's root collation, as Node's default locale sorts.

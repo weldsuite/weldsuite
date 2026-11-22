@@ -10,16 +10,19 @@ use axum::extract::Path;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::permission_keys::{EMPLOYEES_MANAGE, EMPLOYEES_READ};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{hr_departments, hr_employees};
 
-use crate::employees::require_employee;
+use crate::employees::{no_row, require_employee, to_json};
 use crate::fields::{Fields, change, color, id, short_text, text_max};
-use crate::{Caller, HrError, HrResult, HrState, hr_json, js_trim, now, text};
+use crate::{Caller, HrError, HrResult, HrState, hr_json, js_trim, text};
 
 /// The routes, relative to `/api/weldhr`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -38,22 +41,27 @@ where
 }
 
 async fn list(caller: Caller) -> HrResult {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from hr_departments d where d.deleted_at is null order by d.name asc",
-    )
-    .fetch_all(&caller.db)
-    .await?;
-    let counts: Vec<(Option<String>, i64)> = sqlx::query_as(
-        "select department_id, count(*) from hr_employees
-         where deleted_at is null and status <> 'terminated' group by department_id",
-    )
-    .fetch_all(&caller.db)
-    .await?;
+    let db = &orm(&caller.db);
+    let rows = hr_departments::Entity::find()
+        .filter(hr_departments::Column::DeletedAt.is_null())
+        .order_by_asc(hr_departments::Column::Name)
+        .all(db)
+        .await?;
+    let counts: Vec<(Option<String>, i64)> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::DepartmentId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(hr_employees::Column::Status.ne("terminated"))
+        .group_by(hr_employees::Column::DepartmentId)
+        .into_tuple()
+        .all(db)
+        .await?;
     let by_department: HashMap<Option<String>, i64> = counts.into_iter().collect();
     let rows: Vec<Value> = rows
         .into_iter()
         .map(|row| {
-            let mut row = js_row(row);
+            let mut row = to_json(row)?;
             let count = by_department
                 .get(&Some(text(&row, "id").to_owned()))
                 .copied()
@@ -61,22 +69,20 @@ async fn list(caller: Caller) -> HrResult {
             if let Some(map) = row.as_object_mut() {
                 map.insert("employeeCount".to_owned(), json!(count));
             }
-            row
+            Ok(row)
         })
-        .collect();
+        .collect::<Result<_, HrError>>()?;
     Ok(Data(rows).into_response())
 }
 
 /// `requireDepartment(db, id)`.
 pub(crate) async fn require_department(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from hr_departments d where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Department", id))
+    let row = hr_departments::Entity::find()
+        .filter(hr_departments::Column::Id.eq(id))
+        .filter(hr_departments::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Department", id))?)
 }
 
 /// `assertUniqueDepartmentName(db, name, exceptId?)`.
@@ -85,14 +91,18 @@ async fn assert_unique_name(
     name: &str,
     except_id: Option<&str>,
 ) -> Result<(), HrError> {
-    let clash: Option<String> = sqlx::query_scalar(
-        "select id from hr_departments where deleted_at is null and lower(name) = $1
-           and ($2::text is null or id <> $2) limit 1",
-    )
-    .bind(js_trim(name).to_lowercase())
-    .bind(except_id)
-    .fetch_optional(db)
-    .await?;
+    let mut clash = hr_departments::Entity::find()
+        .select_only()
+        .column(hr_departments::Column::Id)
+        .filter(hr_departments::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(
+            Func::lower(Expr::col(hr_departments::Column::Name)),
+            js_trim(name).to_lowercase(),
+        ));
+    if let Some(except_id) = except_id {
+        clash = clash.filter(hr_departments::Column::Id.ne(except_id));
+    }
+    let clash: Option<String> = clash.into_tuple().one(&orm(db)).await?;
     if clash.is_some() {
         return Err(HrError::conflict(format!(
             "A department called \"{}\" already exists",
@@ -104,11 +114,13 @@ async fn assert_unique_name(
 
 /// The live tree as `(id, parentId)`.
 pub(crate) async fn live_tree(db: &PgPool) -> Result<Vec<(String, Option<String>)>, HrError> {
-    Ok(
-        sqlx::query_as("select id, parent_id from hr_departments where deleted_at is null")
-            .fetch_all(db)
-            .await?,
-    )
+    Ok(hr_departments::Entity::find()
+        .select_only()
+        .columns([hr_departments::Column::Id, hr_departments::Column::ParentId])
+        .filter(hr_departments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
 }
 
 /// `departmentAndDescendants(departments, rootId)`.
@@ -179,17 +191,34 @@ pub(crate) async fn employees_in_departments(
         }
         Some(reach)
     };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'userId', user_id, 'firstName', first_name,
-             'lastName', last_name, 'preferredName', preferred_name)
-         from hr_employees
-         where deleted_at is null and status <> 'terminated'
-           and ($1::text[] is null or department_id = any($1))",
-    )
-    .bind(reach)
-    .fetch_all(db)
-    .await?;
-    Ok(rows)
+    let mut rows = hr_employees::Entity::find()
+        .select_only()
+        .columns([
+            hr_employees::Column::Id,
+            hr_employees::Column::UserId,
+            hr_employees::Column::FirstName,
+            hr_employees::Column::LastName,
+            hr_employees::Column::PreferredName,
+        ])
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(hr_employees::Column::Status.ne("terminated"));
+    if let Some(reach) = &reach {
+        rows = rows.filter(hr_employees::Column::DepartmentId.is_in(reach.iter().map(String::as_str)));
+    }
+    let rows: Vec<(String, Option<String>, String, String, Option<String>)> =
+        rows.into_tuple().all(&orm(db)).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, user_id, first_name, last_name, preferred_name)| {
+            json!({
+                "id": id,
+                "userId": user_id,
+                "firstName": first_name,
+                "lastName": last_name,
+                "preferredName": preferred_name,
+            })
+        })
+        .collect())
 }
 
 struct DepartmentInput {
@@ -234,19 +263,18 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     if let Some(head) = input.head_employee_id.as_set() {
         require_employee(db, head).await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_departments (id, name, description, parent_id, head_employee_id, color)
-         values ($1, $2, $3, $4, $5, $6) returning to_jsonb(hr_departments)",
-    )
-    .bind(generate_id("hrdep"))
-    .bind(&name)
-    .bind(input.description.as_set())
-    .bind(input.parent_id.as_set())
-    .bind(input.head_employee_id.as_set())
-    .bind(input.color.as_set())
-    .fetch_one(db)
+    let row = hr_departments::Entity::insert(hr_departments::ActiveModel {
+        id: Set(generate_id("hrdep")),
+        name: Set(name),
+        description: Set(input.description.as_set().cloned()),
+        parent_id: Set(input.parent_id.as_set().cloned()),
+        head_employee_id: Set(input.head_employee_id.as_set().cloned()),
+        color: Set(input.color.as_set().cloned()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(to_json(row)?).into_response())
 }
 
 async fn update(
@@ -278,59 +306,56 @@ async fn update(
     if let Some(head) = input.head_employee_id.as_set() {
         require_employee(db, head).await?;
     }
-    let (set_name, name) = change(&input.name);
-    let (set_description, description) = change(&input.description);
-    let (set_parent, parent) = change(&input.parent_id);
-    let (set_head, head) = change(&input.head_employee_id);
-    let (set_color, color) = change(&input.color);
-    let row: Value = sqlx::query_scalar(
-        "update hr_departments set
-             name = case when $2 then $3 else name end,
-             description = case when $4 then $5 else description end,
-             parent_id = case when $6 then $7 else parent_id end,
-             head_employee_id = case when $8 then $9 else head_employee_id end,
-             color = case when $10 then $11 else color end,
-             updated_at = $12::timestamp
-         where id = $1 returning to_jsonb(hr_departments)",
-    )
-    .bind(&id)
-    .bind(set_name)
-    .bind(name)
-    .bind(set_description)
-    .bind(description)
-    .bind(set_parent)
-    .bind(parent)
-    .bind(set_head)
-    .bind(head)
-    .bind(set_color)
-    .bind(color)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    let mut update = hr_departments::Entity::update_many();
+    for (column, field) in [
+        (hr_departments::Column::Name, &input.name),
+        (hr_departments::Column::Description, &input.description),
+        (hr_departments::Column::ParentId, &input.parent_id),
+        (hr_departments::Column::HeadEmployeeId, &input.head_employee_id),
+        (hr_departments::Column::Color, &input.color),
+    ] {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    let row = update
+        .col_expr(hr_departments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_departments::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_departments"))?;
+    Ok(Data(to_json(row)?).into_response())
 }
 
 async fn remove(caller: Caller, Path(id): Path<String>) -> HrResult {
     let db = &caller.db;
     let department = require_department(db, &id).await?;
-    let now = now();
-    sqlx::query("update hr_departments set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(&now)
-        .execute(db)
+    let now = utc_now();
+    let db = &orm(db);
+    hr_departments::Entity::update_many()
+        .col_expr(hr_departments::Column::DeletedAt, Expr::value(now))
+        .col_expr(hr_departments::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_departments::Column::Id.eq(id.as_str()))
+        .exec(db)
         .await?;
-    sqlx::query("update hr_employees set department_id = null, updated_at = $2::timestamp where department_id = $1")
-        .bind(&id)
-        .bind(&now)
-        .execute(db)
+    hr_employees::Entity::update_many()
+        .col_expr(
+            hr_employees::Column::DepartmentId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(hr_employees::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_employees::Column::DepartmentId.eq(id.as_str()))
+        .exec(db)
         .await?;
-    sqlx::query(
-        "update hr_departments set parent_id = $2, updated_at = $3::timestamp where parent_id = $1",
-    )
-    .bind(&id)
-    .bind(department["parentId"].as_str())
-    .bind(&now)
-    .execute(db)
-    .await?;
+    hr_departments::Entity::update_many()
+        .col_expr(
+            hr_departments::Column::ParentId,
+            Expr::value(department["parentId"].as_str().map(str::to_owned)),
+        )
+        .col_expr(hr_departments::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_departments::Column::ParentId.eq(id.as_str()))
+        .exec(db)
+        .await?;
     Ok(NoContent.into_response())
 }

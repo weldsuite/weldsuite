@@ -691,6 +691,7 @@ async fn org_chart_route(caller: Caller) -> HrResult {
 }
 
 async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
+    use workspace_members::Column as Member;
     let (search, limit) = zod_query(query.as_deref(), |issues, q| {
         (
             issues.text(q, "search", Presence::Optional, None, Some(200)),
@@ -714,7 +715,6 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
         .map(|s| crate::js_trim(&s).to_owned())
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{}%", escape_like_term(&s)));
-    use workspace_members::Column as Member;
     let mut members = workspace_members::Entity::find()
         .select_only()
         .columns([
