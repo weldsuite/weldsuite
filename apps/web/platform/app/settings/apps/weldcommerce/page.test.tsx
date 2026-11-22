@@ -5,6 +5,7 @@ import type { CommerceSettings } from '@/hooks/queries/use-commerce-orders-queri
 
 const env = vi.hoisted(() => ({
   allowed: new Set<string>(['commerce_settings:read', 'commerce_settings:update']),
+  permissionsLoading: false,
   available: true,
   access: { isInstalled: true, isLoading: false },
   settings: { data: undefined, isPending: false, isError: false, refetch: vi.fn() } as {
@@ -38,7 +39,11 @@ vi.mock('./payments-tab', () => ({
   ),
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
-  usePermissionsMaybe: () => ({ can: (permission: string) => env.allowed.has(permission) }),
+  // Like the real provider, can() is false while the permissions load.
+  usePermissionsMaybe: () => ({
+    can: (permission: string) => !env.permissionsLoading && env.allowed.has(permission),
+    isLoading: env.permissionsLoading,
+  }),
 }));
 vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => env.available }));
 vi.mock('@/hooks/use-app-access', () => ({ useAppAccess: () => env.access }));
@@ -54,6 +59,7 @@ const stored: CommerceSettings = { orderNumberPrefix: 'WC-', nextOrderNumber: 10
 
 beforeEach(() => {
   env.allowed = new Set(['commerce_settings:read', 'commerce_settings:update']);
+  env.permissionsLoading = false;
   env.available = true;
   env.access = { isInstalled: true, isLoading: false };
   env.settings = { data: { data: stored }, isPending: false, isError: false, refetch: vi.fn() };
@@ -225,6 +231,21 @@ describe('WeldCommerceSettingsPage', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     // Disabled by the fieldset around the form.
     expect(screen.getByLabelText('Order number prefix').matches(':disabled')).toBe(true);
+  });
+
+  it('says there is no access, not that loading failed, for a member who may not read the settings', () => {
+    env.allowed = new Set();
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByText('You do not have access to the WeldCommerce settings.')).toBeTruthy();
+    expect(screen.queryByText('Could not load the WeldCommerce settings.')).toBeNull();
+  });
+
+  it('waits for the permissions instead of saying anything about access', () => {
+    env.permissionsLoading = true;
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByText('Could not load the WeldCommerce settings.')).toBeNull();
+    expect(screen.queryByText('You do not have access to the WeldCommerce settings.')).toBeNull();
+    expect(screen.queryByLabelText('Order number prefix')).toBeNull();
   });
 
   it('shows an error with a retry when the settings cannot be loaded', async () => {
