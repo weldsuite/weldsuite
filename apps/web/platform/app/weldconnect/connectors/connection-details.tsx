@@ -37,6 +37,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
@@ -46,6 +47,7 @@ import {
   useConnectorSyncRuns,
   useSetConnectorPaused,
   useTriggerConnectorSync,
+  useRepairLiveUpdates,
   useUpdateConnector,
   type ConnectorConnection,
   type ConnectorSyncDef,
@@ -56,6 +58,11 @@ import { ConnectorFieldMappingEditor } from './connector-field-mapping-editor';
 import { MoneybirdPushSettingsPanel } from './moneybird-push-settings';
 
 type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
+
+/** Moneybird objects that can be sent from WeldBooks (ADR INT-013). */
+const MONEYBIRD_SENDABLE_KEYS = new Set(['contacts', 'products', 'invoices', 'bills']);
+/** Moneybird objects that only ever sync inbound: bank data comes from the bank feed. */
+const MONEYBIRD_INBOUND_ONLY_KEYS = new Set(['bankAccounts', 'bankTransactions']);
 
 const STATUS_CLASSES: Record<string, string> = {
   active: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300 border-green-200 dark:border-green-800',
@@ -264,6 +271,8 @@ interface SyncObjectRowProps {
   objectDirection: SyncDirection;
   canManage: boolean;
   tc: ConnectorsTranslations;
+  /** The object only syncs into WeldSuite (Moneybird bank data). */
+  inboundOnly?: boolean;
   onToggle: (checked: boolean) => void;
   onDirectionChange: (value: SyncDirection) => void;
 }
@@ -274,9 +283,11 @@ function SyncObjectRow({
   objectDirection,
   canManage,
   tc,
+  inboundOnly = false,
   onToggle,
   onDirectionChange,
 }: Readonly<SyncObjectRowProps>) {
+  const hintId = `sync-direction-hint-${sync.settingKey}`;
   return (
     <div className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
@@ -285,7 +296,22 @@ function SyncObjectRow({
         </p>
         <Switch checked={on} disabled={!canManage} onCheckedChange={onToggle} />
       </div>
-      {on ? (
+      {on && inboundOnly ? (
+        <div className="flex flex-col gap-1 sm:items-end">
+          <Select value="inbound" disabled>
+            <SelectTrigger className="h-8 w-full sm:w-[160px]" aria-describedby={hintId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inbound">{tc.settings.directionInboundOnly}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p id={hintId} className="text-muted-foreground text-[11px] sm:max-w-[240px] sm:text-right">
+            {tc.settings.directionInboundOnlyHint}
+          </p>
+        </div>
+      ) : null}
+      {on && !inboundOnly ? (
         <Select
           value={objectDirection}
           disabled={!canManage}
@@ -297,6 +323,70 @@ function SyncObjectRow({
           <DirectionSelectContent tc={tc} />
         </Select>
       ) : null}
+    </div>
+  );
+}
+
+interface MoneybirdLiveUpdatesProps {
+  connectionId: string;
+  webhookCount: number;
+  canManage: boolean;
+  tc: ConnectorsTranslations;
+}
+
+/**
+ * Whether Moneybird is sending changes through its webhooks, with a way to
+ * turn them on again when they are off. The state is written out, not only
+ * coloured.
+ */
+function MoneybirdLiveUpdates({ connectionId, webhookCount, canManage, tc }: Readonly<MoneybirdLiveUpdatesProps>) {
+  const on = webhookCount > 0;
+  const hintId = 'moneybird-live-updates-hint';
+  const repair = useRepairLiveUpdates();
+  const turnOn = () => {
+    repair.mutate(connectionId, {
+      onSuccess: (result) => {
+        if (result.data.warning) {
+          toast.error(result.data.warning);
+        } else {
+          toast.success(tc.moneybirdLive.turnedOn);
+        }
+      },
+      onError: () => toast.error(tc.moneybirdLive.turnOnFailed),
+    });
+  };
+  return (
+    <div className="mb-4 flex flex-col gap-2 rounded-lg border px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{tc.moneybirdLive.title}</p>
+        <p id={hintId} className="text-muted-foreground text-xs">
+          {on ? tc.moneybirdLive.onHint : tc.moneybirdLive.offHint}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {!on && canManage ? (
+          <Button size="sm" variant="outline" onClick={turnOn} disabled={repair.isPending}>
+            {repair.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            {tc.moneybirdLive.turnOn}
+          </Button>
+        ) : null}
+        <Badge
+          variant="outline"
+          aria-describedby={hintId}
+          className={`text-[11px] ${on ? STATUS_CLASSES.active : STATUS_CLASSES.paused}`}
+        >
+          {on ? tc.moneybirdLive.on : tc.moneybirdLive.off}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function MoneybirdTwoWayExplainer({ tc }: Readonly<{ tc: ConnectorsTranslations }>) {
+  return (
+    <div className="bg-muted/40 mt-3 rounded-lg border px-3 py-2.5">
+      <p className="text-xs font-medium">{tc.moneybirdLive.twoWayTitle}</p>
+      <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{tc.moneybirdLive.twoWayBody}</p>
     </div>
   );
 }
@@ -504,6 +594,12 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const currentDirection = direction ?? connection?.direction ?? 'inbound';
   const currentObjectDirections = objectDirections ?? connection?.objectSyncDirections ?? {};
   const needsEntity = ENTITY_PROVIDERS.has(connection?.provider ?? '');
+  const moneybirdTwoWay = connection?.provider === 'moneybird' && isFeatureAvailable('moneybirdTwoWay');
+  const sendsToMoneybird = moneybirdTwoWay
+    && (connection?.syncs ?? []).some((sync) => {
+      if (!MONEYBIRD_SENDABLE_KEYS.has(sync.settingKey) || !settingEnabled(currentSyncs, sync)) return false;
+      return (currentObjectDirections[sync.settingKey] ?? currentDirection) !== 'inbound';
+    });
   const workspaceId = useWorkspaceId();
   const { data: entities = [] } = useQuery<Array<{ id: string; name: string; isActive?: boolean | null }>>({
     queryKey: accountingEntitiesQueryKey(workspaceId),
@@ -692,6 +788,15 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                   </Select>
                 </div>
 
+                {moneybirdTwoWay ? (
+                  <MoneybirdLiveUpdates
+                    connectionId={connection.id}
+                    webhookCount={connection.webhookCount ?? 0}
+                    canManage={canManage}
+                    tc={tc}
+                  />
+                ) : null}
+
                 <div className="mb-2">
                   <p className="text-sm font-medium">{tc.settings.objectsLabel}</p>
                   <p className="text-muted-foreground text-xs">{tc.settings.objectsDescription}</p>
@@ -705,6 +810,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                       objectDirection={currentObjectDirections[sync.settingKey] ?? currentDirection}
                       canManage={canManage}
                       tc={tc}
+                      inboundOnly={moneybirdTwoWay && MONEYBIRD_INBOUND_ONLY_KEYS.has(sync.settingKey)}
                       onToggle={(checked) => {
                         const without = currentSyncs.filter(
                           (value) => value !== sync.settingKey && value !== sync.syncName,
@@ -720,6 +826,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     />
                   ))}
                 </div>
+                {sendsToMoneybird ? <MoneybirdTwoWayExplainer tc={tc} /> : null}
                 {canManage ? (
                   <Button
                     size="sm"

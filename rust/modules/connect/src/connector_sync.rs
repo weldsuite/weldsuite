@@ -12,6 +12,7 @@ use http::HeaderMap;
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::CONNECTOR_CONNECTION_SYNC_STARTED;
 use weldsuite_connect_domain::connections::get_connection;
+use weldsuite_connect_domain::moneybird_push::{push_to_moneybird, schedule_backlog, two_way};
 use weldsuite_connect_domain::sync::{SyncArgs, SyncEnv, Trigger, sync_connection};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Presence, Text};
@@ -78,7 +79,7 @@ impl Background {
     pub(crate) async fn run(
         self,
     ) -> Result<Vec<String>, weldsuite_connect_domain::sync::SyncError> {
-        sync_connection(&SyncArgs {
+        let synced = sync_connection(&SyncArgs {
             db: &self.db,
             env: &self.env,
             connection: &self.connection,
@@ -88,7 +89,53 @@ impl Background {
             full: self.full,
             syncs: self.syncs,
         })
-        .await
+        .await?;
+        if !two_way::outbound_objects(&self.connection).is_empty() {
+            push_after_sync(
+                &self.db,
+                self.env,
+                &self.connection,
+                &self.workspace_id,
+                self.trigger,
+            )
+            .await;
+        }
+        Ok(synced)
+    }
+}
+
+/// After a Moneybird import (Sync now, the scheduled catch-up), what
+/// changed in WeldBooks goes the other way (ADR INT-013): the safety net for
+/// changes that published no event, and for installs without `consume`.
+async fn push_after_sync(
+    db: &PgPool,
+    mut env: SyncEnv,
+    connection: &Value,
+    workspace_id: &str,
+    trigger: Trigger,
+) {
+    if let Some(due) = env.due.as_mut()
+        && due.workspace_id.is_empty()
+    {
+        workspace_id.clone_into(&mut due.workspace_id);
+    }
+    let fresh = match weldsuite_connect_domain::connections::get_connection(
+        db,
+        connection["id"].as_str().unwrap_or_default(),
+    )
+    .await
+    {
+        Ok(Some(fresh)) => fresh,
+        Ok(None) => return,
+        Err(error) => {
+            tracing::error!(%error, "[connectors/moneybird-sync] reading the connection failed");
+            return;
+        }
+    };
+    match push_to_moneybird(db, &env, &fresh, trigger.as_str(), false).await {
+        Ok(result) if result.remaining => schedule_backlog(&env).await,
+        Ok(_) => {}
+        Err(error) => tracing::error!(%error, "[connectors/moneybird-sync] push after sync failed"),
     }
 }
 
@@ -143,7 +190,7 @@ pub(crate) async fn sync_now(
         &state,
         Background {
             db: caller.db.clone(),
-            env: sync_env(&caller.overrides, &state),
+            env: sync_env_for(&caller.overrides, &state, &caller.workspace_id),
             connection: row.clone(),
             owner_id: caller.user_id.clone(),
             workspace_id: caller.clerk_org_id.clone(),
