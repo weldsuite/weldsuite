@@ -171,7 +171,7 @@ paths.
   document (an `https://` client id, as claude.ai and Claude Code send) or
   RFC 7591 registration at `https://auth.<domain>/register` (a `dcr_…` id).
   The `weldid-switch` layer turns both on and lists the server's URLs as
-  RFC 8707 resources (`flux/apps/weldid-switch/values/weldid.yaml`), so the
+  RFC 8707 resources (`rust/deploy/flux/apps/weldid-switch/values/weldid.yaml`), so the
   authorization-server document passed through here names
   `registration_endpoint` and `client_id_metadata_document_supported`. Such
   a client is public (PKCE), is asked for consent, and gets access tokens for
