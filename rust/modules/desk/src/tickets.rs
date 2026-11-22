@@ -10,6 +10,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
@@ -26,34 +27,35 @@ use crate::link::{Link, link_conversation_to_ticket};
 use crate::notify::{Assigned, assigned};
 use crate::tables::{HELPDESK_TICKET_MESSAGES, HELPDESK_TICKETS};
 use crate::{Caller, DeskState, Refusal, now, validate};
+use weldsuite_schema::tenant::helpdesk_tickets::Column as Ticket;
 
-const TICKET_LIST: (&str, &str) = listing!("helpdesk_tickets";
-    "($2::boolean or t.status = $3::text)",
-    "($4::boolean or t.priority = $5::text)",
-    "($6::boolean or t.assignee_id = $7::text)",
-    "($8::boolean or t.department_id = $9::text)",
-    "($10::boolean or t.contact_id = $11::text)",
-    "($12::boolean or t.channel = $13::text)",
-    "($14::boolean or t.category = $15::text)",
-    "($16::boolean or t.ticket_type_id = $17::text)",
-    "($18::boolean or (t.subject like $19::text or t.customer_email like $19::text or t.customer_name like $19::text or t.ticket_number like $19::text))";
-    20, 21, 22; "$23");
-
-const LISTING: Listing = Listing {
+pub(crate) const LISTING: Listing = Listing {
     table: &HELPDESK_TICKETS,
     filters: &[
-        Filter::eq("status"),
-        Filter::eq("priority"),
-        Filter::eq("assigneeId"),
-        Filter::eq("departmentId"),
-        Filter::eq("contactId"),
-        Filter::eq("channel"),
-        Filter::eq("category"),
-        Filter::eq("ticketTypeId"),
-        Filter::like("search"),
+        Filter::eq("status", |v| Condition::all().add(Ticket::Status.eq(v))),
+        Filter::eq("priority", |v| Condition::all().add(Ticket::Priority.eq(v))),
+        Filter::eq("assigneeId", |v| {
+            Condition::all().add(Ticket::AssigneeId.eq(v))
+        }),
+        Filter::eq("departmentId", |v| {
+            Condition::all().add(Ticket::DepartmentId.eq(v))
+        }),
+        Filter::eq("contactId", |v| {
+            Condition::all().add(Ticket::ContactId.eq(v))
+        }),
+        Filter::eq("channel", |v| Condition::all().add(Ticket::Channel.eq(v))),
+        Filter::eq("category", |v| Condition::all().add(Ticket::Category.eq(v))),
+        Filter::eq("ticketTypeId", |v| {
+            Condition::all().add(Ticket::TicketTypeId.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::any()
+                .add(Ticket::Subject.like(v.clone()))
+                .add(Ticket::CustomerEmail.like(v.clone()))
+                .add(Ticket::CustomerName.like(v.clone()))
+                .add(Ticket::TicketNumber.like(v))
+        }),
     ],
-    list_sql: TICKET_LIST.0,
-    count_sql: TICKET_LIST.1,
     slice_count: true,
 };
 

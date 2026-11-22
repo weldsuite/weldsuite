@@ -19,7 +19,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Order};
+use sea_orm::{Condition, DbErr};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_kit::validation::Issues;
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
@@ -29,22 +32,31 @@ use crate::js::{js_limit, query_param, sql_limit};
 use crate::table::{Table, WriteError};
 use crate::{Caller, DeskState, Refusal, now, validate};
 
-/// A list filter: `eq(column, q[key])` or `like(column, '%' + q[key] + '%')`
-/// when the query value is a non-empty string. The list statement has one
-/// slot per filter, in this order (see [`Crud::list_sql`]).
+/// A list filter: `test` on `q[key]` when the query value is a non-empty
+/// string, as `'%' + q[key] + '%'` for a `like` one. `test` is the
+/// condition on the entity's columns (`eq(column, value)`, `like(…)`).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Filter {
     pub(crate) query: &'static str,
     pub(crate) like: bool,
+    pub(crate) test: fn(String) -> Condition,
 }
 
 impl Filter {
-    pub(crate) const fn eq(query: &'static str) -> Self {
-        Self { query, like: false }
+    pub(crate) const fn eq(query: &'static str, test: fn(String) -> Condition) -> Self {
+        Self {
+            query,
+            like: false,
+            test,
+        }
     }
 
-    pub(crate) const fn like(query: &'static str) -> Self {
-        Self { query, like: true }
+    pub(crate) const fn like(query: &'static str, test: fn(String) -> Condition) -> Self {
+        Self {
+            query,
+            like: true,
+            test,
+        }
     }
 }
 
@@ -106,12 +118,9 @@ pub(crate) struct Crud {
     pub(crate) gates: Gates,
     pub(crate) messages: Messages,
     pub(crate) schema: Schema,
+    /// The list's filters, after its live-only condition and before its
+    /// cursor. The rows come newest first.
     pub(crate) filters: &'static [Filter],
-    /// `$1` live-only skip, then per filter `(skip, value)`, then the cursor
-    /// `(skip, created_at, id)`, then `limit`. The rows, newest first.
-    pub(crate) list_sql: &'static str,
-    /// The same conditions without the limit: `count(*)`.
-    pub(crate) count_sql: &'static str,
     /// The count drops the last list condition on a `?cursor=`
     /// (`conditions.slice(0, -1)`); otherwise it counts the filters only.
     pub(crate) slice_count: bool,
@@ -206,57 +215,53 @@ where
         )
 }
 
-/// The keyset condition's operands: the cursor row's `createdAt` as
-/// JavaScript read it (milliseconds) and its id.
+/// The keyset operands: the cursor row's `createdAt` as JavaScript read it
+/// (milliseconds) and its id.
+pub(crate) type CursorRow = (PrimitiveDateTime, String);
+
+/// `select createdAt, id from t where id = cursor limit 1`.
 pub(crate) async fn cursor_row(
     db: &weldsuite_db::PgPool,
-    table: &str,
+    table: &Table,
     cursor: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    // One statement per table: sqlx takes literal SQL only.
-    let sql = cursor_sql(table);
-    let row: Option<(Option<String>, String)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
-    Ok(row.and_then(|(created_at, id)| {
-        created_at
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
+) -> Result<Option<CursorRow>, DbErr> {
+    let row = table
+        .entity
+        .find(&weldsuite_db::orm(db), cursor, false)
+        .await?;
+    Ok(row.and_then(|row| {
+        let created_at = row.get("createdAt").and_then(Value::as_str)?;
+        let id = row.get("id").and_then(Value::as_str)?;
+        Some((js_date_time(created_at)?, id.to_owned()))
     }))
 }
 
-/// `select createdAt, id from t where id = $1 limit 1`, per table.
-fn cursor_sql(table: &str) -> &'static str {
-    macro_rules! cursor {
-        ($($table:literal),* $(,)?) => {
-            match table {
-                $($table => concat!(
-                    "select to_jsonb(t.created_at)#>>'{}', t.id from \"", $table,
-                    "\" t where t.id = $1 limit 1"
-                ),)*
-                _ => "select null::text, null::text where false",
-            }
-        };
-    }
-    cursor!(
-        "helpdesk_faqs",
-        "helpdesk_news",
-        "helpdesk_announcements",
-        "helpdesk_feedback",
-        "helpdesk_reviews",
-        "helpdesk_slas",
-        "helpdesk_ticket_notes",
-        "helpdesk_ticket_messages",
-        "helpdesk_satisfaction_surveys",
-        "helpdesk_tickets",
-        "helpdesk_conversations",
-        "helpdesk_article_folders",
-        "helpdesk_articles",
-        "helpdesk_canned_responses",
-        "helpdesk_ticket_types",
-        "helpdesk_agents",
-        "helpdesk_departments",
-        "helpdesk_workflows",
-    )
+/// A `toISOString()` (`2026-10-29T07:00:00.123Z`) as the `timestamp` it was
+/// read from.
+pub(crate) fn js_date_time(text: &str) -> Option<PrimitiveDateTime> {
+    let format = time::macros::format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]"
+    );
+    PrimitiveDateTime::parse(text.strip_suffix('Z')?, format).ok()
+}
+
+/// `t.<name>` of the table's entity.
+pub(crate) fn column(table: &Table, name: &str) -> Result<Expr, DbErr> {
+    table
+        .entity
+        .column(name)
+        .ok_or_else(|| DbErr::Custom(format!("{} has no {name}", table.name)))
+}
+
+/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`.
+pub(crate) fn before(table: &Table, (at, id): &CursorRow) -> Result<Condition, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let created_at = column(table, "created_at")?;
+    Ok(Condition::any().add(created_at.clone().lt(*at)).add(
+        Condition::all()
+            .add(created_at.eq(*at))
+            .add(column(table, "id")?.lt(id.as_str())),
+    ))
 }
 
 /// The list's conditions as statement slots: which are skipped.
@@ -283,13 +288,11 @@ impl Slots {
     }
 }
 
-/// A cursor-paged list statement pair and its filters (see [`Crud`]).
+/// A cursor-paged list: its table and filters (see [`Crud`]).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Listing {
     pub(crate) table: &'static Table,
     pub(crate) filters: &'static [Filter],
-    pub(crate) list_sql: &'static str,
-    pub(crate) count_sql: &'static str,
     pub(crate) slice_count: bool,
 }
 
@@ -305,7 +308,7 @@ pub(crate) struct Fetched {
 /// before the route's `try`) or a statement inside it (the route's 500).
 pub(crate) enum ListError {
     Cursor,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl ListError {
@@ -341,7 +344,7 @@ pub(crate) async fn fetch(
         .collect();
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
     let cursor_row = match &cursor {
-        Some(cursor) => cursor_row(db, listing.table.name, cursor)
+        Some(cursor) => cursor_row(db, listing.table, cursor)
             .await
             .map_err(|error| {
                 tracing::error!(%error, "desk: cursor lookup failed");
@@ -357,29 +360,62 @@ pub(crate) async fn fetch(
         let last = count.skip.len() - 1;
         count.skip[last] = true;
     }
-    let rows = bind_slots(
-        sqlx::query_scalar(listing.list_sql),
-        &page,
-        &values,
-        cursor_row.as_ref(),
-    )
-    .bind(sql_limit(limit))
-    .fetch_all(db);
-    let total = bind_slots(
-        sqlx::query_scalar(listing.count_sql),
-        &count,
-        &values,
-        cursor_row.as_ref(),
-    )
-    .fetch_one(db);
-    let (rows, total): (Result<Vec<Value>, _>, Result<i64, _>) = futures_join(rows, total).await;
-    let rows = rows.map_err(ListError::Database)?;
-    let total = total.map_err(ListError::Database)?;
-    Ok(Fetched {
-        rows: rows.into_iter().map(|row| listing.table.js(row)).collect(),
-        limit,
-        total,
-    })
+    let entity = &listing.table.entity;
+    let conditions = |slots: &Slots| conditions(listing, slots, &values, cursor_row.as_ref());
+    let mut select = entity.select();
+    select
+        .cond_where(conditions(&page).map_err(ListError::Database)?)
+        .order_by_expr(
+            column(listing.table, "created_at").map_err(ListError::Database)?,
+            Order::Desc,
+        )
+        .order_by_expr(
+            column(listing.table, "id").map_err(ListError::Database)?,
+            Order::Desc,
+        );
+    if let Some(limit) = sql_limit(limit) {
+        select.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    let mut counted = entity.select();
+    counted.cond_where(conditions(&count).map_err(ListError::Database)?);
+    let db = weldsuite_db::orm(db);
+    let rows = entity
+        .rows(&db, &select)
+        .await
+        .map_err(ListError::Database)?;
+    let total = entity
+        .count(&db, &counted)
+        .await
+        .map_err(ListError::Database)?;
+    Ok(Fetched { rows, limit, total })
+}
+
+/// The list's conditions the slots keep: `isNull(t.deletedAt)`, then each
+/// filter on its value, then the cursor.
+fn conditions(
+    listing: Listing,
+    slots: &Slots,
+    values: &[Option<String>],
+    cursor: Option<&CursorRow>,
+) -> Result<Condition, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let mut all = Condition::all();
+    if !slots.skip[0] {
+        all = all.add(column(listing.table, "deleted_at")?.is_null());
+    }
+    for (index, (filter, value)) in listing.filters.iter().zip(values).enumerate() {
+        if !slots.skip[index + 1]
+            && let Some(value) = value
+        {
+            all = all.add((filter.test)(value.clone()));
+        }
+    }
+    if !slots.skip[values.len() + 1]
+        && let Some(cursor) = cursor
+    {
+        all = all.add(before(listing.table, cursor)?);
+    }
+    Ok(all)
 }
 
 async fn list(
@@ -391,40 +427,12 @@ async fn list(
     let listing = Listing {
         table: crud.table,
         filters: crud.filters,
-        list_sql: crud.list_sql,
-        count_sql: crud.count_sql,
         slice_count: crud.slice_count,
     };
     match fetch(listing, &caller.db, query.as_deref()).await {
         Ok(fetched) => page_list(fetched.rows, fetched.limit, fetched.total),
         Err(error) => error.respond(crud.messages.list),
     }
-}
-
-/// Both queries, as `Promise.all` runs them.
-async fn futures_join<A, B>(a: impl Future<Output = A>, b: impl Future<Output = B>) -> (A, B) {
-    let a = a.await;
-    let b = b.await;
-    (a, b)
-}
-
-/// Bind the slots: `$1` live-only skip, then `(skip, value)` per filter,
-/// then the cursor's `(skip, created_at, id)`.
-pub(crate) fn bind_slots<'q, O>(
-    query: sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments>,
-    slots: &Slots,
-    values: &'q [Option<String>],
-    cursor: Option<&'q (String, String)>,
-) -> sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments> {
-    let mut query = query.bind(slots.skip[0]);
-    for (index, value) in values.iter().enumerate() {
-        query = query.bind(slots.skip[index + 1]).bind(value.as_deref());
-    }
-    let cursor_skip = slots.skip[values.len() + 1];
-    query
-        .bind(cursor_skip)
-        .bind(cursor.map(|(created_at, _)| created_at.as_str()))
-        .bind(cursor.map(|(_, id)| id.as_str()))
 }
 
 /// `list(c, data, cursorPagination(totalCount, hasMore, nextCursor))` from a
@@ -631,4 +639,55 @@ pub(crate) async fn soft_delete(
         .patch(db, id, values, false, &["deletedAt", "updatedAt"])
         .await
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every paged list orders and pages on `created_at` and `id`, and the
+    /// live-only condition is `deleted_at`: columns found by name.
+    #[test]
+    fn the_lists_have_their_keyset_columns() {
+        let cruds = [
+            &crate::simple::FAQS,
+            &crate::simple::NEWS,
+            &crate::simple::ANNOUNCEMENTS,
+            &crate::simple::FEEDBACK,
+            &crate::simple::REVIEWS,
+            &crate::simple::SLA,
+            &crate::simple::TICKET_NOTES,
+            &crate::simple::TICKET_MESSAGES,
+            &crate::simple::SURVEYS,
+            &crate::library::ARTICLE_FOLDERS,
+            &crate::library::TICKET_TYPES,
+            &crate::library::HELPDESK_AGENTS,
+            &crate::library::CANNED_RESPONSES,
+            &crate::library::WORKFLOWS,
+            &crate::library::DEPARTMENTS_CRUD,
+        ];
+        let tables = cruds
+            .iter()
+            .map(|crud| crud.table)
+            .chain([
+                crate::tickets::LISTING.table,
+                crate::kb::ARTICLE_LISTING.table,
+            ])
+            .chain([&crate::tables::HELPDESK_CONVERSATIONS]);
+        for table in tables {
+            for name in ["id", "created_at", "deleted_at"] {
+                assert!(column(table, name).is_ok(), "{}.{name}", table.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_cursor_stamp_reads_back_to_the_millisecond() {
+        let at = js_date_time("2026-10-29T07:00:00.123Z");
+        assert_eq!(
+            at.map(|at| at.to_string()),
+            Some("2026-10-29 7:00:00.123".to_owned())
+        );
+        assert_eq!(js_date_time("2026-10-29"), None);
+    }
 }

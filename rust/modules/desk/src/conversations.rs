@@ -323,15 +323,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let search = q("search").map(|s| format!("%{s}%"));
     // The cursor lookup runs before the route's `try`.
     let cursor = match q("cursor") {
-        Some(cursor) => {
-            match crate::crud::cursor_row(&caller.db, "helpdesk_conversations", &cursor).await {
-                Ok(row) => row,
-                Err(error) => {
-                    tracing::error!(%error, "desk: cursor lookup failed");
-                    return weldsuite_kit::ApiError::internal().into_response();
-                }
+        Some(cursor) => match crate::crud::cursor_row(&caller.db, CONV, &cursor).await {
+            Ok(row) => row,
+            Err(error) => {
+                tracing::error!(%error, "desk: cursor lookup failed");
+                return weldsuite_kit::ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
     macro_rules! filters {
@@ -354,7 +352,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         };
     }
     let rows: Result<Vec<ContactRow>, _> = filters!(sqlx::query_as(LIST_SQL))
-        .bind(cursor.as_ref().map(|(at, _)| at.as_str()))
+        .bind(cursor.as_ref().map(|(at, _)| *at))
         .bind(cursor.as_ref().map(|(_, id)| id.as_str()))
         .bind(sql_limit(limit))
         .fetch_all(&caller.db)

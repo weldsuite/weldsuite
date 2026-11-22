@@ -19,6 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
@@ -32,6 +33,7 @@ use crate::js::{js_parse_int, query_param};
 use crate::library::{ARTICLES, CANNED_RESPONSES, TICKETS};
 use crate::tables::{HELPDESK_ARTICLES, HELPDESK_CANNED_RESPONSES, HELPDESK_CHANGELOG};
 use crate::{Caller, DeskState, Refusal, now, validate};
+use weldsuite_schema::tenant::helpdesk_articles::Column as Article;
 
 /// The routes, relative to `/api`, each with its `requirePermission`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -92,26 +94,25 @@ where
 // Articles
 // ---------------------------------------------------------------------------
 
-const ARTICLE_LIST: (&str, &str) = listing!("helpdesk_articles";
-    "($2::boolean or t.status = $3::text)", "($4::boolean or t.visibility = $5::text)",
-    "($6::boolean or t.category_id = $7::text)", "($8::boolean or t.author_id = $9::text)",
-    "($10::boolean or t.title like $11::text)",
-    "($12::boolean or (t.translation_of_id is null and $13::text is not null))";
-    14, 15, 16; "$17");
-
-const ARTICLE_LISTING: Listing = Listing {
+pub(crate) const ARTICLE_LISTING: Listing = Listing {
     table: &HELPDESK_ARTICLES,
     filters: &[
-        Filter::eq("status"),
-        Filter::eq("visibility"),
-        Filter::eq("folderId"),
-        Filter::eq("authorId"),
-        Filter::like("search"),
+        Filter::eq("status", |v| Condition::all().add(Article::Status.eq(v))),
+        Filter::eq("visibility", |v| {
+            Condition::all().add(Article::Visibility.eq(v))
+        }),
+        Filter::eq("folderId", |v| {
+            Condition::all().add(Article::CategoryId.eq(v))
+        }),
+        Filter::eq("authorId", |v| {
+            Condition::all().add(Article::AuthorId.eq(v))
+        }),
+        Filter::like("search", |v| Condition::all().add(Article::Title.like(v))),
         // `?originals=1`: only originals, no language versions.
-        Filter::eq("originals"),
+        Filter::eq("originals", |_| {
+            Condition::all().add(Article::TranslationOfId.is_null())
+        }),
     ],
-    list_sql: ARTICLE_LIST.0,
-    count_sql: ARTICLE_LIST.1,
     slice_count: true,
 };
 

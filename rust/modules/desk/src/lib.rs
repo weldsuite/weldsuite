@@ -16,64 +16,6 @@
     reason = "not converted to the ORM yet (ADR DATA-019)"
 )]
 
-/// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
-macro_rules! cursor {
-    ($a:literal, $b:literal, $c:literal) => {
-        concat!(
-            "($",
-            $a,
-            "::boolean or (t.created_at < $",
-            $b,
-            "::timestamp or (t.created_at = $",
-            $b,
-            "::timestamp and t.id < $",
-            $c,
-            "::text)))"
-        )
-    };
-}
-
-/// The list statement of a table with `$filters` filter slots: `$1` skips
-/// the live-only condition, each filter takes `(skip, value)`, the cursor
-/// `(skip, createdAt, id)`, then the limit.
-macro_rules! listing {
-    ($table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
-        (
-            concat!(
-                "select to_jsonb(t) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c),
-                " order by t.created_at desc, t.id desc limit ", $limit
-            ),
-            concat!(
-                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c)
-            ),
-        )
-    };
-}
-
-/// [`listing!`] for a table whose row needs more than `to_jsonb(t)` (a
-/// `numeric` column read back as text): `$row` is the row expression.
-macro_rules! listing_as {
-    ($row:literal; $table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
-        (
-            concat!(
-                "select ", $row, " from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c),
-                " order by t.created_at desc, t.id desc limit ", $limit
-            ),
-            concat!(
-                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c)
-            ),
-        )
-    };
-}
-
 mod announcements;
 mod assignment;
 mod channels;
