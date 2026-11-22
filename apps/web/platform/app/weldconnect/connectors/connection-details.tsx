@@ -327,9 +327,37 @@ function SyncObjectRow({
   );
 }
 
+/** A Moneybird connection on an edition with the two-way sync (ADR INT-013). */
+function isMoneybirdTwoWay(connection: ConnectorConnection | undefined): boolean {
+  return connection?.provider === 'moneybird' && isFeatureAvailable('moneybirdTwoWay');
+}
+
+/** Whether the draft settings send any object to Moneybird. */
+function draftSendsToMoneybird(
+  twoWay: boolean,
+  syncs: ConnectorConnection['syncs'],
+  enabledSyncs: string[],
+  directions: Record<string, SyncDirection>,
+  fallback: SyncDirection,
+): boolean {
+  if (!twoWay) return false;
+  return syncs.some(
+    (sync) =>
+      MONEYBIRD_SENDABLE_KEYS.has(sync.settingKey)
+      && settingEnabled(enabledSyncs, sync)
+      && (directions[sync.settingKey] ?? fallback) !== 'inbound',
+  );
+}
+
+/** Moneybird bank data only ever comes into WeldSuite. */
+function moneybirdInboundOnly(twoWay: boolean, settingKey: string): boolean {
+  return twoWay && MONEYBIRD_INBOUND_ONLY_KEYS.has(settingKey);
+}
+
 interface MoneybirdLiveUpdatesProps {
+  shown: boolean;
   connectionId: string;
-  webhookCount: number;
+  webhookCount: number | undefined;
   canManage: boolean;
   tc: ConnectorsTranslations;
 }
@@ -339,10 +367,11 @@ interface MoneybirdLiveUpdatesProps {
  * turn them on again when they are off. The state is written out, not only
  * coloured.
  */
-function MoneybirdLiveUpdates({ connectionId, webhookCount, canManage, tc }: Readonly<MoneybirdLiveUpdatesProps>) {
-  const on = webhookCount > 0;
-  const hintId = 'moneybird-live-updates-hint';
+function MoneybirdLiveUpdates({ shown, connectionId, webhookCount, canManage, tc }: Readonly<MoneybirdLiveUpdatesProps>) {
   const repair = useRepairLiveUpdates();
+  if (!shown) return null;
+  const on = (webhookCount ?? 0) > 0;
+  const hintId = 'moneybird-live-updates-hint';
   const turnOn = () => {
     repair.mutate(connectionId, {
       onSuccess: (result) => {
@@ -382,7 +411,8 @@ function MoneybirdLiveUpdates({ connectionId, webhookCount, canManage, tc }: Rea
   );
 }
 
-function MoneybirdTwoWayExplainer({ tc }: Readonly<{ tc: ConnectorsTranslations }>) {
+function MoneybirdTwoWayExplainer({ shown, tc }: Readonly<{ shown: boolean; tc: ConnectorsTranslations }>) {
+  if (!shown) return null;
   return (
     <div className="bg-muted/40 mt-3 rounded-lg border px-3 py-2.5">
       <p className="text-xs font-medium">{tc.moneybirdLive.twoWayTitle}</p>
@@ -594,12 +624,14 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const currentDirection = direction ?? connection?.direction ?? 'inbound';
   const currentObjectDirections = objectDirections ?? connection?.objectSyncDirections ?? {};
   const needsEntity = ENTITY_PROVIDERS.has(connection?.provider ?? '');
-  const moneybirdTwoWay = connection?.provider === 'moneybird' && isFeatureAvailable('moneybirdTwoWay');
-  const sendsToMoneybird = moneybirdTwoWay
-    && (connection?.syncs ?? []).some((sync) => {
-      if (!MONEYBIRD_SENDABLE_KEYS.has(sync.settingKey) || !settingEnabled(currentSyncs, sync)) return false;
-      return (currentObjectDirections[sync.settingKey] ?? currentDirection) !== 'inbound';
-    });
+  const moneybirdTwoWay = isMoneybirdTwoWay(connection);
+  const sendsToMoneybird = draftSendsToMoneybird(
+    moneybirdTwoWay,
+    connection?.syncs ?? [],
+    currentSyncs,
+    currentObjectDirections,
+    currentDirection,
+  );
   const workspaceId = useWorkspaceId();
   const { data: entities = [] } = useQuery<Array<{ id: string; name: string; isActive?: boolean | null }>>({
     queryKey: accountingEntitiesQueryKey(workspaceId),
@@ -788,14 +820,13 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                   </Select>
                 </div>
 
-                {moneybirdTwoWay ? (
-                  <MoneybirdLiveUpdates
-                    connectionId={connection.id}
-                    webhookCount={connection.webhookCount ?? 0}
-                    canManage={canManage}
-                    tc={tc}
-                  />
-                ) : null}
+                <MoneybirdLiveUpdates
+                  shown={moneybirdTwoWay}
+                  connectionId={connection.id}
+                  webhookCount={connection.webhookCount}
+                  canManage={canManage}
+                  tc={tc}
+                />
 
                 <div className="mb-2">
                   <p className="text-sm font-medium">{tc.settings.objectsLabel}</p>
@@ -810,7 +841,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                       objectDirection={currentObjectDirections[sync.settingKey] ?? currentDirection}
                       canManage={canManage}
                       tc={tc}
-                      inboundOnly={moneybirdTwoWay && MONEYBIRD_INBOUND_ONLY_KEYS.has(sync.settingKey)}
+                      inboundOnly={moneybirdInboundOnly(moneybirdTwoWay, sync.settingKey)}
                       onToggle={(checked) => {
                         const without = currentSyncs.filter(
                           (value) => value !== sync.settingKey && value !== sync.syncName,
@@ -826,7 +857,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     />
                   ))}
                 </div>
-                {sendsToMoneybird ? <MoneybirdTwoWayExplainer tc={tc} /> : null}
+                <MoneybirdTwoWayExplainer shown={sendsToMoneybird} tc={tc} />
                 {canManage ? (
                   <Button
                     size="sm"
