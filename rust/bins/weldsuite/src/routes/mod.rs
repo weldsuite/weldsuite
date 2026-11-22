@@ -3448,5 +3448,11 @@ fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiSt
         env: Arc::clone(ENV.get_or_init(|| {
             Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
         })),
+        // WeldMail's relay and ledgers, as `/api/mail-*` sends through them;
+        // conformance tests bring their own (request extensions).
+        mail: weldsuite_external_api::MailBindings {
+            outbound: deployment_outbound(state),
+            doh: Some(weldsuite_mail::send::reqwest_doh()),
+        },
     }
 }

@@ -1012,7 +1012,8 @@ consume:
   enabled: false
   replicaCount: 2
   # The subscribers to run; empty runs every ported one (audit, search-index,
-  # webhooks, realtime, and reach-send: WeldReach's sends, which the
+  # webhooks, realtime, moneybird-sync: WeldBooks changes on to Moneybird,
+  # ADR INT-013, and reach-send: WeldReach's sends, which the
   # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
   # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
   # config.ai with an embedding model, or `embeddings` below.

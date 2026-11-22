@@ -236,7 +236,7 @@ impl DynOutboundHttp for Unreachable {
 
 /// `resolveClerkOrgId(env, workspaceId)`: the workspace's org id in the
 /// master database; a failed read is the worker's 500.
-async fn clerk_org_id(master: &PgPool, caller: &Caller) -> Result<Option<String>, Fail> {
+pub(crate) async fn clerk_org_id(master: &PgPool, caller: &Caller) -> Result<Option<String>, Fail> {
     let org: Option<Option<String>> =
         sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
             .bind(&caller.session.workspace_id)

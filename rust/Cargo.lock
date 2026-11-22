@@ -8725,6 +8725,7 @@ dependencies = [
  "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-know-domain",
+ "weldsuite-mail-domain",
  "weldsuite-notifications",
  "weldsuite-outside-eu",
  "weldsuite-pipeline",
@@ -9050,6 +9051,7 @@ name = "weldsuite-mail-domain"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "jiff",
  "lettre",
  "regex",
  "sea-orm",
@@ -9063,6 +9065,7 @@ dependencies = [
  "uuid",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-kit",
  "weldsuite-ports",
  "weldsuite-schema",

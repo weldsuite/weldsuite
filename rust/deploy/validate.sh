@@ -304,7 +304,7 @@ echo "== Images (the layers' own manifests)"
 # above.
 images=(
   "docker.io/rclone/rclone:1.75.2 flux/infrastructure/offsite-copy/cronjob.yaml"
-  "docker.io/cloudnativelabs/kube-router:v2.11.2 flux/infrastructure/network-policy/kube-router.yaml"
+  "docker.io/cloudnativelabs/kube-router:v2.11.2 flux/infrastructure/network-policy/kube-router.yaml flux/infrastructure/network-policy/metadata-guard.yaml"
   "ghcr.io/alex1989hu/kubelet-serving-cert-approver:0.12.1 flux/infrastructure/controllers/kubelet-serving-cert-approver.yaml"
   "ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie flux/infrastructure/configs/base/postgres.yaml flux/infrastructure/weldid/database.yaml"
 )

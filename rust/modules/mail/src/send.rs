@@ -17,10 +17,7 @@ use weldsuite_ports::{FileStores, MailTransport};
 use crate::crm::CrmAutoAdd;
 use crate::{Caller, MailState};
 
-/// A request's own DNS-over-HTTPS client (conformance: the test's `fetch`
-/// stub, through the outbound bridge), ahead of the app's.
-#[derive(Clone)]
-pub struct RequestDoh(pub Arc<dyn DnsOverHttps>);
+pub use weldsuite_mail_domain::recipients::RequestDoh;
 
 /// Everything a send borrows, owned for the length of the request.
 pub(crate) struct SendContext {

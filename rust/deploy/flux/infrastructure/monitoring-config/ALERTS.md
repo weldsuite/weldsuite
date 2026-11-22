@@ -348,6 +348,30 @@ everything. A warning.
   `kubectl -n offsite-copy create job --from=cronjob/offsite-copy
   offsite-copy-manual`.
 
+## Network policy
+
+Only on a cluster that runs the network-policy layer (`../network-policy`,
+opt-in; the rule is `rules/network-policy.yaml`).
+
+### NetworkPolicyEnforcementDegraded
+
+`kube-router` or `metadata-guard` (DaemonSets in kube-system, one pod per
+node) has had a node without a ready pod for 10 minutes. Without
+kube-router, that node's pods are held to stale rules, and new pods to none.
+Without the guard, a new pod on it can reach the metadata service, and so the
+node's Talos machine configuration, in its first second. A warning; fix it
+in the day.
+
+- `kubectl -n kube-system get ds kube-router metadata-guard` and `get pods
+  -o wide -l app.kubernetes.io/name=<name>`: which node, and why (Pending:
+  a taint or no room; not ready; crash loop).
+- The guard's log says why it isn't ready: `can't read FLANNEL_NETWORK`
+  (Flannel hasn't started on that node, or its `subnet.env` moved) or
+  `can't insert the rule` (iptables' error). Its readiness probe fails while
+  the rule is missing.
+- kube-router's log (`kubectl -n kube-system logs <pod>`): a sync that keeps
+  failing restarts it (`KubePodCrashLooping` too).
+
 ## WeldID
 
 Only on a cluster that runs WeldID (`../weldid`, opt-in; the rules are in
