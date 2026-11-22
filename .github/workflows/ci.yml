@@ -485,16 +485,21 @@ jobs:
         run: |
           set -euo pipefail
           free -h
-          # The scratch disk (/mnt on GitHub's runners), else the root disk.
-          dir=/mnt
-          [ -d "$dir" ] || dir=
-          file="$dir/swapfile"
-          # Its free space less 4 GiB, at most 32 GiB.
-          avail_gib=$(( $(df --output=avail -k "${dir:-/}" | tail -1) / 1048576 ))
-          size_gib=$(( avail_gib - 4 ))
-          if [ "$size_gib" -gt 32 ]; then size_gib=32; fi
-          if [ "$size_gib" -lt 8 ]; then
-            echo "::warning::only ${avail_gib} GiB free on ${dir:-/}; no extra swap"
+          # GitHub's runners mount a scratch disk on /mnt: up to 32 GiB of
+          # swap there, leaving 4 GiB. Without that mount, the root disk,
+          # which the build itself fills (BuildKit's layers, the Rust
+          # target): at most 8 GiB, leaving 25 GiB.
+          if mountpoint -q /mnt; then
+            dir=/mnt cap=32 headroom=4
+          else
+            dir=/ cap=8 headroom=25
+          fi
+          file="${dir%/}/swapfile"
+          avail_gib=$(( $(df --output=avail -k "$dir" | tail -1) / 1048576 ))
+          size_gib=$(( avail_gib - headroom ))
+          if [ "$size_gib" -gt "$cap" ]; then size_gib=$cap; fi
+          if [ "$size_gib" -lt 4 ]; then
+            echo "::warning::only ${avail_gib} GiB free on $dir; no extra swap"
             exit 0
           fi
           sudo swapoff -a
