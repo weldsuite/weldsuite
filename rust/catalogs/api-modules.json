@@ -253,6 +253,7 @@
       "/api/accounting-exports",
       "/api/accounting-reports",
       "/api/accounting-settings",
+      "/api/annual-reports",
       "/api/bank-accounts",
       "/api/bank-transactions",
       "/api/bills",

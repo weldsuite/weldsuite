@@ -78,6 +78,12 @@ pub struct BooksState {
     /// token, never in the access token the platform sends, and the platform
     /// has no step-up flow there yet, so every link would be refused.
     pub second_factor_step_up: bool,
+    /// The install's Digipoort connection (`DIGIPOORT_*`,
+    /// `weldsuite_digipoort`): the BTW-aangifte, the Opgaaf ICP and the
+    /// jaarrekening are delivered over it. `None` without one: filing then
+    /// answers the worker's simulated submission. Never set in conformance
+    /// builds.
+    pub digipoort: Option<weldsuite_digipoort::Digipoort>,
     /// The install's AI (`weldsuite_ai`, ADR AI-012), for document OCR.
     /// `None` with AI off. A request's own (conformance) wins
     /// ([`Caller::ai`]).
@@ -93,6 +99,7 @@ impl std::fmt::Debug for BooksState {
             .field("cache", &self.cache.is_some())
             .field("realtime", &self.realtime.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("digipoort", &self.digipoort.is_some())
             .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
@@ -115,6 +122,7 @@ impl BooksState {
             rates: Arc::default(),
             trusted_proxies: 1,
             second_factor_step_up: true,
+            digipoort: None,
             ai: None,
         }
     }

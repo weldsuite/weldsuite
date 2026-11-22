@@ -15,6 +15,7 @@ pub mod ai_provider_keys;
 pub mod ai_settings;
 pub mod analytics_charts;
 pub mod analytics_reports;
+pub mod annual_reports;
 pub mod api_keys;
 pub mod app_kv;
 pub mod app_records;
@@ -534,6 +535,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<ai_settings::Entity>(&ai_settings::DDL),
         crate::snapshot::table::<analytics_charts::Entity>(&analytics_charts::DDL),
         crate::snapshot::table::<analytics_reports::Entity>(&analytics_reports::DDL),
+        crate::snapshot::table::<annual_reports::Entity>(&annual_reports::DDL),
         crate::snapshot::table::<api_keys::Entity>(&api_keys::DDL),
         crate::snapshot::table::<app_kv::Entity>(&app_kv::DDL),
         crate::snapshot::table::<app_records::Entity>(&app_records::DDL),
@@ -1137,6 +1139,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "ai_settings" => json(Box::pin(ai_settings::Entity::find().all(db)).await?),
         "analytics_charts" => json(Box::pin(analytics_charts::Entity::find().all(db)).await?),
         "analytics_reports" => json(Box::pin(analytics_reports::Entity::find().all(db)).await?),
+        "annual_reports" => json(Box::pin(annual_reports::Entity::find().all(db)).await?),
         "api_keys" => json(Box::pin(api_keys::Entity::find().all(db)).await?),
         "app_kv" => json(Box::pin(app_kv::Entity::find().all(db)).await?),
         "app_records" => json(Box::pin(app_records::Entity::find().all(db)).await?),

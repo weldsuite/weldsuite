@@ -605,6 +605,7 @@ export const settings = {
         account: 'Ledger account',
         accounting_contact: 'Contact (WeldBooks)',
         vat_return: 'VAT return',
+        annual_report: 'Annual report',
         tax_return: 'Tax return',
         tax_rate: 'Tax rate',
         bank_account: 'Bank account',

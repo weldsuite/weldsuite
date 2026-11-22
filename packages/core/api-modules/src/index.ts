@@ -131,6 +131,10 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'crm-auto-add',
   // WeldMail attachment scanning and link protection, built only in Rust.
   'mail-threat-protection',
+  // WeldBooks: the KvK jaarrekening (`/api/annual-reports`) and depositing it
+  // through Digipoort; filing VAT through Digipoort stays Global's own.
+  'annual-reports',
+  'kvk-digipoort',
 ];
 
 const mod = (
@@ -334,6 +338,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/accounting-exports',
     '/api/accounting-reports',
     '/api/accounting-settings',
+    // The KvK jaarrekening, served by the Rust backend only (rust/modules/books-reports).
+    '/api/annual-reports',
     '/api/bank-accounts',
     '/api/bank-transactions',
     '/api/bills',

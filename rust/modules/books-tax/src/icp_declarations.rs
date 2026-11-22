@@ -30,8 +30,12 @@ use weldsuite_kit::generate_id;
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::digipoort::{
+    Filing, deliver, is_delivery, record_refusal, refresh, status_body, watch_statuses,
+};
 use crate::filing::{
-    is_unfiled, iso_day, load_period_lines, overlapping_period, parse_period, submit_filing,
+    Submission, filing_status, is_unfiled, iso_day, load_period_lines, overlapping_period,
+    parse_period, submit_filing,
 };
 use crate::nl::{self, IcpXmlInput, IcpXmlLine};
 use crate::vat_returns::{
@@ -52,6 +56,10 @@ where
             post(calculate).route_layer(need("reports:create")),
         )
         .route("/{id}/file", post(file).route_layer(need("reports:update")))
+        .route(
+            "/{id}/filing-status",
+            get(status).route_layer(need("reports:read")),
+        )
         .route("/{id}/xml", get(xml).route_layer(need("reports:read")))
         .route(
             "/{id}",
@@ -445,7 +453,7 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
         return Err(Refusal::not_found("ICP declaration", id));
     };
     let status = text(&declaration, "status").unwrap_or_default().to_owned();
-    if status == "filed" || status == "accepted" {
+    if status == "filed" || status == "accepted" || status == "submitted" {
         return Err(Refusal::bad_request(
             "ICP declaration has already been filed",
         ));
@@ -473,12 +481,42 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
         ));
     }
     let xml = icp_xml(&declaration, &entity, &btw, &lines);
-    let submission = submit_filing(&btw, &xml, "Opgaaf ICP");
+    // Delivered over the install's Digipoort connection (`submitted`), or
+    // the worker's simulated submission without one (`filed`).
+    let (filed_status, submission) = match &state.digipoort {
+        Some(digipoort) => {
+            let at = time::OffsetDateTime::now_utc();
+            match deliver(
+                digipoort,
+                Filing::IcpDeclaration,
+                &btw,
+                &format!("ICP-{id}"),
+                &xml,
+                at,
+            )
+            .await
+            {
+                Ok(delivered) => (
+                    "submitted",
+                    Submission {
+                        kenmerk: delivered.kenmerk,
+                        stored: delivered.stored,
+                    },
+                ),
+                Err(refused) => {
+                    record_refusal(db, Filing::IcpDeclaration, id, &refused.stored, &xml).await?;
+                    return Err(refused.refusal(Filing::IcpDeclaration));
+                }
+            }
+        }
+        None => ("filed", submit_filing(&btw, &xml, "Opgaaf ICP")),
+    };
+    let simulated = filed_status == "filed";
     let now = now();
     sqlx::query(
-        "update icp_declarations set status = 'filed', xml_content = $1, filing_reference = $2, \
-         digipoort_response = $3, filed_at = $4::timestamp, filed_by = $5, updated_at = $4::timestamp \
-         where id = $6",
+        "update icp_declarations set status = $7, xml_content = $1, filing_reference = $2, \
+         digipoort_response = $3, filed_at = $4::timestamp, filed_by = $5, rejected_at = null, \
+         rejection_reason = null, updated_at = $4::timestamp where id = $6",
     )
     .bind(&xml)
     .bind(Some(&submission.kenmerk).filter(|k| !k.is_empty()))
@@ -486,11 +524,12 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
     .bind(&now)
     .bind(caller.user())
     .bind(id)
+    .bind(filed_status)
     .execute(db)
     .await?;
 
     let mut changes = Map::new();
-    changes.insert("status".into(), change(json!(status), json!("filed")));
+    changes.insert("status".into(), change(json!(status), json!(filed_status)));
     write_accounting_audit(
         caller,
         db,
@@ -498,7 +537,7 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
             accounting_entity_id: Some(&entity_id),
             entity_type: "icp_declaration",
             entity_id: id,
-            action: "filed",
+            action: filed_status,
             changes: Some(changes),
         },
     )
@@ -507,15 +546,81 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
         state,
         VAT_RETURN_UPDATED,
         id,
-        json!({ "id": id, "kind": "icp", "status": "filed" }),
+        json!({ "id": id, "kind": "icp", "status": filed_status }),
     );
+    if !simulated {
+        watch_statuses(caller, state).await;
+    }
     Ok(ok(json!({
         "id": id,
-        "status": "filed",
+        "status": filed_status,
         "kenmerk": submission.kenmerk,
         "digipoortSuccess": true,
-        "simulated": true,
+        "simulated": simulated,
     })))
+}
+
+// ── GET /:id/filing-status ──────────────────────────────────────────────────
+
+/// Where the declaration's Digipoort delivery stands (Rust only; the
+/// worker has no ICP status check). Without a real delivery it answers the
+/// simulated `submitted`, as the VAT return's check does.
+async fn status(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        async {
+            let Some(declaration) = find(&caller.db, &id).await? else {
+                return Err(Refusal::not_found("ICP declaration", &id));
+            };
+            let Some(reference) = text(&declaration, "filingReference").filter(|r| !r.is_empty())
+            else {
+                return Err(Refusal::bad_request(
+                    "ICP declaration has not been filed yet",
+                ));
+            };
+            let record = declaration
+                .get("digipoortResponse")
+                .cloned()
+                .unwrap_or(Value::Null);
+            if let (Some(digipoort), true) = (&state.digipoort, is_delivery(Some(&record))) {
+                let at = time::OffsetDateTime::now_utc();
+                let read = refresh(
+                    &caller.db,
+                    digipoort,
+                    Filing::IcpDeclaration,
+                    &id,
+                    reference,
+                    &record,
+                    at,
+                )
+                .await
+                .map_err(|e| Refusal::Internal(e.to_string()))?;
+                if let Ok(refreshed) = &read
+                    && let Some(settled) = refreshed.settled
+                {
+                    caller.publish(
+                        &state,
+                        VAT_RETURN_UPDATED,
+                        &id,
+                        json!({ "id": id, "kind": "icp", "status": settled }),
+                    );
+                }
+                return Ok(ok(status_body(&id, reference, &read, at)));
+            }
+            let mut body = Map::new();
+            body.insert("id".into(), json!(id));
+            body.insert("kenmerk".into(), json!(reference));
+            if let Value::Object(result) = filing_status() {
+                body.extend(result);
+            }
+            Ok(ok(Value::Object(body)))
+        }
+        .await,
+        "Failed to check filing status",
+    )
 }
 
 fn icp_xml(declaration: &Value, entity: &Value, btw: &str, lines: &[Value]) -> String {

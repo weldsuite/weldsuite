@@ -146,6 +146,7 @@
   "recurring_invoice",
   "tax_rate",
   "vat_return",
+  "annual_report",
   "fiscal_period",
   "fx_rate",
   "accounting_entity",

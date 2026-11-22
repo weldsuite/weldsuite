@@ -12,6 +12,7 @@ publish.workspace = true
 weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-digipoort = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }

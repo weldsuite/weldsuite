@@ -22,6 +22,7 @@ weldsuite-auth = { workspace = true }
 weldsuite-call = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-digipoort = { workspace = true }
 weldsuite-chat = { workspace = true }
 weldsuite-connect = { workspace = true }
 weldsuite-core-apps = { workspace = true }

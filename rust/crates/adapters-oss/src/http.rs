@@ -133,18 +133,47 @@ impl ReqwestOutbound {
     /// Ponto's API requires): `pem` holds the certificate chain and its
     /// private key.
     pub fn with_client_certificate(timeout: Duration, pem: &[u8]) -> Result<Self, PortError> {
+        Self::with_client_certificate_and_roots(timeout, pem, None)
+    }
+
+    /// [`ReqwestOutbound::with_client_certificate`] that also trusts the CA
+    /// certificates in `roots` (PEM) besides the system's, for a server whose
+    /// chain ends in a root no public store carries: Digipoort's, under the
+    /// Staat der Nederlanden Private Root CA – G1.
+    pub fn with_client_certificate_and_roots(
+        timeout: Duration,
+        pem: &[u8],
+        roots: Option<&[u8]>,
+    ) -> Result<Self, PortError> {
         let identity = Identity::from_pem(pem).map_err(PortError::backend)?;
-        let client = Client::builder()
-            .timeout(timeout)
-            .identity(identity)
-            .build()
-            .map_err(PortError::backend)?;
+        let mut builder = Client::builder().timeout(timeout).identity(identity);
+        if let Some(roots) = roots {
+            let certificates =
+                reqwest::Certificate::from_pem_bundle(roots).map_err(PortError::backend)?;
+            if certificates.is_empty() {
+                return Err(PortError::backend(NoCertificates));
+            }
+            builder = builder.tls_certs_merge(certificates);
+        }
+        let client = builder.build().map_err(PortError::backend)?;
         Ok(Self {
             client,
             public_only: false,
         })
     }
 }
+
+/// A root bundle without a certificate in it.
+#[derive(Debug)]
+struct NoCertificates;
+
+impl std::fmt::Display for NoCertificates {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no PEM certificate in the CA bundle")
+    }
+}
+
+impl std::error::Error for NoCertificates {}
 
 impl ReqwestOutbound {
     /// Sends `request` and returns the answer once its head has arrived.

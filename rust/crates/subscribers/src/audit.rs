@@ -83,6 +83,7 @@ fn entity_name_fields(entity_type: &str) -> &'static [&'static str] {
         "parcel" => &["trackingNumber"],
         "journal_entry" => &["reference"],
         "vat_return" | "tax_return" => &["periodLabel", "name"],
+        "annual_report" => &["label"],
         "bill" => &["billNumber", "number", "reference"],
         "accounting_contact" => &["displayName", "name", "companyName"],
         "meeting" => &["title", "name", "subject"],
@@ -839,6 +840,11 @@ mod tests {
         assert_eq!(
             entity_display_name("vat_return", &json!({ "periodLabel": "Q3 2026" })).as_deref(),
             Some("Q3 2026")
+        );
+        assert_eq!(
+            entity_display_name("annual_report", &json!({ "label": "Jaarrekening 2025" }))
+                .as_deref(),
+            Some("Jaarrekening 2025")
         );
         assert_eq!(
             entity_display_name("invoice", &json!({ "invoiceNumber": 1001 })).as_deref(),

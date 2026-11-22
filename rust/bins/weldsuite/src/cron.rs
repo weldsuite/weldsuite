@@ -16,6 +16,14 @@
 //!   recurring invoices, the day's ECB rates, the US tax reminders and the
 //!   fixed assets' depreciation due, in every workspace that used books
 //!   (`apps/workers/books-api/src/cron/books-sweep.ts`).
+//! - `digipoort-status` (every 5 minutes): the statuses of WeldBooks'
+//!   Digipoort deliveries still open (BTW-aangifte, Opgaaf ICP, `KvK`
+//!   jaarrekening), for the workspaces the `digipoort_status` due index lists
+//!   (marked when a filing is delivered), each on its own backing-off
+//!   schedule until the receiving party accepts or rejects it
+//!   (`weldsuite_books_tax::poll_open_filings`,
+//!   `weldsuite_books_reports::poll_open_annual_reports`). Nothing without a
+//!   Digipoort connection (`DIGIPOORT_*`).
 //! - `flow-approval-due` (daily, 03:30 UTC): WeldFlow's approval reminders a day before
 //!   a review is due and overdue notices to the requester
 //!   (`apps/workers/flow-api/src/cron/approval-reminders.ts`).
@@ -186,7 +194,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, digipoort-status, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -204,6 +212,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "flow-status-reports"
         | "flow-finance-snapshot"
         | "books-sweep"
+        | "digipoort-status"
         | "domain-auto-renew"
         | "desk-sla-sweep"
         | "desk-report-sweep"
@@ -268,6 +277,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "flow-finance-snapshot" => flow_finance_snapshot(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
             "books-sweep" => books_sweep(config).await,
+            "digipoort-status" => digipoort_status(config).await,
             "domain-auto-renew" => {
                 domain_auto_renew();
                 Ok(())
@@ -1364,6 +1374,122 @@ async fn flow_finance_snapshot(config: Config) -> Result<(), Box<dyn std::error:
             },
         })
     );
+    Ok(())
+}
+
+/// `digipoort-status`: the open Digipoort deliveries of the workspaces the
+/// `digipoort_status` due index lists, each read once; a workspace is due
+/// again when its earliest open delivery is (`next_poll`), and leaves the
+/// index once none is open. Settled filings publish their `updated` events
+/// as the system.
+#[allow(
+    clippy::too_many_lines,
+    reason = "set-up, the sweep, the publishes and the report, as the other sweeps"
+)]
+async fn digipoort_status(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(digipoort) = crate::routes::books::digipoort() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "digipoort-status", "skipped": "Digipoort is not configured" })
+        );
+        return Ok(());
+    };
+    if !crate::routes::mounts("books") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "digipoort-status", "skipped": "books is not served" })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let events = infra.events.clone();
+    let totals = std::sync::Mutex::new((0_usize, 0_usize, 0_usize));
+    let result = weldsuite_db::due_index::run_sweep(
+        &master,
+        weldsuite_digipoort::SWEEP_KIND,
+        time::OffsetDateTime::now_utc(),
+        200,
+        Some(time::Duration::minutes(15)),
+        |workspace_id, now| {
+            let workspaces = Arc::clone(&workspaces);
+            let digipoort = digipoort.clone();
+            let events = events.clone();
+            let totals = &totals;
+            async move {
+                let tenant = workspaces
+                    .tenant(&workspace_id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let tax = weldsuite_books_tax::poll_open_filings(&tenant.db, &digipoort, now)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let reports =
+                    weldsuite_books_reports::poll_open_annual_reports(&tenant.db, &digipoort, now)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                let context = weldsuite_events::EventContext::from_ids(
+                    &tenant.workspace_id,
+                    tenant.clerk_org_id.as_deref(),
+                    "system",
+                )
+                .with_source(weldsuite_events::EventSource::System);
+                let settled = tax.settled.len() + reports.settled.len();
+                for (event, id, data) in tax.settled.into_iter().chain(reports.settled) {
+                    events
+                        .publish_and_wait(
+                            &context,
+                            weldsuite_events::EntityEvent::new(event, &id, data),
+                        )
+                        .await;
+                }
+                if let Ok(mut totals) = totals.lock() {
+                    totals.0 += tax.checked + reports.checked;
+                    totals.1 += settled;
+                    totals.2 += tax.failed + reports.failed;
+                }
+                let next = match (tax.next_due, reports.next_due) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                Ok::<_, String>(next)
+            }
+        },
+    )
+    .await;
+    let (checked, settled, failed_reads) = totals.into_inner().unwrap_or_default();
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "digipoort-status",
+            "result": {
+                "due": result.due,
+                "processed": result.processed,
+                "failed": result.failed,
+                "checked": checked,
+                "settled": settled,
+                "failedReads": failed_reads,
+            },
+        })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(30), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
     Ok(())
 }
 
