@@ -971,10 +971,7 @@ export const billingAccounts = pgTable('billing_accounts', {
   scheduledCycle: varchar('scheduled_cycle', { length: 10 }),
 
   // Past due: since when, the billing_payments row still to be paid, and
-  // when the billing owners were last reminded. Before an account is past
-  // due, `dunningRemindedAt` holds the renewal (period end) its billing
-  // owners were warned about for want of a payment method, one email per
-  // renewal; going past due clears it.
+  // when the billing owners were last reminded.
   pastDueSince: timestamp('past_due_since'),
   pastDuePaymentId: varchar('past_due_payment_id', { length: 30 }),
   dunningRemindedAt: timestamp('dunning_reminded_at'),
