@@ -40,8 +40,8 @@ pub use crypto::{
     resolve_database_url, workspace_database_url_aad,
 };
 pub use membership::{
-    DEFAULT_MEMBERSHIP_TTL, MembershipFuture, MembershipLookup, MembershipsFuture, SoleWorkspace,
-    WorkspaceSelector, workspace_from_header,
+    DEFAULT_MEMBERSHIP_TTL, MemberWorkspace, MemberWorkspacesFuture, MembershipFuture,
+    MembershipLookup, MembershipsFuture, SoleWorkspace, WorkspaceSelector, workspace_from_header,
 };
 pub use middleware::workspace_db;
 pub use orm::{OrmConn, orm, orm_error, utc_minutes_ago, utc_now, utc_timestamp};
