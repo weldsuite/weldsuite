@@ -35,7 +35,6 @@ use weldsuite_panel_domain::schemas::PanelQuerySpec;
 use weldsuite_permissions::Permissions;
 use weldsuite_schema::tenant::panel_ai_summaries as summaries;
 
-use crate::saved::js_row;
 use crate::domain::with_setting_defaults;
 use crate::engine::Engine;
 use crate::keys::sha256_hex;
@@ -46,6 +45,7 @@ use crate::query::{QueryDeps, run_cached_query};
 use crate::recordings::{
     Failure, SESSION_ID, get_favorite, latest_session_summary, session_context, session_summary_dto,
 };
+use crate::saved::js_row;
 use crate::schemas_gen::{GENERATE_PANEL_SESSION_SUMMARY, SESSIONS_SPEC, SUMMARISE_PANEL_SET};
 use crate::session_timeline::build_session_timeline;
 use crate::sessions::load_session_row;

@@ -15,7 +15,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_COMMENT_CREATED, PANEL_COMMENT_DELETED, PANEL_COMMENT_UPDATED,

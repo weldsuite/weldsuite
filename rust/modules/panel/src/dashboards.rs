@@ -144,11 +144,7 @@ async fn update_dashboard(
 }
 
 /// `updateDashboard(db, id, {})` after a tile change, and its `updated` event.
-async fn touch(
-    caller: &Caller,
-    state: &PanelState,
-    id: &str,
-) -> Result<Option<Value>, DbErr> {
+async fn touch(caller: &Caller, state: &PanelState, id: &str) -> Result<Option<Value>, DbErr> {
     let dashboard = update_dashboard(&caller.db, id, &Map::new()).await?;
     if let Some(dashboard) = &dashboard {
         publish(caller, state, dashboard, PANEL_DASHBOARD_UPDATED);
@@ -637,11 +633,7 @@ pub(crate) async fn add_tile(
     Created(tile_dto(&tile)).into_response()
 }
 
-async fn get_tile(
-    db: &PgPool,
-    dashboard_id: &str,
-    tile_id: &str,
-) -> Result<Option<Value>, DbErr> {
+async fn get_tile(db: &PgPool, dashboard_id: &str, tile_id: &str) -> Result<Option<Value>, DbErr> {
     tiles::Entity::find_by_id(tile_id)
         .filter(tiles::Column::DashboardId.eq(dashboard_id))
         .one(&orm(db))

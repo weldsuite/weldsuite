@@ -49,11 +49,11 @@ use weldsuite_ports::{Cache, DynCache, DynFileStore};
 use weldsuite_schema::tenant::panel_heatmap_pages as pages;
 use weldsuite_zod::{Hook, Keys, S, Z};
 
-use crate::saved::js_row;
 use crate::domain::{heatmap_snapshot_key, snapshot_request_key};
 use crate::engine::Engine;
 use crate::query::QueryDeps;
 use crate::recordings::{Bindings, Failure, chunk_key_belongs, iso_of, session_context, text_of};
+use crate::saved::js_row;
 use crate::{Caller, PanelState, unexpected};
 
 /// How long a snapshot request waits for a visitor on a matching page.

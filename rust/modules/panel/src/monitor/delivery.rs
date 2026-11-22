@@ -448,10 +448,7 @@ pub(crate) async fn unknown_members(
 }
 
 /// `chatChannelExists(db, channelId)`: a channel that exists and is not archived.
-pub(crate) async fn chat_channel_exists(
-    db: &PgPool,
-    channel_id: &str,
-) -> Result<bool, DbErr> {
+pub(crate) async fn chat_channel_exists(db: &PgPool, channel_id: &str) -> Result<bool, DbErr> {
     let found: Option<String> = chat_channels::Entity::find_by_id(channel_id)
         .select_only()
         .column(chat_channels::Column::Id)

@@ -565,11 +565,7 @@ async fn create_domain(
         project_id: Set(project_id.to_owned()),
         hostname: Set(hostname.to_owned()),
         status: Set("pending".to_owned()),
-        verification: Set(verification_records(
-            hostname,
-            domains.cname_target(),
-            None,
-        )),
+        verification: Set(verification_records(hostname, domains.cname_target(), None)),
         created_by_user_id: Set(user_id.to_owned()),
         ..Default::default()
     })

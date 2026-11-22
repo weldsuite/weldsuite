@@ -184,7 +184,10 @@ pub(crate) async fn resolve_alert_spec(
     };
     let report: Option<(Value, String)> = panel_reports::Entity::find_by_id(report_id)
         .select_only()
-        .columns([panel_reports::Column::Spec, panel_reports::Column::ProjectId])
+        .columns([
+            panel_reports::Column::Spec,
+            panel_reports::Column::ProjectId,
+        ])
         .filter(panel_reports::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&orm(db))
@@ -633,12 +636,7 @@ struct Save<'a> {
     last_fired: bool,
 }
 
-async fn save(
-    db: &PgPool,
-    id: &str,
-    now: i64,
-    set: Save<'_>,
-) -> Result<Option<Value>, DbErr> {
+async fn save(db: &PgPool, id: &str, now: i64, set: Save<'_>) -> Result<Option<Value>, DbErr> {
     let now = instant(now);
     let mut update = alerts::Entity::update_many();
     if let Some(state) = set.state {
@@ -908,11 +906,7 @@ fn publish(caller: &Caller, state: &MonitorState, alert: &Value, event: EventNam
 }
 
 /// `dto(c, alert)`: with its next check from the registry.
-async fn alert_dto(
-    caller: &Caller,
-    state: &MonitorState,
-    alert: &Value,
-) -> Result<Value, DbErr> {
+async fn alert_dto(caller: &Caller, state: &MonitorState, alert: &Value) -> Result<Value, DbErr> {
     let master = master_of(caller, state);
     let next = match &master {
         Some(master) => next_runs_of(master, "alert", &[text(alert, "id").to_owned()]).await?,
@@ -1109,7 +1103,10 @@ pub(crate) async fn create(
             .to_owned()),
         channels: Set(stored.channels.clone()),
         slack_webhook_ciphertext: Set(stored.slack_ciphertext.clone()),
-        enabled: Set(input.get("enabled").and_then(Value::as_bool).unwrap_or(true)),
+        enabled: Set(input
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)),
         owner_user_id: Set(caller.user_id.clone()),
         ..Default::default()
     })
@@ -1204,7 +1201,10 @@ async fn update_alert(
     }
     if let Some(stored) = stored {
         update = update
-            .col_expr(alerts::Column::Channels, Expr::value(stored.channels.clone()))
+            .col_expr(
+                alerts::Column::Channels,
+                Expr::value(stored.channels.clone()),
+            )
             .col_expr(
                 alerts::Column::SlackWebhookCiphertext,
                 Expr::value(stored.slack_ciphertext.clone()),
@@ -1214,7 +1214,10 @@ async fn update_alert(
         update = update
             .col_expr(alerts::Column::State, Expr::value("pending"))
             .col_expr(alerts::Column::LastValue, Expr::value(Option::<f64>::None))
-            .col_expr(alerts::Column::LastError, Expr::value(Option::<String>::None));
+            .col_expr(
+                alerts::Column::LastError,
+                Expr::value(Option::<String>::None),
+            );
     }
     update
         .col_expr(alerts::Column::UpdatedAt, Expr::value(instant(now)))

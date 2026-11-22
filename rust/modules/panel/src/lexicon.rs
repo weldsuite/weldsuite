@@ -29,9 +29,9 @@ use weldsuite_ports::Cache;
 use weldsuite_schema::tenant::panel_event_definitions as definitions;
 use weldsuite_zod::{Keys, S, Z};
 
-use crate::saved::js_row;
 use crate::projects::live_project;
 use crate::query::{QueryDeps, QueryFailure};
+use crate::saved::js_row;
 use crate::schemas_gen::{PANEL_QUERY_SPEC, UPDATE_PANEL_LEXICON};
 use crate::{Caller, PanelState, unexpected};
 

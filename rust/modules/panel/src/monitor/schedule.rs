@@ -371,11 +371,7 @@ fn schedule_row(row: Value) -> Option<ScheduleRow> {
     clippy::disallowed_methods,
     reason = "a claim: the locked select (`for update skip locked`, a CTE) and the update must be one statement"
 )]
-pub async fn claim_due(
-    master: &PgPool,
-    now: i64,
-    limit: i64,
-) -> Result<Vec<ScheduleRow>, DbErr> {
+pub async fn claim_due(master: &PgPool, now: i64, limit: i64) -> Result<Vec<ScheduleRow>, DbErr> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "with due as (
              select id from panel_schedule_registry

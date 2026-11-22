@@ -34,8 +34,8 @@ use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_EXPORT_CREATED, PANEL_EXPORT_DELETED, PANEL_EXPORT_UPDATED,
 };
-use weldsuite_emails::panel_monitor::ExportFailingProps;
 use weldsuite_db::orm;
+use weldsuite_emails::panel_monitor::ExportFailingProps;
 use weldsuite_emails::{EmailBrand, SystemEmail, send_system_email};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
@@ -707,11 +707,7 @@ fn publish(caller: &Caller, state: &MonitorState, export: &Value, event: EventNa
     caller.publish(&state.panel, event, text(export, "id"), &event_data(export));
 }
 
-async fn export_dto(
-    caller: &Caller,
-    state: &MonitorState,
-    export: &Value,
-) -> Result<Value, DbErr> {
+async fn export_dto(caller: &Caller, state: &MonitorState, export: &Value) -> Result<Value, DbErr> {
     let next = match master_of(caller, state) {
         Some(master) => next_runs_of(&master, "export", &[text(export, "id").to_owned()]).await?,
         None => Vec::new(),
@@ -1029,10 +1025,16 @@ pub(crate) async fn update(
         update = update.col_expr(exports::Column::SecretCiphertext, Expr::value(secret));
     }
     if input.contains_key("tables") {
-        update = update.col_expr(exports::Column::Tables, Expr::value(input.get("tables").cloned()));
+        update = update.col_expr(
+            exports::Column::Tables,
+            Expr::value(input.get("tables").cloned()),
+        );
     }
     if input.contains_key("frequency") {
-        update = update.col_expr(exports::Column::Frequency, Expr::value(text_of("frequency")));
+        update = update.col_expr(
+            exports::Column::Frequency,
+            Expr::value(text_of("frequency")),
+        );
     }
     let row = update
         .col_expr(exports::Column::UpdatedAt, Expr::value(instant(now)))
