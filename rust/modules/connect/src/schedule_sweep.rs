@@ -354,9 +354,10 @@ async fn sweep_workspace(
         .into_tuple()
         .one(&orm(db))
         .await?;
-    Ok(earliest.flatten().map(millis).and_then(|ms| {
-        OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
-    }))
+    Ok(earliest
+        .flatten()
+        .map(millis)
+        .and_then(|ms| OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()))
 }
 
 /// One tick of `weldsuite cron workflow-schedules`.

@@ -53,14 +53,9 @@ use crate::task_enrich::{
     load_descendants, subtask_counts,
 };
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, now, outside, reply, task_writes, validate,
+    Caller, FlowState, Query, Refusal, Reply, now, outside, reply, row_json, task_writes, validate,
     validate_value,
 };
-
-/// A row as the API returns it: the entity serializes as Drizzle read it.
-pub(crate) fn row_json(model: impl Serialize) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// `$1::jsonb->>'key'` of a body value: a string's text, `null` as SQL
 /// null, anything else as the JSON text `jsonb` prints.
@@ -88,7 +83,11 @@ fn jsonb_text(value: &Value) -> String {
                 "{{{}}}",
                 entries
                     .into_iter()
-                    .map(|(key, value)| format!("{}: {}", Value::String(key.clone()), jsonb_text(value)))
+                    .map(|(key, value)| format!(
+                        "{}: {}",
+                        Value::String(key.clone()),
+                        jsonb_text(value)
+                    ))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -1168,8 +1167,8 @@ async fn remove_attachment(
         return refused.respond("Internal server error");
     }
     let result = async {
-        let db = &caller.db;
         use files::Column as File;
+        let db = &caller.db;
         let existing: Option<String> = files::Entity::find()
             .select_only()
             .column(File::Id)
@@ -1291,8 +1290,7 @@ async fn reorder(
         if let Some(project_id) = &project_id {
             select = select.filter(Task::ProjectId.eq(project_id));
         }
-        let rows: Vec<(String, Option<String>, i32)> =
-            select.into_tuple().all(&orm(db)).await?;
+        let rows: Vec<(String, Option<String>, i32)> = select.into_tuple().all(&orm(db)).await?;
         let mut projects: Vec<String> = Vec::new();
         for (_, project, _) in &rows {
             if let Some(project) = project.as_ref().filter(|p| !p.is_empty())

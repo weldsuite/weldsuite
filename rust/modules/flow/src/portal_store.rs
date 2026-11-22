@@ -6,15 +6,21 @@
 //! shared items filters on `client_visible` in SQL, so a row the team did not
 //! share never leaves the database.
 //!
-//! Rows are read as `to_jsonb(row)` and put through `js_row`, so they look as
-//! Drizzle returns them (camelCase, ISO timestamps); a `numeric` column is cast
-//! to text first, as Drizzle returns it.
+//! Rows are read through the entities, so they look as Drizzle returns them
+//! (camelCase, ISO timestamps, a `numeric` column as its text).
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
-use sqlx::PgPool;
-use weldsuite_db::{js_row, js_timestamp};
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_flow_domain::project_portal::{
     ApprovalView, is_portal_approval_subject, next_milestone_of, present_approval,
     present_change_request, present_deliverable, present_document, present_file, present_message,
@@ -26,6 +32,12 @@ use weldsuite_flow_domain::approvals::{
     PendingReview as CorePendingReview, PendingReviewFilters, compare_reviews,
     list_pending_for_approver,
 };
+use weldsuite_schema::tenant::{
+    files, milestones, people, project_change_requests, project_deliverables, project_files,
+    project_messages, project_stakeholders, project_status_reports, projects, workspace_members,
+};
+
+use crate::{json_rows, keyset_before, keyset_cursor, keyset_cursor_tz, row_json};
 
 /// A CRM contact that may sign in.
 pub(crate) struct ContactRow {
@@ -33,10 +45,6 @@ pub(crate) struct ContactRow {
     pub(crate) name: String,
     #[allow(dead_code)]
     pub(crate) email: Option<String>,
-}
-
-fn rows_of(rows: Vec<Value>) -> Vec<Value> {
-    rows.into_iter().map(js_row).collect()
 }
 
 fn text<'a>(row: &'a Value, key: &str) -> &'a str {
@@ -51,19 +59,31 @@ fn text<'a>(row: &'a Value, key: &str) -> &'a str {
 pub(crate) async fn contacts_with_access(
     db: &PgPool,
     email: &str,
-) -> Result<Vec<ContactRow>, sqlx::Error> {
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select distinct p.id, p.display_name, p.email
-         from people p
-         inner join project_stakeholders s on s.crm_contact_id = p.id
-         inner join projects pr on pr.id = s.project_id
-         where lower(p.email) = $1 and p.deleted_at is null and s.portal_access = true
-           and s.deleted_at is null and pr.deleted_at is null
-         order by p.id asc",
-    )
-    .bind(email)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<ContactRow>, DbErr> {
+    use people::Column;
+    let stakeholder = project_stakeholders::Entity::belongs_to(people::Entity)
+        .from(project_stakeholders::Column::CrmContactId)
+        .to(Column::Id)
+        .into();
+    let project = project_stakeholders::Entity::belongs_to(projects::Entity)
+        .from(project_stakeholders::Column::ProjectId)
+        .to(projects::Column::Id)
+        .into();
+    let rows: Vec<(String, String, Option<String>)> = people::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::DisplayName, Column::Email])
+        .distinct()
+        .join_rev(JoinType::InnerJoin, stakeholder)
+        .join(JoinType::InnerJoin, project)
+        .filter(lower_email_is(email))
+        .filter(Column::DeletedAt.is_null())
+        .filter(project_stakeholders::Column::PortalAccess.eq(true))
+        .filter(project_stakeholders::Column::DeletedAt.is_null())
+        .filter(projects::Column::DeletedAt.is_null())
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, name, email)| ContactRow { id, name, email })
@@ -74,21 +94,51 @@ pub(crate) async fn contacts_with_access(
 pub(crate) async fn contacts_of_session(
     db: &PgPool,
     contact_ids: &[String],
-) -> Result<Vec<ContactRow>, sqlx::Error> {
+) -> Result<Vec<ContactRow>, DbErr> {
+    use people::Column;
     if contact_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select p.id, p.display_name, p.email from people p
-         where p.id = any($1) and p.deleted_at is null order by p.id asc",
-    )
-    .bind(contact_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, Option<String>)> = people::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::DisplayName, Column::Email])
+        .filter(Column::Id.is_in(contact_ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, name, email)| ContactRow { id, name, email })
         .collect())
+}
+
+/// `lower(people.email) = email`.
+fn lower_email_is(email: &str) -> Expr {
+    let lower = Func::lower(Expr::col((people::Entity, people::Column::Email)));
+    sea_orm::ExprTrait::eq(Expr::from(lower), email)
+}
+
+/// A project as the portal reads it, with the contact that holds it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortalProject {
+    id: String,
+    name: String,
+    description: Option<String>,
+    status: String,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    progress: BigDecimal,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::option::serialize")]
+    start_date: Option<PrimitiveDateTime>,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::option::serialize")]
+    end_date: Option<PrimitiveDateTime>,
+    project_manager_id: Option<String>,
+    currency: Option<String>,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::serialize")]
+    updated_at: PrimitiveDateTime,
+    contact_id: Option<String>,
 }
 
 /// `portalProjectRows(db, contactIds)`: the projects the contacts may see
@@ -101,31 +151,48 @@ pub(crate) async fn portal_project_rows(
     db: &PgPool,
     contact_ids: &[String],
     email: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use project_stakeholders::Column;
     if contact_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-            'id', pr.id, 'name', pr.name, 'description', pr.description,
-            'status', pr.status, 'progress', pr.progress::text,
-            'start_date', pr.start_date, 'end_date', pr.end_date,
-            'project_manager_id', pr.project_manager_id, 'currency', pr.budget_currency,
-            'updated_at', pr.updated_at, 'contact_id', s.crm_contact_id)
-         from project_stakeholders s
-         inner join projects pr on pr.id = s.project_id
-         inner join people p on p.id = s.crm_contact_id
-         where s.crm_contact_id = any($1) and s.portal_access = true and s.deleted_at is null
-           and pr.deleted_at is null and p.deleted_at is null
-           and lower(p.email) = $2
-         order by pr.name asc, pr.id asc, s.crm_contact_id asc",
-    )
-    .bind(contact_ids)
-    .bind(email)
-    .fetch_all(db)
-    .await?;
+    let project = project_stakeholders::Entity::belongs_to(projects::Entity)
+        .from(Column::ProjectId)
+        .to(projects::Column::Id)
+        .into();
+    let contact = project_stakeholders::Entity::belongs_to(people::Entity)
+        .from(Column::CrmContactId)
+        .to(people::Column::Id)
+        .into();
+    let rows: Vec<PortalProject> = project_stakeholders::Entity::find()
+        .select_only()
+        .column_as(projects::Column::Id, "id")
+        .column_as(projects::Column::Name, "name")
+        .column_as(projects::Column::Description, "description")
+        .column_as(projects::Column::Status, "status")
+        .column_as(projects::Column::Progress, "progress")
+        .column_as(projects::Column::StartDate, "start_date")
+        .column_as(projects::Column::EndDate, "end_date")
+        .column_as(projects::Column::ProjectManagerId, "project_manager_id")
+        .column_as(projects::Column::BudgetCurrency, "currency")
+        .column_as(projects::Column::UpdatedAt, "updated_at")
+        .column_as(Column::CrmContactId, "contact_id")
+        .join(JoinType::InnerJoin, project)
+        .join(JoinType::InnerJoin, contact)
+        .filter(Column::CrmContactId.is_in(contact_ids.iter().map(String::as_str)))
+        .filter(Column::PortalAccess.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(lower_email_is(email))
+        .order_by_asc(projects::Column::Name)
+        .order_by_asc(projects::Column::Id)
+        .order_by_asc(Column::CrmContactId)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let mut seen = HashSet::new();
-    Ok(rows_of(rows)
+    Ok(json_rows(rows)?
         .into_iter()
         .filter(|row| {
             let has_contact = row.get("contactId").is_some_and(|c| !c.is_null());
@@ -138,7 +205,8 @@ pub(crate) async fn portal_project_rows(
 pub(crate) async fn member_names(
     db: &PgPool,
     user_ids: &[Option<&str>],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
+    use workspace_members::Column;
     let mut ids: Vec<String> = user_ids
         .iter()
         .flatten()
@@ -151,11 +219,13 @@ pub(crate) async fn member_names(
     if ids.is_empty() {
         return Ok(names);
     }
-    let rows: Vec<(String, Option<String>)> =
-        sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Name])
+        .filter(Column::UserId.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (user_id, name) in rows {
         if let Some(name) = name.filter(|n| !js_trim(n).is_empty()) {
             names.insert(user_id, name);
@@ -188,7 +258,7 @@ pub(crate) async fn pending_reviews(
     db: &PgPool,
     contact_ids: &[String],
     project_ids: &HashSet<String>,
-) -> Result<Vec<PendingReview>, sqlx::Error> {
+) -> Result<Vec<PendingReview>, DbErr> {
     let now = crate::now_ms();
     let filters = PendingReviewFilters {
         approver_kind: Some("contact".to_owned()),
@@ -196,7 +266,11 @@ pub(crate) async fn pending_reviews(
     };
     let mut lists = Vec::new();
     for contact_id in contact_ids {
-        lists.push(list_pending_for_approver(db, contact_id, &filters, now).await?);
+        lists.push(
+            list_pending_for_approver(db, contact_id, &filters, now)
+                .await
+                .map_err(orm_error)?,
+        );
     }
     let mut seen = HashSet::new();
     let mut reviews: Vec<CorePendingReview> = lists
@@ -230,7 +304,7 @@ pub(crate) async fn present_reviews(
     db: &PgPool,
     reviews: &[PendingReview],
     projects_by_id: &HashMap<String, &Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if reviews.is_empty() {
         return Ok(Vec::new());
     }
@@ -246,27 +320,26 @@ pub(crate) async fn present_reviews(
     let deliverables: Vec<Value> = if deliverable_ids.is_empty() {
         Vec::new()
     } else {
-        rows_of(
-            sqlx::query_scalar(
-                "select to_jsonb(d) from project_deliverables d where d.id = any($1) and d.deleted_at is null",
-            )
-            .bind(&deliverable_ids)
-            .fetch_all(db)
-            .await?,
-        )
+        use project_deliverables::Column;
+        json_rows(
+            project_deliverables::Entity::find()
+                .filter(Column::Id.is_in(deliverable_ids))
+                .filter(Column::DeletedAt.is_null())
+                .all(&orm(db))
+                .await?,
+        )?
     };
     let changes: Vec<Value> = if change_ids.is_empty() {
         Vec::new()
     } else {
-        rows_of(
-            sqlx::query_scalar(
-                "select to_jsonb(c) || jsonb_build_object('cost_delta', c.cost_delta::text)
-                 from project_change_requests c where c.id = any($1) and c.deleted_at is null",
-            )
-            .bind(&change_ids)
-            .fetch_all(db)
-            .await?,
-        )
+        use project_change_requests::Column;
+        json_rows(
+            project_change_requests::Entity::find()
+                .filter(Column::Id.is_in(change_ids))
+                .filter(Column::DeletedAt.is_null())
+                .all(&orm(db))
+                .await?,
+        )?
     };
     let creators: Vec<Option<&str>> = reviews
         .iter()
@@ -298,25 +371,47 @@ pub(crate) async fn present_reviews(
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
+/// A milestone as the portal reads it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortalMilestone {
+    id: String,
+    project_id: String,
+    name: String,
+    description: Option<String>,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::serialize")]
+    due_date: PrimitiveDateTime,
+    status: String,
+}
+
 /// `milestonesOf(db, projectIds)`: the milestones per project, earliest due first.
 async fn milestones_of(
     db: &PgPool,
     project_ids: &[String],
-) -> Result<HashMap<String, Vec<Value>>, sqlx::Error> {
+) -> Result<HashMap<String, Vec<Value>>, DbErr> {
+    use milestones::Column;
     let mut by_project: HashMap<String, Vec<Value>> = HashMap::new();
     if project_ids.is_empty() {
         return Ok(by_project);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', m.id, 'project_id', m.project_id, 'name', m.name,
-                'description', m.description, 'due_date', m.due_date, 'status', m.status)
-         from milestones m where m.project_id = any($1) and m.deleted_at is null
-         order by m.due_date asc, m.id asc",
-    )
-    .bind(project_ids)
-    .fetch_all(db)
-    .await?;
-    for row in rows_of(rows) {
+    let rows: Vec<PortalMilestone> = milestones::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::ProjectId,
+            Column::Name,
+            Column::Description,
+            Column::DueDate,
+            Column::Status,
+        ])
+        .filter(Column::ProjectId.is_in(project_ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::DueDate)
+        .order_by_asc(Column::Id)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    for row in json_rows(rows)? {
         by_project
             .entry(text(&row, "projectId").to_owned())
             .or_default()
@@ -368,7 +463,7 @@ pub(crate) async fn list_portal_projects(
     db: &PgPool,
     rows: &[Value],
     contact_ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -405,33 +500,36 @@ pub(crate) async fn get_portal_project(
     db: &PgPool,
     row: &Value,
     contact_ids: &[String],
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let project_id = text(row, "id").to_owned();
     let id_set: HashSet<String> = HashSet::from([project_id.clone()]);
     let milestones = milestones_of(db, std::slice::from_ref(&project_id)).await?;
     let names = member_names(db, &[row.get("projectManagerId").and_then(Value::as_str)]).await?;
     let reviews = pending_reviews(db, contact_ids, &id_set).await?;
-    let deliverables = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(d) from project_deliverables d
-             where d.project_id = $1 and d.client_visible = true and d.deleted_at is null
-             order by d.number asc",
-        )
-        .bind(&project_id)
-        .fetch_all(db)
-        .await?,
-    );
-    let changes = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(c) || jsonb_build_object('cost_delta', c.cost_delta::text)
-             from project_change_requests c
-             where c.project_id = $1 and c.client_visible = true and c.deleted_at is null
-             order by c.number asc",
-        )
-        .bind(&project_id)
-        .fetch_all(db)
-        .await?,
-    );
+    let deliverables = {
+        use project_deliverables::Column;
+        json_rows(
+            project_deliverables::Entity::find()
+                .filter(Column::ProjectId.eq(project_id.as_str()))
+                .filter(Column::ClientVisible.eq(true))
+                .filter(Column::DeletedAt.is_null())
+                .order_by_asc(Column::Number)
+                .all(&orm(db))
+                .await?,
+        )?
+    };
+    let changes = {
+        use project_change_requests::Column;
+        json_rows(
+            project_change_requests::Entity::find()
+                .filter(Column::ProjectId.eq(project_id.as_str()))
+                .filter(Column::ClientVisible.eq(true))
+                .filter(Column::DeletedAt.is_null())
+                .order_by_asc(Column::Number)
+                .all(&orm(db))
+                .await?,
+        )?
+    };
     let latest = list_portal_reports(db, &project_id, 1, None).await?;
     let milestone_rows = milestones.get(&project_id).map_or(&[][..], Vec::as_slice);
     let mut out = summary_of(
@@ -495,22 +593,6 @@ fn paged_items(
     }
 }
 
-/// The keyset cursor row: `created_at`/`published_at` as milliseconds, and
-/// the id. `None` when the row is gone (no condition then), as in TypeScript.
-async fn cursor_row(
-    db: &PgPool,
-    sql: &'static str,
-    cursor: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(String, Option<String>)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
-    Ok(row.and_then(|(id, at)| {
-        at.as_deref()
-            .and_then(js_timestamp)
-            .map(|stamp| (stamp, id))
-    }))
-}
-
 /// `listPortalReports`: published, client visible reports of a project, newest
 /// first. A report a published, shared correction supersedes is left out.
 pub(crate) async fn list_portal_reports(
@@ -518,54 +600,47 @@ pub(crate) async fn list_portal_reports(
     project_id: &str,
     limit: i64,
     cursor: Option<&str>,
-) -> Result<Page, sqlx::Error> {
-    const BASE: &str = "r.project_id = $1 and r.status = 'published' and r.client_visible = true
-        and r.deleted_at is null
-        and not exists (
-          select 1 from project_status_reports s
-          where s.supersedes_id = r.id and s.status = 'published' and s.client_visible
-            and s.deleted_at is null)";
+) -> Result<Page, DbErr> {
+    use project_status_reports::Column;
+    // `not exists (select 1 from project_status_reports s where s.supersedes_id =
+    // r.id and s.status = 'published' and s.client_visible and s.deleted_at is
+    // null)`, as `r.id not in` the superseded ids (never null).
+    let superseded = Query::select()
+        .column(Column::SupersedesId)
+        .from(project_status_reports::Entity)
+        .and_where(Column::SupersedesId.is_not_null())
+        .and_where(Column::Status.eq("published"))
+        .and_where(Column::ClientVisible.eq(true))
+        .and_where(Column::DeletedAt.is_null())
+        .to_owned();
+    let base = Condition::all()
+        .add(Column::ProjectId.eq(project_id))
+        .add(Column::Status.eq("published"))
+        .add(Column::ClientVisible.eq(true))
+        .add(Column::DeletedAt.is_null())
+        .add(Column::Id.not_in_subquery(superseded));
+    // The cursor row's `published_at` as milliseconds, and its id; `None`
+    // when the row is gone (no condition then), as in TypeScript.
     let cur = match cursor {
-        Some(cursor) => {
-            cursor_row(
-                db,
-                "select id, to_jsonb(published_at) #>> '{}' from project_status_reports where id = $1 limit 1",
-                cursor,
-            )
-            .await?
-        }
+        Some(cursor) => keyset_cursor_tz(db, Column::Id, Column::PublishedAt, cursor).await?,
         None => None,
     };
-    let rows: Vec<Value> = if let Some((at, id)) = &cur {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select to_jsonb(r) from project_status_reports r where {BASE}
-               and (r.published_at < $3::timestamptz
-                    or (r.published_at = $3::timestamptz and r.id < $4))
-             order by r.published_at desc, r.id desc limit $2"
-        )))
-        .bind(project_id)
-        .bind(limit + 1)
-        .bind(at)
-        .bind(id)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select to_jsonb(r) from project_status_reports r where {BASE}
-             order by r.published_at desc, r.id desc limit $2"
-        )))
-        .bind(project_id)
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?
-    };
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*)::int8 from project_status_reports r where {BASE}"
-    )))
-    .bind(project_id)
-    .fetch_one(db)
-    .await?;
-    let rows = rows_of(rows);
+    let mut rows = project_status_reports::Entity::find().filter(base.clone());
+    if let Some(cur) = &cur {
+        rows = rows.filter(keyset_before(Column::Id, Column::PublishedAt, cur));
+    }
+    let rows = rows
+        .order_by_desc(Column::PublishedAt)
+        .order_by_desc(Column::Id)
+        .limit(crate::fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = project_status_reports::Entity::find()
+        .filter(base)
+        .count(&orm(db))
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = json_rows(rows)?;
     let publishers: Vec<Option<&str>> = rows
         .iter()
         .map(|r| r.get("publishedBy").and_then(Value::as_str))
@@ -585,56 +660,52 @@ pub(crate) async fn list_portal_reports(
     }))
 }
 
-/// A `created_at desc, id desc` keyset page of `table` rows matching `base`
-/// (which binds the project, or the project's id, as `$1`). `table_sql` is
-/// the `from` clause with its alias `t`; the timestamps are `timestamp`
-/// without a time zone.
-async fn keyset_page(
+/// A `created_at desc, id desc` keyset page of the rows matching `base` of
+/// the table whose `id` and `created_at` (a `timestamp` without a time zone)
+/// columns are given, and their count.
+async fn keyset_page<C>(
     db: &PgPool,
-    table_sql: &'static str,
-    base: &'static str,
-    cursor_sql: &'static str,
-    project_id: &str,
+    (id, created_at): (C, C),
+    base: Condition,
     limit: i64,
     cursor: Option<&str>,
-) -> Result<(Vec<Value>, i64), sqlx::Error> {
+) -> Result<(Vec<Value>, i64), DbErr>
+where
+    C: ColumnTrait + Copy,
+    C::EntityName: EntityTrait,
+    <C::EntityName as EntityTrait>::Model: Serialize + Sync,
+{
     let cur = match cursor {
-        Some(cursor) => cursor_row(db, cursor_sql, cursor).await?,
+        Some(cursor) => keyset_cursor(db, id, created_at, cursor).await?,
         None => None,
     };
-    let rows: Vec<Value> = if let Some((at, id)) = &cur {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select to_jsonb(t) from {table_sql} where {base}
-               and (t.created_at < $3::timestamp or (t.created_at = $3::timestamp and t.id < $4))
-             order by t.created_at desc, t.id desc limit $2"
-        )))
-        .bind(project_id)
-        .bind(limit + 1)
-        .bind(at)
-        .bind(id)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select to_jsonb(t) from {table_sql} where {base}
-             order by t.created_at desc, t.id desc limit $2"
-        )))
-        .bind(project_id)
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?
-    };
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*)::int8 from {table_sql} where {base}"
-    )))
-    .bind(project_id)
-    .fetch_one(db)
-    .await?;
-    Ok((rows_of(rows), total))
+    let mut rows = <C::EntityName as EntityTrait>::find().filter(base.clone());
+    if let Some(cur) = &cur {
+        rows = rows.filter(keyset_before(id, created_at, cur));
+    }
+    let rows = rows
+        .order_by_desc(created_at)
+        .order_by_desc(id)
+        .limit(crate::fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = <C::EntityName as EntityTrait>::find()
+        .filter(base)
+        .count(&orm(db))
+        .await?;
+    Ok((json_rows(rows)?, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
-const FILES_FROM: &str = "project_files t";
-const FILES_BASE: &str = "t.project_id = $1 and t.client_visible = true and t.is_folder = false and t.deleted_at is null";
+/// A project's files marked client visible (folders are not files here),
+/// live.
+fn shared_files(project_id: &str) -> Condition {
+    use project_files::Column;
+    Condition::all()
+        .add(Column::ProjectId.eq(project_id))
+        .add(Column::ClientVisible.eq(true))
+        .add(Column::IsFolder.eq(false))
+        .add(Column::DeletedAt.is_null())
+}
 
 /// `listPortalFiles`: files of a project marked client visible (folders are
 /// not files here), newest first.
@@ -643,13 +714,12 @@ pub(crate) async fn list_portal_files(
     project_id: &str,
     limit: i64,
     cursor: Option<&str>,
-) -> Result<Page, sqlx::Error> {
+) -> Result<Page, DbErr> {
+    use project_files::Column;
     let (rows, total) = keyset_page(
         db,
-        FILES_FROM,
-        FILES_BASE,
-        "select id, to_jsonb(created_at) #>> '{}' from project_files where id = $1 limit 1",
-        project_id,
+        (Column::Id, Column::CreatedAt),
+        shared_files(project_id),
         limit,
         cursor,
     )
@@ -669,23 +739,27 @@ pub(crate) async fn find_portal_file(
     db: &PgPool,
     project_id: &str,
     file_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from project_files t
-         where t.id = $1 and t.project_id = $2 and t.client_visible = true
-           and t.is_folder = false and t.deleted_at is null limit 1",
-    )
-    .bind(file_id)
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    project_files::Entity::find()
+        .filter(project_files::Column::Id.eq(file_id))
+        .filter(shared_files(project_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
-const DOCUMENTS_FROM: &str = "files t";
-const DOCUMENTS_BASE: &str =
-    "t.entity_type = 'project' and t.entity_id = $1 and t.file_type = 'document'
-    and t.client_visible = true and t.deleted_at is null";
+/// The project's documents (drive files of type document) marked client
+/// visible, live.
+fn shared_documents(project_id: &str) -> Condition {
+    use files::Column;
+    Condition::all()
+        .add(Column::EntityType.eq("project"))
+        .add(Column::EntityId.eq(project_id))
+        .add(Column::FileType.eq("document"))
+        .add(Column::ClientVisible.eq(true))
+        .add(Column::DeletedAt.is_null())
+}
 
 /// `listPortalDocuments`: the project's documents (drive files of type
 /// document) marked client visible, newest first.
@@ -694,13 +768,12 @@ pub(crate) async fn list_portal_documents(
     project_id: &str,
     limit: i64,
     cursor: Option<&str>,
-) -> Result<Page, sqlx::Error> {
+) -> Result<Page, DbErr> {
+    use files::Column;
     let (rows, total) = keyset_page(
         db,
-        DOCUMENTS_FROM,
-        DOCUMENTS_BASE,
-        "select id, to_jsonb(created_at) #>> '{}' from files where id = $1 limit 1",
-        project_id,
+        (Column::Id, Column::CreatedAt),
+        shared_documents(project_id),
         limit,
         cursor,
     )
@@ -715,20 +788,15 @@ pub(crate) async fn find_portal_document(
     db: &PgPool,
     project_id: &str,
     document_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from {DOCUMENTS_FROM} where t.id = $2 and {DOCUMENTS_BASE} limit 1"
-    )))
-    .bind(project_id)
-    .bind(document_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    files::Entity::find()
+        .filter(files::Column::Id.eq(document_id))
+        .filter(shared_documents(project_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
-
-const MESSAGES_FROM: &str = "project_messages t";
-const MESSAGES_BASE: &str =
-    "t.project_id = $1 and t.client_visible = true and t.deleted_at is null";
 
 /// `listPortalMessages`: the thread of a project, messages marked client
 /// visible, newest first.
@@ -738,17 +806,14 @@ pub(crate) async fn list_portal_messages(
     contact_ids: &[String],
     limit: i64,
     cursor: Option<&str>,
-) -> Result<Page, sqlx::Error> {
-    let (rows, total) = keyset_page(
-        db,
-        MESSAGES_FROM,
-        MESSAGES_BASE,
-        "select id, to_jsonb(created_at) #>> '{}' from project_messages where id = $1 limit 1",
-        project_id,
-        limit,
-        cursor,
-    )
-    .await?;
+) -> Result<Page, DbErr> {
+    use project_messages::Column;
+    let shared = Condition::all()
+        .add(Column::ProjectId.eq(project_id))
+        .add(Column::ClientVisible.eq(true))
+        .add(Column::DeletedAt.is_null());
+    let (rows, total) =
+        keyset_page(db, (Column::Id, Column::CreatedAt), shared, limit, cursor).await?;
     let senders: Vec<Option<&str>> = rows
         .iter()
         .map(|r| r.get("senderId").and_then(Value::as_str))

@@ -10,11 +10,11 @@ use std::pin::Pin;
 use std::sync::{OnceLock, RwLock};
 
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, FLOW_APPROVAL_CANCELLED, FLOW_APPROVAL_DECIDED, FLOW_APPROVAL_REQUESTED,
 };
+use weldsuite_db::PgPool;
 use weldsuite_flow_domain::approval_views::approval_event_data;
 use weldsuite_flow_domain::approvals::{
     ApprovalActor, ApprovalRow, ResolvedApprovalOutcome, is_step_active,

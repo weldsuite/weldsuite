@@ -15,19 +15,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{
     ApiError, Created, Data, List, NoContent, Pagination, generate_id, random_string,
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{custom_objects, external_webhooks, webhook_deliveries};
 use weldsuite_subscribers::{DeliverInput, WEBHOOK_RETRY_KIND, WebhookRow};
 
-use crate::js::{next_cursor, page, total};
-use crate::{Caller, ConnectState, Refusal, internal, now, validate, validate_query};
+use crate::js::{next_cursor, page};
+use crate::{Caller, ConnectState, Refusal, internal, validate, validate_query};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -94,13 +101,21 @@ struct CustomObject {
 }
 
 /// `listCustomObjects(db)`.
-async fn custom_objects(db: &PgPool) -> Result<Vec<CustomObject>, sqlx::Error> {
-    let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
-        "select slug, entity_key, label_plural, enable_events from custom_objects
-         where deleted_at is null order by sort_order asc, label_plural asc",
-    )
-    .fetch_all(db)
-    .await?;
+async fn custom_objects(db: &PgPool) -> Result<Vec<CustomObject>, DbErr> {
+    let rows: Vec<(String, String, String, bool)> = custom_objects::Entity::find()
+        .select_only()
+        .columns([
+            custom_objects::Column::Slug,
+            custom_objects::Column::EntityKey,
+            custom_objects::Column::LabelPlural,
+            custom_objects::Column::EnableEvents,
+        ])
+        .filter(custom_objects::Column::DeletedAt.is_null())
+        .order_by_asc(custom_objects::Column::SortOrder)
+        .order_by_asc(custom_objects::Column::LabelPlural)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -119,7 +134,7 @@ async fn custom_objects(db: &PgPool) -> Result<Vec<CustomObject>, sqlx::Error> {
 async fn unknown_custom_object_events(
     db: &PgPool,
     events: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     let custom: Vec<&String> = events
         .iter()
         .filter(|e| is_custom_object_event(e))
@@ -148,12 +163,17 @@ fn unknown_events_refusal(unknown: &[String]) -> Refusal {
 }
 
 /// `toPublic(row)`: the row without its secret.
-fn public(row: Value) -> Value {
-    let mut row = js_row(row);
+fn public(row: external_webhooks::Model) -> Result<Value, DbErr> {
+    let mut row = serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))?;
     if let Value::Object(map) = &mut row {
         map.remove("secret");
     }
-    row
+    Ok(row)
+}
+
+/// `new Date()` as the `timestamptz` columns store it (milliseconds).
+fn stamp() -> OffsetDateTime {
+    utc_now().assume_utc()
 }
 
 /// `generateWebhookSecret()`: `whsec_` and 32 random bytes in hex.
@@ -161,14 +181,35 @@ fn webhook_secret() -> String {
     format!("whsec_{}", random_string(64, "0123456789abcdef"))
 }
 
-/// The row with its secret (`getExternalWebhookRow`), as `to_jsonb` reads it.
-async fn webhook_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from external_webhooks t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+/// The row with its secret (`getExternalWebhookRow`).
+async fn webhook_row(db: &PgPool, id: &str) -> Result<Option<external_webhooks::Model>, DbErr> {
+    external_webhooks::Entity::find_by_id(id)
+        .filter(external_webhooks::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+}
+
+/// The webhook as the delivery reads it (`WebhookRow::from_json`).
+fn delivery_row(row: external_webhooks::Model) -> WebhookRow {
+    WebhookRow {
+        id: row.id,
+        url: row.url,
+        secret: row.secret,
+        headers: row.headers.filter(|h| !h.is_null()),
+        status: row.status,
+        consecutive_failures: row.consecutive_failures,
+        events: row
+            .events
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 // ── GET /events ─────────────────────────────────────────────────────────────
@@ -258,29 +299,29 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Err(refusal) => return refusal.respond(FAILED),
     };
     let limit = limit_of(q.limit);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from external_webhooks t
-         where t.deleted_at is null and ($1::text is null or t.status = $1)
-           and ($2::text is null or t.id < $2)
-         order by t.created_at desc, t.id desc limit $3",
-    )
-    .bind(&q.status)
-    .bind(&q.cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(
-        "select count(*)::int8 from external_webhooks t
-         where t.deleted_at is null and ($1::text is null or t.status = $1)",
-    )
-    .bind(&q.status)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let mut live =
+        external_webhooks::Entity::find().filter(external_webhooks::Column::DeletedAt.is_null());
+    if let Some(status) = &q.status {
+        live = live.filter(external_webhooks::Column::Status.eq(status));
+    }
+    let mut rows = live.clone();
+    if let Some(cursor) = &q.cursor {
+        rows = rows.filter(external_webhooks::Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(external_webhooks::Column::CreatedAt)
+        .order_by_desc(external_webhooks::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .and_then(|rows| rows.into_iter().map(public).collect::<Result<Vec<_>, _>>());
+    let count = live.count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(public).collect(), limit);
+            let (data, has_more) = page(rows, limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -288,7 +329,10 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
     match webhook_row(&caller.db, &id).await {
-        Ok(Some(row)) => Data(public(row)).into_response(),
+        Ok(Some(row)) => match public(row) {
+            Ok(row) => Data(row).into_response(),
+            Err(error) => internal(&error, "Failed to fetch webhook"),
+        },
         Ok(None) => ApiError::not_found("Webhook", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to fetch webhook"),
     }
@@ -302,30 +346,31 @@ async fn deliveries(caller: Caller, Path(id): Path<String>, RawQuery(query): Raw
         Ok(q) => q,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if webhook_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Webhook", Some(&id)).into_response());
         }
         let limit = limit_of(q.limit);
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from webhook_deliveries d
-             where d.webhook_id = $1 and ($2::text is null or d.id < $2)
-             order by d.created_at desc, d.id desc limit $3",
-        )
-        .bind(&id)
-        .bind(&q.cursor)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let count: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from webhook_deliveries d where d.webhook_id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
-        let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+        let db = orm(&caller.db);
+        let of_webhook = webhook_deliveries::Entity::find()
+            .filter(webhook_deliveries::Column::WebhookId.eq(&id));
+        let mut rows = of_webhook.clone();
+        if let Some(cursor) = &q.cursor {
+            rows = rows.filter(webhook_deliveries::Column::Id.lt(cursor));
+        }
+        let rows = rows
+            .order_by_desc(webhook_deliveries::Column::CreatedAt)
+            .order_by_desc(webhook_deliveries::Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let count = of_webhook.count(&db).await?;
+        let (data, has_more) = page(rows, limit);
         let cursor = next_cursor(&data, has_more, "id");
-        Ok(List::new(data, Pagination::new(total(count), has_more, cursor)).into_response())
+        Ok(List::new(data, Pagination::new(count, has_more, cursor)).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, FAILED))
@@ -462,27 +507,24 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         }
         let id = generate_id("ewh");
         let secret = webhook_secret();
-        let stamp = now();
-        let row: Value = sqlx::query_scalar(
-            "insert into external_webhooks as t
-                (id, name, description, url, events, secret, headers, status, created_by,
-                 created_at, updated_at)
-             values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, 'active', $8,
-                     $9::timestamptz, $9::timestamptz)
-             returning to_jsonb(t)",
-        )
-        .bind(&id)
-        .bind(input.name.as_deref().unwrap_or_default())
-        .bind(&input.description)
-        .bind(input.url.as_deref().unwrap_or_default())
-        .bind(json!(events))
-        .bind(&secret)
-        .bind(&input.headers)
-        .bind(&caller.user_id)
-        .bind(&stamp)
-        .fetch_one(&caller.db)
+        let stamp = stamp();
+        let row = external_webhooks::Entity::insert(external_webhooks::ActiveModel {
+            id: Set(id),
+            name: Set(input.name.clone().unwrap_or_default()),
+            description: Set(input.description.clone()),
+            url: Set(input.url.clone().unwrap_or_default()),
+            events: Set(json!(events)),
+            secret: Set(secret.clone()),
+            headers: Set(input.headers.clone()),
+            status: Set("active".to_owned()),
+            created_by: Set(caller.user_id.clone()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(&caller.db))
         .await?;
-        let mut webhook = public(row);
+        let mut webhook = public(row)?;
         webhook["secret"] = json!(secret);
         Ok(Created(webhook).into_response())
     }
@@ -513,29 +555,43 @@ async fn update_one(
         if webhook_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Webhook", &id));
         }
-        let row: Option<Value> = sqlx::query_scalar(
-            "update external_webhooks as t set
-                 updated_at = $2::timestamptz,
-                 name = case when $3::text is null then t.name else $3 end,
-                 description = case when $4::text is null then t.description else $4 end,
-                 url = case when $5::text is null then t.url else $5 end,
-                 events = case when $6::jsonb is null then t.events else $6 end,
-                 headers = case when $7::jsonb is null then t.headers else $7 end,
-                 status = case when $8::text is null then t.status else $8 end
-             where t.id = $1 returning to_jsonb(t)",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&input.name)
-        .bind(&input.description)
-        .bind(&input.url)
-        .bind(input.events.as_ref().map(|events| json!(events)))
-        .bind(&input.headers)
-        .bind(&input.status)
-        .fetch_optional(&caller.db)
-        .await?;
+        let mut update = external_webhooks::Entity::update_many()
+            .col_expr(external_webhooks::Column::UpdatedAt, Expr::value(stamp()));
+        if let Some(name) = &input.name {
+            update = update.col_expr(external_webhooks::Column::Name, Expr::value(name));
+        }
+        if let Some(description) = &input.description {
+            update = update.col_expr(
+                external_webhooks::Column::Description,
+                Expr::value(description),
+            );
+        }
+        if let Some(url) = &input.url {
+            update = update.col_expr(external_webhooks::Column::Url, Expr::value(url));
+        }
+        if let Some(events) = &input.events {
+            update = update.col_expr(
+                external_webhooks::Column::Events,
+                Expr::value(json!(events)),
+            );
+        }
+        if let Some(headers) = &input.headers {
+            update = update.col_expr(
+                external_webhooks::Column::Headers,
+                Expr::value(headers.clone()),
+            );
+        }
+        if let Some(status) = &input.status {
+            update = update.col_expr(external_webhooks::Column::Status, Expr::value(status));
+        }
+        let row = update
+            .filter(external_webhooks::Column::Id.eq(&id))
+            .exec_with_returning(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .next();
         Ok(match row {
-            Some(row) => Data(public(row)).into_response(),
+            Some(row) => Data(public(row)?).into_response(),
             None => Data(Value::Null).into_response(),
         })
     }
@@ -545,21 +601,21 @@ async fn update_one(
 
 async fn rotate_secret(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to rotate webhook secret";
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if webhook_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Webhook", Some(&id)).into_response());
         }
         let secret = webhook_secret();
-        let row: Value = sqlx::query_scalar(
-            "update external_webhooks as t set secret = $2, updated_at = $3::timestamptz
-             where t.id = $1 returning to_jsonb(t)",
-        )
-        .bind(&id)
-        .bind(&secret)
-        .bind(now())
-        .fetch_one(&caller.db)
-        .await?;
-        let mut webhook = public(row);
+        let row = external_webhooks::Entity::update_many()
+            .col_expr(external_webhooks::Column::Secret, Expr::value(&secret))
+            .col_expr(external_webhooks::Column::UpdatedAt, Expr::value(stamp()))
+            .filter(external_webhooks::Column::Id.eq(&id))
+            .exec_with_returning(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| DbErr::RecordNotFound("no rows returned by a query".to_owned()))?;
+        let mut webhook = public(row)?;
         webhook["secret"] = json!(secret);
         Ok(Data(webhook).into_response())
     }
@@ -568,19 +624,17 @@ async fn rotate_secret(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 async fn delete_one(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if webhook_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Webhook", Some(&id)).into_response());
         }
-        let stamp = now();
-        sqlx::query(
-            "update external_webhooks set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = stamp();
+        external_webhooks::Entity::update_many()
+            .col_expr(external_webhooks::Column::DeletedAt, Expr::value(stamp))
+            .col_expr(external_webhooks::Column::UpdatedAt, Expr::value(stamp))
+            .filter(external_webhooks::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(NoContent.into_response())
     }
     .await;
@@ -598,11 +652,11 @@ async fn send_test(
     // The Clerk org id: stamped into the payload like every entity event's
     // `workspaceId`.
     let clerk_org_id = caller.clerk_org_id.clone();
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(row) = webhook_row(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Webhook", Some(&id)).into_response());
         };
-        let webhook = WebhookRow::from_json(&row);
+        let webhook = delivery_row(row);
         let event_id = generate_id("evt");
         let data_json = format!(
             "{{\"message\":\"This is a test event from WeldSuite.\",\"webhookId\":{}}}",
@@ -620,7 +674,8 @@ async fn send_test(
                 data_json: &data_json,
             },
         )
-        .await?;
+        .await
+        .map_err(weldsuite_db::orm_error)?;
         if !outcome.delivered
             && !clerk_org_id.is_empty()
             && let Some(master) = caller.overrides.master(&state)

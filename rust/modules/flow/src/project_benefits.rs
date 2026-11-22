@@ -38,6 +38,7 @@ use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_BENEFIT_CREATED, PROJECT_BENEFIT_DELETED, PROJECT_BENEFIT_REALISED,
     PROJECT_BENEFIT_UPDATED, PROJECT_CONTROL_LINK_DELETED,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::benefit_metrics::{
     is_future_period, metric_is_measured, metric_params_error, metric_unit, next_month_start_ms,
 };
@@ -48,7 +49,6 @@ use weldsuite_flow_domain::benefits::{
 };
 use weldsuite_flow_domain::js::{contains_pattern, number_text};
 use weldsuite_flow_domain::numbering::allocate_number;
-use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{project_benefits, project_goals, tasks};
@@ -269,10 +269,7 @@ async fn list_benefits(
 /// `findGoalsCanvas(db, projectId)`: the goal cards of the project's canvas row,
 /// the one the goals routes pick too (one that holds canvas data first, then the
 /// most recently written, then the id).
-async fn find_goals_canvas(
-    caller: &Caller,
-    project_id: &str,
-) -> Result<Option<Vec<Value>>, DbErr> {
+async fn find_goals_canvas(caller: &Caller, project_id: &str) -> Result<Option<Vec<Value>>, DbErr> {
     use project_goals::Column;
     let cards = Func::coalesce([
         Expr::col((project_goals::Entity, Column::Goals)),
@@ -289,7 +286,10 @@ async fn find_goals_canvas(
         .column(Column::Goals)
         .filter(Column::ProjectId.eq(project_id))
         .filter(Column::DeletedAt.is_null())
-        .order_by(Into::<Expr>::into(Expr::case(filled, 0).finally(1)), Order::Asc)
+        .order_by(
+            Into::<Expr>::into(Expr::case(filled, 0).finally(1)),
+            Order::Asc,
+        )
         .order_by_desc(Column::UpdatedAt)
         .order_by_desc(Column::Id)
         .into_tuple()

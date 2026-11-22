@@ -32,8 +32,8 @@ use weldsuite_schema::tenant::project_files::{self, Column};
 
 use crate::projects::{bindable, writable};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, now,
-    outside, page, paged, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, json_rows,
+    now, outside, page, paged, reply, row_json, validate,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -87,11 +87,6 @@ where
         .with_state(state)
 }
 
-/// A row as Drizzle returns it.
-fn js(model: project_files::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// The body's camelCase keys as the columns they write (`{ column: value }`).
 fn by_column(values: Value) -> Map<String, Value> {
     let Value::Object(values) = values else {
@@ -119,7 +114,7 @@ async fn file_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, Db
     if live {
         find = find.filter(Column::DeletedAt.is_null());
     }
-    find.one(&orm(db)).await?.map(js).transpose()
+    find.one(&orm(db)).await?.map(row_json).transpose()
 }
 
 /// `{ isFolder, projectId }` of a live file.
@@ -368,7 +363,11 @@ async fn file_cursor(
         .one(&orm(db))
         .await?;
     Ok(row.map(|(folder, id, created)| {
-        (folder, weldsuite_db::utc_timestamp(created.assume_utc()), id)
+        (
+            folder,
+            weldsuite_db::utc_timestamp(created.assume_utc()),
+            id,
+        )
     }))
 }
 
@@ -475,7 +474,7 @@ async fn list_files(caller: &Caller, q: &Query) -> Reply {
             .count(orm)
             .await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
-        let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+        let rows = json_rows(rows)?;
         let (rows, has_more, next) = page(rows, limit);
         Ok(paged(rows, total, has_more, next))
     }

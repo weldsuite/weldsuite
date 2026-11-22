@@ -104,11 +104,7 @@ impl Joined {
 
 /// The list's filters: not deleted, the `workflowId`, `category` and
 /// `isEnabled` sent.
-fn filtered(
-    workflow_id: Option<&str>,
-    category: Option<&str>,
-    enabled: Option<bool>,
-) -> Condition {
+fn filtered(workflow_id: Option<&str>, category: Option<&str>, enabled: Option<bool>) -> Condition {
     let mut filter = Condition::all().add(Column::DeletedAt.is_null());
     if let Some(workflow_id) = workflow_id {
         filter = filter.add(Column::WorkflowId.eq(workflow_id));

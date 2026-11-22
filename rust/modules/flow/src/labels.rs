@@ -31,7 +31,7 @@ use crate::js::{Js, js_string};
 use crate::projects::writable;
 use crate::{
     Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
-    row_json, json_rows, keyset_before, keyset_cursor, list_limit, outside, page, paged, reply,
+    json_rows, keyset_before, keyset_cursor, list_limit, outside, page, paged, reply, row_json,
     validate,
 };
 

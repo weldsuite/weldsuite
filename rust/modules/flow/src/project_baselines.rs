@@ -41,8 +41,8 @@ use weldsuite_schema::tenant::{project_baselines, project_change_requests};
 use crate::approvals::find_live_project;
 use crate::raid_body::read_query;
 use crate::{
-    Caller, FlowState, Refusal, access_scope, fetch_limit, in_accessible, json_rows,
-    keyset_before, keyset_cursor_tz, now_ms, outside, page, paged, reply,
+    Caller, FlowState, Refusal, access_scope, fetch_limit, in_accessible, json_rows, keyset_before,
+    keyset_cursor_tz, now_ms, outside, page, paged, reply,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -412,9 +412,15 @@ async fn sign_off(
             let Some(created) = find_baseline(db, &id).await? else {
                 return Err(Refusal::Internal("the baseline is missing".to_owned()));
             };
-            caller.publish(&state, PROJECT_BASELINE_CREATED, &id, &baseline_event_data(&created));
+            caller.publish(
+                &state,
+                PROJECT_BASELINE_CREATED,
+                &id,
+                &baseline_event_data(&created),
+            );
             if let Some(master) = caller.master(&state) {
-                crate::project_finance::mark_finance_snapshot_due(&master, &caller.workspace_id).await;
+                crate::project_finance::mark_finance_snapshot_due(&master, &caller.workspace_id)
+                    .await;
             }
             Ok(Created(present_baseline(&created, None)).into_response())
         }

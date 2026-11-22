@@ -76,8 +76,9 @@ fn source_ip(headers: &http::HeaderMap, trusted: usize) -> String {
 
 async fn update_stats(db: &PgPool, webhook_id: &str, success: bool, source_ip: &str) {
     // `coalesce(column, 0) + 1`.
-    let plus_one =
-        |column: Column| sea_orm::ExprTrait::add(Func::coalesce([Expr::col(column), Expr::val(0)]), 1);
+    let plus_one = |column: Column| {
+        sea_orm::ExprTrait::add(Func::coalesce([Expr::col(column), Expr::val(0)]), 1)
+    };
     let stamp = utc_now();
     let counted = if success {
         Column::SuccessfulCalls

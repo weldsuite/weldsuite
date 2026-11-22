@@ -10,20 +10,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_GOAL_CREATED, PROJECT_GOAL_DELETED, PROJECT_GOAL_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::js::{civil_from_days, iso_from_millis, js_date_millis};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_goals as goals_table;
 
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, keyset_cursor, list_limit,
-    now, outside, page, paged, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, json_rows,
+    keyset_before, keyset_cursor_tz, list_limit, outside, page, paged, reply, row_json, validate,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -81,32 +87,44 @@ fn default_mission() -> Value {
     })
 }
 
-async fn goal_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(g) from project_goals g where g.id = $1 and g.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn goal_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    goals_table::Entity::find_by_id(id.to_owned())
+        .filter(goals_table::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// The project's canvas row (`findCanvasRow`): one with data wins over an
 /// empty one, then the latest written, then the id.
-async fn canvas_row(db: &PgPool, project_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(g) from project_goals g
-         where g.project_id = $1 and g.deleted_at is null
-         order by (case when g.mission is not null
-                          or jsonb_array_length(coalesce(g.goals, '[]'::jsonb)) > 0
-                        then 0 else 1 end),
-                  g.updated_at desc, g.id desc
-         limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn canvas_row(db: &PgPool, project_id: &str) -> Result<Option<Value>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    // `jsonb_array_length(coalesce(goals, '[]'::jsonb)) > 0`.
+    let has_goals = Expr::from(Func::cust("jsonb_array_length").arg(Func::coalesce([
+        Expr::col((goals_table::Entity, goals_table::Column::Goals)),
+        Expr::val(json!([])),
+    ])))
+    .gt(0);
+    let has_data = Condition::any()
+        .add(goals_table::Column::Mission.is_not_null())
+        .add(has_goals);
+    let rank: Expr = Expr::case(has_data, 0).finally(1).into();
+    goals_table::Entity::find()
+        .filter(goals_table::Column::ProjectId.eq(project_id))
+        .filter(goals_table::Column::DeletedAt.is_null())
+        .order_by_asc(rank)
+        .order_by_desc(goals_table::Column::UpdatedAt)
+        .order_by_desc(goals_table::Column::Id)
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
+}
+
+/// `new Date()` as the `timestamptz` it is written as (UTC, milliseconds).
+fn now_at() -> OffsetDateTime {
+    utc_now().assume_utc()
 }
 
 /// `saveCanvas`: updates the canvas row or creates it under a fixed id.
@@ -117,23 +135,20 @@ async fn save_canvas(
     mission: &Value,
     goals: &Value,
     user: Option<&str>,
-) -> Result<(String, bool), sqlx::Error> {
-    let now = now();
-    let mission = (!mission.is_null()).then_some(mission);
+) -> Result<(String, bool), DbErr> {
+    let now = now_at();
+    let mission = (!mission.is_null()).then(|| mission.clone());
+    let user = user.map(str::to_owned);
     if let Some(existing) = canvas_row(db, project_id).await? {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
-        sqlx::query(
-            "update project_goals set mission = $2, goals = $3, last_edited_by = $4,
-                    updated_at = $5::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(mission)
-        .bind(goals)
-        .bind(user)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        goals_table::Entity::update_many()
+            .col_expr(goals_table::Column::Mission, Expr::value(mission))
+            .col_expr(goals_table::Column::Goals, Expr::value(goals.clone()))
+            .col_expr(goals_table::Column::LastEditedBy, Expr::value(user))
+            .col_expr(goals_table::Column::UpdatedAt, Expr::value(now))
+            .filter(goals_table::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
         return Ok((id, false));
     }
     let candidate = format!("gcv_{project_id}");
@@ -142,19 +157,31 @@ async fn save_canvas(
     } else {
         generate_id("goal")
     };
-    sqlx::query(
-        "insert into project_goals (id, project_id, mission, goals, last_edited_by, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::timestamptz, $6::timestamptz)
-         on conflict (id) do update set mission = $3, goals = $4, last_edited_by = $5,
-             updated_at = $6::timestamptz, deleted_at = null",
+    goals_table::Entity::insert(goals_table::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project_id.to_owned()),
+        mission: Set(mission),
+        goals: Set(Some(goals.clone())),
+        last_edited_by: Set(user),
+        created_at: Set(Some(now)),
+        updated_at: Set(Some(now)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(goals_table::Column::Id)
+            .update_columns([
+                goals_table::Column::Mission,
+                goals_table::Column::Goals,
+                goals_table::Column::LastEditedBy,
+                goals_table::Column::UpdatedAt,
+            ])
+            .value(
+                goals_table::Column::DeletedAt,
+                Expr::value(None::<OffsetDateTime>),
+            )
+            .to_owned(),
     )
-    .bind(&id)
-    .bind(project_id)
-    .bind(mission)
-    .bind(goals)
-    .bind(user)
-    .bind(&now)
-    .execute(db)
+    .exec_without_returning(&orm(db))
     .await?;
     Ok((id, true))
 }
@@ -167,6 +194,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn list_goals(caller: &Caller, q: &Query) -> Reply {
+    use goals_table::Column;
     let db = &caller.db;
     let limit = list_limit(q, 25, 100);
     let project_id = q.present("projectId").map(str::to_owned);
@@ -181,47 +209,39 @@ async fn list_goals(caller: &Caller, q: &Query) -> Reply {
         let (all, ids) = access_scope(caller).await?;
         (!all, ids)
     };
-    let cursor =
-        match q.present("cursor") {
-            Some(cursor) => keyset_cursor(
-                db,
-                "select id, to_jsonb(created_at) #>> '{}' from project_goals where id = $1 limit 1",
-                cursor,
-            )
-            .await?,
-            None => None,
-        };
+    let cursor = match q.present("cursor") {
+        Some(cursor) => keyset_cursor_tz(db, Column::Id, Column::CreatedAt, cursor).await?,
+        None => None,
+    };
     let result = async {
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(g) from project_goals g where g.deleted_at is null
-               and ($1::text is null or g.project_id = $1)
-               and ($2::bool is not true or g.project_id = any($3))
-               and ($4::timestamptz is null or g.created_at < $4::timestamptz
-                    or (g.created_at = $4::timestamptz and g.id < $5))
-             order by g.created_at desc, g.id desc limit $6",
-        )
-        .bind(project_id.as_deref())
-        .bind(scoped)
-        .bind(&ids)
-        .bind(cursor.as_ref().map(|c| c.0.as_str()))
-        .bind(cursor.as_ref().map(|c| c.1.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from project_goals g where g.deleted_at is null
-               and ($1::text is null or g.project_id = $1)
-               and ($2::bool is not true or g.project_id = any($3))",
-        )
-        .bind(project_id.as_deref())
-        .bind(scoped)
-        .bind(&ids)
-        .fetch_one(db)
-        .await?;
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+        let db = orm(db);
+        let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+        if let Some(project_id) = &project_id {
+            filters = filters.add(Column::ProjectId.eq(project_id));
+        }
+        if scoped {
+            filters = filters.add(Column::ProjectId.is_in(&ids));
+        }
+        let mut page_filters = filters.clone();
+        if let Some(cursor) = &cursor {
+            page_filters = page_filters.add(keyset_before(Column::Id, Column::CreatedAt, cursor));
+        }
+        let rows = goals_table::Entity::find()
+            .filter(page_filters)
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(fetch_limit(limit)?)
+            .all(&db)
+            .await?;
+        let total = goals_table::Entity::find()
+            .filter(filters)
+            .count(&db)
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let (rows, has_more, next) = page(json_rows(rows)?, limit);
         Ok(paged(rows, total, has_more, next))
     }
     .await;
@@ -533,22 +553,24 @@ async fn update(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            sqlx::query(
-                "update project_goals set
-                     mission = case when $2 then $3 else mission end,
-                     goals = case when $4 then $5 else goals end,
-                     last_edited_by = $6, updated_at = $7::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(data.contains_key("mission"))
-            .bind(data.get("mission").filter(|m| !m.is_null()))
-            .bind(data.contains_key("goals"))
-            .bind(data.get("goals"))
-            .bind(caller.user())
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let mut change = goals_table::Entity::update_many();
+            if let Some(mission) = data.get("mission") {
+                let mission = (!mission.is_null()).then(|| mission.clone());
+                change = change.col_expr(goals_table::Column::Mission, Expr::value(mission));
+            }
+            if let Some(goals) = data.get("goals") {
+                change = change.col_expr(goals_table::Column::Goals, Expr::value(goals.clone()));
+            }
+            change
+                .col_expr(
+                    goals_table::Column::LastEditedBy,
+                    Expr::value(caller.user().map(str::to_owned)),
+                )
+                .col_expr(goals_table::Column::UpdatedAt, Expr::value(now_at()))
+                .filter(goals_table::Column::Id.eq(&id))
+                .filter(goals_table::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(
                 &state,
                 PROJECT_GOAL_UPDATED,
@@ -577,13 +599,13 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            sqlx::query(
-                "update project_goals set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let now = now_at();
+            goals_table::Entity::update_many()
+                .col_expr(goals_table::Column::DeletedAt, Expr::value(now))
+                .col_expr(goals_table::Column::UpdatedAt, Expr::value(now))
+                .filter(goals_table::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(
                 &state,
                 PROJECT_GOAL_DELETED,

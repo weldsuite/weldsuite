@@ -32,8 +32,8 @@ use weldsuite_schema::tenant::milestones;
 use crate::projects::{bindable, writable};
 use crate::{
     Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
-    row_json, json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged,
-    reply, validate,
+    json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged, reply,
+    row_json, validate,
 };
 
 /// `milestones`, written from the picked body: Postgres converts each value

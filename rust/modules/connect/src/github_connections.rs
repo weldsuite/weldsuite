@@ -17,17 +17,28 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::validation::{Issues, Presence, js_number};
 use weldsuite_kit::{ApiError, Data, List, NoContent, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::merge_connections::{self, Column, Model};
 
-use crate::js::{next_cursor, page, page_limit, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_truthy};
 use crate::{Caller, ConnectState, Refusal, internal, now, validate};
 
 const RESOURCE: &str = "GitHub connection";
+
+/// `merge_connections`, written from a body's columns.
+const MERGE_CONNECTIONS: JsonTable = JsonTable::of::<merge_connections::Entity>();
 
 /// `Number(text)` as JSON: an integer stays one, `NaN` is `null`.
 fn js_number_json(text: Option<&str>) -> Value {
@@ -47,7 +58,7 @@ fn js_number_json(text: Option<&str>) -> Value {
 }
 
 /// `toGithubConnection(row, workspaceId)`: a `merge_connections` row (as
-/// [`js_row`] reads it) in the legacy shape, webhook secret included.
+/// the entity serializes it) in the legacy shape, webhook secret included.
 /// `needs_attention` is not a GitHub App state: to these callers the
 /// connection is unusable, like a suspended one.
 pub(crate) fn connection_view(row: &Value, workspace_id: &str) -> Value {
@@ -92,15 +103,23 @@ pub(crate) fn without_secret(mut view: Value) -> Value {
 pub(crate) async fn connection_by_workspace(
     db: &PgPool,
     workspace_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from merge_connections t
-         where t.provider = 'github' and t.deleted_at is null
-         order by (t.status = 'active') desc, t.created_at desc, t.id desc limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| connection_view(&js_row(row), workspace_id)))
+) -> Result<Option<Value>, DbErr> {
+    // `order by (status = 'active') desc`.
+    let active_first = sea_orm::ExprTrait::eq(Expr::col(Column::Status), "active");
+    let row = merge_connections::Entity::find()
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(active_first)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|row| connection_view(&js(row), workspace_id)))
+}
+
+/// A row as Drizzle returned it.
+fn js(model: Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
 }
 
 // ── /api/github-connections ─────────────────────────────────────────────────
@@ -129,99 +148,92 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
 }
 
 /// What a stored row answers: the legacy shape, without the webhook secret.
-fn present(row: Value, caller: &Caller) -> Value {
-    without_secret(connection_view(&js_row(row), &caller.clerk_org_id))
+fn present(row: Model, caller: &Caller) -> Value {
+    without_secret(connection_view(&js(row), &caller.clerk_org_id))
+}
+
+/// `date_trunc('milliseconds', at)`.
+fn to_millis(at: OffsetDateTime) -> OffsetDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list github connections";
     let query = query.as_deref();
     let limit = page_limit(query, 25, 100);
-    let mut conditions = vec![
-        "t.deleted_at is null".to_owned(),
-        "t.provider = 'github'".to_owned(),
-    ];
-    let mut binds: Vec<String> = Vec::new();
+    let mut conditions = vec![Column::DeletedAt.is_null(), Column::Provider.eq("github")];
     if let Some(status) = crate::js::query_param(query, "status").filter(|s| !s.is_empty()) {
-        binds.push(status);
-        conditions.push(format!("t.status = ${}", binds.len()));
+        conditions.push(Column::Status.eq(status));
     }
     let cursor = query_truthy(query, "cursor");
+    let db = orm(&caller.db);
     // The count leaves out the last condition whenever a cursor is sent: the
     // cursor's own, or (when its row is gone) the last filter.
     let mut count_conditions = conditions.clone();
-    let mut count_binds = binds.len();
     if let Some(cursor) = &cursor {
-        let found: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
-            "select created_at is not null from merge_connections where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await;
+        let found: Result<Option<OffsetDateTime>, DbErr> = merge_connections::Entity::find()
+            .select_only()
+            .column(Column::CreatedAt)
+            .filter(Column::Id.eq(cursor))
+            .limit(1)
+            .into_tuple()
+            .one(&db)
+            .await;
         match found {
-            Ok(Some(true)) => {
-                binds.push(cursor.clone());
-                let n = binds.len();
-                conditions.push(format!(
-                    "(t.created_at < (select date_trunc('milliseconds', c.created_at) from merge_connections c where c.id = ${n})
-                      or (t.created_at = (select date_trunc('milliseconds', c.created_at) from merge_connections c where c.id = ${n})
-                          and t.id < ${n}))"
-                ));
+            Ok(Some(at)) => {
+                // Before the cursor row's `created_at` (to the millisecond),
+                // or at it with a smaller id.
+                use sea_orm::ExprTrait as _;
+                let at = to_millis(at);
+                conditions.push(
+                    Column::CreatedAt
+                        .lt(at)
+                        .or(Column::CreatedAt.eq(at).and(Column::Id.lt(cursor))),
+                );
             }
-            Ok(_) => {
-                // The last filter is the status (with its bind), else the
-                // provider.
-                count_binds = count_binds.saturating_sub(1);
+            Ok(None) => {
+                // The last filter is the status, else the provider.
                 count_conditions.pop();
             }
             Err(error) => return internal(&error, FAILED),
         }
     }
-    let where_rows = conditions.join(" and ");
-    let where_count = if count_conditions.is_empty() {
-        "true".to_owned()
-    } else {
-        count_conditions.join(" and ")
+    let all = |conditions: Vec<Expr>| {
+        conditions
+            .into_iter()
+            .fold(Condition::all(), Condition::add)
     };
-    let mut rows_query = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from merge_connections t where {where_rows}
-         order by t.created_at desc, t.id desc limit {}",
-        limit + 1
-    )));
-    for bind in &binds {
-        rows_query = rows_query.bind(bind);
-    }
-    let mut count_query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
-        "select count(*) from merge_connections t where {where_count}"
-    )));
-    for bind in binds.iter().take(count_binds) {
-        count_query = count_query.bind(bind);
-    }
-    match (
-        rows_query.fetch_all(&caller.db).await,
-        count_query.fetch_one(&caller.db).await,
-    ) {
+    let rows = merge_connections::Entity::find()
+        .filter(all(conditions))
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await;
+    let count = merge_connections::Entity::find()
+        .filter(all(count_conditions))
+        .count(&db)
+        .await;
+    match (rows, count) {
         (Ok(rows), Ok(count)) => {
             let (data, has_more) = page(
                 rows.into_iter().map(|row| present(row, &caller)).collect(),
                 limit,
             );
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
 }
 
 /// The live GitHub row `id`.
-async fn live_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from merge_connections t
-         where t.id = $1 and t.provider = 'github' and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+async fn live_row(db: &PgPool, id: &str) -> Result<Option<Model>, DbErr> {
+    merge_connections::Entity::find_by_id(id.to_owned())
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -329,19 +341,13 @@ async fn update(
                 FAILED,
             ))));
         };
-        let set: String = record
-            .keys()
-            .fold(String::new(), |set, c| set + ", " + c + " = r." + c);
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update merge_connections t set updated_at = $3::timestamptz{set}
-             from jsonb_populate_record(null::merge_connections, $2) r
-             where t.id = $1 and t.deleted_at is null"
-        )))
-        .bind(&id)
-        .bind(Value::Object(record))
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        // `set({ ...columns, updatedAt: new Date() })`, Postgres converting
+        // each value to its column's type.
+        let mut record = record;
+        record.insert("updated_at".into(), json!(now()));
+        MERGE_CONNECTIONS
+            .update(&orm(&caller.db), &id, record, true)
+            .await?;
         Ok(Data(json!({ "id": id })).into_response())
     };
     result
@@ -355,14 +361,13 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
         if live_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found(RESOURCE, &id));
         }
-        sqlx::query(
-            "update merge_connections set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_timestamp(OffsetDateTime::now_utc()).assume_utc();
+        merge_connections::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(NoContent.into_response())
     };
     result

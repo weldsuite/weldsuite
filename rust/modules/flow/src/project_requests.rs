@@ -64,10 +64,12 @@ use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::project_requests::{self, Column};
-use weldsuite_schema::tenant::{flow_approvals, flow_workspace_settings, projects, resource_bookings};
+use weldsuite_schema::tenant::{
+    flow_approvals, flow_workspace_settings, projects, resource_bookings,
+};
 
 use self::store::{
-    board_of, clear_approvals, find_project_request, instant, js, list_subject_approvals,
+    board_of, clear_approvals, find_project_request, instant, list_subject_approvals,
     load_settings, model_of, request_approvals,
 };
 use crate::approvals::announce::{
@@ -81,7 +83,7 @@ use crate::capacity::body::{
 use crate::capacity::store::load_capacity;
 use crate::capacity::{parse_limit, today_utc};
 use crate::raid_store::live_project_exists;
-use crate::{Caller, FlowState, Refusal, Reply, outside, page, paged, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, outside, page, paged, reply, row_json};
 
 /// A request as the roadmap query reads it.
 type RequestRow = (
@@ -160,8 +162,9 @@ fn stored_score(row: &Value) -> Option<f64> {
 /// A `numeric` column's value from its text (`$n::numeric`).
 fn decimal(text: Option<String>) -> Result<Option<BigDecimal>, DbErr> {
     text.map(|text| {
-        BigDecimal::from_str(&text)
-            .map_err(|_| DbErr::Custom(format!("invalid input syntax for type numeric: \"{text}\"")))
+        BigDecimal::from_str(&text).map_err(|_| {
+            DbErr::Custom(format!("invalid input syntax for type numeric: \"{text}\""))
+        })
     })
     .transpose()
 }
@@ -242,9 +245,8 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                     .one(&orm(&caller.db))
                     .await;
             match found {
-                Ok(found) => found.map(|(number, score)| {
-                    (score.unwrap_or_else(|| BigDecimal::from(-1)), number)
-                }),
+                Ok(found) => found
+                    .map(|(number, score)| (score.unwrap_or_else(|| BigDecimal::from(-1)), number)),
                 Err(error) => return outside(Err(error.into())),
             }
         }
@@ -293,7 +295,7 @@ async fn list_rows(
         .count(db)
         .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    let rows = json_rows(rows)?;
     let (rows, has_more, next) = page(rows, limit);
     let items = rows.iter().map(present_project_request).collect();
     Ok(paged(items, total, has_more, next))
@@ -406,7 +408,9 @@ async fn build_roadmap(caller: &Caller, from: &str, to: &str, tentative: bool) -
         .select_only()
         .columns([Project::Id, Project::Name, Project::Status])
         .column_as(
-            day_text(Func::least([Expr::col(Project::StartDate), Expr::col(Project::EndDate)]).into()),
+            day_text(
+                Func::least([Expr::col(Project::StartDate), Expr::col(Project::EndDate)]).into(),
+            ),
             "starts_on",
         )
         .column_as(
@@ -424,15 +428,30 @@ async fn build_roadmap(caller: &Caller, from: &str, to: &str, tentative: bool) -
         .await?;
     let requests: Vec<RequestRow> = project_requests::Entity::find()
         .select_only()
-        .columns([Column::Id, Column::Number, Column::Title, Column::Status, Column::Score])
+        .columns([
+            Column::Id,
+            Column::Number,
+            Column::Title,
+            Column::Status,
+            Column::Score,
+        ])
         .column_as(
-            day_text(Func::least([Expr::col(Column::DesiredStart), Expr::col(Column::DesiredEnd)]).into()),
+            day_text(
+                Func::least([
+                    Expr::col(Column::DesiredStart),
+                    Expr::col(Column::DesiredEnd),
+                ])
+                .into(),
+            ),
             "starts_on",
         )
         .column_as(
             day_text(
-                Func::greatest([Expr::col(Column::DesiredStart), Expr::col(Column::DesiredEnd)])
-                    .into(),
+                Func::greatest([
+                    Expr::col(Column::DesiredStart),
+                    Expr::col(Column::DesiredEnd),
+                ])
+                .into(),
             ),
             "ends_on",
         )
@@ -565,7 +584,7 @@ async fn write_settings(
             .order_by_asc(Column::Number)
             .all(&orm(db))
             .await?;
-        for row in open.into_iter().map(js) {
+        for row in open.into_iter().map(row_json) {
             let row = row?;
             let score = score_request(model, &scores_of(&row));
             if !same_score(score, stored_score(&row)) {
@@ -640,7 +659,12 @@ fn upsert_settings(
         id: Set(generate_id("fws")),
         singleton: Set(true),
         scoring_model: Set(model.unwrap_or_else(|| {
-            Value::Array(default_scoring_model().iter().map(Criterion::to_json).collect())
+            Value::Array(
+                default_scoring_model()
+                    .iter()
+                    .map(Criterion::to_json)
+                    .collect(),
+            )
         })),
         portfolio_board_ids: Set(board.map_or_else(|| json!([]), |ids| json!(ids))),
         expense_approval_limit: Set(limit),
@@ -927,7 +951,7 @@ async fn delete_request(state: &FlowState, caller: &Caller, id: &str, existing: 
         .order_by_asc(resource_bookings::Column::Id)
         .all(&orm(db))
         .await?;
-    let held = held.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    let held = json_rows(held)?;
     let reviews = list_subject_approvals(db, id).await?;
     let now = instant(crate::now_ms());
     let id_owned = id.to_owned();
@@ -1252,7 +1276,7 @@ async fn link_project(state: &FlowState, caller: &Caller, id: &str, project_id: 
         let moved = resource_bookings::Entity::find_by_id(booking_id.as_str())
             .one(&orm(db))
             .await?
-            .map(js)
+            .map(row_json)
             .transpose()?;
         if let Some(moved) = moved {
             caller.publish(

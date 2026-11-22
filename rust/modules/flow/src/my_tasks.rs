@@ -40,7 +40,7 @@ use weldsuite_schema::tenant::{projects, tasks};
 use crate::task_enrich::{attach_tree_across_projects, enrich};
 use crate::tasks::{SORT_FIELDS, csv_list, query_boolean, query_number, query_text};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, row_json, outside, project_not_deleted, reply,
+    Caller, FlowState, Query, Refusal, Reply, outside, project_not_deleted, reply, row_json,
     validate_value,
 };
 
@@ -128,14 +128,12 @@ fn my_task_filters(user: &str, f: &Filters, p: &Params) -> Condition {
     let mut filters = Condition::all()
         .add(Column::DeletedAt.is_null())
         .add(project_not_deleted(Column::ProjectId))
-        .add(
-            Condition::any()
-                .add(Column::AssigneeId.eq(user))
-                .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
-                    Expr::col((tasks::Entity, Column::AssigneeIds)),
-                    json!([user]),
-                )),
-        );
+        .add(Condition::any().add(Column::AssigneeId.eq(user)).add(
+            sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                Expr::col((tasks::Entity, Column::AssigneeIds)),
+                json!([user]),
+            ),
+        ));
     if let Some(statuses) = &p.statuses {
         filters = filters.add(Column::Status.is_in(statuses.iter().map(String::as_str)));
     }

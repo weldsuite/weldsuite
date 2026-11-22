@@ -604,7 +604,10 @@ async fn update_route(
             );
         }
         if !header.is_absent() {
-            update = update.col_expr(Column::SignatureHeader, Expr::value(header.as_set().cloned()));
+            update = update.col_expr(
+                Column::SignatureHeader,
+                Expr::value(header.as_set().cloned()),
+            );
         }
         if !methods.is_absent() {
             update = update.col_expr(

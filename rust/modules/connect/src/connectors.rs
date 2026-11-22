@@ -376,7 +376,10 @@ async fn set_status(
     let row_id = row["id"].as_str().unwrap_or_default();
     if let Err(error) = connector_connections::Entity::update_many()
         .col_expr(connector_connections::Column::Status, Expr::value(status))
-        .col_expr(connector_connections::Column::UpdatedAt, Expr::value(utc_now()))
+        .col_expr(
+            connector_connections::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
         .filter(connector_connections::Column::Id.eq(row_id))
         .exec(&orm(&caller.db))
         .await

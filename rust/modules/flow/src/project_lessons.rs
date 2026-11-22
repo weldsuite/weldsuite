@@ -25,7 +25,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect,
 };
 use serde_json::{Value, json};
@@ -53,7 +53,8 @@ use crate::closing_body::{
 };
 use crate::closing_store::{PROJECT_DENIED, PROJECT_WRITE_DENIED, find_live_project};
 use crate::{
-    Caller, FlowState, Refusal, Reply, access_scope, in_accessible, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, access_scope, in_accessible, keyset_before,
+    keyset_cursor_tz, outside, page, paged, reply, row_json,
 };
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -91,11 +92,6 @@ where
         .with_state(state)
 }
 
-/// A row as Drizzle returns it.
-fn js(model: project_lessons::Model) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// `new Date()` as the row stores it: the request's instant, to the millisecond.
 fn now() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp_nanos(i128::from(crate::now_ms()) * 1_000_000)
@@ -108,7 +104,7 @@ async fn find_lesson(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 
@@ -148,24 +144,6 @@ fn lesson_filters(q: &LessonQuery, scope: &(bool, Vec<String>)) -> Condition {
     filters
 }
 
-/// The keyset cursor row (`select createdAt, id where id = cursor`):
-/// `created_at` as Drizzle reads it back (milliseconds), and the id.
-async fn lesson_cursor(
-    db: &DatabaseConnection,
-    cursor: &str,
-) -> Result<Option<(OffsetDateTime, String)>, DbErr> {
-    let created: Option<OffsetDateTime> = project_lessons::Entity::find_by_id(cursor)
-        .select_only()
-        .column(Column::CreatedAt)
-        .into_tuple()
-        .one(db)
-        .await?;
-    Ok(created.map(|at| {
-        let at = at.replace_millisecond(at.millisecond()).unwrap_or(at);
-        (at, cursor.to_owned())
-    }))
-}
-
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = match lesson_query(raw.as_deref()) {
         Ok(q) => q,
@@ -185,10 +163,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(error) => return outside(Err(error.into())),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match lesson_cursor(&orm(&caller.db), cursor).await {
-            Ok(found) => found,
-            Err(error) => return outside(Err(error.into())),
-        },
+        Some(cursor) => {
+            match keyset_cursor_tz(&caller.db, Column::Id, Column::CreatedAt, cursor).await {
+                Ok(found) => found,
+                Err(error) => return outside(Err(error.into())),
+            }
+        }
         None => None,
     };
     reply(
@@ -207,14 +187,8 @@ async fn list_lessons(
     let db = &orm(&caller.db);
     let filters = lesson_filters(q, scope);
     let mut select = project_lessons::Entity::find().filter(filters.clone());
-    if let Some((at, id)) = cursor {
-        select = select.filter(
-            Condition::any().add(Column::CreatedAt.lt(at)).add(
-                Condition::all()
-                    .add(Column::CreatedAt.eq(at))
-                    .add(Column::Id.lt(id)),
-            ),
-        );
+    if let Some(cursor) = &cursor {
+        select = select.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
     }
     let rows = select
         .order_by_desc(Column::CreatedAt)
@@ -227,7 +201,10 @@ async fn list_lessons(
         .count(db)
         .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    let rows = rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?;
     let (rows, has_more, next) = page(rows, limit);
     let user = caller.user();
     let lessons = rows.iter().map(|row| present_lesson(row, user)).collect();
@@ -542,7 +519,10 @@ async fn publish_lessons(
         .order_by_asc(Column::Id)
         .all(&orm(db))
         .await?;
-    let lessons = lessons.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    let lessons = lessons
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?;
     if lessons.is_empty() {
         return Err(Refusal::bad_request(NO_LESSONS));
     }
@@ -574,7 +554,7 @@ async fn publish_lessons(
         .await?;
     let mut published = published
         .into_iter()
-        .map(js)
+        .map(row_json)
         .collect::<Result<Vec<_>, _>>()?;
     published.sort_by(|a, b| {
         (a.text("createdAt"), a.text("id")).cmp(&(b.text("createdAt"), b.text("id")))

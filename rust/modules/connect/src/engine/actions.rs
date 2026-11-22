@@ -5,10 +5,16 @@
 use std::sync::Arc;
 
 use regex::Regex;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{HttpRequest, OutboundHttp, RealtimeMessage, Room};
+use weldsuite_schema::tenant::{
+    helpdesk_conversation_messages, notifications, workflow_integrations, workspace_members,
+};
 
 use super::steps::RunInfo;
 use super::{EngineDeps, engine_id, now_ms, now_text};
@@ -74,8 +80,16 @@ impl ActionError {
         }
     }
 
-    fn database(error: &sqlx::Error) -> Self {
-        Self::plain(&error.to_string())
+    /// A failed statement: the database's own message, as the driver
+    /// reported it.
+    fn database(error: &DbErr) -> Self {
+        let message = match error {
+            DbErr::Conn(sea_orm::RuntimeErr::SqlxError(error))
+            | DbErr::Exec(sea_orm::RuntimeErr::SqlxError(error))
+            | DbErr::Query(sea_orm::RuntimeErr::SqlxError(error)) => error.to_string(),
+            other => other.to_string(),
+        };
+        Self::plain(&message)
     }
 }
 
@@ -620,13 +634,15 @@ async fn notify_live(ctx: &ActionCtx<'_>, user_id: &str, notification: Value) {
 
 /// Live members among `requested`, in `requested`'s order.
 async fn members(db: &PgPool, requested: &[String]) -> Result<Vec<String>, ActionError> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = any($1) and deleted_at is null",
-    )
-    .bind(requested)
-    .fetch_all(db)
-    .await
-    .map_err(|e| ActionError::database(&e))?;
+    let rows: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(requested.iter().map(String::as_str)))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|e| ActionError::database(&e))?;
     Ok(requested
         .iter()
         .filter(|id| rows.contains(id))
@@ -687,7 +703,8 @@ async fn send_notification(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -> 
             "None of the recipients is a member of this workspace",
         ));
     }
-    let now = now_text();
+    let at = OffsetDateTime::now_utc();
+    let now = iso_timestamp(at);
     let category = text_or(&[inputs.get("category")], "task");
     let notification_type = text_or(
         &[inputs.get("notificationType"), inputs.get("type")],
@@ -709,28 +726,28 @@ async fn send_notification(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -> 
     for user_id in &user_ids {
         let id = engine_id("notif");
         notification_ids.push(id.clone());
-        sqlx::query(
-            "insert into notifications
-                (id, user_id, title, body, category, notification_type, entity_type, entity_id,
-                 action_url, icon, severity, data, actor_type, is_read, delivered_in_app,
-                 delivered_email, delivered_push, created_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'system', false, true, false,
-                     false, $13::timestamp)",
-        )
-        .bind(&id)
-        .bind(user_id)
-        .bind(&title)
-        .bind((!body.is_empty()).then_some(&body))
-        .bind(&category)
-        .bind(&notification_type)
-        .bind(&entity_type)
-        .bind(&entity_id)
-        .bind(&action_url)
-        .bind(&icon)
-        .bind(&severity)
-        .bind(&data)
-        .bind(&now)
-        .execute(ctx.db)
+        notifications::Entity::insert(notifications::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(user_id.clone()),
+            title: Set(title.clone()),
+            body: Set((!body.is_empty()).then(|| body.clone())),
+            category: Set(category.clone()),
+            notification_type: Set(notification_type.clone()),
+            entity_type: Set(entity_type.clone()),
+            entity_id: Set(entity_id.clone()),
+            action_url: Set(action_url.clone()),
+            icon: Set(Some(icon.clone())),
+            severity: Set(severity.clone()),
+            data: Set(data.clone()),
+            actor_type: Set(Some("system".to_owned())),
+            is_read: Set(false),
+            delivered_in_app: Set(true),
+            delivered_email: Set(false),
+            delivered_push: Set(false),
+            created_at: Set(utc_timestamp(at).assume_utc()),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(ctx.db))
         .await
         .map_err(|e| ActionError::database(&e))?;
         notify_live(
@@ -850,7 +867,8 @@ async fn interactive(kind: &str, inputs: &Map<String, Value>, ctx: &ActionCtx<'_
     };
     let content = text_or(&[inputs.get("message")], "");
     let message_id = engine_id("msg");
-    let now = now_text();
+    let at = OffsetDateTime::now_utc();
+    let now = iso_timestamp(at);
     let step_ref = text_or(&[inputs.get("__stepId")], "unknown");
     let metadata = match kind {
         "send_choices" => Some(json!({
@@ -867,19 +885,23 @@ async fn interactive(kind: &str, inputs: &Map<String, Value>, ctx: &ActionCtx<'_
         })),
         _ => None,
     };
-    sqlx::query(
-        "insert into helpdesk_conversation_messages
-            (id, conversation_id, content, author_type, author_id, author_name, type, is_public, status,
-             metadata, created_at, updated_at)
-         values ($1, $2, $3, 'system', 'system', 'Bot', 'message', true, 'sent', $4, $5::timestamp,
-                 $5::timestamp)",
-    )
-    .bind(&message_id)
-    .bind(&conversation_id)
-    .bind(&content)
-    .bind(&metadata)
-    .bind(&now)
-    .execute(ctx.db)
+    let stamp = utc_timestamp(at);
+    helpdesk_conversation_messages::Entity::insert(helpdesk_conversation_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        conversation_id: Set(conversation_id.clone()),
+        content: Set(content.clone()),
+        author_type: Set("system".to_owned()),
+        author_id: Set(Some("system".to_owned())),
+        author_name: Set("Bot".to_owned()),
+        type_: Set("message".to_owned()),
+        is_public: Set(true),
+        status: Set(Some("sent".to_owned())),
+        metadata: Set(metadata.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(ctx.db))
     .await
     .map_err(|e| ActionError::database(&e))?;
     if let Some(realtime) = &ctx.deps.realtime {
@@ -1080,37 +1102,33 @@ async fn integration_token(
         || format!("type={}", kind.unwrap_or_default()),
         |id| format!("id={id}"),
     );
-    let row: Option<Value> = if let Some(id) = integration_id {
-        sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_integrations t where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(id)
-        .fetch_optional(db)
+    let mut found = workflow_integrations::Entity::find()
+        .filter(workflow_integrations::Column::DeletedAt.is_null());
+    found = match integration_id {
+        Some(id) => found.filter(workflow_integrations::Column::Id.eq(id)),
+        None => found.filter(workflow_integrations::Column::Type.eq(kind.unwrap_or_default())),
+    };
+    let row = found
+        .one(&orm(db))
         .await
-    } else {
-        sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_integrations t where t.type = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(kind.unwrap_or_default())
-        .fetch_optional(db)
-        .await
-    }
-    .map_err(|e| ActionError::database(&e))?;
+        .map_err(|e| ActionError::database(&e))?;
     let Some(row) = row else {
         return Err(ActionError::named(
             "IntegrationNotFoundError",
             &format!("Integration not found: {selector}"),
         ));
     };
-    let status = js_string(row.get("status"));
-    if status != "connected" {
+    if row.status != "connected" {
         return Err(ActionError::named(
             "IntegrationNotConnectedError",
-            &format!("Integration {selector} is not connected (status: {status})"),
+            &format!(
+                "Integration {selector} is not connected (status: {})",
+                row.status
+            ),
         ));
     }
-    let tokens = &row["oauth_tokens"];
-    let credentials = &row["credentials"];
+    let tokens = row.oauth_tokens.as_ref().unwrap_or(&Value::Null);
+    let credentials = row.credentials.as_ref().unwrap_or(&Value::Null);
     let token = tokens["accessToken"]
         .as_str()
         .or_else(|| {
@@ -1119,7 +1137,7 @@ async fn integration_token(
                 .find_map(|key| credentials[*key].as_str())
         })
         .map(str::to_owned);
-    Ok((js_string(row.get("type")), token))
+    Ok((row.type_, token))
 }
 
 async fn http_request(

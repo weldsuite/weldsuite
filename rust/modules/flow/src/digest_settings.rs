@@ -11,14 +11,18 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::DIGEST_SETTINGS_UPDATED;
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{digest_schedules, workspaces};
+use weldsuite_schema::tenant::{task_digest_settings as digest, workspace_settings};
 
-use crate::{Caller, FlowState, Refusal, now, reply, validate};
+use crate::{Caller, FlowState, Refusal, reply, row_json, validate};
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -35,24 +39,22 @@ where
 async fn settings(caller: Caller) -> Response {
     reply(
         async {
-            let row: Option<Value> =
-                sqlx::query_scalar("select to_jsonb(s) from task_digest_settings s limit 1")
-                    .fetch_optional(&caller.db)
-                    .await?;
-            Ok(Data(row.map_or_else(
-                || {
-                    json!({
-                        "id": null,
-                        "enabled": true,
-                        "sendHour": 8,
-                        "taskTypes": { "projectTasks": true, "personalTasks": true },
-                        "sections": { "overdue": true, "dueToday": true, "dueThisWeek": true },
-                        "createdAt": null,
-                        "updatedAt": null,
-                    })
-                },
-                js_row,
-            ))
+            let row = digest::Entity::find()
+                .one(&orm(&caller.db))
+                .await?
+                .map(row_json)
+                .transpose()?;
+            Ok(Data(row.unwrap_or_else(|| {
+                json!({
+                    "id": null,
+                    "enabled": true,
+                    "sendHour": 8,
+                    "taskTypes": { "projectTasks": true, "personalTasks": true },
+                    "sections": { "overdue": true, "dueToday": true, "dueThisWeek": true },
+                    "createdAt": null,
+                    "updatedAt": null,
+                })
+            }))
             .into_response())
         }
         .await,
@@ -127,44 +129,55 @@ async fn save_settings(
     org_id: &str,
     input: &DigestBody,
 ) -> crate::Reply {
-    let db = &caller.db;
+    let db = orm(&caller.db);
     let send_hour = i32::try_from(input.send_hour).unwrap_or(0);
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from task_digest_settings limit 1")
-            .fetch_optional(db)
-            .await?;
-    let settings: Value = if let Some(id) = existing {
-        sqlx::query_scalar(
-            "update task_digest_settings set enabled = $2, send_hour = $3, task_types = $4,
-                    sections = $5, updated_at = $6::timestamptz
-             where id = $1 returning to_jsonb(task_digest_settings)",
-        )
-        .bind(&id)
-        .bind(input.enabled)
-        .bind(send_hour)
-        .bind(&input.task_types)
-        .bind(&input.sections)
-        .bind(now())
-        .fetch_one(db)
-        .await?
+    let existing: Option<String> = digest::Entity::find()
+        .select_only()
+        .column(digest::Column::Id)
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let settings = if let Some(id) = existing {
+        digest::Entity::update_many()
+            .col_expr(digest::Column::Enabled, Expr::value(input.enabled))
+            .col_expr(digest::Column::SendHour, Expr::value(send_hour))
+            .col_expr(
+                digest::Column::TaskTypes,
+                Expr::value(input.task_types.clone()),
+            )
+            .col_expr(
+                digest::Column::Sections,
+                Expr::value(input.sections.clone()),
+            )
+            .col_expr(
+                digest::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(digest::Column::Id.eq(&id))
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| DbErr::RecordNotFound("task_digest_settings".to_owned()))?
     } else {
-        sqlx::query_scalar(
-            "insert into task_digest_settings (id, enabled, send_hour, task_types, sections)
-             values ($1, $2, $3, $4, $5) returning to_jsonb(task_digest_settings)",
-        )
-        .bind(generate_id("tds"))
-        .bind(input.enabled)
-        .bind(send_hour)
-        .bind(&input.task_types)
-        .bind(&input.sections)
-        .fetch_one(db)
+        digest::Entity::insert(digest::ActiveModel {
+            id: Set(generate_id("tds")),
+            enabled: Set(input.enabled),
+            send_hour: Set(send_hour),
+            task_types: Set(input.task_types.clone()),
+            sections: Set(input.sections.clone()),
+            ..Default::default()
+        })
+        .exec_with_returning(&db)
         .await?
     };
-    let settings = js_row(settings);
-    let timezone: Option<Option<String>> =
-        sqlx::query_scalar("select timezone from workspace_settings limit 1")
-            .fetch_optional(db)
-            .await?;
+    let settings = row_json(settings)?;
+    let timezone: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Timezone)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let timezone = timezone
         .flatten()
         .filter(|tz| !tz.is_empty())
@@ -173,41 +186,47 @@ async fn save_settings(
     let Some(master) = caller.master(state) else {
         return Err(Refusal::Internal("no master database".to_owned()));
     };
-    let workspace: Option<String> =
-        sqlx::query_scalar("select id from workspaces where clerk_org_id = $1 limit 1")
-            .bind(org_id)
-            .fetch_optional(&master)
-            .await?;
+    let master = orm(&master);
+    let workspace: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::ClerkOrgId.eq(org_id))
+        .into_tuple()
+        .one(&master)
+        .await?;
     if let Some(workspace) = workspace {
-        let schedule: Option<String> =
-            sqlx::query_scalar("select id from digest_schedules where workspace_id = $1 limit 1")
-                .bind(&workspace)
-                .fetch_optional(&master)
-                .await?;
-        if let Some(schedule) = schedule {
-            sqlx::query(
-                "update digest_schedules set enabled = $2, send_hour = $3, timezone = $4,
-                        updated_at = $5::timestamptz
-                 where id = $1",
-            )
-            .bind(&schedule)
-            .bind(input.enabled)
-            .bind(send_hour)
-            .bind(&timezone)
-            .bind(now())
-            .execute(&master)
+        let schedule: Option<String> = digest_schedules::Entity::find()
+            .select_only()
+            .column(digest_schedules::Column::Id)
+            .filter(digest_schedules::Column::WorkspaceId.eq(&workspace))
+            .into_tuple()
+            .one(&master)
             .await?;
+        if let Some(schedule) = schedule {
+            digest_schedules::Entity::update_many()
+                .col_expr(
+                    digest_schedules::Column::Enabled,
+                    Expr::value(input.enabled),
+                )
+                .col_expr(digest_schedules::Column::SendHour, Expr::value(send_hour))
+                .col_expr(digest_schedules::Column::Timezone, Expr::value(&timezone))
+                .col_expr(
+                    digest_schedules::Column::UpdatedAt,
+                    Expr::value(utc_now().assume_utc()),
+                )
+                .filter(digest_schedules::Column::Id.eq(&schedule))
+                .exec(&master)
+                .await?;
         } else {
-            sqlx::query(
-                "insert into digest_schedules (id, workspace_id, enabled, send_hour, timezone)
-                 values ($1, $2, $3, $4, $5)",
-            )
-            .bind(generate_id("ds"))
-            .bind(&workspace)
-            .bind(input.enabled)
-            .bind(send_hour)
-            .bind(&timezone)
-            .execute(&master)
+            digest_schedules::Entity::insert(digest_schedules::ActiveModel {
+                id: Set(generate_id("ds")),
+                workspace_id: Set(workspace),
+                enabled: Set(input.enabled),
+                send_hour: Set(send_hour),
+                timezone: Set(timezone),
+                ..Default::default()
+            })
+            .exec_without_returning(&master)
             .await?;
         }
     }

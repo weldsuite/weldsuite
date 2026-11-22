@@ -26,8 +26,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -35,6 +35,8 @@ use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_DELETED, PROJECT_DECISION_CREATED, PROJECT_DECISION_DECIDED,
     PROJECT_DECISION_DELETED, PROJECT_DECISION_SUPERSEDED, PROJECT_DECISION_UPDATED,
 };
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::decisions::{
     CreateFields, DecisionOption, decide_input_error, decide_state_error, decision_code,
     decision_create_error, decision_edit_locked_error, decision_event_data, decision_sequence,
@@ -42,8 +44,6 @@ use weldsuite_flow_domain::decisions::{
     options_after_decide, options_error, present_decision, present_decision_approval,
     supersede_source_error, supersede_target_error,
 };
-use weldsuite_db::record::JsonTable;
-use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::js::{contains_pattern, js_date_millis};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
@@ -64,7 +64,8 @@ use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, or_null, parse_limit, to
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
 use crate::{
-    Caller, FlowState, Refusal, Reply, access_scope, in_accessible, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, access_scope, in_accessible, json_rows, keyset_before,
+    keyset_cursor_tz, outside, page, paged, reply,
 };
 use weldsuite_flow_domain::approvals::{
     ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
@@ -191,24 +192,6 @@ fn decision_filters(q: &RegisterQuery, scope: &(bool, Vec<String>)) -> Condition
     filters
 }
 
-/// The keyset cursor row (`select createdAt, id where id = cursor`):
-/// `created_at` as Drizzle reads it back (milliseconds), and the id.
-async fn decision_cursor(
-    db: &DatabaseConnection,
-    cursor: &str,
-) -> Result<Option<(OffsetDateTime, String)>, DbErr> {
-    let created: Option<OffsetDateTime> = project_decisions::Entity::find_by_id(cursor)
-        .select_only()
-        .column(Column::CreatedAt)
-        .into_tuple()
-        .one(db)
-        .await?;
-    Ok(created.map(|at| {
-        let at = at.replace_millisecond(at.millisecond()).unwrap_or(at);
-        (at, cursor.to_owned())
-    }))
-}
-
 /// `projectScope(c, projectId)` of the registers.
 pub(crate) async fn project_scope(
     caller: &Caller,
@@ -234,10 +217,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match decision_cursor(&orm(&caller.db), cursor).await {
-            Ok(found) => found,
-            Err(error) => return outside(Err(error.into())),
-        },
+        Some(cursor) => {
+            match keyset_cursor_tz(&caller.db, Column::Id, Column::CreatedAt, cursor).await {
+                Ok(found) => found,
+                Err(error) => return outside(Err(error.into())),
+            }
+        }
         None => None,
     };
     reply(
@@ -256,14 +241,8 @@ async fn list_decisions(
     let db = &orm(&caller.db);
     let filters = decision_filters(q, scope);
     let mut select = project_decisions::Entity::find().filter(filters.clone());
-    if let Some((at, id)) = cursor {
-        select = select.filter(
-            Condition::any().add(Column::CreatedAt.lt(at)).add(
-                Condition::all()
-                    .add(Column::CreatedAt.eq(at))
-                    .add(Column::Id.lt(id)),
-            ),
-        );
+    if let Some(cursor) = &cursor {
+        select = select.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
     }
     let rows = select
         .order_by_desc(Column::CreatedAt)
@@ -276,10 +255,7 @@ async fn list_decisions(
         .count(db)
         .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows
-        .into_iter()
-        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
+    let rows = json_rows(rows)?;
     let (rows, has_more, next) = page(rows, limit);
     let items = rows.iter().map(present_decision).collect();
     Ok(paged(items, total, has_more, next))

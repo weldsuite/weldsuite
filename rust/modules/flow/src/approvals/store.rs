@@ -137,9 +137,42 @@ async fn change_infos(
         .into_iter()
         .map(|row| Ok((row_json(row.change)?, row.budget_currency)))
         .collect::<Result<_, DbErr>>()?;
+    let (milestones, deliverables) = moved_objects(db, &found).await?;
+    for (row, currency) in &found {
+        out.insert(
+            key_of("change_request", row["id"].as_str().unwrap_or_default()),
+            SubjectInfo {
+                project_id: text(row, "projectId"),
+                code: Some(change_code(row["number"].as_i64().unwrap_or(0))),
+                title: text(row, "title").unwrap_or_default(),
+                summary: summarize(row["description"].as_str()),
+                impacts: review_impacts(&Figures {
+                    cost: text(row, "costDelta"),
+                    currency: currency.clone(),
+                    schedule_days: row["scheduleDeltaDays"].as_i64(),
+                    ..Figures::default()
+                }),
+                links: change_links(row, &milestones, &deliverables),
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Milestone names by id.
+type MilestoneNames = HashMap<String, String>;
+/// Deliverable numbers and titles by id.
+type DeliverableTitles = HashMap<String, (i32, String)>;
+
+/// The names of the milestones and deliverables the change requests move
+/// or remove, by id.
+async fn moved_objects(
+    db: &PgPool,
+    found: &[(Value, Option<String>)],
+) -> Result<(MilestoneNames, DeliverableTitles), DbErr> {
     let mut milestone_ids = Vec::new();
     let mut deliverable_ids = Vec::new();
-    for (row, _) in &found {
+    for (row, _) in found {
         let plan = row.get("planChanges").cloned().unwrap_or(Value::Null);
         let scope = row.get("scopeChanges").cloned().unwrap_or(Value::Null);
         for m in array(&plan, "milestones") {
@@ -155,7 +188,7 @@ async fn change_infos(
                 .map(str::to_owned),
         );
     }
-    let milestones: HashMap<String, String> = if milestone_ids.is_empty() {
+    let milestones: MilestoneNames = if milestone_ids.is_empty() {
         HashMap::new()
     } else {
         milestones::Entity::find()
@@ -168,7 +201,7 @@ async fn change_infos(
             .into_iter()
             .collect()
     };
-    let deliverables: HashMap<String, (i32, String)> = if deliverable_ids.is_empty() {
+    let deliverables: DeliverableTitles = if deliverable_ids.is_empty() {
         HashMap::new()
     } else {
         deliverables::Entity::find()
@@ -186,50 +219,41 @@ async fn change_infos(
             .map(|(id, n, t)| (id, (n, t)))
             .collect()
     };
-    for (row, currency) in &found {
-        let plan = row.get("planChanges").cloned().unwrap_or(Value::Null);
-        let scope = row.get("scopeChanges").cloned().unwrap_or(Value::Null);
-        let mut links = Vec::new();
-        for m in array(&plan, "milestones") {
-            let id = text(m, "milestoneId").unwrap_or_default();
-            if let Some(name) = milestones.get(&id) {
-                links.push(json!({"type": "milestone", "id": id, "title": name, "code": null, "relation": "moves"}));
-            }
+    Ok((milestones, deliverables))
+}
+
+/// What a change request moves, adds and removes, as review links.
+fn change_links(
+    row: &Value,
+    milestones: &MilestoneNames,
+    deliverables: &DeliverableTitles,
+) -> Vec<Value> {
+    let plan = row.get("planChanges").cloned().unwrap_or(Value::Null);
+    let scope = row.get("scopeChanges").cloned().unwrap_or(Value::Null);
+    let mut links = Vec::new();
+    for m in array(&plan, "milestones") {
+        let id = text(m, "milestoneId").unwrap_or_default();
+        if let Some(name) = milestones.get(&id) {
+            links.push(json!({"type": "milestone", "id": id, "title": name, "code": null, "relation": "moves"}));
         }
-        for m in array(&plan, "deliverables") {
-            let id = text(m, "deliverableId").unwrap_or_default();
-            if let Some((n, title)) = deliverables.get(&id) {
-                links.push(json!({"type": "deliverable", "id": id, "title": title, "code": deliverable_code(i64::from(*n)), "relation": "moves"}));
-            }
-        }
-        for a in array(&scope, "add") {
-            if let Some(id) = text(a, "deliverableId") {
-                links.push(json!({"type": "deliverable", "id": id, "title": a["title"], "code": null, "relation": "adds"}));
-            }
-        }
-        for id in array(&scope, "remove").iter().filter_map(Value::as_str) {
-            if let Some((n, title)) = deliverables.get(id) {
-                links.push(json!({"type": "deliverable", "id": id, "title": title, "code": deliverable_code(i64::from(*n)), "relation": "removes"}));
-            }
-        }
-        out.insert(
-            key_of("change_request", row["id"].as_str().unwrap_or_default()),
-            SubjectInfo {
-                project_id: text(row, "projectId"),
-                code: Some(change_code(row["number"].as_i64().unwrap_or(0))),
-                title: text(row, "title").unwrap_or_default(),
-                summary: summarize(row["description"].as_str()),
-                impacts: review_impacts(&Figures {
-                    cost: text(row, "costDelta"),
-                    currency: currency.clone(),
-                    schedule_days: row["scheduleDeltaDays"].as_i64(),
-                    ..Figures::default()
-                }),
-                links,
-            },
-        );
     }
-    Ok(())
+    for m in array(&plan, "deliverables") {
+        let id = text(m, "deliverableId").unwrap_or_default();
+        if let Some((n, title)) = deliverables.get(&id) {
+            links.push(json!({"type": "deliverable", "id": id, "title": title, "code": deliverable_code(i64::from(*n)), "relation": "moves"}));
+        }
+    }
+    for a in array(&scope, "add") {
+        if let Some(id) = text(a, "deliverableId") {
+            links.push(json!({"type": "deliverable", "id": id, "title": a["title"], "code": null, "relation": "adds"}));
+        }
+    }
+    for id in array(&scope, "remove").iter().filter_map(Value::as_str) {
+        if let Some((n, title)) = deliverables.get(id) {
+            links.push(json!({"type": "deliverable", "id": id, "title": title, "code": deliverable_code(i64::from(*n)), "relation": "removes"}));
+        }
+    }
+    links
 }
 
 /// The accepted risks among `rows`: their codes, scores and figures.
@@ -315,18 +339,13 @@ pub(crate) async fn load_subject_info(
         },
     )
     .await?;
-    simple::<phases::Entity>(
-        db,
-        rows,
-        &mut out,
-        "gate",
-        phases::Column::Id,
-        |row| SubjectInfo {
+    simple::<phases::Entity>(db, rows, &mut out, "gate", phases::Column::Id, |row| {
+        SubjectInfo {
             project_id: text(row, "projectId"),
             title: text(row, "name").unwrap_or_default(),
             ..SubjectInfo::default()
-        },
-    )
+        }
+    })
     .await?;
     let close_ids = ids_of(rows, "project_close");
     if !close_ids.is_empty() {
@@ -359,7 +378,10 @@ pub(crate) async fn load_subject_info(
             code: Some(format!("REQ-{}", row["number"].as_i64().unwrap_or(0))),
             title: text(row, "title").unwrap_or_default(),
             summary: summarize(row["businessCase"].as_str()),
-            impacts: review_impacts(&Figures { cost: text(row, "estimatedCost"), ..Figures::default() }),
+            impacts: review_impacts(&Figures {
+                cost: text(row, "estimatedCost"),
+                ..Figures::default()
+            }),
             links: Vec::new(),
         },
     )
@@ -605,7 +627,8 @@ pub(crate) async fn list_pending_time_entries(
     project_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<PendingEntry>, DbErr> {
-    let mut find = pending_time(user_id, scope_all).column_as(projects::Column::Name, "project_name");
+    let mut find =
+        pending_time(user_id, scope_all).column_as(projects::Column::Name, "project_name");
     if let Some(project_id) = project_id {
         find = find.filter(time_entries::Column::ProjectId.eq(project_id));
     }
@@ -699,10 +722,7 @@ fn due_of(item: &Value) -> i64 {
 }
 
 /// `loadMyReviews(db, options)`.
-pub(crate) async fn load_my_reviews(
-    db: &PgPool,
-    o: &MineOptions<'_>,
-) -> Result<Value, DbErr> {
+pub(crate) async fn load_my_reviews(db: &PgPool, o: &MineOptions<'_>) -> Result<Value, DbErr> {
     let filters = PendingReviewFilters {
         project_id: o.project_id.map(str::to_owned),
         accessible_project_ids: o.accessible_project_ids.map(<[String]>::to_vec),
@@ -807,8 +827,7 @@ fn step_is_active() -> Condition {
                 .lt(Expr::col((approvals::Entity, approvals::Column::Step))),
         )
         .and_where(
-            column(approvals::Column::Decision)
-                .is_not_in(["approved", "approved_with_conditions"]),
+            column(approvals::Column::Decision).is_not_in(["approved", "approved_with_conditions"]),
         )
         .to_owned();
     Condition::all().add(Expr::exists(blocking).not())
@@ -1009,15 +1028,13 @@ fn done_before(cursor: &str) -> Condition {
         .column((Alias::new("c"), approvals::Column::DecidedAt))
         .column((Alias::new("c"), approvals::Column::Id))
         .to_owned();
-    Condition::any()
-        .add(Expr::exists(decided).not())
-        .add(
-            Expr::tuple([
-                Expr::col((approvals::Entity, approvals::Column::DecidedAt)),
-                Expr::col((approvals::Entity, approvals::Column::Id)),
-            ])
-            .lt(Expr::from(key)),
-        )
+    Condition::any().add(Expr::exists(decided).not()).add(
+        Expr::tuple([
+            Expr::col((approvals::Entity, approvals::Column::DecidedAt)),
+            Expr::col((approvals::Entity, approvals::Column::Id)),
+        ])
+        .lt(Expr::from(key)),
+    )
 }
 
 /// `loadDoneReviews`: the reviews the caller answered, newest first.

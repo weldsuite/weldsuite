@@ -277,14 +277,22 @@ async fn put_settings(
     reply(
         async {
             let mut board: Vec<String> = Vec::new();
-            for id in input["boardMemberIds"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            for id in input["boardMemberIds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
                 if !board.iter().any(|b| b == id) {
                     board.push(id.to_owned());
                 }
             }
-            let members =
-                project_member_ids(&caller.db, &project_id, project["projectManagerId"].as_str())
-                    .await?;
+            let members = project_member_ids(
+                &caller.db,
+                &project_id,
+                project["projectManagerId"].as_str(),
+            )
+            .await?;
             if !board_outsiders(&board, &members).is_empty() {
                 return Err(Refusal::bad_request(messages::BOARD_NOT_MEMBERS));
             }
@@ -388,11 +396,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
+            use project_change_requests::Column;
             let search = q
                 .search
                 .as_deref()
                 .map(weldsuite_flow_domain::js::contains_pattern);
-            use project_change_requests::Column;
             let filters = change_filters(
                 q.project_id.as_deref(),
                 &(all, ids),
@@ -633,10 +641,10 @@ async fn update_change(
     let reroute = existing["status"] == "awaiting_approval" && impact_changed(existing, data);
     update_live_change(db, id, |mut update| {
         use project_change_requests::Column;
-        let text = |key: &str| Expr::value(data.get(key).and_then(Value::as_str).map(str::to_owned));
-        let json_opt = |key: &str| {
-            Expr::value(Some(null_if_absent(data.get(key))).filter(|v| !v.is_null()))
-        };
+        let text =
+            |key: &str| Expr::value(data.get(key).and_then(Value::as_str).map(str::to_owned));
+        let json_opt =
+            |key: &str| Expr::value(Some(null_if_absent(data.get(key))).filter(|v| !v.is_null()));
         if has(data, "title") {
             update = update.col_expr(Column::Title, text("title"));
         }
@@ -672,7 +680,10 @@ async fn update_change(
             update = update
                 .col_expr(Column::Status, Expr::value("assessing"))
                 .col_expr(Column::Route, Expr::value(Option::<String>::None))
-                .col_expr(Column::SubmittedAt, Expr::value(Option::<OffsetDateTime>::None));
+                .col_expr(
+                    Column::SubmittedAt,
+                    Expr::value(Option::<OffsetDateTime>::None),
+                );
         }
         update.col_expr(Column::UpdatedAt, Expr::value(now))
     })
@@ -808,7 +819,10 @@ async fn submit_change(state: &FlowState, caller: &Caller, id: &str, existing: &
             .col_expr(Column::Status, Expr::value("awaiting_approval"))
             .col_expr(Column::Route, Expr::value(routing.route))
             .col_expr(Column::SubmittedAt, Expr::value(at))
-            .col_expr(Column::DecidedAt, Expr::value(Option::<OffsetDateTime>::None))
+            .col_expr(
+                Column::DecidedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
             .col_expr(Column::UpdatedAt, Expr::value(at))
     })
     .await?;

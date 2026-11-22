@@ -6,8 +6,18 @@
 //! (`desk_conversations`) goes through [`super::desk`] (the shared inbox
 //! of `weldsuite_desk_domain::inbox`), as is `create_conversation`.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_ports::{RealtimeMessage, Room};
+use weldsuite_schema::tenant::{
+    desk_conversations, helpdesk_agents as agents, helpdesk_conversation_messages as messages,
+    helpdesk_conversations as conversations,
+};
 
 use super::{ActionCtx, ActionError, ActionResult};
 use crate::js::{as_text, js_string, truthy};
@@ -37,18 +47,20 @@ fn no_conversation() -> Value {
     json!({ "success": false, "error": "No conversation ID" })
 }
 
-fn db_error(error: &sqlx::Error) -> ActionError {
-    ActionError::plain(&error.to_string())
+fn db_error(error: &DbErr) -> ActionError {
+    ActionError::database(error)
 }
 
 /// `isDeskConversation(ctx, id)`.
 async fn is_desk_conversation(ctx: &ActionCtx<'_>, id: &str) -> Result<bool, ActionError> {
-    let row: Option<String> =
-        sqlx::query_scalar("select id from desk_conversations where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(ctx.db)
-            .await
-            .map_err(|e| db_error(&e))?;
+    let row: Option<String> = desk_conversations::Entity::find()
+        .select_only()
+        .column(desk_conversations::Column::Id)
+        .filter(desk_conversations::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(row.is_some())
 }
 
@@ -103,30 +115,50 @@ async fn pick_agent(
     by_assigned: bool,
     department: Option<&str>,
 ) -> Result<Option<(Option<String>, Option<String>)>, ActionError> {
-    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, user_id, name from helpdesk_agents
-         where status = 'active' and deleted_at is null and ($1::text is null or department_id = $1)
-         order by case when $2 then tickets_assigned else current_active_tickets end asc
-         limit 1",
-    )
-    .bind(department)
-    .bind(by_assigned)
-    .fetch_optional(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    let db = orm(ctx.db);
+    let mut available = agents::Entity::find()
+        .select_only()
+        .columns([
+            agents::Column::Id,
+            agents::Column::UserId,
+            agents::Column::Name,
+        ])
+        .filter(agents::Column::Status.eq("active"))
+        .filter(agents::Column::DeletedAt.is_null());
+    if let Some(department) = department {
+        available = available.filter(agents::Column::DepartmentId.eq(department));
+    }
+    let row: Option<(String, Option<String>, Option<String>)> = available
+        .order_by_asc(if by_assigned {
+            agents::Column::TicketsAssigned
+        } else {
+            agents::Column::CurrentActiveTickets
+        })
+        .into_tuple()
+        .one(&db)
+        .await
+        .map_err(|e| db_error(&e))?;
     let Some((id, user_id, name)) = row else {
         return Ok(None);
     };
-    sqlx::query(
-        "update helpdesk_agents set tickets_assigned = coalesce(tickets_assigned, 0) + 1,
-           current_active_tickets = coalesce(current_active_tickets, 0) + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(super::now_text())
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    // `coalesce(<column>, 0) + 1`.
+    let one_more = |column: agents::Column| -> Expr {
+        sea_orm::ExprTrait::add(Func::coalesce([Expr::col(column), Expr::val(0)]), 1)
+    };
+    agents::Entity::update_many()
+        .col_expr(
+            agents::Column::TicketsAssigned,
+            one_more(agents::Column::TicketsAssigned),
+        )
+        .col_expr(
+            agents::Column::CurrentActiveTickets,
+            one_more(agents::Column::CurrentActiveTickets),
+        )
+        .col_expr(agents::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(agents::Column::Id.eq(&id))
+        .exec(&db)
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(Some((user_id, name)))
 }
 
@@ -144,7 +176,8 @@ pub(super) async fn assign_conversation(
         .get("departmentId")
         .filter(|v| truthy(v))
         .map(|v| as_text(Some(v)));
-    let now = super::now_text();
+    let at = OffsetDateTime::now_utc();
+    let now = weldsuite_events::iso_timestamp(at);
     // `updateData`, in its key order: updatedAt, then what the strategy set.
     let mut update = Map::new();
     update.insert("updatedAt".into(), json!(now));
@@ -167,23 +200,31 @@ pub(super) async fn assign_conversation(
         assignee = Some(user.map_or(Value::Null, Value::String));
         assignee_name = Some(name.map_or(Value::Null, Value::String));
     }
-    sqlx::query(
-        "update helpdesk_conversations set updated_at = $2::timestamp,
-           assignee_id = case when $3 then $4 else assignee_id end,
-           assignee_name = case when $5 then $6 else assignee_name end,
-           department_id = coalesce($7, department_id)
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .bind(assignee.is_some())
-    .bind(assignee.as_ref().and_then(Value::as_str))
-    .bind(assignee_name.is_some())
-    .bind(assignee_name.as_ref().and_then(Value::as_str))
-    .bind(set_department.as_deref())
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    let mut assign = conversations::Entity::update_many().col_expr(
+        conversations::Column::UpdatedAt,
+        Expr::value(utc_timestamp(at)),
+    );
+    if let Some(agent) = &assignee {
+        assign = assign.col_expr(
+            conversations::Column::AssigneeId,
+            Expr::value(agent.as_str()),
+        );
+    }
+    if let Some(name) = &assignee_name {
+        assign = assign.col_expr(
+            conversations::Column::AssigneeName,
+            Expr::value(name.as_str()),
+        );
+    }
+    // `coalesce($department, department_id)`.
+    if let Some(department) = &set_department {
+        assign = assign.col_expr(conversations::Column::DepartmentId, Expr::value(department));
+    }
+    assign
+        .filter(conversations::Column::Id.eq(&id))
+        .exec(&orm(ctx.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     if let Some(agent) = assignee.as_ref().filter(|a| truthy(a)) {
         let name = assignee_name
             .clone()
@@ -231,12 +272,15 @@ pub(super) async fn tag_conversation(
         Target::Legacy(id) => id,
         Target::Answer(answer) => return Ok(answer),
     };
-    let current: Option<Option<Value>> =
-        sqlx::query_scalar("select tags from helpdesk_conversations where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(ctx.db)
-            .await
-            .map_err(|e| db_error(&e))?;
+    let db = orm(ctx.db);
+    let current: Option<Option<Value>> = conversations::Entity::find()
+        .select_only()
+        .column(conversations::Column::Tags)
+        .filter(conversations::Column::Id.eq(&id))
+        .into_tuple()
+        .one(&db)
+        .await
+        .map_err(|e| db_error(&e))?;
     let current: Vec<String> = match current.flatten() {
         Some(Value::Array(items)) => items.iter().map(|t| js_string(Some(t))).collect(),
         _ => Vec::new(),
@@ -257,15 +301,13 @@ pub(super) async fn tag_conversation(
             all
         }
     };
-    sqlx::query(
-        "update helpdesk_conversations set tags = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(json!(next))
-    .bind(super::now_text())
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::Tags, Expr::value(json!(next)))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(&id))
+        .exec(&db)
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(json!({ "success": true, "conversationId": id, "mode": mode, "tags": next }))
 }
 
@@ -283,19 +325,21 @@ pub(super) async fn change_status(
         Target::Legacy(id) => id,
         Target::Answer(answer) => return Ok(answer),
     };
-    let now = super::now_text();
-    sqlx::query(
-        "update helpdesk_conversations set status = $2, updated_at = $3::timestamp,
-           resolved_at = case when $2 = 'resolved' then $3::timestamp else resolved_at end,
-           closed_at = case when $2 = 'closed' then $3::timestamp else closed_at end
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&status)
-    .bind(&now)
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    let now = utc_now();
+    let mut update = conversations::Entity::update_many()
+        .col_expr(conversations::Column::Status, Expr::value(&status))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(now));
+    if status == "resolved" {
+        update = update.col_expr(conversations::Column::ResolvedAt, Expr::value(now));
+    }
+    if status == "closed" {
+        update = update.col_expr(conversations::Column::ClosedAt, Expr::value(now));
+    }
+    update
+        .filter(conversations::Column::Id.eq(&id))
+        .exec(&orm(ctx.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(json!({ "success": true, "conversationId": id, "status": status }))
 }
 
@@ -313,15 +357,13 @@ pub(super) async fn change_priority(
         Target::Legacy(id) => id,
         Target::Answer(answer) => return Ok(answer),
     };
-    sqlx::query(
-        "update helpdesk_conversations set priority = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&priority)
-    .bind(super::now_text())
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::Priority, Expr::value(&priority))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(&id))
+        .exec(&orm(ctx.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(json!({ "success": true, "conversationId": id, "priority": priority }))
 }
 
@@ -338,35 +380,37 @@ pub(super) async fn send_reply(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>)
     let author_type = text_or(inputs.get("authorType"), "system");
     let content = text_or(inputs.get("message"), "");
     let agent = author_type == "agent";
-    let now = super::now_text();
-    sqlx::query(
-        "insert into helpdesk_conversation_messages (id, conversation_id, content, author_type,
-           author_id, author_name, type, is_public, status, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, 'message', true, 'sent', $7::timestamp, $7::timestamp)",
-    )
-    .bind(&message_id)
-    .bind(&id)
-    .bind(&content)
-    .bind(&author_type)
-    .bind(if agent {
-        ctx.info.user_id.as_str()
-    } else {
-        "system"
+    let now = utc_now();
+    let db = orm(ctx.db);
+    messages::Entity::insert(messages::ActiveModel {
+        id: Set(message_id.clone()),
+        conversation_id: Set(id.clone()),
+        content: Set(content.clone()),
+        author_type: Set(author_type.clone()),
+        author_id: Set(Some(if agent {
+            ctx.info.user_id.clone()
+        } else {
+            "system".to_owned()
+        })),
+        author_name: Set(if agent { "Agent" } else { "System" }.to_owned()),
+        type_: Set("message".to_owned()),
+        is_public: Set(true),
+        status: Set(Some("sent".to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
     })
-    .bind(if agent { "Agent" } else { "System" })
-    .bind(&now)
-    .execute(ctx.db)
+    .exec_without_returning(&db)
     .await
     .map_err(|e| db_error(&e))?;
-    sqlx::query(
-        "update helpdesk_conversations set last_message_at = $2::timestamp,
-           last_agent_message_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::LastMessageAt, Expr::value(now))
+        .col_expr(conversations::Column::LastAgentMessageAt, Expr::value(now))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(now))
+        .filter(conversations::Column::Id.eq(&id))
+        .exec(&db)
+        .await
+        .map_err(|e| db_error(&e))?;
     publish_conversation(
         ctx,
         &id,
@@ -399,18 +443,23 @@ pub(super) async fn add_internal_note(
         Target::Answer(answer) => return Ok(answer),
     };
     let message_id = weldsuite_kit::generate_id("msg");
-    let now = super::now_text();
-    sqlx::query(
-        "insert into helpdesk_conversation_messages (id, conversation_id, content, author_type,
-           author_id, author_name, type, is_public, is_internal, status, created_at, updated_at)
-         values ($1, $2, $3, 'agent', $4, 'System', 'note', false, true, 'sent', $5::timestamp, $5::timestamp)",
-    )
-    .bind(&message_id)
-    .bind(&id)
-    .bind(text_or(inputs.get("content"), ""))
-    .bind(&ctx.info.user_id)
-    .bind(&now)
-    .execute(ctx.db)
+    let now = utc_now();
+    messages::Entity::insert(messages::ActiveModel {
+        id: Set(message_id.clone()),
+        conversation_id: Set(id.clone()),
+        content: Set(text_or(inputs.get("content"), "")),
+        author_type: Set("agent".to_owned()),
+        author_id: Set(Some(ctx.info.user_id.clone())),
+        author_name: Set("System".to_owned()),
+        type_: Set("note".to_owned()),
+        is_public: Set(false),
+        is_internal: Set(Some(true)),
+        status: Set(Some("sent".to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(ctx.db))
     .await
     .map_err(|e| db_error(&e))?;
     Ok(json!({ "success": true, "messageId": message_id, "conversationId": id }))

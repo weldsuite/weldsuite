@@ -8,10 +8,12 @@ use std::sync::Arc;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, TransactionTrait};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::PROJECT_RAID_ITEM_UPDATED;
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_flow_domain::acceptance::{
     ACCEPTANCE_DUE_DAYS, acceptance_approver_row, acceptance_assessment_note, acceptance_error,
     messages,
@@ -27,6 +29,7 @@ use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::raid::{RaidKind, raid_code};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, generate_id};
+use weldsuite_schema::tenant::{project_raid_assessments, project_raid_items, projects};
 
 use super::{
     Assessment, PROJECT_WRITE_DENIED, find_raid_item, insert_assessment, present_one, publish_raid,
@@ -36,8 +39,10 @@ use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
     announce_approvals_requested, register_aftermath,
 };
+use crate::orm_bridge::sqlx_error;
 use crate::raid_body::{Body, Reader, parse_body};
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply};
+use crate::reporting_store::instant;
+use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply, row_json};
 
 const NOTE_PREFIX: &str = "Accepted by the sponsor";
 
@@ -55,68 +60,92 @@ impl ApprovalSubjectHandler for AcceptanceHandler {
             if outcome != ResolvedApprovalOutcome::Approved {
                 return Ok(());
             }
-            let Some(item) = find_raid_item(db, subject_id).await? else {
-                return Ok(());
-            };
-            let (probability, impact) = (item["probability"].as_i64(), item["impact"].as_i64());
-            // A risk that was closed or deleted since the request has nothing to accept.
-            let (Some(probability), Some(impact)) = (probability, impact) else {
-                return Ok(());
-            };
-            if item["kind"] != "risk" || !item["closedAt"].is_null() {
-                return Ok(());
-            }
-            let requested_at = context
-                .rows
-                .iter()
-                .map(|r| r.created_at)
-                .min()
-                .unwrap_or(context.now_ms);
-            // Idempotent: the resolution may run again, and must not note the acceptance twice.
-            let already: Option<i32> = sqlx::query_scalar(
-                "select 1 from project_raid_assessments where item_id = $1 and note like $2
-                   and assessed_at >= $3::timestamptz limit 1",
-            )
-            .bind(subject_id)
-            .bind(format!("{NOTE_PREFIX}%"))
-            .bind(iso_from_millis(requested_at))
-            .fetch_optional(db)
-            .await?;
-            if already.is_some() {
-                return Ok(());
-            }
-            let now = iso_from_millis(context.now_ms).unwrap_or_default();
-            let assessment = Assessment {
-                id: generate_id("rasm"),
-                item_id: subject_id,
-                project_id: item["projectId"].as_str().unwrap_or_default(),
-                probability,
-                impact,
-                residual_probability: item["residualProbability"].as_i64(),
-                residual_impact: item["residualImpact"].as_i64(),
-                note: Some(acceptance_assessment_note(&context.rows)),
-                assessed_by: context.actor.as_ref().map_or_else(
-                    || item["createdBy"].as_str().unwrap_or_default(),
-                    |a| a.id.as_str(),
-                ),
-                assessed_at: now.clone(),
-            };
-            weldsuite_db::atomically(
-                db,
-                [
-                    sqlx::query(
-                        "update project_raid_items set status = 'monitoring', updated_at = $2::timestamptz
-                         where id = $1 and deleted_at is null",
-                    )
-                    .bind(subject_id.to_owned())
-                    .bind(now),
-                    insert_assessment(&assessment),
-                ],
-            )
-            .await?;
-            Ok(())
+            accept(db, subject_id, context).await.map_err(sqlx_error)
         })
     }
+}
+
+/// The approved acceptance: the risk moves to `monitoring` and an
+/// assessment notes who accepted it.
+async fn accept(
+    db: &PgPool,
+    subject_id: &str,
+    context: &ApprovalResolutionContext,
+) -> Result<(), DbErr> {
+    let Some(item) = find_raid_item(db, subject_id).await? else {
+        return Ok(());
+    };
+    let (probability, impact) = (item["probability"].as_i64(), item["impact"].as_i64());
+    // A risk that was closed or deleted since the request has nothing to accept.
+    let (Some(probability), Some(impact)) = (probability, impact) else {
+        return Ok(());
+    };
+    if item["kind"] != "risk" || !item["closedAt"].is_null() {
+        return Ok(());
+    }
+    let requested_at = context
+        .rows
+        .iter()
+        .map(|r| r.created_at)
+        .min()
+        .unwrap_or(context.now_ms);
+    // Idempotent: the resolution may run again, and must not note the acceptance twice.
+    if accepted_since(db, subject_id, requested_at).await? {
+        return Ok(());
+    }
+    let now = iso_from_millis(context.now_ms).unwrap_or_default();
+    let assessment = Assessment {
+        id: generate_id("rasm"),
+        item_id: subject_id,
+        project_id: item["projectId"].as_str().unwrap_or_default(),
+        probability,
+        impact,
+        residual_probability: item["residualProbability"].as_i64(),
+        residual_impact: item["residualImpact"].as_i64(),
+        note: Some(acceptance_assessment_note(&context.rows)),
+        assessed_by: context.actor.as_ref().map_or_else(
+            || item["createdBy"].as_str().unwrap_or_default(),
+            |a| a.id.as_str(),
+        ),
+        assessed_at: now,
+    };
+    let tx = orm(db).begin().await?;
+    project_raid_items::Entity::update_many()
+        .col_expr(
+            project_raid_items::Column::Status,
+            Expr::value("monitoring"),
+        )
+        .col_expr(
+            project_raid_items::Column::UpdatedAt,
+            Expr::value(instant(context.now_ms)),
+        )
+        .filter(project_raid_items::Column::Id.eq(subject_id))
+        .filter(project_raid_items::Column::DeletedAt.is_null())
+        .exec(&tx)
+        .await?;
+    insert_assessment(&tx, &assessment).await?;
+    tx.commit().await
+}
+
+/// An acceptance assessment of the item since `requested_at` (`note like
+/// 'Accepted by the sponsor%'`).
+async fn accepted_since(db: &PgPool, item_id: &str, requested_at: i64) -> Result<bool, DbErr> {
+    use project_raid_assessments::Column;
+    // An instant out of range bound as null: nothing is at or after it.
+    if iso_from_millis(requested_at).is_none() {
+        return Ok(false);
+    }
+    let since = instant(requested_at);
+    let found: Option<String> = project_raid_assessments::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ItemId.eq(item_id))
+        .filter(Column::Note.like(format!("{NOTE_PREFIX}%")))
+        .filter(Column::AssessedAt.gte(since))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
 }
 
 /// Plug the subject in: its handler and its aftermath.
@@ -134,15 +163,12 @@ fn aftermath<'a>(
         if info.outcome != ResolvedApprovalOutcome::Approved {
             return Ok(());
         }
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            raid_json!("r"),
-            " from project_raid_items r where r.id = $1 limit 1"
-        ))
-        .bind(&info.subject_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if let Some(row) = row.map(js_row) {
+        let row = project_raid_items::Entity::find_by_id(info.subject_id.as_str())
+            .one(&orm(&caller.db))
+            .await?
+            .map(row_json)
+            .transpose()?;
+        if let Some(row) = row {
             publish_raid(state, caller, PROJECT_RAID_ITEM_UPDATED, &row, json!({}));
         }
         Ok(())
@@ -191,12 +217,17 @@ async fn ask(state: &FlowState, caller: &Caller, item: &Value, note: Option<&str
     let db = &caller.db;
     let id = item["id"].as_str().unwrap_or_default();
     let project_id = item["projectId"].as_str().unwrap_or_default();
-    let project: Option<(String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select name, project_manager_id, settings from projects where id = $1 limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+    let project: Option<(String, Option<String>, Option<Value>)> = projects::Entity::find()
+        .select_only()
+        .columns([
+            projects::Column::Name,
+            projects::Column::ProjectManagerId,
+            projects::Column::Settings,
+        ])
+        .filter(projects::Column::Id.eq(project_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let sponsor = sponsor_of(
         project.as_ref().and_then(|p| p.2.as_ref()),
         project.as_ref().and_then(|p| p.1.as_deref()),

@@ -31,7 +31,9 @@ use weldsuite_flow_domain::deliverables::{
     DeliverableResolution, SignoffRow, deliverable_code, deliverable_event_data,
     deliverable_resolution,
 };
-use weldsuite_schema::tenant::{project_decisions as decisions, project_deliverables as deliverables};
+use weldsuite_schema::tenant::{
+    project_decisions as decisions, project_deliverables as deliverables,
+};
 
 use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_requested, register_aftermath,
@@ -100,7 +102,10 @@ async fn settle_decision(
             decisions::Column::DecidedAt,
             Expr::value(at(resolution.decided_at_ms)?),
         )
-        .col_expr(decisions::Column::UpdatedAt, Expr::value(at(context.now_ms)?))
+        .col_expr(
+            decisions::Column::UpdatedAt,
+            Expr::value(at(context.now_ms)?),
+        )
         .filter(decisions::Column::Id.eq(subject_id))
         .filter(decisions::Column::Status.eq("proposed"))
         .filter(decisions::Column::DeletedAt.is_null())
@@ -171,14 +176,20 @@ async fn settle_deliverable(
                     deliverables::Column::AcceptedAt,
                     Expr::value(at(accepted_at_ms)?),
                 )
-                .col_expr(deliverables::Column::UpdatedAt, Expr::value(at(context.now_ms)?))
+                .col_expr(
+                    deliverables::Column::UpdatedAt,
+                    Expr::value(at(context.now_ms)?),
+                )
                 .exec(&orm(db))
                 .await?;
         }
         DeliverableResolution::Rejected => {
             if row["status"] != "rejected" {
                 live.col_expr(deliverables::Column::Status, Expr::value("rejected"))
-                    .col_expr(deliverables::Column::UpdatedAt, Expr::value(at(context.now_ms)?))
+                    .col_expr(
+                        deliverables::Column::UpdatedAt,
+                        Expr::value(at(context.now_ms)?),
+                    )
                     .exec(&orm(db))
                     .await?;
             }

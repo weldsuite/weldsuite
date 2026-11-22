@@ -20,13 +20,19 @@ use axum::extract::{Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode, header};
+use sea_orm::sea_query::{Alias, Expr, Func, Order, Query, SelectStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_connect_domain::github_user::{
     InstallationAccessEvidence, prove_github_installation_access,
 };
 use weldsuite_connect_domain::install_state;
-use weldsuite_db::{Keyring, PgPool, Tenant, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{Keyring, PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_merge_domain::installations::{
@@ -36,6 +42,10 @@ use weldsuite_merge_domain::installations::{
 use weldsuite_merge_domain::member_token::stored_member_github_token;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{
+    github_project_links as project_links, github_repo_links as repo_links, merge_connections,
+};
 
 use crate::github_app::{AppCredentials, app_jwt, installation_token_as};
 use crate::js::{next_cursor, page, page_limit, query_truthy, total};
@@ -246,14 +256,18 @@ async fn revoke_connection(
     master: Option<&PgPool>,
     workspace_id: &str,
 ) -> Result<(), String> {
-    let installation: Option<String> = sqlx::query_scalar(
-        "select external_account_id from merge_connections
-         where provider = 'github' and deleted_at is null
-         order by (status = 'active') desc, created_at desc, id desc limit 1",
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let installation: Option<String> = merge_connections::Entity::find()
+        .select_only()
+        .column(merge_connections::Column::ExternalAccountId)
+        .filter(merge_connections::Column::Provider.eq("github"))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .order_by_desc(merge_connections::Column::Status.eq("active"))
+        .order_by_desc(merge_connections::Column::CreatedAt)
+        .order_by_desc(merge_connections::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     if let Some(installation) = installation {
         let key = installation_key(weldsuite_kit::validation::js_number(&installation));
         set_github_installation_status(db, &key, "revoked")
@@ -477,12 +491,18 @@ async fn installation_reachable(
 /// `workspaces.id`) names, from the master database.
 async fn workspace_id_for(master: Option<&PgPool>, reference: &str) -> Result<String, String> {
     let master = master.ok_or("no master database")?;
-    let id: Option<String> =
-        sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-            .bind(reference)
-            .fetch_optional(master)
-            .await
-            .map_err(|error| error.to_string())?;
+    let id: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(reference))
+                .add(workspaces::Column::ClerkOrgId.eq(reference)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await
+        .map_err(|error| error.to_string())?;
     id.ok_or_else(|| format!("Workspace not found: {reference}"))
 }
 
@@ -820,26 +840,55 @@ fn linked_query(query: Option<&str>) -> Result<(Option<String>, i64), Refusal> {
     })
 }
 
+/// `github_repo_links` as Drizzle returns its rows.
+const REPO_LINK_ROWS: JsonTable = JsonTable::of::<repo_links::Entity>();
+/// `github_project_links` as Drizzle returns its rows.
+const PROJECT_LINK_ROWS: JsonTable = JsonTable::of::<project_links::Entity>();
+
+/// `t.<name>` of a link table.
+fn link_column(table: &JsonTable, name: &str) -> Result<Expr, DbErr> {
+    table
+        .column(name)
+        .ok_or_else(|| DbErr::Custom(format!("{} has no {name}", table.table_name())))
+}
+
+/// `t.workspace_id = <workspace> and t.deleted_at is null`.
+fn live_links(table: &JsonTable, workspace: &str) -> Result<Condition, DbErr> {
+    Ok(Condition::all()
+        .add(sea_orm::ExprTrait::eq(
+            link_column(table, "workspace_id")?,
+            workspace,
+        ))
+        .add(sea_orm::ExprTrait::is_null(link_column(
+            table,
+            "deleted_at",
+        )?)))
+}
+
 /// `listLinkedRepos` / `listLinkedProjects`: newest first, `limit` of
 /// them; the cursor is not read and the total is the page plus one.
 async fn linked_rows(
     db: &PgPool,
-    table: &str,
+    table: &JsonTable,
     workspace: &str,
     project_id: Option<&String>,
     limit: i64,
-) -> Result<(Vec<Value>, bool), sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from {table} t
-         where t.workspace_id = $1 and t.deleted_at is null and ($2::text is null or t.project_id = $2)
-         order by t.created_at desc limit $3"
-    )))
-    .bind(workspace)
-    .bind(project_id)
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    Ok(page(rows.into_iter().map(js_row).collect(), limit))
+) -> Result<(Vec<Value>, bool), DbErr> {
+    let mut condition = live_links(table, workspace)?;
+    if let Some(project_id) = project_id {
+        condition = condition.add(sea_orm::ExprTrait::eq(
+            link_column(table, "project_id")?,
+            project_id,
+        ));
+    }
+    let select = table
+        .select()
+        .cond_where(condition)
+        .order_by_expr(link_column(table, "created_at")?, Order::Desc)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .to_owned();
+    let rows = table.rows(&orm(db), &select).await?;
+    Ok(page(rows, limit))
 }
 
 fn linked_list(rows: &[Value], has_more: bool, serialize: fn(&Value) -> Value) -> Response {
@@ -875,7 +924,7 @@ async fn repos_linked(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     match linked_rows(
         &caller.db,
-        "github_repo_links",
+        &REPO_LINK_ROWS,
         &caller.clerk_org_id,
         project_id.as_ref(),
         limit,
@@ -945,29 +994,27 @@ async fn link_repo(caller: Caller, headers: HeaderMap, body: Bytes) -> Response 
         return ApiError::bad_request("No active GitHub connection. Install the GitHub App first.")
             .into_response();
     };
-    let stamp = now();
+    let stamp = utc_now();
     let id = generate_id("ghrl");
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into github_repo_links as t
-             (id, workspace_id, connection_id, project_id, repo_id, repo_full_name, default_branch,
-              sync_issues, sync_direction, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamp, $10::timestamp)
-         returning to_jsonb(t)",
-    )
-    .bind(&id)
-    .bind(&caller.clerk_org_id)
-    .bind(conn["id"].as_str())
-    .bind(&input.project_id)
-    .bind(input.repo_id)
-    .bind(&input.repo_full_name)
-    .bind(&input.default_branch)
-    .bind(input.sync_issues)
-    .bind(&input.sync_direction)
-    .bind(&stamp)
-    .fetch_one(&caller.db)
-    .await;
+    let inserted = repo_links::Entity::insert(repo_links::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(caller.clerk_org_id.clone()),
+        connection_id: Set(conn["id"].as_str().unwrap_or_default().to_owned()),
+        project_id: Set(input.project_id.clone()),
+        repo_id: Set(input.repo_id),
+        repo_full_name: Set(input.repo_full_name.clone()),
+        default_branch: Set(input.default_branch.clone()),
+        sync_issues: Set(input.sync_issues),
+        sync_direction: Set(input.sync_direction.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js);
     match inserted {
-        Ok(row) => Created(serialize_repo_link(&js_row(row))).into_response(),
+        Ok(row) => Created(serialize_repo_link(&row)).into_response(),
         Err(error) => {
             let mut values = vec![
                 id.as_str(),
@@ -1005,61 +1052,68 @@ async fn update_repo(
         Err(refusal) => return refusal.respond(FAILED),
     };
     let (project_id, default_branch, sync_direction, sync_issues) = input;
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update github_repo_links t set updated_at = $3::timestamp,
-             project_id = case when $4 then $5 else t.project_id end,
-             default_branch = coalesce($6, t.default_branch),
-             sync_direction = coalesce($7, t.sync_direction),
-             sync_issues = coalesce($8, t.sync_issues)
-         where t.id = $1 and t.workspace_id = $2 and t.deleted_at is null
-         returning to_jsonb(t)",
-    )
-    .bind(&link_id)
-    .bind(&caller.clerk_org_id)
-    .bind(now())
-    .bind(!project_id.is_absent())
-    .bind(project_id.as_set())
-    .bind(default_branch.as_set())
-    .bind(sync_direction.as_set())
-    .bind(sync_issues.as_set())
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = repo_links::Entity::update_many()
+        .col_expr(repo_links::Column::UpdatedAt, Expr::value(utc_now()));
+    if !project_id.is_absent() {
+        update = update.col_expr(
+            repo_links::Column::ProjectId,
+            Expr::value(project_id.as_set().cloned()),
+        );
+    }
+    // `coalesce($value, <column>)`: what the body sent.
+    if let Some(branch) = default_branch.as_set() {
+        update = update.col_expr(repo_links::Column::DefaultBranch, Expr::value(branch));
+    }
+    if let Some(direction) = sync_direction.as_set() {
+        update = update.col_expr(repo_links::Column::SyncDirection, Expr::value(direction));
+    }
+    if let Some(sync) = sync_issues.as_set() {
+        update = update.col_expr(repo_links::Column::SyncIssues, Expr::value(*sync));
+    }
+    let updated = update
+        .filter(repo_links::Column::Id.eq(&link_id))
+        .filter(repo_links::Column::WorkspaceId.eq(&caller.clerk_org_id))
+        .filter(repo_links::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js).transpose());
     match updated {
-        Ok(Some(row)) => Data(serialize_repo_link(&js_row(row))).into_response(),
+        Ok(Some(row)) => Data(serialize_repo_link(&row)).into_response(),
         Ok(None) => ApiError::not_found("Repository link", Some(&link_id)).into_response(),
         Err(error) => internal(&error, FAILED),
     }
 }
 
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// Soft-deletes a live link of this workspace; whether there was one.
 async fn soft_delete(
     db: &PgPool,
-    table: &str,
+    table: &JsonTable,
     workspace: &str,
     id: &str,
-) -> Result<bool, sqlx::Error> {
-    let stamp = now();
-    let result = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "update {table} set deleted_at = $3::timestamp, updated_at = $3::timestamp
-         where id = $1 and workspace_id = $2 and deleted_at is null"
-    )))
-    .bind(id)
-    .bind(workspace)
-    .bind(&stamp)
-    .execute(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let stamp = utc_now();
+    let update = Query::update()
+        .table(Alias::new(table.table_name()))
+        .values([
+            (Alias::new("deleted_at"), stamp.into()),
+            (Alias::new("updated_at"), stamp.into()),
+        ])
+        .cond_where(
+            live_links(table, workspace)?
+                .add(sea_orm::ExprTrait::eq(link_column(table, "id")?, id)),
+        )
+        .to_owned();
+    let result = orm(db).execute(&update).await?;
     Ok(result.rows_affected() > 0)
 }
 
 async fn unlink_repo(caller: Caller, Path(link_id): Path<String>) -> Response {
-    match soft_delete(
-        &caller.db,
-        "github_repo_links",
-        &caller.clerk_org_id,
-        &link_id,
-    )
-    .await
-    {
+    match soft_delete(&caller.db, &REPO_LINK_ROWS, &caller.clerk_org_id, &link_id).await {
         Ok(true) => NoContent.into_response(),
         Ok(false) => ApiError::not_found("Repository link", Some(&link_id)).into_response(),
         Err(error) => internal(&error, "Failed to unlink repository"),
@@ -1068,19 +1122,20 @@ async fn unlink_repo(caller: Caller, Path(link_id): Path<String>) -> Response {
 
 async fn live_row(
     db: &PgPool,
-    table: &str,
+    table: &JsonTable,
     workspace: &str,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from {table} t
-         where t.id = $1 and t.workspace_id = $2 and t.deleted_at is null limit 1"
-    )))
-    .bind(id)
-    .bind(workspace)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    let select = table
+        .select()
+        .cond_where(
+            Condition::all()
+                .add(sea_orm::ExprTrait::eq(link_column(table, "id")?, id))
+                .add(live_links(table, workspace)?),
+        )
+        .limit(1)
+        .to_owned();
+    Ok(table.rows(&orm(db), &select).await?.into_iter().next())
 }
 
 /// `POST /repos/:linkId/sync`: the full sync is a Workflow binding
@@ -1093,14 +1148,9 @@ async fn sync_repo(caller: Caller, Path(link_id): Path<String>) -> Response {
         if !is_active(conn.as_ref()) {
             return Err(Refusal::bad_request("No active GitHub connection."));
         }
-        if live_row(
-            &caller.db,
-            "github_repo_links",
-            &caller.clerk_org_id,
-            &link_id,
-        )
-        .await?
-        .is_none()
+        if live_row(&caller.db, &REPO_LINK_ROWS, &caller.clerk_org_id, &link_id)
+            .await?
+            .is_none()
         {
             return Err(Refusal::not_found("Repository link", &link_id));
         }
@@ -1386,7 +1436,7 @@ async fn list_project_links(caller: Caller, RawQuery(query): RawQuery) -> Respon
     };
     match linked_rows(
         &caller.db,
-        "github_project_links",
+        &PROJECT_LINK_ROWS,
         &caller.clerk_org_id,
         project_id.as_ref(),
         limit,
@@ -1399,14 +1449,7 @@ async fn list_project_links(caller: Caller, RawQuery(query): RawQuery) -> Respon
 }
 
 async fn get_project_link(caller: Caller, Path(id): Path<String>) -> Response {
-    match live_row(
-        &caller.db,
-        "github_project_links",
-        &caller.clerk_org_id,
-        &id,
-    )
-    .await
-    {
+    match live_row(&caller.db, &PROJECT_LINK_ROWS, &caller.clerk_org_id, &id).await {
         Ok(Some(row)) => Data(serialize_project_link(&row)).into_response(),
         Ok(None) => ApiError::not_found("GitHub project link", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to fetch project link"),
@@ -1500,11 +1543,6 @@ fn strings(values: &Map<String, Value>) -> Vec<String> {
     out
 }
 
-const PROJECT_LINK_COLUMNS: &str =
-    "project_id, project_v2_node_id, project_v2_number, project_title,
-    owner_type, owner_login, repo_id, repo_full_name, status_field_id, status_option_map,
-    sync_issues, sync_direction";
-
 async fn link_project(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     const FAILED: &str = "Failed to link project";
     let mut values = match validate(&headers, &body, project_link_values) {
@@ -1521,55 +1559,45 @@ async fn link_project(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
     };
     values.insert("connection_id".into(), conn["id"].clone());
     let stamp = now();
-    let existing: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from github_project_links where workspace_id = $1 and project_id = $2 limit 1",
-    )
-    .bind(&caller.clerk_org_id)
-    .bind(values["project_id"].as_str())
-    .fetch_optional(&caller.db)
-    .await;
-    let columns = format!("connection_id, {PROJECT_LINK_COLUMNS}");
-    let record = Value::Object(values.clone());
+    let db = orm(&caller.db);
+    let existing: Result<Option<String>, DbErr> = project_links::Entity::find()
+        .select_only()
+        .column(project_links::Column::Id)
+        .filter(project_links::Column::WorkspaceId.eq(&caller.clerk_org_id))
+        .filter(project_links::Column::ProjectId.eq(values["project_id"].as_str()))
+        .into_tuple()
+        .one(&db)
+        .await;
+    // Every link column is written: one the body left out is null.
     let (written, mut sent) = match existing {
         Err(error) => return internal(&error, FAILED),
         Ok(Some(id)) => {
-            let assignments: Vec<String> = columns
-                .split(',')
-                .map(str::trim)
-                .map(|c| format!("{c} = r.{c}"))
-                .collect();
-            let row: Result<Value, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "update github_project_links t set {}, deleted_at = null, updated_at = $3::timestamp
-                 from jsonb_populate_record(null::github_project_links, $2) r
-                 where t.id = $1 returning to_jsonb(t)",
-                assignments.join(", ")
-            )))
-            .bind(&id)
-            .bind(&record)
-            .bind(&stamp)
-            .fetch_one(&caller.db)
-            .await;
+            let mut record = values.clone();
+            record.insert("deleted_at".into(), Value::Null);
+            record.insert("updated_at".into(), json!(stamp));
+            let row = PROJECT_LINK_ROWS
+                .update(&db, &id, record, false)
+                .await
+                .and_then(|row| {
+                    row.ok_or_else(|| {
+                        DbErr::RecordNotFound("no rows returned by a query".to_owned())
+                    })
+                });
             (row, vec![id])
         }
         Ok(None) => {
             let id = generate_id("ghpl");
-            let row: Result<Value, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "insert into github_project_links as t (id, workspace_id, {columns}, created_at, updated_at)
-                 select $1, $2, {columns}, $4::timestamp, $4::timestamp
-                 from jsonb_populate_record(null::github_project_links, $3)
-                 returning to_jsonb(t)"
-            )))
-            .bind(&id)
-            .bind(&caller.clerk_org_id)
-            .bind(&record)
-            .bind(&stamp)
-            .fetch_one(&caller.db)
-            .await;
+            let mut record = values.clone();
+            record.insert("id".into(), json!(id));
+            record.insert("workspace_id".into(), json!(caller.clerk_org_id));
+            record.insert("created_at".into(), json!(stamp));
+            record.insert("updated_at".into(), json!(stamp));
+            let row = PROJECT_LINK_ROWS.insert(&db, record).await;
             (row, vec![id, caller.clerk_org_id.clone()])
         }
     };
     match written {
-        Ok(row) => Created(serialize_project_link(&js_row(row))).into_response(),
+        Ok(row) => Created(serialize_project_link(&row)).into_response(),
         Err(error) => {
             sent.extend(strings(&values));
             let sent: Vec<&str> = sent.iter().map(String::as_str).collect();
@@ -1604,42 +1632,43 @@ async fn update_project_link(
         Err(refusal) => return refusal.respond(FAILED),
     };
     let (title, status_field_id, map, sync_direction, sync_issues) = input;
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update github_project_links t set updated_at = $3::timestamp,
-             project_title = coalesce($4, t.project_title),
-             status_field_id = coalesce($5, t.status_field_id),
-             status_option_map = coalesce($6, t.status_option_map),
-             sync_direction = coalesce($7, t.sync_direction),
-             sync_issues = coalesce($8, t.sync_issues)
-         where t.id = $1 and t.workspace_id = $2 and t.deleted_at is null
-         returning to_jsonb(t)",
-    )
-    .bind(&id)
-    .bind(&caller.clerk_org_id)
-    .bind(now())
-    .bind(title.as_set())
-    .bind(status_field_id.as_set())
-    .bind(map.as_set())
-    .bind(sync_direction.as_set())
-    .bind(sync_issues.as_set())
-    .fetch_optional(&caller.db)
-    .await;
+    // `coalesce($value, <column>)`: what the body sent.
+    let mut update = project_links::Entity::update_many()
+        .col_expr(project_links::Column::UpdatedAt, Expr::value(utc_now()));
+    if let Some(title) = title.as_set() {
+        update = update.col_expr(project_links::Column::ProjectTitle, Expr::value(title));
+    }
+    if let Some(field) = status_field_id.as_set() {
+        update = update.col_expr(project_links::Column::StatusFieldId, Expr::value(field));
+    }
+    if let Some(map) = map.as_set() {
+        update = update.col_expr(
+            project_links::Column::StatusOptionMap,
+            Expr::value(map.clone()),
+        );
+    }
+    if let Some(direction) = sync_direction.as_set() {
+        update = update.col_expr(project_links::Column::SyncDirection, Expr::value(direction));
+    }
+    if let Some(sync) = sync_issues.as_set() {
+        update = update.col_expr(project_links::Column::SyncIssues, Expr::value(*sync));
+    }
+    let updated = update
+        .filter(project_links::Column::Id.eq(&id))
+        .filter(project_links::Column::WorkspaceId.eq(&caller.clerk_org_id))
+        .filter(project_links::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js).transpose());
     match updated {
-        Ok(Some(row)) => Data(serialize_project_link(&js_row(row))).into_response(),
+        Ok(Some(row)) => Data(serialize_project_link(&row)).into_response(),
         Ok(None) => ApiError::not_found("GitHub project link", Some(&id)).into_response(),
         Err(error) => internal(&error, FAILED),
     }
 }
 
 async fn unlink_project(caller: Caller, Path(id): Path<String>) -> Response {
-    match soft_delete(
-        &caller.db,
-        "github_project_links",
-        &caller.clerk_org_id,
-        &id,
-    )
-    .await
-    {
+    match soft_delete(&caller.db, &PROJECT_LINK_ROWS, &caller.clerk_org_id, &id).await {
         Ok(true) => NoContent.into_response(),
         Ok(false) => ApiError::not_found("GitHub project link", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to unlink project"),
@@ -1659,14 +1688,9 @@ async fn sync_project(caller: Caller, Path(id): Path<String>, request: Request) 
         if !is_active(conn.as_ref()) {
             return Err(Refusal::bad_request("No active GitHub connection."));
         }
-        if live_row(
-            &caller.db,
-            "github_project_links",
-            &caller.clerk_org_id,
-            &id,
-        )
-        .await?
-        .is_none()
+        if live_row(&caller.db, &PROJECT_LINK_ROWS, &caller.clerk_org_id, &id)
+            .await?
+            .is_none()
         {
             return Err(Refusal::not_found("GitHub project link", &id));
         }
@@ -1693,7 +1717,7 @@ async fn sync_project(caller: Caller, Path(id): Path<String>, request: Request) 
 /// The generic object router of `github-repo-links`: Drizzle's passthrough
 /// create and update.
 struct Generic {
-    table: &'static str,
+    entity: JsonTable,
     resource: &'static str,
     plural: &'static str,
     prefix: &'static str,
@@ -1705,7 +1729,7 @@ struct Generic {
 }
 
 const REPO_LINKS: Generic = Generic {
-    table: "github_repo_links",
+    entity: REPO_LINK_ROWS,
     resource: "GitHub repo link",
     plural: "github repo links",
     prefix: "ghr",
@@ -1786,104 +1810,128 @@ fn generic_routes<Q: PermissionQueries + 'static>(
         )
 }
 
-fn generic_row(_spec: &Generic, row: Value) -> Value {
-    js_row(row)
+/// `t.<column>` of the spec's table.
+fn generic_column(spec: &Generic, name: &str) -> Result<Expr, DbErr> {
+    link_column(&spec.entity, name)
+}
+
+/// The list's rows and their count: the live rows matching the filters,
+/// after the cursor's row when it exists. The count leaves out the last
+/// condition either way: the cursor's, or (when its row is gone) the last
+/// filter.
+async fn generic_page(
+    spec: &'static Generic,
+    db: &sea_orm::DatabaseConnection,
+    query: Option<&str>,
+    limit: i64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let mut conditions = vec![sea_orm::ExprTrait::is_null(generic_column(
+        spec,
+        "deleted_at",
+    )?)];
+    for (name, column) in spec.filters {
+        if let Some(value) = crate::js::query_param(query, name).filter(|v| !v.is_empty()) {
+            conditions.push(sea_orm::ExprTrait::eq(generic_column(spec, column)?, value));
+        }
+    }
+    let mut count_conditions = conditions.clone();
+    if let Some(cursor) = query_truthy(query, "cursor") {
+        if cursor_row_dated(spec, db, &cursor).await? {
+            conditions.push(after_cursor(spec, &cursor)?);
+        } else {
+            count_conditions.pop();
+        }
+    }
+    let all = |conditions: Vec<Expr>| {
+        conditions
+            .into_iter()
+            .fold(Condition::all(), Condition::add)
+    };
+    let rows = spec
+        .entity
+        .select()
+        .cond_where(all(conditions))
+        .order_by_expr(generic_column(spec, "created_at")?, Order::Desc)
+        .order_by_expr(generic_column(spec, "id")?, Order::Desc)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .to_owned();
+    let rows = spec.entity.rows(db, &rows).await?;
+    let count = spec
+        .entity
+        .select()
+        .cond_where(all(count_conditions))
+        .to_owned();
+    let count = spec.entity.count(db, &count).await?;
+    Ok((rows, count))
+}
+
+/// `select created_at is not null from <table> where id = <cursor> limit 1`.
+async fn cursor_row_dated(
+    spec: &Generic,
+    db: &sea_orm::DatabaseConnection,
+    cursor: &str,
+) -> Result<bool, DbErr> {
+    let found = spec
+        .entity
+        .select()
+        .clear_selects()
+        .expr(sea_orm::ExprTrait::is_not_null(generic_column(
+            spec,
+            "created_at",
+        )?))
+        .and_where(sea_orm::ExprTrait::eq(generic_column(spec, "id")?, cursor))
+        .limit(1)
+        .to_owned();
+    match db.query_one(&found).await? {
+        Some(row) => Ok(row.try_get_by_index::<Option<bool>>(0)? == Some(true)),
+        None => Ok(false),
+    }
+}
+
+/// `t.created_at < c.created_at or (t.created_at = c.created_at and t.id <
+/// c.id)`, with the cursor row's `created_at` to the millisecond.
+fn after_cursor(spec: &Generic, cursor: &str) -> Result<Expr, DbErr> {
+    let c = Alias::new("c");
+    let cursor_at = || -> SelectStatement {
+        Query::select()
+            .expr(Func::cust("date_trunc").args([
+                Expr::val("milliseconds"),
+                Expr::col((c.clone(), Alias::new("created_at"))),
+            ]))
+            .from_as(Alias::new(spec.entity.table_name()), c.clone())
+            .and_where(sea_orm::ExprTrait::eq(
+                Expr::col((c.clone(), Alias::new("id"))),
+                cursor,
+            ))
+            .to_owned()
+    };
+    let created_at = || generic_column(spec, "created_at");
+    Ok(sea_orm::ExprTrait::or(
+        sea_orm::ExprTrait::lt(created_at()?, Expr::from(cursor_at())),
+        sea_orm::ExprTrait::and(
+            sea_orm::ExprTrait::eq(created_at()?, Expr::from(cursor_at())),
+            sea_orm::ExprTrait::lt(generic_column(spec, "id")?, cursor),
+        ),
+    ))
 }
 
 async fn generic_list(spec: &'static Generic, caller: Caller, query: Option<String>) -> Response {
     let failed = format!("Failed to list {}", spec.plural);
     let query = query.as_deref();
     let limit = page_limit(query, 25, 100);
-    let mut conditions = vec!["t.deleted_at is null".to_owned()];
-    let mut binds: Vec<String> = Vec::new();
-    for (name, column) in spec.filters {
-        if let Some(value) = crate::js::query_param(query, name).filter(|v| !v.is_empty()) {
-            binds.push(value);
-            conditions.push(format!("t.{column} = ${}", binds.len()));
-        }
-    }
-    let cursor = query_truthy(query, "cursor");
-    let mut count_conditions = conditions.clone();
-    let mut count_binds = binds.len();
-    if let Some(cursor) = &cursor {
-        // The cursor's own condition, when its row exists. The count leaves
-        // out the last condition either way: the cursor's, or (when its row
-        // is gone) the last filter.
-        let found: Result<Option<bool>, sqlx::Error> =
-            sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select created_at is not null from {} where id = $1 limit 1",
-                spec.table
-            )))
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
-        match found {
-            Ok(Some(true)) => {
-                binds.push(cursor.clone());
-                let n = binds.len();
-                conditions.push(format!(
-                    "(t.created_at < (select date_trunc('milliseconds', c.created_at) from {table} c where c.id = ${n})
-                      or (t.created_at = (select date_trunc('milliseconds', c.created_at) from {table} c where c.id = ${n})
-                          and t.id < ${n}))",
-                    table = spec.table
-                ));
-            }
-            Ok(_) => {
-                if count_conditions.len() > 1 {
-                    count_binds -= 1;
-                }
-                count_conditions.pop();
-            }
-            Err(error) => return internal(&error, &failed),
-        }
-    }
-    let where_rows = conditions.join(" and ");
-    let where_count = if count_conditions.is_empty() {
-        "true".to_owned()
-    } else {
-        count_conditions.join(" and ")
-    };
-    let mut rows_query = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from {} t where {where_rows} order by t.created_at desc, t.id desc limit {}",
-        spec.table,
-        limit + 1
-    )));
-    for bind in &binds {
-        rows_query = rows_query.bind(bind);
-    }
-    let mut count_query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
-        "select count(*) from {} t where {where_count}",
-        spec.table
-    )));
-    for bind in binds.iter().take(count_binds) {
-        count_query = count_query.bind(bind);
-    }
-    match (
-        rows_query.fetch_all(&caller.db).await,
-        count_query.fetch_one(&caller.db).await,
-    ) {
-        (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(
-                rows.into_iter().map(|r| generic_row(spec, r)).collect(),
-                limit,
-            );
+    match generic_page(spec, &orm(&caller.db), query, limit).await {
+        Ok((rows, count)) => {
+            let (data, has_more) = page(rows, limit);
             let cursor = next_cursor(&data, has_more, "id");
             List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
         }
-        (Err(error), _) | (_, Err(error)) => internal(&error, &failed),
+        Err(error) => internal(&error, &failed),
     }
 }
 
 async fn generic_get(spec: &'static Generic, caller: Caller, id: String) -> Response {
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from {} t where t.id = $1 and t.deleted_at is null limit 1",
-        spec.table
-    )))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
-    match row {
-        Ok(Some(row)) => Data(generic_row(spec, row)).into_response(),
+    match spec.entity.find(&orm(&caller.db), &id, true).await {
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => ApiError::not_found(spec.resource, Some(&id)).into_response(),
         Err(error) => internal(
             &error,
@@ -1899,8 +1947,7 @@ fn generic_values(
     spec: &Generic,
     data: &Map<String, Value>,
     skip: &[&str],
-) -> Result<(Vec<&'static str>, Value), ()> {
-    let mut columns = Vec::new();
+) -> Result<Map<String, Value>, ()> {
     let mut record = Map::new();
     for (key, value) in data {
         if skip.contains(&key.as_str()) {
@@ -1912,10 +1959,9 @@ fn generic_values(
         if DATE_PROPERTIES.contains(&key.as_str()) && !value.is_null() {
             return Err(());
         }
-        columns.push(*column);
         record.insert((*column).to_owned(), value.clone());
     }
-    Ok((columns, Value::Object(record)))
+    Ok(record)
 }
 
 async fn generic_create(
@@ -1934,39 +1980,24 @@ async fn generic_create(
     };
     let id = generate_id(spec.prefix);
     // `{ id, ...data, createdAt: now, updatedAt: now }`.
-    let Ok((mut columns, mut record)) = generic_values(spec, &data, &["createdAt", "updatedAt"])
-    else {
+    let Ok(mut record) = generic_values(spec, &data, &["createdAt", "updatedAt"]) else {
         return internal(&"value.toISOString is not a function", &failed);
     };
-    if !columns.contains(&"id") {
-        columns.push("id");
-        record["id"] = json!(id);
+    if !record.contains_key("id") {
+        record.insert("id".into(), json!(id));
     }
-    let list = columns.join(", ");
-    let inserted = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "insert into {table} ({list}, created_at, updated_at)
-         select {list}, $2::timestamp, $2::timestamp from jsonb_populate_record(null::{table}, $1)",
-        table = spec.table
-    )))
-    .bind(&record)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let stamp = now();
+    record.insert("created_at".into(), json!(stamp));
+    record.insert("updated_at".into(), json!(stamp));
+    let inserted = spec.entity.insert(&orm(&caller.db), record).await;
     match inserted {
         Ok(_) => Created(json!({ "id": id })).into_response(),
         Err(error) => internal(&error, &failed),
     }
 }
 
-async fn generic_exists(spec: &Generic, db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select 1 from {} where id = $1 and deleted_at is null limit 1",
-        spec.table
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(found.is_some())
+async fn generic_exists(spec: &Generic, db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    Ok(spec.entity.find(&orm(db), id, true).await?.is_some())
 }
 
 async fn generic_update(
@@ -1988,36 +2019,18 @@ async fn generic_update(
         if !generic_exists(spec, &caller.db, &id).await? {
             return Err(Refusal::not_found(spec.resource, &id));
         }
-        let Ok((columns, record)) = generic_values(spec, &data, &[]) else {
+        let Ok(mut record) = generic_values(spec, &data, &[]) else {
             return Err(Refusal::Response(Box::new(internal(
                 &"value.toISOString is not a function",
                 &failed,
             ))));
         };
-        let set: String = columns
-            .iter()
-            .fold(String::new(), |set, c| set + ", " + c + " = r." + c);
-        let stamp = if columns.contains(&"updated_at") {
-            String::new()
-        } else {
-            "updated_at = $3::timestamp".to_owned()
-        };
-        let set = if stamp.is_empty() {
-            set.trim_start_matches(", ").to_owned()
-        } else {
-            format!("{stamp}{set}")
-        };
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update {table} t set {set}
-             from jsonb_populate_record(null::{table}, $2) r
-             where t.id = $1 and t.deleted_at is null and $3::timestamp is not null",
-            table = spec.table
-        )))
-        .bind(&id)
-        .bind(&record)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        if !record.contains_key("updated_at") {
+            record.insert("updated_at".into(), json!(now()));
+        }
+        spec.entity
+            .update(&orm(&caller.db), &id, record, true)
+            .await?;
         Ok(Data(json!({ "id": id })).into_response())
     };
     result
@@ -2031,14 +2044,13 @@ async fn generic_delete(spec: &'static Generic, caller: Caller, id: String) -> R
         if !generic_exists(spec, &caller.db, &id).await? {
             return Err(Refusal::not_found(spec.resource, &id));
         }
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update {} set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            spec.table
-        )))
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let stamp = now();
+        let mut record = Map::new();
+        record.insert("deleted_at".into(), json!(stamp));
+        record.insert("updated_at".into(), json!(stamp));
+        spec.entity
+            .update(&orm(&caller.db), &id, record, false)
+            .await?;
         Ok(NoContent.into_response())
     };
     result

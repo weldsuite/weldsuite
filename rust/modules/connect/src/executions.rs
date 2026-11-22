@@ -37,13 +37,6 @@ use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::runs::{RESUME_SIGNAL, WorkflowRuns};
 use crate::{Caller, ConnectState, Refusal, internal, now, validate};
 
-/// `notSequenceRun` over the alias `e`.
-pub(crate) const NOT_SEQUENCE_RUN: &str = "not exists (select 1 from workflows sw
-    where sw.id = e.workflow_id and coalesce(sw.tags, '[]'::jsonb) ? '__type:sequence')";
-
-/// `notTestRun` over the alias `e`.
-pub(crate) const NOT_TEST_RUN: &str = "coalesce(e.execution_context->>'isTest', 'false') <> 'true'";
-
 /// `coalesce(<tags>, '[]'::jsonb) ? '__type:sequence'`: the tags of a
 /// WeldReach sequence's workflow.
 pub(crate) fn sequence_tagged(tags: Expr) -> Expr {
@@ -82,7 +75,10 @@ pub(crate) fn not_sequence_of(workflow_id: Expr) -> Expr {
 
 /// `notSequenceRun` over `workflow_executions`.
 pub(crate) fn not_sequence_run() -> Expr {
-    not_sequence_of(Expr::col((runs_table::Entity, runs_table::Column::WorkflowId)))
+    not_sequence_of(Expr::col((
+        runs_table::Entity,
+        runs_table::Column::WorkflowId,
+    )))
 }
 
 /// `coalesce(<execution_context>->>'isTest', 'false')`.
@@ -180,10 +176,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         return internal(&"Invalid time value", "Failed to list workflow executions");
     };
     let cursor = query_truthy(query, "cursor");
-    let (Some(start), Some(end)) = (
-        start.map(|start| timestamp_of(&start)).transpose(),
-        end.map(|end| timestamp_of(&end)).transpose(),
-    ) else {
+    let parsed = |text: Option<String>| match text {
+        None => Some(None),
+        Some(text) => timestamp_of(&text).map(Some),
+    };
+    let (Some(start), Some(end)) = (parsed(start), parsed(end)) else {
         return internal(
             &"date/time field value out of range",
             "Failed to list workflow executions",
@@ -255,12 +252,15 @@ async fn trends(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     let now_ms = i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
         .unwrap_or_default();
-    let Some(start) = OffsetDateTime::from_unix_timestamp_nanos(
-        i128::from(now_ms - days * DAY_MS) * 1_000_000,
-    )
-    .ok()
-    .map(utc_timestamp) else {
-        return internal(&"invalid input syntax for type timestamp", "Failed to fetch execution trends");
+    let Some(start) =
+        OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms - days * DAY_MS) * 1_000_000)
+            .ok()
+            .map(utc_timestamp)
+    else {
+        return internal(
+            &"invalid input syntax for type timestamp",
+            "Failed to fetch execution trends",
+        );
     };
     let rows: Result<Vec<(String, Option<PrimitiveDateTime>)>, DbErr> = runs_table::Entity::find()
         .select_only()
@@ -802,13 +802,6 @@ impl From<DbErr> for StartError {
     }
 }
 
-/// `getWorkflow` while `crate::workflows` reads through sqlx.
-impl From<sqlx::Error> for StartError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(weldsuite_db::orm_error(error))
-    }
-}
-
 /// `startRun(db, executeWorkflow, input)`.
 pub(crate) async fn start_run(
     db: &PgPool,
@@ -911,7 +904,9 @@ pub(crate) async fn start_run(
                 .col_expr(runs_table::Column::CompletedAt, Expr::value(failed))
                 .col_expr(
                     runs_table::Column::Error,
-                    Expr::value(json!({ "message": format!("Could not start the run: {message}") })),
+                    Expr::value(
+                        json!({ "message": format!("Could not start the run: {message}") }),
+                    ),
                 )
                 .col_expr(runs_table::Column::UpdatedAt, Expr::value(failed))
                 .filter(runs_table::Column::Id.eq(&execution_id))

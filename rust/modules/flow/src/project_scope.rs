@@ -33,7 +33,9 @@ use weldsuite_flow_domain::scope::{
 };
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{project_change_requests, project_decisions, project_scope, projects};
+use weldsuite_schema::tenant::{
+    project_change_requests, project_decisions, project_scope, projects,
+};
 
 use crate::governance_body::read_put_scope;
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
@@ -65,8 +67,7 @@ async fn find_scope(caller: &Caller, project_id: &str) -> Result<Option<Value>, 
         .filter(project_scope::Column::ProjectId.eq(project_id))
         .one(&orm(&caller.db))
         .await?;
-    row.map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
-        .transpose()
+    row.map(crate::row_json).transpose()
 }
 
 /// `new Date(millis)`, as the row stores it.

@@ -142,20 +142,18 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .map(|c| weldsuite_kit::validation::js_number(&c))
         .filter(|n| n.is_finite());
     let db = orm(&caller.db);
-    let mut rows = workflow_versions::Entity::find()
-        .select_only()
-        .columns([
-            Column::Id,
-            Column::WorkflowId,
-            Column::Version,
-            Column::Name,
-            Column::Status,
-            Column::CreatedBy,
-            Column::CreatedAt,
-            Column::Reason,
-            Column::RestoredFromVersion,
-            Column::Note,
-        ]);
+    let mut rows = workflow_versions::Entity::find().select_only().columns([
+        Column::Id,
+        Column::WorkflowId,
+        Column::Version,
+        Column::Name,
+        Column::Status,
+        Column::CreatedBy,
+        Column::CreatedAt,
+        Column::Reason,
+        Column::RestoredFromVersion,
+        Column::Note,
+    ]);
     if let Some(workflow_id) = &workflow_id {
         rows = rows.filter(Column::WorkflowId.eq(workflow_id));
     }

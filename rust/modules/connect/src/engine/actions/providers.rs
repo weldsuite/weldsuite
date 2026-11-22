@@ -8,9 +8,12 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use base64::Engine;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm, utc_now};
 use weldsuite_ports::{HttpRequest, HttpResponse, OutboundHttp};
+use weldsuite_schema::tenant::{workflow_integrations as integrations, workspace_members};
 
 use super::records::is_email_address;
 use super::{ActionCtx, ActionError, ActionResult};
@@ -119,43 +122,38 @@ pub(super) async fn resolve_integration(
     ctx: &ActionCtx<'_>,
     kind: &str,
     id: Option<&str>,
-) -> Result<Value, ActionError> {
+) -> Result<integrations::Model, ActionError> {
     let selector = id.map_or_else(|| format!("type={kind}"), |id| format!("id={id}"));
-    let row: Option<Value> = match id {
-        Some(id) => sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_integrations t where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(id)
-        .fetch_optional(ctx.db)
-        .await,
-        None => sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_integrations t where t.type = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(kind)
-        .fetch_optional(ctx.db)
-        .await,
+    let live = integrations::Entity::find().filter(integrations::Column::DeletedAt.is_null());
+    let row = match id {
+        Some(id) => live.filter(integrations::Column::Id.eq(id)),
+        None => live.filter(integrations::Column::Type.eq(kind)),
     }
-    .map_err(|e| ActionError::plain(&e.to_string()))?;
+    .one(&orm(ctx.db))
+    .await
+    .map_err(|e| ActionError::database(&e))?;
     let Some(row) = row else {
         return Err(ActionError::named(
             "IntegrationNotFoundError",
             &format!("Integration not found: {selector}"),
         ));
     };
-    let status = js_string(row.get("status"));
-    if status != "connected" {
+    if row.status != "connected" {
         return Err(ActionError::named(
             "IntegrationNotConnectedError",
-            &format!("Integration {selector} is not connected (status: {status})"),
+            &format!(
+                "Integration {selector} is not connected (status: {})",
+                row.status
+            ),
         ));
     }
     Ok(row)
 }
 
 /// `integrationBearerToken(integ)`.
-fn bearer_token(row: &Value) -> Option<String> {
-    let tokens = &row["oauth_tokens"];
-    let credentials = &row["credentials"];
+fn bearer_token(row: &integrations::Model) -> Option<String> {
+    let tokens = row.oauth_tokens.as_ref().unwrap_or(&Value::Null);
+    let credentials = row.credentials.as_ref().unwrap_or(&Value::Null);
     tokens["accessToken"]
         .as_str()
         .or_else(|| {
@@ -179,13 +177,15 @@ async fn assert_owner_still_member(ctx: &ActionCtx<'_>) -> Result<(), ActionErro
     let Some(owner) = ctx.info.owner_user_id.as_deref().filter(|o| !o.is_empty()) else {
         return Ok(());
     };
-    let member: Option<String> = sqlx::query_scalar(
-        "select id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(owner)
-    .fetch_optional(ctx.db)
-    .await
-    .map_err(|e| ActionError::plain(&e.to_string()))?;
+    let member: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Id)
+        .filter(workspace_members::Column::UserId.eq(owner))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
+        .map_err(|e| ActionError::database(&e))?;
     if member.is_none() {
         return Err(ActionError::fatal(
             "The workflow's owner is no longer a member of this workspace, so it can't use its connected integrations",
@@ -272,7 +272,7 @@ async fn valid_token(
 ) -> Result<String, ActionError> {
     assert_owner_still_member(ctx).await?;
     let row = resolve_integration(ctx, kind, id).await?;
-    let row_type = js_string(row.get("type"));
+    let row_type = row.type_.clone();
     let def = crate::catalog::integration(&row_type);
     let auth = def.and_then(|d| d.get("auth"));
     let auth_kind = auth.and_then(|a| a.get("kind")).and_then(Value::as_str);
@@ -287,7 +287,7 @@ async fn valid_token(
                 "Missing app installation env ({app_env}/{key_env})"
             )));
         };
-        let installation = js_number(row.get("settings").and_then(|s| s.get("installationId")));
+        let installation = js_number(row.settings.as_ref().and_then(|s| s.get("installationId")));
         #[allow(clippy::cast_possible_truncation)]
         let valid = installation.is_finite()
             && installation.fract() == 0.0
@@ -318,7 +318,7 @@ async fn valid_token(
             .map_err(|message| ActionError::plain(&message));
     }
     let keys = keyring(ctx);
-    let tokens = &row["oauth_tokens"];
+    let tokens = row.oauth_tokens.as_ref().unwrap_or(&Value::Null);
     if let Some(sealed) = tokens
         .get("accessToken")
         .and_then(Value::as_str)
@@ -348,15 +348,13 @@ async fn valid_token(
             if let Some(at) = expires_at {
                 tokens["expiresAt"] = json!(at);
             }
-            sqlx::query(
-                "update workflow_integrations set oauth_tokens = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(js_string(row.get("id")))
-            .bind(&tokens)
-            .bind(super::now_text())
-            .execute(ctx.db)
-            .await
-            .map_err(|e| ActionError::plain(&e.to_string()))?;
+            integrations::Entity::update_many()
+                .col_expr(integrations::Column::OauthTokens, Expr::value(tokens))
+                .col_expr(integrations::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(integrations::Column::Id.eq(&row.id))
+                .exec(&orm(ctx.db))
+                .await
+                .map_err(|e| ActionError::database(&e))?;
             access = fresh;
         }
         return Ok(access);
@@ -380,7 +378,7 @@ async fn credentials(
     let row = resolve_integration(ctx, kind, id).await?;
     let keys = keyring(ctx);
     let mut out = Map::new();
-    if let Some(Value::Object(credentials)) = row.get("credentials") {
+    if let Some(Value::Object(credentials)) = &row.credentials {
         for (key, value) in credentials {
             let opened = match value {
                 Value::String(text) => crate::crypto::maybe_decrypt(text, &keys),

@@ -27,8 +27,8 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::raid::columns_of;
-use crate::row_json;
 use crate::raid_body::Body;
+use crate::row_json;
 
 /// `project_deliverables`, written from a body.
 pub(crate) const DELIVERABLES: JsonTable = JsonTable::of::<deliverables::Entity>();
@@ -153,10 +153,7 @@ pub(crate) async fn task_progress_for_deliverables(
         .column(tasks::Column::DeliverableId)
         .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
         .column_as(
-            Expr::from(Func::count(Expr::case(
-                tasks::Column::Status.eq("done"),
-                1,
-            ))),
+            Expr::from(Func::count(Expr::case(tasks::Column::Status.eq("done"), 1))),
             "done",
         )
         .filter(tasks::Column::DeliverableId.is_in(ids))
@@ -221,10 +218,7 @@ pub(crate) async fn raid_for_deliverables(
 }
 
 /// `nextDeliverablePosition(db, projectId)`: after the last live deliverable.
-pub(crate) async fn next_deliverable_position(
-    db: &PgPool,
-    project_id: &str,
-) -> Result<i64, DbErr> {
+pub(crate) async fn next_deliverable_position(db: &PgPool, project_id: &str) -> Result<i64, DbErr> {
     let max: Option<Option<i32>> = deliverables::Entity::find()
         .select_only()
         .column_as(deliverables::Column::Position.max(), "max")

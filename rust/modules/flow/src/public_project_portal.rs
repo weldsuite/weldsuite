@@ -44,10 +44,11 @@ use axum::routing::{get, post};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, HeaderName};
 use http::request::Parts;
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{EventName, PROJECT_MESSAGE_CREATED};
-use weldsuite_db::Tenant;
+use weldsuite_db::{Tenant, orm, utc_timestamp};
 use weldsuite_emails::EmailLocale;
 use weldsuite_events::{EntityEvent, EventContext};
 use weldsuite_flow_domain::js::parse_int;
@@ -71,6 +72,8 @@ use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_ports::{
     DynCache, DynSystemMail, FileStore, FileStores, RequestCache, StorageBuckets, is_safe_key,
 };
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{flow_approvals, project_messages};
 
 use weldsuite_flow_domain::approvals::{
     ApprovalActor, ApprovalRow, DecideApprovalResult, DecideRefusal,
@@ -553,13 +556,20 @@ async fn open_workspace(app: &App, req: &Req, raw_slug: &str) -> Result<Option<O
     let master = req.master.clone();
     let found = resolve_slug(&req.kv, NAMESPACE, &slug, |slug| async move {
         let master = master.ok_or("no master database")?;
-        let row: Option<(String, Option<String>, String, Option<bool>)> = sqlx::query_as(
-            "select id, clerk_org_id, name, is_active from workspaces where slug = $1 limit 1",
-        )
-        .bind(&slug)
-        .fetch_optional(&master)
-        .await
-        .map_err(|e| e.to_string())?;
+        let row: Option<(String, Option<String>, String, Option<bool>)> =
+            workspaces::Entity::find()
+                .select_only()
+                .columns([
+                    workspaces::Column::Id,
+                    workspaces::Column::ClerkOrgId,
+                    workspaces::Column::Name,
+                    workspaces::Column::IsActive,
+                ])
+                .filter(workspaces::Column::Slug.eq(&slug))
+                .into_tuple()
+                .one(&orm(&master))
+                .await
+                .map_err(|e| e.to_string())?;
         Ok(match row {
             Some((id, Some(clerk_org_id), name, Some(true))) => Some(PortalSlugEntry {
                 workspace_id: id,
@@ -1026,23 +1036,26 @@ async fn send_message(app: &App, session: &Session, project: &Value, message: &s
         .first()
         .map_or_else(|| session.record.email.clone(), |c| c.name.clone());
     let message_id = generate_id("pmsg");
-    let created = now();
+    let at = time::OffsetDateTime::now_utc();
+    let created = weldsuite_events::iso_timestamp(at);
     let metadata = portal_message_metadata(contact_id, &name);
     // The thread is the project's chat (conversationId = projectId); a client's
     // message is client visible by definition and names its sender in `metadata`.
-    sqlx::query(
-        "insert into project_messages
-           (id, project_id, conversation_id, sender_id, message, message_type, metadata,
-            client_visible, is_read, created_at, updated_at)
-         values ($1, $2, $2, $3, $4, 'text', $5::jsonb, true, false, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&message_id)
-    .bind(project_id)
-    .bind(contact_id)
-    .bind(message)
-    .bind(metadata.to_string())
-    .bind(&created)
-    .execute(&session.db)
+    project_messages::Entity::insert(project_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        project_id: Set(Some(project_id.to_owned())),
+        conversation_id: Set(project_id.to_owned()),
+        sender_id: Set(contact_id.to_owned()),
+        message: Set(message.to_owned()),
+        message_type: Set("text".to_owned()),
+        metadata: Set(Some(metadata.clone())),
+        client_visible: Set(true),
+        is_read: Set(false),
+        created_at: Set(utc_timestamp(at)),
+        updated_at: Set(utc_timestamp(at)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&session.db))
     .await?;
     session.publish(
         app,
@@ -1120,17 +1133,17 @@ async fn decide(
 /// The review `id` when it is addressed to one of the session's contacts, on a
 /// project they may see, about a subject the portal shows; else a 404.
 async fn find_review(session: &Session, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a
-         where a.id = $1 and a.approver_kind = 'contact' and a.approver_id = any($2)
-           and a.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(session.contact_ids())
-    .fetch_optional(&session.db)
-    .await?;
+    let row = flow_approvals::Entity::find()
+        .filter(flow_approvals::Column::Id.eq(id))
+        .filter(flow_approvals::Column::ApproverKind.eq("contact"))
+        .filter(flow_approvals::Column::ApproverId.is_in(session.contact_ids()))
+        .filter(flow_approvals::Column::DeletedAt.is_null())
+        .one(&orm(&session.db))
+        .await?
+        .map(crate::row_json)
+        .transpose()?;
     let by_id = session.by_id();
-    let row = row.map(weldsuite_db::js_row).filter(|row| {
+    let row = row.filter(|row| {
         row.get("projectId")
             .and_then(Value::as_str)
             .is_some_and(|project| by_id.contains_key(project))

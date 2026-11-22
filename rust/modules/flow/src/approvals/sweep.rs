@@ -276,8 +276,14 @@ pub async fn next_due_at(db: &PgPool) -> Result<Option<OffsetDateTime>, DbErr> {
     };
     let due: Option<(Option<OffsetDateTime>, Option<OffsetDateTime>)> = approvals::Entity::find()
         .select_only()
-        .column_as(earliest(approvals::Column::RemindedAt.is_null()), "unreminded")
-        .column_as(earliest(approvals::Column::RemindedAt.is_not_null()), "reminded")
+        .column_as(
+            earliest(approvals::Column::RemindedAt.is_null()),
+            "unreminded",
+        )
+        .column_as(
+            earliest(approvals::Column::RemindedAt.is_not_null()),
+            "reminded",
+        )
         .filter(approvals::Column::Decision.eq("pending"))
         .filter(approvals::Column::DeletedAt.is_null())
         .filter(approvals::Column::DueAt.is_not_null())
@@ -285,9 +291,9 @@ pub async fn next_due_at(db: &PgPool) -> Result<Option<OffsetDateTime>, DbErr> {
         .into_tuple()
         .one(&orm(db))
         .await?;
-    let (unreminded, reminded) = due.unwrap_or_default();
-    let reminder = unreminded.map(|at| at - time::Duration::DAY);
-    let next = match (reminder, reminded) {
+    let (to_remind, to_flag) = due.unwrap_or_default();
+    let reminder = to_remind.map(|at| at - time::Duration::DAY);
+    let next = match (reminder, to_flag) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
     };

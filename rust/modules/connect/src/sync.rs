@@ -197,7 +197,9 @@ pub(crate) async fn write_trigger_index(
     if rows.is_empty() {
         return Ok(());
     }
-    Entity::insert_many(rows).exec_without_returning(&db).await?;
+    Entity::insert_many(rows)
+        .exec_without_returning(&db)
+        .await?;
     Ok(())
 }
 

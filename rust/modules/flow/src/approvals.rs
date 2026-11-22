@@ -250,7 +250,10 @@ async fn delegations(caller: Caller) -> Response {
         async {
             let now = at_millis(now_ms())?;
             let mut lists = Vec::new();
-            for column in [delegations::Column::MemberId, delegations::Column::DelegateId] {
+            for column in [
+                delegations::Column::MemberId,
+                delegations::Column::DelegateId,
+            ] {
                 let found = delegations::Entity::find()
                     .filter(column.eq(&caller.user_id))
                     .filter(delegations::Column::DeletedAt.is_null())
@@ -317,7 +320,12 @@ async fn create_delegation(
             let Some(row) = DelegationRow::from_json(&row_json(row)?) else {
                 return Err(Refusal::Internal("the delegation is missing".to_owned()));
             };
-            caller.publish(&state, FLOW_APPROVAL_DELEGATED, &row.id, &delegation_event_data(&row, false));
+            caller.publish(
+                &state,
+                FLOW_APPROVAL_DELEGATED,
+                &row.id,
+                &delegation_event_data(&row, false),
+            );
             Ok(Created(present_delegation(&row)).into_response())
         }
         .await,
@@ -353,7 +361,12 @@ async fn end_delegation(
                 .filter(delegations::Column::DeletedAt.is_null())
                 .exec(&db)
                 .await?;
-            caller.publish(&state, FLOW_APPROVAL_DELEGATED, &id, &delegation_event_data(&row, true));
+            caller.publish(
+                &state,
+                FLOW_APPROVAL_DELEGATED,
+                &id,
+                &delegation_event_data(&row, true),
+            );
             Ok(NoContent.into_response())
         }
         .await,
@@ -435,11 +448,17 @@ async fn set_sponsor(
     };
     reply(
         async {
-            let sponsor = input.get("sponsorId").and_then(Value::as_str).map(str::to_owned);
+            let sponsor = input
+                .get("sponsorId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             if let Some(id) = &sponsor {
-                let members =
-                    project_member_ids(&caller.db, &project_id, project["projectManagerId"].as_str())
-                        .await?;
+                let members = project_member_ids(
+                    &caller.db,
+                    &project_id,
+                    project["projectManagerId"].as_str(),
+                )
+                .await?;
                 if !members.contains(id) {
                     return Err(Refusal::bad_request(SPONSOR_NOT_MEMBER));
                 }

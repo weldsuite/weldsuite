@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use sea_orm::ActiveValue::Set;
-use sea_orm::sea_query::{Asterisk, Expr, Func, Query};
+use sea_orm::sea_query::{Asterisk, Expr, Func};
 use sea_orm::{
     ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect,
@@ -30,6 +30,7 @@ use weldsuite_schema::tenant::{
     workflow_executions, workflow_integrations, workflow_trigger_index, workflows,
 };
 
+use crate::executions::{not_sequence, not_sequence_run, not_test_run};
 use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::mvp::{
     Issue, SEQUENCE_WORKFLOW_TAG, is_sequence_workflow, validate_integrations, validate_workflow,
@@ -39,25 +40,19 @@ use crate::schemas::{WorkflowBody, json_list, json_tags, workflow_body};
 use crate::sync::{SyncContext, sync_schedules, sync_webhooks, write_trigger_index};
 use crate::{Caller, ConnectState, Refusal, internal, validate};
 
-/// `notSequenceWorkflow` over the alias `w`, for the SQL that still embeds
-/// it ([`not_sequence`] is the ORM's).
-pub(crate) const NOT_SEQUENCE: &str = "not (coalesce(w.tags, '[]'::jsonb) ? '__type:sequence')";
-
-/// `coalesce(workflows.tags, '[]'::jsonb) ? tag`: the tags array holds
-/// `tag`, written as the containment of `[tag]`.
-pub(crate) fn has_tag(tag: &str) -> Expr {
-    sea_orm::sea_query::extension::postgres::PgExpr::contains(
-        Expr::from(Func::coalesce([
-            Expr::col((workflows::Entity, workflows::Column::Tags)),
-            Expr::val(json!([])),
-        ])),
-        json!([tag]),
-    )
-}
-
-/// `notSequenceWorkflow`: not a CRM sequence's workflow.
-pub(crate) fn not_sequence() -> Condition {
-    Condition::all().add(has_tag(SEQUENCE_WORKFLOW_TAG)).not()
+/// `coalesce(tags, '[]'::jsonb) ? tag` (`jsonb_exists`, the operator's
+/// function): the workflow carries `tag`.
+fn has_tag(tag: &str) -> Expr {
+    Func::cust("jsonb_exists")
+        .args([
+            Func::coalesce([
+                Expr::col((workflows::Entity, workflows::Column::Tags)),
+                Expr::val(json!([])),
+            ])
+            .into(),
+            Expr::val(tag),
+        ])
+        .into()
 }
 
 /// A `workflows` row as Drizzle reads it (`averageExecutionTime`, a
@@ -162,7 +157,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .limit(u64::try_from(limit + 1).unwrap_or(0))
         .all(&db)
         .await
-        .and_then(|rows| rows.into_iter().map(workflow_json).collect());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(workflow_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let count = workflows::Entity::find().filter(filter).count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
@@ -176,10 +175,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 /// `count(*)`, and `count(*) filter (where status = …)` for each status:
 /// the rows the case keeps (it is null otherwise).
-fn status_counts<E: EntityTrait>(
-    status: E::Column,
-    statuses: [&str; 4],
-) -> sea_orm::Select<E> {
+fn status_counts<E: EntityTrait>(status: E::Column, statuses: [&str; 4]) -> sea_orm::Select<E> {
     let [a, b, c, d] = statuses;
     let count = |s: &str| Expr::from(Func::count(Expr::case(status.eq(s), 1)));
     E::find()
@@ -189,32 +185,6 @@ fn status_counts<E: EntityTrait>(
         .column_as(count(b), "b")
         .column_as(count(c), "c")
         .column_as(count(d), "d")
-}
-
-/// `notSequenceRun`: the run's workflow is not a CRM sequence's (`not exists`
-/// over `workflows`, whose id is never null).
-fn not_sequence_run() -> Expr {
-    workflow_executions::Column::WorkflowId.not_in_subquery(
-        Query::select()
-            .column(workflows::Column::Id)
-            .from(workflows::Entity)
-            .and_where(has_tag(SEQUENCE_WORKFLOW_TAG))
-            .to_owned(),
-    )
-}
-
-/// `notTestRun`: `coalesce(execution_context->>'isTest', 'false') <> 'true'`.
-fn not_test_run() -> Expr {
-    sea_orm::ExprTrait::ne(
-        Expr::from(Func::coalesce([
-            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
-                Expr::col(workflow_executions::Column::ExecutionContext),
-                "isTest",
-            ),
-            Expr::val("false"),
-        ])),
-        "true",
-    )
 }
 
 async fn stats(caller: Caller) -> Response {

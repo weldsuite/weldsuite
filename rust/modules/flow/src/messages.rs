@@ -26,8 +26,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::project_messages;
 
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, row_json,
-    json_rows, outside, reply, validate, validate_value,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, json_rows,
+    outside, reply, row_json, validate, validate_value,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -103,10 +103,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 /// The live message's sender and project, `None` when there is no such
 /// message.
-async fn message_author(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<(String, Option<String>)>, DbErr> {
+async fn message_author(db: &PgPool, id: &str) -> Result<Option<(String, Option<String>)>, DbErr> {
     use project_messages::Column;
     project_messages::Entity::find_by_id(id)
         .select_only()

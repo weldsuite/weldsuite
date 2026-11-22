@@ -22,11 +22,7 @@ use weldsuite_schema::tenant::{flow_workspace_settings, project_requests};
 
 use crate::approvals::announce::{Aftermath, register_aftermath};
 use crate::orm_bridge::sqlx_error;
-
-/// A row as Drizzle returns it.
-pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
+use crate::row_json;
 
 /// `new Date(millis)`, as the row stores it.
 pub(crate) fn instant(millis: i64) -> OffsetDateTime {
@@ -40,7 +36,7 @@ pub(crate) async fn find_project_request(db: &PgPool, id: &str) -> Result<Option
         .filter(project_requests::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 
@@ -49,7 +45,7 @@ pub(crate) async fn load_settings(db: &PgPool) -> Result<Option<Value>, DbErr> {
     flow_workspace_settings::Entity::find()
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 

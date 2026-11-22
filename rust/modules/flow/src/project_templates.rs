@@ -23,13 +23,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_TEMPLATE_CREATED, PROJECT_TEMPLATE_DELETED, PROJECT_TEMPLATE_INSTANTIATED,
     PROJECT_TEMPLATE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::blueprint::{Json, blueprint_integrity_error, validate_blueprint};
 use weldsuite_flow_domain::js::{contains_pattern, iso_from_millis, js_date_millis, parse_int};
 use weldsuite_flow_domain::numbering::{TASK_SEQUENCE, allocate_numbers};
@@ -39,17 +44,22 @@ use weldsuite_flow_domain::project_templates::{
 };
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_templates as templates;
 
 use crate::closing_body::{
     Body, parse_body, read_create_template, read_from_project, read_instantiate,
     read_update_template, template_query,
 };
 use crate::closing_store::{PROJECT_DENIED, find_live_project};
+use crate::reporting_store::instant;
 use crate::templates_store::{
     detail_of, find_template, find_visible_template, load_blueprint_source, plan_statements,
     present_template, publish_planned_events, template_event_data, usage_counts,
 };
-use crate::{Caller, FlowState, Refusal, Reply, keyset_cursor, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, fetch_limit, json_rows, keyset_before, keyset_cursor_tz,
+    outside, page, paged, reply,
+};
 
 const TEMPLATE_LABEL: &str = "Template";
 
@@ -111,14 +121,24 @@ fn publish_template(state: &FlowState, caller: &Caller, event: EventName, row: &
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 /// The list's `where`, without the cursor: not deleted, shared or the caller's own, the filters.
-macro_rules! template_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null and (t.shared = true or t.created_by = $1)",
-            " and ($2::bool is null or t.shared = $2)",
-            " and ($3::text is null or t.name ilike $3 or t.description ilike $3)"
-        )
-    };
+fn template_filters(user_id: &str, shared: Option<bool>, search: Option<&str>) -> Condition {
+    use templates::Column;
+    let mut all = Condition::all().add(Column::DeletedAt.is_null()).add(
+        Condition::any()
+            .add(Column::Shared.eq(true))
+            .add(Column::CreatedBy.eq(user_id)),
+    );
+    if let Some(shared) = shared {
+        all = all.add(Column::Shared.eq(shared));
+    }
+    if let Some(search) = search {
+        all = all.add(
+            Condition::any()
+                .add(Column::Name.ilike(search))
+                .add(Column::Description.ilike(search)),
+        );
+    }
+    all
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -127,9 +147,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_templates where id = $1 limit 1",
+            templates::Column::Id,
+            templates::Column::CreatedAt,
             cursor,
         )
         .await
@@ -152,34 +173,29 @@ async fn list_templates(
     shared: Option<bool>,
     search: Option<&str>,
     limit: i64,
-    cursor: Option<(String, String)>,
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
+    use templates::Column;
     let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(t) from project_templates t where ",
-        template_filters!(),
-        " and ($4::timestamptz is null or t.created_at < $4::timestamptz",
-        " or (t.created_at = $4::timestamptz and t.id < $5))",
-        " order by t.created_at desc, t.id desc limit $6"
-    ))
-    .bind(&caller.user_id)
-    .bind(shared)
-    .bind(search)
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_templates t where ",
-        template_filters!()
-    ))
-    .bind(&caller.user_id)
-    .bind(shared)
-    .bind(search)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let mut found =
+        templates::Entity::find().filter(template_filters(&caller.user_id, shared, search));
+    if let Some(cursor) = &cursor {
+        found = found.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+    }
+    let rows = found
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = i64::try_from(
+        templates::Entity::find()
+            .filter(template_filters(&caller.user_id, shared, search))
+            .count(&orm(db))
+            .await?,
+    )
+    .unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let ids: Vec<String> = rows
         .iter()
         .map(|row| row.text("id").unwrap_or_default().to_owned())
@@ -276,26 +292,27 @@ async fn insert_template(
     input: &Body,
     blueprint: &Value,
     source_project_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into project_templates (id, name, description, blueprint, source_project_id,
-             shared, created_by, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $8::timestamptz)",
-    )
-    .bind(id)
-    .bind(text(input, "name"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(blueprint)
-    .bind(source_project_id)
-    .bind(
-        input
+) -> Result<(), DbErr> {
+    let now = instant(crate::now_ms());
+    templates::Entity::insert(templates::ActiveModel {
+        id: Set(id.to_owned()),
+        name: Set(text(input, "name").to_owned()),
+        description: Set(input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
+        blueprint: Set(blueprint.clone()),
+        source_project_id: Set(source_project_id.map(str::to_owned)),
+        shared: Set(input
             .get("shared")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
-    .bind(&caller.user_id)
-    .bind(crate::now())
-    .execute(&caller.db)
+            .unwrap_or(false)),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     Ok(())
 }
@@ -372,23 +389,28 @@ async fn update(
 }
 
 async fn update_template(state: &FlowState, caller: &Caller, id: &str, input: &Body) -> Reply {
+    use templates::Column;
     let db = &caller.db;
-    sqlx::query(concat!(
-        "update project_templates set updated_at = $2::timestamptz, ",
-        set_text!("name", "name"),
-        ", ",
-        set_text!("description", "description"),
-        ", ",
-        set_json!("blueprint", "blueprint"),
-        ", ",
-        set_bool!("shared", "shared"),
-        " where id = $3 and deleted_at is null"
-    ))
-    .bind(Value::Object(input.clone()))
-    .bind(crate::now())
-    .bind(id)
-    .execute(db)
-    .await?;
+    // Only the keys the body sent; `null` clears.
+    let mut update = templates::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::value(instant(crate::now_ms())));
+    for (key, column) in [("name", Column::Name), ("description", Column::Description)] {
+        if let Some(value) = input.get(key) {
+            update = update.col_expr(column, Expr::value(value.as_str().map(str::to_owned)));
+        }
+    }
+    if let Some(blueprint) = input.get("blueprint") {
+        let blueprint = Some(blueprint.clone()).filter(|b| !b.is_null());
+        update = update.col_expr(Column::Blueprint, Expr::value(blueprint));
+    }
+    if let Some(shared) = input.get("shared") {
+        update = update.col_expr(Column::Shared, Expr::value(shared.as_bool()));
+    }
+    update
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_template(db, id, false).await? else {
         return Err(Refusal::not_found(TEMPLATE_LABEL, id));
     };
@@ -412,15 +434,14 @@ async fn remove(
             else {
                 return Err(Refusal::not_found(TEMPLATE_LABEL, &id));
             };
-            sqlx::query(
-                "update project_templates
-                 set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(crate::now())
-            .execute(&caller.db)
-            .await?;
+            let now = instant(crate::now_ms());
+            templates::Entity::update_many()
+                .col_expr(templates::Column::DeletedAt, Expr::value(Some(now)))
+                .col_expr(templates::Column::UpdatedAt, Expr::value(now))
+                .filter(templates::Column::Id.eq(&id))
+                .filter(templates::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
             publish_template(&state, &caller, PROJECT_TEMPLATE_DELETED, &existing);
             Ok(NoContent.into_response())
         }

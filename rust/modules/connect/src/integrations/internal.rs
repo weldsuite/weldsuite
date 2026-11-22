@@ -18,12 +18,15 @@ use axum::extract::{RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, Method};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_ads_domain::campaigns::SyncScope;
 use weldsuite_ads_domain::sync::{SyncTarget, decrypt_access_token, sync_selected_accounts};
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::Data;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{ad_accounts, ad_platform_connections};
 
 use super::{
     RequestCrmSyncRuns, WatchRenewal, action_response, renew_google_calendar_watch,
@@ -137,13 +140,19 @@ impl Internal {
         let Some(master) = self.overrides.master(state) else {
             return Err(ApiError::internal().into_response());
         };
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from workspaces where clerk_org_id = $1 or id = $1 limit 1",
-        )
-        .bind(&self.clerk_org_id)
-        .fetch_optional(&master)
-        .await
-        .map_err(|error| internal_error(&error, "Failed to resolve workspace"))?;
+        let found: Option<String> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::ClerkOrgId.eq(&self.clerk_org_id))
+                    .add(workspaces::Column::Id.eq(&self.clerk_org_id)),
+            )
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&master))
+            .await
+            .map_err(|error| internal_error(&error, "Failed to resolve workspace"))?;
         found.ok_or_else(|| {
             ApiError::not_found("Workspace", Some(&self.clerk_org_id)).into_response()
         })
@@ -175,12 +184,15 @@ async fn resolve(
         let Some(master) = overrides.master(state) else {
             return Err(ApiError::internal().into_response());
         };
-        let found: Option<Option<String>> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-                .bind(workspace)
-                .fetch_optional(&master)
-                .await
-                .map_err(|error| internal_error(&error, "Failed to resolve workspace"))?;
+        let found: Option<Option<String>> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .filter(workspaces::Column::Id.eq(workspace))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&master))
+            .await
+            .map_err(|error| internal_error(&error, "Failed to resolve workspace"))?;
         clerk_org_id = found.flatten();
     }
     let Some(clerk_org_id) = clerk_org_id else {
@@ -474,21 +486,16 @@ async fn ad_connection_sync(
         Some("pull" | "metrics") => SyncScope::Pull,
         _ => SyncScope::Full,
     };
-    let connection: Option<Value> = match sqlx::query_scalar(
-        "select to_jsonb(c) from ad_platform_connections c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&internal.db)
-    .await
-    {
+    let tokens = match oauth_tokens(&internal.db, &id).await {
         Ok(row) => row,
         Err(error) => return internal_error(&error, "Failed to sync ad connection"),
     };
-    let Some(connection) = connection else {
+    let Some(tokens) = tokens else {
         return ApiError::not_found("Ad connection", Some(&id)).into_response();
     };
-    let encrypted = connection["oauth_tokens"]
-        .get("accessToken")
+    let encrypted = tokens
+        .as_ref()
+        .and_then(|tokens| tokens.get("accessToken"))
         .and_then(Value::as_str);
     let access_token = match decrypt_access_token(encrypted, &keyring(&internal.overrides, &state))
     {
@@ -514,6 +521,20 @@ async fn ad_connection_sync(
         Ok(result) => Data(result.to_json()).into_response(),
         Err(error) => internal_error(&error, "Failed to sync ad connection"),
     }
+}
+
+/// The live ad connection `id`'s `oauth_tokens`: `None` without the
+/// connection, `Some(None)` when it has none.
+async fn oauth_tokens(db: &PgPool, id: &str) -> Result<Option<Option<Value>>, DbErr> {
+    ad_platform_connections::Entity::find()
+        .select_only()
+        .column(ad_platform_connections::Column::OauthTokens)
+        .filter(ad_platform_connections::Column::Id.eq(id))
+        .filter(ad_platform_connections::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `adEventSchema`: `(platformAccountId, platformCampaignId)`, or `None`.
@@ -552,35 +573,39 @@ async fn ad_events(
         return ApiError::bad_request("Invalid ad event payload").into_response();
     };
     let result: Result<Response, Response> = async {
-        let fail = |error: &dyn std::fmt::Display| internal_error(error, "Failed to ingest ad event");
-        let account: Option<String> = sqlx::query_scalar(
-            "select connection_id from ad_accounts
-             where platform_account_id = $1 and is_selected = true and deleted_at is null limit 1",
-        )
-        .bind(&account_id)
-        .fetch_optional(&internal.db)
-        .await
-        .map_err(|e| fail(&e))?;
+        let fail =
+            |error: &dyn std::fmt::Display| internal_error(error, "Failed to ingest ad event");
+        let account: Option<String> = ad_accounts::Entity::find()
+            .select_only()
+            .column(ad_accounts::Column::ConnectionId)
+            .filter(ad_accounts::Column::PlatformAccountId.eq(&account_id))
+            .filter(ad_accounts::Column::IsSelected.eq(true))
+            .filter(ad_accounts::Column::DeletedAt.is_null())
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&internal.db))
+            .await
+            .map_err(|e| fail(&e))?;
         let Some(connection_id) = account else {
-            return Ok(Data(json!({ "skipped": true, "reason": "account_not_selected" })).into_response());
+            return Ok(
+                Data(json!({ "skipped": true, "reason": "account_not_selected" })).into_response(),
+            );
         };
-        let connection: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(c) from ad_platform_connections c where c.id = $1 and c.deleted_at is null limit 1",
-        )
-        .bind(&connection_id)
-        .fetch_optional(&internal.db)
-        .await
-        .map_err(|e| fail(&e))?;
-        let encrypted = connection
+        let tokens = oauth_tokens(&internal.db, &connection_id)
+            .await
+            .map_err(|e| fail(&e))?
+            .flatten();
+        let encrypted = tokens
             .as_ref()
-            .and_then(|c| c["oauth_tokens"].get("accessToken"))
+            .and_then(|tokens| tokens.get("accessToken"))
             .filter(|t| crate::js::truthy(t))
             .and_then(Value::as_str);
         let Some(encrypted) = encrypted else {
             return Ok(Data(json!({ "skipped": true, "reason": "missing_token" })).into_response());
         };
-        let Some(access_token) = decrypt_access_token(Some(encrypted), &keyring(&internal.overrides, &state))
-            .map_err(|e| fail(&e))?
+        let Some(access_token) =
+            decrypt_access_token(Some(encrypted), &keyring(&internal.overrides, &state))
+                .map_err(|e| fail(&e))?
         else {
             return Ok(Data(json!({ "skipped": true, "reason": "invalid_token" })).into_response());
         };

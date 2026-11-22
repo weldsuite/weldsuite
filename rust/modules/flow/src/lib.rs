@@ -11,11 +11,6 @@
 //! TypeScript worker's; its tests run against this crate in the `flow`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 #[macro_use]
 mod rows;
 pub mod github_outbound;
@@ -381,10 +376,7 @@ impl Caller {
     }
 
     /// `canChangeOwners`.
-    pub(crate) async fn can_change_owners(
-        &self,
-        project_id: &str,
-    ) -> Result<bool, sea_orm::DbErr> {
+    pub(crate) async fn can_change_owners(&self, project_id: &str) -> Result<bool, sea_orm::DbErr> {
         Ok(self.access(project_id).await?.can_change_owners())
     }
 
@@ -734,9 +726,7 @@ impl Query {
 /// `accessibleProjectIds(c)` as [`in_accessible`] (and the SQL of
 /// `in_accessible!`) reads it: `(true, [])` for scope:all, else
 /// `(false, ids)` with `['']` for none (`inArray(col, [''])` matches nothing).
-pub(crate) async fn access_scope(
-    caller: &Caller,
-) -> Result<(bool, Vec<String>), sea_orm::DbErr> {
+pub(crate) async fn access_scope(caller: &Caller) -> Result<(bool, Vec<String>), sea_orm::DbErr> {
     Ok(match caller.accessible_project_ids().await? {
         None => (true, Vec::new()),
         Some(ids) if ids.is_empty() => (false, vec![String::new()]),
@@ -749,7 +739,7 @@ pub(crate) async fn access_scope(
 /// ([`project_not_deleted`]), else `col = any(ids)`.
 pub(crate) fn in_accessible<C>(col: C, (all, ids): &(bool, Vec<String>)) -> sea_orm::Condition
 where
-    C: sea_orm::ColumnTrait,
+    C: sea_orm::ColumnTrait + Copy,
 {
     if *all {
         project_not_deleted(col)
@@ -763,7 +753,7 @@ where
 /// deleted projects' ids (never null).
 pub(crate) fn project_not_deleted<C>(col: C) -> sea_orm::Condition
 where
-    C: sea_orm::ColumnTrait,
+    C: sea_orm::ColumnTrait + Copy,
 {
     use sea_orm::ColumnTrait as _;
     use weldsuite_schema::tenant::projects;
@@ -841,18 +831,20 @@ where
 /// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`: the
 /// rows after the cursor (of [`keyset_cursor`] or [`keyset_cursor_tz`]) in
 /// `created_at desc, id desc` order.
-pub(crate) fn keyset_before<C, T>(id: C, created_at: C, (at, cursor): &(T, String)) -> sea_orm::Condition
+pub(crate) fn keyset_before<C, T>(
+    id: C,
+    created_at: C,
+    (at, cursor): &(T, String),
+) -> sea_orm::Condition
 where
     C: sea_orm::ColumnTrait + Copy,
     T: Into<sea_orm::Value> + Copy,
 {
-    sea_orm::Condition::any()
-        .add(created_at.lt(*at))
-        .add(
-            sea_orm::Condition::all()
-                .add(created_at.eq(*at))
-                .add(id.lt(cursor.as_str())),
-        )
+    sea_orm::Condition::any().add(created_at.lt(*at)).add(
+        sea_orm::Condition::all()
+            .add(created_at.eq(*at))
+            .add(id.lt(cursor.as_str())),
+    )
 }
 
 /// A model as the routes return the row: the entity serializes as Drizzle
@@ -862,9 +854,7 @@ pub(crate) fn row_json<M: serde::Serialize>(model: M) -> Result<Value, sea_orm::
 }
 
 /// Models as [`row_json`] writes each.
-pub(crate) fn json_rows<M: serde::Serialize>(
-    models: Vec<M>,
-) -> Result<Vec<Value>, sea_orm::DbErr> {
+pub(crate) fn json_rows<M: serde::Serialize>(models: Vec<M>) -> Result<Vec<Value>, sea_orm::DbErr> {
     models.into_iter().map(row_json).collect()
 }
 

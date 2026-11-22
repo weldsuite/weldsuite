@@ -47,7 +47,7 @@ use weldsuite_schema::tenant::{
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, whole};
 use crate::task_dependencies::present_dependency;
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, now_ms, outside, reply, row_json};
 
 pub(crate) const PROJECT_MANAGE_DENIED: &str = "You do not have manage access to this project";
 const AUTO_SCHEDULE_OFF: &str = "Auto-schedule is off for this project";
@@ -84,11 +84,6 @@ where
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/// A row as Drizzle returns it.
-fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// `to_char(at, 'YYYY-MM-DD')`: the calendar day of a wall-clock time.
 fn day_of(at: PrimitiveDateTime) -> String {
     at.date()
@@ -99,10 +94,8 @@ fn day_of(at: PrimitiveDateTime) -> String {
 /// `(extract(epoch from at) * 1000)::bigint`: milliseconds since the epoch,
 /// rounded half away from zero as the cast rounds.
 fn epoch_ms(at: PrimitiveDateTime) -> i64 {
-    let micros = (at.assume_utc().unix_timestamp_nanos() / 1_000).clamp(
-        i128::from(i64::MIN / 2),
-        i128::from(i64::MAX / 2),
-    );
+    let micros = (at.assume_utc().unix_timestamp_nanos() / 1_000)
+        .clamp(i128::from(i64::MIN / 2), i128::from(i64::MAX / 2));
     let micros = i64::try_from(micros).unwrap_or_default();
     micros.signum() * ((micros.abs() + 500) / 1_000)
 }
@@ -120,7 +113,7 @@ pub(crate) async fn find_live_project(
         return Ok(None);
     };
     let end_day = project.end_date.map(day_of);
-    let mut row = js(project)?;
+    let mut row = row_json(project)?;
     if let Value::Object(fields) = &mut row {
         fields.insert("endDay".to_owned(), json!(end_day));
     }
@@ -201,17 +194,18 @@ impl ScheduleTaskRow {
     }
 }
 
+/// A deliverable as the schedule reads it: id, number, title, planned start and end.
+type DeliverableDates = (
+    String,
+    i32,
+    String,
+    Option<OffsetDateTime>,
+    Option<OffsetDateTime>,
+);
+
 /// `{ id, number, title, plannedStart, plannedEnd }` of a deliverable, its
 /// dates as UTC days.
-fn deliverable_json(
-    (id, number, title, start, end): (
-        String,
-        i32,
-        String,
-        Option<OffsetDateTime>,
-        Option<OffsetDateTime>,
-    ),
-) -> Value {
+fn deliverable_json((id, number, title, start, end): DeliverableDates) -> Value {
     let utc_day = |at: OffsetDateTime| {
         let at = at.to_offset(UtcOffset::UTC);
         day_of(PrimitiveDateTime::new(at.date(), at.time()))
@@ -264,23 +258,22 @@ pub(crate) async fn load_schedule_data(
         .order_by_asc(task_dependencies::Column::Id)
         .all(orm)
         .await?;
-    let deliverables: Vec<(String, i32, String, Option<OffsetDateTime>, Option<OffsetDateTime>)> =
-        project_deliverables::Entity::find()
-            .select_only()
-            .columns([
-                project_deliverables::Column::Id,
-                project_deliverables::Column::Number,
-                project_deliverables::Column::Title,
-                project_deliverables::Column::PlannedStart,
-                project_deliverables::Column::PlannedEnd,
-            ])
-            .filter(project_deliverables::Column::ProjectId.eq(id.as_str()))
-            .filter(project_deliverables::Column::DeletedAt.is_null())
-            .order_by_asc(project_deliverables::Column::Position)
-            .order_by_asc(project_deliverables::Column::Number)
-            .into_tuple()
-            .all(orm)
-            .await?;
+    let deliverables: Vec<DeliverableDates> = project_deliverables::Entity::find()
+        .select_only()
+        .columns([
+            project_deliverables::Column::Id,
+            project_deliverables::Column::Number,
+            project_deliverables::Column::Title,
+            project_deliverables::Column::PlannedStart,
+            project_deliverables::Column::PlannedEnd,
+        ])
+        .filter(project_deliverables::Column::ProjectId.eq(id.as_str()))
+        .filter(project_deliverables::Column::DeletedAt.is_null())
+        .order_by_asc(project_deliverables::Column::Position)
+        .order_by_asc(project_deliverables::Column::Number)
+        .into_tuple()
+        .all(orm)
+        .await?;
     let deliverables: Vec<Value> = deliverables.into_iter().map(deliverable_json).collect();
     let baseline: Option<(i32, Option<String>)> = project_baselines::Entity::find()
         .select_only()
@@ -313,7 +306,7 @@ pub(crate) async fn load_schedule_data(
         calendar,
         auto,
         tasks,
-        links: links.into_iter().map(js).collect::<Result<_, _>>()?,
+        links: json_rows(links)?,
         deliverables,
         go_live,
         go_live_source,
@@ -716,7 +709,7 @@ async fn write_settings(
 
 /// `coalesce(settings, '{}'::jsonb) || patch`: `patch`'s keys written over the
 /// project's settings, in the database.
-fn merge_settings(patch: Value) -> Expr {
+pub(crate) fn merge_settings(patch: Value) -> Expr {
     use sea_orm::ExprTrait as _;
     use sea_orm::sea_query::extension::postgres::PgExpr as _;
 

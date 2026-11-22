@@ -6,8 +6,7 @@
 
 use std::collections::HashMap;
 
-use sea_orm::sea_query::extension::postgres::PgExpr;
-use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select};
 use serde_json::{Value, json};
 use sqlx::postgres::PgArguments;
@@ -27,8 +26,7 @@ use weldsuite_schema::tenant::{
     project_raid_items, project_templates, projects, task_dependencies, tasks,
 };
 
-use crate::tasks::row_json;
-use crate::{Caller, FlowState};
+use crate::{Caller, FlowState, row_json};
 
 /// A live template, by id (the caller checks who may see it).
 pub(crate) async fn find_template(
@@ -64,7 +62,12 @@ pub(crate) async fn usage_counts(
         return Ok(usage);
     }
     // `settings->>'templateId'`.
-    let template_id = || PgExpr::cast_json_field(Expr::col(projects::Column::Settings), "templateId");
+    let template_id = || {
+        sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+            Expr::col(projects::Column::Settings),
+            "templateId",
+        )
+    };
     let rows: Vec<(String, i64)> = projects::Entity::find()
         .select_only()
         .column_as(template_id(), "template_id")
@@ -74,7 +77,9 @@ pub(crate) async fn usage_counts(
             template_id(),
             template_ids.iter().map(String::as_str),
         ))
-        .group_by(template_id())
+        // By the output column: the expression's key is a parameter of its own
+        // in each place, which Postgres would not see as the same expression.
+        .group_by(Expr::col(Alias::new("template_id")))
         .into_tuple()
         .all(&orm(db))
         .await?;
@@ -214,8 +219,7 @@ pub(crate) async fn load_blueprint_source(
         },
         dependencies: rows_of(
             db,
-            task_dependencies::Entity::find()
-                .filter(task_dependencies::Column::ProjectId.eq(id)),
+            task_dependencies::Entity::find().filter(task_dependencies::Column::ProjectId.eq(id)),
         )
         .await?,
         raid_items: {

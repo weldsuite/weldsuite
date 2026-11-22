@@ -18,17 +18,15 @@
 
 use std::collections::HashMap;
 
-use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select,
-};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select};
 use serde_json::{Map, Value, json};
 use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::task_tree::MAX_SUBTASK_DEPTH;
 use weldsuite_schema::tenant::tasks::{self, Column as Task};
 use weldsuite_schema::tenant::{companies, files, people, workspace_members};
 
-use crate::tasks::{count_int, count_int_where, row_json};
-use crate::{FlowState, Refusal, custom_values};
+use crate::tasks::{count_int, count_int_where};
+use crate::{FlowState, Refusal, custom_values, row_json};
 
 /// The custom fields' entity type of a task.
 pub(crate) const TASK_ENTITY: &str = "task";
@@ -289,10 +287,7 @@ fn set(row: &mut Value, key: &str, value: Value) {
 }
 
 /// `attachSubtaskCounts`: each row's own live children.
-pub(crate) async fn attach_subtask_counts(
-    db: &PgPool,
-    rows: &mut [Value],
-) -> Result<(), DbErr> {
+pub(crate) async fn attach_subtask_counts(db: &PgPool, rows: &mut [Value]) -> Result<(), DbErr> {
     let counts = subtask_counts(db, &ids_of(rows)).await?;
     for row in rows.iter_mut() {
         let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -305,10 +300,7 @@ pub(crate) async fn attach_subtask_counts(
 
 /// `attachAttachmentCounts`: one count over every row (`files` with
 /// `entityType = 'task'`).
-pub(crate) async fn attach_attachment_counts(
-    db: &PgPool,
-    rows: &mut [Value],
-) -> Result<(), DbErr> {
+pub(crate) async fn attach_attachment_counts(db: &PgPool, rows: &mut [Value]) -> Result<(), DbErr> {
     if rows.is_empty() {
         return Ok(());
     }

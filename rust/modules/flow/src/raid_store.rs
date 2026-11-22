@@ -6,9 +6,7 @@
 use std::collections::HashMap;
 
 use sea_orm::sea_query::{Asterisk, Expr, Func};
-use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{PgPool, orm};
@@ -25,13 +23,7 @@ use weldsuite_schema::tenant::{
     project_decisions, project_deliverables, project_raid_items, projects, tasks,
 };
 
-use crate::Caller;
-
-/// A row as the route returns it: the entity serializes as Drizzle returned
-/// the row.
-pub(crate) fn model_json<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
+use crate::{Caller, row_json};
 
 /// `liveProjectExists(db, projectId)`.
 pub(crate) async fn live_project_exists(db: &PgPool, project_id: &str) -> Result<bool, DbErr> {
@@ -53,7 +45,7 @@ pub(crate) async fn find_raid_item(db: &PgPool, id: &str) -> Result<Option<Value
         .filter(project_raid_items::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    row.map(model_json).transpose()
+    row.map(row_json).transpose()
 }
 
 /// `taskProgressFor(db, itemIds)`: per item, the live, non-cancelled tasks
@@ -164,6 +156,48 @@ fn iso_ts(at: PrimitiveDateTime) -> String {
     iso_timestamp(at.assume_utc())
 }
 
+/// A register item: id, project, kind, number, title, status, owner, due.
+type RaidEnd = (
+    String,
+    String,
+    String,
+    i32,
+    String,
+    String,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
+/// A task: id, project, title, status, assignee, due.
+type TaskEnd = (
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    Option<PrimitiveDateTime>,
+);
+/// A decision: id, project, number, title, status, decider, decided by, due.
+type DecisionEnd = (
+    String,
+    String,
+    i32,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
+/// A deliverable or benefit: id, project, number, title, status, owner, due.
+type NumberedEnd = (
+    String,
+    String,
+    i32,
+    String,
+    String,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
+
 /// The live rows of one table by id, each as an [`EndRow`].
 #[allow(clippy::too_many_lines)] // one select per table
 async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<EndRow>, DbErr> {
@@ -171,16 +205,7 @@ async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<En
     Ok(match link_type {
         "raid_item" => {
             use project_raid_items::{Column, Entity};
-            let rows: Vec<(
-                String,
-                String,
-                String,
-                i32,
-                String,
-                String,
-                Option<String>,
-                Option<OffsetDateTime>,
-            )> = Entity::find()
+            let rows: Vec<RaidEnd> = Entity::find()
                 .select_only()
                 .columns([
                     Column::Id,
@@ -214,14 +239,7 @@ async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<En
         }
         "task" => {
             use tasks::{Column, Entity};
-            let rows: Vec<(
-                String,
-                Option<String>,
-                String,
-                String,
-                Option<String>,
-                Option<PrimitiveDateTime>,
-            )> = Entity::find()
+            let rows: Vec<TaskEnd> = Entity::find()
                 .select_only()
                 .columns([
                     Column::Id,
@@ -251,16 +269,7 @@ async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<En
         }
         "decision" => {
             use project_decisions::{Column, Entity};
-            let rows: Vec<(
-                String,
-                String,
-                i32,
-                String,
-                String,
-                Option<String>,
-                Option<String>,
-                Option<OffsetDateTime>,
-            )> = Entity::find()
+            let rows: Vec<DecisionEnd> = Entity::find()
                 .select_only()
                 .columns([
                     Column::Id,
@@ -295,22 +304,21 @@ async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<En
         }
         "change_request" => {
             use project_change_requests::{Column, Entity};
-            let rows: Vec<(String, String, i32, String, String, Option<String>)> =
-                Entity::find()
-                    .select_only()
-                    .columns([
-                        Column::Id,
-                        Column::ProjectId,
-                        Column::Number,
-                        Column::Title,
-                        Column::Status,
-                        Column::RequestedBy,
-                    ])
-                    .filter(Column::Id.is_in(ids))
-                    .filter(Column::DeletedAt.is_null())
-                    .into_tuple()
-                    .all(db)
-                    .await?;
+            let rows: Vec<(String, String, i32, String, String, Option<String>)> = Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::ProjectId,
+                    Column::Number,
+                    Column::Title,
+                    Column::Status,
+                    Column::RequestedBy,
+                ])
+                .filter(Column::Id.is_in(ids))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
             rows.into_iter()
                 .map(|(id, project_id, number, title, status, owner_id)| EndRow {
                     id,
@@ -408,17 +416,7 @@ async fn end_rows(db: &PgPool, link_type: &str, ids: &[String]) -> Result<Vec<En
 
 /// Deliverables and benefits: id, project, number, title, status, owner and
 /// a `timestamptz` due date.
-fn numbered_ends(
-    rows: Vec<(
-        String,
-        String,
-        i32,
-        String,
-        String,
-        Option<String>,
-        Option<OffsetDateTime>,
-    )>,
-) -> Vec<EndRow> {
+fn numbered_ends(rows: Vec<NumberedEnd>) -> Vec<EndRow> {
     rows.into_iter()
         .map(
             |(id, project_id, number, title, status, owner_id, due)| EndRow {
@@ -601,7 +599,7 @@ pub(crate) async fn link_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbE
         .filter(links::Column::Id.eq(id))
         .one(&orm(db))
         .await?;
-    row.map(model_json).transpose()
+    row.map(row_json).transpose()
 }
 
 /// `linksOfObject(db, type, id)`: every link with the object at either end,
@@ -629,7 +627,7 @@ pub(crate) async fn links_of_object(
         .order_by_asc(links::Column::Id)
         .all(&orm(db))
         .await?;
-    rows.into_iter().map(model_json).collect()
+    rows.into_iter().map(row_json).collect()
 }
 
 /// `linksOfRaidItem(db, itemId)`: every link with the item at either end,

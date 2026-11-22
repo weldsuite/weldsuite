@@ -21,21 +21,24 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use weldsuite_catalogs::entity_events::{
     PROJECT_CONTROL_LINK_CREATED, PROJECT_CONTROL_LINK_DELETED,
 };
-use weldsuite_db::is_unique_violation;
+use weldsuite_db::{is_unique_violation, orm, utc_now};
 use weldsuite_flow_domain::raid::{
     LinkRef, link_ends_error, link_shape_error, present_control_link,
 };
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_control_links as links;
 
-use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, insert_link, link_values, publish_link};
+use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, publish_link};
 use crate::raid_body::{Body, link_list_query, parse_body, read_link};
 use crate::raid_store::{Direction, link_row, present_linked_objects, resolve_end};
-use crate::{Caller, FlowState, Refusal, Reply, outside, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, outside, reply};
 
 const ALREADY_LINKED: &str = "These objects are already linked";
 
@@ -110,30 +113,40 @@ async fn list_links(caller: &Caller, q: &Body) -> Reply {
             return Err(Refusal::forbidden(PROJECT_DENIED));
         }
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from project_control_links l
-         where ($1::text is null or (l.from_type = $1 and l.from_id = $2))
-           and ($3::text is null or (l.to_type = $3 and l.to_id = $4))",
-    )
-    .bind(text(q, "fromType"))
-    .bind(text(q, "fromId"))
-    .bind(text(q, "toType"))
-    .bind(text(q, "toId"))
-    .fetch_all(&caller.db)
-    .await?;
+    let rows = links::Entity::find()
+        .filter(end_filter(
+            (text(q, "fromType"), text(q, "fromId")),
+            (links::Column::FromType, links::Column::FromId),
+        ))
+        .filter(end_filter(
+            (text(q, "toType"), text(q, "toId")),
+            (links::Column::ToType, links::Column::ToId),
+        ))
+        .all(&orm(&caller.db))
+        .await?;
     // Seen from the `from` object when one is given, else from the `to` object.
     let direction = if text(q, "fromType").is_some() {
         Direction::Outgoing
     } else {
         Direction::Incoming
     };
-    let links = present_linked_objects(
-        caller,
-        rows.into_iter().map(weldsuite_db::js_row).collect(),
-        |_| direction,
-    )
-    .await?;
+    let links = present_linked_objects(caller, json_rows(rows)?, |_| direction).await?;
     Ok(Data(Value::Array(links)).into_response())
+}
+
+/// `type is null or (type_col = type and id_col = id)`: an end given without
+/// its id (`id_col = null`) matches nothing.
+fn end_filter(
+    (link_type, id): (Option<&str>, Option<&str>),
+    (type_col, id_col): (links::Column, links::Column),
+) -> Condition {
+    match (link_type, id) {
+        (None, _) => Condition::all(),
+        (Some(link_type), Some(id)) => Condition::all()
+            .add(type_col.eq(link_type))
+            .add(id_col.eq(id)),
+        (Some(_), None) => Condition::all().add(Expr::val(false)),
+    }
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────
@@ -190,30 +203,35 @@ async fn create_link(
     {
         return Err(Refusal::bad_request(message));
     }
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from project_control_links
-         where from_type = $1 and from_id = $2 and to_type = $3 and to_id = $4 limit 1",
-    )
-    .bind(from.link_type)
-    .bind(from.id)
-    .bind(to.link_type)
-    .bind(to.id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = links::Entity::find()
+        .select_only()
+        .column(links::Column::Id)
+        .filter(links::Column::FromType.eq(from.link_type))
+        .filter(links::Column::FromId.eq(from.id))
+        .filter(links::Column::ToType.eq(to.link_type))
+        .filter(links::Column::ToId.eq(to.id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if existing.is_some() {
         return Err(Refusal::conflict(ALREADY_LINKED));
     }
     let id = generate_id("pcl");
-    let link = link_values(
-        &id,
-        &from_end.project_id,
-        (from.link_type, from.id),
-        (to.link_type, to.id),
-        relation,
-        &caller.user_id,
-        &crate::now(),
-    );
-    if let Err(error) = insert_link(&link).execute(db).await {
+    let link = links::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(from_end.project_id.clone()),
+        from_type: Set(from.link_type.to_owned()),
+        from_id: Set(from.id.to_owned()),
+        to_type: Set(to.link_type.to_owned()),
+        to_id: Set(to.id.to_owned()),
+        relation_: Set(relation.to_owned()),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(utc_now().assume_utc()),
+    };
+    if let Err(error) = links::Entity::insert(link)
+        .exec_without_returning(&orm(db))
+        .await
+    {
         // Two requests linking the same pair at once: the unique index decides.
         if is_unique_violation(&error) {
             return Err(Refusal::conflict(ALREADY_LINKED));
@@ -258,9 +276,9 @@ async fn remove_link(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    sqlx::query("delete from project_control_links where id = $1")
-        .bind(id)
-        .execute(db)
+    links::Entity::delete_many()
+        .filter(links::Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     publish_link(state, caller, PROJECT_CONTROL_LINK_DELETED, &existing);
     Ok(NoContent.into_response())

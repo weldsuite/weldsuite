@@ -693,8 +693,16 @@ const WRITABLE: [(&str, Task, Written); 28] = [
     ("personId", Task::PersonId, Written::Text),
     ("startDate", Task::StartDate, Written::Cast("timestamp")),
     ("dueDate", Task::DueDate, Written::Cast("timestamp")),
-    ("completedDate", Task::CompletedDate, Written::Cast("timestamp")),
-    ("estimatedHours", Task::EstimatedHours, Written::Cast("numeric")),
+    (
+        "completedDate",
+        Task::CompletedDate,
+        Written::Cast("timestamp"),
+    ),
+    (
+        "estimatedHours",
+        Task::EstimatedHours,
+        Written::Cast("numeric"),
+    ),
     ("duration", Task::Duration, Written::Cast("int")),
     ("storyPoints", Task::StoryPoints, Written::Cast("int")),
     ("position", Task::Position, Written::Cast("int")),

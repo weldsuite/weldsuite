@@ -191,7 +191,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .limit(u64::try_from(limit + 1).unwrap_or(0))
         .all(&db)
         .await
-        .and_then(|rows| rows.into_iter().map(integration_json).collect());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(integration_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let count = workflow_integrations::Entity::find()
         .filter(filter)
         .count(&db)
@@ -441,7 +445,10 @@ async fn connect(
         let mut update = workflow_integrations::Entity::update_many()
             .col_expr(Column::Status, Expr::value("connected"))
             .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
-            .col_expr(Column::ConnectedBy, Expr::value(Some(caller.user_id.clone())))
+            .col_expr(
+                Column::ConnectedBy,
+                Expr::value(Some(caller.user_id.clone())),
+            )
             .col_expr(Column::UpdatedAt, Expr::value(stamp));
         // `credentials`, when the body sent some.
         if let Some(credentials) = &credentials {
@@ -466,9 +473,10 @@ async fn connect(
 
 /// `c.env.WORKSPACE_CACHE`, which the OAuth flows require.
 fn kv(caller: &Caller, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusal> {
-    caller.overrides.kv(state).ok_or_else(|| {
-        Refusal::from(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into()))
-    })
+    caller
+        .overrides
+        .kv(state)
+        .ok_or_else(|| Refusal::from(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into())))
 }
 
 async fn disconnect(
@@ -1272,7 +1280,10 @@ async fn callback(
             }
             update
                 .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
-                .col_expr(Column::ConnectedBy, Expr::value(Some(caller.user_id.clone())))
+                .col_expr(
+                    Column::ConnectedBy,
+                    Expr::value(Some(caller.user_id.clone())),
+                )
                 .col_expr(Column::UpdatedAt, Expr::value(stamp))
                 .filter(Column::Id.eq(&id))
                 .exec(&orm(&caller.db))
@@ -1468,7 +1479,10 @@ async fn link(
                 .col_expr(Column::Status, Expr::value("connected"))
                 .col_expr(Column::Settings, Expr::value(settings))
                 .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
-                .col_expr(Column::ConnectedBy, Expr::value(Some(caller.user_id.clone())))
+                .col_expr(
+                    Column::ConnectedBy,
+                    Expr::value(Some(caller.user_id.clone())),
+                )
                 .col_expr(Column::UpdatedAt, Expr::value(stamp))
                 .filter(Column::Id.eq(&id))
                 .exec(&db)

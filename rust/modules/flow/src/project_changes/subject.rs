@@ -134,6 +134,37 @@ fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
         .map_or(&[], Vec::as_slice)
 }
 
+/// The project's live milestones: id, name and status.
+async fn live_milestones(
+    db: &PgPool,
+    project_id: &str,
+) -> Result<Vec<(String, String, String)>, DbErr> {
+    use milestones::Column;
+    milestones::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Name, Column::Status])
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The project's deliverables (deleted ones too): id, number, title and status.
+async fn project_deliverables_of(
+    db: &PgPool,
+    project_id: &str,
+) -> Result<Vec<(String, i32, String, String)>, DbErr> {
+    use project_deliverables::Column;
+    project_deliverables::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Number, Column::Title, Column::Status])
+        .filter(Column::ProjectId.eq(project_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// The events of an approved change, in order: the change, what it moved and
 /// added, the project, the baseline and the decision.
 async fn publish_applied(
@@ -158,15 +189,7 @@ async fn publish_applied(
         .filter_map(|m| m["milestoneId"].as_str())
         .collect();
     if !moved.is_empty() {
-        use milestones::Column;
-        let rows: Vec<(String, String, String)> = milestones::Entity::find()
-            .select_only()
-            .columns([Column::Id, Column::Name, Column::Status])
-            .filter(Column::ProjectId.eq(project_id))
-            .filter(Column::DeletedAt.is_null())
-            .into_tuple()
-            .all(&orm(db))
-            .await?;
+        let rows = live_milestones(db, project_id).await?;
         for id in moved {
             if let Some((_, name, status)) = rows.iter().find(|(rid, _, _)| rid == id) {
                 caller.publish(
@@ -179,16 +202,7 @@ async fn publish_applied(
         }
     }
 
-    let deliverables: Vec<(String, i32, String, String)> = {
-        use project_deliverables::Column;
-        project_deliverables::Entity::find()
-            .select_only()
-            .columns([Column::Id, Column::Number, Column::Title, Column::Status])
-            .filter(Column::ProjectId.eq(project_id))
-            .into_tuple()
-            .all(&orm(db))
-            .await?
-    };
+    let deliverables = project_deliverables_of(db, project_id).await?;
     let deliverable_event = |event, id: &str| {
         if let Some((_, number, title, status)) = deliverables.iter().find(|(rid, ..)| rid == id) {
             caller.publish(

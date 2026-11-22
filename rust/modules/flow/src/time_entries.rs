@@ -29,7 +29,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
-use sea_orm::sea_query::{Asterisk, Expr, Func, InsertStatement, OnConflict, Query as Statement};
+use sea_orm::sea_query::{Expr, Func, InsertStatement, OnConflict, Query as Statement};
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, IntoActiveModel,
     JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
@@ -52,12 +52,10 @@ use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::active_timers::{self, Column as Timer};
 use weldsuite_schema::tenant::time_entries::{self, Column as Entry};
-use weldsuite_schema::tenant::{
-    merge_issues, project_members, projects, tasks, workspace_members,
-};
+use weldsuite_schema::tenant::{merge_issues, project_members, projects, tasks, workspace_members};
 
-use crate::tasks::{Written, cast_as, cast_text, count_int, query_boolean, row_json, written};
-use crate::{Caller, FlowState, Query, Refusal, Reply, reply, validate, validate_value};
+use crate::tasks::{Written, cast_as, cast_text, count_int, query_boolean, written};
+use crate::{Caller, FlowState, Query, Refusal, Reply, reply, row_json, validate, validate_value};
 
 /// Approved hours are final until a manager rejects the entry.
 const APPROVED_LOCKED: &str = "Approved time entries are locked. A project manager has to reject the entry before it can change.";
@@ -127,7 +125,10 @@ fn date_compare(text: &str, op: fn(Expr, Expr) -> Expr) -> Expr {
 fn minutes_sum() -> Expr {
     cast_as(
         Func::coalesce([
-            Expr::from(Func::sum(Expr::col((time_entries::Entity, Entry::Duration)))),
+            Expr::from(Func::sum(Expr::col((
+                time_entries::Entity,
+                Entry::Duration,
+            )))),
             Expr::value(0),
         ]),
         "float8",
@@ -681,7 +682,10 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
             .all(db)
             .await?;
         // `count(*)::int`.
-        let total = time_entries::Entity::find().filter(filters).count(db).await?;
+        let total = time_entries::Entity::find()
+            .filter(filters)
+            .count(db)
+            .await?;
         let total = i32::try_from(total).unwrap_or(i32::MAX);
         // Avatars are account pictures, not the member row's copy.
         let pictures = weldsuite_db::AccountPictures::load(
@@ -982,8 +986,7 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
                 .column(workspace_members::Column::Name)
                 .column(workspace_members::Column::Email)
                 .filter(
-                    workspace_members::Column::UserId
-                        .is_in(off_roster.iter().map(String::as_str)),
+                    workspace_members::Column::UserId.is_in(off_roster.iter().map(String::as_str)),
                 )
                 .into_tuple()
                 .all(db)
@@ -1150,7 +1153,11 @@ async fn start_timer(caller: Caller, headers: HeaderMap, body: Bytes) -> Respons
                     (Timer::Activity, Expr::value(text(&data, "activity"))),
                     (
                         Timer::Billable,
-                        Expr::value(data.get("billable").and_then(Value::as_bool).unwrap_or(true)),
+                        Expr::value(
+                            data.get("billable")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(true),
+                        ),
                     ),
                     (
                         Timer::Rate,
@@ -1303,7 +1310,10 @@ async fn stop(
                 cast_text(Some(started.clone()), "timestamp"),
             ),
             (Entry::EndTime, Expr::value(now_at)),
-            (Entry::Duration, cast_text(Some(duration.clone()), "numeric")),
+            (
+                Entry::Duration,
+                cast_text(Some(duration.clone()), "numeric"),
+            ),
             (Entry::Description, Expr::value(pick("description"))),
             (Entry::Activity, Expr::value(pick("activity"))),
             (Entry::Billable, Expr::value(billable)),
@@ -1641,7 +1651,8 @@ async fn update_entry(
             },
         );
     }
-    let mut update = time_entries::Entity::update_many().col_expr(Entry::UpdatedAt, Expr::value(now));
+    let mut update =
+        time_entries::Entity::update_many().col_expr(Entry::UpdatedAt, Expr::value(now));
     for (key, column, kind) in ENTRY_WRITABLE {
         if let Some(value) = copied.get(key) {
             update = update.col_expr(column, written(value, kind));
@@ -1848,7 +1859,12 @@ async fn remove(
                 .filter(Entry::Id.eq(&id))
                 .exec(&orm(&caller.db))
                 .await?;
-            caller.publish(&state, PROJECT_TIME_ENTRY_DELETED, &id, &entry_payload(&id, &existing));
+            caller.publish(
+                &state,
+                PROJECT_TIME_ENTRY_DELETED,
+                &id,
+                &entry_payload(&id, &existing),
+            );
             Ok(NoContent.into_response())
         }
         .await,

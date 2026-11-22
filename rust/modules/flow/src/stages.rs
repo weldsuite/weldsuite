@@ -11,26 +11,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
-use serde_json::{Map, Value, json};
-use weldsuite_catalogs::entity_events::{
-    PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED, PROJECT_PIPELINE_STAGE_UPDATED,
-};
 use sea_orm::sea_query::{CaseStatement, Expr, Func, OnConflict};
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect,
 };
+use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
+use weldsuite_catalogs::entity_events::{
+    PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED, PROJECT_PIPELINE_STAGE_UPDATED,
+};
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::stage::{normalize_status_opt, normalize_task_status};
-use weldsuite_schema::tenant::project_pipeline_stages::{self as stages, Column as Stage};
-use weldsuite_schema::tenant::tasks::{self, Column as Task};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_pipeline_stages::{self as stages, Column as Stage};
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
 
-use crate::tasks::{count_int, json_text, plus, row_json};
-use crate::{Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, outside, reply, validate};
+use crate::tasks::{count_int, json_text, plus};
+use crate::{
+    Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, outside, reply, row_json,
+    validate,
+};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -236,9 +239,17 @@ async fn seed_stages(db: &PgPool, project_id: &str) -> Result<(), DbErr> {
     stages::Entity::insert_many(rows)
         .on_conflict(
             OnConflict::column(Stage::Id)
-                .update_columns([Stage::Name, Stage::Color, Stage::Position, Stage::SystemStatus])
+                .update_columns([
+                    Stage::Name,
+                    Stage::Color,
+                    Stage::Position,
+                    Stage::SystemStatus,
+                ])
                 .value(Stage::UpdatedAt, Expr::value(at))
-                .value(Stage::DeletedAt, Expr::value(Option::<PrimitiveDateTime>::None))
+                .value(
+                    Stage::DeletedAt,
+                    Expr::value(Option::<PrimitiveDateTime>::None),
+                )
                 .to_owned(),
         )
         .exec_without_returning(&orm(db))
@@ -611,15 +622,7 @@ async fn update_stage(
         && status != existing_status
         && !project_id.is_empty()
     {
-        move_stage_tasks(
-            db,
-            &project_id,
-            id,
-            id,
-            &normalize_task_status(status),
-            at,
-        )
-        .await?;
+        move_stage_tasks(db, &project_id, id, id, &normalize_task_status(status), at).await?;
     }
     let updated = stage_row(db, id, false).await?;
     let mut event = data;

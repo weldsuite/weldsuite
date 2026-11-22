@@ -37,12 +37,12 @@ use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_DELETED, PROJECT_DELIVERABLE_ACCEPTED,
     PROJECT_DELIVERABLE_CREATED, PROJECT_DELIVERABLE_DELETED, PROJECT_DELIVERABLE_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::deliverables::{
     accept_error, accepted_edit_error, apply_criteria, deliverable_code, deliverable_dates_error,
     deliverable_event_data, deliverable_sequence, messages, present_deliverable,
     present_signoff_approval, reject_error, signoff_is_open,
 };
-use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::js::{contains_pattern, js_date_millis};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
@@ -64,7 +64,9 @@ use crate::project_decisions::{PROJECT_MANAGE_DENIED, delete_links, project_scop
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, or_null, parse_limit, to_date};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
-use crate::{Caller, FlowState, Refusal, Reply, in_accessible, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, in_accessible, json_rows, outside, page, paged, reply,
+};
 use weldsuite_flow_domain::approvals::{
     ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
     cancel_pending_approvals, list_subject_approvals, request_approvals, sponsor_of,
@@ -240,10 +242,7 @@ async fn list_deliverables(
         .count(orm)
         .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows
-        .into_iter()
-        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
+    let rows = json_rows(rows)?;
     let (rows, has_more, next) = page(rows, limit);
     let page_ids: Vec<String> = rows
         .iter()
@@ -593,7 +592,10 @@ async fn request_signoff(
         let project: Option<(Option<Value>, Option<String>)> =
             projects::Entity::find_by_id(existing["projectId"].as_str().unwrap_or_default())
                 .select_only()
-                .columns([projects::Column::Settings, projects::Column::ProjectManagerId])
+                .columns([
+                    projects::Column::Settings,
+                    projects::Column::ProjectManagerId,
+                ])
                 .into_tuple()
                 .one(&orm(&caller.db))
                 .await?;

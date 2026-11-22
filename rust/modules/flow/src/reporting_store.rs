@@ -38,7 +38,7 @@ use weldsuite_schema::tenant::{
     projects, tasks, workspace_members,
 };
 
-use crate::raid_store::model_json;
+use crate::row_json;
 
 /// The default risk appetite (`DEFAULT_RISK_APPETITE`).
 pub(crate) const DEFAULT_RISK_APPETITE: i64 = 9;
@@ -216,7 +216,7 @@ pub(crate) async fn find_report(db: &PgPool, id: &str) -> Result<Option<Value>, 
         .filter(project_status_reports::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(model_json)
+        .map(row_json)
         .transpose()
 }
 
@@ -262,7 +262,7 @@ pub(crate) async fn reports_of_period(
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(model_json)
+        .map(row_json)
         .collect()
 }
 
@@ -362,21 +362,26 @@ pub(crate) async fn compute_report(
         .await?;
     let milestones: Vec<MilestoneRow> = {
         use milestones::Column;
-        let rows: Vec<(String, String, PrimitiveDateTime, Option<PrimitiveDateTime>, String)> =
-            milestones::Entity::find()
-                .select_only()
-                .columns([
-                    Column::Id,
-                    Column::Name,
-                    Column::DueDate,
-                    Column::CompletedAt,
-                    Column::Status,
-                ])
-                .filter(Column::ProjectId.eq(pid))
-                .filter(Column::DeletedAt.is_null())
-                .into_tuple()
-                .all(db)
-                .await?;
+        let rows: Vec<(
+            String,
+            String,
+            PrimitiveDateTime,
+            Option<PrimitiveDateTime>,
+            String,
+        )> = milestones::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Name,
+                Column::DueDate,
+                Column::CompletedAt,
+                Column::Status,
+            ])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         rows.into_iter()
             .map(|(id, name, due, completed, status)| {
                 (
@@ -426,7 +431,14 @@ pub(crate) async fn compute_report(
             })
             .collect()
     };
-    let finance: Option<(String, Option<String>, String, String, String, Option<String>)> = {
+    let finance: Option<(
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        Option<String>,
+    )> = {
         use project_finance_snapshots::Column;
         project_finance_snapshots::Entity::find()
             .select_only()
@@ -509,17 +521,19 @@ pub(crate) async fn compute_report(
             .all(db)
             .await?;
         rows.into_iter()
-            .map(|(id, number, status, baseline, target, realise_by, created_at)| {
-                (
-                    id,
-                    number,
-                    status,
-                    baseline,
-                    target,
-                    realise_by.map(epoch_ms),
-                    epoch_ms(created_at),
-                )
-            })
+            .map(
+                |(id, number, status, baseline, target, realise_by, created_at)| {
+                    (
+                        id,
+                        number,
+                        status,
+                        baseline,
+                        target,
+                        realise_by.map(epoch_ms),
+                        epoch_ms(created_at),
+                    )
+                },
+            )
             .collect()
     };
     let decisions: Vec<(String, i32, String, Option<String>, Option<i64>)> = {
@@ -587,7 +601,12 @@ pub(crate) async fn compute_report(
         // `coalesce(completed_date, updated_at)`.
         rows.into_iter()
             .map(|(id, number, title, completed, updated)| {
-                (id, number, title, epoch_ms_utc(completed.unwrap_or(updated)))
+                (
+                    id,
+                    number,
+                    title,
+                    epoch_ms_utc(completed.unwrap_or(updated)),
+                )
             })
             .collect()
     };
@@ -776,8 +795,8 @@ pub(crate) async fn compute_report(
         open.iter().take(TOP_RISKS).collect();
     let mut previous: HashMap<String, i64> = HashMap::new();
     if !top.is_empty() {
-        let ids: Vec<String> = top.iter().map(|r| r.0.clone()).collect();
         use project_raid_assessments::Column;
+        let ids: Vec<String> = top.iter().map(|r| r.0.clone()).collect();
         let assessments: Vec<(String, i16, i16)> = project_raid_assessments::Entity::find()
             .select_only()
             .columns([Column::ItemId, Column::Probability, Column::Impact])
@@ -903,7 +922,7 @@ pub(crate) async fn insert_draft(
     now: i64,
     created_by: &str,
     supersedes: Option<&Value>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let schedule = schedule_of(project);
     let cadence = schedule.as_ref().map(|s| s.cadence.as_str());
     let computed = compute_report(db, project, now, window_days(period, cadence)).await?;
@@ -916,26 +935,27 @@ pub(crate) async fn insert_draft(
         .and_then(|s| s.get("clientVisible"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    sqlx::query(
-        "insert into project_status_reports (id, project_id, period, status, overall, areas, summary,
-             done, next, snapshot, client_visible, supersedes_id, recipients, created_by, created_at, updated_at)
-         values ($1, $2, $3, 'draft', $4, $5::jsonb, null, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11::jsonb,
-             $12, $13::timestamptz, $13::timestamptz)",
-    )
-    .bind(&id)
-    .bind(&project.id)
-    .bind(period)
-    .bind(computed.overall)
-    .bind(Value::Array(merge_areas(None, &computed.areas)))
-    .bind(Value::Array(computed.done))
-    .bind(Value::Array(computed.next))
-    .bind(computed.snapshot)
-    .bind(client_visible)
-    .bind(supersedes.and_then(|s| text_of(s, "id")))
-    .bind(recipients)
-    .bind(created_by)
-    .bind(iso(now))
-    .execute(db)
+    let at = instant(now);
+    project_status_reports::Entity::insert(project_status_reports::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project.id.clone()),
+        period: Set(period.to_owned()),
+        status: Set("draft".to_owned()),
+        overall: Set(Some(computed.overall.to_owned())),
+        areas: Set(Value::Array(merge_areas(None, &computed.areas))),
+        summary: Set(None),
+        done: Set(Value::Array(computed.done)),
+        next: Set(Value::Array(computed.next)),
+        snapshot: Set(Some(computed.snapshot)),
+        client_visible: Set(client_visible),
+        supersedes_id: Set(supersedes.and_then(|s| text_of(s, "id"))),
+        recipients: Set(recipients),
+        created_by: Set(created_by.to_owned()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     find_report(db, &id).await
 }
@@ -943,29 +963,32 @@ pub(crate) async fn insert_draft(
 // ── Stakeholders and recipients ─────────────────────────────────────────────
 
 /// `findStakeholder(db, id)`.
-pub(crate) async fn find_stakeholder(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from project_stakeholders s where s.id = $1 and s.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn find_stakeholder(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    project_stakeholders::Entity::find()
+        .filter(project_stakeholders::Column::Id.eq(id))
+        .filter(project_stakeholders::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `stakeholdersOfProject(db, projectId)`: oldest first.
 pub(crate) async fn stakeholders_of_project(
     db: &PgPool,
     project_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from project_stakeholders s
-         where s.project_id = $1 and s.deleted_at is null order by s.created_at asc, s.id asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    use project_stakeholders::Column;
+    project_stakeholders::Entity::find()
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 /// A member's or contact's name and email.
@@ -975,16 +998,18 @@ pub(crate) type Identity = (Option<String>, Option<String>);
 pub(crate) async fn member_identities(
     db: &PgPool,
     user_ids: &[String],
-) -> Result<HashMap<String, Identity>, sqlx::Error> {
+) -> Result<HashMap<String, Identity>, DbErr> {
+    use workspace_members::Column;
     if user_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email from workspace_members where user_id = any($1)",
-    )
-    .bind(user_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Name, Column::Email])
+        .filter(Column::UserId.is_in(user_ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out = HashMap::new();
     for (id, name, email) in rows {
         out.entry(id).or_insert((name, email));
@@ -996,16 +1021,19 @@ pub(crate) async fn member_identities(
 pub(crate) async fn contact_identities(
     db: &PgPool,
     contact_ids: &[String],
-) -> Result<HashMap<String, Identity>, sqlx::Error> {
+) -> Result<HashMap<String, Identity>, DbErr> {
+    use people::Column;
     if contact_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, display_name, email from people where id = any($1) and deleted_at is null",
-    )
-    .bind(contact_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = people::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::DisplayName, Column::Email])
+        .filter(Column::Id.is_in(contact_ids))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, name, email)| (id, (name, email)))
@@ -1020,7 +1048,7 @@ fn str_of<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 pub(crate) async fn identities_of(
     db: &PgPool,
     rows: &[Value],
-) -> Result<HashMap<String, Identity>, sqlx::Error> {
+) -> Result<HashMap<String, Identity>, DbErr> {
     let members: Vec<String> = rows
         .iter()
         .filter_map(|r| str_of(r, "memberId"))
@@ -1047,14 +1075,14 @@ pub(crate) async fn identities_of(
 }
 
 /// `memberExists(db, userId)`.
-pub(crate) async fn member_exists(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
+pub(crate) async fn member_exists(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
     Ok(member_identities(db, &[user_id.to_owned()])
         .await?
         .contains_key(user_id))
 }
 
 /// `contactExists(db, contactId)`.
-pub(crate) async fn contact_exists(db: &PgPool, contact_id: &str) -> Result<bool, sqlx::Error> {
+pub(crate) async fn contact_exists(db: &PgPool, contact_id: &str) -> Result<bool, DbErr> {
     Ok(contact_identities(db, &[contact_id.to_owned()])
         .await?
         .contains_key(contact_id))
@@ -1064,7 +1092,7 @@ pub(crate) async fn contact_exists(db: &PgPool, contact_id: &str) -> Result<bool
 pub(crate) async fn recipient_candidates(
     db: &PgPool,
     project: &ReportProject,
-) -> Result<(Vec<RecipientCandidate>, Option<RecipientCandidate>), sqlx::Error> {
+) -> Result<(Vec<RecipientCandidate>, Option<RecipientCandidate>), DbErr> {
     let rows = stakeholders_of_project(db, &project.id).await?;
     let identities = identities_of(db, &rows).await?;
     let register: Vec<RecipientCandidate> = rows
@@ -1122,7 +1150,7 @@ pub(crate) async fn targets_of(
     db: &PgPool,
     project: &ReportProject,
     stored: Option<&Value>,
-) -> Result<Vec<RecipientCandidate>, sqlx::Error> {
+) -> Result<Vec<RecipientCandidate>, DbErr> {
     let (register, sponsor) = recipient_candidates(db, project).await?;
     let schedule = schedule_of(project);
     let stored = stored.filter(|v| !v.is_null());

@@ -60,10 +60,7 @@ pub(crate) async fn find_booking(db: &PgPool, id: &str) -> Result<Option<Value>,
 }
 
 /// `findResourceRequest(db, id)`: a live resource request.
-pub(crate) async fn find_resource_request(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn find_resource_request(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     resource_requests::Entity::find_by_id(id.to_owned())
         .filter(resource_requests::Column::DeletedAt.is_null())
         .one(&orm(db))
@@ -204,14 +201,12 @@ async fn task_rows(db: &PgPool, (from, to): (Date, Date)) -> Result<Vec<TaskRow>
         ]))
     };
     // `case when jsonb_typeof(assignee_ids) = 'array' then jsonb_array_length(assignee_ids) else 0 end`.
-    let assignee_count = Expr::from(
-        Expr::case(
-            Expr::from(Func::cust("jsonb_typeof").arg(col(tasks::Column::AssigneeIds)))
-                .eq("array"),
-            Func::cust("jsonb_array_length").arg(col(tasks::Column::AssigneeIds)),
-        )
-        .finally(0),
-    );
+    let assignee_count: Expr = Expr::case(
+        Expr::from(Func::cust("jsonb_typeof").arg(col(tasks::Column::AssigneeIds))).eq("array"),
+        Func::cust("jsonb_array_length").arg(col(tasks::Column::AssigneeIds)),
+    )
+    .finally(0)
+    .into();
     let dates = || [col(tasks::Column::StartDate), col(tasks::Column::DueDate)];
     tasks::Entity::find()
         .select_only()
@@ -235,11 +230,43 @@ async fn task_rows(db: &PgPool, (from, to): (Date, Date)) -> Result<Vec<TaskRow>
                 .add(assignee_count.gt(0)),
         )
         .filter(Expr::from(Func::least(dates())).cast_as("date").lte(to))
-        .filter(Expr::from(Func::greatest(dates())).cast_as("date").gte(from))
+        .filter(
+            Expr::from(Func::greatest(dates()))
+                .cast_as("date")
+                .gte(from),
+        )
         .order_by_asc(tasks::Column::Id)
         .into_tuple()
         .all(&orm(db))
         .await
+}
+
+/// The people on current projects: their active members, then their
+/// managers.
+async fn current_people(db: &PgPool) -> Result<Vec<String>, DbErr> {
+    let members: Vec<String> = project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::UserId)
+        .distinct()
+        .join(JoinType::InnerJoin, member_project())
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(projects::Column::Status.is_in(CURRENT_PROJECT_STATUSES))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let managers: Vec<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::ProjectManagerId)
+        .distinct()
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(projects::Column::ProjectManagerId.is_not_null())
+        .filter(projects::Column::Status.is_in(CURRENT_PROJECT_STATUSES))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(members.into_iter().chain(managers).collect())
 }
 
 /// `loadCapacity(db, range, options)`: the load of every member over a range
@@ -269,28 +296,7 @@ pub(crate) async fn load_capacity(
         .all(&orm(db))
         .await?;
 
-    let members: Vec<String> = project_members::Entity::find()
-        .select_only()
-        .column(project_members::Column::UserId)
-        .distinct()
-        .join(JoinType::InnerJoin, member_project())
-        .filter(project_members::Column::IsActive.eq(true))
-        .filter(project_members::Column::DeletedAt.is_null())
-        .filter(projects::Column::DeletedAt.is_null())
-        .filter(projects::Column::Status.is_in(CURRENT_PROJECT_STATUSES))
-        .into_tuple()
-        .all(&orm(db))
-        .await?;
-    let managers: Vec<String> = projects::Entity::find()
-        .select_only()
-        .column(projects::Column::ProjectManagerId)
-        .distinct()
-        .filter(projects::Column::DeletedAt.is_null())
-        .filter(projects::Column::ProjectManagerId.is_not_null())
-        .filter(projects::Column::Status.is_in(CURRENT_PROJECT_STATUSES))
-        .into_tuple()
-        .all(&orm(db))
-        .await?;
+    let people = current_people(db).await?;
 
     let bookings: Vec<CapacityBooking> = booking_rows
         .into_iter()
@@ -342,7 +348,6 @@ pub(crate) async fn load_capacity(
                 .unwrap_or_default(),
         })
         .collect();
-    let people: Vec<String> = members.into_iter().chain(managers).collect();
     let listed = collect_members(&profiles, &bookings, &tasks, &people);
     Ok(compute_capacity(&CapacityInput {
         from: &range.from,

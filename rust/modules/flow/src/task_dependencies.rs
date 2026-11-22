@@ -45,8 +45,10 @@ use weldsuite_schema::tenant::tasks::{self, Column as Task};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, read_query, whole};
-use crate::tasks::row_json;
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, fetch_limit, keyset_before, keyset_cursor_tz, now_ms,
+    outside, page, paged, reply, row_json,
+};
 
 const LABEL: &str = "Dependency";
 const DEPENDENCY_TYPES: [&str; 4] = ["fs", "ss", "ff", "sf"];
@@ -317,33 +319,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         return outside(Err(refused));
     }
     let cursor = match &q.cursor {
-        Some(cursor) => match cursor_row(&caller.db, cursor).await {
-            Ok(found) => found,
-            Err(error) => return outside(Err(error.into())),
-        },
+        Some(cursor) => {
+            match keyset_cursor_tz(&caller.db, Dependency::Id, Dependency::CreatedAt, cursor).await
+            {
+                Ok(found) => found,
+                Err(error) => return outside(Err(error.into())),
+            }
+        }
         None => None,
     };
     reply(
         list_rows(&caller, &q, limit, cursor).await,
         "Failed to list dependencies",
     )
-}
-
-/// The keyset cursor row (`select createdAt, id where id = cursor`):
-/// `created_at` as Drizzle reads it back (milliseconds), and the id.
-async fn cursor_row(
-    db: &weldsuite_db::PgPool,
-    cursor: &str,
-) -> Result<Option<(OffsetDateTime, String)>, DbErr> {
-    let row: Option<(String, OffsetDateTime)> = dependencies::Entity::find()
-        .select_only()
-        .column(Dependency::Id)
-        .column(Dependency::CreatedAt)
-        .filter(Dependency::Id.eq(cursor))
-        .into_tuple()
-        .one(&orm(db))
-        .await?;
-    Ok(row.map(|(id, at)| (utc_timestamp(at).assume_utc(), id)))
 }
 
 /// `projectId` and `taskId` (either end of the link).
@@ -370,19 +358,13 @@ async fn list_rows(
 ) -> Reply {
     let db = &orm(&caller.db);
     let mut select = dependencies::Entity::find().filter(filters(q));
-    if let Some((at, id)) = &cursor {
-        select = select.filter(
-            Condition::any().add(Dependency::CreatedAt.lt(*at)).add(
-                Condition::all()
-                    .add(Dependency::CreatedAt.eq(*at))
-                    .add(Dependency::Id.lt(id.as_str())),
-            ),
-        );
+    if let Some(cursor) = &cursor {
+        select = select.filter(keyset_before(Dependency::Id, Dependency::CreatedAt, cursor));
     }
     let rows: Vec<Value> = select
         .order_by_desc(Dependency::CreatedAt)
         .order_by_desc(Dependency::Id)
-        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .limit(fetch_limit(limit)?)
         .all(db)
         .await?
         .into_iter()
