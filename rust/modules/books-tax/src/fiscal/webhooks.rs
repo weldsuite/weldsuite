@@ -14,19 +14,21 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderValue, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_books_domain::guards::{AuditInput, change, write_audit};
 use weldsuite_books_domain::http::BooksState;
-use weldsuite_books_domain::tables::FISCAL_DOCUMENTS;
 use weldsuite_books_domain::vendor_tax::sha256_hex;
 use weldsuite_catalogs::entity_events::{FISCAL_DOCUMENT_CANCELLED, FISCAL_DOCUMENT_UPDATED};
-use weldsuite_db::{Keyring, Tenant, Workspaces};
+use weldsuite_db::{Keyring, Tenant, Workspaces, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::RequestEnv;
 use weldsuite_ports::{DynCache, OutboundHttp, RequestCache};
+use weldsuite_schema::tenant::fiscal_documents;
 
 use super::documents::{event_data, refresh_document};
 use super::settings::{hook_key, timing_safe_equal_hex};
+use crate::orm_bridge::to_json;
 
 /// `FISCAL_WEBHOOK_MAX_BODY_BYTES`.
 const MAX_BODY_BYTES: usize = 64 * 1024;
@@ -267,19 +269,20 @@ async fn refresh_from_webhook(
         return;
     }
     let db = &tenant.db;
-    let doc: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_documents),
-        " from fiscal_documents t where t.entity_id = $1 and t.provider = 'focus_nfe' \
-         and t.provider_ref = $2 and t.environment = $3 limit 1"
-    ))
-    .bind(entity_id)
-    .bind(reference)
-    .bind(environment)
-    .fetch_optional(db)
-    .await;
+    // `eq(environment, env)` with no environment matches no document.
+    let Some(environment) = environment else {
+        return;
+    };
+    let doc = fiscal_documents::Entity::find()
+        .filter(fiscal_documents::Column::EntityId.eq(entity_id))
+        .filter(fiscal_documents::Column::Provider.eq("focus_nfe"))
+        .filter(fiscal_documents::Column::ProviderRef.eq(reference))
+        .filter(fiscal_documents::Column::Environment.eq(environment))
+        .one(&orm(db))
+        .await
+        .and_then(|row| row.map(to_json).transpose());
     let doc = match doc {
-        Ok(Some(row)) => FISCAL_DOCUMENTS.js(row),
+        Ok(Some(row)) => row,
         Ok(None) => return,
         Err(error) => {
             tracing::error!(%error, "[books-api/public-fiscal-webhooks] refresh failed");

@@ -71,7 +71,11 @@ pub(crate) fn timestamp_of_iso(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
             OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()
         })
         .map(weldsuite_db::utc_timestamp)
-        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type timestamp: \"{iso}\"")))
+        .ok_or_else(|| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
 }
 
 /// `$n::date` of a `YYYY-MM-DD` day, or the failed cast's error.

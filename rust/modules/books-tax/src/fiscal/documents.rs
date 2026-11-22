@@ -14,6 +14,11 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
@@ -28,7 +33,7 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::br::{profile_of, regime_of};
 use weldsuite_books_domain::jurisdictions::br_tax::compute_document_taxes;
-use weldsuite_books_domain::tables::{FISCAL_DOCUMENTS, INVOICE_ITEMS, INVOICES, PARTIES};
+use weldsuite_books_domain::tables::FISCAL_DOCUMENTS;
 use weldsuite_books_domain::tax::{
     Counterparty as HookCounterparty, Direction, HookContext, HookLine,
 };
@@ -36,12 +41,16 @@ use weldsuite_catalogs::entity_events::{
     ACCOUNTING_ENTITY_UPDATED, FISCAL_DOCUMENT_CANCELLED, FISCAL_DOCUMENT_CREATED,
     FISCAL_DOCUMENT_UPDATED,
 };
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    companies, entities, entity_number_sequences, fiscal_documents, invoice_items, invoices,
+    parties, people,
+};
 
 use super::focus::{Focus, ProviderError, access_key_of, base_url, map_status};
 use super::payload::{self, Args, Counterparty, Document, Issuer, Line, Taxes};
@@ -50,6 +59,7 @@ use super::settings::{
     read_credentials, register_webhooks, remove_webhooks, seal_credentials, settings_of,
 };
 use super::{FiscalError, page_of, require_entity, require_fiscal_entity, str_of};
+use crate::orm_bridge::{refused, to_json, to_json_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -427,18 +437,21 @@ async fn update_settings(
     } else {
         None
     };
-    sqlx::query(
-        "update entities set jurisdiction_settings = $1, \
-         fiscal_credentials_encrypted = case when $2 then $3 else fiscal_credentials_encrypted end, \
-         updated_at = $4::timestamp where id = $5",
-    )
-    .bind(Value::Object(next.clone()))
-    .bind(changed)
-    .bind(sealed.clone().flatten())
-    .bind(now())
-    .bind(&entity_id)
-    .execute(db)
-    .await?;
+    let mut update = entities::Entity::update_many().col_expr(
+        entities::Column::JurisdictionSettings,
+        Expr::value(Value::Object(next.clone())),
+    );
+    if changed {
+        update = update.col_expr(
+            entities::Column::FiscalCredentialsEncrypted,
+            Expr::value(sealed.clone().flatten()),
+        );
+    }
+    update
+        .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(entities::Column::Id.eq(&entity_id))
+        .exec(&orm(db))
+        .await?;
     // Release 1 mirror: the WeldBooks extension holds the same values.
     let mut mirror = Map::new();
     mirror.insert("jurisdictionSettings".into(), Value::Object(next.clone()));
@@ -519,42 +532,37 @@ async fn list(caller: Caller) -> Response {
                 return Ok(paged(Vec::new(), 0, false, None));
             };
             let filter = |key: &str| q.present(key).map(str::to_owned);
-            let (source_type, source_id, status, kind) =
-                (filter("sourceType"), filter("sourceId"), filter("status"), filter("kind"));
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(fiscal_documents),
-                " from fiscal_documents t where t.entity_id = $1 \
-                 and ($2::text is null or t.source_type = $2) and ($3::text is null or t.source_id = $3) \
-                 and ($4::text is null or t.status = $4) and ($5::text is null or t.kind = $5) \
-                 order by t.created_at desc limit $6 offset $7"
-            ))
-            .bind(&entity_id)
-            .bind(&source_type)
-            .bind(&source_id)
-            .bind(&status)
-            .bind(&kind)
-            .bind(size)
-            .bind((page - 1) * size)
-            .fetch_all(&caller.db)
-            .await?;
-            let total: i64 = sqlx::query_scalar(
-                "select count(*)::int8 from fiscal_documents where entity_id = $1 \
-                 and ($2::text is null or source_type = $2) and ($3::text is null or source_id = $3) \
-                 and ($4::text is null or status = $4) and ($5::text is null or kind = $5)",
-            )
-            .bind(&entity_id)
-            .bind(&source_type)
-            .bind(&source_id)
-            .bind(&status)
-            .bind(&kind)
-            .fetch_one(&caller.db)
-            .await?;
-            let rows = FISCAL_DOCUMENTS
-                .js_rows(rows)
-                .into_iter()
-                .map(summary)
-                .collect();
+            let (source_type, source_id, status, kind) = (
+                filter("sourceType"),
+                filter("sourceId"),
+                filter("status"),
+                filter("kind"),
+            );
+            use fiscal_documents::Column;
+            let mut find = fiscal_documents::Entity::find().filter(Column::EntityId.eq(&entity_id));
+            for (value, column) in [
+                (source_type, Column::SourceType),
+                (source_id, Column::SourceId),
+                (status, Column::Status),
+                (kind, Column::Kind),
+            ] {
+                if let Some(value) = value {
+                    find = find.filter(column.eq(value));
+                }
+            }
+            let db = orm(&caller.db);
+            let rows = find
+                .clone()
+                .order_by_desc(Column::CreatedAt)
+                .limit(u64::try_from(size).unwrap_or(0))
+                .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+                .all(&db)
+                .await
+                .and_then(to_json_rows)
+                .map_err(refused)?;
+            let total = find.count(&db).await.map_err(refused)?;
+            let total = i64::try_from(total).unwrap_or(i64::MAX);
+            let rows = rows.into_iter().map(summary).collect();
             Ok(paged(rows, total, page * size < total, None))
         }
         .await,
@@ -568,16 +576,13 @@ pub(crate) async fn get_document(
     entity_id: &str,
     id: &str,
 ) -> Result<Value, FiscalError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_documents),
-        " from fiscal_documents t where t.id = $1 and t.entity_id = $2 limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| FISCAL_DOCUMENTS.js(row))
+    let row = fiscal_documents::Entity::find()
+        .filter(fiscal_documents::Column::Id.eq(id))
+        .filter(fiscal_documents::Column::EntityId.eq(entity_id))
+        .one(&orm(db))
+        .await?;
+    row.map(to_json)
+        .transpose()?
         .ok_or_else(|| FiscalError::status("Fiscal document not found", 404, None))
 }
 
@@ -803,15 +808,16 @@ fn object(value: Option<&Value>) -> Map<String, Value> {
 /// `loadCounterparty(db, invoice)`.
 async fn load_counterparty(db: &PgPool, invoice: &Value) -> Result<Counterparty, FiscalError> {
     let contact_id = text(invoice, "contactId");
-    let party: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.id = $1 limit 1"
-    ))
-    .bind(&contact_id)
-    .fetch_optional(db)
-    .await?;
-    let party = party.map(|row| PARTIES.js(row));
+    // `eq(parties.id, contactId)`: no contact, no party.
+    let party = match &contact_id {
+        Some(contact_id) => parties::Entity::find()
+            .filter(parties::Column::Id.eq(contact_id))
+            .one(&orm(db))
+            .await?
+            .map(to_json)
+            .transpose()?,
+        None => None,
+    };
     let mut br_fiscal = object(party.as_ref().and_then(|p| p.get("brFiscal")));
     let mut identity_name: Option<String> = None;
     if let Some(company_id) = party
@@ -819,23 +825,25 @@ async fn load_counterparty(db: &PgPool, invoice: &Value) -> Result<Counterparty,
         .and_then(|p| text(p, "companyId"))
         .filter(|c| !c.is_empty())
     {
-        let name: Option<Option<String>> =
-            sqlx::query_scalar("select display_name from companies where id = $1 limit 1")
-                .bind(&company_id)
-                .fetch_optional(db)
-                .await?;
-        identity_name = name.flatten();
+        identity_name = companies::Entity::find()
+            .select_only()
+            .column(companies::Column::DisplayName)
+            .filter(companies::Column::Id.eq(&company_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     } else if let Some(person_id) = party
         .as_ref()
         .and_then(|p| text(p, "personId"))
         .filter(|c| !c.is_empty())
     {
-        let name: Option<Option<String>> =
-            sqlx::query_scalar("select display_name from people where id = $1 limit 1")
-                .bind(&person_id)
-                .fetch_optional(db)
-                .await?;
-        identity_name = name.flatten();
+        identity_name = people::Entity::find()
+            .select_only()
+            .column(people::Column::DisplayName)
+            .filter(people::Column::Id.eq(&person_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     }
     let address = normalize_postal_address(invoice.get("shippingAddress"))
         .or_else(|| normalize_postal_address(invoice.get("billingAddress")))
@@ -901,16 +909,14 @@ async fn build_issue_context(
 ) -> Result<(&'static str, Args), FiscalError> {
     let entity_id = entity["id"].as_str().unwrap_or_default();
     let invoice_id = invoice["id"].as_str().unwrap_or_default();
-    let items: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoice_items),
-        " from invoice_items t where t.invoice_id = $1 and t.deleted_at is null \
-         order by t.sort_order asc, t.created_at asc"
-    ))
-    .bind(invoice_id)
-    .fetch_all(db)
-    .await?;
-    let items = INVOICE_ITEMS.js_rows(items);
+    let items = invoice_items::Entity::find()
+        .filter(invoice_items::Column::InvoiceId.eq(invoice_id))
+        .filter(invoice_items::Column::DeletedAt.is_null())
+        .order_by_asc(invoice_items::Column::SortOrder)
+        .order_by_asc(invoice_items::Column::CreatedAt)
+        .all(&orm(db))
+        .await
+        .and_then(to_json_rows)?;
     if items.is_empty() {
         return Err(FiscalError::bad("The invoice has no lines"));
     }
@@ -977,13 +983,16 @@ async fn build_issue_context(
             ));
         }
         if let Some(original) = text(invoice, "creditNoteForInvoiceId").filter(|o| !o.is_empty()) {
-            let key: Option<Option<String>> = sqlx::query_scalar(
-                "select access_key from fiscal_documents where source_id = $1 and kind = 'nfe' \
-                 and status = 'authorized' order by created_at desc limit 1",
-            )
-            .bind(&original)
-            .fetch_optional(db)
-            .await?;
+            let key: Option<Option<String>> = fiscal_documents::Entity::find()
+                .select_only()
+                .column(fiscal_documents::Column::AccessKey)
+                .filter(fiscal_documents::Column::SourceId.eq(&original))
+                .filter(fiscal_documents::Column::Kind.eq("nfe"))
+                .filter(fiscal_documents::Column::Status.eq("authorized"))
+                .order_by_desc(fiscal_documents::Column::CreatedAt)
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             referenced = key.flatten();
         }
         if referenced.as_deref().is_none_or(str::is_empty) {
@@ -1086,25 +1095,32 @@ async fn build_issue_context(
     ))
 }
 
-/// `nextDpsNumber(db, entityId, environment)`.
-async fn next_dps_number(
-    db: &PgPool,
-    entity_id: &str,
-    environment: &str,
-) -> Result<i64, sqlx::Error> {
-    let next: i64 = sqlx::query_scalar(
-        "insert into entity_number_sequences (id, entity_id, sequence_type, prefix, next_value, padding) \
-         values ($1, $2, $3, '', 2, 0) on conflict (entity_id, sequence_type) \
-         do update set next_value = entity_number_sequences.next_value + 1, updated_at = $4::timestamp \
-         returning next_value::int8",
+/// `nextDpsNumber(db, entityId, environment)`: one upsert, so two issues
+/// never take the same number.
+async fn next_dps_number(db: &PgPool, entity_id: &str, environment: &str) -> Result<i64, DbErr> {
+    use entity_number_sequences::Column;
+    use sea_orm::ExprTrait as _;
+    let row = entity_number_sequences::Entity::insert(entity_number_sequences::ActiveModel {
+        id: Set(generate_id("seq")),
+        entity_id: Set(entity_id.to_owned()),
+        sequence_type: Set(format!("dps_{environment}")),
+        prefix: Set(String::new()),
+        next_value: Set(2),
+        padding: Set(Some(0)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::EntityId, Column::SequenceType])
+            .value(
+                Column::NextValue,
+                Expr::col((entity_number_sequences::Entity, Column::NextValue)).add(1),
+            )
+            .value(Column::UpdatedAt, Expr::value(utc_now()))
+            .to_owned(),
     )
-    .bind(generate_id("seq"))
-    .bind(entity_id)
-    .bind(format!("dps_{environment}"))
-    .bind(now())
-    .fetch_one(db)
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(next - 1)
+    Ok(i64::from(row.next_value) - 1)
 }
 
 /// `providerRefFor(sourceId, attempt)`.
@@ -1131,16 +1147,15 @@ async fn issue_document(
     let http = caller.http(state);
     let now_millis = now_ms();
     let entity = require_fiscal_entity(db, entity_id).await?;
-    let invoice: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoices),
-        " from invoices t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(invoice_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(invoice) = invoice.map(|row| INVOICES.js(row)) else {
+    let invoice = invoices::Entity::find()
+        .filter(invoices::Column::Id.eq(invoice_id))
+        .filter(invoices::Column::EntityId.eq(entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()?;
+    let Some(invoice) = invoice else {
         return Err(FiscalError::status("Invoice not found", 404, None));
     };
     if invoice["type"].as_str() == Some("proforma") {
@@ -1163,18 +1178,14 @@ async fn issue_document(
     };
 
     // Settle what a network failure left with Focus before sending another.
-    let earlier: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_documents),
-        " from fiscal_documents t where t.source_type = $1 and t.source_id = $2 \
-         order by t.created_at desc"
-    ))
-    .bind(source_type)
-    .bind(invoice_id)
-    .fetch_all(db)
-    .await?;
-    for stale in FISCAL_DOCUMENTS
-        .js_rows(earlier)
+    let earlier = fiscal_documents::Entity::find()
+        .filter(fiscal_documents::Column::SourceType.eq(source_type))
+        .filter(fiscal_documents::Column::SourceId.eq(invoice_id))
+        .order_by_desc(fiscal_documents::Column::CreatedAt)
+        .all(&orm(db))
+        .await
+        .and_then(to_json_rows)?;
+    for stale in earlier
         .iter()
         .filter(|d| d["status"].as_str() == Some("error"))
     {
@@ -1183,16 +1194,12 @@ async fn issue_document(
             Err(other) => return Err(other),
         }
     }
-    let previous: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_documents),
-        " from fiscal_documents t where t.source_type = $1 and t.source_id = $2"
-    ))
-    .bind(source_type)
-    .bind(invoice_id)
-    .fetch_all(db)
-    .await?;
-    let previous = FISCAL_DOCUMENTS.js_rows(previous);
+    let previous = fiscal_documents::Entity::find()
+        .filter(fiscal_documents::Column::SourceType.eq(source_type))
+        .filter(fiscal_documents::Column::SourceId.eq(invoice_id))
+        .all(&orm(db))
+        .await
+        .and_then(to_json_rows)?;
     if let Some(live) = previous
         .iter()
         .find(|d| matches!(d["status"].as_str(), Some("authorized" | "processing")))
@@ -1222,25 +1229,24 @@ async fn issue_document(
 
     let id = generate_id("fdoc");
     let reference = provider_ref(invoice_id, previous.len() + 1);
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(concat!(
-        "insert into fiscal_documents as t (id, entity_id, source_type, source_id, kind, provider, \
-         provider_ref, environment, status, request_payload, created_by) \
-         values ($1, $2, $3, $4, $5, 'focus_nfe', $6, $7, 'processing', $8, $9) returning ",
-        weldsuite_books_domain::books_row!(fiscal_documents)
-    ))
-    .bind(&id)
-    .bind(entity_id)
-    .bind(source_type)
-    .bind(invoice_id)
-    .bind(kind)
-    .bind(&reference)
-    .bind(environment)
-    .bind(&payload)
-    .bind(caller.user())
-    .fetch_one(db)
+    let inserted = fiscal_documents::Entity::insert(fiscal_documents::ActiveModel {
+        id: Set(id.clone()),
+        entity_id: Set(entity_id.to_owned()),
+        source_type: Set(source_type.to_owned()),
+        source_id: Set(invoice_id.to_owned()),
+        kind: Set(kind.to_owned()),
+        provider: Set("focus_nfe".to_owned()),
+        provider_ref: Set(reference.clone()),
+        environment: Set(environment.to_owned()),
+        status: Set("processing".to_owned()),
+        request_payload: Set(Some(payload.clone())),
+        created_by: Set(caller.user().map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await;
     let created_row = match inserted {
-        Ok(row) => FISCAL_DOCUMENTS.js(row),
+        Ok(row) => to_json(row)?,
         Err(error) => {
             let text = error.to_string();
             if text.contains("fiscal_documents_provider_ref_idx") || text.contains("duplicate key")

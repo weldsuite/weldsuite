@@ -41,9 +41,7 @@ use crate::filing::{
     parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
-use crate::orm_bridge::{
-    day_of, now_and_stamp, refused, timestamp_of_iso, to_json, to_json_rows,
-};
+use crate::orm_bridge::{day_of, now_and_stamp, refused, timestamp_of_iso, to_json, to_json_rows};
 use weldsuite_schema::tenant::{entities, vat_returns};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -108,11 +106,7 @@ async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
 }
 
 /// The entity row as Drizzle returns it; `live` adds `deleted_at is null`.
-pub(crate) async fn entity_row(
-    db: &PgPool,
-    id: &str,
-    live: bool,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn entity_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
     let mut find = entities::Entity::find().filter(entities::Column::Id.eq(id));
     if live {
         find = find.filter(entities::Column::DeletedAt.is_null());
@@ -930,9 +924,7 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
     vat_returns::Entity::insert(vat_returns::ActiveModel {
         id: Set(suppletie_id.clone()),
         entity_id: Set(entity_id.clone()),
-        period_type: Set(text(&original, "periodType")
-            .unwrap_or_default()
-            .to_owned()),
+        period_type: Set(text(&original, "periodType").unwrap_or_default().to_owned()),
         period_start: Set(timestamp_of_iso(&start).map_err(refused)?),
         period_end: Set(timestamp_of_iso(&end).map_err(refused)?),
         period_label: Set(Some(period_label)),

@@ -30,9 +30,7 @@ use weldsuite_schema::tenant::{
     tax_returns,
 };
 
-use crate::orm_bridge::{
-    column_text, date_of, decimal_of, sqlx_error, text_of, timestamp_of_iso,
-};
+use crate::orm_bridge::{column_text, date_of, decimal_of, sqlx_error, text_of, timestamp_of_iso};
 
 /// Why the worksheet can't be made (`BrApuracaoError`): a 400.
 #[derive(Debug)]
