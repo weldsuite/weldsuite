@@ -386,7 +386,6 @@ async fn page(
         .collect();
     // `count(*)::int`.
     let total = f64::from(i32::try_from(total).unwrap_or(i32::MAX));
-    let total = f64::from(total);
     Data(json!({
         "conversations": rows,
         "pagination": {

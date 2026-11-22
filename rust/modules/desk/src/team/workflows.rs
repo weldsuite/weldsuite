@@ -25,7 +25,7 @@ use weldsuite_db::orm;
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::helpdesk_workflow_executions;
+use weldsuite_schema::tenant::helpdesk_workflow_executions::{self, Column as Execution};
 use weldsuite_schema::tenant::helpdesk_workflows::{self, Column};
 
 use crate::crud::write_failed;
@@ -550,7 +550,6 @@ async fn resume(
         context.insert("stepOutputs".to_owned(), Value::Object(outputs));
         context.remove("waitingForInput");
         let index = execution["currentStepIndex"].as_i64().unwrap_or(0) + 1;
-        use helpdesk_workflow_executions::Column as Execution;
         let updated = helpdesk_workflow_executions::Entity::update_many()
             .col_expr(Execution::Status, Expr::value("running"))
             .col_expr(

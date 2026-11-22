@@ -40,9 +40,8 @@ use crate::tables::{HELPDESK_ARTICLES, HELPDESK_CANNED_RESPONSES};
 use crate::{Caller, DeskState, Refusal, now, validate};
 use weldsuite_db::orm;
 use weldsuite_schema::tenant::helpdesk_articles::{self, Column as Article};
-use weldsuite_schema::tenant::{
-    helpdesk_article_folders, helpdesk_canned_responses, helpdesk_changelog, helpdesk_tickets,
-};
+use weldsuite_schema::tenant::helpdesk_canned_responses::{self, Column as Canned};
+use weldsuite_schema::tenant::{helpdesk_article_folders, helpdesk_changelog, helpdesk_tickets};
 
 /// The routes, relative to `/api`, each with its `requirePermission`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -814,7 +813,6 @@ async fn search_canned(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit.round() as i64;
-    use helpdesk_canned_responses::Column as Canned;
     let mut select = helpdesk_canned_responses::Entity::find()
         .filter(Canned::DeletedAt.is_null())
         .filter(Canned::IsActive.eq(true));
@@ -879,7 +877,6 @@ fn locale_compare(a: &str, b: &str) -> Ordering {
 }
 
 async fn canned_categories(caller: Caller) -> Response {
-    use helpdesk_canned_responses::Column as Canned;
     let rows: Result<Vec<String>, DbErr> = helpdesk_canned_responses::Entity::find()
         .select_only()
         .column(Canned::Category)
@@ -1016,7 +1013,6 @@ async fn use_canned(
         Some(subject) if !subject.is_empty() => json!(interpolate(subject, &variables)),
         _ => Value::Null,
     };
-    use helpdesk_canned_responses::Column as Canned;
     let now = weldsuite_db::utc_now();
     let bumped = helpdesk_canned_responses::Entity::update_many()
         .col_expr(

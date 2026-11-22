@@ -158,13 +158,16 @@ async fn tag_counts(db: &DatabaseConnection) -> Result<Vec<(String, i32)>, sea_o
 
 /// [`tag_counts`]' statement, for conversations active since `since`.
 fn tag_counts_query(since: PrimitiveDateTime) -> Select<desk_conversations::Entity> {
-    use sea_orm::ExprTrait as _;
     use desk_conversations::Column;
+    use sea_orm::ExprTrait as _;
     let tag = Alias::new("tag");
     let mut select = desk_conversations::Entity::find()
         .select_only()
         .column_as(Expr::col(tag.clone()), "tag")
-        .column_as(Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"), "count")
+        .column_as(
+            Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"),
+            "count",
+        )
         .filter(Column::Tags.ne(json!([])))
         .filter(
             Expr::from(Func::coalesce([
@@ -185,6 +188,19 @@ fn tag_counts_query(since: PrimitiveDateTime) -> Select<desk_conversations::Enti
     select
 }
 
+// ── the update ────────────────────────────────────────────────────────────────
+
+/// `updateDeskConversationAttributes(db, input)` as the signed-in agent.
+pub(crate) async fn update(
+    db: &PgPool,
+    conversation_id: &str,
+    author_id: &str,
+    input: &Update,
+) -> Result<weldsuite_desk_domain::attributes::Updated, UpdateError> {
+    weldsuite_desk_domain::attributes::update(db, conversation_id, "agent", Some(author_id), input)
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use sea_orm::{DbBackend, QueryTrait};
@@ -198,17 +214,4 @@ mod tests {
             r#"SELECT "tag" AS "tag", CAST(COUNT(*) AS int) AS "count" FROM "desk_conversations", jsonb_array_elements_text("desk_conversations"."tags") AS "tag" WHERE "desk_conversations"."tags" <> $1 AND COALESCE("desk_conversations"."last_message_at", "desk_conversations"."created_at") > $2 GROUP BY "tag" ORDER BY "count" DESC, "tag" ASC LIMIT $3"#
         );
     }
-}
-
-// ── the update ────────────────────────────────────────────────────────────────
-
-/// `updateDeskConversationAttributes(db, input)` as the signed-in agent.
-pub(crate) async fn update(
-    db: &PgPool,
-    conversation_id: &str,
-    author_id: &str,
-    input: &Update,
-) -> Result<weldsuite_desk_domain::attributes::Updated, UpdateError> {
-    weldsuite_desk_domain::attributes::update(db, conversation_id, "agent", Some(author_id), input)
-        .await
 }
