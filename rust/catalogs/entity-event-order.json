@@ -18,6 +18,7 @@
   "call",
   "transcription",
   "customer_status",
+  "crm_settings",
   "analytics_report",
   "analytics_chart",
   "flow_approval",

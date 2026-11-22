@@ -41,8 +41,18 @@ export const Default: Story = {
           }}
         >
           <SettingsSection title="Clocking" description="Applies to every work location.">
-            <SettingRow label="Allow clock-in from the web" description="Employees can clock in from their browser.">
-              <Switch checked={clockIn} onCheckedChange={setClockIn} aria-label="Allow clock-in from the web" />
+            <SettingRow
+              label="Allow clock-in from the web"
+              description="Employees can clock in from their browser."
+              htmlFor="web-clock-in"
+              descriptionId="web-clock-in-description"
+            >
+              <Switch
+                id="web-clock-in"
+                checked={clockIn}
+                onCheckedChange={setClockIn}
+                aria-describedby="web-clock-in-description"
+              />
             </SettingRow>
             <SettingRow label="Round worked time" description="To the nearest number of minutes.">
               <Select value={rounding} onValueChange={setRounding}>

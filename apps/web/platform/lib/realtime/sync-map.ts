@@ -288,6 +288,8 @@ export const platformSyncMap: EntitySyncMap = {
   ),
   meeting_bot_session: inv(['crm', 'call-intelligence', 'meeting-bot']),
   customer_status: inv(['weldcrm', 'customer-statuses']),
+  // WeldCRM's settings (auto-add): `crmSettingsKeys.all` in use-crm-settings-queries.
+  crm_settings: inv(['crm-settings']),
   // Shared topic name across CRM + WeldFlow analytics — invalidate both roots.
   analytics_report: inv(['crm', 'analytics'], ['projects', 'analytics']),
   analytics_chart: inv(['projects', 'analytics']),

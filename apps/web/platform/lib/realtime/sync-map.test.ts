@@ -17,6 +17,7 @@ import { raidKeys } from '@/hooks/queries/use-project-control-queries';
 import { portfolioKeys } from '@/hooks/queries/use-flow-portfolio-queries';
 import { scheduleKeys } from '@/hooks/queries/use-project-schedule-queries';
 import { governanceKeys } from '@/hooks/queries/use-project-governance-queries';
+import { crmSettingsKeys } from '@/hooks/queries/use-crm-settings-queries';
 import {
   PLATFORM_SYNC_MAP_INTENTIONAL_OMITS,
   PLATFORM_SYNC_MAP_PERSONAL_ONLY,
@@ -106,6 +107,10 @@ describe('platformSyncMap — WeldCRM', () => {
     expect(platformSyncMap.person?.remove).toBeTypeOf('function');
     expect(platformSyncMap.company?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.company?.remove).toBeTypeOf('function');
+  });
+
+  it('crm_settings refreshes the auto-add settings query', () => {
+    expect(platformSyncMap.crm_settings?.invalidate).toEqual([crmSettingsKeys.all]);
   });
 
   it('customer aliases companies; contact aliases people', () => {

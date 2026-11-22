@@ -33,6 +33,20 @@ You can also create a person from inside a company record or import contacts wit
 
 ---
 
+## Add people automatically
+
+WeldCRM can add the people your team works with by itself, so nobody has to click **Add to CRM**. An admin turns it on in **Settings → Apps → WeldCRM → Auto-add**.
+
+- **Email**: people you email, and people who reply to an email you sent. Someone who only writes in is not added until you answer.
+- **Meetings**: people outside your workspace you invite to a WeldMeet meeting.
+- **Helpdesk**: customers an agent has replied to in WeldDesk.
+
+Colleagues, your own email domains and automated senders such as `noreply@` are never added. Turn on **Also add their company** to link each person to the company of their email domain (jan@acme.com goes to Acme, which is created if it isn't in WeldCRM yet). Free email addresses such as gmail.com never become a company.
+
+Auto-add is available on WeldSuite EU and self-hosted installs.
+
+---
+
 ## Add a company
 
 1. Go to **Companies** in the sidebar.

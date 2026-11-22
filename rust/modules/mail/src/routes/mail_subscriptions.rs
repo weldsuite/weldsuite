@@ -298,7 +298,7 @@ async fn unsubscribe(
                 ..SendOptions::default()
             };
             match send_and_persist(
-                &context.deps(&caller),
+                &context.deps_without_crm(&caller),
                 &org,
                 &caller.user_id,
                 &account,

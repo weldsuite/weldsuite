@@ -269,6 +269,9 @@
     "resolved",
     "closed"
   ],
+  "crm_settings": [
+    "updated"
+  ],
   "custom_field": [
     "created",
     "updated",

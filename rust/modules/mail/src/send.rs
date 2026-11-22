@@ -6,13 +6,15 @@ use std::sync::Arc;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use weldsuite_events::EventContext;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_mail_domain::outbound::{DenialCode, OutboundGuard};
 use weldsuite_mail_domain::recipients::{DnsOverHttps, MxLookup};
-use weldsuite_mail_domain::send::{SendAttachmentInput, SendDeps, SendError};
+use weldsuite_mail_domain::send::{AfterSend, SendAttachmentInput, SendDeps, SendError};
 use weldsuite_ports::{FileStores, MailTransport};
 
+use crate::crm::CrmAutoAdd;
 use crate::{Caller, MailState};
 
 /// A request's own DNS-over-HTTPS client (conformance: the test's `fetch`
@@ -27,6 +29,8 @@ pub(crate) struct SendContext {
     pub(crate) files: Option<FileStores>,
     pub(crate) mx: MxLookup,
     pub(crate) public_url: Option<String>,
+    /// WeldCRM's auto-add of the recipients ([`crate::crm`]).
+    pub(crate) crm: Option<CrmAutoAdd>,
 }
 
 impl SendContext {
@@ -47,18 +51,29 @@ impl SendContext {
             public_url: bindings
                 .env_value(state, "R2_PUBLIC_URL")
                 .map(str::to_owned),
+            crm: Some(CrmAutoAdd::new(state.events.clone(), caller.events.clone())),
         }
     }
 
     pub(crate) fn deps<'a>(&'a self, caller: &'a Caller) -> SendDeps<'a> {
+        self.deps_for(&caller.db)
+    }
+
+    /// The same, without WeldCRM's auto-add: for sends that are no
+    /// conversation (an unsubscribe request to a list's address).
+    pub(crate) fn deps_without_crm<'a>(&'a self, caller: &'a Caller) -> SendDeps<'a> {
         SendDeps {
-            db: &caller.db,
-            guard: &self.guard,
-            transport: self.transport.as_deref(),
-            files: self.files.as_ref(),
-            mx: &self.mx,
-            public_url: self.public_url.as_deref(),
+            after_send: None,
+            ..self.deps_for(&caller.db)
         }
+    }
+
+    /// WeldCRM's auto-add for a send outside a request (the delivery job),
+    /// with its events in `context`.
+    #[must_use]
+    pub(crate) fn with_crm(mut self, state: &MailState, context: EventContext) -> Self {
+        self.crm = Some(CrmAutoAdd::new(state.events.clone(), context));
+        self
     }
 
     /// The deployment's own bindings, outside a request (the delivery job).
@@ -75,6 +90,7 @@ impl SendContext {
             public_url: bindings
                 .env_value(state, "R2_PUBLIC_URL")
                 .map(str::to_owned),
+            crm: None,
         }
     }
 
@@ -87,6 +103,7 @@ impl SendContext {
             files: self.files.as_ref(),
             mx: &self.mx,
             public_url: self.public_url.as_deref(),
+            after_send: self.crm.as_ref().map(|crm| crm as &dyn AfterSend),
         }
     }
 }

@@ -364,6 +364,8 @@ pub(crate) async fn publish_release(
             files: None,
             mx: &mx,
             public_url: None,
+            // Release notes to subscribers are no conversation: nobody joins the CRM.
+            after_send: None,
         };
         let subject = email
             .subject

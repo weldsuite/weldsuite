@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 weldsuite-ai = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-events = { workspace = true }

@@ -186,6 +186,13 @@ export const EDITION_FEATURES = [
    */
   'commerce',
   /**
+   * Adding people and companies to WeldCRM automatically, from email,
+   * WeldMeet and WeldDesk (`/api/crm-settings`, the Auto-add tab of
+   * Settings → Apps → WeldCRM). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the tab.
+   */
+  'crm-auto-add',
+  /**
    * WeldMail threat protection: virus scanning of inbound attachments (ClamAV)
    * and dangerous-link protection (a threat feed plus URL heuristics, checked
    * at click time through `POST /api/mail-messages/:id/link-check`). Built only

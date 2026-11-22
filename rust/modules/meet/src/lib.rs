@@ -35,6 +35,7 @@
 mod attendees;
 mod billing;
 mod chat_calls;
+mod crm;
 mod invitations;
 mod js;
 mod lifecycle;

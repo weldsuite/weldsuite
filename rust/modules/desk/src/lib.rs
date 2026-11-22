@@ -78,6 +78,7 @@ mod announcements;
 mod assignment;
 mod channels;
 mod conversations;
+mod crm;
 mod crud;
 mod custom_fields;
 mod departments;

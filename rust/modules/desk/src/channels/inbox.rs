@@ -980,6 +980,9 @@ async fn reply(
     if conversation["channel"] == "email" && data.kind == "message" {
         send_email_reply(&ctx, &state, &conversation, &message).await;
     }
+    if data.kind == "message" {
+        crate::crm::auto_add_requester(&state, caller, &conversation).await;
+    }
     Created(json!({ "conversation": conversation, "message": message })).into_response()
 }
 
