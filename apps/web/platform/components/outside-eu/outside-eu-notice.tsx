@@ -3,6 +3,7 @@ import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { countryName, fill } from '@/app/settings/outside-eu/outside-eu-view';
 import {
+  hasOutsideEuServices,
   outsideEuServiceFor,
   useOutsideEuServiceFor,
   useOutsideEuServices,
@@ -16,9 +17,14 @@ export const OUTSIDE_EU_SETTINGS_PATH = '/settings/outside-eu';
 /**
  * The "Leaves the EU" label for an integration code (`gmail`, `slack`, …) or
  * service id: nothing for an EU service, or where the install doesn't
- * enforce the opt-in (Global, self-hosted).
+ * enforce the opt-in (Global, self-hosted). Only the EU edition offers it
+ * (`outside-eu-services`); elsewhere nothing is asked of the API.
  */
-export function OutsideEuBadge({ code, className }: Readonly<{ code: string; className?: string }>) {
+export function OutsideEuBadge(props: Readonly<{ code: string; className?: string }>) {
+  return hasOutsideEuServices() ? <ServiceBadge {...props} /> : null;
+}
+
+function ServiceBadge({ code, className }: Readonly<{ code: string; className?: string }>) {
   const { t } = useI18n();
   const to = t.settings.outsideEu;
   const service = useOutsideEuServiceFor(code);
@@ -54,7 +60,11 @@ function servicesFor(
  * and a link to the switches; when all are on, a quiet note that they are
  * used. Nothing where the install doesn't enforce the opt-in.
  */
-export function OutsideEuNotice({ services, className }: Readonly<{ services: readonly string[]; className?: string }>) {
+export function OutsideEuNotice(props: Readonly<{ services: readonly string[]; className?: string }>) {
+  return hasOutsideEuServices() ? <ServicesNotice {...props} /> : null;
+}
+
+function ServicesNotice({ services, className }: Readonly<{ services: readonly string[]; className?: string }>) {
   const { t } = useI18n();
   const to = t.settings.outsideEu;
   const { data } = useOutsideEuServices(services.length > 0);
