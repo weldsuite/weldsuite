@@ -9,6 +9,10 @@
 #                          every node; Flannel and kube-proxy stay as they are
 #   metadata-service.yaml  in every namespace the base layers run pods in,
 #                          egress anywhere but 169.254.169.254
+#   metadata-guard.yaml    one rule on every node rejecting pod traffic to
+#                          169.254.169.254 in the first second of a pod's
+#                          life, before kube-router has built its chain
+#                          (metadata-guard.sh)
 #
 # Once it runs, every NetworkPolicy in the cluster is enforced, not only
 # these: Flux's own in flux-system, and whichever the charts render (the
@@ -21,4 +25,15 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - kube-router.yaml
+  - metadata-guard.yaml
   - metadata-service.yaml
+configMapGenerator:
+  # A shell script with its own variables: Flux must leave it alone, should
+  # a cluster substitute this layer. Its name carries a hash of the script,
+  # so a change to it rolls the DaemonSet.
+  - name: metadata-guard-script
+    namespace: kube-system
+    files: [metadata-guard.sh]
+    options:
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled

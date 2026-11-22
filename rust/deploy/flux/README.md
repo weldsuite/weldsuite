@@ -25,8 +25,9 @@ infrastructure/
                 "Offsite copy"); its alert is in monitoring-config
   network-policy/
                 OPT-IN: kube-router's network policy controller beside Flannel, so NetworkPolicies are
-                enforced, and a policy per namespace that keeps pods off the metadata service
-                (clusters/example/network-policy.yaml; ../hetzner/README.md, "Agent sandbox")
+                enforced, a policy per namespace that keeps pods off the metadata service, and the
+                metadata guard, a rule on every node for a pod's first second, before kube-router
+                knows it (clusters/example/network-policy.yaml; ../hetzner/README.md, "Agent sandbox")
   weldid/       OPT-IN: WeldID, WeldSuite's own OIDC provider replacing Zitadel (ADR SEC-019), with its
                 namespace (namespace/), CNPG cluster, backups, alerts; README.md there says how to turn it
                 on and switch to it (clusters/example/weldid.yaml, weldid-switch.yaml)
