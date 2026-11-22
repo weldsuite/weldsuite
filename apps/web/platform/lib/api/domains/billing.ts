@@ -30,6 +30,18 @@ export interface BillingOutstanding {
   since: string;
 }
 
+/**
+ * A paid plan with no payment method to charge (Mollie only): every workspace
+ * that moved from Global arrives without one. Present from
+ * `BILLING_RENEWAL_NOTICE_DAYS` (14) before the renewal through the grace period.
+ */
+export interface BillingPaymentMethodRequired {
+  /** Add one before this: the renewal, or the end of the grace period once it was refused. */
+  dueAt: string;
+  /** The renewal was refused for want of one: the plan runs on its grace period. */
+  pastDue: boolean;
+}
+
 /** Fields only a Mollie-billed subscription carries (`billingProvider` in `/config.json`). */
 export interface BillingMollieFields {
   provider?: 'mollie';
@@ -39,6 +51,7 @@ export interface BillingMollieFields {
   currency?: string;
   scheduledChange?: BillingScheduledChange | null;
   outstanding?: BillingOutstanding | null;
+  paymentMethodRequired?: BillingPaymentMethodRequired | null;
 }
 
 export interface BillingSubscriptionResponse extends BillingMollieFields {

@@ -948,13 +948,25 @@ pub async fn outstanding_checkout(
             "the open charge has no metadata",
         ));
     };
-    let Some(customer) = account.customer_id.clone() else {
-        return Err(BillingError::internal(
-            "Failed to start checkout",
-            "no Mollie customer",
-        ));
-    };
     let http = http_of(state, http)?;
+    // A workspace that moved from Global has no Mollie customer until it
+    // pays here for the first time: made now, from the charge's details.
+    let customer = if let Some(customer) = account.customer_id.clone() {
+        customer
+    } else {
+        let Some(workspace) = Workspace::load(master, workspace_id).await? else {
+            return Ok(None);
+        };
+        ensure_customer(
+            state,
+            master,
+            &http,
+            &workspace,
+            open_meta.customer.as_ref(),
+        )
+        .await?
+        .1
+    };
     // A checkout opened for this charge in the last hour that can still be
     // paid is reused: mail scanners open links before people do.
     let recent: Option<String> = sqlx::query_scalar(

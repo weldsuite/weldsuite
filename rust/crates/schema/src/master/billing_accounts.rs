@@ -58,6 +58,10 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(30))")]
     #[serde(rename = "pastDuePaymentId")]
     pub past_due_payment_id: Option<String>,
+    /// While past due: when the billing owners were reminded halfway through
+    /// the grace period. Before that: the renewal (period end) they were
+    /// warned about for want of a payment method, one email per renewal
+    /// (`weldsuite-core-billing`); going past due clears it.
     #[serde(rename = "dunningRemindedAt", with = "crate::js::timestamp::option")]
     pub dunning_reminded_at: Option<TimeDateTime>,
     #[serde(rename = "createdAt", with = "crate::js::timestamp")]
