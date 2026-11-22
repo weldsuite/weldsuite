@@ -24,12 +24,31 @@ use sea_orm::{
 use sea_query_sqlx::SqlxValues;
 use sqlx::postgres::PgConnection;
 use sqlx::{PgPool, Postgres};
+use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use tokio::sync::Mutex;
 
 /// `pool` as a SeaORM connection: queries borrow its connections as sqlx
 /// queries do.
 pub fn orm(pool: &PgPool) -> DatabaseConnection {
     SqlxPostgresConnector::from_sqlx_postgres_pool(pool.clone())
+}
+
+/// A moment as a `timestamp` (without time zone) column holds what Drizzle
+/// writes: UTC, to the millisecond.
+pub fn utc_timestamp(at: OffsetDateTime) -> PrimitiveDateTime {
+    let at = at.to_offset(UtcOffset::UTC);
+    let at = at.replace_millisecond(at.millisecond()).unwrap_or(at);
+    PrimitiveDateTime::new(at.date(), at.time())
+}
+
+/// `new Date()` as Drizzle writes it to a `timestamp` column.
+pub fn utc_now() -> PrimitiveDateTime {
+    utc_timestamp(OffsetDateTime::now_utc())
+}
+
+/// `new Date(Date.now() - minutes)`, as [`utc_now`] writes it.
+pub fn utc_minutes_ago(minutes: i64) -> PrimitiveDateTime {
+    utc_timestamp(OffsetDateTime::now_utc() - time::Duration::minutes(minutes))
 }
 
 /// One sqlx connection, usually the transaction `atomically_with` hands its

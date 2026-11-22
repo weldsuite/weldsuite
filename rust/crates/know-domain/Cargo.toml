@@ -11,9 +11,12 @@ publish.workspace = true
 [dependencies]
 weldsuite-db = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-schema = { workspace = true }
 axum = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 
 [lints]

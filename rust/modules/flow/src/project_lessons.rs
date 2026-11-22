@@ -456,7 +456,7 @@ fn know_refusal(error: KnowError) -> Refusal {
         KnowError::NotFound { resource, id } => Refusal::not_found(resource, &id),
         KnowError::Forbidden(message) => Refusal::forbidden(message),
         KnowError::Conflict(message) => Refusal::conflict(message),
-        KnowError::Database(error) => Refusal::Database(error),
+        KnowError::Database(error) => Refusal::Internal(error.to_string()),
     }
 }
 

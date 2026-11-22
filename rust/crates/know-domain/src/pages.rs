@@ -8,12 +8,14 @@
 //! The caller publishes the `knowledge_page` `created` entity event, as
 //! know-api's own route does.
 
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::{generate_id, validation::js_trim};
+use weldsuite_schema::tenant::knowledge_pages as pages;
 
-use crate::KnowError;
 use crate::access::{assert_can_write, require_space};
+use crate::{KnowError, row};
 
 /// Recursively flatten `BlockNote` blocks into the plain text search matches on
 /// (`blocksToText`).
@@ -68,16 +70,26 @@ pub async fn next_page_position(
     db: &PgPool,
     space_id: &str,
     parent_id: Option<&str>,
-) -> Result<i64, sqlx::Error> {
-    let max: i64 = sqlx::query_scalar(
-        "select coalesce(max(position), -1)::bigint from knowledge_pages
-         where space_id = $1 and parent_id is not distinct from $2 and deleted_at is null",
-    )
-    .bind(space_id)
-    .bind(parent_id)
-    .fetch_one(db)
-    .await?;
-    Ok(max + 1)
+) -> Result<i64, sea_orm::DbErr> {
+    let parent = match parent_id {
+        Some(parent_id) => pages::Column::ParentId.eq(parent_id),
+        None => pages::Column::ParentId.is_null(),
+    };
+    let max: Option<Option<i32>> = pages::Entity::find()
+        .select_only()
+        .column_as(pages::Column::Position.max(), "max")
+        .filter(pages::Column::SpaceId.eq(space_id))
+        .filter(parent)
+        .filter(pages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(max.flatten().map_or(-1, i64::from) + 1)
+}
+
+/// A position as the `integer` column holds it.
+pub fn position(value: i64) -> i32 {
+    i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
 }
 
 /// What a page is created from.
@@ -110,30 +122,26 @@ pub async fn create_knowledge_page(
         input.title
     };
     let content = Value::Array(input.content_json.to_vec());
-    sqlx::query(
-        "insert into knowledge_pages
-             (id, space_id, parent_id, position, title, icon, cover_image, content_json,
-              content_text, created_by, last_edited_by, created_at, updated_at)
-         values ($1, $2, null, $3::int, $4, null, null, $5, $6, $7, $7,
-                 date_trunc('milliseconds', now() at time zone 'utc'),
-                 date_trunc('milliseconds', now() at time zone 'utc'))",
-    )
-    .bind(&id)
-    .bind(input.space_id)
-    .bind(position)
-    .bind(title)
-    .bind(&content)
-    .bind(blocks_to_text(&content))
-    .bind(user_id)
-    .execute(db)
+    let now = utc_now();
+    let page = pages::Entity::insert(pages::ActiveModel {
+        id: Set(id),
+        space_id: Set(input.space_id.to_owned()),
+        parent_id: Set(None),
+        position: Set(self::position(position)),
+        title: Set(title.to_owned()),
+        icon: Set(None),
+        cover_image: Set(None),
+        content_text: Set(Some(blocks_to_text(&content))),
+        content_json: Set(Some(content)),
+        created_by: Set(Some(user_id.to_owned())),
+        last_edited_by: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(p) from knowledge_pages p where p.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| KnowError::Database(sqlx::Error::RowNotFound))
+    Ok(row(page))
 }
 
 #[cfg(test)]
