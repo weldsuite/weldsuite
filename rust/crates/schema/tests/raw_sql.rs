@@ -70,7 +70,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/core-team",
     "modules/crm",
     "modules/data",
-    "modules/desk",
     "modules/docs",
     "modules/external-api",
     "modules/flow",

@@ -11,11 +11,6 @@
 //! TypeScript worker's; its tests run against this crate in the `desk`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod announcements;
 mod assignment;
 mod channels;
@@ -355,12 +350,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 pub(crate) enum Refusal {
     Response(Box<Response>),
     Database(sea_orm::DbErr),
-}
-
-impl From<sqlx::Error> for Refusal {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(weldsuite_db::orm_error(error))
-    }
 }
 
 impl From<sea_orm::DbErr> for Refusal {
