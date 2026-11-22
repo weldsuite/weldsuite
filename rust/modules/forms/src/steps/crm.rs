@@ -18,6 +18,8 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_core_domain::custom_field_values as cfv;
@@ -27,10 +29,15 @@ use weldsuite_crm_domain::activities::create_activity;
 use weldsuite_crm_domain::companies::create_company;
 use weldsuite_crm_domain::leads::create_lead;
 use weldsuite_crm_domain::people::{create_person_detailed, update_person};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::js_trim;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    companies, crm_activities, crm_leads, form_responses, list_members, lists, people,
+    person_companies,
+};
 
-use crate::common::{Fail, FormsResult, js_slice, one, text};
+use crate::common::{Fail, FormsResult, js_slice, row_json, text};
 use crate::creator_access::{CreatorAccess, CreatorForbidden, load_creator_access};
 use crate::integration_config::{CrmConfig, crm_config};
 use crate::integration_support::{
@@ -288,24 +295,33 @@ async fn find_company(
     name: Option<&str>,
     domain: Option<&str>,
 ) -> FormsResult<Option<String>> {
+    let db = orm(db);
     if let Some(name) = name {
-        let by_name: Option<String> = sqlx::query_scalar(
-            "select id from companies where deleted_at is null and lower(display_name) = $1 limit 1",
-        )
-        .bind(name.to_lowercase())
-        .fetch_optional(db)
-        .await?;
+        let by_name: Option<String> = companies::Entity::find()
+            .select_only()
+            .column(companies::Column::Id)
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(sea_orm::ExprTrait::eq(
+                Expr::from(Func::lower(Expr::col(companies::Column::DisplayName))),
+                name.to_lowercase(),
+            ))
+            .into_tuple()
+            .one(&db)
+            .await?;
         if by_name.is_some() {
             return Ok(by_name);
         }
     }
     if let Some(domain) = domain {
-        let candidates: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select id, website from companies where deleted_at is null and website ilike $1 limit 20",
-        )
-        .bind(format!("%{}%", escape_like(domain)))
-        .fetch_all(db)
-        .await?;
+        let candidates: Vec<(String, Option<String>)> = companies::Entity::find()
+            .select_only()
+            .columns([companies::Column::Id, companies::Column::Website])
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(companies::Column::Website.ilike(format!("%{}%", escape_like(domain))))
+            .limit(20)
+            .into_tuple()
+            .all(&db)
+            .await?;
         if let Some((id, _)) = candidates
             .into_iter()
             .find(|(_, website)| host_of(website.as_deref()) == domain)
@@ -361,14 +377,13 @@ async fn ensure_company(
 // ── Person ───────────────────────────────────────────────────────────────────
 
 async fn person_by_id(db: &PgPool, id: &str) -> FormsResult<Option<Value>> {
-    one(
-        db,
-        sqlx::query_scalar(
-            "select to_jsonb(p) from people p where p.id = $1 and p.deleted_at is null limit 1",
-        )
-        .bind(id),
-    )
-    .await
+    people::Entity::find()
+        .filter(people::Column::Id.eq(id))
+        .filter(people::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `writable(existing, mapped)`: every field on a new record, only the ones
@@ -567,35 +582,38 @@ async fn upsert_person(
 }
 
 async fn link_company(db: &PgPool, person_id: &str, company_id: &str) -> FormsResult<()> {
-    let linked: Option<String> = sqlx::query_scalar(
-        "select id from person_companies \
-         where person_id = $1 and company_id = $2 and ended_at is null limit 1",
-    )
-    .bind(person_id)
-    .bind(company_id)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let current = || {
+        person_companies::Entity::find()
+            .select_only()
+            .column(person_companies::Column::Id)
+            .filter(person_companies::Column::PersonId.eq(person_id))
+            .filter(person_companies::Column::EndedAt.is_null())
+    };
+    let linked: Option<String> = current()
+        .filter(person_companies::Column::CompanyId.eq(company_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if linked.is_some() {
         return Ok(());
     }
-    let primary: Option<String> = sqlx::query_scalar(
-        "select id from person_companies \
-         where person_id = $1 and is_primary = true and ended_at is null limit 1",
-    )
-    .bind(person_id)
-    .fetch_optional(db)
-    .await?;
-    let now = weldsuite_crm_domain::now();
-    sqlx::query(
-        "insert into person_companies (id, created_at, updated_at, person_id, company_id, is_primary) \
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5)",
-    )
-    .bind(weldsuite_kit::generate_id("pc"))
-    .bind(&now)
-    .bind(person_id)
-    .bind(company_id)
-    .bind(primary.is_none())
-    .execute(db)
+    let primary: Option<String> = current()
+        .filter(person_companies::Column::IsPrimary.eq(true))
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let now = weldsuite_db::utc_now();
+    person_companies::Entity::insert(person_companies::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pc")),
+        created_at: Set(now),
+        updated_at: Set(now),
+        person_id: Set(person_id.to_owned()),
+        company_id: Set(company_id.to_owned()),
+        is_primary: Set(primary.is_none()),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
@@ -606,24 +624,28 @@ async fn add_to_list(
     person_id: &str,
     user_id: &str,
 ) -> FormsResult<()> {
-    let kind: Option<String> =
-        sqlx::query_scalar("select kind from lists where id = $1 and deleted_at is null limit 1")
-            .bind(list_id)
-            .fetch_optional(db)
-            .await?;
+    let db = orm(db);
+    let kind: Option<String> = lists::Entity::find()
+        .select_only()
+        .column(lists::Column::Kind)
+        .filter(lists::Column::Id.eq(list_id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     // A list that is gone or holds companies is left alone: the rest of the step still counts.
     if kind.as_deref() != Some("person") {
         return Ok(());
     }
-    sqlx::query(
-        "insert into list_members (id, list_id, entity_id, added_by) values ($1, $2, $3, $4) \
-         on conflict do nothing",
-    )
-    .bind(weldsuite_kit::generate_id("lm"))
-    .bind(list_id)
-    .bind(person_id)
-    .bind(user_id)
-    .execute(db)
+    list_members::Entity::insert(list_members::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("lm")),
+        list_id: Set(list_id.to_owned()),
+        entity_id: Set(person_id.to_owned()),
+        added_by: Set(Some(user_id.to_owned())),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
@@ -647,13 +669,20 @@ async fn log_activity(
     let response_id = text(&ctx.response, "id");
     let form_id = text(&ctx.form, "id");
     let key = format!("{response_id}:{mode}:{}", text(integration, "id"));
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from crm_activities where custom_fields->>'formResponse' = $1 limit 1",
-    )
-    .bind(&key)
-    .fetch_optional(&ctx.db)
-    .await
-    .map_err(Fail::from)?;
+    let existing: Option<String> = crm_activities::Entity::find()
+        .select_only()
+        .column(crm_activities::Column::Id)
+        .filter(sea_orm::ExprTrait::eq(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col(crm_activities::Column::CustomFields),
+                "formResponse",
+            ),
+            key.as_str(),
+        ))
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await
+        .map_err(Fail::from)?;
     if existing.is_some() {
         return Ok(());
     }
@@ -890,13 +919,15 @@ async fn crm_body(
         if let Some((kind, id)) = &recorded
             && kind == "lead"
         {
-            let lead: Option<String> = sqlx::query_scalar(
-                "select id from crm_leads where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(id)
-            .fetch_optional(&ctx.db)
-            .await
-            .map_err(Fail::from)?;
+            let lead: Option<String> = crm_leads::Entity::find()
+                .select_only()
+                .column(crm_leads::Column::Id)
+                .filter(crm_leads::Column::Id.eq(id))
+                .filter(crm_leads::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&ctx.db))
+                .await
+                .map_err(Fail::from)?;
             // Already made: a retry, or an edit of the response, which leaves
             // the lead as it was. Done, as Desk and Flow answer.
             if let Some(lead) = lead {
@@ -968,10 +999,13 @@ async fn crm_body(
     if let Some(list_id) = &config.list_id {
         add_to_list(&ctx.db, list_id, &person_id, user_id).await?;
     }
-    sqlx::query("update form_responses set person_id = $2 where id = $1")
-        .bind(response_id)
-        .bind(&person_id)
-        .execute(&ctx.db)
+    form_responses::Entity::update_many()
+        .col_expr(
+            form_responses::Column::PersonId,
+            Expr::value(person_id.clone()),
+        )
+        .filter(form_responses::Column::Id.eq(response_id))
+        .exec(&orm(&ctx.db))
         .await
         .map_err(Fail::from)?;
     if config.log_activity {

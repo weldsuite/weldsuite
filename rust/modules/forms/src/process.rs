@@ -17,12 +17,23 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect, Select,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_ports::{BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, StepRetry, step};
+use weldsuite_schema::tenant::{
+    form_integrations, form_response_actions, form_response_files, form_responses, form_versions,
+    forms,
+};
 
-use crate::common::{Ctx, iso, one, text};
+use crate::common::{Ctx, db_error_text, instant, row_json, rows_json, text};
 use crate::engine::FormDefinition;
 use crate::{TenantDb, TenantResolver};
 
@@ -201,6 +212,29 @@ fn failed(error: impl std::fmt::Display) -> JobError {
     JobError::failed(error)
 }
 
+/// A database error as the job's failure, with the driver's message.
+fn db_failed(error: &DbErr) -> JobError {
+    failed(db_error_text(error))
+}
+
+/// The first row `find` reads, as Drizzle returns it; `failed` says why not.
+async fn read_row<E>(
+    db: &DatabaseConnection,
+    find: Select<E>,
+    failed: &str,
+) -> Result<Option<Value>, String>
+where
+    E: EntityTrait,
+    E::Model: Serialize,
+{
+    find.one(db)
+        .await
+        .map_err(|_| failed.to_owned())?
+        .map(row_json)
+        .transpose()
+        .map_err(|_| failed.to_owned())
+}
+
 /// `loadContext(env, params, db)`: `None` when the response is not completed
 /// or does not exist.
 async fn load_context(
@@ -209,14 +243,12 @@ async fn load_context(
     params: &ProcessResponseParams,
 ) -> Result<Option<ProcessContext>, String> {
     let db = &tenant.db;
-    let fetch = |sql: &'static str, id: String| async move {
-        one(db, sqlx::query_scalar(sql).bind(id))
-            .await
-            .map_err(|_| "forms: reading the response failed".to_owned())
-    };
-    let Some(response) = fetch(
-        "select to_jsonb(r) from form_responses r where id = $1 limit 1",
-        params.response_id.clone(),
+    let orm_db = orm(db);
+    let failed = "forms: reading the response failed";
+    let Some(response) = read_row(
+        &orm_db,
+        form_responses::Entity::find_by_id(params.response_id.as_str()),
+        failed,
     )
     .await?
     else {
@@ -225,26 +257,28 @@ async fn load_context(
     if text(&response, "status") != "completed" {
         return Ok(None);
     }
-    let form = fetch(
-        "select to_jsonb(f) from forms f where id = $1 limit 1",
-        text(&response, "formId").to_owned(),
+    let form = read_row(
+        &orm_db,
+        forms::Entity::find_by_id(text(&response, "formId")),
+        failed,
     )
     .await?;
-    let version = fetch(
-        "select to_jsonb(v) from form_versions v where id = $1 limit 1",
-        text(&response, "versionId").to_owned(),
+    let version = read_row(
+        &orm_db,
+        form_versions::Entity::find_by_id(text(&response, "versionId")),
+        failed,
     )
     .await?;
     let (Some(form), Some(version)) = (form, version) else {
         return Ok(None);
     };
-    let files = crate::common::all(
-        db,
-        sqlx::query_scalar("select to_jsonb(f) from form_response_files f where response_id = $1")
-            .bind(text(&response, "id")),
-    )
-    .await
-    .map_err(|_| "forms: reading the response's files failed".to_owned())?;
+    let files_failed = "forms: reading the response's files failed";
+    let files = form_response_files::Entity::find()
+        .filter(form_response_files::Column::ResponseId.eq(text(&response, "id")))
+        .all(&orm_db)
+        .await
+        .map_err(|_| files_failed.to_owned())?;
+    let files = rows_json(files).map_err(|_| files_failed.to_owned())?;
     let definition = FormDefinition::parse(&version["definition"])
         .map_err(|_| "forms: the version's definition does not parse".to_owned())?;
     let ctx = Ctx {
@@ -273,21 +307,34 @@ async fn load_context(
 async fn mark_pending(
     ctx: &ProcessContext,
     integration: &Value,
-    now: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into form_response_actions (id, response_id, form_id, integration_id, kind, status, attempts) \
-         values ($1, $2, $3, $4, $5, 'pending', 1) \
-         on conflict (response_id, integration_id) do update set status = 'pending', error = null, \
-         attempts = form_response_actions.attempts + 1, updated_at = $6::timestamptz",
+    now: OffsetDateTime,
+) -> Result<(), DbErr> {
+    use form_response_actions::Column;
+    form_response_actions::Entity::insert(form_response_actions::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("fra")),
+        response_id: Set(text(&ctx.response, "id").to_owned()),
+        form_id: Set(text(&ctx.form, "id").to_owned()),
+        integration_id: Set(text(integration, "id").to_owned()),
+        kind: Set(text(integration, "kind").to_owned()),
+        status: Set("pending".to_owned()),
+        attempts: Set(1),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::ResponseId, Column::IntegrationId])
+            .value(Column::Status, Expr::value("pending"))
+            .value(Column::Error, Expr::value(Option::<String>::None))
+            .value(
+                Column::Attempts,
+                sea_orm::ExprTrait::add(
+                    Expr::col((form_response_actions::Entity, Column::Attempts)),
+                    1,
+                ),
+            )
+            .value(Column::UpdatedAt, Expr::value(now))
+            .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("fra"))
-    .bind(text(&ctx.response, "id"))
-    .bind(text(&ctx.form, "id"))
-    .bind(text(integration, "id"))
-    .bind(text(integration, "kind"))
-    .bind(now)
-    .execute(&ctx.db)
+    .exec_without_returning(&orm(&ctx.db))
     .await?;
     Ok(())
 }
@@ -297,52 +344,38 @@ async fn finish_action(
     ctx: &ProcessContext,
     integration: &Value,
     outcome: Result<&StepResult, &str>,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: OffsetDateTime,
+) -> Result<(), DbErr> {
+    use form_response_actions::Column;
+    let db = orm(&ctx.db);
     let response_id = text(&ctx.response, "id");
     let integration_id = text(integration, "id");
-    if let Ok(StepResult::Done {
-        entity_type,
-        entity_id,
-    }) = outcome
-    {
-        sqlx::query(
-            "update form_response_actions set status = 'done', entity_type = $3, entity_id = $4, error = null, \
-             updated_at = $5::timestamptz where response_id = $1 and integration_id = $2",
-        )
-        .bind(response_id)
-        .bind(integration_id)
-        .bind(entity_type)
-        .bind(entity_id)
-        .bind(now)
-        .execute(&ctx.db)
-        .await?;
-        sqlx::query("update form_integrations set last_error = null where id = $1")
-            .bind(integration_id)
-            .execute(&ctx.db)
-            .await?;
-        return Ok(());
-    }
-    let (status, error) = match outcome {
-        Ok(StepResult::Skipped(reason)) => ("skipped", reason.as_str()),
-        Err(error) => ("failed", error),
-        Ok(StepResult::Done { .. }) => return Ok(()),
+    let (status, error, entity) = match outcome {
+        Ok(StepResult::Done {
+            entity_type,
+            entity_id,
+        }) => ("done", None, Some((entity_type, entity_id))),
+        Ok(StepResult::Skipped(reason)) => ("skipped", Some(reason.as_str()), None),
+        Err(error) => ("failed", Some(error), None),
     };
-    sqlx::query(
-        "update form_response_actions set status = $3, error = $4, updated_at = $5::timestamptz \
-         where response_id = $1 and integration_id = $2",
-    )
-    .bind(response_id)
-    .bind(integration_id)
-    .bind(status)
-    .bind(error)
-    .bind(now)
-    .execute(&ctx.db)
-    .await?;
-    sqlx::query("update form_integrations set last_error = $2 where id = $1")
-        .bind(integration_id)
-        .bind(error)
-        .execute(&ctx.db)
+    let mut update = form_response_actions::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status));
+    if let Some((entity_type, entity_id)) = entity {
+        update = update
+            .col_expr(Column::EntityType, Expr::value(entity_type.clone()))
+            .col_expr(Column::EntityId, Expr::value(entity_id.clone()));
+    }
+    update
+        .col_expr(Column::Error, Expr::value(error))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::ResponseId.eq(response_id))
+        .filter(Column::IntegrationId.eq(integration_id))
+        .exec(&db)
+        .await?;
+    form_integrations::Entity::update_many()
+        .col_expr(form_integrations::Column::LastError, Expr::value(error))
+        .filter(form_integrations::Column::Id.eq(integration_id))
+        .exec(&db)
         .await?;
     Ok(())
 }
@@ -367,15 +400,13 @@ impl ProcessResponseJob {
         step(ctx, &name, step_impl.retry(), || async {
             let tenant = self.tenant(params).await?;
             let db = tenant.db.clone();
-            let integration = one(
-                &db,
-                sqlx::query_scalar(
-                    "select to_jsonb(i) from form_integrations i where id = $1 limit 1",
-                )
-                .bind(integration_id),
+            let integration = read_row(
+                &orm(&db),
+                form_integrations::Entity::find_by_id(integration_id),
+                "forms: reading the integration failed",
             )
             .await
-            .map_err(|_| failed("forms: reading the integration failed"))?;
+            .map_err(failed)?;
             // Not this step's kind, or removed or switched off since the run started.
             let Some(integration) = integration
                 .filter(|i| text(i, "kind") == kind && i["enabled"] == Value::Bool(true))
@@ -385,21 +416,21 @@ impl ProcessResponseJob {
             let Some(process) = load_context(self, &tenant, params).await.map_err(failed)? else {
                 return Ok(Value::Null);
             };
-            let now = iso(process.ctx.now_ms());
-            mark_pending(&process, &integration, &now)
+            let now = instant(process.ctx.now_ms());
+            mark_pending(&process, &integration, now)
                 .await
-                .map_err(failed)?;
+                .map_err(|error| db_failed(&error))?;
             match step_impl.run(&process, Some(&integration)).await {
                 Ok(outcome) => {
-                    finish_action(&process, &integration, Ok(&outcome), &now)
+                    finish_action(&process, &integration, Ok(&outcome), now)
                         .await
-                        .map_err(failed)?;
+                        .map_err(|error| db_failed(&error))?;
                     Ok(Value::Null)
                 }
                 Err(error) => {
-                    finish_action(&process, &integration, Err(&error), &now)
+                    finish_action(&process, &integration, Err(&error), now)
                         .await
-                        .map_err(failed)?;
+                        .map_err(|error| db_failed(&error))?;
                     Err(failed(error))
                 }
             }
@@ -434,13 +465,15 @@ impl Job for ProcessResponseJob {
                     else {
                         return Ok(None);
                     };
-                    let rows: Vec<(String, String)> = sqlx::query_as(
-                        "select id, kind from form_integrations where form_id = $1 and enabled = true",
-                    )
-                    .bind(text(&process.form, "id"))
-                    .fetch_all(&db)
-                    .await
-                    .map_err(failed)?;
+                    let rows: Vec<(String, String)> = form_integrations::Entity::find()
+                        .select_only()
+                        .columns([form_integrations::Column::Id, form_integrations::Column::Kind])
+                        .filter(form_integrations::Column::FormId.eq(text(&process.form, "id")))
+                        .filter(form_integrations::Column::Enabled.eq(true))
+                        .into_tuple()
+                        .all(&orm(&db))
+                        .await
+                        .map_err(|error| db_failed(&error))?;
                     Ok(Some(rows))
                 },
             )

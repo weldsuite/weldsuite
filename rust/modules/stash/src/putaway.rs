@@ -11,19 +11,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     PUTAWAY_COMPLETED, PUTAWAY_CREATED, PUTAWAY_DELETED, PUTAWAY_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     INVENTORY_CREATE, INVENTORY_DELETE, INVENTORY_READ, INVENTORY_UPDATE,
 };
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    inventory, inventory_movements as movements, products, warehouse_locations,
+};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_body};
-use crate::crud::cursor_failed;
+use crate::args::page_body;
 use crate::js::{js_limit, query_param, query_set, sql_limit, time_number};
 use crate::tables::{INVENTORY, INVENTORY_MOVEMENTS, STOCK_ADJUSTMENTS};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
@@ -54,145 +64,292 @@ where
         .route("/{id}/assign", patch(assign).route_layer(update()))
 }
 
-/// `putawaySelection` as JSON (timestamps fixed up by [`task`]).
-macro_rules! selection {
-    () => {
-        "jsonb_build_object('id', t.id, 'movementNumber', t.movement_number, 'productId', t.product_id, \
-         'productName', p.name, 'productSku', p.sku, 'quantity', t.quantity, \
-         'sourceLocationId', t.source_location_id, 'destLocationId', t.dest_location_id, \
-         'destLocationCode', l.code, 'status', t.status, 'priority', t.priority, \
-         'assignedTo', t.assigned_to, 'assignedToName', t.assigned_to_name, 'notes', t.notes, \
-         'createdAt', t.created_at, 'completedAt', t.completed_at"
-    };
+/// `putawaySelection`: the task with its product's name and SKU and its
+/// destination location's code.
+#[derive(Debug, FromQueryResult)]
+struct Task {
+    id: String,
+    movement_number: String,
+    product_id: String,
+    product_name: Option<String>,
+    product_sku: Option<String>,
+    quantity: i32,
+    source_location_id: Option<String>,
+    dest_location_id: Option<String>,
+    dest_location_code: Option<String>,
+    status: String,
+    priority: Option<String>,
+    assigned_to: Option<String>,
+    assigned_to_name: Option<String>,
+    notes: Option<String>,
+    created_at: PrimitiveDateTime,
+    completed_at: Option<PrimitiveDateTime>,
 }
 
-/// A selected task, its `Date`s as `toISOString()`.
-fn task(mut row: Value) -> Value {
-    if let Value::Object(fields) = &mut row {
-        for key in ["createdAt", "completedAt", "startedAt"] {
-            if let Some(Value::String(stamp)) = fields.get(key)
-                && let Some(js) = weldsuite_db::js_timestamp(stamp)
-            {
-                fields.insert(key.to_owned(), Value::String(js));
-            }
-        }
+impl Task {
+    /// The selection as JSON, `Date`s as `toISOString()`.
+    fn json(self) -> Map<String, Value> {
+        let mut row = Map::new();
+        row.insert("id".to_owned(), json!(self.id));
+        row.insert("movementNumber".to_owned(), json!(self.movement_number));
+        row.insert("productId".to_owned(), json!(self.product_id));
+        row.insert("productName".to_owned(), json!(self.product_name));
+        row.insert("productSku".to_owned(), json!(self.product_sku));
+        row.insert("quantity".to_owned(), json!(self.quantity));
+        row.insert("sourceLocationId".to_owned(), json!(self.source_location_id));
+        row.insert("destLocationId".to_owned(), json!(self.dest_location_id));
+        row.insert("destLocationCode".to_owned(), json!(self.dest_location_code));
+        row.insert("status".to_owned(), json!(self.status));
+        row.insert("priority".to_owned(), json!(self.priority));
+        row.insert("assignedTo".to_owned(), json!(self.assigned_to));
+        row.insert("assignedToName".to_owned(), json!(self.assigned_to_name));
+        row.insert("notes".to_owned(), json!(self.notes));
+        row.insert("createdAt".to_owned(), js_stamp(Some(self.created_at)));
+        row.insert("completedAt".to_owned(), js_stamp(self.completed_at));
+        row
     }
-    row
 }
 
-macro_rules! filters {
-    () => {
-        "t.movement_type = 'putaway' and (not $1::boolean or (t.movement_number like $2 or t.notes like $2)) \
-         and (not $3::boolean or t.status = $4) and (not $5::boolean or t.status <> 'cancelled') \
-         and (not $6::boolean or t.dest_warehouse_id = $7) and (not $8::boolean or t.assigned_to = $9) \
-         and (not $10::boolean or t.priority = $11)"
-    };
+/// The detail: `putawaySelection` with `sourceType`, `sourceId` and
+/// `startedAt`.
+#[derive(Debug, FromQueryResult)]
+struct TaskDetail {
+    #[sea_orm(nested)]
+    task: Task,
+    source_type: Option<String>,
+    source_id: Option<String>,
+    started_at: Option<PrimitiveDateTime>,
 }
 
-const LIST_SQL: &str = concat!(
-    "select ",
-    selection!(),
-    ") from inventory_movements t left join products p on t.product_id = p.id ",
-    "left join warehouse_locations l on t.dest_location_id = l.id where ",
-    filters!(),
-    " and (not $12::boolean or (t.created_at < $13::timestamp or (t.created_at = $13::timestamp and t.id < $14))) ",
-    "order by t.created_at desc, t.id desc limit $15"
-);
+impl TaskDetail {
+    fn json(self) -> Value {
+        let mut row = self.task.json();
+        row.insert("sourceType".to_owned(), json!(self.source_type));
+        row.insert("sourceId".to_owned(), json!(self.source_id));
+        row.insert("startedAt".to_owned(), js_stamp(self.started_at));
+        Value::Object(row)
+    }
+}
 
-const COUNT_SQL: &str = concat!(
-    "select count(*) from inventory_movements t where ",
-    filters!()
-);
+/// A `timestamp` as `toISOString()`, as the entities write it.
+fn js_stamp(at: Option<PrimitiveDateTime>) -> Value {
+    weldsuite_schema::js::timestamp::option::serialize(&at, serde_json::value::Serializer)
+        .unwrap_or(Value::Null)
+}
 
-const COUNTS_SQL: &str = "select jsonb_build_object('total', count(*)::int, \
-    'pending', count(*) filter (where t.status = 'pending')::int, \
-    'in_progress', count(*) filter (where t.status = 'in_progress')::int, \
-    'completed', count(*) filter (where t.status = 'completed')::int, \
-    'cancelled', count(*) filter (where t.status = 'cancelled')::int) \
-    from inventory_movements t where t.movement_type = 'putaway'";
+/// `leftJoin(products, eq(t.productId, products.id))`.
+fn product() -> RelationDef {
+    movements::Entity::belongs_to(products::Entity)
+        .from(movements::Column::ProductId)
+        .to(products::Column::Id)
+        .into()
+}
+
+/// `leftJoin(warehouseLocations, eq(t.destLocationId, warehouseLocations.id))`.
+fn dest_location() -> RelationDef {
+    movements::Entity::belongs_to(warehouse_locations::Entity)
+        .from(movements::Column::DestLocationId)
+        .to(warehouse_locations::Column::Id)
+        .into()
+}
+
+/// `select(putawaySelection)` with its joins.
+fn selection() -> Select<movements::Entity> {
+    movements::Entity::find()
+        .select_only()
+        .columns([
+            movements::Column::Id,
+            movements::Column::MovementNumber,
+            movements::Column::ProductId,
+        ])
+        .column_as(products::Column::Name, "product_name")
+        .column_as(products::Column::Sku, "product_sku")
+        .columns([
+            movements::Column::Quantity,
+            movements::Column::SourceLocationId,
+            movements::Column::DestLocationId,
+        ])
+        .column_as(warehouse_locations::Column::Code, "dest_location_code")
+        .columns([
+            movements::Column::Status,
+            movements::Column::Priority,
+            movements::Column::AssignedTo,
+            movements::Column::AssignedToName,
+            movements::Column::Notes,
+            movements::Column::CreatedAt,
+            movements::Column::CompletedAt,
+        ])
+        .join(JoinType::LeftJoin, product())
+        .join(JoinType::LeftJoin, dest_location())
+}
+
+/// `eq(t.movementType, 'putaway')`.
+fn putaway() -> Condition {
+    Condition::all().add(movements::Column::MovementType.eq("putaway"))
+}
 
 /// A filter that is set and not `all`.
 fn set_not_all(query: Option<&str>, name: &str) -> Option<String> {
     query_set(query, name).filter(|value| value != "all")
 }
 
+/// The list's conditions: putaway rows, `like(movementNumber | notes,
+/// %search%)`, the status (cancelled ones hidden without one), the
+/// warehouse, the assignee and the priority.
+fn filters(query: Option<&str>) -> Condition {
+    let mut condition = putaway();
+    if let Some(search) = query_set(query, "search") {
+        let pattern = format!("%{search}%");
+        condition = condition.add(
+            Condition::any()
+                .add(movements::Column::MovementNumber.like(pattern.as_str()))
+                .add(movements::Column::Notes.like(pattern.as_str())),
+        );
+    }
+    let status = query_set(query, "status");
+    if let Some(status) = status.as_deref().filter(|status| *status != "all") {
+        condition = condition.add(movements::Column::Status.eq(status));
+    }
+    if status.is_none() {
+        condition = condition.add(movements::Column::Status.ne("cancelled"));
+    }
+    if let Some(warehouse) = set_not_all(query, "warehouseId") {
+        condition = condition.add(movements::Column::DestWarehouseId.eq(warehouse));
+    }
+    if let Some(assigned) = query_set(query, "assignedTo") {
+        condition = condition.add(movements::Column::AssignedTo.eq(assigned));
+    }
+    if let Some(priority) = set_not_all(query, "priority") {
+        condition = condition.add(movements::Column::Priority.eq(priority));
+    }
+    condition
+}
+
+/// The status counts of every putaway task.
+#[derive(Debug, FromQueryResult)]
+struct Counts {
+    total: i64,
+    pending: i64,
+    in_progress: i64,
+    completed: i64,
+    cancelled: i64,
+}
+
+/// The cursor row's `createdAt` as JavaScript read it (milliseconds) and
+/// its id; `None` when the row is gone.
+async fn cursor_row(
+    db: &PgPool,
+    cursor: &str,
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = movements::Entity::find()
+        .select_only()
+        .column(movements::Column::CreatedAt)
+        .column(movements::Column::Id)
+        .filter(movements::Column::Id.eq(cursor))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)))
+}
+
+/// The page (`limit + 1` tasks, newest first, after the cursor), the
+/// number of tasks the filters match and the status counts, in that order.
+async fn page(
+    db: &PgPool,
+    query: Option<&str>,
+    cursor: Option<(PrimitiveDateTime, String)>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64, Value), DbErr> {
+    let db = orm(db);
+    let mut rows = selection().filter(filters(query));
+    if let Some((at, id)) = cursor {
+        rows = rows.filter(
+            Condition::any()
+                .add(movements::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(movements::Column::CreatedAt.eq(at))
+                        .add(movements::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = rows
+        .order_by(movements::Column::CreatedAt, Order::Desc)
+        .order_by(movements::Column::Id, Order::Desc)
+        .limit(sql_limit(limit).and_then(|limit| u64::try_from(limit).ok()))
+        .into_model::<Task>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|task| Value::Object(task.json()))
+        .collect();
+    let total = movements::Entity::find()
+        .filter(filters(query))
+        .count(&db)
+        .await?;
+    // `count(*) filter (where status = …)`: the rows the case keeps (it is
+    // null otherwise).
+    let count = |status: &str| {
+        Expr::from(Func::count(Expr::case(
+            movements::Column::Status.eq(status),
+            1,
+        )))
+    };
+    let counts = movements::Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+        .column_as(count("pending"), "pending")
+        .column_as(count("in_progress"), "in_progress")
+        .column_as(count("completed"), "completed")
+        .column_as(count("cancelled"), "cancelled")
+        .filter(putaway())
+        .into_model::<Counts>()
+        .one(&db)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("putaway counts".to_owned()))?;
+    let counts = json!({
+        "total": counts.total,
+        "pending": counts.pending,
+        "in_progress": counts.in_progress,
+        "completed": counts.completed,
+        "cancelled": counts.cancelled,
+    });
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX), counts))
+}
+
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
-    let search = query_set(query, "search").map(|search| format!("%{search}%"));
-    let status = query_set(query, "status");
-    let by_status = status.clone().filter(|status| status != "all");
-    let hide_cancelled = status.is_none();
-    let warehouse = set_not_all(query, "warehouseId");
-    let assigned = query_set(query, "assignedTo");
-    let priority = set_not_all(query, "priority");
-    let filters = vec![
-        Arg::Bool(search.is_some()),
-        Arg::Text(search),
-        Arg::Bool(by_status.is_some()),
-        Arg::Text(by_status),
-        Arg::Bool(hide_cancelled),
-        Arg::Bool(warehouse.is_some()),
-        Arg::Text(warehouse),
-        Arg::Bool(assigned.is_some()),
-        Arg::Text(assigned),
-        Arg::Bool(priority.is_some()),
-        Arg::Text(priority),
-    ];
+    // The cursor lookup runs before the route's `try`: a failure is the
+    // app's 500.
     let cursor = match query_set(query, "cursor") {
-        Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("inventory_movements"), &cursor).await {
-                Ok(cursor) => cursor,
-                Err(error) => return cursor_failed(&error),
+        Some(cursor) => match cursor_row(&caller.db, &cursor).await {
+            Ok(cursor) => cursor,
+            Err(error) => {
+                tracing::error!(%error, "stash: cursor lookup failed");
+                return ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
-    let mut page = filters.clone();
-    page.push(Arg::Bool(cursor.is_some()));
-    page.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-    page.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-    page.push(Arg::Int(sql_limit(limit)));
-    let message = "Failed to fetch putaway tasks";
-    let rows: Vec<Value> = match bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(error) => return internal(&error, message),
-    };
-    let total: i64 = match bind_scalar(sqlx::query_scalar(COUNT_SQL), filters)
-        .fetch_one(&caller.db)
-        .await
-    {
-        Ok(total) => total,
-        Err(error) => return internal(&error, message),
-    };
-    let counts: Value = match sqlx::query_scalar(COUNTS_SQL).fetch_one(&caller.db).await {
-        Ok(counts) => counts,
-        Err(error) => return internal(&error, message),
-    };
-    page_body(
-        rows.into_iter().map(task).collect(),
-        limit,
-        total,
-        "counts",
-        counts,
-    )
+    match page(&caller.db, query, cursor, limit).await {
+        Ok((rows, total, counts)) => page_body(rows, limit, total, "counts", counts),
+        Err(error) => internal(&error, "Failed to fetch putaway tasks"),
+    }
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
-    let row: Result<Option<Value>, _> = sqlx::query_scalar(concat!(
-        "select ", selection!(), ", 'sourceType', t.source_type, 'sourceId', t.source_id, ",
-        "'startedAt', t.started_at) from inventory_movements t left join products p on t.product_id = p.id ",
-        "left join warehouse_locations l on t.dest_location_id = l.id ",
-        "where t.id = $1 and t.movement_type = 'putaway' limit 1"
-    ))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = selection()
+        .columns([movements::Column::SourceType, movements::Column::SourceId])
+        .column(movements::Column::StartedAt)
+        .filter(movements::Column::Id.eq(&id))
+        .filter(putaway())
+        .into_model::<TaskDetail>()
+        .one(&orm(&caller.db))
+        .await
+        .map(|row| row.map(TaskDetail::json));
     match row {
-        Ok(Some(row)) => Data(task(row)).into_response(),
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Putaway Task", &id).respond("Failed to fetch putaway task"),
         Err(error) => internal(&error, "Failed to fetch putaway task"),
     }
@@ -326,19 +483,19 @@ async fn start(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let now = now();
-    let updated: Result<Option<String>, _> = sqlx::query_scalar(
-        "update inventory_movements set status = 'in_progress', started_at = $2::timestamp, \
-         updated_at = $2::timestamp where id = $1 and movement_type = 'putaway' and status <> 'cancelled' \
-         returning id",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_optional(&caller.db)
-    .await;
+    let now = utc_now();
+    let updated = movements::Entity::update_many()
+        .col_expr(movements::Column::Status, Expr::value("in_progress"))
+        .col_expr(movements::Column::StartedAt, Expr::value(now))
+        .col_expr(movements::Column::UpdatedAt, Expr::value(now))
+        .filter(movements::Column::Id.eq(&id))
+        .filter(putaway())
+        .filter(movements::Column::Status.ne("cancelled"))
+        .exec(&orm(&caller.db))
+        .await;
     match updated {
-        Ok(Some(_)) => {}
-        Ok(None) => {
+        Ok(done) if done.rows_affected > 0 => {}
+        Ok(_) => {
             return Refusal::not_found("Putaway Task", &id).respond("Failed to start putaway task");
         }
         Err(error) => return internal(&error, "Failed to start putaway task"),
@@ -408,13 +565,21 @@ async fn complete_task(
     quantity: Option<i64>,
 ) -> Result<(), Refusal> {
     let db = &caller.db;
-    let task: Option<(Option<String>, String, Option<String>, i32)> = sqlx::query_as(
-        "select dest_warehouse_id, product_id, movement_number, quantity from inventory_movements \
-         where id = $1 and movement_type = 'putaway' and status <> 'cancelled' limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let conn = orm(db);
+    let task: Option<(Option<String>, String, Option<String>, i32)> = movements::Entity::find()
+        .select_only()
+        .columns([
+            movements::Column::DestWarehouseId,
+            movements::Column::ProductId,
+            movements::Column::MovementNumber,
+            movements::Column::Quantity,
+        ])
+        .filter(movements::Column::Id.eq(id))
+        .filter(putaway())
+        .filter(movements::Column::Status.ne("cancelled"))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((warehouse, product_id, movement_number, task_quantity)) = task else {
         return Err(Refusal::not_found("Putaway Task", id));
     };
@@ -430,30 +595,36 @@ async fn complete_task(
             "Failed to complete putaway task",
         ))));
     }
-    let now = now();
+    let at = OffsetDateTime::now_utc();
+    let (now, stamp) = (iso_timestamp(at), utc_timestamp(at));
     let quantity = quantity.unwrap_or_else(|| i64::from(task_quantity));
-    let existing: Option<(String, Option<i32>, Option<i32>)> = sqlx::query_as(
-        "select id, quantity_on_hand, quantity_allocated from inventory where warehouse_id = $1 \
-         and product_id = $2 and location_id = $3 and deleted_at is null limit 1",
-    )
-    .bind(&warehouse)
-    .bind(&product_id)
-    .bind(location_id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, Option<i32>, Option<i32>)> = inventory::Entity::find()
+        .select_only()
+        .columns([
+            inventory::Column::Id,
+            inventory::Column::QuantityOnHand,
+            inventory::Column::QuantityAllocated,
+        ])
+        .filter(inventory::Column::WarehouseId.eq(&warehouse))
+        .filter(inventory::Column::ProductId.eq(&product_id))
+        .filter(inventory::Column::LocationId.eq(location_id))
+        .filter(inventory::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let (previous, new) = if let Some((bucket, on_hand, allocated)) = existing {
         let previous = i64::from(on_hand.unwrap_or(0));
         let new = previous + quantity;
-        sqlx::query(
-            "update inventory set quantity_on_hand = $2, quantity_available = $3, \
-             updated_at = $4::timestamp where id = $1",
-        )
-        .bind(&bucket)
-        .bind(new)
-        .bind(new - i64::from(allocated.unwrap_or(0)))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        inventory::Entity::update_many()
+            .col_expr(inventory::Column::QuantityOnHand, Expr::value(new))
+            .col_expr(
+                inventory::Column::QuantityAvailable,
+                Expr::value(new - i64::from(allocated.unwrap_or(0))),
+            )
+            .col_expr(inventory::Column::UpdatedAt, Expr::value(stamp))
+            .filter(inventory::Column::Id.eq(&bucket))
+            .exec(&conn)
+            .await?;
         (previous, new)
     } else {
         let row = json!({
@@ -505,16 +676,15 @@ async fn complete_task(
             &["createdAt"],
         )
         .await?;
-    sqlx::query(
-        "update inventory_movements set dest_location_id = $2, status = 'completed', \
-         completed_at = $3::timestamp, completed_by = $4, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(location_id)
-    .bind(&now)
-    .bind(&caller.user_id)
-    .execute(db)
-    .await?;
+    movements::Entity::update_many()
+        .col_expr(movements::Column::DestLocationId, Expr::value(location_id))
+        .col_expr(movements::Column::Status, Expr::value("completed"))
+        .col_expr(movements::Column::CompletedAt, Expr::value(stamp))
+        .col_expr(movements::Column::CompletedBy, Expr::value(caller.user_id.as_str()))
+        .col_expr(movements::Column::UpdatedAt, Expr::value(stamp))
+        .filter(movements::Column::Id.eq(id))
+        .exec(&conn)
+        .await?;
     Ok(())
 }
 
@@ -548,24 +718,29 @@ async fn assign(
         Ok(data) => data,
         Err(refusal) => return refusal.respond(message),
     };
-    let updated: Result<Option<String>, _> = sqlx::query_scalar(
-        "update inventory_movements set \
-         assigned_to = case when $2::boolean then $3 else assigned_to end, \
-         assigned_to_name = case when $4::boolean then $5 else assigned_to_name end, \
-         updated_at = $6::timestamp where id = $1 and movement_type = 'putaway' \
-         and status <> 'cancelled' returning id",
-    )
-    .bind(&id)
-    .bind(!to.is_absent())
-    .bind(to.as_set())
-    .bind(!name.is_absent())
-    .bind(name.as_set())
-    .bind(now())
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = movements::Entity::update_many();
+    if !to.is_absent() {
+        update = update.col_expr(
+            movements::Column::AssignedTo,
+            Expr::value(to.as_set().cloned()),
+        );
+    }
+    if !name.is_absent() {
+        update = update.col_expr(
+            movements::Column::AssignedToName,
+            Expr::value(name.as_set().cloned()),
+        );
+    }
+    let updated = update
+        .col_expr(movements::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(movements::Column::Id.eq(&id))
+        .filter(putaway())
+        .filter(movements::Column::Status.ne("cancelled"))
+        .exec(&orm(&caller.db))
+        .await;
     match updated {
-        Ok(Some(_)) => {}
-        Ok(None) => return Refusal::not_found("Putaway Task", &id).respond(message),
+        Ok(done) if done.rows_affected > 0 => {}
+        Ok(_) => return Refusal::not_found("Putaway Task", &id).respond(message),
         Err(error) => return internal(&error, message),
     }
     let mut event = Map::new();
@@ -596,17 +771,16 @@ async fn cancel(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let updated: Result<Option<String>, _> = sqlx::query_scalar(
-        "update inventory_movements set status = 'cancelled', updated_at = $2::timestamp \
-         where id = $1 and movement_type = 'putaway' returning id",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_optional(&caller.db)
-    .await;
+    let updated = movements::Entity::update_many()
+        .col_expr(movements::Column::Status, Expr::value("cancelled"))
+        .col_expr(movements::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(movements::Column::Id.eq(&id))
+        .filter(putaway())
+        .exec(&orm(&caller.db))
+        .await;
     match updated {
-        Ok(Some(_)) => {}
-        Ok(None) => {
+        Ok(done) if done.rows_affected > 0 => {}
+        Ok(_) => {
             return Refusal::not_found("Putaway Task", &id)
                 .respond("Failed to cancel putaway task");
         }

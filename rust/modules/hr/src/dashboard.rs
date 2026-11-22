@@ -189,10 +189,10 @@ async fn hr_dashboard(pool: &PgPool, scope: &Scope) -> Result<Value, HrError> {
     let average: Option<f64> = evaluations::Entity::find()
         .select_only()
         .column_as(
-            Func::cast_as(
+            Expr::from(Func::cast_as(
                 Func::avg(Expr::col(evaluations::Column::OverallScore)),
                 "float8",
-            ),
+            )),
             "average",
         )
         .filter(evaluations::Column::DeletedAt.is_null())

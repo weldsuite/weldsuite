@@ -21,12 +21,15 @@ use axum::extract::{DefaultBodyLimit, Path, Request};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::{Created, Data};
+use weldsuite_schema::tenant::form_responses;
 
 use super::Member;
 use crate::FormsState;
-use crate::common::{Ctx, FormsResult, answer, forms_error, not_found, one, text};
+use crate::common::{Ctx, FormsResult, answer, forms_error, not_found, text};
 use crate::counters::Counters;
 use crate::input;
 use crate::members::member_ref;
@@ -87,11 +90,11 @@ async fn identity_of(ctx: &Ctx, entry: &PublicCacheEntry, user_id: &str) -> Form
 
 /// The same-member condition of a responses query: `respondent_hash` or
 /// `respondent_user_id`, and its value.
-fn same_member(identity: &Identity) -> (&'static str, String) {
+fn same_member(identity: &Identity) -> (form_responses::Column, String) {
     match &identity.hash {
-        Some(hash) => ("respondent_hash", hash.clone()),
+        Some(hash) => (form_responses::Column::RespondentHash, hash.clone()),
         None => (
-            "respondent_user_id",
+            form_responses::Column::RespondentUserId,
             identity.user_id.clone().unwrap_or_default(),
         ),
     }
@@ -104,14 +107,16 @@ async fn member_in_progress(
     identity: &Identity,
 ) -> FormsResult<Option<String>> {
     let (column, value) = same_member(identity);
-    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select id from form_responses where form_id = $1 and status = 'in_progress' and {column} = $2 \
-         order by updated_at desc limit 1"
-    )))
-    .bind(form_id)
-    .bind(value)
-    .fetch_optional(&ctx.db)
-    .await?)
+    Ok(form_responses::Entity::find()
+        .select_only()
+        .column(form_responses::Column::Id)
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .filter(form_responses::Column::Status.eq("in_progress"))
+        .filter(column.eq(value))
+        .order_by_desc(form_responses::Column::UpdatedAt)
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?)
 }
 
 async fn form(member: Member, Path(public_id): Path<String>) -> Response {
@@ -123,13 +128,15 @@ async fn form(member: Member, Path(public_id): Path<String>) -> Response {
             if entry.settings.one_per_respondent {
                 let who = identity_of(ctx, &entry, &member.user_id).await?;
                 let (column, value) = same_member(&who);
-                let found: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                    "select id from form_responses where form_id = $1 and status = 'completed' and {column} = $2 limit 1"
-                )))
-                .bind(&link.form_id)
-                .bind(value)
-                .fetch_optional(&ctx.db)
-                .await?;
+                let found: Option<String> = form_responses::Entity::find()
+                    .select_only()
+                    .column(form_responses::Column::Id)
+                    .filter(form_responses::Column::FormId.eq(&link.form_id))
+                    .filter(form_responses::Column::Status.eq("completed"))
+                    .filter(column.eq(value))
+                    .into_tuple()
+                    .one(&orm(&ctx.db))
+                    .await?;
                 already = found.is_some();
             }
             let form = to_public_form(ctx.env(), &link, &entry, None, true, ctx.now_ms());
@@ -175,28 +182,26 @@ async fn uploads(member: Member, Path(public_id): Path<String>, request: Request
                 ));
             };
             let identity = identity_of(ctx, &entry, &member.user_id).await?;
-            let response_id = if let Some(id) =
-                member_in_progress(ctx, &link.form_id, &identity).await?
-            {
-                id
-            } else {
-                let id = weldsuite_kit::generate_id("frs");
-                sqlx::query(
-                    "insert into form_responses (id, form_id, version_id, status, respondent_email, \
-                     respondent_user_id, respondent_hash, metadata) \
-                     values ($1, $2, $3, 'in_progress', $4, $5, $6, $7)",
-                )
-                .bind(&id)
-                .bind(&link.form_id)
-                .bind(&version_id)
-                .bind(&identity.email)
-                .bind(&identity.user_id)
-                .bind(&identity.hash)
-                .bind(json!({ "source": "members" }))
-                .execute(&ctx.db)
-                .await?;
-                id
-            };
+            let response_id =
+                if let Some(id) = member_in_progress(ctx, &link.form_id, &identity).await? {
+                    id
+                } else {
+                    let id = weldsuite_kit::generate_id("frs");
+                    form_responses::Entity::insert(form_responses::ActiveModel {
+                        id: Set(id.clone()),
+                        form_id: Set(link.form_id.clone()),
+                        version_id: Set(version_id.clone()),
+                        status: Set("in_progress".to_owned()),
+                        respondent_email: Set(identity.email.clone()),
+                        respondent_user_id: Set(identity.user_id.clone()),
+                        respondent_hash: Set(identity.hash.clone()),
+                        metadata: Set(json!({ "source": "members" })),
+                        ..Default::default()
+                    })
+                    .exec_without_returning(&orm(&ctx.db))
+                    .await?;
+                    id
+                };
             let counters = Counters::new(Arc::clone(&ctx.svc.cache), &link.form_id, ctx.now_ms());
             let target = UploadTarget {
                 response: &response_id,
@@ -238,13 +243,9 @@ async fn submit(
             let Some(version_id) = entry.version_id.clone().filter(|_| state == "open") else {
                 return Err(closed_error(if state == "open" { "closed" } else { state }));
             };
-            let form = one(
-                &ctx.db,
-                sqlx::query_scalar("select to_jsonb(f) from forms f where id = $1 limit 1")
-                    .bind(&link.form_id),
-            )
-            .await?
-            .ok_or_else(|| forms_error(404, "NOT_FOUND", "Form not found"))?;
+            let form = crate::access::form_row(&ctx.db, &link.form_id)
+                .await?
+                .ok_or_else(|| forms_error(404, "NOT_FOUND", "Form not found"))?;
             let identity = identity_of(ctx, &entry, &member.user_id).await?;
             let version = load_version(ctx, text(&form, "id"), &version_id).await?;
             let response_id = match member_in_progress(ctx, &link.form_id, &identity).await? {

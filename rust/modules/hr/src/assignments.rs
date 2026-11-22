@@ -12,22 +12,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{Date, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     HR_CLIENT_ASSIGNMENT_CREATED, HR_CLIENT_ASSIGNMENT_DELETED, HR_CLIENT_ASSIGNMENT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{EMPLOYEES_READ, EMPLOYEES_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{companies, hr_client_assignments as assignments, hr_employees};
 
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name, no_row, pg_date, pg_date_opt, require_employee, to_json};
 use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, change, id, iso_date, number, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_round,
-    locale_compare, now, query_param, query_text, query_values, text, today_iso,
+    locale_compare, query_param, query_text, query_values, text, today_iso,
 };
 
 /// The routes, relative to `/api/weldhr`.
@@ -53,16 +60,21 @@ where
 
 /// `requireCompany(db, companyId)`: a live CRM company, `{ id, name }`.
 pub(crate) async fn require_company(db: &PgPool, company_id: &str) -> Result<Value, HrError> {
-    let row: Option<(String, String, bool)> = sqlx::query_as(
-        "select id, display_name, deleted_at is not null from companies where id = $1 limit 1",
-    )
-    .bind(company_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((id, name, deleted)) = row else {
+    let row: Option<(String, String, Option<PrimitiveDateTime>)> = companies::Entity::find()
+        .select_only()
+        .columns([
+            companies::Column::Id,
+            companies::Column::DisplayName,
+            companies::Column::DeletedAt,
+        ])
+        .filter(companies::Column::Id.eq(company_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let Some((id, name, deleted_at)) = row else {
         return Err(HrError::not_found("Company", company_id));
     };
-    if deleted {
+    if deleted_at.is_some() {
         let label = if name.is_empty() {
             "This company"
         } else {
@@ -85,25 +97,23 @@ async fn deleted_company_ids(
     if company_ids.is_empty() {
         return Ok(HashSet::new());
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select id from companies where id = any($1) and deleted_at is not null",
-    )
-    .bind(company_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<String> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::Id)
+        .filter(companies::Column::Id.is_in(company_ids.iter().map(String::as_str)))
+        .filter(companies::Column::DeletedAt.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
 /// `requireAssignment(db, id)`.
 pub(crate) async fn require_assignment(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_client_assignments t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Assignment", id))
+    let row = assignments::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Assignment", id))?)
 }
 
 fn is_active(row: &Value, on: &str) -> bool {
@@ -119,21 +129,25 @@ async fn assert_no_overlapping_assignment(
     end_date: Option<&str>,
     except_id: Option<&str>,
 ) -> Result<(), HrError> {
-    let clash: Option<String> = sqlx::query_scalar(
-        "select id from hr_client_assignments
-         where employee_id = $1 and company_id = $2
-           and (end_date is null or end_date >= $3::date)
-           and ($4::text is null or start_date <= $4::date)
-           and ($5::text is null or id <> $5)
-         limit 1",
-    )
-    .bind(employee_id)
-    .bind(company_id)
-    .bind(start_date)
-    .bind(end_date)
-    .bind(except_id)
-    .fetch_optional(db)
-    .await?;
+    let start_date = pg_date(start_date)?;
+    let end_date = pg_date_opt(end_date)?;
+    let mut clash = assignments::Entity::find()
+        .select_only()
+        .column(assignments::Column::Id)
+        .filter(assignments::Column::EmployeeId.eq(employee_id))
+        .filter(assignments::Column::CompanyId.eq(company_id))
+        .filter(
+            Condition::any()
+                .add(assignments::Column::EndDate.is_null())
+                .add(assignments::Column::EndDate.gte(start_date)),
+        );
+    if let Some(end_date) = end_date {
+        clash = clash.filter(assignments::Column::StartDate.lte(end_date));
+    }
+    if let Some(except_id) = except_id {
+        clash = clash.filter(assignments::Column::Id.ne(except_id));
+    }
+    let clash: Option<String> = clash.into_tuple().one(&orm(db)).await?;
     if clash.is_some() {
         return Err(HrError::conflict(
             "This employee is already assigned to this client for (part of) these dates",
@@ -151,31 +165,35 @@ pub(crate) async fn list_assignments(
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
     let today = today_iso();
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(a), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
-                 'preferredName', e.preferred_name, 'jobTitle', e.job_title,
-                 'avatarUrl', e.avatar_url, 'status', e.status)
-         from hr_client_assignments a
-         join hr_employees e on e.id = a.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or a.employee_id = $1)
-           and ($2::text is null or a.company_id = $2)
-           and (not $3 or (a.start_date <= $4::date and (a.end_date is null or a.end_date >= $4::date)))
-           and ($5::text[] is null or e.legal_entity_id = any($5)
-                or ($6::boolean and e.legal_entity_id is null))
-         order by a.start_date desc, e.last_name asc",
-    )
-    .bind(employee_id)
-    .bind(company_id)
-    .bind(active_only)
-    .bind(&today)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let day = pg_date(&today)?;
+    let mut select = assignments::Entity::find()
+        .column_as(hr_employees::Column::FirstName, "employee_first_name")
+        .column_as(hr_employees::Column::LastName, "employee_last_name")
+        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .column_as(hr_employees::Column::JobTitle, "employee_job_title")
+        .column_as(hr_employees::Column::AvatarUrl, "employee_avatar_url")
+        .column_as(hr_employees::Column::Status, "employee_status")
+        .join(JoinType::InnerJoin, with_employee())
+        .filter(hr_employees::Column::DeletedAt.is_null());
+    if let Some(employee_id) = employee_id {
+        select = select.filter(assignments::Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(company_id) = company_id {
+        select = select.filter(assignments::Column::CompanyId.eq(company_id));
+    }
+    if active_only {
+        select = select.filter(running_on(day));
+    }
+    let rows: Vec<AssignmentWithEmployee> = select
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_desc(assignments::Column::StartDate)
+        .order_by_asc(hr_employees::Column::LastName)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let company_ids: Vec<String> = rows
         .iter()
-        .map(|(a, _)| a["company_id"].as_str().unwrap_or_default().to_owned())
+        .map(|row| row.assignment.company_id.clone())
         .collect();
     let refs: Vec<Option<&str>> = company_ids.iter().map(|id| Some(id.as_str())).collect();
     let names = company_names(db, &refs).await?;
@@ -184,8 +202,8 @@ pub(crate) async fn list_assignments(
     unique.dedup();
     let deleted = deleted_company_ids(db, &unique).await?;
     let mut out = Vec::with_capacity(rows.len());
-    for (assignment, employee) in rows {
-        let assignment = js_row(assignment);
+    for employee in rows {
+        let assignment = to_json(&employee.assignment)?;
         let company_id = text(&assignment, "companyId").to_owned();
         let company_deleted = deleted.contains(&company_id);
         let active = !company_deleted && is_active(&assignment, &today);
@@ -198,19 +216,56 @@ pub(crate) async fn list_assignments(
             map.insert("companyDeleted".to_owned(), Value::Bool(company_deleted));
             map.insert(
                 "employeeName".to_owned(),
-                Value::String(display_name_of(&employee)),
+                Value::String(display_name(
+                    &employee.employee_first_name,
+                    &employee.employee_last_name,
+                    employee.employee_preferred_name.as_deref(),
+                )),
             );
-            map.insert("employeeJobTitle".to_owned(), employee["jobTitle"].clone());
+            map.insert("employeeJobTitle".to_owned(), json!(employee.employee_job_title));
             map.insert(
                 "employeeAvatarUrl".to_owned(),
-                employee["avatarUrl"].clone(),
+                json!(employee.employee_avatar_url),
             );
-            map.insert("employeeStatus".to_owned(), employee["status"].clone());
+            map.insert("employeeStatus".to_owned(), json!(employee.employee_status));
             map.insert("isActive".to_owned(), Value::Bool(active));
         }
         out.push(row);
     }
     Ok(out)
+}
+
+/// `join hr_employees e on e.id = a.employee_id`.
+fn with_employee() -> sea_orm::RelationDef {
+    assignments::Entity::belongs_to(hr_employees::Entity)
+        .from(assignments::Column::EmployeeId)
+        .to(hr_employees::Column::Id)
+        .into()
+}
+
+/// `a.start_date <= day and (a.end_date is null or a.end_date >= day)`.
+fn running_on(day: Date) -> Condition {
+    Condition::all()
+        .add(assignments::Column::StartDate.lte(day))
+        .add(
+            Condition::any()
+                .add(assignments::Column::EndDate.is_null())
+                .add(assignments::Column::EndDate.gte(day)),
+        )
+}
+
+/// An assignment with the employee columns the list shows
+/// (`jsonb_build_object('firstName', e.first_name, …)`).
+#[derive(Debug, FromQueryResult)]
+struct AssignmentWithEmployee {
+    #[sea_orm(nested)]
+    assignment: assignments::Model,
+    employee_first_name: String,
+    employee_last_name: String,
+    employee_preferred_name: Option<String>,
+    employee_job_title: Option<String>,
+    employee_avatar_url: Option<String>,
+    employee_status: String,
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -280,15 +335,15 @@ async fn clear_primary(
     employee_id: &str,
     except_id: Option<&str>,
 ) -> Result<(), HrError> {
-    sqlx::query(
-        "update hr_client_assignments set is_primary = false, updated_at = $3::timestamp
-         where employee_id = $1 and is_primary = true and ($2::text is null or id <> $2)",
-    )
-    .bind(employee_id)
-    .bind(except_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let mut update = assignments::Entity::update_many()
+        .col_expr(assignments::Column::IsPrimary, Expr::value(false))
+        .col_expr(assignments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(assignments::Column::EmployeeId.eq(employee_id))
+        .filter(assignments::Column::IsPrimary.eq(true));
+    if let Some(except_id) = except_id {
+        update = update.filter(assignments::Column::Id.ne(except_id));
+    }
+    update.exec(&orm(db)).await?;
     Ok(())
 }
 
@@ -340,25 +395,22 @@ async fn create(
     if input.is_primary.as_set() == Some(&true) {
         clear_primary(db, &employee_id, None).await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_client_assignments
-             (id, employee_id, company_id, role, allocation_percent, is_primary, start_date, end_date, notes, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10)
-         returning to_jsonb(hr_client_assignments)",
-    )
-    .bind(generate_id("hrasg"))
-    .bind(&employee_id)
-    .bind(&company_id)
-    .bind(input.role.as_set())
-    .bind(input.allocation_percent.as_set().copied().unwrap_or(100.0))
-    .bind(input.is_primary.as_set().copied().unwrap_or(false))
-    .bind(&start_date)
-    .bind(end_date.as_deref())
-    .bind(input.notes.as_set())
-    .bind(&caller.user_id)
-    .fetch_one(db)
+    let row = assignments::Entity::insert(assignments::ActiveModel {
+        id: Set(generate_id("hrasg")),
+        employee_id: Set(employee_id),
+        company_id: Set(company_id),
+        role: Set(input.role.as_set().cloned()),
+        allocation_percent: Set(input.allocation_percent.as_set().copied().unwrap_or(100.0)),
+        is_primary: Set(input.is_primary.as_set().copied().unwrap_or(false)),
+        start_date: Set(pg_date(&start_date)?),
+        end_date: Set(pg_date_opt(end_date.as_deref())?),
+        notes: Set(input.notes.as_set().cloned()),
+        created_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row = js_row(row);
+    let row = to_json(row)?;
     emit_assignment(&caller, &state, HR_CLIENT_ASSIGNMENT_CREATED, &row);
     Ok(Created(row).into_response())
 }
@@ -400,40 +452,35 @@ async fn edit(
     if input.is_primary.as_set() == Some(&true) {
         clear_primary(db, text(&existing, "employeeId"), Some(&id)).await?;
     }
-    let (set_role, role) = change(&input.role);
-    let (set_alloc, alloc) = change(&input.allocation_percent);
-    let (set_primary, primary) = change(&input.is_primary);
-    let (set_start, start) = change(&input.start_date);
-    let (set_end, end) = change(&input.end_date);
-    let (set_notes, notes) = change(&input.notes);
-    let row: Value = sqlx::query_scalar(
-        "update hr_client_assignments set
-             role = case when $2 then $3 else role end,
-             allocation_percent = case when $4 then $5 else allocation_percent end,
-             is_primary = case when $6 then $7 else is_primary end,
-             start_date = case when $8 then $9::date else start_date end,
-             end_date = case when $10 then $11::date else end_date end,
-             notes = case when $12 then $13 else notes end,
-             updated_at = $14::timestamp
-         where id = $1 returning to_jsonb(hr_client_assignments)",
-    )
-    .bind(&id)
-    .bind(set_role)
-    .bind(role)
-    .bind(set_alloc)
-    .bind(alloc)
-    .bind(set_primary)
-    .bind(primary)
-    .bind(set_start)
-    .bind(start)
-    .bind(set_end)
-    .bind(end)
-    .bind(set_notes)
-    .bind(notes)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let mut update = assignments::Entity::update_many();
+    if let (true, role) = change(&input.role) {
+        update = update.col_expr(assignments::Column::Role, Expr::value(role));
+    }
+    if let (true, alloc) = change(&input.allocation_percent) {
+        update = update.col_expr(assignments::Column::AllocationPercent, Expr::value(alloc));
+    }
+    if let (true, primary) = change(&input.is_primary) {
+        update = update.col_expr(assignments::Column::IsPrimary, Expr::value(primary));
+    }
+    if let (true, start) = change(&input.start_date) {
+        let start = pg_date_opt(start.as_deref())?;
+        update = update.col_expr(assignments::Column::StartDate, Expr::value(start));
+    }
+    if let (true, end) = change(&input.end_date) {
+        let end = pg_date_opt(end.as_deref())?;
+        update = update.col_expr(assignments::Column::EndDate, Expr::value(end));
+    }
+    if let (true, notes) = change(&input.notes) {
+        update = update.col_expr(assignments::Column::Notes, Expr::value(notes));
+    }
+    let row = update
+        .col_expr(assignments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(assignments::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_client_assignments"))?;
+    let row = to_json(row)?;
     emit_assignment(&caller, &state, HR_CLIENT_ASSIGNMENT_UPDATED, &row);
     Ok(Data(row).into_response())
 }
@@ -442,9 +489,8 @@ async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
     let existing = require_assignment(&caller.db, &id).await?;
     // deleteAssignment looks the row up again before deleting it.
     require_assignment(&caller.db, &id).await?;
-    sqlx::query("delete from hr_client_assignments where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    assignments::Entity::delete_by_id(id.clone())
+        .exec(&orm(&caller.db))
         .await?;
     emit_assignment(&caller, &state, HR_CLIENT_ASSIGNMENT_DELETED, &existing);
     Ok(NoContent.into_response())
@@ -456,15 +502,18 @@ pub(crate) async fn end_assignments_for(
     employee_id: &str,
     end_date: &str,
 ) -> Result<(), HrError> {
-    sqlx::query(
-        "update hr_client_assignments set end_date = $2::date, updated_at = $3::timestamp
-         where employee_id = $1 and (end_date is null or end_date > $2::date)",
-    )
-    .bind(employee_id)
-    .bind(end_date)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let end_date = pg_date(end_date)?;
+    assignments::Entity::update_many()
+        .col_expr(assignments::Column::EndDate, Expr::value(end_date))
+        .col_expr(assignments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(assignments::Column::EmployeeId.eq(employee_id))
+        .filter(
+            Condition::any()
+                .add(assignments::Column::EndDate.is_null())
+                .add(assignments::Column::EndDate.gt(end_date)),
+        )
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -474,26 +523,51 @@ pub(crate) async fn list_client_accounts(
     db: &PgPool,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let today = today_iso();
-    let rows: Vec<(String, i64, i64, f64)> = sqlx::query_as(
-        "select a.company_id,
-                count(*) filter (where a.start_date <= $1::date and (a.end_date is null or a.end_date >= $1::date)),
-                count(distinct a.employee_id),
-                (coalesce(sum(a.allocation_percent) filter (where a.start_date <= $1::date
-                     and (a.end_date is null or a.end_date >= $1::date)), 0) / 100.0)::float8
-         from hr_client_assignments a
-         join hr_employees e on e.id = a.employee_id
-         join companies c on c.id = a.company_id
-         where e.deleted_at is null and c.deleted_at is null
-           and ($2::text[] is null or e.legal_entity_id = any($2)
-                or ($3::boolean and e.legal_entity_id is null))
-         group by a.company_id",
-    )
-    .bind(&today)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let day = pg_date(&today_iso())?;
+    let allocated = || {
+        Expr::from(Func::sum(Expr::case(
+            running_on(day),
+            Expr::col((assignments::Entity, assignments::Column::AllocationPercent)),
+        )))
+    };
+    // `coalesce(sum(…) filter (…), 0)`; divided by 100 below, as `::float8`.
+    let rows: Vec<(String, i64, i64, f64)> = assignments::Entity::find()
+        .select_only()
+        .column(assignments::Column::CompanyId)
+        .column_as(
+            Expr::from(Func::count(Expr::case(running_on(day), 1))),
+            "active",
+        )
+        .column_as(
+            Expr::from(Func::count_distinct(Expr::col((
+                assignments::Entity,
+                assignments::Column::EmployeeId,
+            )))),
+            "total",
+        )
+        .column_as(
+            Expr::from(Func::coalesce([allocated(), Expr::val(0.0_f64)])),
+            "allocated",
+        )
+        .join(JoinType::InnerJoin, with_employee())
+        .join(
+            JoinType::InnerJoin,
+            assignments::Entity::belongs_to(companies::Entity)
+                .from(assignments::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(companies::Column::DeletedAt.is_null())
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .group_by(assignments::Column::CompanyId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let rows: Vec<(String, i64, i64, f64)> = rows
+        .into_iter()
+        .map(|(company, active, total, allocated)| (company, active, total, allocated / 100.0))
+        .collect();
     let refs: Vec<Option<&str>> = rows.iter().map(|row| Some(row.0.as_str())).collect();
     let names = company_names(db, &refs).await?;
     let mut out: Vec<(String, Value)> = rows

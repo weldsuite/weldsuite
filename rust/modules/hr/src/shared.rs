@@ -81,6 +81,14 @@ pub(crate) fn today_iso() -> String {
     iso_date(OffsetDateTime::now_utc().date())
 }
 
+/// `$n::date` of a `YYYY-MM-DD` text (the routes check the shape): a day that
+/// doesn't exist fails the statement, as Postgres refused it.
+pub(crate) fn sql_date(text: &str) -> Result<Date, DbErr> {
+    parse_date(text)
+        .filter(|day| day.year() >= 1)
+        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type date: \"{text}\"")))
+}
+
 /// `YYYY-MM-DD`.
 pub(crate) fn iso_date(date: Date) -> String {
     format!(
@@ -383,15 +391,6 @@ pub(crate) fn js_number(x: f64) -> Value {
 /// `Number(text)`.
 pub(crate) fn js_number_of(text: &str) -> f64 {
     weldsuite_kit::validation::js_number(text)
-}
-
-/// A `to_jsonb` timestamp as Drizzle hands a `Date` to `JSON.stringify`;
-/// `null` for none.
-pub(crate) fn js_time(value: &Value) -> Value {
-    value
-        .as_str()
-        .and_then(weldsuite_db::js_timestamp)
-        .map_or(Value::Null, Value::String)
 }
 
 #[cfg(test)]

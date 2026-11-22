@@ -8,17 +8,24 @@ use axum::Router;
 use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Order, SelectStatement};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::INVENTORY_READ;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::js_date_iso;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::activity_logs::{Column, Entity};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_body, sliced};
+use crate::args::{
+    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced,
+    table_count, table_rows, timestamp_of,
+};
 use crate::crud::cursor_failed;
-use crate::js::{js_limit, query_param, query_set, sql_limit, sql_limit_of};
+use crate::js::{js_limit, query_param, query_set, sql_limit_of};
 use crate::tables::ACTIVITY_LOGS;
 use crate::{Caller, StashState, internal};
 
@@ -38,36 +45,27 @@ where
         .route("/recent", get(recent).route_layer(read()))
 }
 
-macro_rules! conditions {
-    () => {
-        "(not $1::boolean or (t.description like $2 or t.entity_id like $2)) \
-         and (not $3::boolean or t.activity_type = $4) and (not $5::boolean or t.entity_type = $6) \
-         and (not $7::boolean or t.entity_id = $8) and (not $9::boolean or t.user_id = $10) \
-         and (not $11::boolean or t.warehouse_id = $12) \
-         and (not $13::boolean or t.created_at >= $14::timestamp) \
-         and (not $15::boolean or t.created_at <= $16::timestamp) \
-         and (not $17::boolean or (t.created_at < $18::timestamp or (t.created_at = $18::timestamp and t.id < $19)))"
-    };
+/// `count(*)` of the rows of `activity_type`.
+fn of_type(activity_type: &str) -> Expr {
+    Func::count(Expr::case(Column::ActivityType.eq(activity_type), 1)).into()
 }
 
-const LIST_SQL: &str = concat!(
-    "select to_jsonb(t) from activity_logs t where ",
-    conditions!(),
-    " order by t.created_at desc, t.id desc limit $20"
-);
-
-const COUNT_SQL: &str = concat!("select count(*) from activity_logs t where ", conditions!());
-
-const COUNTS_SQL: &str = "select jsonb_build_object('total', count(*)::int, \
-    'create', count(*) filter (where t.activity_type = 'create')::int, \
-    'update', count(*) filter (where t.activity_type = 'update')::int, \
-    'delete', count(*) filter (where t.activity_type = 'delete')::int, \
-    'receive', count(*) filter (where t.activity_type = 'receive')::int, \
-    'ship', count(*) filter (where t.activity_type = 'ship')::int, \
-    'pick', count(*) filter (where t.activity_type = 'pick')::int, \
-    'pack', count(*) filter (where t.activity_type = 'pack')::int, \
-    'adjust', count(*) filter (where t.activity_type = 'adjust')::int, \
-    'transfer', count(*) filter (where t.activity_type = 'transfer')::int) from activity_logs t";
+/// The counts per activity type of the whole log.
+async fn counts(db: &PgPool) -> Result<Value, DbErr> {
+    let mut select = Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total");
+    for kind in [
+        "create", "update", "delete", "receive", "ship", "pick", "pack", "adjust", "transfer",
+    ] {
+        select = select.column_as(of_type(kind), kind);
+    }
+    Ok(select
+        .into_json()
+        .one(&orm(db))
+        .await?
+        .unwrap_or_else(|| json!({})))
+}
 
 /// A filter that is set and not `all`.
 fn set_not_all(query: Option<&str>, name: &str) -> Option<String> {
@@ -87,18 +85,12 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let message = "Failed to list activity logs";
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 50.0, 100.0);
-    let search = query_set(query, "search").map(|search| format!("%{search}%"));
-    let activity_type = set_not_all(query, "activityType");
-    let entity_type = set_not_all(query, "entityType");
-    let entity_id = query_set(query, "entityId");
-    let user_id = query_set(query, "userId");
-    let warehouse = set_not_all(query, "warehouseId");
     let from = date_filter(query, "dateFrom");
     let to = date_filter(query, "dateTo");
     let cursor_given = query_set(query, "cursor");
     let cursor = match &cursor_given {
         Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("activity_logs"), cursor).await {
+            match cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, cursor).await {
                 Ok(cursor) => cursor,
                 Err(error) => return cursor_failed(&error),
             }
@@ -108,57 +100,58 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let (Ok(from), Ok(to)) = (from, to) else {
         return internal(&"Invalid time value", message);
     };
-    let texts = [
+    let read = async {
+        let slots = list_conditions(query, from.as_deref(), to.as_deref(), cursor.as_ref())?;
+        let on = pushed(&slots);
+        let count_on = sliced(on.clone(), cursor_given.is_some());
+        let mut page = ACTIVITY_LOGS.entity.select();
+        page.cond_where(all_on(&slots, &on))
+            .order_by((Entity, Column::CreatedAt), Order::Desc)
+            .order_by((Entity, Column::Id), Order::Desc);
+        limit_plus_one(&mut page, limit);
+        let mut counted = ACTIVITY_LOGS.entity.select();
+        counted.cond_where(all_on(&slots, &count_on));
+        let rows = table_rows(&caller.db, &ACTIVITY_LOGS, &page).await?;
+        let total = table_count(&caller.db, &ACTIVITY_LOGS, &counted).await?;
+        let counts = counts(&caller.db).await?;
+        Ok::<_, DbErr>((rows, total, counts))
+    };
+    match read.await {
+        Ok((rows, total, counts)) => page_body(rows, limit, total, "counts", counts),
+        Err(error) => internal(&error, message),
+    }
+}
+
+/// The list's conditions in push order: search, activity type, entity
+/// type, entity, user, warehouse, from, to, then the cursor.
+fn list_conditions(
+    query: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
+    cursor: Option<&CursorRow>,
+) -> Result<Vec<Option<Condition>>, DbErr> {
+    let eq = |value: Option<String>, column: Column| {
+        value.map(|value| Condition::all().add(column.eq(value)))
+    };
+    let search = query_set(query, "search").map(|search| {
+        let term = format!("%{search}%");
+        Condition::any()
+            .add(Column::Description.like(term.as_str()))
+            .add(Column::EntityId.like(term.as_str()))
+    });
+    let from = from.map(timestamp_of).transpose()?;
+    let to = to.map(timestamp_of).transpose()?;
+    Ok(vec![
         search,
-        activity_type,
-        entity_type,
-        entity_id,
-        user_id,
-        warehouse,
-        from,
-        to,
-    ];
-    let mut on: Vec<bool> = texts.iter().map(Option::is_some).collect();
-    on.push(cursor.is_some());
-    let args = |on: &[bool]| {
-        let mut args = Vec::new();
-        for (value, on) in texts.iter().zip(on) {
-            args.push(Arg::Bool(*on));
-            args.push(Arg::Text(value.clone()));
-        }
-        args.push(Arg::Bool(on[texts.len()]));
-        args.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-        args.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-        args
-    };
-    let mut page = args(&on);
-    page.push(Arg::Int(sql_limit(limit)));
-    let count_on = sliced(on.clone(), cursor_given.is_some());
-    let rows: Vec<Value> = match bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(error) => return internal(&error, message),
-    };
-    let total: i64 = match bind_scalar(sqlx::query_scalar(COUNT_SQL), args(&count_on))
-        .fetch_one(&caller.db)
-        .await
-    {
-        Ok(total) => total,
-        Err(error) => return internal(&error, message),
-    };
-    let counts: Value = match sqlx::query_scalar(COUNTS_SQL).fetch_one(&caller.db).await {
-        Ok(counts) => counts,
-        Err(error) => return internal(&error, message),
-    };
-    page_body(
-        rows.into_iter().map(|row| ACTIVITY_LOGS.js(row)).collect(),
-        limit,
-        total,
-        "counts",
-        counts,
-    )
+        eq(set_not_all(query, "activityType"), Column::ActivityType),
+        eq(set_not_all(query, "entityType"), Column::EntityType),
+        eq(query_set(query, "entityId"), Column::EntityId),
+        eq(query_set(query, "userId"), Column::UserId),
+        eq(set_not_all(query, "warehouseId"), Column::WarehouseId),
+        from.map(|from| Condition::all().add(Column::CreatedAt.gte(from))),
+        to.map(|to| Condition::all().add(Column::CreatedAt.lte(to))),
+        cursor.map(|cursor| before(Column::CreatedAt, Column::Id, cursor)),
+    ])
 }
 
 async fn summary(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -173,29 +166,31 @@ async fn summary(caller: Caller, RawQuery(query): RawQuery) -> Response {
         _ => 7,
     };
     let start = now - time::Duration::days(days);
-    let (start, end) = (iso_timestamp(start), iso_timestamp(now));
-    let row: Result<Value, _> = sqlx::query_scalar(
-        "select jsonb_build_object('totalActivities', count(*)::int, \
-         'receives', count(*) filter (where t.activity_type = 'receive')::int, \
-         'shipments', count(*) filter (where t.activity_type = 'ship')::int, \
-         'picks', count(*) filter (where t.activity_type = 'pick')::int, \
-         'packs', count(*) filter (where t.activity_type = 'pack')::int, \
-         'adjustments', count(*) filter (where t.activity_type = 'adjust')::int, \
-         'transfers', count(*) filter (where t.activity_type = 'transfer')::int, \
-         'uniqueUsers', count(distinct t.user_id)::int) from activity_logs t \
-         where t.created_at >= $1::timestamp and (not $2::boolean or t.warehouse_id = $3)",
-    )
-    .bind(&start)
-    .bind(warehouse.is_some())
-    .bind(warehouse)
-    .fetch_one(&caller.db)
-    .await;
-    match row {
-        Ok(Value::Object(counts)) => {
+    let mut select = Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "totalActivities");
+    for (key, kind) in [
+        ("receives", "receive"),
+        ("shipments", "ship"),
+        ("picks", "pick"),
+        ("packs", "pack"),
+        ("adjustments", "adjust"),
+        ("transfers", "transfer"),
+    ] {
+        select = select.column_as(of_type(kind), key);
+    }
+    let mut select = select
+        .column_as(Expr::from(Func::count_distinct(Expr::col(Column::UserId))), "uniqueUsers")
+        .filter(Column::CreatedAt.gte(utc_timestamp(start)));
+    if let Some(warehouse) = warehouse {
+        select = select.filter(Column::WarehouseId.eq(warehouse));
+    }
+    match select.into_json().one(&orm(&caller.db)).await {
+        Ok(Some(Value::Object(counts))) => {
             let mut body = Map::new();
             body.insert("period".to_owned(), json!(period));
-            body.insert("startDate".to_owned(), json!(start));
-            body.insert("endDate".to_owned(), json!(end));
+            body.insert("startDate".to_owned(), json!(iso_timestamp(start)));
+            body.insert("endDate".to_owned(), json!(iso_timestamp(now)));
             body.extend(counts);
             Data(Value::Object(body)).into_response()
         }
@@ -214,14 +209,22 @@ fn plain_limit(query: Option<&str>, fallback: f64, max: f64) -> Option<i64> {
     ))
 }
 
-fn rows_of(rows: Result<Vec<Value>, sqlx::Error>, message: &str) -> Response {
+/// The newest rows a statement built on the log's `select()` matches,
+/// `limit` of them.
+async fn newest(db: &PgPool, condition: Condition, limit: Option<i64>) -> Result<Vec<Value>, DbErr> {
+    let mut select: SelectStatement = ACTIVITY_LOGS.entity.select();
+    select
+        .cond_where(condition)
+        .order_by((Entity, Column::CreatedAt), Order::Desc);
+    if let Some(limit) = limit {
+        select.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    table_rows(db, &ACTIVITY_LOGS, &select).await
+}
+
+fn rows_of(rows: Result<Vec<Value>, DbErr>, message: &str) -> Response {
     match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
-                .map(|row| ACTIVITY_LOGS.js(row))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, message),
     }
 }
@@ -231,39 +234,39 @@ async fn entity(
     Path((entity_type, entity_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let rows = sqlx::query_scalar(
-        "select to_jsonb(t) from activity_logs t where t.entity_type = $1 and t.entity_id = $2 \
-         order by t.created_at desc limit $3",
+    let condition = Condition::all()
+        .add(Column::EntityType.eq(entity_type))
+        .add(Column::EntityId.eq(entity_id));
+    let rows = newest(
+        &caller.db,
+        condition,
+        plain_limit(query.as_deref(), 50.0, 100.0),
     )
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(plain_limit(query.as_deref(), 50.0, 100.0))
-    .fetch_all(&caller.db)
     .await;
     rows_of(rows, "Failed to fetch entity activity")
 }
 
 async fn user(caller: Caller, Path(user_id): Path<String>, RawQuery(query): RawQuery) -> Response {
-    let rows = sqlx::query_scalar(
-        "select to_jsonb(t) from activity_logs t where t.user_id = $1 order by t.created_at desc limit $2",
+    let condition = Condition::all().add(Column::UserId.eq(user_id));
+    let rows = newest(
+        &caller.db,
+        condition,
+        plain_limit(query.as_deref(), 50.0, 100.0),
     )
-    .bind(user_id)
-    .bind(plain_limit(query.as_deref(), 50.0, 100.0))
-    .fetch_all(&caller.db)
     .await;
     rows_of(rows, "Failed to fetch user activity")
 }
 
 async fn recent(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let warehouse = set_not_all(query.as_deref(), "warehouseId");
-    let rows = sqlx::query_scalar(
-        "select to_jsonb(t) from activity_logs t where (not $1::boolean or t.warehouse_id = $2) \
-         order by t.created_at desc limit $3",
+    let condition = warehouse.map_or_else(Condition::all, |warehouse| {
+        Condition::all().add(Column::WarehouseId.eq(warehouse))
+    });
+    let rows = newest(
+        &caller.db,
+        condition,
+        plain_limit(query.as_deref(), 20.0, 50.0),
     )
-    .bind(warehouse.is_some())
-    .bind(warehouse)
-    .bind(plain_limit(query.as_deref(), 20.0, 50.0))
-    .fetch_all(&caller.db)
     .await;
     rows_of(rows, "Failed to fetch recent activity")
 }

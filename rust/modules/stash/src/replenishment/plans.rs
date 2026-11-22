@@ -18,22 +18,32 @@ use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, NullOrdering};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType,
+    Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Map, Value, json};
 use time::{Date, Duration, OffsetDateTime};
 use weldsuite_catalogs::permission_keys::{INVENTORY_READ, INVENTORY_UPDATE};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data, List, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    product_suppliers, product_variants, products, stash_item_plans as plans, stash_reorder_rules,
+    suppliers, warehouses,
+};
 
 use super::demand::{Item, Planning, plan_items, ymd};
-use super::routes::{limit_param, rule_row};
-use super::settings::{demand_warehouse, load_settings};
+use super::routes::limit_param;
+use super::settings::{demand_warehouse, load_settings, model_json};
 use crate::incoming::parse_date;
 use crate::inventory::date_field;
 use crate::js::query_set;
 use crate::po_actions::or_empty_object;
-use crate::{Caller, Refusal, StashState, internal, now, validate};
+use crate::{Caller, Refusal, StashState, internal, validate};
 
 const RESOURCE: &str = "Plan";
 
@@ -59,66 +69,269 @@ where
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/// A plan with its names, as `{ row, …joined }`.
-macro_rules! plan_select {
-    () => {
-        "select jsonb_build_object('row', to_jsonb(t) || jsonb_build_object( \
-           'avg_daily_demand', t.avg_daily_demand::text, 'demand_std_dev', t.demand_std_dev::text, \
-           'forecast_30d', t.forecast_30d::text, 'forecast_90d', t.forecast_90d::text, \
-           'service_level', t.service_level::text, 'days_of_cover', t.days_of_cover::text, \
-           'suggested_value', t.suggested_value::text), \
-         'productName', p.name, 'productSku', coalesce(nullif(v.sku, ''), p.sku), \
-         'variantName', v.name, 'warehouseName', w.name, \
-         'warehouseManagedByConnectionId', w.managed_by_connection_id, \
-         'supplierName', s.name, 'currency', coalesce(ps.currency, s.currency), \
-         'unitCost', coalesce(ps.unit_cost, v.cost_price, p.cost_price)::text, \
-         'minOrderQty', ps.min_order_qty, 'orderMultiple', ps.order_multiple, \
-         'sortName', coalesce(p.name, '')) "
-    };
+/// `leftJoin(<table>, eq(<table>.id, t.<column>))`.
+fn left_join<E: EntityTrait>(related: E, from: plans::Column, to: E::Column) -> RelationDef {
+    plans::Entity::belongs_to(related).from(from).to(to).into()
 }
 
-/// The joins and filters, at `$1`–`$9`: the id, needs reorder, review
-/// status, supplier, warehouse, confidence, urgency, today, search.
-macro_rules! plan_from {
-    () => {
-        "from stash_item_plans t \
-         left join products p on p.id = t.product_id \
-         left join product_variants v on v.id = t.variant_id \
-         left join warehouses w on w.id = t.warehouse_id \
-         left join product_suppliers ps on ps.id = t.product_supplier_id and ps.deleted_at is null \
-         left join suppliers s on s.id = t.supplier_id \
-         where ($1::text is null or t.id = $1) \
-         and ($2::boolean is not true or (t.suggested_qty > 0 and t.review_status = 'open')) \
-         and ($3::text is null or t.review_status = $3) \
-         and ($4::text is null or t.supplier_id = $4) \
-         and ($5::text is null or t.warehouse_id = $5) \
-         and ($6::text is null or t.confidence = $6) \
-         and ($7::text is null \
-              or ($7::text = 'out_of_stock' and t.on_hand - t.allocated <= 0) \
-              or ($7::text = 'lead_time' and t.stockout_date <= $8::date + coalesce(t.lead_time_days, 0)) \
-              or ($7::text = 'review' and t.stockout_date <= $8::date + coalesce(t.lead_time_days, 0) \
-                  + coalesce(t.review_period_days, 0))) \
-         and ($9::text is null or strpos(lower(coalesce(p.name, '')), lower($9)) > 0 \
-              or strpos(lower(coalesce(p.sku, '')), lower($9)) > 0 \
-              or strpos(lower(coalesce(v.name, '')), lower($9)) > 0 \
-              or strpos(lower(coalesce(v.sku, '')), lower($9)) > 0) "
-    };
+/// The plans with the products, variants, warehouses, live product
+/// suppliers and suppliers they name.
+fn joined() -> Select<plans::Entity> {
+    let product_supplier = plans::Entity::belongs_to(product_suppliers::Entity)
+        .from(plans::Column::ProductSupplierId)
+        .to(product_suppliers::Column::Id)
+        .on_condition(|_, right| {
+            Condition::all().add(sea_orm::ExprTrait::is_null(Expr::col((
+                right,
+                product_suppliers::Column::DeletedAt,
+            ))))
+        })
+        .into();
+    plans::Entity::find()
+        .join(
+            JoinType::LeftJoin,
+            left_join(products::Entity, plans::Column::ProductId, products::Column::Id),
+        )
+        .join(
+            JoinType::LeftJoin,
+            left_join(
+                product_variants::Entity,
+                plans::Column::VariantId,
+                product_variants::Column::Id,
+            ),
+        )
+        .join(
+            JoinType::LeftJoin,
+            left_join(
+                warehouses::Entity,
+                plans::Column::WarehouseId,
+                warehouses::Column::Id,
+            ),
+        )
+        .join(JoinType::LeftJoin, product_supplier)
+        .join(
+            JoinType::LeftJoin,
+            left_join(
+                suppliers::Entity,
+                plans::Column::SupplierId,
+                suppliers::Column::Id,
+            ),
+        )
 }
 
-/// A page: `$10`–`$14` are the cursor (given, stockout date, name, id) and
-/// the limit.
-const LIST: &str = concat!(
-    plan_select!(),
-    plan_from!(),
-    "and ($10::boolean is not true or (case when $11::date is null \
-       then t.stockout_date is null and (coalesce(p.name, ''), t.id) > ($12::text, $13::text) \
-       else (t.stockout_date > $11::date or t.stockout_date is null \
-             or (t.stockout_date = $11::date and (coalesce(p.name, ''), t.id) > ($12::text, $13::text))) \
-       end)) \
-     order by t.stockout_date asc nulls last, coalesce(p.name, '') asc, t.id asc limit $14"
-);
+/// `coalesce(p.name, '')`, the list's sort name.
+fn sort_name() -> Expr {
+    Func::coalesce([
+        Expr::col((products::Entity, products::Column::Name)),
+        Expr::val(""),
+    ])
+    .into()
+}
 
-const COUNT: &str = concat!("select count(*) ", plan_from!());
+/// `strpos(lower(coalesce(<column>, '')), lower($search)) > 0`.
+fn contains_text(column: Expr, search: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::from(
+        Func::cust("strpos")
+            .arg(Func::lower(Func::coalesce([column, Expr::val("")])))
+            .arg(Func::lower(Expr::val(search))),
+    )
+    .gt(0)
+}
+
+/// The list's filters, `today` for the urgency.
+fn conditions(filters: &Filters, today: Date) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let col = |column: plans::Column| Expr::col((plans::Entity, column));
+    let mut condition = Condition::all();
+    if let Some(id) = &filters.id {
+        condition = condition.add(plans::Column::Id.eq(id.as_str()));
+    }
+    if filters.needs_reorder {
+        condition = condition
+            .add(plans::Column::SuggestedQty.gt(0))
+            .add(plans::Column::ReviewStatus.eq("open"));
+    }
+    for (value, column) in [
+        (&filters.status, plans::Column::ReviewStatus),
+        (&filters.supplier_id, plans::Column::SupplierId),
+        (&filters.warehouse_id, plans::Column::WarehouseId),
+        (&filters.confidence, plans::Column::Confidence),
+    ] {
+        if let Some(value) = value {
+            condition = condition.add(column.eq(value.as_str()));
+        }
+    }
+    // `$today::date + coalesce(lead_time_days, 0)`.
+    let lead_time_end = || {
+        Expr::val(today).add(Func::coalesce([
+            col(plans::Column::LeadTimeDays),
+            Expr::val(0),
+        ]))
+    };
+    match filters.urgency.as_deref() {
+        Some("out_of_stock") => {
+            condition = condition.add(
+                col(plans::Column::OnHand)
+                    .sub(col(plans::Column::Allocated))
+                    .lte(0),
+            );
+        }
+        Some("lead_time") => {
+            condition = condition.add(col(plans::Column::StockoutDate).lte(lead_time_end()));
+        }
+        Some("review") => {
+            condition = condition.add(
+                col(plans::Column::StockoutDate).lte(lead_time_end().add(Func::coalesce([
+                    col(plans::Column::ReviewPeriodDays),
+                    Expr::val(0),
+                ]))),
+            );
+        }
+        _ => {}
+    }
+    if let Some(search) = &filters.search {
+        condition = condition.add(
+            Condition::any()
+                .add(contains_text(
+                    Expr::col((products::Entity, products::Column::Name)),
+                    search,
+                ))
+                .add(contains_text(
+                    Expr::col((products::Entity, products::Column::Sku)),
+                    search,
+                ))
+                .add(contains_text(
+                    Expr::col((product_variants::Entity, product_variants::Column::Name)),
+                    search,
+                ))
+                .add(contains_text(
+                    Expr::col((product_variants::Entity, product_variants::Column::Sku)),
+                    search,
+                )),
+        );
+    }
+    condition
+}
+
+/// After `cursor` in the list's order: `(stockoutDate nulls last, sortName,
+/// id)`.
+fn after(cursor: &Cursor) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let stockout = || Expr::col((plans::Entity, plans::Column::StockoutDate));
+    let later_name = Expr::tuple([sort_name(), Expr::col((plans::Entity, plans::Column::Id))])
+        .gt(Expr::tuple([
+            Expr::val(cursor.name.as_str()),
+            Expr::val(cursor.id.as_str()),
+        ]));
+    match &cursor.stockout_date {
+        None => Condition::all().add(stockout().is_null()).add(later_name),
+        Some(day) => {
+            let day = || Expr::val(day.as_str()).cast_as("date");
+            Condition::any()
+                .add(stockout().gt(day()))
+                .add(stockout().is_null())
+                .add(Condition::all().add(stockout().eq(day())).add(later_name))
+        }
+    }
+}
+
+/// A plan with the names and terms the list shows.
+#[derive(Debug, FromQueryResult)]
+struct Joined {
+    #[sea_orm(nested)]
+    plan: plans::Model,
+    joined_product_name: Option<String>,
+    joined_product_sku: Option<String>,
+    joined_variant_name: Option<String>,
+    joined_warehouse_name: Option<String>,
+    joined_warehouse_managed_by: Option<String>,
+    joined_supplier_name: Option<String>,
+    joined_currency: Option<String>,
+    joined_unit_cost: Option<String>,
+    joined_min_order_qty: Option<i32>,
+    joined_order_multiple: Option<i32>,
+    joined_sort_name: String,
+}
+
+impl Joined {
+    /// `select({ row: t, productName: p.name, … })`.
+    fn query(filters: &Filters, today: Date) -> Select<plans::Entity> {
+        use sea_orm::ExprTrait as _;
+        let unit_cost = Func::coalesce([
+            Expr::col((product_suppliers::Entity, product_suppliers::Column::UnitCost)),
+            Expr::col((product_variants::Entity, product_variants::Column::CostPrice)),
+            Expr::col((products::Entity, products::Column::CostPrice)),
+        ]);
+        joined()
+            .column_as(products::Column::Name, "joined_product_name")
+            .column_as(
+                Expr::from(Func::coalesce([
+                    Expr::from(
+                        Func::cust("nullif")
+                            .arg(Expr::col((
+                                product_variants::Entity,
+                                product_variants::Column::Sku,
+                            )))
+                            .arg(""),
+                    ),
+                    Expr::col((products::Entity, products::Column::Sku)),
+                ])),
+                "joined_product_sku",
+            )
+            .column_as(product_variants::Column::Name, "joined_variant_name")
+            .column_as(warehouses::Column::Name, "joined_warehouse_name")
+            .column_as(
+                warehouses::Column::ManagedByConnectionId,
+                "joined_warehouse_managed_by",
+            )
+            .column_as(suppliers::Column::Name, "joined_supplier_name")
+            .column_as(
+                Expr::from(Func::coalesce([
+                    Expr::col((product_suppliers::Entity, product_suppliers::Column::Currency)),
+                    Expr::col((suppliers::Entity, suppliers::Column::Currency)),
+                ])),
+                "joined_currency",
+            )
+            .column_as(Expr::from(unit_cost).cast_as("text"), "joined_unit_cost")
+            .column_as(
+                product_suppliers::Column::MinOrderQty,
+                "joined_min_order_qty",
+            )
+            .column_as(
+                product_suppliers::Column::OrderMultiple,
+                "joined_order_multiple",
+            )
+            .column_as(sort_name(), "joined_sort_name")
+            .filter(conditions(filters, today))
+    }
+
+    /// `{ ...row, productName, … }`, and the row's sort name.
+    fn into_item(self) -> Result<(Value, String), DbErr> {
+        let mut row = match model_json!(&self.plan)? {
+            Value::Object(row) => row,
+            _ => Map::new(),
+        };
+        for (key, value) in [
+            ("productName", json!(self.joined_product_name)),
+            ("productSku", json!(self.joined_product_sku)),
+            ("variantName", json!(self.joined_variant_name)),
+            ("warehouseName", json!(self.joined_warehouse_name)),
+            (
+                "warehouseManagedByConnectionId",
+                json!(self.joined_warehouse_managed_by),
+            ),
+            ("supplierName", json!(self.joined_supplier_name)),
+            ("currency", json!(self.joined_currency)),
+            ("unitCost", json!(self.joined_unit_cost)),
+            ("minOrderQty", json!(self.joined_min_order_qty)),
+            ("orderMultiple", json!(self.joined_order_multiple)),
+        ] {
+            row.insert(key.to_owned(), value);
+        }
+        Ok((Value::Object(row), self.joined_sort_name))
+    }
+}
 
 /// The filters of a list (all `None` for a lookup by id).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -168,66 +381,34 @@ impl Cursor {
     }
 }
 
-/// `{ ...row, productName, … }`, and the row's sort name.
-fn plan_item(joined: &Value) -> (Value, String) {
-    let mut row = match weldsuite_db::js_row(joined.get("row").cloned().unwrap_or(Value::Null)) {
-        Value::Object(row) => row,
-        _ => Map::new(),
-    };
-    for key in [
-        "productName",
-        "productSku",
-        "variantName",
-        "warehouseName",
-        "warehouseManagedByConnectionId",
-        "supplierName",
-        "currency",
-        "unitCost",
-        "minOrderQty",
-        "orderMultiple",
-    ] {
-        row.insert(
-            key.to_owned(),
-            joined.get(key).cloned().unwrap_or(Value::Null),
-        );
-    }
-    let sort_name = joined["sortName"].as_str().unwrap_or_default().to_owned();
-    (Value::Object(row), sort_name)
-}
-
 fn today() -> Date {
     OffsetDateTime::now_utc().date()
 }
 
 /// A page of plans, and the cursor after it.
 async fn page(
-    db: &weldsuite_db::PgPool,
+    db: &DatabaseConnection,
     filters: &Filters,
     cursor: Option<&Cursor>,
     limit: i64,
-) -> Result<(Vec<Value>, Option<String>, bool), sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(LIST)
-        .bind(filters.id.as_deref())
-        .bind(filters.needs_reorder)
-        .bind(filters.status.as_deref())
-        .bind(filters.supplier_id.as_deref())
-        .bind(filters.warehouse_id.as_deref())
-        .bind(filters.confidence.as_deref())
-        .bind(filters.urgency.as_deref())
-        .bind(ymd(today()))
-        .bind(filters.search.as_deref())
-        .bind(cursor.is_some())
-        .bind(cursor.and_then(|cursor| cursor.stockout_date.as_deref()))
-        .bind(cursor.map(|cursor| cursor.name.as_str()))
-        .bind(cursor.map(|cursor| cursor.id.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
+) -> Result<(Vec<Value>, Option<String>, bool), DbErr> {
+    let mut query = Joined::query(filters, today());
+    if let Some(cursor) = cursor {
+        query = query.filter(after(cursor));
+    }
+    let rows = query
+        .order_by_with_nulls(plans::Column::StockoutDate, Order::Asc, NullOrdering::Last)
+        .order_by(sort_name(), Order::Asc)
+        .order_by(plans::Column::Id, Order::Asc)
+        .limit(u64::try_from(limit + 1).ok())
+        .into_model::<Joined>()
+        .all(db)
         .await?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     let mut items = Vec::with_capacity(rows.len());
     let mut next = None;
-    for joined in rows.iter().take(usize::try_from(limit).unwrap_or(0)) {
-        let (item, name) = plan_item(joined);
+    for joined in rows.into_iter().take(usize::try_from(limit).unwrap_or(0)) {
+        let (item, name) = joined.into_item()?;
         next = Some(Cursor {
             stockout_date: item["stockoutDate"].as_str().map(str::to_owned),
             name,
@@ -245,9 +426,9 @@ async fn page(
 
 /// The plan `id` in the list's shape.
 pub(crate) async fn find_plan(
-    db: &weldsuite_db::PgPool,
+    db: &DatabaseConnection,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let filters = Filters {
         id: Some(id.to_owned()),
         ..Filters::default()
@@ -291,23 +472,16 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     let limit = limit_param(query, 50, 200);
     let cursor = query_set(query, "cursor").and_then(|text| Cursor::decode(&text));
-    let total: Result<i64, _> = sqlx::query_scalar(COUNT)
-        .bind(filters.id.as_deref())
-        .bind(filters.needs_reorder)
-        .bind(filters.status.as_deref())
-        .bind(filters.supplier_id.as_deref())
-        .bind(filters.warehouse_id.as_deref())
-        .bind(filters.confidence.as_deref())
-        .bind(filters.urgency.as_deref())
-        .bind(ymd(today()))
-        .bind(filters.search.as_deref())
-        .fetch_one(&caller.db)
+    let db = orm(&caller.db);
+    let total = joined()
+        .filter(conditions(&filters, today()))
+        .count(&db)
         .await;
     let total = match total {
-        Ok(total) => u64::try_from(total).unwrap_or(0),
+        Ok(total) => total,
         Err(error) => return internal(&error, FAILED),
     };
-    match page(&caller.db, &filters, cursor.as_ref(), limit).await {
+    match page(&db, &filters, cursor.as_ref(), limit).await {
         Ok((items, next, has_more)) => {
             List::new(items, Pagination::new(total, has_more, next)).into_response()
         }
@@ -317,32 +491,32 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch plan";
-    match plan_detail(&caller.db, &id).await {
+    match plan_detail(&orm(&caller.db), &caller.db, &id).await {
         Ok(data) => Data(data).into_response(),
         Err(refusal) => refusal.respond(FAILED),
     }
 }
 
 /// `{ plan, rule, productSupplier }`.
-async fn plan_detail(db: &weldsuite_db::PgPool, id: &str) -> Result<Value, Refusal> {
+async fn plan_detail(db: &DatabaseConnection, pool: &PgPool, id: &str) -> Result<Value, Refusal> {
     let Some(plan) = find_plan(db, id).await? else {
         return Err(Refusal::not_found(RESOURCE, id));
     };
-    let rule: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        rule_row!(),
-        " from stash_reorder_rules r where r.item_key = $1"
-    ))
-    .bind(plan["itemKey"].as_str().unwrap_or_default())
-    .fetch_optional(db)
-    .await?;
+    let rule = stash_reorder_rules::Entity::find()
+        .filter(
+            stash_reorder_rules::Column::ItemKey.eq(plan["itemKey"].as_str().unwrap_or_default()),
+        )
+        .one(db)
+        .await?
+        .map(|rule| model_json!(rule))
+        .transpose()?;
     let product_supplier = match plan["productSupplierId"].as_str() {
-        Some(link) => crate::product_suppliers::find_item(db, link).await?,
+        Some(link) => crate::product_suppliers::find_item(pool, link).await?,
         None => None,
     };
     Ok(json!({
         "plan": plan,
-        "rule": rule.map(weldsuite_db::js_row),
+        "rule": rule,
         "productSupplier": product_supplier,
     }))
 }
@@ -413,25 +587,32 @@ async fn demand(caller: Caller, Path(id): Path<String>) -> Response {
 
 /// The item's weekly history and forecast, worked out again from today's
 /// numbers (the forecast as the engine makes it).
-async fn plan_demand(db: &weldsuite_db::PgPool, id: &str) -> Result<Value, Refusal> {
-    let row: Option<(String, Option<String>, String)> = sqlx::query_as(
-        "select product_id, nullif(variant_id, ''), warehouse_id from stash_item_plans where id = $1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+async fn plan_demand(db: &PgPool, id: &str) -> Result<Value, Refusal> {
+    let conn = orm(db);
+    let row: Option<(String, Option<String>, String)> = plans::Entity::find()
+        .select_only()
+        .columns([
+            plans::Column::ProductId,
+            plans::Column::VariantId,
+            plans::Column::WarehouseId,
+        ])
+        .filter(plans::Column::Id.eq(id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((product_id, variant_id, warehouse_id)) = row else {
         return Err(Refusal::not_found(RESOURCE, id));
     };
-    let settings = load_settings(db).await?;
+    let settings = load_settings(&conn).await?;
     let planning = Planning {
         today: today(),
-        demand_warehouse: demand_warehouse(db, &settings).await?,
+        demand_warehouse: demand_warehouse(&conn, &settings).await?,
         settings,
     };
     let item = Item {
         product_id,
-        variant_id,
+        // `nullif(variant_id, '')`.
+        variant_id: variant_id.filter(|variant| !variant.is_empty()),
         warehouse_id,
     };
     let planned = plan_items(db, &planning, vec![item]).await?;
@@ -469,47 +650,71 @@ async fn dismiss(
     };
     let until =
         until.unwrap_or_else(|| iso_timestamp(OffsetDateTime::now_utc() + Duration::days(7)));
-    let changed: Result<Option<String>, _> = sqlx::query_scalar(
-        "update stash_item_plans set review_status = 'dismissed', dismissed_until = $2::timestamp, \
-         dismissed_by = $3, dismissed_qty = suggested_qty, updated_at = $4::timestamp \
-         where id = $1 and review_status <> 'ordered' returning id",
-    )
-    .bind(&id)
-    .bind(&until)
-    .bind(&caller.user_id)
-    .bind(now())
-    .fetch_optional(&caller.db)
-    .await;
-    answer_review(&caller, &id, changed, FAILED).await
+    let db = orm(&caller.db);
+    let changed = {
+        use sea_orm::ExprTrait as _;
+        plans::Entity::update_many()
+            .col_expr(plans::Column::ReviewStatus, Expr::val("dismissed"))
+            // `$2::timestamp`: the date as Postgres reads it.
+            .col_expr(
+                plans::Column::DismissedUntil,
+                Expr::val(until).cast_as("timestamp"),
+            )
+            .col_expr(
+                plans::Column::DismissedBy,
+                Expr::val(caller.user_id.as_str()),
+            )
+            .col_expr(
+                plans::Column::DismissedQty,
+                Expr::col(plans::Column::SuggestedQty),
+            )
+            .col_expr(plans::Column::UpdatedAt, Expr::val(utc_now()))
+            .filter(plans::Column::Id.eq(&id))
+            .filter(plans::Column::ReviewStatus.ne("ordered"))
+            .exec(&db)
+            .await
+            .map(|done| done.rows_affected > 0)
+    };
+    answer_review(&db, &id, changed, FAILED).await
 }
 
 async fn restore(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to restore plan";
-    let changed: Result<Option<String>, _> = sqlx::query_scalar(
-        "update stash_item_plans set review_status = case when suggested_qty > 0 then 'open' \
-         else 'none' end, dismissed_until = null, dismissed_by = null, dismissed_qty = null, \
-         updated_at = $2::timestamp where id = $1 and review_status <> 'ordered' returning id",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_optional(&caller.db)
-    .await;
-    answer_review(&caller, &id, changed, FAILED).await
+    let db = orm(&caller.db);
+    let changed = plans::Entity::update_many()
+        .col_expr(
+            plans::Column::ReviewStatus,
+            Expr::case(plans::Column::SuggestedQty.gt(0), "open")
+                .finally("none")
+                .into(),
+        )
+        .col_expr(
+            plans::Column::DismissedUntil,
+            Expr::val(None::<time::PrimitiveDateTime>),
+        )
+        .col_expr(plans::Column::DismissedBy, Expr::val(None::<String>))
+        .col_expr(plans::Column::DismissedQty, Expr::val(None::<i32>))
+        .col_expr(plans::Column::UpdatedAt, Expr::val(utc_now()))
+        .filter(plans::Column::Id.eq(&id))
+        .filter(plans::Column::ReviewStatus.ne("ordered"))
+        .exec(&db)
+        .await
+        .map(|done| done.rows_affected > 0);
+    answer_review(&db, &id, changed, FAILED).await
 }
 
 /// The plan after a review change; the 400 for an ordered plan, the 404.
 async fn answer_review(
-    caller: &Caller,
+    db: &DatabaseConnection,
     id: &str,
-    changed: Result<Option<String>, sqlx::Error>,
+    changed: Result<bool, DbErr>,
     failed: &str,
 ) -> Response {
     let found = match changed {
-        Ok(Some(_)) => true,
-        Ok(None) => false,
+        Ok(found) => found,
         Err(error) => return internal(&error, failed),
     };
-    match find_plan(&caller.db, id).await {
+    match find_plan(db, id).await {
         Ok(Some(_)) if !found => Refusal::bad_request(ORDERED).respond(failed),
         Ok(Some(plan)) => Data(plan).into_response(),
         Ok(None) => Refusal::not_found(RESOURCE, id).respond(failed),

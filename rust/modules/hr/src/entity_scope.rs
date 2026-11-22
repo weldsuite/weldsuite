@@ -424,4 +424,57 @@ mod tests {
         assert!(named.unassigned());
         assert_eq!(Scope(EntityScopeCondition::Nothing).ids(), Some(Vec::new()));
     }
+
+    #[test]
+    fn the_scope_as_a_condition_matches_the_sql() {
+        use sea_orm::{DbBackend, QueryTrait};
+        use weldsuite_schema::tenant::hr_absences;
+        let employees = |scope: &Scope| {
+            hr_employees::Entity::find()
+                .select_only()
+                .column(hr_employees::Column::Id)
+                .filter(scope.condition(hr_employees::Column::LegalEntityId))
+                .build(DbBackend::Postgres)
+                .to_string()
+        };
+        let absences = |scope: &Scope| {
+            hr_absences::Entity::find()
+                .select_only()
+                .column(hr_absences::Column::Id)
+                .filter(scope.employee_id_in(hr_absences::Column::EmployeeId))
+                .build(DbBackend::Postgres)
+                .to_string()
+        };
+        // No filter: an empty `Condition::all()` (`WHERE TRUE`).
+        for all in [employees(&Scope::ALL), absences(&Scope::ALL)] {
+            assert!(!all.contains(" IN ") && !all.contains("IS NULL"), "{all}");
+        }
+        let nothing = Scope(EntityScopeCondition::Nothing);
+        assert!(employees(&nothing).ends_with("WHERE 1 = 2"));
+        let named = Scope(EntityScopeCondition::In {
+            ids: vec!["ent_a".to_owned()],
+            include_unassigned: true,
+        });
+        assert!(employees(&named).ends_with(
+            r#"WHERE "hr_employees"."legal_entity_id" IN ('ent_a') OR "hr_employees"."legal_entity_id" IS NULL"#
+        ));
+        let by_employee = absences(&named);
+        assert!(
+            by_employee.contains(r#"WHERE "hr_absences"."employee_id" IN (SELECT "#),
+            "{by_employee}"
+        );
+        assert!(
+            by_employee.ends_with(
+                r#"FROM "hr_employees" WHERE "hr_employees"."legal_entity_id" IN ('ent_a') OR "hr_employees"."legal_entity_id" IS NULL)"#
+            ),
+            "{by_employee}"
+        );
+        let only = Scope(EntityScopeCondition::In {
+            ids: vec!["ent_a".to_owned()],
+            include_unassigned: false,
+        });
+        assert!(
+            employees(&only).ends_with(r#"WHERE "hr_employees"."legal_entity_id" IN ('ent_a')"#)
+        );
+    }
 }

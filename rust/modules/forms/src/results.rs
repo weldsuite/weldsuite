@@ -6,18 +6,22 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::js_number_of;
+use weldsuite_schema::tenant::form_responses;
 
-use crate::common::{Ctx, FormsResult, all, day_of, iso, parse_ms, text};
+use crate::common::{Ctx, FormsResult, day_of, instant, iso, parse_ms, row_json, text};
 use crate::counters::Counters;
 use crate::engine::js::{js_round, number_value};
 use crate::engine::{
     Block, EngineInput, Field, FieldKind, FormDefinition, compute_path, display_answer, is_answered,
 };
 use crate::response_model::{
-    Bind, MAX_EXPORT_ROWS, ResponseFilter, VersionInfo, bind_all, field_title, load_versions,
-    response_conditions,
+    MAX_EXPORT_ROWS, ResponseFilter, VersionInfo, field_title, load_versions, response_conditions,
 };
 
 const LATEST: usize = 20;
@@ -350,6 +354,19 @@ fn summarise_field(field: &Field, rows: &[Answered<'_>]) -> Value {
     Value::Object(out)
 }
 
+/// A completed response as the summary reads it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SummaryRow {
+    id: String,
+    answers: Value,
+    #[serde(with = "weldsuite_schema::js::timestamptz::option")]
+    submitted_at: Option<OffsetDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    started_at: OffsetDateTime,
+    score: Option<f64>,
+}
+
 /// `summarise(ctx, formId, query)`: per field of the form (every version,
 /// the newest definition of each), over the completed responses.
 #[allow(clippy::cast_precision_loss)]
@@ -383,19 +400,25 @@ pub(crate) async fn summarise(
         version_id: version_id.map(str::to_owned),
         ..ResponseFilter::default()
     };
-    let mut w = response_conditions(form_id, &filter, &fields)?;
-    let limit = w.param(Bind::Int(MAX_EXPORT_ROWS));
-    let sql = format!(
-        "select jsonb_build_object('id', id, 'answers', answers, 'submitted_at', submitted_at, \
-         'started_at', started_at, 'score', score) from form_responses where {} \
-         order by submitted_at desc limit {limit}",
-        w.sql()
-    );
-    let rows = all(
-        &ctx.db,
-        bind_all(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)), &w.binds),
-    )
-    .await?;
+    let w = response_conditions(form_id, &filter, &fields)?;
+    let rows = form_responses::Entity::find()
+        .select_only()
+        .columns([
+            form_responses::Column::Id,
+            form_responses::Column::Answers,
+            form_responses::Column::SubmittedAt,
+            form_responses::Column::StartedAt,
+            form_responses::Column::Score,
+        ])
+        .filter(w)
+        .order_by_desc(form_responses::Column::SubmittedAt)
+        .limit(u64::try_from(MAX_EXPORT_ROWS).unwrap_or_default())
+        .into_model::<SummaryRow>()
+        .all(&orm(&ctx.db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<FormsResult<Vec<Value>>>()?;
 
     let scores: Vec<f64> = rows.iter().filter_map(|r| r["score"].as_f64()).collect();
     let at_of = |row: &Value| {
@@ -477,6 +500,70 @@ fn stops(version: &VersionInfo) -> Vec<(String, String)> {
         .collect()
 }
 
+/// A response started in the insights range.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InsightRow {
+    status: String,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    started_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz::option")]
+    submitted_at: Option<OffsetDateTime>,
+    duration_ms: Option<i32>,
+    last_block_id: Option<String>,
+    source: Option<String>,
+    version_id: String,
+    answers: Value,
+    hidden: Value,
+}
+
+/// The responses started from `from` to `to`, with their answers only when
+/// `branching` (`'{}'` otherwise).
+async fn insight_rows(
+    ctx: &Ctx,
+    form_id: &str,
+    from: i64,
+    to: i64,
+    branching: bool,
+) -> FormsResult<Vec<Value>> {
+    use sea_orm::ExprTrait as _;
+    let kept = |column: form_responses::Column| {
+        if branching {
+            Expr::col(column)
+        } else {
+            Expr::val("{}").cast_as("jsonb")
+        }
+    };
+    form_responses::Entity::find()
+        .select_only()
+        .columns([
+            form_responses::Column::Status,
+            form_responses::Column::StartedAt,
+            form_responses::Column::SubmittedAt,
+            form_responses::Column::DurationMs,
+            form_responses::Column::LastBlockId,
+        ])
+        .column_as(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col(form_responses::Column::Metadata),
+                "source",
+            ),
+            "source",
+        )
+        .column(form_responses::Column::VersionId)
+        .column_as(kept(form_responses::Column::Answers), "answers")
+        .column_as(kept(form_responses::Column::Hidden), "hidden")
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .filter(form_responses::Column::StartedAt.gte(instant(from)))
+        .filter(form_responses::Column::StartedAt.lte(instant(to)))
+        .into_model::<InsightRow>()
+        .all(&orm(&ctx.db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
+}
+
 /// `insights(ctx, formId, counters, range, now)`: views per day from the
 /// form's counters, the rest from the responses started in the range.
 #[allow(clippy::too_many_lines, reason = "the worker's steps, in its order")]
@@ -500,22 +587,7 @@ pub(crate) async fn insights(
     // Answers are only needed to follow logic that can skip blocks.
     let branching = versions.iter().any(|v| branches(&v.definition));
 
-    let rows = all(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select jsonb_build_object('status', status, 'started_at', started_at, 'submitted_at', submitted_at, \
-             'duration_ms', duration_ms, 'last_block_id', last_block_id, 'source', metadata ->> 'source', \
-             'version_id', version_id, \
-             'answers', case when $4 then answers else '{}'::jsonb end, \
-             'hidden', case when $4 then hidden else '{}'::jsonb end) \
-             from form_responses where form_id = $1 and started_at >= $2::timestamptz and started_at <= $3::timestamptz",
-        )
-        .bind(form_id)
-        .bind(iso(from))
-        .bind(iso(to))
-        .bind(branching),
-    )
-    .await?;
+    let rows = insight_rows(ctx, form_id, from, to, branching).await?;
 
     // Every UTC day of the range, prefilled (`views`, `starts`, `completions`),
     // in date order.

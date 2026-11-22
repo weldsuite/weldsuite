@@ -20,7 +20,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Expr, Order};
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, DbBackend, DbErr, EntityTrait};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PARCEL_BOX_CREATED, PARCEL_BOX_DELETED, PARCEL_BOX_UPDATED, PURCHASE_ORDER_CREATED,
     PURCHASE_ORDER_DELETED, PURCHASE_ORDER_UPDATED, SUPPLIER_CREATED, SUPPLIER_DELETED,
@@ -30,13 +33,17 @@ use weldsuite_catalogs::entity_events::{
     WMS_INVENTORY_MOVEMENT_CREATED, WMS_INVENTORY_MOVEMENT_DELETED, WMS_INVENTORY_MOVEMENT_UPDATED,
     WMS_LOCATION_CREATED, WMS_LOCATION_DELETED, WMS_LOCATION_UPDATED,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    boxes, cycle_counts, inventory_movements, purchase_orders, suppliers, warehouse_locations,
+    warehouse_zones, warehouses,
+};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list, sliced};
-use crate::js::{js_limit, number_text, query_param, query_set, sql_limit};
-use crate::rows::{box_row, location_row, purchase_order_row, supplier_row};
+use crate::args::{all_on, limit_plus_one, millis, page_list, pushed, sliced, table_count, table_rows};
+use crate::js::{js_limit, number_text, query_param, query_set};
 use crate::table::{Table, WriteError};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -63,10 +70,10 @@ pub(crate) struct Messages {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Cursor {
     /// `(createdAt, id)` descending, pushed when the row has a `createdAt`.
-    Created(&'static str),
+    Created,
     /// `(pickingSequence, id)` ascending, pushed whenever the row exists
     /// (its sequence may be null, which matches nothing).
-    Sequence(&'static str),
+    Sequence,
 }
 
 type Body = Map<String, Value>;
@@ -77,8 +84,9 @@ type CreatedEvent = (EventName, fn(&str, &Body) -> Value);
 type UpdatedEvent = (EventName, fn(&str, &Body, &Value) -> Value);
 /// A deleted event: its name and its data from `(id, existing)`.
 type DeletedEvent = (EventName, fn(&str, &Value) -> Value);
-/// The list filter slots read from the query.
-type Filters = fn(Option<&str>) -> Vec<(bool, Vec<Arg>)>;
+/// The list's filter slots read from the query: a condition each, when it
+/// is pushed.
+type Filters = fn(Option<&str>) -> Vec<Option<Condition>>;
 
 /// One CRUD route file.
 #[derive(Clone, Copy)]
@@ -92,17 +100,14 @@ pub(crate) struct Crud {
     /// The create schema, or its `.partial()` for `PATCH /:id`: the body as
     /// `c.req.valid('json')` holds it.
     pub(crate) schema: fn(&mut Issues, &Body, bool) -> Body,
-    /// The list's conditions after the live-only one, in push order: one
-    /// `(on, parameters)` slot each.
+    /// The list's conditions after the live-only one, in push order.
     pub(crate) filters: Filters,
     /// Whether the table has `deleted_at` (the list's first slot, and a
     /// soft delete).
     pub(crate) live: bool,
     pub(crate) cursor: Cursor,
-    /// Slots (live, filters, cursor), then `limit`. The rows.
-    pub(crate) list_sql: &'static str,
-    /// The same slots without the limit: `count(*)`.
-    pub(crate) count_sql: &'static str,
+    /// The list's order: columns and directions.
+    pub(crate) order: &'static [(&'static str, Order)],
     /// `db.insert(t).values(...)` of `POST /`: the `{ prop: value }` object.
     pub(crate) create: fn(&Body, &str, &str) -> Body,
     /// `db.update(t).set(update)` of `PATCH /:id`, `updatedAt` aside.
@@ -111,6 +116,9 @@ pub(crate) struct Crud {
     pub(crate) updated: UpdatedEvent,
     pub(crate) deleted: DeletedEvent,
 }
+
+/// `orderBy(desc(t.createdAt), desc(t.id))`.
+const NEWEST_FIRST: &[(&str, Order)] = &[("created_at", Order::Desc), ("id", Order::Desc)];
 
 type Handler = &'static Crud;
 
@@ -168,66 +176,114 @@ async fn list(crud: Handler, caller: Caller, RawQuery(query): RawQuery) -> Respo
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
     let cursor = query_set(query, "cursor");
-    let mut slots: Vec<(bool, Vec<Arg>)> = Vec::new();
-    if crud.live {
-        slots.push((true, Vec::new()));
-    }
-    slots.extend((crud.filters)(query));
     // The cursor lookup runs before the route's `try`: a failure is the
     // app's 500.
-    let cursor_slot = match (&cursor, crud.cursor) {
-        (None, Cursor::Created(_)) => (false, vec![Arg::Text(None), Arg::Text(None)]),
-        (None, Cursor::Sequence(_)) => (false, vec![Arg::Int(None), Arg::Text(None)]),
-        (Some(cursor), Cursor::Created(sql)) => match created_cursor(&caller.db, sql, cursor).await
-        {
-            Ok(Some((created_at, id))) => (true, vec![Arg::text(created_at), Arg::text(id)]),
-            Ok(None) => (false, vec![Arg::Text(None), Arg::Text(None)]),
+    let cursor_slot = match &cursor {
+        Some(cursor) => match cursor_condition(&caller.db, crud, cursor).await {
+            Ok(slot) => slot,
             Err(error) => return cursor_failed(&error),
         },
-        (Some(cursor), Cursor::Sequence(sql)) => {
-            let row: Result<Option<(Option<i32>, String)>, _> = sqlx::query_as(sql)
-                .bind(cursor)
-                .fetch_optional(&caller.db)
-                .await;
-            match row {
-                Ok(Some((sequence, id))) => {
-                    (true, vec![Arg::Int(sequence.map(i64::from)), Arg::text(id)])
-                }
-                Ok(None) => (false, vec![Arg::Int(None), Arg::Text(None)]),
-                Err(error) => return cursor_failed(&error),
-            }
-        }
+        None => None,
     };
-    slots.push(cursor_slot);
-    let on: Vec<bool> = slots.iter().map(|(on, _)| *on).collect();
-    let count_on = sliced(on.clone(), cursor.is_some());
-    let args = |on: &[bool]| -> Vec<Arg> {
-        slots
-            .iter()
-            .zip(on)
-            .flat_map(|((_, args), on)| std::iter::once(Arg::Bool(*on)).chain(args.iter().cloned()))
-            .collect()
-    };
-    let mut page_args = args(&on);
-    page_args.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(crud.list_sql), page_args)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(crud.count_sql), args(&count_on))
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter().map(|row| crud.table.js(row)).collect(),
-            limit,
-            total,
-        ),
-        (Err(error), _) | (_, Err(error)) => internal(&error, crud.messages.list),
+    match fetch(crud, &caller.db, query, cursor.is_some(), cursor_slot, limit).await {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => internal(&error, crud.messages.list),
     }
 }
 
+/// The page (`limit + 1` rows) and the count of a list.
+async fn fetch(
+    crud: Handler,
+    db: &PgPool,
+    query: Option<&str>,
+    cursor_given: bool,
+    cursor_slot: Option<Condition>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let table = crud.table;
+    let mut slots: Vec<Option<Condition>> = Vec::new();
+    if crud.live {
+        slots.push(Some(
+            Condition::all().add(column(table, "deleted_at")?.is_null()),
+        ));
+    }
+    slots.extend((crud.filters)(query));
+    slots.push(cursor_slot);
+    let on = pushed(&slots);
+    let count_on = sliced(on.clone(), cursor_given);
+    let mut page = table.entity.select();
+    page.cond_where(all_on(&slots, &on));
+    for (name, order) in crud.order {
+        page.order_by_expr(column(table, name)?, order.clone());
+    }
+    limit_plus_one(&mut page, limit);
+    let mut counted = table.entity.select();
+    counted.cond_where(all_on(&slots, &count_on));
+    let rows = table_rows(db, table, &page).await?;
+    let total = table_count(db, table, &counted).await?;
+    Ok((rows, total))
+}
+
+/// `t.<name>` of the table's entity.
+fn column(table: &Table, name: &str) -> Result<Expr, DbErr> {
+    table
+        .entity
+        .column(name)
+        .ok_or_else(|| DbErr::Custom(format!("{} has no {name}", table.name)))
+}
+
+/// The cursor row's keyset condition: `(createdAt, id)` before it, or
+/// `(pickingSequence, id)` after it. `None` when the row is gone (or has no
+/// `createdAt`).
+async fn cursor_condition(
+    db: &PgPool,
+    crud: Handler,
+    cursor: &str,
+) -> Result<Option<Condition>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let table = crud.table;
+    let key = match crud.cursor {
+        Cursor::Created => "created_at",
+        Cursor::Sequence => "picking_sequence",
+    };
+    let mut select = table.entity.select();
+    select
+        .clear_selects()
+        .expr_as(column(table, key)?, Alias::new("key"))
+        .expr_as(column(table, "id")?, Alias::new("id"))
+        .and_where(column(table, "id")?.eq(cursor))
+        .limit(1);
+    let Some(row) = orm(db)
+        .query_one_raw(DbBackend::Postgres.build(&select))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let id: String = row.try_get("", "id")?;
+    let (keyed, ids) = (column(table, key)?, column(table, "id")?);
+    Ok(match crud.cursor {
+        Cursor::Created => {
+            let at: Option<PrimitiveDateTime> = row.try_get("", "key")?;
+            at.map(millis).map(|at| {
+                Condition::any()
+                    .add(keyed.clone().lt(at))
+                    .add(Condition::all().add(keyed.eq(at)).add(ids.lt(id)))
+            })
+        }
+        Cursor::Sequence => {
+            let sequence: Option<i32> = row.try_get("", "key")?;
+            Some(
+                Condition::any()
+                    .add(keyed.clone().gt(sequence))
+                    .add(Condition::all().add(keyed.eq(sequence)).add(ids.gt(id))),
+            )
+        }
+    })
+}
+
 /// A failed cursor lookup: it runs outside the route's `try`.
-pub(crate) fn cursor_failed(error: &sqlx::Error) -> Response {
+pub(crate) fn cursor_failed(error: &dyn std::fmt::Display) -> Response {
     tracing::error!(%error, "stash: cursor lookup failed");
     ApiError::internal().into_response()
 }
@@ -343,9 +399,8 @@ async fn remove(
     let removed = if crud.live {
         soft_delete(&caller.db, crud.table, &id).await
     } else {
-        sqlx::query("delete from \"inventory_movements\" where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        inventory_movements::Entity::delete_by_id(id.clone())
+            .exec(&orm(&caller.db))
             .await
             .map(|_| ())
             .map_err(WriteError::from)
@@ -431,23 +486,23 @@ fn event_from(id: &str, data: &Body, keys: &[&str]) -> Value {
 }
 
 /// A filter slot: `eq(column, value)` when `value` is set and not empty.
-pub(crate) fn eq_slot(query: Option<&str>, name: &str) -> (bool, Vec<Arg>) {
-    let value = query_set(query, name);
-    (value.is_some(), vec![Arg::Text(value)])
+pub(crate) fn eq_slot<C: ColumnTrait>(query: Option<&str>, name: &str, column: C) -> Option<Condition> {
+    query_set(query, name).map(|value| Condition::all().add(column.eq(value)))
 }
 
 /// `or(like(a, term), like(b, term)…)` on `%search%`, when `search` is set.
-pub(crate) fn search_slot(query: Option<&str>) -> (bool, Vec<Arg>) {
-    let term = query_set(query, "search").map(|search| format!("%{search}%"));
-    (term.is_some(), vec![Arg::Text(term)])
+pub(crate) fn search_slot<C: ColumnTrait>(query: Option<&str>, columns: &[C]) -> Option<Condition> {
+    let term = format!("%{}%", query_set(query, "search")?);
+    Some(
+        columns
+            .iter()
+            .fold(Condition::any(), |any, column| any.add(column.like(term.as_str()))),
+    )
 }
 
 /// `eq(column, q.<name> === 'true')` whenever the parameter is there.
-fn bool_slot(query: Option<&str>, name: &str) -> (bool, Vec<Arg>) {
-    match query_param(query, name) {
-        Some(value) => (true, vec![Arg::Bool(value == "true")]),
-        None => (false, vec![Arg::Bool(false)]),
-    }
+fn bool_slot<C: ColumnTrait>(query: Option<&str>, name: &str, column: C) -> Option<Condition> {
+    query_param(query, name).map(|value| Condition::all().add(column.eq(value == "true")))
 }
 
 /// `String(value)` of a number the schema let through, else the value.
@@ -535,9 +590,6 @@ fn box_schema(issues: &mut Issues, body: &Body, partial: bool) -> Body {
     body.clone()
 }
 
-fn search_filters(query: Option<&str>) -> Vec<(bool, Vec<Arg>)> {
-    vec![search_slot(query)]
-}
 
 pub(crate) static BOXES: Crud = Crud {
     table: &crate::tables::BOXES,
@@ -557,22 +609,10 @@ pub(crate) static BOXES: Crud = Crud {
         delete: "Failed to delete box",
     },
     schema: box_schema,
-    filters: search_filters,
+    filters: |query| vec![search_slot(query, &[boxes::Column::Name, boxes::Column::Code])],
     live: true,
-    cursor: Cursor::Created(cursor_sql!("boxes")),
-    list_sql: concat!(
-        "select ",
-        box_row!(),
-        " from \"boxes\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or (t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6)))",
-        " order by t.created_at desc, t.id desc limit $7"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"boxes\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or (t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: spread_create,
     update: spread_update,
     created: (PARCEL_BOX_CREATED, |id, data| {
@@ -616,20 +656,15 @@ pub(crate) static WAREHOUSES: Crud = Crud {
         delete: "Failed to delete warehouse",
     },
     schema: warehouse_schema,
-    filters: search_filters,
+    filters: |query| {
+        vec![search_slot(
+            query,
+            &[warehouses::Column::Name, warehouses::Column::Code],
+        )]
+    },
     live: true,
-    cursor: Cursor::Created(cursor_sql!("warehouses")),
-    list_sql: concat!(
-        "select to_jsonb(t) from \"warehouses\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or (t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6)))",
-        " order by t.created_at desc, t.id desc limit $7"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"warehouses\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or (t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: spread_create,
     update: spread_update,
     created: (WAREHOUSE_CREATED, |id, data| {
@@ -675,22 +710,15 @@ pub(crate) static CYCLE_COUNTS: Crud = Crud {
         delete: "Failed to delete cycle count",
     },
     schema: cycle_count_schema,
-    filters: |query| vec![eq_slot(query, "warehouseId"), eq_slot(query, "status")],
+    filters: |query| {
+        vec![
+            eq_slot(query, "warehouseId", cycle_counts::Column::WarehouseId),
+            eq_slot(query, "status", cycle_counts::Column::Status),
+        ]
+    },
     live: true,
-    cursor: Cursor::Created(cursor_sql!("cycle_counts")),
-    list_sql: concat!(
-        "select to_jsonb(t) from \"cycle_counts\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or t.warehouse_id = $3)",
-        " and (not $4::boolean or t.status = $5)",
-        " and (not $6::boolean or (t.created_at < $7::timestamp or (t.created_at = $7::timestamp and t.id < $8)))",
-        " order by t.created_at desc, t.id desc limit $9"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"cycle_counts\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or t.warehouse_id = $3)",
-        " and (not $4::boolean or t.status = $5)",
-        " and (not $6::boolean or (t.created_at < $7::timestamp or (t.created_at = $7::timestamp and t.id < $8)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: spread_create,
     update: spread_update,
     created: (WMS_CYCLE_COUNT_CREATED, |id, data| {
@@ -742,33 +770,15 @@ pub(crate) static PURCHASE_ORDERS: Crud = Crud {
     schema: purchase_order_schema,
     filters: |query| {
         vec![
-            eq_slot(query, "supplierId"),
-            eq_slot(query, "warehouseId"),
-            eq_slot(query, "status"),
-            search_slot(query),
+            eq_slot(query, "supplierId", purchase_orders::Column::SupplierId),
+            eq_slot(query, "warehouseId", purchase_orders::Column::WarehouseId),
+            eq_slot(query, "status", purchase_orders::Column::Status),
+            search_slot(query, &[purchase_orders::Column::PoNumber]),
         ]
     },
     live: true,
-    cursor: Cursor::Created(cursor_sql!("purchase_orders")),
-    list_sql: concat!(
-        "select ",
-        purchase_order_row!(),
-        " from \"purchase_orders\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or t.supplier_id = $3)",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.status = $7)",
-        " and (not $8::boolean or t.po_number like $9)",
-        " and (not $10::boolean or (t.created_at < $11::timestamp or (t.created_at = $11::timestamp and t.id < $12)))",
-        " order by t.created_at desc, t.id desc limit $13"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"purchase_orders\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or t.supplier_id = $3)",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.status = $7)",
-        " and (not $8::boolean or t.po_number like $9)",
-        " and (not $10::boolean or (t.created_at < $11::timestamp or (t.created_at = $11::timestamp and t.id < $12)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: spread_create,
     update: spread_update,
     created: (PURCHASE_ORDER_CREATED, |id, data| {
@@ -821,20 +831,20 @@ pub(crate) static INVENTORY_MOVEMENTS: Crud = Crud {
         delete: "Failed to delete inventory movement",
     },
     schema: movement_schema,
-    filters: |query| vec![eq_slot(query, "productId"), eq_slot(query, "warehouseId")],
+    filters: |query| {
+        use inventory_movements::Column;
+        vec![
+            eq_slot(query, "productId", Column::ProductId),
+            query_set(query, "warehouseId").map(|warehouse| {
+                Condition::any()
+                    .add(Column::SourceWarehouseId.eq(warehouse.as_str()))
+                    .add(Column::DestWarehouseId.eq(warehouse.as_str()))
+            }),
+        ]
+    },
     live: false,
-    cursor: Cursor::Created(cursor_sql!("inventory_movements")),
-    list_sql: concat!(
-        "select to_jsonb(t) from \"inventory_movements\" t where (not $1::boolean or t.product_id = $2)",
-        " and (not $3::boolean or (t.source_warehouse_id = $4 or t.dest_warehouse_id = $4))",
-        " and (not $5::boolean or (t.created_at < $6::timestamp or (t.created_at = $6::timestamp and t.id < $7)))",
-        " order by t.created_at desc, t.id desc limit $8"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"inventory_movements\" t where (not $1::boolean or t.product_id = $2)",
-        " and (not $3::boolean or (t.source_warehouse_id = $4 or t.dest_warehouse_id = $4))",
-        " and (not $5::boolean or (t.created_at < $6::timestamp or (t.created_at = $6::timestamp and t.id < $7)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: spread_create,
     update: spread_update,
     created: (WMS_INVENTORY_MOVEMENT_CREATED, |id, data| {
@@ -950,34 +960,17 @@ pub(crate) static WAREHOUSE_ZONES: Crud = Crud {
     },
     schema: zone_schema,
     filters: |query| {
+        use warehouse_zones::Column;
         vec![
-            search_slot(query),
-            eq_slot(query, "warehouseId"),
-            eq_slot(query, "zoneType"),
-            bool_slot(query, "isActive"),
+            search_slot(query, &[Column::Name, Column::Code]),
+            eq_slot(query, "warehouseId", Column::WarehouseId),
+            eq_slot(query, "zoneType", Column::ZoneType),
+            bool_slot(query, "isActive", Column::IsActive),
         ]
     },
     live: true,
-    cursor: Cursor::Sequence(
-        "select t.picking_sequence, t.id from \"warehouse_zones\" t where t.id = $1 limit 1",
-    ),
-    list_sql: concat!(
-        "select to_jsonb(t) from \"warehouse_zones\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.zone_type = $7)",
-        " and (not $8::boolean or t.is_active = $9)",
-        " and (not $10::boolean or (t.picking_sequence > $11::integer or (t.picking_sequence = $11::integer and t.id > $12)))",
-        " order by t.picking_sequence asc, t.id asc limit $13"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"warehouse_zones\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3))",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.zone_type = $7)",
-        " and (not $8::boolean or t.is_active = $9)",
-        " and (not $10::boolean or (t.picking_sequence > $11::integer or (t.picking_sequence = $11::integer and t.id > $12)))"
-    ),
+    cursor: Cursor::Sequence,
+    order: &[("picking_sequence", Order::Asc), ("id", Order::Asc)],
     create: |data, id, now| {
         let mut props = Map::new();
         props.insert("id".to_owned(), json!(id));
@@ -1240,51 +1233,22 @@ pub(crate) static WAREHOUSE_LOCATIONS: Crud = Crud {
     },
     schema: location_schema,
     filters: |query| {
+        use warehouse_locations::Column;
         vec![
-            search_slot(query),
-            eq_slot(query, "warehouseId"),
-            eq_slot(query, "zoneId"),
-            eq_slot(query, "locationType"),
-            bool_slot(query, "isActive"),
-            bool_slot(query, "isEmpty"),
-            bool_slot(query, "isBlocked"),
-            eq_slot(query, "abcClass"),
-            eq_slot(query, "barcode"),
+            search_slot(query, &[Column::Name, Column::Code, Column::Barcode]),
+            eq_slot(query, "warehouseId", Column::WarehouseId),
+            eq_slot(query, "zoneId", Column::ZoneId),
+            eq_slot(query, "locationType", Column::LocationType),
+            bool_slot(query, "isActive", Column::IsActive),
+            bool_slot(query, "isEmpty", Column::IsEmpty),
+            bool_slot(query, "isBlocked", Column::IsBlocked),
+            eq_slot(query, "abcClass", Column::AbcClass),
+            eq_slot(query, "barcode", Column::Barcode),
         ]
     },
     live: true,
-    cursor: Cursor::Sequence(
-        "select t.picking_sequence, t.id from \"warehouse_locations\" t where t.id = $1 limit 1",
-    ),
-    list_sql: concat!(
-        "select ",
-        location_row!(),
-        " from \"warehouse_locations\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3 or t.barcode like $3))",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.zone_id = $7)",
-        " and (not $8::boolean or t.location_type = $9)",
-        " and (not $10::boolean or t.is_active = $11)",
-        " and (not $12::boolean or t.is_empty = $13)",
-        " and (not $14::boolean or t.is_blocked = $15)",
-        " and (not $16::boolean or t.abc_class = $17)",
-        " and (not $18::boolean or t.barcode = $19)",
-        " and (not $20::boolean or (t.picking_sequence > $21::integer or (t.picking_sequence = $21::integer and t.id > $22)))",
-        " order by t.picking_sequence asc, t.code asc limit $23"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"warehouse_locations\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3 or t.barcode like $3))",
-        " and (not $4::boolean or t.warehouse_id = $5)",
-        " and (not $6::boolean or t.zone_id = $7)",
-        " and (not $8::boolean or t.location_type = $9)",
-        " and (not $10::boolean or t.is_active = $11)",
-        " and (not $12::boolean or t.is_empty = $13)",
-        " and (not $14::boolean or t.is_blocked = $15)",
-        " and (not $16::boolean or t.abc_class = $17)",
-        " and (not $18::boolean or t.barcode = $19)",
-        " and (not $20::boolean or (t.picking_sequence > $21::integer or (t.picking_sequence = $21::integer and t.id > $22)))"
-    ),
+    cursor: Cursor::Sequence,
+    order: &[("picking_sequence", Order::Asc), ("code", Order::Asc)],
     create: location_create,
     update: location_update,
     created: (WMS_LOCATION_CREATED, |id, data| {
@@ -1536,10 +1500,10 @@ fn supplier_update(data: &Body) -> Body {
 }
 
 /// `q.status === 'active'` / `'inactive'`: the only statuses the list filters by.
-fn supplier_status_slot(query: Option<&str>) -> (bool, Vec<Arg>) {
+fn supplier_status_slot(query: Option<&str>) -> Option<Condition> {
     let status =
-        query_param(query, "status").filter(|status| status == "active" || status == "inactive");
-    (status.is_some(), vec![Arg::Text(status)])
+        query_param(query, "status").filter(|status| status == "active" || status == "inactive")?;
+    Some(Condition::all().add(suppliers::Column::Status.eq(status)))
 }
 
 pub(crate) static SUPPLIERS: Crud = Crud {
@@ -1561,31 +1525,16 @@ pub(crate) static SUPPLIERS: Crud = Crud {
     },
     schema: supplier_schema,
     filters: |query| {
+        use suppliers::Column;
         vec![
-            search_slot(query),
+            search_slot(query, &[Column::Name, Column::Code, Column::Email]),
             supplier_status_slot(query),
-            bool_slot(query, "isActive"),
+            bool_slot(query, "isActive", Column::IsActive),
         ]
     },
     live: true,
-    cursor: Cursor::Created(cursor_sql!("suppliers")),
-    list_sql: concat!(
-        "select ",
-        supplier_row!(),
-        " from \"suppliers\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3 or t.email like $3))",
-        " and (not $4::boolean or t.status = $5)",
-        " and (not $6::boolean or t.is_active = $7)",
-        " and (not $8::boolean or (t.created_at < $9::timestamp or (t.created_at = $9::timestamp and t.id < $10)))",
-        " order by t.created_at desc, t.id desc limit $11"
-    ),
-    count_sql: concat!(
-        "select count(*) from \"suppliers\" t where (not $1::boolean or t.deleted_at is null)",
-        " and (not $2::boolean or (t.name like $3 or t.code like $3 or t.email like $3))",
-        " and (not $4::boolean or t.status = $5)",
-        " and (not $6::boolean or t.is_active = $7)",
-        " and (not $8::boolean or (t.created_at < $9::timestamp or (t.created_at = $9::timestamp and t.id < $10)))"
-    ),
+    cursor: Cursor::Created,
+    order: NEWEST_FIRST,
     create: supplier_create,
     update: supplier_update,
     created: (SUPPLIER_CREATED, |id, data| event_from(id, data, &["name"])),

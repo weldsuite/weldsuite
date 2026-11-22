@@ -10,10 +10,23 @@
 //! approved.
 
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    JoinType, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{Keyring, PgPool, js_row};
+use time::Date;
+use weldsuite_db::{Keyring, OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    hr_absences, hr_attendance_records, hr_declarations, hr_employees, hr_leave_requests,
+    hr_leave_types, hr_pay_run_inputs, hr_pay_runs, hr_pay_schedules, hr_payroll_employers,
+    hr_payroll_profiles, hr_payslips,
+};
 use weldsuite_payroll_domain::components::{ComponentEntry, component_def};
 use weldsuite_payroll_domain::periods::{period_containing, weekdays_between};
 
@@ -28,23 +41,109 @@ use super::employers::{
 };
 use super::schema::{has, str_of};
 use super::ytd::number_key;
-use crate::employees::display_name_of;
+use crate::employees::display_name;
 use crate::entity_scope::Scope;
-use crate::{HrError, add_days, js_round, locale_compare, member_names, now, today_iso};
+use crate::shared::{iso_date, row_json, sql_date};
+use crate::{HrError, add_days, js_round, locale_compare, member_names, today_iso};
 
 pub(crate) const COLLECTED_SOURCES: [&str; 4] = ["attendance", "leave", "absence", "declaration"];
 const RUN_CHANGED: &str =
     "This pay run was approved, cancelled or changed by someone else. Reload it and try again.";
 
-/// A payslip row with its numeric columns as the text Drizzle reads.
-pub(crate) const PAYSLIP_ROW: &str = "to_jsonb(s) || jsonb_build_object(
-    'gross_pay', s.gross_pay::text, 'taxable_wage', s.taxable_wage::text, 'employee_taxes', s.employee_taxes::text,
-    'employee_deductions', s.employee_deductions::text, 'reimbursements', s.reimbursements::text,
-    'net_pay', s.net_pay::text, 'employer_taxes', s.employer_taxes::text, 'employer_cost', s.employer_cost::text,
-    'ytd_text', s.ytd::text, 'filing_data_text', s.filing_data::text, 'snapshot_text', s.snapshot::text)";
+/// A payslip as the payroll services read it: the entity's row (its money
+/// columns as their `numeric(14, 2)` text, as Drizzle reads them) plus the
+/// accumulators, filing data and snapshot as their stored `jsonb` text
+/// (`ytdText`, `filingDataText`, `snapshotText`), which keeps the key order
+/// JavaScript reads them in.
+#[derive(FromQueryResult)]
+struct PayslipRow {
+    #[sea_orm(nested)]
+    slip: hr_payslips::Model,
+    ytd_text: String,
+    filing_data_text: String,
+    snapshot_text: String,
+}
 
-/// A pay run input row, numeric columns as text.
-const INPUT_ROW: &str = "to_jsonb(i) || jsonb_build_object('quantity', i.quantity::text, 'rate', i.rate::text, 'amount', i.amount::text)";
+impl PayslipRow {
+    fn json(self) -> Result<Value, DbErr> {
+        let mut row = row_json(self.slip)?;
+        if let Some(map) = row.as_object_mut() {
+            map.insert("ytdText".to_owned(), Value::String(self.ytd_text));
+            map.insert(
+                "filingDataText".to_owned(),
+                Value::String(self.filing_data_text),
+            );
+            map.insert("snapshotText".to_owned(), Value::String(self.snapshot_text));
+        }
+        Ok(row)
+    }
+}
+
+/// `column::text`.
+fn text_of(column: impl sea_orm::sea_query::IntoColumnRef) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::col(column).cast_as("text")
+}
+
+/// `payslips` (the entity's `find()` with its conditions and order) with the
+/// `jsonb` text columns of [`PayslipRow`].
+fn with_payslip_texts(payslips: Select<hr_payslips::Entity>) -> Select<hr_payslips::Entity> {
+    use hr_payslips::{Column, Entity};
+    payslips
+        .column_as(text_of((Entity, Column::Ytd)), "ytd_text")
+        .column_as(text_of((Entity, Column::FilingData)), "filing_data_text")
+        .column_as(text_of((Entity, Column::Snapshot)), "snapshot_text")
+}
+
+/// The payslips `payslips` matches (`hr_payslips::Entity::find()` with its
+/// conditions and order), as the payroll services read them: see
+/// [`PayslipRow`].
+pub(crate) async fn payslip_rows<C: ConnectionTrait>(
+    db: &C,
+    payslips: Select<hr_payslips::Entity>,
+) -> Result<Vec<Value>, DbErr> {
+    with_payslip_texts(payslips)
+        .into_model::<PayslipRow>()
+        .all(db)
+        .await?
+        .into_iter()
+        .map(PayslipRow::json)
+        .collect()
+}
+
+/// The first payslip `payslips` matches (`limit 1`), as [`payslip_rows`].
+pub(crate) async fn payslip_row<C: ConnectionTrait>(
+    db: &C,
+    payslips: Select<hr_payslips::Entity>,
+) -> Result<Option<Value>, DbErr> {
+    with_payslip_texts(payslips)
+        .into_model::<PayslipRow>()
+        .one(db)
+        .await?
+        .map(PayslipRow::json)
+        .transpose()
+}
+
+/// `$n::numeric` of a decimal text (`decimal2` / `decimal4`, or a column's
+/// own text): what doesn't read as a number fails the statement, as Postgres
+/// refused it.
+fn sql_numeric(text: &str) -> Result<BigDecimal, DbErr> {
+    BigDecimal::from_str(text).map_err(|error| {
+        DbErr::Type(format!(
+            "invalid input syntax for type numeric: \"{text}\" ({error})"
+        ))
+    })
+}
+
+/// [`sql_numeric`] of an optional text (`null` stays NULL).
+fn sql_numeric_opt(text: Option<&str>) -> Result<Option<BigDecimal>, DbErr> {
+    text.map(sql_numeric).transpose()
+}
+
+/// [`sql_date`] of an optional text (`null` stays NULL).
+fn sql_date_opt(text: Option<&str>) -> Result<Option<Date>, DbErr> {
+    text.map(sql_date).transpose()
+}
 
 pub(crate) fn s<'a>(row: &'a Value, key: &str) -> &'a str {
     row[key].as_str().unwrap_or("")
@@ -56,26 +155,29 @@ pub(crate) fn int_of(row: &Value, key: &str) -> i64 {
         .unwrap_or_else(|| row[key].as_f64().map_or(0, |f| f as i64))
 }
 
-/// Payslips matching `filter` (a `where` over alias `s`, binding `$1`…).
-pub(crate) fn payslip_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
-    sqlx::AssertSqlSafe(format!(
-        "select {PAYSLIP_ROW} from hr_payslips s where {filter}"
-    ))
-}
-
-fn rows_of(values: Vec<Value>) -> Vec<Value> {
-    values.into_iter().map(js_row).collect()
-}
-
 /// `requireRun(db, id)`.
 pub(crate) async fn require_run(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_pay_runs t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Pay run", id))
+    match hr_pay_runs::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+    {
+        Some(row) => Ok(row_json(row)?),
+        None => Err(HrError::not_found("Pay run", id)),
+    }
+}
+
+/// `status in ('draft', 'calculated')`: the run is still open.
+fn run_is_open() -> sea_orm::Condition {
+    sea_orm::Condition::all().add(hr_pay_runs::Column::Status.is_in(["draft", "calculated"]))
+}
+
+/// `case when <also> and status = 'calculated' then 'draft' else status end`:
+/// a calculated run goes back to draft.
+fn back_to_draft() -> Expr {
+    use hr_pay_runs::Column;
+    Expr::case(Column::Status.eq("calculated"), "draft")
+        .finally(Expr::col(Column::Status))
+        .into()
 }
 
 /// `assertEditable(run)`.
@@ -92,15 +194,14 @@ pub(crate) fn assert_editable(run: &Value) -> Result<(), HrError> {
 /// `touchRun(db, runId)`: a calculated run goes back to draft; 409 when the
 /// run is no longer open.
 pub(crate) async fn touch_run(db: &PgPool, run_id: &str) -> Result<(), HrError> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update hr_pay_runs set status = case when status = 'calculated' then 'draft' else status end, updated_at = $2::timestamp
-         where id = $1 and status in ('draft', 'calculated') returning id",
-    )
-    .bind(run_id)
-    .bind(now())
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
+    let touched = hr_pay_runs::Entity::update_many()
+        .col_expr(hr_pay_runs::Column::Status, back_to_draft())
+        .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_pay_runs::Column::Id.eq(run_id))
+        .filter(run_is_open())
+        .exec(&orm(db))
+        .await?;
+    if touched.rows_affected == 0 {
         return Err(HrError::conflict(RUN_CHANGED));
     }
     Ok(())
@@ -142,18 +243,29 @@ pub(crate) async fn candidate_employee_ids(
     let Some(schedule) = run["payScheduleId"].as_str().filter(|s| !s.is_empty()) else {
         return Ok(vec![]);
     };
-    let rows: Vec<(String, Value, Value)> = sqlx::query_as(
-        "select p.employee_id, to_jsonb(p), to_jsonb(e) from hr_payroll_profiles p
-         join hr_employees e on e.id = p.employee_id
-         where p.pay_schedule_id = $1 and p.status = 'active' and e.deleted_at is null",
-    )
-    .bind(schedule)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<Date>, Option<Date>, Option<Date>, Option<Date>)> =
+        hr_payroll_profiles::Entity::find()
+            .select_only()
+            .columns([
+                hr_payroll_profiles::Column::EmployeeId,
+                hr_payroll_profiles::Column::StartDate,
+                hr_payroll_profiles::Column::EndDate,
+            ])
+            .column(hr_employees::Column::StartDate)
+            .column(hr_employees::Column::EndDate)
+            .join(JoinType::InnerJoin, profile_employee())
+            .filter(hr_payroll_profiles::Column::PayScheduleId.eq(schedule))
+            .filter(hr_payroll_profiles::Column::Status.eq("active"))
+            .filter(hr_employees::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     Ok(rows
         .into_iter()
-        .filter(|(_, profile, employee)| {
-            let (start, end) = profile_window(&js_row(profile.clone()), &js_row(employee.clone()));
+        .filter(|(_, start, end, employee_start, employee_end)| {
+            // `profileWindow(profile, employee)`.
+            let start = start.or(*employee_start).map(iso_date);
+            let end = end.or(*employee_end).map(iso_date);
             ranges_overlap(
                 start.as_deref().unwrap_or("0001-01-01"),
                 end.as_deref(),
@@ -161,8 +273,16 @@ pub(crate) async fn candidate_employee_ids(
                 Some(s(run, "periodEnd")),
             )
         })
-        .map(|(id, _, _)| id)
+        .map(|(id, ..)| id)
         .collect())
+}
+
+/// `join(hrEmployees, eq(hrEmployees.id, hrPayrollProfiles.employeeId))`.
+fn profile_employee() -> sea_orm::RelationDef {
+    hr_payroll_profiles::Entity::belongs_to(hr_employees::Entity)
+        .from(hr_payroll_profiles::Column::EmployeeId)
+        .to(hr_employees::Column::Id)
+        .into()
 }
 
 /// `includedEmployeeIds(db, run)`.
@@ -206,25 +326,30 @@ pub(crate) async fn to_run_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Value
                 .map(str::to_owned)
         })
         .collect();
-    let employers: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "select id, name from hr_payroll_employers where id = any($1)",
-    )
-    .bind(&employer_ids)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .collect();
+    let employers: HashMap<String, String> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .columns([
+            hr_payroll_employers::Column::Id,
+            hr_payroll_employers::Column::Name,
+        ])
+        .filter(hr_payroll_employers::Column::Id.is_in(employer_ids))
+        .into_tuple::<(String, String)>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .collect();
     let schedules: HashMap<String, String> = if schedule_ids.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>(
-            "select id, name from hr_pay_schedules where id = any($1)",
-        )
-        .bind(&schedule_ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        hr_pay_schedules::Entity::find()
+            .select_only()
+            .columns([hr_pay_schedules::Column::Id, hr_pay_schedules::Column::Name])
+            .filter(hr_pay_schedules::Column::Id.is_in(schedule_ids))
+            .into_tuple::<(String, String)>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .collect()
     };
     let users: Vec<Option<&str>> = rows
         .iter()
@@ -298,22 +423,26 @@ async fn previous_net_pay(
     run: &Value,
     employee_ids: &[String],
 ) -> Result<HashMap<String, String>, HrError> {
+    use hr_payslips::{Column, Entity};
     let mut out = HashMap::new();
     if employee_ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select employee_id, net_pay::text from hr_payslips
-         where employee_id = any($1) and employer_id = $2 and status = 'final' and corrects_payslip_id is null
-           and run_id <> $3 and period_end < $4::date
-         order by period_end desc, pay_date desc",
-    )
-    .bind(employee_ids)
-    .bind(s(run, "employerId"))
-    .bind(s(run, "id"))
-    .bind(s(run, "periodEnd"))
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String)> = Entity::find()
+        .select_only()
+        .column(Column::EmployeeId)
+        .column_as(text_of((Entity, Column::NetPay)), "net_pay")
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::EmployerId.eq(s(run, "employerId")))
+        .filter(Column::Status.eq("final"))
+        .filter(Column::CorrectsPayslipId.is_null())
+        .filter(Column::RunId.ne(s(run, "id")))
+        .filter(Column::PeriodEnd.lt(sql_date(s(run, "periodEnd"))?))
+        .order_by_desc(Column::PeriodEnd)
+        .order_by_desc(Column::PayDate)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (employee, net) in rows {
         out.entry(employee).or_insert(net);
     }
@@ -328,14 +457,29 @@ pub(crate) async fn employee_names(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(ids)
-            .fetch_all(db)
-            .await?;
-    Ok(rows_of(rows)
-        .iter()
-        .map(|e| (s(e, "id").to_owned(), display_name_of(e)))
+    Ok(employee_name_rows(db, ids).await?.into_iter().collect())
+}
+
+/// The employees `ids` with their display names, in the database's order.
+async fn employee_name_rows(db: &PgPool, ids: &[String]) -> Result<Vec<(String, String)>, DbErr> {
+    let rows: Vec<(String, String, String, Option<String>)> = hr_employees::Entity::find()
+        .select_only()
+        .columns([
+            hr_employees::Column::Id,
+            hr_employees::Column::FirstName,
+            hr_employees::Column::LastName,
+            hr_employees::Column::PreferredName,
+        ])
+        .filter(hr_employees::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, first, last, preferred)| {
+            let name = display_name(&first, &last, preferred.as_deref());
+            (id, name)
+        })
         .collect())
 }
 
@@ -398,32 +542,25 @@ pub(crate) async fn get_run_detail(db: &PgPool, id: &str, user_id: &str) -> Resu
     let mut dto = to_run_dtos(db, std::slice::from_ref(&run)).await?.remove(0);
     let employer = require_employer_row(db, s(&run, "employerId")).await.ok();
     let candidates = candidate_employee_ids(db, &run).await?;
-    let people: Vec<Value> = if candidates.is_empty() {
+    let people: Vec<(String, String)> = if candidates.is_empty() {
         vec![]
     } else {
-        rows_of(
-            sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-                .bind(&candidates)
-                .fetch_all(db)
-                .await?,
-        )
+        employee_name_rows(db, &candidates).await?
     };
     let excluded: HashSet<String> = string_list(&run["excludedEmployeeIds"])
         .into_iter()
         .collect();
-    let slips = rows_of(
-        sqlx::query_scalar(payslip_sql("s.run_id = $1"))
-            .bind(id)
-            .fetch_all(db)
-            .await?,
-    );
+    let slips = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find().filter(hr_payslips::Column::RunId.eq(id)),
+    )
+    .await?;
     let blocks = four_eyes_blocks(employer.as_ref(), &run, user_id);
     let run_issues = issues_of(&run["issues"]);
     let mut employees: Vec<(String, Value)> = people
         .iter()
-        .map(|p| {
-            let name = display_name_of(p);
-            let pid = s(p, "id");
+        .map(|(pid, name)| {
+            let pid = pid.as_str();
             let issues: Vec<&Value> = run_issues.iter().filter(|i| i["employeeId"] == pid).collect();
             (
                 name.clone(),
@@ -466,27 +603,30 @@ pub(crate) async fn list_runs(
     year: Option<f64>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
+    use hr_pay_runs::Column;
     let statuses: Option<Vec<String>> = status
         .filter(|v| !v.is_empty())
         .map(|v| v.split(',').map(str::to_owned).collect());
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_pay_runs t
-         where ($1::text is null or t.employer_id = $1)
-           and ($2::text[] is null or t.status = any($2))
-           and ($3::int is null or t.tax_year = $3)
-           and ($4::text[] is null or t.employer_id in (select scope_p.id from hr_payroll_employers scope_p
-                where scope_p.legal_entity_id = any($4)
-                   or ($5::boolean and scope_p.legal_entity_id is null)))
-         order by t.period_start desc, t.created_at desc limit 500",
-    )
-    .bind(employer_id.filter(|v| !v.is_empty()))
-    .bind(statuses)
-    .bind(year.filter(|y| *y != 0.0).map(|y| y as i32))
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    to_run_dtos(db, &rows_of(rows)).await
+    let mut runs = hr_pay_runs::Entity::find().filter(scope.employer_id_in(Column::EmployerId));
+    if let Some(employer_id) = employer_id.filter(|v| !v.is_empty()) {
+        runs = runs.filter(Column::EmployerId.eq(employer_id));
+    }
+    if let Some(statuses) = statuses {
+        runs = runs.filter(Column::Status.is_in(statuses));
+    }
+    if let Some(year) = year.filter(|y| *y != 0.0) {
+        runs = runs.filter(Column::TaxYear.eq(year as i32));
+    }
+    let rows = runs
+        .order_by_desc(Column::PeriodStart)
+        .order_by_desc(Column::CreatedAt)
+        .limit(500)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    to_run_dtos(db, &rows).await
 }
 
 // ── create / update / cancel ────────────────────────────────────────────────
@@ -496,16 +636,15 @@ async fn employees_with_profile(
     employer_id: &str,
     ids: &[String],
 ) -> Result<Vec<Value>, HrError> {
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(p) from hr_payroll_profiles p
-             where p.employee_id = any($1) and p.employer_id = $2 and p.status <> 'ended'",
-        )
-        .bind(ids)
-        .bind(employer_id)
-        .fetch_all(db)
-        .await?,
-    );
+    let rows = hr_payroll_profiles::Entity::find()
+        .filter(hr_payroll_profiles::Column::EmployeeId.is_in(ids.iter().map(String::as_str)))
+        .filter(hr_payroll_profiles::Column::EmployerId.eq(employer_id))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?;
     let found: HashSet<&str> = rows.iter().map(|r| s(r, "employeeId")).collect();
     let missing: Vec<&String> = ids
         .iter()
@@ -615,13 +754,6 @@ async fn numbering_for_pay_date(
         natural.period_number,
         pay_date,
     )
-}
-
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .and_then(sqlx::error::DatabaseError::code)
-        .is_some_and(|code| code == "23505")
 }
 
 /// `createRun(db, input, { userId })`.
@@ -779,37 +911,30 @@ pub(crate) async fn create_run(
         }
     }
     let id = generate_id("hrpr");
-    let inserted = sqlx::query(
-        "insert into hr_pay_runs (id, employer_id, pay_schedule_id, country, currency, kind, period_start, period_end, pay_date,
-         tax_year, period_number, status, included_employee_ids, notes, prepared_by)
-         values ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9::date, $10, $11, 'draft', $12, $13, $14)",
+    let schedule_id = schedule.as_ref().map(|r| s(r, "id").to_owned());
+    let inserted = insert_run(
+        db,
+        hr_pay_runs::ActiveModel {
+            id: Set(id.clone()),
+            employer_id: Set(s(&employer, "id").to_owned()),
+            pay_schedule_id: Set(schedule_id.clone()),
+            country: Set(country.clone()),
+            currency: Set(s(&employer, "currency").to_owned()),
+            kind: Set(kind.to_owned()),
+            tax_year: Set(i32::try_from(tax_year).unwrap_or_default()),
+            period_number: Set(i32::try_from(period_number).unwrap_or_default()),
+            status: Set("draft".to_owned()),
+            included_employee_ids: Set(included.as_ref().map(|ids| json!(ids))),
+            notes: Set(str_of(input, "notes").map(str::to_owned)),
+            prepared_by: Set(Some(user_id.to_owned())),
+            ..Default::default()
+        },
+        [&period_start, &period_end, &pay_date],
     )
-    .bind(&id)
-    .bind(s(&employer, "id"))
-    .bind(schedule.as_ref().map(|r| s(r, "id")))
-    .bind(&country)
-    .bind(s(&employer, "currency"))
-    .bind(kind)
-    .bind(&period_start)
-    .bind(&period_end)
-    .bind(&pay_date)
-    .bind(i32::try_from(tax_year).unwrap_or_default())
-    .bind(i32::try_from(period_number).unwrap_or_default())
-    .bind(included.as_ref().map(|ids| json!(ids)))
-    .bind(str_of(input, "notes"))
-    .bind(user_id)
-    .execute(db)
     .await;
     if let Err(error) = inserted {
-        if is_unique_violation(&error) {
-            let existing: Option<String> = sqlx::query_scalar(
-                "select id from hr_pay_runs where pay_schedule_id = $1 and period_start = $2::date and kind = 'regular'
-                 and status <> 'cancelled' limit 1",
-            )
-            .bind(schedule.as_ref().map(|r| s(r, "id")))
-            .bind(&period_start)
-            .fetch_optional(db)
-            .await?;
+        if weldsuite_db::is_unique_violation(&error) {
+            let existing = existing_regular_run(db, schedule_id.as_deref(), &period_start).await?;
             let suffix = existing.map(|id| format!(" ({id})")).unwrap_or_default();
             return Err(HrError::conflict(format!(
                 "A pay run for {period_start} - {period_end} already exists{suffix}"
@@ -819,14 +944,56 @@ pub(crate) async fn create_run(
     }
     let run = require_run(db, &id).await?;
     let count = candidate_employee_ids(db, &run).await?.len();
-    sqlx::query("update hr_pay_runs set employee_count = $2 where id = $1")
-        .bind(&id)
-        .bind(i32::try_from(count).unwrap_or_default())
-        .execute(db)
+    hr_pay_runs::Entity::update_many()
+        .col_expr(
+            hr_pay_runs::Column::EmployeeCount,
+            Expr::value(i32::try_from(count).unwrap_or_default()),
+        )
+        .filter(hr_pay_runs::Column::Id.eq(id.as_str()))
+        .exec(&orm(db))
         .await?;
     let mut run = run;
     run["employeeCount"] = json!(count);
     Ok(run)
+}
+
+/// `insert into hr_pay_runs`, the period and pay date (`$n::date`) as
+/// texts.
+async fn insert_run(
+    db: &PgPool,
+    mut run: hr_pay_runs::ActiveModel,
+    [period_start, period_end, pay_date]: [&str; 3],
+) -> Result<(), DbErr> {
+    run.period_start = Set(sql_date(period_start)?);
+    run.period_end = Set(sql_date(period_end)?);
+    run.pay_date = Set(sql_date(pay_date)?);
+    hr_pay_runs::Entity::insert(run)
+        .exec_without_returning(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// The open regular run of the schedule's period that refused a new one.
+async fn existing_regular_run(
+    db: &PgPool,
+    schedule_id: Option<&str>,
+    period_start: &str,
+) -> Result<Option<String>, DbErr> {
+    use hr_pay_runs::Column;
+    // `pay_schedule_id = null` matches nothing.
+    let Some(schedule_id) = schedule_id else {
+        return Ok(None);
+    };
+    hr_pay_runs::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::PayScheduleId.eq(schedule_id))
+        .filter(Column::PeriodStart.eq(sql_date(period_start)?))
+        .filter(Column::Kind.eq("regular"))
+        .filter(Column::Status.ne("cancelled"))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 async fn create_correction_run(
@@ -852,12 +1019,14 @@ async fn create_correction_run(
         ));
     }
     let corrected_id = s(&corrected, "id");
-    let originals: Vec<String> = sqlx::query_scalar(
-        "select employee_id from hr_payslips where run_id = $1 and status = 'final'",
-    )
-    .bind(corrected_id)
-    .fetch_all(db)
-    .await?;
+    let originals: Vec<String> = hr_payslips::Entity::find()
+        .select_only()
+        .column(hr_payslips::Column::EmployeeId)
+        .filter(hr_payslips::Column::RunId.eq(corrected_id))
+        .filter(hr_payslips::Column::Status.eq("final"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let eligible: HashSet<&String> = originals.iter().collect();
     let wanted = super::common::string_array(&input["employeeIds"]);
     let source: Vec<String> = if wanted.is_empty() {
@@ -886,12 +1055,14 @@ async fn create_correction_run(
             details: Some(json!({ "employeeIds": not_in_run })),
         });
     }
-    let open: Vec<Option<Value>> = sqlx::query_scalar(
-        "select included_employee_ids from hr_pay_runs where corrects_run_id = $1 and status in ('draft', 'calculated')",
-    )
-    .bind(corrected_id)
-    .fetch_all(db)
-    .await?;
+    let open: Vec<Option<Value>> = hr_pay_runs::Entity::find()
+        .select_only()
+        .column(hr_pay_runs::Column::IncludedEmployeeIds)
+        .filter(hr_pay_runs::Column::CorrectsRunId.eq(corrected_id))
+        .filter(run_is_open())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let busy: HashSet<String> = open.iter().flatten().flat_map(string_list).collect();
     if selected.iter().any(|id| busy.contains(id)) {
         return Err(HrError::conflict(
@@ -901,46 +1072,62 @@ async fn create_correction_run(
     let pay_date = str_of(input, "payDate").map_or_else(today_iso, str::to_owned);
     assert_correction_in_year(int_of(&corrected, "taxYear"), &pay_date)?;
     let id = generate_id("hrpr");
-    sqlx::query(
-        "insert into hr_pay_runs (id, employer_id, pay_schedule_id, country, currency, kind, corrects_run_id, period_start,
-         period_end, pay_date, tax_year, period_number, status, employee_count, included_employee_ids, notes, prepared_by)
-         values ($1, $2, $3, $4, $5, 'correction', $6, $7::date, $8::date, $9::date, $10, $11, 'draft', $12, $13, $14, $15)",
+    insert_run(
+        db,
+        hr_pay_runs::ActiveModel {
+            id: Set(id.clone()),
+            employer_id: Set(s(employer, "id").to_owned()),
+            pay_schedule_id: Set(corrected["payScheduleId"].as_str().map(str::to_owned)),
+            country: Set(s(&corrected, "country").to_owned()),
+            currency: Set(s(&corrected, "currency").to_owned()),
+            kind: Set("correction".to_owned()),
+            corrects_run_id: Set(Some(corrected_id.to_owned())),
+            tax_year: Set(i32::try_from(int_of(&corrected, "taxYear")).unwrap_or_default()),
+            period_number: Set(
+                i32::try_from(int_of(&corrected, "periodNumber")).unwrap_or_default(),
+            ),
+            status: Set("draft".to_owned()),
+            employee_count: Set(i32::try_from(selected.len()).unwrap_or_default()),
+            included_employee_ids: Set(Some(json!(selected))),
+            notes: Set(str_of(input, "notes").map(str::to_owned)),
+            prepared_by: Set(Some(user_id.to_owned())),
+            ..Default::default()
+        },
+        [
+            s(&corrected, "periodStart"),
+            s(&corrected, "periodEnd"),
+            &pay_date,
+        ],
     )
-    .bind(&id)
-    .bind(s(employer, "id"))
-    .bind(corrected["payScheduleId"].as_str())
-    .bind(s(&corrected, "country"))
-    .bind(s(&corrected, "currency"))
-    .bind(corrected_id)
-    .bind(s(&corrected, "periodStart"))
-    .bind(s(&corrected, "periodEnd"))
-    .bind(&pay_date)
-    .bind(i32::try_from(int_of(&corrected, "taxYear")).unwrap_or_default())
-    .bind(i32::try_from(int_of(&corrected, "periodNumber")).unwrap_or_default())
-    .bind(i32::try_from(selected.len()).unwrap_or_default())
-    .bind(json!(selected))
-    .bind(str_of(input, "notes"))
-    .bind(user_id)
-    .execute(db)
     .await?;
     // Start from the inputs that produced each payslip as it stands.
-    let original_slips: Vec<(String, String)> = sqlx::query_as(
-        "select id, employee_id from hr_payslips where run_id = $1 and status = 'final' and employee_id = any($2)",
-    )
-    .bind(corrected_id)
-    .bind(&selected)
-    .fetch_all(db)
-    .await?;
+    let original_slips: Vec<(String, String)> = hr_payslips::Entity::find()
+        .select_only()
+        .columns([hr_payslips::Column::Id, hr_payslips::Column::EmployeeId])
+        .filter(hr_payslips::Column::RunId.eq(corrected_id))
+        .filter(hr_payslips::Column::Status.eq("final"))
+        .filter(hr_payslips::Column::EmployeeId.is_in(selected.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let prior: Vec<(String, String, Option<String>)> = if original_slips.is_empty() {
         vec![]
     } else {
-        let ids: Vec<&String> = original_slips.iter().map(|(id, _)| id).collect();
-        sqlx::query_as(
-            "select employee_id, run_id, number from hr_payslips where corrects_payslip_id = any($1) and status = 'final'",
-        )
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        hr_payslips::Entity::find()
+            .select_only()
+            .columns([
+                hr_payslips::Column::EmployeeId,
+                hr_payslips::Column::RunId,
+                hr_payslips::Column::Number,
+            ])
+            .filter(
+                hr_payslips::Column::CorrectsPayslipId
+                    .is_in(original_slips.iter().map(|(id, _)| id.as_str())),
+            )
+            .filter(hr_payslips::Column::Status.eq("final"))
+            .into_tuple()
+            .all(&orm(db))
+            .await?
     };
     let mut source_run_of: Vec<(String, String)> = vec![];
     for employee in &selected {
@@ -961,43 +1148,42 @@ async fn create_correction_run(
             source_runs.push(run.clone());
         }
     }
-    let originals = rows_of(
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select {INPUT_ROW} from hr_pay_run_inputs i where i.run_id = any($1)"
-        )))
-        .bind(&source_runs)
-        .fetch_all(db)
-        .await?,
-    );
-    let copies: Vec<&Value> = originals
-        .iter()
+    let originals = hr_pay_run_inputs::Entity::find()
+        .filter(hr_pay_run_inputs::Column::RunId.is_in(source_runs.iter().map(String::as_str)))
+        .all(&orm(db))
+        .await?;
+    let copies: Vec<hr_pay_run_inputs::Model> = originals
+        .into_iter()
         .filter(|row| {
             source_run_of
                 .iter()
-                .any(|(e, r)| e == s(row, "employeeId") && r == s(row, "runId"))
+                .any(|(e, r)| *e == row.employee_id && *r == row.run_id)
         })
         .collect();
     if !copies.is_empty() {
         let mut tx = db.begin().await?;
-        for row in copies {
-            sqlx::query(
-                "insert into hr_pay_run_inputs (id, run_id, employee_id, code, label, quantity, rate, amount, work_date, source,
-                 source_ref, notes, created_by) values ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::date,
-                 'manual', null, $10, $11)",
-            )
-            .bind(generate_id("hrpi"))
-            .bind(&id)
-            .bind(s(row, "employeeId"))
-            .bind(s(row, "code"))
-            .bind(row["label"].as_str())
-            .bind(row["quantity"].as_str())
-            .bind(row["rate"].as_str())
-            .bind(row["amount"].as_str())
-            .bind(row["workDate"].as_str())
-            .bind(row["notes"].as_str())
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        {
+            let tx = OrmConn::new(&mut tx);
+            for row in copies {
+                hr_pay_run_inputs::Entity::insert(hr_pay_run_inputs::ActiveModel {
+                    id: Set(generate_id("hrpi")),
+                    run_id: Set(id.clone()),
+                    employee_id: Set(row.employee_id),
+                    code: Set(row.code),
+                    label: Set(row.label),
+                    quantity: Set(row.quantity),
+                    rate: Set(row.rate),
+                    amount: Set(row.amount),
+                    work_date: Set(row.work_date),
+                    source: Set("manual".to_owned()),
+                    source_ref: Set(None),
+                    notes: Set(row.notes),
+                    created_by: Set(Some(user_id.to_owned())),
+                    ..Default::default()
+                })
+                .exec_without_returning(&tx)
+                .await?;
+            }
         }
         tx.commit().await?;
     }
@@ -1006,6 +1192,7 @@ async fn create_correction_run(
 
 /// `updateRun(db, id, input)`.
 pub(crate) async fn update_run(db: &PgPool, id: &str, input: &Value) -> Result<Value, HrError> {
+    use hr_pay_runs::Column;
     let run = require_run(db, id).await?;
     assert_editable(&run)?;
     let pay_date = str_of(input, "payDate");
@@ -1014,27 +1201,37 @@ pub(crate) async fn update_run(db: &PgPool, id: &str, input: &Value) -> Result<V
         Some(date) if changed => Some(numbering_for_pay_date(db, &run, date).await?),
         _ => None,
     };
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update hr_pay_runs set
-           pay_date = coalesce($2::date, pay_date),
-           tax_year = coalesce($3, tax_year),
-           period_number = coalesce($4, period_number),
-           notes = case when $5 then $6 else notes end,
-           status = case when $7 and status = 'calculated' then 'draft' else status end,
-           updated_at = $8::timestamp
-         where id = $1 and status in ('draft', 'calculated') returning id",
-    )
-    .bind(id)
-    .bind(pay_date)
-    .bind(dated.map(|(y, _)| i32::try_from(y).unwrap_or_default()))
-    .bind(dated.map(|(_, n)| i32::try_from(n).unwrap_or_default()))
-    .bind(has(input, "notes"))
-    .bind(str_of(input, "notes"))
-    .bind(changed)
-    .bind(now())
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
+    let mut update = hr_pay_runs::Entity::update_many();
+    if let Some(date) = pay_date {
+        update = update.col_expr(Column::PayDate, Expr::value(sql_date(date)?));
+    }
+    if let Some((tax_year, period_number)) = dated {
+        update = update
+            .col_expr(
+                Column::TaxYear,
+                Expr::value(i32::try_from(tax_year).unwrap_or_default()),
+            )
+            .col_expr(
+                Column::PeriodNumber,
+                Expr::value(i32::try_from(period_number).unwrap_or_default()),
+            );
+    }
+    if has(input, "notes") {
+        update = update.col_expr(
+            Column::Notes,
+            Expr::value(str_of(input, "notes").map(str::to_owned)),
+        );
+    }
+    if changed {
+        update = update.col_expr(Column::Status, back_to_draft());
+    }
+    let updated = update
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(id))
+        .filter(run_is_open())
+        .exec(&orm(db))
+        .await?;
+    if updated.rows_affected == 0 {
         return Err(HrError::conflict(RUN_CHANGED));
     }
     require_run(db, id).await
@@ -1044,21 +1241,22 @@ pub(crate) async fn update_run(db: &PgPool, id: &str, input: &Value) -> Result<V
 pub(crate) async fn cancel_run(db: &PgPool, id: &str) -> Result<Value, HrError> {
     let run = require_run(db, id).await?;
     assert_editable(&run)?;
-    let at = now();
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update hr_pay_runs set status = 'cancelled', cancelled_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1 and status in ('draft', 'calculated') returning id",
-    )
-    .bind(id)
-    .bind(&at)
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
+    let at = utc_now();
+    let cancelled = hr_pay_runs::Entity::update_many()
+        .col_expr(hr_pay_runs::Column::Status, Expr::value("cancelled"))
+        .col_expr(hr_pay_runs::Column::CancelledAt, Expr::value(at))
+        .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_pay_runs::Column::Id.eq(id))
+        .filter(run_is_open())
+        .exec(&orm(db))
+        .await?;
+    if cancelled.rows_affected == 0 {
         return Err(HrError::conflict(RUN_CHANGED));
     }
-    sqlx::query("delete from hr_payslips where run_id = $1 and status = 'draft'")
-        .bind(id)
-        .execute(db)
+    hr_payslips::Entity::delete_many()
+        .filter(hr_payslips::Column::RunId.eq(id))
+        .filter(hr_payslips::Column::Status.eq("draft"))
+        .exec(&orm(db))
         .await?;
     require_run(db, id).await
 }
@@ -1092,27 +1290,27 @@ pub(crate) async fn set_run_employee(
     } else {
         next.retain(|e| e != employee_id);
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update hr_pay_runs set excluded_employee_ids = $2,
-           status = case when status = 'calculated' then 'draft' else status end, updated_at = $3::timestamp
-         where id = $1 and status in ('draft', 'calculated') returning id",
-    )
-    .bind(id)
-    .bind(json!(next))
-    .bind(now())
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
+    let updated = hr_pay_runs::Entity::update_many()
+        .col_expr(
+            hr_pay_runs::Column::ExcludedEmployeeIds,
+            Expr::value(json!(next)),
+        )
+        .col_expr(hr_pay_runs::Column::Status, back_to_draft())
+        .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_pay_runs::Column::Id.eq(id))
+        .filter(run_is_open())
+        .exec(&orm(db))
+        .await?;
+    if updated.rows_affected == 0 {
         return Err(HrError::conflict(RUN_CHANGED));
     }
     if excluded {
-        sqlx::query(
-            "delete from hr_payslips where run_id = $1 and employee_id = $2 and status = 'draft'",
-        )
-        .bind(id)
-        .bind(employee_id)
-        .execute(db)
-        .await?;
+        hr_payslips::Entity::delete_many()
+            .filter(hr_payslips::Column::RunId.eq(id))
+            .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+            .filter(hr_payslips::Column::Status.eq("draft"))
+            .exec(&orm(db))
+            .await?;
     }
     require_run(db, id).await
 }
@@ -1134,14 +1332,18 @@ pub(crate) async fn run_input_rows(
     run_id: &str,
     employee_ids: Option<&[String]>,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {INPUT_ROW} from hr_pay_run_inputs i where i.run_id = $1 and ($2::text[] is null or i.employee_id = any($2))"
-    )))
-    .bind(run_id)
-    .bind(employee_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows_of(rows))
+    let mut inputs =
+        hr_pay_run_inputs::Entity::find().filter(hr_pay_run_inputs::Column::RunId.eq(run_id));
+    if let Some(ids) = employee_ids {
+        inputs = inputs.filter(
+            hr_pay_run_inputs::Column::EmployeeId.is_in(ids.iter().map(String::as_str)),
+        );
+    }
+    let rows = inputs.all(&orm(db)).await?;
+    Ok(rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 /// `listRunInputs(db, runId, { employeeId })`.
@@ -1150,16 +1352,20 @@ pub(crate) async fn list_run_inputs(
     run_id: &str,
     employee_id: Option<&str>,
 ) -> Result<Vec<Value>, HrError> {
+    use hr_pay_run_inputs::Column;
     require_run(db, run_id).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {INPUT_ROW} from hr_pay_run_inputs i where i.run_id = $1 and ($2::text is null or i.employee_id = $2)
-         order by i.employee_id asc, i.created_at asc"
-    )))
-    .bind(run_id)
-    .bind(employee_id.filter(|e| !e.is_empty()))
-    .fetch_all(db)
-    .await?;
-    Ok(rows_of(rows).iter().map(to_input_dto).collect())
+    let mut inputs = hr_pay_run_inputs::Entity::find().filter(Column::RunId.eq(run_id));
+    if let Some(employee_id) = employee_id.filter(|e| !e.is_empty()) {
+        inputs = inputs.filter(Column::EmployeeId.eq(employee_id));
+    }
+    let rows = inputs
+        .order_by_asc(Column::EmployeeId)
+        .order_by_asc(Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok(to_input_dto(&row_json(row)?)))
+        .collect()
 }
 
 fn validate_input(
@@ -1191,13 +1397,10 @@ fn validate_input(
 }
 
 async fn input_row(db: &PgPool, id: &str) -> Result<Option<Value>, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {INPUT_ROW} from hr_pay_run_inputs i where i.id = $1 limit 1"
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = hr_pay_run_inputs::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 /// `createRunInput(db, runId, input, { userId })`.
@@ -1232,22 +1435,23 @@ pub(crate) async fn create_run_input(
     }
     touch_run(db, run_id).await?;
     let id = generate_id("hrpi");
-    sqlx::query(
-        "insert into hr_pay_run_inputs (id, run_id, employee_id, code, label, quantity, rate, amount, work_date, source, notes,
-         created_by) values ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::date, 'manual', $10, $11)",
-    )
-    .bind(&id)
-    .bind(run_id)
-    .bind(employee_id)
-    .bind(code)
-    .bind(str_of(input, "label"))
-    .bind(number("quantity").map(decimal4))
-    .bind(number("rate").map(decimal4))
-    .bind(number("amount").map(decimal2))
-    .bind(str_of(input, "workDate"))
-    .bind(str_of(input, "notes"))
-    .bind(user_id)
-    .execute(db)
+    let decimal = |key: &str, fixed: fn(f64) -> String| sql_numeric_opt(number(key).map(fixed).as_deref());
+    hr_pay_run_inputs::Entity::insert(hr_pay_run_inputs::ActiveModel {
+        id: Set(id.clone()),
+        run_id: Set(run_id.to_owned()),
+        employee_id: Set(employee_id.to_owned()),
+        code: Set(code.to_owned()),
+        label: Set(str_of(input, "label").map(str::to_owned)),
+        quantity: Set(decimal("quantity", decimal4)?),
+        rate: Set(decimal("rate", decimal4)?),
+        amount: Set(decimal("amount", decimal2)?),
+        work_date: Set(sql_date_opt(str_of(input, "workDate"))?),
+        source: Set("manual".to_owned()),
+        notes: Set(str_of(input, "notes").map(str::to_owned)),
+        created_by: Set(Some(user_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let row = input_row(db, &id)
         .await?
@@ -1269,6 +1473,7 @@ pub(crate) async fn update_run_input(
     input_id: &str,
     input: &Value,
 ) -> Result<Value, HrError> {
+    use hr_pay_run_inputs::Column;
     let run = require_run(db, run_id).await?;
     assert_editable(&run)?;
     let row = require_input(db, run_id, input_id).await?;
@@ -1287,37 +1492,40 @@ pub(crate) async fn update_run_input(
     )?;
     let figures_changed = has(input, "quantity") || has(input, "rate") || has(input, "amount");
     touch_run(db, run_id).await?;
-    let number =
-        |key: &str, fixed: fn(f64) -> String| input.get(key).and_then(Value::as_f64).map(fixed);
-    sqlx::query(
-        "update hr_pay_run_inputs set
-           label = case when $2 then $3 else label end,
-           quantity = case when $4 then $5::numeric else quantity end,
-           rate = case when $6 then $7::numeric else rate end,
-           amount = case when $8 then $9::numeric else amount end,
-           work_date = case when $10 then $11::date else work_date end,
-           notes = case when $12 then $13 else notes end,
-           source = case when $14 then 'manual' else source end,
-           updated_at = $15::timestamp
-         where id = $1",
-    )
-    .bind(input_id)
-    .bind(has(input, "label"))
-    .bind(str_of(input, "label"))
-    .bind(has(input, "quantity"))
-    .bind(number("quantity", decimal4))
-    .bind(has(input, "rate"))
-    .bind(number("rate", decimal4))
-    .bind(has(input, "amount"))
-    .bind(number("amount", decimal2))
-    .bind(has(input, "workDate"))
-    .bind(str_of(input, "workDate"))
-    .bind(has(input, "notes"))
-    .bind(str_of(input, "notes"))
-    .bind(figures_changed && row["source"] != "manual")
-    .bind(now())
-    .execute(db)
-    .await?;
+    let number = |key: &str, fixed: fn(f64) -> String| {
+        sql_numeric_opt(input.get(key).and_then(Value::as_f64).map(fixed).as_deref())
+    };
+    let text = |key: &str| Expr::value(str_of(input, key).map(str::to_owned));
+    let mut update = hr_pay_run_inputs::Entity::update_many();
+    if has(input, "label") {
+        update = update.col_expr(Column::Label, text("label"));
+    }
+    for (key, column, fixed) in [
+        ("quantity", Column::Quantity, decimal4 as fn(f64) -> String),
+        ("rate", Column::Rate, decimal4),
+        ("amount", Column::Amount, decimal2),
+    ] {
+        if has(input, key) {
+            update = update.col_expr(column, Expr::value(number(key, fixed)?));
+        }
+    }
+    if has(input, "workDate") {
+        update = update.col_expr(
+            Column::WorkDate,
+            Expr::value(sql_date_opt(str_of(input, "workDate"))?),
+        );
+    }
+    if has(input, "notes") {
+        update = update.col_expr(Column::Notes, text("notes"));
+    }
+    if figures_changed && row["source"] != "manual" {
+        update = update.col_expr(Column::Source, Expr::value("manual"));
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(input_id))
+        .exec(&orm(db))
+        .await?;
     let row = input_row(db, input_id)
         .await?
         .ok_or_else(|| HrError::internal("input vanished"))?;
@@ -1334,9 +1542,8 @@ pub(crate) async fn delete_run_input(
     assert_editable(&run)?;
     require_input(db, run_id, input_id).await?;
     touch_run(db, run_id).await?;
-    sqlx::query("delete from hr_pay_run_inputs where id = $1")
-        .bind(input_id)
-        .execute(db)
+    hr_pay_run_inputs::Entity::delete_by_id(input_id.to_owned())
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -1400,11 +1607,7 @@ pub(crate) async fn collect_run_inputs(
     let collected: Vec<&str> = COLLECTED_SOURCES.to_vec();
     if employee_ids.is_empty() {
         touch_run(db, run_id).await?;
-        sqlx::query("delete from hr_pay_run_inputs where run_id = $1 and source = any($2)")
-            .bind(run_id)
-            .bind(&collected)
-            .execute(db)
-            .await?;
+        delete_collected(&orm(db), run_id, &collected).await?;
         return Ok(summary);
     }
     let data = load_employee_payroll_data(db, &employee_ids, keyring).await?;
@@ -1415,24 +1618,14 @@ pub(crate) async fn collect_run_inputs(
         s(&run, "periodEnd").to_owned(),
     );
 
-    let taken_rows: Vec<(Option<String>, String, String)> = sqlx::query_as(
-        "select i.source_ref, r.period_start::text, r.period_end::text from hr_pay_run_inputs i
-         join hr_pay_runs r on r.id = i.run_id
-         where i.employee_id = any($1) and i.source_ref is not null
-           and i.source in ('attendance', 'leave', 'absence', 'manual') and i.run_id <> $2
-           and r.status in ('draft', 'calculated', 'approved', 'paid')
-           and r.period_start <= $3::date and r.period_end >= $4::date",
-    )
-    .bind(&employee_ids)
-    .bind(run_id)
-    .bind(&period_end)
-    .bind(&period_start)
-    .fetch_all(db)
-    .await?;
+    let taken_rows = taken_in_other_runs(db, &employee_ids, run_id, &period_start, &period_end).await?;
     let mut taken: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for (reference, start, end) in taken_rows {
         if let Some(reference) = reference.filter(|r| !r.is_empty()) {
-            taken.entry(reference).or_default().push((start, end));
+            taken
+                .entry(reference)
+                .or_default()
+                .push((iso_date(start), iso_date(end)));
         }
     }
     let free_weekdays = |reference: &str, start: &str, end: &str| -> Vec<String> {
@@ -1454,12 +1647,17 @@ pub(crate) async fn collect_run_inputs(
         days
     };
 
-    let manual: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select code, source_ref from hr_pay_run_inputs where run_id = $1 and source = 'manual'",
-    )
-    .bind(run_id)
-    .fetch_all(db)
-    .await?;
+    let manual: Vec<(String, Option<String>)> = hr_pay_run_inputs::Entity::find()
+        .select_only()
+        .columns([
+            hr_pay_run_inputs::Column::Code,
+            hr_pay_run_inputs::Column::SourceRef,
+        ])
+        .filter(hr_pay_run_inputs::Column::RunId.eq(run_id))
+        .filter(hr_pay_run_inputs::Column::Source.eq("manual"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let manual_keys: HashSet<String> = manual
         .iter()
         .filter_map(|(code, r)| {
@@ -1515,19 +1713,10 @@ pub(crate) async fn collect_run_inputs(
     let paid_by_hours = |d: &EmployeePayrollData| pay_type_of(d).as_deref() == Some("hourly");
 
     // Attendance
-    let attendance: Vec<(String, String, String, Option<i32>)> = sqlx::query_as(
-        "select id, employee_id, date::text, worked_minutes from hr_attendance_records
-         where employee_id = any($1) and date >= $2::date and date <= $3::date
-           and approved_at is not null and worked_minutes > 0
-         order by date asc, created_at asc",
-    )
-    .bind(&employee_ids)
-    .bind(&period_start)
-    .bind(&period_end)
-    .fetch_all(db)
-    .await?;
+    let attendance = approved_attendance(db, &employee_ids, &period_start, &period_end).await?;
     let mut per_day: Vec<(String, String, i64, String)> = vec![];
     for (id, employee_id, date, minutes) in attendance {
+        let date = iso_date(date);
         let Some(d) = data_of(&employee_id) else {
             continue;
         };
@@ -1563,17 +1752,9 @@ pub(crate) async fn collect_run_inputs(
     }
 
     // Leave
-    let leave: Vec<(String, String, String, String, f64, bool, String)> = sqlx::query_as(
-        "select r.id, r.employee_id, r.start_date::text, r.end_date::text, r.days::float8, t.is_paid, t.name
-         from hr_leave_requests r join hr_leave_types t on t.id = r.leave_type_id
-         where r.employee_id = any($1) and r.status = 'approved' and r.start_date <= $2::date and r.end_date >= $3::date",
-    )
-    .bind(&employee_ids)
-    .bind(&period_end)
-    .bind(&period_start)
-    .fetch_all(db)
-    .await?;
+    let leave = approved_leave(db, &employee_ids, &period_start, &period_end).await?;
     for (id, employee_id, start, end, days, is_paid, type_name) in leave {
+        let (start, end) = (iso_date(start), iso_date(end));
         let Some(d) = data_of(&employee_id) else {
             continue;
         };
@@ -1615,16 +1796,9 @@ pub(crate) async fn collect_run_inputs(
 
     // Sick reports (NL salaried)
     if country == "NL" {
-        let absences: Vec<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, employee_id, start_date::text, end_date::text, first_day from hr_absences
-             where employee_id = any($1) and start_date <= $2::date and (end_date is null or end_date >= $3::date)",
-        )
-        .bind(&employee_ids)
-        .bind(&period_end)
-        .bind(&period_start)
-        .fetch_all(db)
-        .await?;
+        let absences = absences_in(db, &employee_ids, &period_start, &period_end).await?;
         for (id, employee_id, start_date, end_date, first_day) in absences {
+            let (start_date, end_date) = (iso_date(start_date), end_date.map(iso_date));
             let Some(d) = data_of(&employee_id) else {
                 continue;
             };
@@ -1635,7 +1809,7 @@ pub(crate) async fn collect_run_inputs(
             let end = min_date(end_date.as_deref().unwrap_or(&period_end), &period_end).to_owned();
             let free = free_weekdays(&id, &start, &end);
             let mut days = free.len() as f64;
-            if first_day.as_deref() == Some("half")
+            if first_day == "half"
                 && start_date.as_str() >= period_start.as_str()
                 && free.contains(&start_date)
             {
@@ -1662,29 +1836,18 @@ pub(crate) async fn collect_run_inputs(
     }
 
     // Declarations
-    let declarations: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "select id, employee_id, description, amount::text, expense_date::text from hr_declarations
-         where employee_id = any($1) and status = 'approved' and currency = $2 and expense_date <= $3::date
-           and paid_at is null",
-    )
-    .bind(&employee_ids)
-    .bind(s(&run, "currency"))
-    .bind(&period_end)
-    .fetch_all(db)
-    .await?;
+    let declarations =
+        approved_declarations(db, &employee_ids, s(&run, "currency"), &period_end).await?;
     if !declarations.is_empty() {
-        let ids: Vec<&String> = declarations.iter().map(|d| &d.0).collect();
-        let taken_ids: HashSet<Option<String>> = sqlx::query_scalar::<_, Option<String>>(
-            "select i.source_ref from hr_pay_run_inputs i join hr_pay_runs r on r.id = i.run_id
-             where i.source_ref = any($1) and i.run_id <> $2 and r.status in ('draft', 'calculated', 'approved')",
-        )
-        .bind(ids)
-        .bind(run_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect();
+        let ids: Vec<&str> = declarations.iter().map(|d| d.0.as_str()).collect();
+        let taken_ids: HashSet<Option<String>> = declarations_taken(db, &ids, run_id)
+            .await?
+            .into_iter()
+            .collect();
         for (id, employee_id, description, amount, expense_date) in declarations {
+            // `amount::text`, read as a JavaScript number.
+            let amount = amount.to_plain_string();
+            let expense_date = iso_date(expense_date);
             if taken_ids.contains(&Some(id.clone())) {
                 continue;
             }
@@ -1710,32 +1873,222 @@ pub(crate) async fn collect_run_inputs(
 
     touch_run(db, run_id).await?;
     let mut tx = db.begin().await?;
-    sqlx::query("delete from hr_pay_run_inputs where run_id = $1 and source = any($2)")
-        .bind(run_id)
-        .bind(&collected)
-        .execute(&mut *tx)
-        .await?;
-    for row in fresh {
-        sqlx::query(
-            "insert into hr_pay_run_inputs (id, run_id, employee_id, code, label, quantity, rate, amount, work_date, source,
-             source_ref, notes, created_by) values ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::date, $10,
-             $11, null, $12)",
-        )
-        .bind(generate_id("hrpi"))
-        .bind(run_id)
-        .bind(&row.employee_id)
-        .bind(row.code)
-        .bind(&row.label)
-        .bind(&row.quantity)
-        .bind(&row.rate)
-        .bind(&row.amount)
-        .bind(&row.work_date)
-        .bind(row.source)
-        .bind(&row.source_ref)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    {
+        let tx = OrmConn::new(&mut tx);
+        delete_collected(&tx, run_id, &collected).await?;
+        for row in fresh {
+            hr_pay_run_inputs::Entity::insert(hr_pay_run_inputs::ActiveModel {
+                id: Set(generate_id("hrpi")),
+                run_id: Set(run_id.to_owned()),
+                employee_id: Set(row.employee_id),
+                code: Set(row.code.to_owned()),
+                label: Set(row.label),
+                quantity: Set(sql_numeric_opt(row.quantity.as_deref())?),
+                rate: Set(sql_numeric_opt(row.rate.as_deref())?),
+                amount: Set(sql_numeric_opt(row.amount.as_deref())?),
+                work_date: Set(Some(sql_date(&row.work_date)?)),
+                source: Set(row.source.to_owned()),
+                source_ref: Set(Some(row.source_ref)),
+                notes: Set(None),
+                created_by: Set(Some(user_id.to_owned())),
+                ..Default::default()
+            })
+            .exec_without_returning(&tx)
+            .await?;
+        }
     }
     tx.commit().await?;
     Ok(summary)
+}
+
+/// `delete from hr_pay_run_inputs where run_id = $1 and source = any(collected)`.
+async fn delete_collected<C: ConnectionTrait>(
+    db: &C,
+    run_id: &str,
+    collected: &[&str],
+) -> Result<(), DbErr> {
+    hr_pay_run_inputs::Entity::delete_many()
+        .filter(hr_pay_run_inputs::Column::RunId.eq(run_id))
+        .filter(hr_pay_run_inputs::Column::Source.is_in(collected.iter().copied()))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// What other open or settled runs overlapping the period already pay:
+/// `(source_ref, run period start, run period end)`.
+async fn taken_in_other_runs(
+    db: &PgPool,
+    employee_ids: &[String],
+    run_id: &str,
+    period_start: &str,
+    period_end: &str,
+) -> Result<Vec<(Option<String>, Date, Date)>, DbErr> {
+    use hr_pay_run_inputs::Column;
+    hr_pay_run_inputs::Entity::find()
+        .select_only()
+        .column(Column::SourceRef)
+        .column(hr_pay_runs::Column::PeriodStart)
+        .column(hr_pay_runs::Column::PeriodEnd)
+        .join(JoinType::InnerJoin, input_run())
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::SourceRef.is_not_null())
+        .filter(Column::Source.is_in(["attendance", "leave", "absence", "manual"]))
+        .filter(Column::RunId.ne(run_id))
+        .filter(hr_pay_runs::Column::Status.is_in(["draft", "calculated", "approved", "paid"]))
+        .filter(hr_pay_runs::Column::PeriodStart.lte(sql_date(period_end)?))
+        .filter(hr_pay_runs::Column::PeriodEnd.gte(sql_date(period_start)?))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// `join(hrPayRuns, eq(hrPayRuns.id, hrPayRunInputs.runId))`.
+fn input_run() -> sea_orm::RelationDef {
+    hr_pay_run_inputs::Entity::belongs_to(hr_pay_runs::Entity)
+        .from(hr_pay_run_inputs::Column::RunId)
+        .to(hr_pay_runs::Column::Id)
+        .into()
+}
+
+/// Approved attendance with worked minutes in the period, oldest first:
+/// `(id, employee_id, date, worked_minutes)`.
+async fn approved_attendance(
+    db: &PgPool,
+    employee_ids: &[String],
+    period_start: &str,
+    period_end: &str,
+) -> Result<Vec<(String, String, Date, Option<i32>)>, DbErr> {
+    use hr_attendance_records::Column;
+    hr_attendance_records::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EmployeeId,
+            Column::Date,
+            Column::WorkedMinutes,
+        ])
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::Date.gte(sql_date(period_start)?))
+        .filter(Column::Date.lte(sql_date(period_end)?))
+        .filter(Column::ApprovedAt.is_not_null())
+        .filter(Column::WorkedMinutes.gt(0))
+        .order_by_asc(Column::Date)
+        .order_by_asc(Column::CreatedAt)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Approved leave overlapping the period with its type: `(id, employee_id,
+/// start_date, end_date, days, is_paid, type name)`.
+async fn approved_leave(
+    db: &PgPool,
+    employee_ids: &[String],
+    period_start: &str,
+    period_end: &str,
+) -> Result<Vec<(String, String, Date, Date, f64, bool, String)>, DbErr> {
+    use hr_leave_requests::Column;
+    hr_leave_requests::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EmployeeId,
+            Column::StartDate,
+            Column::EndDate,
+            Column::Days,
+        ])
+        .column(hr_leave_types::Column::IsPaid)
+        .column(hr_leave_types::Column::Name)
+        .join(
+            JoinType::InnerJoin,
+            hr_leave_requests::Entity::belongs_to(hr_leave_types::Entity)
+                .from(Column::LeaveTypeId)
+                .to(hr_leave_types::Column::Id)
+                .into(),
+        )
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::Status.eq("approved"))
+        .filter(Column::StartDate.lte(sql_date(period_end)?))
+        .filter(Column::EndDate.gte(sql_date(period_start)?))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Sick reports overlapping the period: `(id, employee_id, start_date,
+/// end_date, first_day)`.
+async fn absences_in(
+    db: &PgPool,
+    employee_ids: &[String],
+    period_start: &str,
+    period_end: &str,
+) -> Result<Vec<(String, String, Date, Option<Date>, String)>, DbErr> {
+    use hr_absences::Column;
+    hr_absences::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EmployeeId,
+            Column::StartDate,
+            Column::EndDate,
+            Column::FirstDay,
+        ])
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::StartDate.lte(sql_date(period_end)?))
+        .filter(
+            sea_orm::Condition::any()
+                .add(Column::EndDate.is_null())
+                .add(Column::EndDate.gte(sql_date(period_start)?)),
+        )
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Approved, unpaid declarations in the run's currency up to the period's
+/// end: `(id, employee_id, description, amount, expense_date)`.
+async fn approved_declarations(
+    db: &PgPool,
+    employee_ids: &[String],
+    currency: &str,
+    period_end: &str,
+) -> Result<Vec<(String, String, String, BigDecimal, Date)>, DbErr> {
+    use hr_declarations::Column;
+    hr_declarations::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EmployeeId,
+            Column::Description,
+            Column::Amount,
+            Column::ExpenseDate,
+        ])
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::Status.eq("approved"))
+        .filter(Column::Currency.eq(currency))
+        .filter(Column::ExpenseDate.lte(sql_date(period_end)?))
+        .filter(Column::PaidAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The declarations among `ids` another open or approved run already pays.
+async fn declarations_taken(
+    db: &PgPool,
+    ids: &[&str],
+    run_id: &str,
+) -> Result<Vec<Option<String>>, DbErr> {
+    use hr_pay_run_inputs::Column;
+    hr_pay_run_inputs::Entity::find()
+        .select_only()
+        .column(Column::SourceRef)
+        .join(JoinType::InnerJoin, input_run())
+        .filter(Column::SourceRef.is_in(ids.iter().copied()))
+        .filter(Column::RunId.ne(run_id))
+        .filter(hr_pay_runs::Column::Status.is_in(["draft", "calculated", "approved"]))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }

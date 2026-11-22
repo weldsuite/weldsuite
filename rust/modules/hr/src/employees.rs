@@ -43,7 +43,7 @@ use crate::entity_scope::{EMPLOYEE_RECORD, Scope, guard};
 use crate::fields::{Fields, field_json, id, iso_date, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_birth_date, assert_date_order, company_names,
-    hr_json, js_number, now, parse_date, text, today_iso, zod_query,
+    hr_json, js_number, now, text, today_iso, zod_query,
 };
 
 /// `hr_employees` written from a request body (`db.insert(hrEmployees)
@@ -128,15 +128,10 @@ pub(crate) fn to_json<T: Serialize>(row: T) -> Result<Value, HrError> {
 }
 
 /// A `YYYY-MM-DD` the route binds as `$n::date`: a day that doesn't exist
-/// fails the statement, as Postgres refuses it (the router's 500).
+/// fails the statement, as Postgres refuses it (the router's 500;
+/// [`crate::shared::sql_date`]).
 pub(crate) fn pg_date(text: &str) -> Result<Date, HrError> {
-    parse_date(text)
-        .filter(|day| day.year() >= 1)
-        .ok_or_else(|| {
-            HrError::Database(DbErr::Custom(format!(
-                "invalid input syntax for type date: \"{text}\""
-            )))
-        })
+    Ok(crate::shared::sql_date(text)?)
 }
 
 /// [`pg_date`] for an optional day.

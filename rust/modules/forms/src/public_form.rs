@@ -3,11 +3,15 @@
 //! `PublicForm` payload, from the public cache; the tenant database is
 //! opened only to rebuild an entry that is missing.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_db::orm;
+use weldsuite_schema::master::form_link_registry;
+use weldsuite_schema::tenant::{form_versions, forms};
 
 use crate::common::{
-    Ctx, Env, Fail, FormsResult, forms_error_with, month_of, not_found, one, parse_ms, text,
+    Ctx, Env, Fail, FormsResult, forms_error_with, month_of, not_found, parse_ms, row_json,
     workspace_app_url,
 };
 use crate::engine::FormDefinition;
@@ -29,22 +33,18 @@ pub(crate) struct Link {
 
 /// `resolveLink(master, publicId)`: 404 when unknown.
 pub(crate) async fn resolve_link(master: &PgPool, public_id: &str) -> FormsResult<Link> {
-    let row = one(
-        master,
-        sqlx::query_scalar(
-            "select to_jsonb(l) from form_link_registry l where public_id = $1 limit 1",
-        )
-        .bind(public_id),
-    )
-    .await?
-    .ok_or_else(|| not_found("Form"))?;
+    let row = form_link_registry::Entity::find()
+        .filter(form_link_registry::Column::PublicId.eq(public_id))
+        .one(&orm(master))
+        .await?
+        .ok_or_else(|| not_found("Form"))?;
     Ok(Link {
-        public_id: text(&row, "publicId").to_owned(),
-        workspace_id: text(&row, "workspaceId").to_owned(),
-        clerk_org_id: text(&row, "clerkOrgId").to_owned(),
-        form_id: text(&row, "formId").to_owned(),
-        suspended: !row["suspendedAt"].is_null(),
-        held: !row["heldAt"].is_null(),
+        public_id: row.public_id,
+        workspace_id: row.workspace_id,
+        clerk_org_id: row.clerk_org_id,
+        form_id: row.form_id,
+        suspended: row.suspended_at.is_some(),
+        held: row.held_at.is_some(),
     })
 }
 
@@ -70,16 +70,14 @@ where
         Some(ctx) => ctx,
         None => open().await?,
     };
-    let form = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(f) from forms f where id = $1 and public_id = $2 limit 1",
-        )
-        .bind(&link.form_id)
-        .bind(&link.public_id),
-    )
-    .await?
-    .ok_or_else(|| not_found("Form"))?;
+    let form = forms::Entity::find()
+        .filter(forms::Column::Id.eq(&link.form_id))
+        .filter(forms::Column::PublicId.eq(&link.public_id))
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| not_found("Form"))?;
     let entry = build_public_entry(&ctx, &form, ctx.now_ms()).await?;
     write_public_cache(svc, &link.public_id, &entry).await?;
     Ok((entry, Some(ctx)))
@@ -228,16 +226,14 @@ pub(crate) fn to_public_form(
 
 /// `loadVersion(ctx, formId, versionId)`: a version row of a form, or 404.
 pub(crate) async fn load_version(ctx: &Ctx, form_id: &str, version_id: &str) -> FormsResult<Value> {
-    one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(v) from form_versions v where id = $1 and form_id = $2 limit 1",
-        )
-        .bind(version_id)
-        .bind(form_id),
-    )
-    .await?
-    .ok_or_else(|| not_found("Version"))
+    form_versions::Entity::find()
+        .filter(form_versions::Column::Id.eq(version_id))
+        .filter(form_versions::Column::FormId.eq(form_id))
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| not_found("Version"))
 }
 
 /// A version's definition, parsed for the engine.

@@ -91,7 +91,7 @@ use weldsuite_ports::{
 pub use books::{BooksInternal, BooksRequest, BooksResponse, InProcessBooks, RequestBooksInternal};
 pub(crate) use shared::{
     add_days, assert_birth_date, assert_date_order, company_names, employed_share_of_year,
-    is_iso_date_shape, js_number, js_number_of, js_round, js_time, js_to_fixed, js_trim,
+    is_iso_date_shape, js_number, js_number_of, js_round, js_to_fixed, js_trim,
     locale_compare, member_names, now, number_text, parse_date, query_date, query_param,
     query_text, text, today_iso, working_days_between, year_of,
 };

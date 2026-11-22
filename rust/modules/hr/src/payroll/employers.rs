@@ -3,8 +3,13 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, js_row};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
 use weldsuite_legal_entities::schemas::RegistrationType;
@@ -15,28 +20,32 @@ use weldsuite_legal_entities::service::{
 use weldsuite_legal_entities::{LegalEntityError, LegalEntityErrorCode};
 use weldsuite_payroll_domain::periods::{PayDateRule, PayScheduleSpec, next_period_to_run};
 use weldsuite_payroll_domain::{PayFrequency, PayrollCountry};
+use weldsuite_schema::tenant::{
+    bank_accounts, entities, hr_pay_runs, hr_pay_schedules, hr_payroll_employers,
+    hr_payroll_profiles, legal_entity_registrations,
+};
 
 use super::common::{
     is_iso_date, is_valid_iban, is_valid_routing_number, issue, mask_account_number, mask_iban,
     normalize_bic, normalize_iban, sort_issues, truthy, truthy_str, year_of_date,
 };
+use super::employees::{jsonb_row, jsonb_rows};
 use super::employer_context::{LINKED_BANK, resolve_employers};
 use super::schema::str_of;
+use crate::employees::pg_date;
 use crate::entity_scope::Scope;
-use crate::{HrError, js_trim, now, today_iso};
+use crate::{HrError, js_trim, today_iso};
 
 // ── employers ───────────────────────────────────────────────────────────────
 
 /// `requireEmployerRow(db, id)`.
 pub(crate) async fn require_employer_row(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Payroll employer", id))
+    let row = hr_payroll_employers::Entity::find()
+        .filter(hr_payroll_employers::Column::Id.eq(id))
+        .filter(hr_payroll_employers::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    jsonb_row(row.ok_or_else(|| HrError::not_found("Payroll employer", id))?)
 }
 
 /// `readEmployerBank(row, keyring)`: the salary account, the linked core
@@ -202,11 +211,14 @@ async fn entity_names(db: &PgPool, ids: &[String]) -> Result<HashMap<String, Str
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select id, name from entities where id = any($1) and deleted_at is null")
-            .bind(ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = entities::Entity::find()
+        .select_only()
+        .columns([entities::Column::Id, entities::Column::Name])
+        .filter(entities::Column::Id.is_in(ids))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -219,13 +231,14 @@ pub(crate) async fn profiles_by_employer(
     if employer_ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employer_id = any($1) and t.status = 'active'",
-    )
-    .bind(employer_ids)
-    .fetch_all(db)
-    .await?;
-    for row in rows.into_iter().map(js_row) {
+    let rows = jsonb_rows(
+        hr_payroll_profiles::Entity::find()
+            .filter(hr_payroll_profiles::Column::EmployerId.is_in(employer_ids))
+            .filter(hr_payroll_profiles::Column::Status.eq("active"))
+            .all(&orm(db))
+            .await?,
+    )?;
+    for row in rows {
         let employer = row["employerId"].as_str().unwrap_or("").to_owned();
         out.entry(employer).or_default().push(row);
     }
@@ -319,23 +332,15 @@ pub(crate) async fn list_employers(
     keyring: &Keyring,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.deleted_at is null
-           and ($1::text[] is null or t.legal_entity_id = any($1)
-                or ($2::boolean and t.legal_entity_id is null))
-         order by t.name",
-    )
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    to_employer_dtos(
-        db,
-        rows.into_iter().map(js_row).collect(),
-        keyring,
-        &today_iso(),
-    )
-    .await
+    let rows = jsonb_rows(
+        hr_payroll_employers::Entity::find()
+            .filter(hr_payroll_employers::Column::DeletedAt.is_null())
+            .filter(scope.condition(hr_payroll_employers::Column::LegalEntityId))
+            .order_by_asc(hr_payroll_employers::Column::Name)
+            .all(&orm(db))
+            .await?,
+    )?;
+    to_employer_dtos(db, rows, keyring, &today_iso()).await
 }
 
 /// `getEmployer(db, id, keyring)`.
@@ -372,23 +377,24 @@ fn via_core(error: LegalEntityError) -> HrError {
 
 /// `workspaceHasEntities(db)`.
 async fn workspace_has_entities(db: &PgPool) -> Result<bool, HrError> {
-    let row: Option<String> =
-        sqlx::query_scalar("select id from entities where deleted_at is null limit 1")
-            .fetch_optional(db)
-            .await?;
+    let row: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
 /// `requireEntity(db, id)`: a live legal entity, else a `Legal entity` 404.
 async fn require_entity(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from entities t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Legal entity", id))
+    let row = entities::Entity::find()
+        .filter(entities::Column::Id.eq(id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    jsonb_row(row.ok_or_else(|| HrError::not_found("Legal entity", id))?)
 }
 
 /// `payrollCountryOf(jurisdictionCode)`.
@@ -424,14 +430,18 @@ async fn require_payroll_registration(
     registration_id: &str,
     country: &str,
 ) -> Result<String, HrError> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "select id, type from legal_entity_registrations
-         where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(registration_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(String, String)> = legal_entity_registrations::Entity::find()
+        .select_only()
+        .columns([
+            legal_entity_registrations::Column::Id,
+            legal_entity_registrations::Column::Type,
+        ])
+        .filter(legal_entity_registrations::Column::Id.eq(registration_id))
+        .filter(legal_entity_registrations::Column::EntityId.eq(entity_id))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((id, kind)) = row else {
         return Err(HrError::validation(
             "That registration does not belong to this legal entity",
@@ -453,13 +463,15 @@ async fn require_entity_bank_account(
     entity_id: &str,
     account_id: &str,
 ) -> Result<String, HrError> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<String> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::Id)
+        .filter(bank_accounts::Column::Id.eq(account_id))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     row.ok_or_else(|| HrError::validation("That bank account does not belong to this legal entity"))
 }
 
@@ -544,13 +556,10 @@ async fn mirror_from_links(
     employer_id: &str,
     keyring: &Keyring,
 ) -> Result<(), HrError> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1",
-    )
-    .bind(employer_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(raw) = raw.map(js_row) else {
+    let raw = hr_payroll_employers::Entity::find_by_id(employer_id)
+        .one(&orm(db))
+        .await?;
+    let Some(raw) = raw.map(jsonb_row).transpose()? else {
         return Ok(());
     };
     if raw["legalEntityId"].as_str().is_none_or(str::is_empty) {
@@ -589,34 +598,59 @@ async fn mirror_from_links(
         ),
         _ => None,
     };
-    sqlx::query(
-        "update hr_payroll_employers set
-           name = $2, legal_name = $3, country = $4, currency = $5, address = $6,
-           accounting_entity_id = $7, updated_at = $8::timestamp,
-           nl_settings = coalesce($9, nl_settings),
-           us_settings = coalesce($10, us_settings),
-           bank_encrypted = coalesce($11, bank_encrypted)
-         where id = $1",
-    )
-    .bind(employer_id)
-    .bind(entity["name"].as_str())
-    .bind(legal_name.as_str())
-    .bind(merged.row["country"].as_str())
-    .bind(merged.row["currency"].as_str())
-    .bind(&merged.row["address"])
-    .bind(
-        merged
-            .links
-            .books_enabled
-            .then(|| entity["id"].as_str())
-            .flatten(),
-    )
-    .bind(now())
-    .bind(nl)
-    .bind(us)
-    .bind(sealed)
-    .execute(db)
-    .await?;
+    let text = |value: &Value| value.as_str().map(str::to_owned);
+    let mut update = hr_payroll_employers::Entity::update_many()
+        .col_expr(
+            hr_payroll_employers::Column::Name,
+            Expr::value(text(&entity["name"])),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::LegalName,
+            Expr::value(text(&legal_name)),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::Country,
+            Expr::value(text(&merged.row["country"])),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::Currency,
+            Expr::value(text(&merged.row["currency"])),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::Address,
+            Expr::value(merged.row["address"].clone()),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::AccountingEntityId,
+            Expr::value(
+                merged
+                    .links
+                    .books_enabled
+                    .then(|| text(&entity["id"]))
+                    .flatten(),
+            ),
+        )
+        .col_expr(
+            hr_payroll_employers::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        );
+    // `coalesce($n, column)`: kept when there is nothing new.
+    if let Some(nl) = nl {
+        update = update.col_expr(hr_payroll_employers::Column::NlSettings, Expr::value(nl));
+    }
+    if let Some(us) = us {
+        update = update.col_expr(hr_payroll_employers::Column::UsSettings, Expr::value(us));
+    }
+    if let Some(sealed) = sealed {
+        update = update.col_expr(
+            hr_payroll_employers::Column::BankEncrypted,
+            Expr::value(sealed),
+        );
+    }
+    update
+        .filter(hr_payroll_employers::Column::Id.eq(employer_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -625,12 +659,14 @@ async fn assert_accounting_entity(
     entity_id: &str,
     country: &str,
 ) -> Result<(), HrError> {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(String, Option<String>)> = entities::Entity::find()
+        .select_only()
+        .columns([entities::Column::Id, entities::Column::JurisdictionCode])
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((_, jurisdiction)) = row else {
         return Err(HrError::validation("The accounting entity does not exist"));
     };
@@ -724,32 +760,30 @@ pub(crate) async fn create_employer(
         }
     };
     let id = generate_id("hrpe");
-    sqlx::query(
-        "insert into hr_payroll_employers (id, name, legal_name, country, currency, legal_entity_id,
-         registration_id, bank_account_id, label, address, nl_settings, us_settings,
-         require_separate_approver, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
-    )
-    .bind(&id)
-    .bind(entity["name"].as_str().unwrap_or_default())
-    .bind(&legal_name)
-    .bind(country)
-    .bind(entity["baseCurrency"].as_str().unwrap_or_default())
-    .bind(&entity_id)
-    .bind(&registration_id)
-    .bind(&bank_account_id)
-    .bind(label_of(input))
-    .bind(input.get("address").cloned().unwrap_or_else(|| json!({})))
-    .bind(settings("nlSettings", "NL"))
-    .bind(settings("usSettings", "US"))
-    .bind(
-        input
+    hr_payroll_employers::Entity::insert(hr_payroll_employers::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(entity["name"].as_str().unwrap_or_default().to_owned()),
+        legal_name: Set(legal_name),
+        country: Set(country.to_owned()),
+        currency: Set(entity["baseCurrency"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()),
+        legal_entity_id: Set(Some(entity_id)),
+        registration_id: Set(registration_id),
+        bank_account_id: Set(bank_account_id),
+        label: Set(label_of(input)),
+        address: Set(input.get("address").cloned().unwrap_or_else(|| json!({}))),
+        nl_settings: Set(settings("nlSettings", "NL")),
+        us_settings: Set(settings("usSettings", "US")),
+        require_separate_approver: Set(input
             .get("requireSeparateApprover")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
-    .bind(created_by)
-    .execute(db)
+            .unwrap_or(false)),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     mirror_from_links(db, &id, keyring).await?;
     get_employer(db, &id, keyring).await
@@ -785,24 +819,25 @@ async fn create_legacy_employer(
             json!({})
         }
     };
-    sqlx::query(
-        "insert into hr_payroll_employers (id, name, legal_name, country, currency, accounting_entity_id, label,
-         address, nl_settings, us_settings, require_separate_approver, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-    )
-    .bind(&id)
-    .bind(js_trim(name))
-    .bind(js_trim(legal_name))
-    .bind(country)
-    .bind(&currency)
-    .bind(str_of(input, "accountingEntityId"))
-    .bind(label_of(input))
-    .bind(input.get("address").cloned().unwrap_or_else(|| json!({})))
-    .bind(settings("nlSettings", "NL"))
-    .bind(settings("usSettings", "US"))
-    .bind(input.get("requireSeparateApprover").and_then(Value::as_bool).unwrap_or(false))
-    .bind(created_by)
-    .execute(db)
+    hr_payroll_employers::Entity::insert(hr_payroll_employers::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(js_trim(name).to_owned()),
+        legal_name: Set(js_trim(legal_name).to_owned()),
+        country: Set(country.to_owned()),
+        currency: Set(currency),
+        accounting_entity_id: Set(str_of(input, "accountingEntityId").map(str::to_owned)),
+        label: Set(label_of(input)),
+        address: Set(input.get("address").cloned().unwrap_or_else(|| json!({}))),
+        nl_settings: Set(settings("nlSettings", "NL")),
+        us_settings: Set(settings("usSettings", "US")),
+        require_separate_approver: Set(input
+            .get("requireSeparateApprover")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     get_employer(db, &id, keyring).await
 }
@@ -835,17 +870,22 @@ fn merge_settings(current: &Value, patch: &Value, map_keys: &[&str]) -> Value {
 /// `assertNothingRunsUnder(db, employerId)`: moving an employer to another
 /// entity is only possible while nothing runs under it.
 async fn assert_nothing_runs_under(db: &PgPool, employer_id: &str) -> Result<(), HrError> {
-    let run: Option<String> =
-        sqlx::query_scalar("select id from hr_pay_runs where employer_id = $1 limit 1")
-            .bind(employer_id)
-            .fetch_optional(db)
-            .await?;
-    let profile: Option<String> = sqlx::query_scalar(
-        "select id from hr_payroll_profiles where employer_id = $1 and status <> 'ended' limit 1",
-    )
-    .bind(employer_id)
-    .fetch_optional(db)
-    .await?;
+    let orm = orm(db);
+    let run: Option<String> = hr_pay_runs::Entity::find()
+        .select_only()
+        .column(hr_pay_runs::Column::Id)
+        .filter(hr_pay_runs::Column::EmployerId.eq(employer_id))
+        .into_tuple()
+        .one(&orm)
+        .await?;
+    let profile: Option<String> = hr_payroll_profiles::Entity::find()
+        .select_only()
+        .column(hr_payroll_profiles::Column::Id)
+        .filter(hr_payroll_profiles::Column::EmployerId.eq(employer_id))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .into_tuple()
+        .one(&orm)
+        .await?;
     if run.is_some() || profile.is_some() {
         return Err(HrError::conflict(
             "This employer has pay runs or employees on its payroll, so it cannot move to another legal entity.",
@@ -957,50 +997,78 @@ pub(crate) async fn update_employer(
         .then(|| merge_settings(&row["nlSettings"], &input["nlSettings"], &["years"]));
     let us = (has("usSettings") && row_country == "US")
         .then(|| merge_settings(&row["usSettings"], &input["usSettings"], &["states"]));
-    sqlx::query(
-        "update hr_payroll_employers set
-           legal_entity_id = case when $14 then $15 else legal_entity_id end,
-           registration_id = case when $16 then $17 else registration_id end,
-           bank_account_id = case when $18 then $19 else bank_account_id end,
-           label = case when $20 then $21 else label end,
-           name = case when $2 then $3 else name end,
-           legal_name = case when $4 then $5 else legal_name end,
-           accounting_entity_id = case when $6 then $7 else accounting_entity_id end,
-           address = coalesce($8, address),
-           nl_settings = coalesce($9, nl_settings),
-           us_settings = coalesce($10, us_settings),
-           require_separate_approver = coalesce($11, require_separate_approver),
-           is_active = coalesce($12, is_active),
-           updated_at = $13::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(own_facts && has("name"))
-    .bind(str_of(input, "name").map(js_trim))
-    .bind(own_facts && has("legalName"))
-    .bind(str_of(input, "legalName").map(js_trim))
-    .bind(own_facts && has("accountingEntityId"))
-    .bind(str_of(input, "accountingEntityId"))
-    .bind(address)
-    .bind(nl)
-    .bind(us)
-    .bind(
-        input
-            .get("requireSeparateApprover")
-            .and_then(Value::as_bool),
-    )
-    .bind(input.get("isActive").and_then(Value::as_bool))
-    .bind(now())
-    .bind(moved)
-    .bind(&entity_id)
-    .bind(registration_id != id_column("registrationId"))
-    .bind(&registration_id)
-    .bind(bank_account_id != id_column("bankAccountId"))
-    .bind(&bank_account_id)
-    .bind(has("label"))
-    .bind(label_of(input))
-    .execute(db)
-    .await?;
+    // `case when $set then $value else column end` and `coalesce($value, column)`: only
+    // what changes is written.
+    let trimmed = |key: &str| str_of(input, key).map(|v| js_trim(v).to_owned());
+    let mut sets: Vec<(hr_payroll_employers::Column, sea_orm::Value)> = vec![];
+    if moved {
+        sets.push((
+            hr_payroll_employers::Column::LegalEntityId,
+            entity_id.clone().into(),
+        ));
+    }
+    if registration_id != id_column("registrationId") {
+        sets.push((
+            hr_payroll_employers::Column::RegistrationId,
+            registration_id.clone().into(),
+        ));
+    }
+    if bank_account_id != id_column("bankAccountId") {
+        sets.push((
+            hr_payroll_employers::Column::BankAccountId,
+            bank_account_id.clone().into(),
+        ));
+    }
+    if has("label") {
+        sets.push((hr_payroll_employers::Column::Label, label_of(input).into()));
+    }
+    if own_facts && has("name") {
+        sets.push((hr_payroll_employers::Column::Name, trimmed("name").into()));
+    }
+    if own_facts && has("legalName") {
+        sets.push((
+            hr_payroll_employers::Column::LegalName,
+            trimmed("legalName").into(),
+        ));
+    }
+    if own_facts && has("accountingEntityId") {
+        sets.push((
+            hr_payroll_employers::Column::AccountingEntityId,
+            str_of(input, "accountingEntityId")
+                .map(str::to_owned)
+                .into(),
+        ));
+    }
+    if let Some(address) = address {
+        sets.push((hr_payroll_employers::Column::Address, address.into()));
+    }
+    if let Some(nl) = nl {
+        sets.push((hr_payroll_employers::Column::NlSettings, nl.into()));
+    }
+    if let Some(us) = us {
+        sets.push((hr_payroll_employers::Column::UsSettings, us.into()));
+    }
+    if let Some(approver) = input
+        .get("requireSeparateApprover")
+        .and_then(Value::as_bool)
+    {
+        sets.push((
+            hr_payroll_employers::Column::RequireSeparateApprover,
+            approver.into(),
+        ));
+    }
+    if let Some(active) = input.get("isActive").and_then(Value::as_bool) {
+        sets.push((hr_payroll_employers::Column::IsActive, active.into()));
+    }
+    sets.push((hr_payroll_employers::Column::UpdatedAt, utc_now().into()));
+    let mut update = hr_payroll_employers::Entity::update_many();
+    for (column, value) in sets {
+        update = update.col_expr(column, Expr::value(value));
+    }
+    update
+        .filter(hr_payroll_employers::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     if entity_id.is_some() {
         mirror_from_links(db, id, keyring).await?;
     }
@@ -1134,65 +1202,62 @@ pub(crate) async fn set_employer_bank(
         } else {
             let sealed = encrypt_field(&super::common::js_json(&Value::Object(next)), keyring)
                 .map_err(|e| HrError::internal(e.to_string()))?;
-            sqlx::query("update hr_payroll_employers set bank_encrypted = $2, updated_at = $3::timestamp where id = $1")
-                .bind(id)
-                .bind(sealed)
-                .bind(now())
-                .execute(db)
+            hr_payroll_employers::Entity::update_many()
+                .col_expr(
+                    hr_payroll_employers::Column::BankEncrypted,
+                    Expr::value(sealed),
+                )
+                .col_expr(
+                    hr_payroll_employers::Column::UpdatedAt,
+                    Expr::value(utc_now()),
+                )
+                .filter(hr_payroll_employers::Column::Id.eq(id))
+                .exec(&orm(db))
                 .await?;
         }
     }
     Ok((get_employer(db, id, keyring).await?, changed))
 }
 
-async fn count(db: &PgPool, sql: &'static str, id: &str) -> Result<i64, HrError> {
-    Ok(sqlx::query_scalar::<_, i64>(sql)
-        .bind(id)
-        .fetch_one(db)
-        .await?)
-}
-
 /// `deleteEmployer(db, id)`: soft, with its schedules.
 pub(crate) async fn delete_employer(db: &PgPool, id: &str) -> Result<(), HrError> {
     require_employer_row(db, id).await?;
-    if count(
-        db,
-        "select count(*) from hr_pay_runs where employer_id = $1",
-        id,
-    )
-    .await?
-        > 0
-    {
+    let orm = orm(db);
+    let runs = hr_pay_runs::Entity::find()
+        .filter(hr_pay_runs::Column::EmployerId.eq(id))
+        .count(&orm)
+        .await?;
+    if runs > 0 {
         return Err(HrError::conflict(
             "This employer has pay runs and cannot be deleted. Deactivate it instead.",
         ));
     }
-    if count(
-        db,
-        "select count(*) from hr_payroll_profiles where employer_id = $1 and status <> 'ended'",
-        id,
-    )
-    .await?
-        > 0
-    {
+    let on_payroll = hr_payroll_profiles::Entity::find()
+        .filter(hr_payroll_profiles::Column::EmployerId.eq(id))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .count(&orm)
+        .await?;
+    if on_payroll > 0 {
         return Err(HrError::conflict(
             "Employees are still on this employer's payroll. Move or end them first.",
         ));
     }
-    let at = now();
-    sqlx::query("update hr_payroll_employers set deleted_at = $2::timestamp, updated_at = $2::timestamp, is_active = false where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = utc_now();
+    hr_payroll_employers::Entity::update_many()
+        .col_expr(hr_payroll_employers::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_payroll_employers::Column::UpdatedAt, Expr::value(at))
+        .col_expr(hr_payroll_employers::Column::IsActive, Expr::value(false))
+        .filter(hr_payroll_employers::Column::Id.eq(id))
+        .exec(&orm)
         .await?;
-    sqlx::query(
-        "update hr_pay_schedules set deleted_at = $2::timestamp, updated_at = $2::timestamp, is_active = false
-         where employer_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    hr_pay_schedules::Entity::update_many()
+        .col_expr(hr_pay_schedules::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_pay_schedules::Column::UpdatedAt, Expr::value(at))
+        .col_expr(hr_pay_schedules::Column::IsActive, Expr::value(false))
+        .filter(hr_pay_schedules::Column::EmployerId.eq(id))
+        .filter(hr_pay_schedules::Column::DeletedAt.is_null())
+        .exec(&orm)
+        .await?;
     Ok(())
 }
 
@@ -1227,13 +1292,12 @@ pub(crate) fn country_of(text: &str) -> PayrollCountry {
 
 /// `requireScheduleRow(db, id)`.
 pub(crate) async fn require_schedule_row(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_pay_schedules t where t.id = $1 and t.deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Pay schedule", id))
+    let row = hr_pay_schedules::Entity::find()
+        .filter(hr_pay_schedules::Column::Id.eq(id))
+        .filter(hr_pay_schedules::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    jsonb_row(row.ok_or_else(|| HrError::not_found("Pay schedule", id))?)
 }
 
 fn assert_rule_allowed(country: &str, frequency: &str, rule: &Value) -> Result<(), HrError> {
@@ -1272,17 +1336,18 @@ pub(crate) async fn create_schedule(db: &PgPool, input: &Value) -> Result<Value,
         &input["payDateRule"],
     )?;
     let id = generate_id("hrps");
-    sqlx::query(
-        "insert into hr_pay_schedules (id, employer_id, name, frequency, anchor_date, pay_date_rule)
-         values ($1, $2, $3, $4, $5::date, $6)",
-    )
-    .bind(&id)
-    .bind(str_of(input, "employerId"))
-    .bind(weldsuite_kit::validation::js_trim(str_of(input, "name").unwrap_or("")))
-    .bind(frequency)
-    .bind(anchor)
-    .bind(&input["payDateRule"])
-    .execute(db)
+    hr_pay_schedules::Entity::insert(hr_pay_schedules::ActiveModel {
+        id: Set(id.clone()),
+        employer_id: Set(str_of(input, "employerId").unwrap_or_default().to_owned()),
+        name: Set(
+            weldsuite_kit::validation::js_trim(str_of(input, "name").unwrap_or("")).to_owned(),
+        ),
+        frequency: Set(frequency.to_owned()),
+        anchor_date: Set(pg_date(anchor)?),
+        pay_date_rule: Set(input["payDateRule"].clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     get_schedule(db, &id).await
 }
@@ -1302,58 +1367,62 @@ pub(crate) async fn update_schedule(
             rule,
         )?;
     }
-    sqlx::query(
-        "update hr_pay_schedules set
-           name = coalesce($2, name),
-           pay_date_rule = coalesce($3, pay_date_rule),
-           is_active = coalesce($4, is_active),
-           updated_at = $5::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(str_of(input, "name").map(|n| weldsuite_kit::validation::js_trim(n).to_owned()))
-    .bind(input.get("payDateRule"))
-    .bind(input.get("isActive").and_then(Value::as_bool))
-    .bind(now())
-    .execute(db)
-    .await?;
+    // `coalesce($n, column)`: only what the body sent.
+    let mut update = hr_pay_schedules::Entity::update_many();
+    if let Some(name) = str_of(input, "name") {
+        update = update.col_expr(
+            hr_pay_schedules::Column::Name,
+            Expr::value(weldsuite_kit::validation::js_trim(name).to_owned()),
+        );
+    }
+    if let Some(rule) = input.get("payDateRule") {
+        update = update.col_expr(
+            hr_pay_schedules::Column::PayDateRule,
+            Expr::value(rule.clone()),
+        );
+    }
+    if let Some(active) = input.get("isActive").and_then(Value::as_bool) {
+        update = update.col_expr(hr_pay_schedules::Column::IsActive, Expr::value(active));
+    }
+    update
+        .col_expr(hr_pay_schedules::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_pay_schedules::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     get_schedule(db, id).await
 }
 
 /// `deleteSchedule(db, id)`.
 pub(crate) async fn delete_schedule(db: &PgPool, id: &str) -> Result<(), HrError> {
     require_schedule_row(db, id).await?;
-    if count(
-        db,
-        "select count(*) from hr_pay_runs where pay_schedule_id = $1",
-        id,
-    )
-    .await?
-        > 0
-    {
+    let orm = orm(db);
+    let runs = hr_pay_runs::Entity::find()
+        .filter(hr_pay_runs::Column::PayScheduleId.eq(id))
+        .count(&orm)
+        .await?;
+    if runs > 0 {
         return Err(HrError::conflict(
             "This schedule has pay runs and cannot be deleted. Deactivate it instead.",
         ));
     }
-    if count(
-        db,
-        "select count(*) from hr_payroll_profiles where pay_schedule_id = $1 and status <> 'ended'",
-        id,
-    )
-    .await?
-        > 0
-    {
+    let on_schedule = hr_payroll_profiles::Entity::find()
+        .filter(hr_payroll_profiles::Column::PayScheduleId.eq(id))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .count(&orm)
+        .await?;
+    if on_schedule > 0 {
         return Err(HrError::conflict(
             "Employees are still on this schedule. Move them first.",
         ));
     }
-    sqlx::query(
-        "update hr_pay_schedules set deleted_at = $2::timestamp, updated_at = $2::timestamp, is_active = false where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let at = utc_now();
+    hr_pay_schedules::Entity::update_many()
+        .col_expr(hr_pay_schedules::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_pay_schedules::Column::UpdatedAt, Expr::value(at))
+        .col_expr(hr_pay_schedules::Column::IsActive, Expr::value(false))
+        .filter(hr_pay_schedules::Column::Id.eq(id))
+        .exec(&orm)
+        .await?;
     Ok(())
 }
 
@@ -1366,14 +1435,21 @@ pub(crate) async fn last_completed_periods(
     if schedule_ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(Option<String>, String, String)> = sqlx::query_as(
-        "select pay_schedule_id, period_start::text, period_end::text from hr_pay_runs
-         where pay_schedule_id = any($1) and kind = 'regular' and status in ('approved', 'paid')
-         order by period_start desc",
-    )
-    .bind(schedule_ids)
-    .fetch_all(db)
-    .await?;
+    let text = |column: hr_pay_runs::Column| {
+        sea_orm::ExprTrait::cast_as(Expr::col((hr_pay_runs::Entity, column)), "text")
+    };
+    let rows: Vec<(Option<String>, String, String)> = hr_pay_runs::Entity::find()
+        .select_only()
+        .column(hr_pay_runs::Column::PayScheduleId)
+        .column_as(text(hr_pay_runs::Column::PeriodStart), "period_start")
+        .column_as(text(hr_pay_runs::Column::PeriodEnd), "period_end")
+        .filter(hr_pay_runs::Column::PayScheduleId.is_in(schedule_ids))
+        .filter(hr_pay_runs::Column::Kind.eq("regular"))
+        .filter(hr_pay_runs::Column::Status.is_in(["approved", "paid"]))
+        .order_by_desc(hr_pay_runs::Column::PeriodStart)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (schedule, start, end) in rows {
         if let Some(schedule) = schedule {
             out.entry(schedule).or_insert((start, end));
@@ -1407,28 +1483,39 @@ pub(crate) async fn to_schedule_dtos(db: &PgPool, rows: Vec<Value>) -> Result<Ve
         .iter()
         .filter_map(|r| r["employerId"].as_str().map(str::to_owned))
         .collect();
-    let countries: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "select id, country from hr_payroll_employers where id = any($1)",
-    )
-    .bind(&employer_ids)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .collect();
+    let orm = orm(db);
+    let countries: HashMap<String, String> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .columns([
+            hr_payroll_employers::Column::Id,
+            hr_payroll_employers::Column::Country,
+        ])
+        .filter(hr_payroll_employers::Column::Id.is_in(&employer_ids))
+        .into_tuple::<(String, String)>()
+        .all(&orm)
+        .await?
+        .into_iter()
+        .collect();
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| r["id"].as_str().map(str::to_owned))
         .collect();
-    let counts: HashMap<String, i64> = sqlx::query_as::<_, (Option<String>, i64)>(
-        "select pay_schedule_id, count(*) from hr_payroll_profiles
-         where pay_schedule_id = any($1) and status = 'active' group by pay_schedule_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .filter_map(|(id, n)| id.map(|id| (id, n)))
-    .collect();
+    let counts: HashMap<String, i64> = hr_payroll_profiles::Entity::find()
+        .select_only()
+        .column(hr_payroll_profiles::Column::PayScheduleId)
+        .column_as(
+            Expr::expr(Func::count(Expr::col(sea_orm::sea_query::Asterisk))),
+            "count",
+        )
+        .filter(hr_payroll_profiles::Column::PayScheduleId.is_in(&ids))
+        .filter(hr_payroll_profiles::Column::Status.eq("active"))
+        .group_by(hr_payroll_profiles::Column::PayScheduleId)
+        .into_tuple::<(Option<String>, i64)>()
+        .all(&orm)
+        .await?
+        .into_iter()
+        .filter_map(|(id, n)| id.map(|id| (id, n)))
+        .collect();
     let last = last_completed_periods(db, &ids).await?;
     Ok(rows
         .into_iter()
@@ -1461,20 +1548,15 @@ pub(crate) async fn list_schedules(
     employer_id: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_pay_schedules t
-         where t.deleted_at is null and ($1::text is null or t.employer_id = $1)
-           and ($2::text[] is null or t.employer_id in (select scope_p.id from hr_payroll_employers scope_p
-                where scope_p.legal_entity_id = any($2)
-                   or ($3::boolean and scope_p.legal_entity_id is null)))
-         order by t.name",
-    )
-    .bind(employer_id.filter(|e| !e.is_empty()))
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    to_schedule_dtos(db, rows.into_iter().map(js_row).collect()).await
+    let mut query = hr_pay_schedules::Entity::find()
+        .filter(hr_pay_schedules::Column::DeletedAt.is_null())
+        .filter(scope.employer_id_in(hr_pay_schedules::Column::EmployerId))
+        .order_by_asc(hr_pay_schedules::Column::Name);
+    if let Some(employer_id) = employer_id.filter(|e| !e.is_empty()) {
+        query = query.filter(hr_pay_schedules::Column::EmployerId.eq(employer_id));
+    }
+    let rows = jsonb_rows(query.all(&orm(db)).await?)?;
+    to_schedule_dtos(db, rows).await
 }
 
 /// `getSchedule(db, id)`.

@@ -19,6 +19,12 @@ use axum::extract::{FromRequest, Multipart, Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     HR_DECLARATION_APPROVED, HR_DECLARATION_CREATED, HR_DECLARATION_DELETED, HR_DECLARATION_PAID,
@@ -28,19 +34,46 @@ use weldsuite_catalogs::permission_keys::{
     DECLARATIONS_APPROVE, DECLARATIONS_CREATE, DECLARATIONS_DELETE, DECLARATIONS_READ,
     DECLARATIONS_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynFileStore, PutOptions};
+use weldsuite_schema::tenant::{hr_declarations as declarations, hr_employees, projects};
 
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name, no_row, pg_date, require_employee, to_json};
 use crate::entity_scope::{guard, via_employee};
 use crate::fields::{Fields, id, iso_date};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, js_round, js_to_fixed,
-    member_names, now, query_date, query_text, query_values, text, today_iso,
+    member_names, query_date, query_text, query_values, text, today_iso,
 };
+
+/// `amount.toFixed(2)` bound as `$n::numeric`: the exact decimal the route
+/// writes (a value Postgres can't read fails the statement, a 500).
+fn numeric_amount(amount: f64) -> Result<BigDecimal, HrError> {
+    let text = js_to_fixed(amount, 2);
+    text.parse().map_err(|_| {
+        HrError::Database(sea_orm::DbErr::Custom(format!(
+            "invalid input syntax for type numeric: \"{text}\""
+        )))
+    })
+}
+
+/// `update hr_declarations set … where id = $1 returning *`: the changed row.
+async fn update_declaration(
+    db: &PgPool,
+    id: &str,
+    update: sea_orm::UpdateMany<declarations::Entity>,
+) -> Result<Value, HrError> {
+    let row = update
+        .filter(declarations::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_declarations"))?;
+    to_json(row)
+}
 
 const CATEGORIES: [&str; 6] = [
     "travel",
@@ -136,12 +169,12 @@ pub(crate) async fn require_declaration(
     id: &str,
     only_employee_id: Option<&str>,
 ) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_declarations t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    match row.map(js_row) {
+    let row = declarations::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()?;
+    match row {
         Some(row) if only_employee_id.is_none_or(|only| row["employeeId"] == only) => Ok(row),
         _ => Err(HrError::not_found("Declaration", id)),
     }
@@ -153,52 +186,80 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
         query_text(&q, key).map(|v| v.split(',').map(str::to_owned).collect())
     };
     let scope = caller.scope().await?;
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(d), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
-             'preferredName', e.preferred_name)
-         from hr_declarations d join hr_employees e on e.id = d.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or d.employee_id = $1)
-           and ($2::text[] is null or d.status = any($2))
-           and ($3::text[] is null or d.category = any($3))
-           and ($4::text is null or d.expense_date >= $4::date)
-           and ($5::text is null or d.expense_date <= $5::date)
-           and ($6::text[] is null or e.legal_entity_id = any($6)
-                or ($7::boolean and e.legal_entity_id is null))
-         order by d.expense_date desc, d.created_at desc
-         limit 1000",
-    )
-    .bind(query_text(&q, "employeeId"))
-    .bind(split("status"))
-    .bind(split("category"))
-    .bind(query_date(&q, "from"))
-    .bind(query_date(&q, "to"))
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(&caller.db)
-    .await?;
+    let mut select = declarations::Entity::find()
+        .column_as(hr_employees::Column::FirstName, "employee_first_name")
+        .column_as(hr_employees::Column::LastName, "employee_last_name")
+        .column_as(hr_employees::Column::PreferredName, "employee_preferred_name")
+        .join(
+            JoinType::InnerJoin,
+            declarations::Entity::belongs_to(hr_employees::Entity)
+                .from(declarations::Column::EmployeeId)
+                .to(hr_employees::Column::Id)
+                .into(),
+        )
+        .filter(hr_employees::Column::DeletedAt.is_null());
+    if let Some(employee_id) = query_text(&q, "employeeId") {
+        select = select.filter(declarations::Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(statuses) = split("status") {
+        select = select.filter(declarations::Column::Status.is_in(statuses));
+    }
+    if let Some(categories) = split("category") {
+        select = select.filter(declarations::Column::Category.is_in(categories));
+    }
+    if let Some(from) = query_date(&q, "from") {
+        select = select.filter(declarations::Column::ExpenseDate.gte(pg_date(&from)?));
+    }
+    if let Some(to) = query_date(&q, "to") {
+        select = select.filter(declarations::Column::ExpenseDate.lte(pg_date(&to)?));
+    }
+    let rows: Vec<DeclarationWithEmployee> = select
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_desc(declarations::Column::ExpenseDate)
+        .order_by_desc(declarations::Column::CreatedAt)
+        .limit(1000)
+        .into_model()
+        .all(&orm(&caller.db))
+        .await?;
     let reviewers: Vec<Option<&str>> = rows
         .iter()
-        .map(|(d, _)| d["reviewed_by"].as_str())
+        .map(|row| row.declaration.reviewed_by.as_deref())
         .collect();
     let names = member_names(&caller.db, &reviewers).await?;
     let data: Vec<Value> = rows
-        .into_iter()
-        .map(|(declaration, employee)| {
-            let declaration = js_row(declaration);
+        .iter()
+        .map(|row| {
+            let declaration = to_json(&row.declaration)?;
             let reviewer = declaration["reviewedBy"]
                 .as_str()
                 .filter(|r| !r.is_empty())
                 .and_then(|r| names.get(r).cloned());
-            let mut row = to_public_declaration(&declaration);
-            if let Some(map) = row.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(display_name_of(&employee)));
+            let mut out = to_public_declaration(&declaration);
+            if let Some(map) = out.as_object_mut() {
+                map.insert(
+                    "employeeName".to_owned(),
+                    json!(display_name(
+                        &row.employee_first_name,
+                        &row.employee_last_name,
+                        row.employee_preferred_name.as_deref(),
+                    )),
+                );
                 map.insert("reviewedByName".to_owned(), json!(reviewer));
             }
-            row
+            Ok(out)
         })
-        .collect();
+        .collect::<Result<_, HrError>>()?;
     Ok(Data(data).into_response())
+}
+
+/// A declaration of the list with its employee's name.
+#[derive(Debug, FromQueryResult)]
+struct DeclarationWithEmployee {
+    #[sea_orm(nested)]
+    declaration: declarations::Model,
+    employee_first_name: String,
+    employee_last_name: String,
+    employee_preferred_name: Option<String>,
 }
 
 /// `declarationFields`, read with `partial` for the update schema.
@@ -287,11 +348,14 @@ async fn assert_project_exists(db: &PgPool, project_id: Option<&str>) -> Result<
     let Some(project_id) = project_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let found: Option<String> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?;
+    let found: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if found.is_none() {
         return Err(HrError::validation(format!(
             "Project {project_id} does not exist"
@@ -315,24 +379,26 @@ pub(crate) async fn create_declaration(
     assert_expense_date(&fields.expense_date)?;
     require_employee(db, employee_id).await?;
     assert_project_exists(db, fields.project_id.as_deref()).await?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_declarations
-             (id, employee_id, expense_date, category, description, amount, currency, project_id, status, submitted_by)
-         values ($1, $2, $3::date, $4, $5, $6::numeric, $7, $8, 'pending', $9)
-         returning to_jsonb(hr_declarations)",
-    )
-    .bind(generate_id("hrdcl"))
-    .bind(employee_id)
-    .bind(&fields.expense_date)
-    .bind(&fields.category)
-    .bind(&fields.description)
-    .bind(js_to_fixed(fields.amount, 2))
-    .bind(fields.currency.as_deref().unwrap_or("EUR"))
-    .bind(fields.project_id.as_deref().filter(|id| !id.is_empty()))
-    .bind(submitted_by)
-    .fetch_one(db)
+    let row = declarations::Entity::insert(declarations::ActiveModel {
+        id: Set(generate_id("hrdcl")),
+        employee_id: Set(employee_id.to_owned()),
+        expense_date: Set(pg_date(&fields.expense_date)?),
+        category: Set(fields.category.clone()),
+        description: Set(fields.description.clone()),
+        amount: Set(numeric_amount(fields.amount)?),
+        currency: Set(fields.currency.as_deref().unwrap_or("EUR").to_owned()),
+        project_id: Set(fields
+            .project_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)),
+        status: Set("pending".to_owned()),
+        submitted_by: Set(Some(submitted_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    to_json(row)
 }
 
 /// A complete declaration (`declarationFields` with every field present).
@@ -453,29 +519,40 @@ async fn update(
         assert_expense_date(date)?;
     }
     assert_project_exists(db, project.as_set().map(String::as_str)).await?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_declarations set
-             expense_date = coalesce($2::date, expense_date),
-             category = coalesce($3, category),
-             description = coalesce($4, description),
-             amount = coalesce($5::numeric, amount),
-             currency = coalesce($6, currency),
-             project_id = case when $8::boolean then $9 else project_id end,
-             updated_at = $7::timestamp
-         where id = $1 returning to_jsonb(hr_declarations)",
-    )
-    .bind(&id)
-    .bind(input.expense_date.as_set())
-    .bind(input.category.as_set())
-    .bind(input.description.as_set())
-    .bind(input.amount.as_set().map(|a| js_to_fixed(*a, 2)))
-    .bind(input.currency.as_set())
-    .bind(now())
-    .bind(!project.is_absent())
-    .bind(project.as_set())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    // `coalesce($n, column)`: only what the body sent changes.
+    let mut update = declarations::Entity::update_many();
+    if let Some(date) = input.expense_date.as_set() {
+        update = update.col_expr(
+            declarations::Column::ExpenseDate,
+            Expr::value(pg_date(date)?),
+        );
+    }
+    if let Some(category) = input.category.as_set() {
+        update = update.col_expr(declarations::Column::Category, Expr::value(category));
+    }
+    if let Some(description) = input.description.as_set() {
+        update = update.col_expr(
+            declarations::Column::Description,
+            Expr::value(description),
+        );
+    }
+    if let Some(amount) = input.amount.as_set() {
+        update = update.col_expr(
+            declarations::Column::Amount,
+            Expr::value(numeric_amount(*amount)?),
+        );
+    }
+    if let Some(currency) = input.currency.as_set() {
+        update = update.col_expr(declarations::Column::Currency, Expr::value(currency));
+    }
+    if !project.is_absent() {
+        update = update.col_expr(
+            declarations::Column::ProjectId,
+            Expr::value(project.as_set().cloned()),
+        );
+    }
+    let update = update.col_expr(declarations::Column::UpdatedAt, Expr::value(utc_now()));
+    let row = update_declaration(db, &id, update).await?;
     emit(&caller, &state, HR_DECLARATION_UPDATED, &row);
     Ok(Data(to_public_declaration(&row)).into_response())
 }
@@ -506,19 +583,23 @@ async fn review(
             text(&existing, "status")
         )));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_declarations set status = $2, review_note = $3, reviewed_by = $4,
-             reviewed_at = $5::timestamp, updated_at = $5::timestamp
-         where id = $1 returning to_jsonb(hr_declarations)",
-    )
-    .bind(&id)
-    .bind(decision.as_set())
-    .bind(note.as_set())
-    .bind(&caller.user_id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let now = utc_now();
+    let update = declarations::Entity::update_many()
+        .col_expr(
+            declarations::Column::Status,
+            Expr::value(decision.as_set().cloned()),
+        )
+        .col_expr(
+            declarations::Column::ReviewNote,
+            Expr::value(note.as_set().cloned()),
+        )
+        .col_expr(
+            declarations::Column::ReviewedBy,
+            Expr::value(caller.user_id.as_str()),
+        )
+        .col_expr(declarations::Column::ReviewedAt, Expr::value(now))
+        .col_expr(declarations::Column::UpdatedAt, Expr::value(now));
+    let row = update_declaration(db, &id, update).await?;
     let event = if row["status"] == "approved" {
         HR_DECLARATION_APPROVED
     } else {
@@ -536,17 +617,16 @@ async fn pay(State(state): State<HrState>, caller: Caller, Path(id): Path<String
             "Only an approved declaration can be marked as paid",
         ));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_declarations set status = 'paid', paid_by = $2, paid_at = $3::timestamp,
-             updated_at = $3::timestamp
-         where id = $1 returning to_jsonb(hr_declarations)",
-    )
-    .bind(&id)
-    .bind(&caller.user_id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let now = utc_now();
+    let update = declarations::Entity::update_many()
+        .col_expr(declarations::Column::Status, Expr::value("paid"))
+        .col_expr(
+            declarations::Column::PaidBy,
+            Expr::value(caller.user_id.as_str()),
+        )
+        .col_expr(declarations::Column::PaidAt, Expr::value(now))
+        .col_expr(declarations::Column::UpdatedAt, Expr::value(now));
+    let row = update_declaration(db, &id, update).await?;
     emit(&caller, &state, HR_DECLARATION_PAID, &row);
     Ok(Data(to_public_declaration(&row)).into_response())
 }
@@ -569,15 +649,10 @@ pub(crate) async fn cancel_declaration(
             "This declaration is already {status}"
         )));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_declarations set status = 'cancelled', updated_at = $2::timestamp
-         where id = $1 returning to_jsonb(hr_declarations)",
-    )
-    .bind(id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let update = declarations::Entity::update_many()
+        .col_expr(declarations::Column::Status, Expr::value("cancelled"))
+        .col_expr(declarations::Column::UpdatedAt, Expr::value(utc_now()));
+    update_declaration(db, id, update).await
 }
 
 async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
@@ -588,9 +663,8 @@ async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
 
 async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
     let existing = require_declaration(&caller.db, &id, None).await?;
-    sqlx::query("delete from hr_declarations where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    declarations::Entity::delete_by_id(id.clone())
+        .exec(&orm(&caller.db))
         .await?;
     if let Some(key) = existing["receiptFileKey"]
         .as_str()
@@ -731,19 +805,22 @@ pub(crate) async fn attach_declaration_receipt(
         )
         .await
         .map_err(|error| HrError::internal(error.to_string()))?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_declarations set receipt_file_key = $2, receipt_file_name = $3,
-             receipt_content_type = $4, receipt_size = $5, updated_at = $6::timestamp
-         where id = $1 returning to_jsonb(hr_declarations)",
-    )
-    .bind(id)
-    .bind(&key)
-    .bind(&file_name)
-    .bind(&file.content_type)
-    .bind(size)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
+    let update = declarations::Entity::update_many()
+        .col_expr(
+            declarations::Column::ReceiptFileKey,
+            Expr::value(key.as_str()),
+        )
+        .col_expr(
+            declarations::Column::ReceiptFileName,
+            Expr::value(file_name.as_str()),
+        )
+        .col_expr(
+            declarations::Column::ReceiptContentType,
+            Expr::value(file.content_type.as_str()),
+        )
+        .col_expr(declarations::Column::ReceiptSize, Expr::value(size))
+        .col_expr(declarations::Column::UpdatedAt, Expr::value(utc_now()));
+    let row = update_declaration(db, id, update).await?;
     if let Some(old) = existing["receiptFileKey"]
         .as_str()
         .filter(|k| !k.is_empty())
@@ -753,7 +830,7 @@ pub(crate) async fn attach_declaration_receipt(
             .await
             .map_err(|error| HrError::internal(error.to_string()))?;
     }
-    Ok(js_row(row))
+    Ok(row)
 }
 
 /// 16 random bytes in hex (`crypto.randomUUID()` without its dashes).
@@ -834,17 +911,18 @@ pub(crate) async fn employee_declarations(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Value, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_declarations t where t.employee_id = $1
-         order by t.expense_date desc, t.created_at desc limit 500",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
+    let rows = declarations::Entity::find()
+        .filter(declarations::Column::EmployeeId.eq(employee_id))
+        .order_by_desc(declarations::Column::ExpenseDate)
+        .order_by_desc(declarations::Column::CreatedAt)
+        .limit(500)
+        .all(&orm(db))
+        .await?;
+    let rows: Vec<Value> = rows.into_iter().map(to_json).collect::<Result<_, _>>()?;
     let declarations: Vec<Value> = rows
         .into_iter()
         .map(|row| {
-            let d = to_public_declaration(&js_row(row));
+            let d = to_public_declaration(&row);
             json!({
                 "id": d["id"],
                 "expenseDate": d["expenseDate"],

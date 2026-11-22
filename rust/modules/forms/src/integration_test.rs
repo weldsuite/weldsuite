@@ -5,11 +5,14 @@
 //! ticket's subject, the task's title, whether the person exists). The
 //! answer is always `{ ok, message }`; `ok: false` carries why not.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
 use weldsuite_flow_domain::access::resolve_project_access;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{form_responses, form_versions, forms};
 
-use crate::common::{Ctx, FormsResult, one, text};
+use crate::common::{Ctx, FormsResult, row_json, text};
 use crate::creator_access::{CreatorAccess, CreatorForbidden, load_creator_access};
 use crate::engine::FormDefinition;
 use crate::integration_config::{crm_config, desk_config, flow_config};
@@ -35,34 +38,30 @@ impl From<CreatorForbidden> for Dry {
 
 /// `testIntegration(ctx, row)`: `row` is the `form_integrations` row.
 pub(crate) async fn test_integration(ctx: &Ctx, row: &Value) -> FormsResult<Value> {
-    let Some(response) = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(r) from form_responses r \
-             where r.form_id = $1 and r.status = 'completed' order by r.submitted_at desc limit 1",
-        )
-        .bind(text(row, "formId")),
-    )
-    .await?
+    let db = orm(&ctx.db);
+    let Some(response) = form_responses::Entity::find()
+        .filter(form_responses::Column::FormId.eq(text(row, "formId")))
+        .filter(form_responses::Column::Status.eq("completed"))
+        .order_by_desc(form_responses::Column::SubmittedAt)
+        .one(&db)
+        .await?
+        .map(row_json)
+        .transpose()?
     else {
         return Ok(answer(
             false,
             "There is no completed response to test with yet.",
         ));
     };
-    let form = one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(f) from forms f where f.id = $1 limit 1")
-            .bind(text(row, "formId")),
-    )
-    .await?;
-    let version = one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(v) from form_versions v where v.id = $1 limit 1")
-            .bind(text(&response, "versionId")),
-    )
-    .await?;
-    let definition = version.and_then(|v| FormDefinition::parse(&v["definition"]).ok());
+    let form = forms::Entity::find_by_id(text(row, "formId"))
+        .one(&db)
+        .await?
+        .map(row_json)
+        .transpose()?;
+    let version = form_versions::Entity::find_by_id(text(&response, "versionId"))
+        .one(&db)
+        .await?;
+    let definition = version.and_then(|v| FormDefinition::parse(&v.definition).ok());
     let (Some(form), Some(definition)) = (form, definition) else {
         return Ok(answer(
             false,
@@ -205,7 +204,8 @@ async fn dry_run(
                     access.can("projects:scope:all", "weldflow"),
                     project_id,
                 )
-                .await?;
+                .await
+                .map_err(weldsuite_db::orm_error)?;
                 if !project.can_write {
                     return Ok(Dry::Forbidden(CreatorForbidden(
                         "The member who set up this integration does not have write access to the project"

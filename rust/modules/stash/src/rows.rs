@@ -4,13 +4,6 @@
 //! [`crate::table::Table::js`] then names the properties and formats the
 //! timestamps.
 
-/// `boxes`.
-macro_rules! box_row {
-    () => {
-        "(to_jsonb(t) || jsonb_build_object('length', t.\"length\"::text, 'width', t.\"width\"::text, 'height', t.\"height\"::text, 'tare_weight', t.\"tare_weight\"::text, 'max_weight', t.\"max_weight\"::text))"
-    };
-}
-
 /// `purchase_orders`.
 macro_rules! purchase_order_row {
     () => {
@@ -25,20 +18,6 @@ macro_rules! purchase_order_item_row {
     };
 }
 
-/// `warehouse_locations`.
-macro_rules! location_row {
-    () => {
-        "(to_jsonb(t) || jsonb_build_object('length', t.\"length\"::text, 'width', t.\"width\"::text, 'height', t.\"height\"::text, 'max_weight', t.\"max_weight\"::text))"
-    };
-}
-
-/// `suppliers`.
-macro_rules! supplier_row {
-    () => {
-        "(to_jsonb(t) || jsonb_build_object('credit_limit', t.\"credit_limit\"::text, 'minimum_order_value', t.\"minimum_order_value\"::text))"
-    };
-}
-
 /// `inventory`.
 macro_rules! inventory_row {
     () => {
@@ -46,6 +25,4 @@ macro_rules! inventory_row {
     };
 }
 
-pub(crate) use {
-    box_row, inventory_row, location_row, purchase_order_item_row, purchase_order_row, supplier_row,
-};
+pub(crate) use {inventory_row, purchase_order_item_row, purchase_order_row};
