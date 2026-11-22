@@ -9,10 +9,14 @@
 
 use std::collections::HashSet;
 
-use sqlx::PgPool;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use serde_json::Value;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_flow_domain::access::resolve_project_access;
 use weldsuite_flow_domain::js::slice_utf16;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
+use weldsuite_schema::tenant::{tasks, workspace_members};
 
 use crate::{Caller, FlowState};
 
@@ -63,12 +67,14 @@ fn push_data(
 }
 
 /// A workspace member's display name, if set.
-async fn member_name(db: &PgPool, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
+async fn member_name(db: &PgPool, user_id: &str) -> Result<Option<String>, DbErr> {
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(name.flatten())
 }
 
@@ -103,7 +109,7 @@ async fn send_assignment(
     context: &Context,
     assignment: &Assignment,
     assignee: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if assignee == context.actor_id {
         return Ok(());
     }
@@ -133,7 +139,9 @@ async fn send_assignment(
         data: push_data(&assignment.task_id, &[], assignment.project_id.as_deref()),
         ..NewNotification::default()
     };
-    create_and_deliver(&context.db, &context.notifier, &params).await?;
+    create_and_deliver(&context.db, &context.notifier, &params)
+        .await
+        .map_err(orm_error)?;
     Ok(())
 }
 
@@ -210,7 +218,7 @@ type CommentTask = (
     String,
     Option<String>,
     Option<String>,
-    Option<Vec<String>>,
+    Option<Value>,
     Option<String>,
 );
 
@@ -220,23 +228,30 @@ async fn mentionable(
     db: &PgPool,
     user_ids: &[String],
     project_id: Option<&str>,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
+    use workspace_members::Column;
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let active: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = any($1) and upper(status) = 'ACTIVE'",
-    )
-    .bind(user_ids)
-    .fetch_all(db)
-    .await?;
+    let active: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::UserId.is_in(user_ids.iter().map(String::as_str)))
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::from(Func::upper(Expr::col(Column::Status))),
+            "ACTIVE",
+        ))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let Some(project_id) = project_id else {
         return Ok(active);
     };
     let mut readers = Vec::with_capacity(active.len());
     for user in active {
         if resolve_project_access(db, Some(&user), false, project_id)
-            .await?
+            .await
+            .map_err(orm_error)?
             .can_read
         {
             readers.push(user);
@@ -245,22 +260,40 @@ async fn mentionable(
     Ok(readers)
 }
 
-async fn notify_comment(context: &Context, comment: &Comment) -> Result<(), sqlx::Error> {
+async fn notify_comment(context: &Context, comment: &Comment) -> Result<(), DbErr> {
+    use tasks::Column;
     let db = &context.db;
-    let task: Option<CommentTask> = sqlx::query_as(
-        "select title, project_id, assignee_id, assignee_ids, reporter_id from tasks
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&comment.task_id)
-    .fetch_optional(db)
-    .await?;
+    let task: Option<CommentTask> = tasks::Entity::find_by_id(comment.task_id.as_str())
+        .select_only()
+        .columns([
+            Column::Title,
+            Column::ProjectId,
+            Column::AssigneeId,
+            Column::AssigneeIds,
+            Column::ReporterId,
+        ])
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((title, project_id, assignee_id, assignee_ids, reporter_id)) = task else {
         return Ok(());
     };
     let project_id = project_id.filter(|p| !p.is_empty());
+    // `...(task.assigneeIds ?? [])`: the jsonb array's ids.
+    let assignee_ids: Vec<String> = match assignee_ids {
+        Some(Value::Array(ids)) => ids
+            .into_iter()
+            .filter_map(|id| match id {
+                Value::String(id) => Some(id),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
     let watchers: Vec<String> = assignee_id
         .into_iter()
-        .chain(assignee_ids.unwrap_or_default())
+        .chain(assignee_ids)
         .chain(reporter_id)
         .filter(|id| !id.is_empty())
         .collect();

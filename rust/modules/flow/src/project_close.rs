@@ -20,11 +20,14 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_BENEFIT_UPDATED, PROJECT_CLOSED, PROJECT_RAID_ITEM_UPDATED, PROJECT_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_flow_domain::blueprint::Json;
 use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::project_closing::{
@@ -34,8 +37,8 @@ use weldsuite_flow_domain::project_closing::{
 use weldsuite_flow_domain::raid::raid_event_data;
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_benefits, project_raid_items, projects};
 
-use sqlx::PgPool;
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRowInput, ApprovalSubjectHandler,
     RequestApprovalsInput, RequestApprovalsResult, ResolvedApprovalOutcome,
@@ -51,7 +54,7 @@ use crate::closing_body::{Body, parse_body, read_handover, read_request_close};
 use crate::closing_store::{
     PROJECT_DENIED, PROJECT_MANAGE_DENIED, find_live_project, load_checklist,
 };
-use crate::{Caller, FlowState, Refusal, Reply, outside, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, outside, reply};
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -77,7 +80,7 @@ where
 }
 
 /// Final cost amounts are for managers and for members with `projects:finance`.
-async fn amounts_visible(caller: &Caller, project_id: &str) -> Result<bool, sqlx::Error> {
+async fn amounts_visible(caller: &Caller, project_id: &str) -> Result<bool, DbErr> {
     Ok(caller.can_manage(project_id).await? || caller.can("projects:finance"))
 }
 
@@ -163,23 +166,102 @@ async fn handover(
     )
 }
 
-/// Every id has to be a live, open item of this project: the rows by id.
-async fn open_rows(
+/// Every id has to be a live, open item of this project: the RAID items
+/// named, live and not closed.
+async fn open_raid_items(
     caller: &Caller,
-    sql: &'static str,
     project_id: &str,
     owners: &[(String, String)],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use project_raid_items::Column;
     if owners.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<&str> = owners.iter().map(|(id, _)| id.as_str()).collect();
-    let rows: Vec<Value> = sqlx::query_scalar(sql)
-        .bind(&ids)
-        .bind(project_id)
-        .fetch_all(&caller.db)
+    let rows = project_raid_items::Entity::find()
+        .filter(Column::Id.is_in(owners.iter().map(|(id, _)| id.as_str())))
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::ClosedAt.is_null())
+        .all(&orm(&caller.db))
         .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    json_rows(rows)
+}
+
+/// The benefits named, live and not closed.
+async fn open_benefits(
+    caller: &Caller,
+    project_id: &str,
+    owners: &[(String, String)],
+) -> Result<Vec<Value>, DbErr> {
+    use project_benefits::Column;
+    if owners.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = project_benefits::Entity::find()
+        .filter(Column::Id.is_in(owners.iter().map(|(id, _)| id.as_str())))
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.ne("closed"))
+        .all(&orm(&caller.db))
+        .await?;
+    json_rows(rows)
+}
+
+/// The hand-over's writes, in one transaction: each new owner, then (with
+/// RAID items) the merge of `settings.closing`.
+async fn write_handover(
+    db: &PgPool,
+    project_id: &str,
+    raid: &[(String, String)],
+    benefits: &[(String, String)],
+    closing: Option<Value>,
+    now: OffsetDateTime,
+) -> Result<(), Refusal> {
+    let (project_id, raid, benefits) = (project_id.to_owned(), raid.to_vec(), benefits.to_vec());
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            for (id, owner) in &raid {
+                use project_raid_items::Column;
+                project_raid_items::Entity::update_many()
+                    .col_expr(Column::OwnerId, Expr::value(owner.as_str()))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(id.as_str()))
+                    .filter(Column::DeletedAt.is_null())
+                    .exec(&tx)
+                    .await?;
+            }
+            for (id, owner) in &benefits {
+                use project_benefits::Column;
+                project_benefits::Entity::update_many()
+                    .col_expr(Column::OwnerId, Expr::value(owner.as_str()))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(id.as_str()))
+                    .filter(Column::DeletedAt.is_null())
+                    .exec(&tx)
+                    .await?;
+            }
+            // Merge, never replace: only the `closing` key of the settings is written.
+            if let Some(closing) = closing {
+                use projects::Column;
+                let settings = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                    Expr::from(Func::coalesce([
+                        Expr::col((projects::Entity, Column::Settings)),
+                        Expr::val(json!({})),
+                    ])),
+                    Expr::val(json!({ "closing": closing })),
+                );
+                projects::Entity::update_many()
+                    .col_expr(Column::Settings, settings)
+                    .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+                    .filter(Column::Id.eq(project_id.as_str()))
+                    .exec(&tx)
+                    .await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await
 }
 
 fn by_id(rows: Vec<Value>) -> HashMap<String, Value> {
@@ -198,35 +280,19 @@ async fn hand_over(
 ) -> Reply {
     let db = &caller.db;
     let project_id = project.text("id").unwrap_or_default();
-    let raid_rows = open_rows(
-        caller,
-        concat!(
-            "select ",
-            raid_json!("r"),
-            " from project_raid_items r where r.id = any($1) and r.project_id = $2",
-            " and r.deleted_at is null and r.closed_at is null"
-        ),
-        project_id,
-        raid,
-    )
-    .await?;
+    let raid_rows = open_raid_items(caller, project_id, raid).await?;
     if raid_rows.len() != raid.len() {
         return Err(Refusal::bad_request(HANDOVER_RAID_ITEM));
     }
-    let benefit_rows = open_rows(
-        caller,
-        "select to_jsonb(b) from project_benefits b where b.id = any($1) and b.project_id = $2
-         and b.deleted_at is null and b.status <> 'closed'",
-        project_id,
-        benefits,
-    )
-    .await?;
+    let benefit_rows = open_benefits(caller, project_id, benefits).await?;
     if benefit_rows.len() != benefits.len() {
         return Err(Refusal::bad_request(HANDOVER_BENEFIT));
     }
 
     let now_ms = crate::now_ms();
     let now = iso_from_millis(now_ms).unwrap_or_default();
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms) * 1_000_000)
+        .map_err(|error| Refusal::Internal(error.to_string()))?;
     let mut handovers = project
         .at("settings")
         .at("closing")
@@ -241,45 +307,8 @@ async fn hand_over(
         );
     }
 
-    let mut statements = Vec::new();
-    for (id, owner) in raid {
-        statements.push(
-            sqlx::query(
-                "update project_raid_items set owner_id = $2, updated_at = $3::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.clone())
-            .bind(owner.clone())
-            .bind(now.clone()),
-        );
-    }
-    for (id, owner) in benefits {
-        statements.push(
-            sqlx::query(
-                "update project_benefits set owner_id = $2, updated_at = $3::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.clone())
-            .bind(owner.clone())
-            .bind(now.clone()),
-        );
-    }
-    // Merge, never replace: only the `closing` key of the settings is written.
-    if !raid.is_empty() {
-        statements.push(
-            sqlx::query(
-                "update projects set
-                     settings = coalesce(settings, '{}'::jsonb)
-                         || jsonb_build_object('closing', $2::jsonb),
-                     updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(project_id.to_owned())
-            .bind(json!({ "handovers": handovers }))
-            .bind(now.clone()),
-        );
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    let closing = (!raid.is_empty()).then(|| json!({ "handovers": handovers }));
+    write_handover(db, project_id, raid, benefits, closing, at).await?;
 
     // In the order the request named them; an owner that did not change publishes nothing.
     let raid_before = by_id(raid_rows);
@@ -424,21 +453,28 @@ async fn request_sign_off(state: &FlowState, caller: &Caller, project: &Value) -
 
 /// The sponsor's approval closes the project (`closeProject`): only a project
 /// that is not closed yet moves.
-async fn close_project(db: &PgPool, project_id: &str, now_ms: i64) -> Result<bool, sqlx::Error> {
-    let now = iso_from_millis(now_ms);
-    let closed: Option<String> = sqlx::query_scalar(
-        "update projects
-         set status = 'Closed',
-             actual_end_date = coalesce(actual_end_date, $2::timestamp),
-             updated_at = $2::timestamp
-         where id = $1 and deleted_at is null and status <> 'Closed'
-         returning id",
-    )
-    .bind(project_id)
-    .bind(now)
-    .fetch_optional(db)
-    .await?;
-    Ok(closed.is_some())
+async fn close_project(db: &PgPool, project_id: &str, now_ms: i64) -> Result<bool, DbErr> {
+    use projects::Column;
+    let now = OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms) * 1_000_000)
+        .ok()
+        .map(utc_timestamp);
+    let closed = projects::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("Closed"))
+        .col_expr(
+            Column::ActualEndDate,
+            Func::coalesce([
+                Expr::col((projects::Entity, Column::ActualEndDate)),
+                Expr::value(now),
+            ])
+            .into(),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.ne("Closed"))
+        .exec(&orm(db))
+        .await?;
+    Ok(closed.rows_affected > 0)
 }
 
 struct CloseHandler;
@@ -453,7 +489,9 @@ impl ApprovalSubjectHandler for CloseHandler {
     ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
         Box::pin(async move {
             if outcome == ResolvedApprovalOutcome::Approved {
-                close_project(db, subject_id, context.now_ms).await?;
+                close_project(db, subject_id, context.now_ms)
+                    .await
+                    .map_err(crate::orm_bridge::sqlx_error)?;
             }
             Ok(())
         })

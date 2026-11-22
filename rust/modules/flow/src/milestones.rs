@@ -32,7 +32,7 @@ use weldsuite_schema::tenant::milestones;
 use crate::projects::{bindable, writable};
 use crate::{
     Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
-    json_of, json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged,
+    row_json, json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged,
     reply, validate,
 };
 
@@ -102,7 +102,7 @@ async fn milestone_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Val
         .filter(milestones::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(json_of)
+        .map(row_json)
         .transpose()
 }
 

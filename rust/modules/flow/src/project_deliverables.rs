@@ -26,7 +26,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_DELETED, PROJECT_DELIVERABLE_ACCEPTED,
     PROJECT_DELIVERABLE_CREATED, PROJECT_DELIVERABLE_DELETED, PROJECT_DELIVERABLE_UPDATED,
@@ -36,10 +42,13 @@ use weldsuite_flow_domain::deliverables::{
     deliverable_event_data, deliverable_sequence, messages, present_deliverable,
     present_signoff_approval, reject_error, signoff_is_open,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::js::{contains_pattern, js_date_millis};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_deliverables::{self, Column};
+use weldsuite_schema::tenant::{projects, tasks};
 
 use crate::approvals::announce::announce_approvals_cancelled;
 use crate::governance_approvals::{announce_deliverable_asked, register_deliverable_subject};
@@ -51,11 +60,11 @@ use crate::governance_store::{
     DELIVERABLES, find_deliverable, insert_values, next_deliverable_position,
     raid_for_deliverables, task_progress_for_deliverables, update_values,
 };
-use crate::project_decisions::{PROJECT_MANAGE_DENIED, project_scope};
-use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms, or_null, parse_limit, to_date};
+use crate::project_decisions::{PROJECT_MANAGE_DENIED, delete_links, project_scope};
+use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, or_null, parse_limit, to_date};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
-use crate::{Caller, FlowState, Refusal, Reply, outside, page, paged, reply};
+use crate::{Caller, FlowState, Refusal, Reply, in_accessible, outside, page, paged, reply};
 use weldsuite_flow_domain::approvals::{
     ApprovalRow, ApprovalRowInput, RequestApprovalsInput, RequestApprovalsResult,
     cancel_pending_approvals, list_subject_approvals, request_approvals, sponsor_of,
@@ -95,6 +104,17 @@ fn text<'a>(body: &'a Body, key: &str) -> Option<&'a str> {
     body.get(key).and_then(Value::as_str)
 }
 
+/// `new Date(millis)`, as the row stores it.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// `new Date(millis).toISOString()`, as the row's JSON writes it.
+fn iso(millis: i64) -> String {
+    weldsuite_events::iso_timestamp(instant(millis))
+}
+
 fn criteria_of(row: &Value) -> Vec<Value> {
     row.get("acceptanceCriteria")
         .and_then(Value::as_array)
@@ -119,7 +139,7 @@ fn publish_deliverable(
 }
 
 /// `presentOne(c, row)`: the deliverable with its task progress and register items.
-async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+async fn present_one(caller: &Caller, row: &Value) -> Result<Value, Refusal> {
     let id = row["id"].as_str().unwrap_or_default().to_owned();
     let ids = std::slice::from_ref(&id);
     let progress = task_progress_for_deliverables(&caller.db, ids).await?;
@@ -135,20 +155,26 @@ async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error>
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-/// The list's `where`, without the cursor: the project scope (`$1` the
-/// project, else `$2`/`$3` the accessible ones), the status and the search.
-macro_rules! deliverable_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ")",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::text is null or t.title ilike $5 or t.description ilike $5)"
-        )
+/// The list's `where`, without the cursor: the project scope (the project,
+/// else the accessible ones), the status and the search.
+fn deliverable_filters(q: &RegisterQuery, scope: &(bool, Vec<String>)) -> Condition {
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    filters = match q.project_id.as_deref() {
+        Some(project_id) => filters.add(Column::ProjectId.eq(project_id)),
+        None => filters.add(in_accessible(Column::ProjectId, scope)),
     };
+    if let Some(status) = q.status.as_deref() {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = q.search.as_deref() {
+        let pattern = contains_pattern(search);
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(pattern.as_str()))
+                .add(Column::Description.ilike(pattern.as_str())),
+        );
+    }
+    filters
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -157,18 +183,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let limit = parse_limit(q.limit.as_deref(), 50, 200);
-    let (all, ids) = match project_scope(&caller, q.project_id.as_deref()).await {
+    let scope = match project_scope(&caller, q.project_id.as_deref()).await {
         Ok(scope) => scope,
         Err(refused) => return outside(Err(refused)),
     };
     let cursor: Option<(i32, String)> = match &q.cursor {
         Some(cursor) => {
-            let found: Result<Option<(String, i32)>, sqlx::Error> = sqlx::query_as(
-                "select id, position from project_deliverables where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
+            let found: Result<Option<(String, i32)>, DbErr> =
+                project_deliverables::Entity::find_by_id(cursor)
+                    .select_only()
+                    .columns([Column::Id, Column::Position])
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await;
             match found {
                 Ok(found) => found.map(|(id, position)| (position, id)),
                 Err(error) => return outside(Err(error.into())),
@@ -177,7 +204,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         None => None,
     };
     reply(
-        list_deliverables(&caller, &q, limit, (all, &ids), cursor).await,
+        list_deliverables(&caller, &q, limit, &scope, cursor).await,
         "Failed to list deliverables",
     )
 }
@@ -186,40 +213,38 @@ async fn list_deliverables(
     caller: &Caller,
     q: &RegisterQuery,
     limit: i64,
-    (all, ids): (bool, &[String]),
+    scope: &(bool, Vec<String>),
     cursor: Option<(i32, String)>,
 ) -> Reply {
     let db = &caller.db;
-    let search = q.search.as_deref().map(contains_pattern);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(t) from project_deliverables t where ",
-        deliverable_filters!(),
-        " and ($6::int is null or t.position > $6",
-        " or (t.position = $6 and t.id > $7))",
-        " order by t.position asc, t.id asc limit $8"
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_deliverables t where ",
-        deliverable_filters!()
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(weldsuite_db::js_row).collect(), limit);
+    let orm = &orm(db);
+    let filters = deliverable_filters(q, scope);
+    let mut select = project_deliverables::Entity::find().filter(filters.clone());
+    if let Some((position, id)) = cursor {
+        select = select.filter(
+            Condition::any().add(Column::Position.gt(position)).add(
+                Condition::all()
+                    .add(Column::Position.eq(position))
+                    .add(Column::Id.gt(id)),
+            ),
+        );
+    }
+    let rows = select
+        .order_by_asc(Column::Position)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(orm)
+        .await?;
+    let total = project_deliverables::Entity::find()
+        .filter(filters)
+        .count(orm)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (rows, has_more, next) = page(rows, limit);
     let page_ids: Vec<String> = rows
         .iter()
         .filter_map(|row| row["id"].as_str().map(str::to_owned))
@@ -318,7 +343,7 @@ async fn create_deliverable(
     input: &Body,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso_ms(crate::now_ms());
+    let now = iso(crate::now_ms());
     let id = generate_id("del");
     let number = allocate_number(db, &deliverable_sequence(project_id)).await?;
     let position = match input.get("position").and_then(Value::as_i64) {
@@ -425,7 +450,7 @@ async fn update_deliverable(
     input: &Body,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso_ms(crate::now_ms());
+    let now = iso(crate::now_ms());
     let mut set = Body::new();
     set.insert("updatedAt".to_owned(), json!(now));
     for key in [
@@ -485,28 +510,32 @@ async fn remove_deliverable(state: &FlowState, caller: &Caller, id: &str) -> Rep
     }
 
     let links = links_of_object(db, "deliverable", id).await?;
-    let now = iso_ms(crate::now_ms());
+    let now = instant(crate::now_ms());
     // Its links go with it, and its tasks stop counting toward it, in the same batch.
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "update project_deliverables set deleted_at = $2::timestamptz,
-                        updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-            sqlx::query(
-                "delete from project_control_links
-                 where (from_type = 'deliverable' and from_id = $1)
-                    or (to_type = 'deliverable' and to_id = $1)",
-            )
-            .bind(id.to_owned()),
-            sqlx::query("update tasks set deliverable_id = null where deliverable_id = $1")
-                .bind(id.to_owned()),
-        ],
-    )
+    let id_owned = id.to_owned();
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            let id = id_owned.as_str();
+            project_deliverables::Entity::update_many()
+                .col_expr(Column::DeletedAt, Expr::value(now))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            delete_links(&tx, "deliverable", id).await?;
+            tasks::Entity::update_many()
+                .col_expr(
+                    tasks::Column::DeliverableId,
+                    Expr::value(Option::<String>::None),
+                )
+                .filter(tasks::Column::DeliverableId.eq(id))
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     let number = existing["number"].as_i64().unwrap_or_default();
     caller.publish(
@@ -561,12 +590,13 @@ async fn request_signoff(
         if signoff_is_open(&decisions) {
             return Err(Refusal::conflict(messages::SIGNOFF_WAITING));
         }
-        let project: Option<(Option<Value>, Option<String>)> = sqlx::query_as(
-            "select settings, project_manager_id from projects where id = $1 limit 1",
-        )
-        .bind(existing["projectId"].as_str().unwrap_or_default())
-        .fetch_optional(&caller.db)
-        .await?;
+        let project: Option<(Option<Value>, Option<String>)> =
+            projects::Entity::find_by_id(existing["projectId"].as_str().unwrap_or_default())
+                .select_only()
+                .columns([projects::Column::Settings, projects::Column::ProjectManagerId])
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         let (settings, manager) = project.unwrap_or((None, None));
         let Some(sponsor) = sponsor_of(settings.as_ref(), manager.as_deref()) else {
             return Err(Refusal::conflict(messages::NO_SPONSOR));
@@ -683,17 +713,16 @@ async fn accept(
 async fn accept_deliverable(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
     let now_ms = crate::now_ms();
-    let now = iso_ms(now_ms);
-    sqlx::query(
-        "update project_deliverables set status = 'accepted', accepted_by = $2,
-                accepted_at = $3::timestamptz, updated_at = $3::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&caller.user_id)
-    .bind(now)
-    .execute(db)
-    .await?;
+    let now = instant(now_ms);
+    project_deliverables::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("accepted"))
+        .col_expr(Column::AcceptedBy, Expr::value(caller.user_id.as_str()))
+        .col_expr(Column::AcceptedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_deliverable(db, id).await? else {
         return Err(Refusal::Internal("the deliverable is missing".to_owned()));
     };
@@ -733,14 +762,13 @@ async fn reject(
 async fn reject_deliverable(state: &FlowState, caller: &Caller, id: &str, input: &Body) -> Reply {
     let db = &caller.db;
     let now_ms = crate::now_ms();
-    sqlx::query(
-        "update project_deliverables set status = 'rejected', updated_at = $2::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(iso_ms(now_ms))
-    .execute(db)
-    .await?;
+    project_deliverables::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("rejected"))
+        .col_expr(Column::UpdatedAt, Expr::value(instant(now_ms)))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_deliverable(db, id).await? else {
         return Err(Refusal::Internal("the deliverable is missing".to_owned()));
     };

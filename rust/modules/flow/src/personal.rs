@@ -10,19 +10,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, TASK_PROJECT_CREATED, TASK_PROJECT_DELETED, TASK_PROJECT_UPDATED, TASK_TAG_CREATED,
     TASK_TAG_DELETED, TASK_TAG_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{task_projects, task_tags};
 
 use crate::{
-    Caller, FlowState, Query, Refusal, keyset_cursor, now, outside, page, paged, reply, validate,
+    Caller, FlowState, Keyset, Query, Refusal, fetch_limit, json_rows, keyset_before,
+    keyset_cursor, outside, page, paged, reply, row_json, validate,
 };
 
 /// Which personal list a router serves.
@@ -89,31 +96,153 @@ where
         .with_state(PersonalState { flow: state, kind })
 }
 
-/// The row as `to_jsonb`, the caller's own and live.
-async fn own_row(caller: &Caller, kind: Kind, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = match kind {
-        Kind::Tags => {
-            sqlx::query_scalar(
-                "select to_jsonb(t) from task_tags t
-                 where t.id = $1 and t.deleted_at is null and t.user_id = $2 limit 1",
-            )
-            .bind(id)
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await?
+/// The columns `task_tags` and `task_projects` share.
+#[derive(Clone, Copy)]
+struct Columns<C> {
+    id: C,
+    created_at: C,
+    updated_at: C,
+    deleted_at: C,
+    user_id: C,
+    name: C,
+}
+
+const TAGS: Columns<task_tags::Column> = Columns {
+    id: task_tags::Column::Id,
+    created_at: task_tags::Column::CreatedAt,
+    updated_at: task_tags::Column::UpdatedAt,
+    deleted_at: task_tags::Column::DeletedAt,
+    user_id: task_tags::Column::UserId,
+    name: task_tags::Column::Name,
+};
+
+const PROJECTS: Columns<task_projects::Column> = Columns {
+    id: task_projects::Column::Id,
+    created_at: task_projects::Column::CreatedAt,
+    updated_at: task_projects::Column::UpdatedAt,
+    deleted_at: task_projects::Column::DeletedAt,
+    user_id: task_projects::Column::UserId,
+    name: task_projects::Column::Name,
+};
+
+/// The row, the caller's own and live.
+async fn own_row(caller: &Caller, kind: Kind, id: &str) -> Result<Option<Value>, DbErr> {
+    match kind {
+        Kind::Tags => own_row_in::<task_tags::Entity>(caller, TAGS, id).await,
+        Kind::Projects => own_row_in::<task_projects::Entity>(caller, PROJECTS, id).await,
+    }
+}
+
+async fn own_row_in<E>(
+    caller: &Caller,
+    columns: Columns<E::Column>,
+    id: &str,
+) -> Result<Option<Value>, DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize,
+{
+    E::find()
+        .filter(columns.id.eq(id))
+        .filter(columns.deleted_at.is_null())
+        .filter(columns.user_id.eq(caller.user_id.as_str()))
+        .one(&orm(&caller.db))
+        .await?
+        .map(row_json)
+        .transpose()
+}
+
+/// A page of the caller's live rows (by name when searching) after the
+/// cursor, newest first, and the count, whose conditions (deleted, user,
+/// search) the flags switch.
+async fn list_in<E>(
+    db: &PgPool,
+    columns: Columns<E::Column>,
+    user_id: &str,
+    search: Option<&str>,
+    cursor: Option<&Keyset>,
+    limit: i64,
+    flags: [bool; 3],
+) -> Result<(Vec<Value>, i64), DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize + Sync,
+    E::Column: Copy,
+{
+    let mut rows = E::find()
+        .filter(columns.deleted_at.is_null())
+        .filter(columns.user_id.eq(user_id));
+    if let Some(search) = search {
+        rows = rows.filter(columns.name.ilike(search));
+    }
+    if let Some(cursor) = cursor {
+        rows = rows.filter(keyset_before(columns.id, columns.created_at, cursor));
+    }
+    let rows = rows
+        .order_by_desc(columns.created_at)
+        .order_by_desc(columns.id)
+        .limit(fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let mut count = Condition::all();
+    if flags[0] {
+        count = count.add(columns.deleted_at.is_null());
+    }
+    if flags[1] {
+        count = count.add(columns.user_id.eq(user_id));
+    }
+    if flags[2]
+        && let Some(search) = search
+    {
+        count = count.add(columns.name.ilike(search));
+    }
+    let total = E::find().filter(count).count(&orm(db)).await?;
+    Ok((json_rows(rows)?, i64::try_from(total).unwrap_or(i64::MAX)))
+}
+
+/// `update t set <the sent text fields>, updated_at = now where id = $id
+/// and deleted_at is null and user_id = $user`.
+async fn update_in<E>(
+    caller: &Caller,
+    columns: Columns<E::Column>,
+    fields: &[(&str, E::Column)],
+    data: &Map<String, Value>,
+    id: &str,
+) -> Result<(), DbErr>
+where
+    E: EntityTrait,
+{
+    let mut update = E::update_many();
+    for (key, column) in fields {
+        if let Some(value) = data.get(*key) {
+            update = update.col_expr(*column, Expr::value(value.as_str().map(str::to_owned)));
         }
-        Kind::Projects => {
-            sqlx::query_scalar(
-                "select to_jsonb(t) from task_projects t
-                 where t.id = $1 and t.deleted_at is null and t.user_id = $2 limit 1",
-            )
-            .bind(id)
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await?
-        }
-    };
-    Ok(row.map(js_row))
+    }
+    update
+        .col_expr(columns.updated_at, Expr::value(utc_now()))
+        .filter(columns.id.eq(id))
+        .filter(columns.deleted_at.is_null())
+        .filter(columns.user_id.eq(caller.user_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
+/// `update t set deleted_at = now, updated_at = now where id = $id and
+/// user_id = $user`.
+async fn remove_in<E>(caller: &Caller, columns: Columns<E::Column>, id: &str) -> Result<(), DbErr>
+where
+    E: EntityTrait,
+{
+    let now = utc_now();
+    E::update_many()
+        .col_expr(columns.deleted_at, Expr::value(now))
+        .col_expr(columns.updated_at, Expr::value(now))
+        .filter(columns.id.eq(id))
+        .filter(columns.user_id.eq(caller.user_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -132,19 +261,19 @@ async fn list(
         .filter(|n| *n >= 1)
         .map_or(25, |n| n.min(100));
     let search = q.present("search").map(contains_pattern);
-    let cursor_sql = match kind {
-        Kind::Tags => {
-            "select id, to_jsonb(created_at) #>> '{}' from task_tags where id = $1 limit 1"
-        }
-        Kind::Projects => {
-            "select id, to_jsonb(created_at) #>> '{}' from task_projects where id = $1 limit 1"
-        }
-    };
     let cursor = match q.present("cursor") {
-        Some(at) => match keyset_cursor(&caller.db, cursor_sql, at).await {
-            Ok(cursor) => cursor,
-            Err(error) => return outside(Err(error.into())),
-        },
+        Some(at) => {
+            let found = match kind {
+                Kind::Tags => keyset_cursor(&caller.db, TAGS.id, TAGS.created_at, at).await,
+                Kind::Projects => {
+                    keyset_cursor(&caller.db, PROJECTS.id, PROJECTS.created_at, at).await
+                }
+            };
+            match found {
+                Ok(cursor) => cursor,
+                Err(error) => return outside(Err(error.into())),
+            }
+        }
         None => None,
     };
     // Deleted, user, search: with a cursor the count leaves out the last
@@ -157,43 +286,23 @@ async fn list(
         flags[last] = false;
     }
     let result = async {
-        macro_rules! personal_list {
-            ($table:literal) => {
-                (
-                    concat!(
-                        "select to_jsonb(t) from ", $table, " t where t.deleted_at is null and t.user_id = $1",
-                        " and ($2::text is null or t.name ilike $2)",
-                        " and ($3::timestamp is null or t.created_at < $3::timestamp",
-                        " or (t.created_at = $3::timestamp and t.id < $4))",
-                        " order by t.created_at desc, t.id desc limit $5"
-                    ),
-                    concat!(
-                        "select count(*) from ", $table, " t where ($1::bool is not true or t.deleted_at is null)",
-                        " and ($2::text is null or t.user_id = $2) and ($3::text is null or t.name ilike $3)"
-                    ),
-                )
-            };
-        }
-        let (rows_sql, count_sql) = match kind {
-            Kind::Tags => personal_list!("task_tags"),
-            Kind::Projects => personal_list!("task_projects"),
+        let (db, user, search, cursor) = (
+            &caller.db,
+            caller.user_id.as_str(),
+            search.as_deref(),
+            cursor.as_ref(),
+        );
+        let (rows, total) = match kind {
+            Kind::Tags => {
+                list_in::<task_tags::Entity>(db, TAGS, user, search, cursor, limit, flags).await?
+            }
+            Kind::Projects => {
+                list_in::<task_projects::Entity>(db, PROJECTS, user, search, cursor, limit, flags)
+                    .await?
+            }
         };
-        let rows: Vec<Value> = sqlx::query_scalar(rows_sql)
-            .bind(&caller.user_id)
-            .bind(search.as_deref())
-            .bind(cursor.as_ref().map(|c| c.0.as_str()))
-            .bind(cursor.as_ref().map(|c| c.1.as_str()))
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?;
-        let total: i64 = sqlx::query_scalar(count_sql)
-            .bind(flags[0])
-            .bind(flags[1].then_some(caller.user_id.as_str()))
-            .bind(search.as_deref().filter(|_| flags[2]))
-            .fetch_one(&caller.db)
-            .await?;
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
-        Ok(paged(rows, total, has_more, next))
+        let (rows, has_more, next) = page(rows, limit);
+        Ok::<_, Refusal>(paged(rows, total, has_more, next))
     }
     .await;
     reply(result, &format!("Failed to list {}s", kind.label()))
@@ -277,32 +386,33 @@ async fn create(
                 Kind::Projects => "tpr",
             });
             let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
+            let now = utc_now();
             match kind {
                 Kind::Tags => {
-                    sqlx::query(
-                        "insert into task_tags (id, name, color, user_id, created_at, updated_at)
-                         values ($1, $2, $3, $4, $5::timestamp, $5::timestamp)",
-                    )
-                    .bind(&id)
-                    .bind(text("name"))
-                    .bind(text("color"))
-                    .bind(&caller.user_id)
-                    .bind(now())
-                    .execute(&caller.db)
+                    task_tags::Entity::insert(task_tags::ActiveModel {
+                        id: Set(id.clone()),
+                        name: Set(text("name").unwrap_or_default()),
+                        color: Set(text("color")),
+                        user_id: Set(caller.user_id.clone()),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    })
+                    .exec_without_returning(&orm(&caller.db))
                     .await?;
                 }
                 Kind::Projects => {
-                    sqlx::query(
-                        "insert into task_projects (id, name, description, color, user_id, created_at, updated_at)
-                         values ($1, $2, $3, $4, $5, $6::timestamp, $6::timestamp)",
-                    )
-                    .bind(&id)
-                    .bind(text("name"))
-                    .bind(text("description"))
-                    .bind(text("color"))
-                    .bind(&caller.user_id)
-                    .bind(now())
-                    .execute(&caller.db)
+                    task_projects::Entity::insert(task_projects::ActiveModel {
+                        id: Set(id.clone()),
+                        name: Set(text("name").unwrap_or_default()),
+                        description: Set(text("description")),
+                        color: Set(text("color")),
+                        user_id: Set(caller.user_id.clone()),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    })
+                    .exec_without_returning(&orm(&caller.db))
                     .await?;
                 }
             }
@@ -338,41 +448,21 @@ async fn update(
             let Some(existing) = own_row(&caller, kind, &id).await? else {
                 return Err(Refusal::not_found(kind.resource(), &id));
             };
-            let set = Value::Object(data.clone());
             match kind {
                 Kind::Tags => {
-                    sqlx::query(concat!(
-                        "update task_tags set ",
-                        set_text!("name", "name"),
-                        ", ",
-                        set_text!("color", "color"),
-                        ", updated_at = $4::timestamp",
-                        " where id = $2 and deleted_at is null and user_id = $3"
-                    ))
-                    .bind(&set)
-                    .bind(&id)
-                    .bind(&caller.user_id)
-                    .bind(now())
-                    .execute(&caller.db)
-                    .await?;
+                    use task_tags::Column;
+                    let fields = [("name", Column::Name), ("color", Column::Color)];
+                    update_in::<task_tags::Entity>(&caller, TAGS, &fields, &data, &id).await?;
                 }
                 Kind::Projects => {
-                    sqlx::query(concat!(
-                        "update task_projects set ",
-                        set_text!("name", "name"),
-                        ", ",
-                        set_text!("description", "description"),
-                        ", ",
-                        set_text!("color", "color"),
-                        ", updated_at = $4::timestamp",
-                        " where id = $2 and deleted_at is null and user_id = $3"
-                    ))
-                    .bind(&set)
-                    .bind(&id)
-                    .bind(&caller.user_id)
-                    .bind(now())
-                    .execute(&caller.db)
-                    .await?;
+                    use task_projects::Column;
+                    let fields = [
+                        ("name", Column::Name),
+                        ("description", Column::Description),
+                        ("color", Column::Color),
+                    ];
+                    update_in::<task_projects::Entity>(&caller, PROJECTS, &fields, &data, &id)
+                        .await?;
                 }
             }
             let name = data
@@ -403,22 +493,10 @@ async fn remove(
             if own_row(&caller, kind, &id).await?.is_none() {
                 return Err(Refusal::not_found(kind.resource(), &id));
             }
-            let sql = match kind {
-                Kind::Tags => {
-                    "update task_tags set deleted_at = $3::timestamp, updated_at = $3::timestamp
-                     where id = $1 and user_id = $2"
-                }
-                Kind::Projects => {
-                    "update task_projects set deleted_at = $3::timestamp, updated_at = $3::timestamp
-                     where id = $1 and user_id = $2"
-                }
-            };
-            sqlx::query(sql)
-                .bind(&id)
-                .bind(&caller.user_id)
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
+            match kind {
+                Kind::Tags => remove_in::<task_tags::Entity>(&caller, TAGS, &id).await?,
+                Kind::Projects => remove_in::<task_projects::Entity>(&caller, PROJECTS, &id).await?,
+            }
             caller.publish(&state.flow, kind.events().2, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

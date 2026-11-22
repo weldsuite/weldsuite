@@ -31,7 +31,7 @@ use crate::js::{Js, js_string};
 use crate::projects::writable;
 use crate::{
     Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
-    json_of, json_rows, keyset_before, keyset_cursor, list_limit, outside, page, paged, reply,
+    row_json, json_rows, keyset_before, keyset_cursor, list_limit, outside, page, paged, reply,
     validate,
 };
 
@@ -136,11 +136,14 @@ async fn label_usage(
     let usage: Vec<(Option<String>, i32)> = tasks::Entity::find()
         .select_only()
         .column_as(
-            Func::cust("jsonb_array_elements_text").arg(Expr::col((tasks::Entity, Column::Labels))),
+            Expr::from(
+                Func::cust("jsonb_array_elements_text")
+                    .arg(Expr::col((tasks::Entity, Column::Labels))),
+            ),
             "label_id",
         )
         .column_as(
-            Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"),
+            sea_orm::ExprTrait::cast_as(Expr::from(Func::count(Expr::col(Asterisk))), "int"),
             "count",
         )
         .filter(Column::Labels.is_not_null())
@@ -239,7 +242,7 @@ async fn label_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
         .filter(project_labels::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(json_of)
+        .map(row_json)
         .transpose()
 }
 

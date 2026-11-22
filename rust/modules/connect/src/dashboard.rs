@@ -11,16 +11,26 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    workflow_error_logs as error_logs, workflow_executions as runs, workflow_schedules,
+    workflow_templates, workflow_webhooks, workflows,
+};
 
-use crate::executions::{NOT_SEQUENCE_RUN, NOT_TEST_RUN};
-use crate::workflows::NOT_SEQUENCE;
-use crate::{Caller, ConnectState, Refusal, internal, now, validate, validate_query};
+use crate::executions::{
+    js, not_sequence, not_sequence_of, not_sequence_run, not_test_run, test_flag,
+};
+use crate::{Caller, ConnectState, Refusal, internal, validate, validate_query};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -46,34 +56,64 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/entity-events", get(entity_events).route_layer(read()))
 }
 
-async fn trigger_counts(db: &PgPool) -> Result<(i64, i64), sqlx::Error> {
-    let schedules: i64 = sqlx::query_scalar(
-        "select count(*) from workflow_schedules where is_enabled = true and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await?;
-    let webhooks: i64 = sqlx::query_scalar(
-        "select count(*) from workflow_webhooks where is_enabled = true and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await?;
+async fn trigger_counts(db: &PgPool) -> Result<(u64, u64), DbErr> {
+    let db = orm(db);
+    let schedules = workflow_schedules::Entity::find()
+        .filter(workflow_schedules::Column::IsEnabled.eq(true))
+        .filter(workflow_schedules::Column::DeletedAt.is_null())
+        .count(&db)
+        .await?;
+    let webhooks = workflow_webhooks::Entity::find()
+        .filter(workflow_webhooks::Column::IsEnabled.eq(true))
+        .filter(workflow_webhooks::Column::DeletedAt.is_null())
+        .count(&db)
+        .await?;
     Ok((schedules, webhooks))
+}
+
+/// `count(*)`.
+fn count_all() -> Expr {
+    Func::count(Expr::col(Asterisk)).into()
+}
+
+/// `count(*) filter (where <condition>)`.
+fn count_where(condition: impl Into<Condition>) -> Expr {
+    Func::count(Expr::col(Asterisk)).filter(condition).into()
+}
+
+/// The live workflows that are not a sequence's.
+fn live_workflows() -> sea_orm::Select<workflows::Entity> {
+    workflows::Entity::find()
+        .filter(workflows::Column::DeletedAt.is_null())
+        .filter(not_sequence())
+}
+
+/// The runs that are neither a sequence's nor a test.
+fn counted_runs() -> sea_orm::Select<runs::Entity> {
+    runs::Entity::find()
+        .filter(not_sequence_run())
+        .filter(not_test_run())
 }
 
 async fn stats(caller: Caller) -> Response {
     let result = async {
-        let workflows: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select w.status, count(*) from workflows w where w.deleted_at is null and {NOT_SEQUENCE}
-             group by w.status"
-        )))
-        .fetch_all(&caller.db)
-        .await?;
-        let runs: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select e.status, count(*) from workflow_executions e where {NOT_SEQUENCE_RUN} and {NOT_TEST_RUN}
-             group by e.status"
-        )))
-        .fetch_all(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let workflows: Vec<(String, i64)> = live_workflows()
+            .select_only()
+            .column(workflows::Column::Status)
+            .expr(count_all())
+            .group_by(workflows::Column::Status)
+            .into_tuple()
+            .all(&db)
+            .await?;
+        let runs: Vec<(String, i64)> = counted_runs()
+            .select_only()
+            .column(runs::Column::Status)
+            .expr(count_all())
+            .group_by(runs::Column::Status)
+            .into_tuple()
+            .all(&db)
+            .await?;
         let (schedules, webhooks) = trigger_counts(&caller.db).await?;
         let count_of = |status: &str| {
             runs.iter()
@@ -89,7 +129,7 @@ async fn stats(caller: Caller) -> Response {
             }
         }
         wf["total"] = json!(total);
-        Ok::<_, sqlx::Error>(
+        Ok::<_, DbErr>(
             Data(json!({
                 "workflows": wf,
                 "executions": {
@@ -107,6 +147,25 @@ async fn stats(caller: Caller) -> Response {
     result
         .await
         .unwrap_or_else(|error| internal(&error, "Failed to fetch dashboard stats"))
+}
+
+/// `jsonb_build_object('id', w.id, 'name', w.name, 'status', w.status)`.
+const WORKFLOW_HIT: [workflows::Column; 3] = [
+    workflows::Column::Id,
+    workflows::Column::Name,
+    workflows::Column::Status,
+];
+
+fn workflow_hit((id, name, status): (String, String, String)) -> Value {
+    json!({ "id": id, "name": name, "status": status })
+}
+
+/// `left join workflows w on e.workflow_id = w.id`.
+fn run_workflow() -> RelationDef {
+    runs::Entity::belongs_to(workflows::Entity)
+        .from(runs::Column::WorkflowId)
+        .to(workflows::Column::Id)
+        .into()
 }
 
 fn search_hit(id: &Value, title: &Value, description: &Value, href: &str, kind: &str) -> Value {
@@ -147,13 +206,19 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     let result = async {
         let term = term.filter(|t| t.encode_utf16().count() >= 2);
+        let db = orm(&caller.db);
         let Some(term) = term else {
-            let recent: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select jsonb_build_object('id', w.id, 'name', w.name, 'status', w.status) from workflows w
-                 where w.deleted_at is null and {NOT_SEQUENCE} order by w.updated_at desc limit 5"
-            )))
-            .fetch_all(&caller.db)
-            .await?;
+            let recent: Vec<Value> = live_workflows()
+                .select_only()
+                .columns(WORKFLOW_HIT)
+                .order_by_desc(workflows::Column::UpdatedAt)
+                .limit(5)
+                .into_tuple()
+                .all(&db)
+                .await?
+                .into_iter()
+                .map(workflow_hit)
+                .collect();
             let hits: Vec<Value> = recent
                 .iter()
                 .map(|w| {
@@ -167,31 +232,59 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
                     )
                 })
                 .collect();
-            return Ok::<_, sqlx::Error>(Data(hits).into_response());
+            return Ok::<_, DbErr>(Data(hits).into_response());
         };
         let pattern = format!("%{term}%");
-        let workflows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select jsonb_build_object('id', w.id, 'name', w.name, 'status', w.status) from workflows w
-             where w.deleted_at is null and {NOT_SEQUENCE} and (w.name like $1 or w.description like $1) limit 5"
-        )))
-        .bind(&pattern)
-        .fetch_all(&caller.db)
-        .await?;
-        let templates: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', t.id, 'name', t.name, 'category', t.category) from workflow_templates t
-             where t.deleted_at is null and (t.name like $1 or t.description like $1) limit 5",
-        )
-        .bind(&pattern)
-        .fetch_all(&caller.db)
-        .await?;
-        let runs: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select jsonb_build_object('id', e.id, 'status', e.status, 'workflowName', w.name)
-             from workflow_executions e left join workflows w on e.workflow_id = w.id
-             where w.name like $1 and {NOT_SEQUENCE} order by e.started_at desc limit 5"
-        )))
-        .bind(&pattern)
-        .fetch_all(&caller.db)
-        .await?;
+        let workflows: Vec<Value> = live_workflows()
+            .select_only()
+            .columns(WORKFLOW_HIT)
+            .filter(
+                Condition::any()
+                    .add(workflows::Column::Name.like(&pattern))
+                    .add(workflows::Column::Description.like(&pattern)),
+            )
+            .limit(5)
+            .into_tuple()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(workflow_hit)
+            .collect();
+        let templates: Vec<Value> = workflow_templates::Entity::find()
+            .select_only()
+            .columns([
+                workflow_templates::Column::Id,
+                workflow_templates::Column::Name,
+                workflow_templates::Column::Category,
+            ])
+            .filter(workflow_templates::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(workflow_templates::Column::Name.like(&pattern))
+                    .add(workflow_templates::Column::Description.like(&pattern)),
+            )
+            .limit(5)
+            .into_tuple::<(String, String, String)>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(|(id, name, category)| json!({ "id": id, "name": name, "category": category }))
+            .collect();
+        let runs: Vec<Value> = runs::Entity::find()
+            .select_only()
+            .columns([runs::Column::Id, runs::Column::Status])
+            .column(workflows::Column::Name)
+            .join(JoinType::LeftJoin, run_workflow())
+            .filter(workflows::Column::Name.like(&pattern))
+            .filter(not_sequence())
+            .order_by_desc(runs::Column::StartedAt)
+            .limit(5)
+            .into_tuple::<(String, String, Option<String>)>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(|(id, status, name)| json!({ "id": id, "status": status, "workflowName": name }))
+            .collect();
         let mut hits = Vec::new();
         for w in &workflows {
             let id = w["id"].as_str().unwrap_or_default();
@@ -252,20 +345,38 @@ async fn performance(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Ok(id) => id.filter(|id| !id.is_empty()),
         Err(refusal) => return refusal.respond("Failed to fetch performance metrics"),
     };
-    const TIMED: &str = "e.status = 'completed' and coalesce(e.duration, 0) > 0";
-    let row: Result<(i64, i64, Option<f64>, Option<f64>, Option<f64>), sqlx::Error> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select count(*), count(*) filter (where {TIMED}), (avg(e.duration) filter (where {TIMED}))::float8,
-                    (min(e.duration) filter (where {TIMED}))::float8, (max(e.duration) filter (where {TIMED}))::float8
-             from workflow_executions e
-             where (($1::text is not null and e.workflow_id = $1) or ($1::text is null and {NOT_SEQUENCE_RUN}))
-               and {NOT_TEST_RUN}"
-        )))
-        .bind(&workflow_id)
-        .fetch_one(&caller.db)
-        .await;
+    // `e.status = 'completed' and coalesce(e.duration, 0) > 0`.
+    let timed = || {
+        Condition::all()
+            .add(runs::Column::Status.eq("completed"))
+            .add(sea_orm::ExprTrait::gt(
+                Func::coalesce([Expr::col(runs::Column::Duration), Expr::val(0)]),
+                0,
+            ))
+    };
+    let float = |aggregate: sea_orm::sea_query::FunctionCall| -> Expr {
+        Func::cast_as(aggregate.filter(timed()), "float8").into()
+    };
+    let duration = || Expr::col(runs::Column::Duration);
+    let row: Result<Option<(i64, i64, Option<f64>, Option<f64>, Option<f64>)>, DbErr> =
+        runs::Entity::find()
+            .select_only()
+            .expr(count_all())
+            .expr(count_where(timed()))
+            .expr(float(Func::avg(duration())))
+            .expr(float(Func::min(duration())))
+            .expr(float(Func::max(duration())))
+            .filter(match &workflow_id {
+                Some(workflow_id) => runs::Column::WorkflowId.eq(workflow_id),
+                None => not_sequence_run(),
+            })
+            .filter(not_test_run())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
     match row {
-        Ok((total, completed, avg, min, max)) => {
+        Ok(row) => {
+            let (total, completed, avg, min, max) = row.unwrap_or_default();
             let n = |v: Option<f64>| number(v.unwrap_or(0.0));
             Data(json!({
                 "totalExecutions": total,
@@ -289,10 +400,50 @@ fn number(value: f64) -> Value {
     json!(value)
 }
 
-const NOT_SEQUENCE_ERROR: &str = "not exists (select 1 from workflows sw
-    where sw.id = l.workflow_id and coalesce(sw.tags, '[]'::jsonb) ? '__type:sequence')";
-const NOT_TEST_ERROR: &str = "not exists (select 1 from workflow_executions te
-    where te.id = l.execution_id and coalesce(te.execution_context->>'isTest', 'false') = 'true')";
+/// The error logs neither a sequence's nor a test run's, of `workflow_id`
+/// when given: `notSequenceError`, `notTestError`.
+fn counted_errors(workflow_id: Option<&String>) -> Condition {
+    let te = Alias::new("te");
+    let mut condition = Condition::all()
+        .add(not_sequence_of(Expr::col((
+            error_logs::Entity,
+            error_logs::Column::WorkflowId,
+        ))))
+        .add(Expr::not_exists(
+            Query::select()
+                .expr(Expr::val(1))
+                .from_as(runs::Entity, te.clone())
+                .and_where(sea_orm::ExprTrait::eq(
+                    Expr::col((te.clone(), runs::Column::Id)),
+                    Expr::col((error_logs::Entity, error_logs::Column::ExecutionId)),
+                ))
+                .and_where(sea_orm::ExprTrait::eq(
+                    test_flag(Expr::col((te, runs::Column::ExecutionContext))),
+                    "true",
+                ))
+                .to_owned(),
+        ));
+    if let Some(workflow_id) = workflow_id {
+        condition = condition.add(error_logs::Column::WorkflowId.eq(workflow_id));
+    }
+    condition
+}
+
+/// An error log with its workflow's name.
+#[derive(Debug, FromQueryResult)]
+struct ErrorWithWorkflow {
+    #[sea_orm(nested)]
+    log: error_logs::Model,
+    workflow_name: Option<String>,
+}
+
+/// `left join workflows w on w.id = l.workflow_id`.
+fn error_workflow() -> RelationDef {
+    error_logs::Entity::belongs_to(workflows::Entity)
+        .from(error_logs::Column::WorkflowId)
+        .to(workflows::Column::Id)
+        .into()
+}
 
 async fn errors(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let read = validate_query(query.as_deref(), |issues, q| {
@@ -352,52 +503,61 @@ async fn errors(caller: Caller, RawQuery(query): RawQuery) -> Response {
     #[allow(clippy::cast_possible_truncation)]
     let (page, limit) = (page.max(1.0) as i64, limit.clamp(1.0, 100.0) as i64);
     let workflow_id = workflow_id.filter(|w| !w.is_empty());
-    let base = format!(
-        "{NOT_SEQUENCE_ERROR} and {NOT_TEST_ERROR} and ($1::text is null or l.workflow_id = $1)"
-    );
-    let ack = match status.as_str() {
-        "unacknowledged" => " and l.acknowledged_at is null",
-        "acknowledged" => " and l.acknowledged_at is not null",
-        _ => "",
+    let base = || counted_errors(workflow_id.as_ref());
+    let filtered = || match status.as_str() {
+        "unacknowledged" => base().add(error_logs::Column::AcknowledgedAt.is_null()),
+        "acknowledged" => base().add(error_logs::Column::AcknowledgedAt.is_not_null()),
+        _ => base(),
     };
-    let filtered = format!("{base}{ack}");
     let result = async {
-        let items: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select to_jsonb(l) || jsonb_build_object('workflow_name', w.name) from workflow_error_logs l
-             left join workflows w on w.id = l.workflow_id where {filtered}
-             order by l.occurred_at desc, l.id desc limit $2 offset $3"
-        )))
-        .bind(&workflow_id)
-        .bind(limit)
-        .bind((page - 1) * limit)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select count(*) from workflow_error_logs l where {filtered}"
-        )))
-        .bind(&workflow_id)
-        .fetch_one(&caller.db)
-        .await?;
-        let unacknowledged: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select count(*) from workflow_error_logs l where {base} and l.acknowledged_at is null"
-        )))
-        .bind(&workflow_id)
-        .fetch_one(&caller.db)
-        .await?;
-        let by_type_rows: Vec<(Option<String>, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select l.error_type, count(*) from workflow_error_logs l where {filtered} group by l.error_type"
-        )))
-        .bind(&workflow_id)
-        .fetch_all(&caller.db)
-        .await?;
-        let by_workflow: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select jsonb_build_object('workflowId', l.workflow_id, 'workflowName', w.name, 'count', count(*))
-             from workflow_error_logs l left join workflows w on w.id = l.workflow_id
-             where {filtered} group by l.workflow_id, w.name order by count(*) desc limit 10"
-        )))
-        .bind(&workflow_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let items: Vec<ErrorWithWorkflow> = error_logs::Entity::find()
+            .column_as(workflows::Column::Name, "workflow_name")
+            .join(JoinType::LeftJoin, error_workflow())
+            .filter(filtered())
+            .order_by_desc(error_logs::Column::OccurredAt)
+            .order_by_desc(error_logs::Column::Id)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .offset(u64::try_from((page - 1) * limit).unwrap_or(0))
+            .into_model()
+            .all(&db)
+            .await?;
+        let total = error_logs::Entity::find()
+            .filter(filtered())
+            .count(&db)
+            .await?;
+        let unacknowledged = error_logs::Entity::find()
+            .filter(base().add(error_logs::Column::AcknowledgedAt.is_null()))
+            .count(&db)
+            .await?;
+        let by_type_rows: Vec<(Option<String>, i64)> = error_logs::Entity::find()
+            .select_only()
+            .column(error_logs::Column::ErrorType)
+            .expr(count_all())
+            .filter(filtered())
+            .group_by(error_logs::Column::ErrorType)
+            .into_tuple()
+            .all(&db)
+            .await?;
+        let by_workflow: Vec<Value> = error_logs::Entity::find()
+            .select_only()
+            .column(error_logs::Column::WorkflowId)
+            .column(workflows::Column::Name)
+            .expr(count_all())
+            .join(JoinType::LeftJoin, error_workflow())
+            .filter(filtered())
+            .group_by(error_logs::Column::WorkflowId)
+            .group_by(workflows::Column::Name)
+            .order_by_desc(count_all())
+            .limit(10)
+            .into_tuple::<(Option<String>, Option<String>, i64)>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(|(workflow_id, name, count)| {
+                json!({ "workflowId": workflow_id, "workflowName": name, "count": count })
+            })
+            .collect();
         let mut by_type = Map::new();
         for (kind, count) in by_type_rows {
             let key = kind
@@ -406,13 +566,21 @@ async fn errors(caller: Caller, RawQuery(query): RawQuery) -> Response {
             let current = by_type.get(&key).and_then(Value::as_i64).unwrap_or(0);
             by_type.insert(key, json!(current + count));
         }
-        Ok::<_, sqlx::Error>(
+        let items = items
+            .into_iter()
+            .map(|item| {
+                let mut row = js(item.log)?;
+                row["workflowName"] = json!(item.workflow_name);
+                Ok(row)
+            })
+            .collect::<Result<Vec<_>, DbErr>>()?;
+        Ok::<_, DbErr>(
             Data(json!({
                 "total": total,
                 "unacknowledged": unacknowledged,
                 "byType": by_type,
                 "byWorkflow": by_workflow,
-                "items": items.into_iter().map(js_row).collect::<Vec<_>>(),
+                "items": items,
                 "page": page,
                 "limit": limit,
             }))
@@ -426,29 +594,27 @@ async fn errors(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn acknowledge(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        let existing: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(l) from workflow_error_logs l where l.id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(existing) = existing else {
+        let db = orm(&caller.db);
+        let Some(existing) = error_logs::Entity::find_by_id(id.as_str()).one(&db).await? else {
             return Err(Refusal::not_found("Error log", &id));
         };
-        if !existing["acknowledged_at"].is_null() {
-            return Ok(Data(js_row(existing)).into_response());
+        if existing.acknowledged_at.is_some() {
+            return Ok(Data(js(existing)?).into_response());
         }
-        let row: Option<Value> = sqlx::query_scalar(
-            "update workflow_error_logs l set is_acknowledged = true, acknowledged_at = $2::timestamp,
-                acknowledged_by = $3 where l.id = $1 returning to_jsonb(l)",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&caller.user_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row = error_logs::Entity::update_many()
+            .col_expr(error_logs::Column::IsAcknowledged, Expr::value(true))
+            .col_expr(error_logs::Column::AcknowledgedAt, Expr::value(utc_now()))
+            .col_expr(
+                error_logs::Column::AcknowledgedBy,
+                Expr::value(&caller.user_id),
+            )
+            .filter(error_logs::Column::Id.eq(&id))
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .next();
         match row {
-            Some(row) => Ok(Data(js_row(row)).into_response()),
+            Some(row) => Ok(Data(js(row)?).into_response()),
             None => Err(Refusal::not_found("Error log", &id)),
         }
     };
@@ -571,30 +737,26 @@ async fn acknowledge_many(caller: Caller, headers: HeaderMap, body: Bytes) -> Re
         Ok(None) => return ApiError::internal().into_response(),
         Err(refusal) => return refusal.respond("Failed to acknowledge errors"),
     };
-    let stamp = now();
+    let acknowledged = error_logs::Entity::update_many()
+        .col_expr(error_logs::Column::IsAcknowledged, Expr::value(true))
+        .col_expr(error_logs::Column::AcknowledgedAt, Expr::value(utc_now()))
+        .col_expr(
+            error_logs::Column::AcknowledgedBy,
+            Expr::value(&caller.user_id),
+        )
+        .filter(error_logs::Column::AcknowledgedAt.is_null());
     let changed = match target {
         Target::Ids(ids) if ids.is_empty() => Ok(0),
-        Target::Ids(ids) => sqlx::query(
-            "update workflow_error_logs set is_acknowledged = true, acknowledged_at = $2::timestamp,
-                acknowledged_by = $3 where acknowledged_at is null and id = any($1)",
-        )
-        .bind(&ids)
-        .bind(&stamp)
-        .bind(&caller.user_id)
-        .execute(&caller.db)
-        .await
-        .map(|r| r.rows_affected()),
-        Target::All(workflow_id) => sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update workflow_error_logs l set is_acknowledged = true, acknowledged_at = $2::timestamp,
-                acknowledged_by = $3 where l.acknowledged_at is null and {NOT_SEQUENCE_ERROR} and {NOT_TEST_ERROR}
-                and ($1::text is null or l.workflow_id = $1)"
-        )))
-        .bind(&workflow_id)
-        .bind(&stamp)
-        .bind(&caller.user_id)
-        .execute(&caller.db)
-        .await
-        .map(|r| r.rows_affected()),
+        Target::Ids(ids) => acknowledged
+            .filter(error_logs::Column::Id.is_in(ids))
+            .exec(&orm(&caller.db))
+            .await
+            .map(|r| r.rows_affected),
+        Target::All(workflow_id) => acknowledged
+            .filter(counted_errors(workflow_id.as_ref()))
+            .exec(&orm(&caller.db))
+            .await
+            .map(|r| r.rows_affected),
     };
     match changed {
         Ok(count) => Data(json!({ "acknowledged": count })).into_response(),
@@ -604,21 +766,27 @@ async fn acknowledge_many(caller: Caller, headers: HeaderMap, body: Bytes) -> Re
 
 async fn resource_usage(caller: Caller) -> Response {
     let result = async {
-        let (wf_total, wf_active): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select count(*), count(*) filter (where status = 'active') from workflows w
-             where w.deleted_at is null and {NOT_SEQUENCE}"
-        )))
-        .fetch_one(&caller.db)
-        .await?;
-        let (total, running, completed, failed): (i64, i64, i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select count(*), count(*) filter (where status = 'running'), count(*) filter (where status = 'completed'),
-                    count(*) filter (where status = 'failed')
-             from workflow_executions e where {NOT_SEQUENCE_RUN} and {NOT_TEST_RUN}"
-        )))
-        .fetch_one(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let (wf_total, wf_active): (i64, i64) = live_workflows()
+            .select_only()
+            .expr(count_all())
+            .expr(count_where(workflows::Column::Status.eq("active")))
+            .into_tuple()
+            .one(&db)
+            .await?
+            .unwrap_or_default();
+        let (total, running, completed, failed): (i64, i64, i64, i64) = counted_runs()
+            .select_only()
+            .expr(count_all())
+            .expr(count_where(runs::Column::Status.eq("running")))
+            .expr(count_where(runs::Column::Status.eq("completed")))
+            .expr(count_where(runs::Column::Status.eq("failed")))
+            .into_tuple()
+            .one(&db)
+            .await?
+            .unwrap_or_default();
         let (schedules, webhooks) = trigger_counts(&caller.db).await?;
-        Ok::<_, sqlx::Error>(Data(json!({
+        Ok::<_, DbErr>(Data(json!({
             "workflows": { "total": wf_total, "active": wf_active },
             "executions": { "total": total, "running": running, "completed": completed, "failed": failed },
             "triggers": { "schedules": schedules, "webhooks": webhooks },

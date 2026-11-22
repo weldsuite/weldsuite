@@ -27,17 +27,13 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::raid::columns_of;
+use crate::row_json;
 use crate::raid_body::Body;
 
 /// `project_deliverables`, written from a body.
 pub(crate) const DELIVERABLES: JsonTable = JsonTable::of::<deliverables::Entity>();
 /// `project_benefits`, written from a body.
 pub(crate) const BENEFITS: JsonTable = JsonTable::of::<benefits::Entity>();
-
-/// A row as Drizzle returns it.
-fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// `values` (camelCase keys) keyed by their columns.
 fn column_values(values: &Body) -> Map<String, Value> {
@@ -80,7 +76,7 @@ pub(crate) async fn find_decision(db: &PgPool, id: &str) -> Result<Option<Value>
         .filter(decisions::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 
@@ -138,7 +134,7 @@ pub(crate) async fn find_deliverable(db: &PgPool, id: &str) -> Result<Option<Val
         .filter(deliverables::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 
@@ -248,7 +244,7 @@ pub(crate) async fn find_benefit(db: &PgPool, id: &str) -> Result<Option<Value>,
         .filter(benefits::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(js)
+        .map(row_json)
         .transpose()
 }
 
@@ -275,7 +271,7 @@ pub(crate) async fn latest_measurements(
         .all(&orm(db))
         .await?;
     rows.into_iter()
-        .map(|row| Ok((row.benefit_id.clone(), js(row)?)))
+        .map(|row| Ok((row.benefit_id.clone(), row_json(row)?)))
         .collect()
 }
 
@@ -287,7 +283,7 @@ pub(crate) async fn measurements_of(db: &PgPool, benefit_id: &str) -> Result<Vec
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(js)
+        .map(row_json)
         .collect()
 }
 
@@ -324,9 +320,7 @@ pub(crate) async fn upsert_measurement(
     // `where ($by is not null or measured_by is null)`: a sweep's value never
     // replaces one somebody typed in.
     if measured_by.is_none() {
-        upsert.action_and_where(
-            Expr::col((measurements::Entity, measurements::Column::MeasuredBy)).is_null(),
-        );
+        upsert.action_and_where(measurements::Column::MeasuredBy.is_null());
     }
     measurements::Entity::insert(measurements::ActiveModel {
         id: Set(weldsuite_kit::generate_id("bmea")),

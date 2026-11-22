@@ -10,18 +10,24 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_MESSAGE_CREATED, PROJECT_MESSAGE_DELETED, PROJECT_MESSAGE_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_messages;
 
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, now, outside, reply,
-    validate, validate_value,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, row_json,
+    json_rows, outside, reply, validate, validate_value,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -95,6 +101,43 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     outside(list_messages(&caller, &filters).await)
 }
 
+/// The live message's sender and project, `None` when there is no such
+/// message.
+async fn message_author(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<(String, Option<String>)>, DbErr> {
+    use project_messages::Column;
+    project_messages::Entity::find_by_id(id)
+        .select_only()
+        .columns([Column::SenderId, Column::ProjectId])
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// The list's `where`: live messages of the project (or of the caller's
+/// projects), from the sender when one is given.
+fn message_filters(
+    project_id: Option<&str>,
+    scope: Option<&(bool, Vec<String>)>,
+    sender: Option<&str>,
+) -> Condition {
+    use project_messages::Column;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(project_id) = project_id {
+        filters = filters.add(Column::ProjectId.eq(project_id));
+    }
+    if let Some(scope) = scope {
+        filters = filters.add(in_accessible(Column::ProjectId, scope));
+    }
+    if let Some(sender) = sender {
+        filters = filters.add(Column::SenderId.eq(sender));
+    }
+    filters
+}
+
 async fn list_messages(caller: &Caller, f: &Filters) -> Reply {
     let project_id = f.project_id.as_deref().filter(|p| !p.is_empty());
     let (scoped, all, ids) = if let Some(project_id) = project_id {
@@ -109,46 +152,22 @@ async fn list_messages(caller: &Caller, f: &Filters) -> Reply {
     let sender = f.sender_id.as_deref().filter(|s| !s.is_empty());
     let offset = (f.page - 1) * f.limit;
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(m) from project_messages m where m.deleted_at is null",
-            " and ($1::text is null or m.project_id = $1)",
-            " and ($2::bool is not true or ",
-            in_accessible!("m.project_id", "$3", "$4"),
-            ")",
-            " and ($5::text is null or m.sender_id = $5)",
-            " order by m.created_at asc limit $6 offset $7"
-        ))
-        .bind(project_id)
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .bind(sender)
-        .bind(f.limit)
-        .bind(offset)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(concat!(
-            "select count(*)::int from project_messages m where m.deleted_at is null",
-            " and ($1::text is null or m.project_id = $1)",
-            " and ($2::bool is not true or ",
-            in_accessible!("m.project_id", "$3", "$4"),
-            ")",
-            " and ($5::text is null or m.sender_id = $5)"
-        ))
-        .bind(project_id)
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .bind(sender)
-        .fetch_one(&caller.db)
-        .await?;
-        let has_more = offset + i64::try_from(rows.len()).unwrap_or(0) < i64::from(total);
-        Ok(crate::paged(
-            rows.into_iter().map(js_row).collect(),
-            i64::from(total),
-            has_more,
-            None,
-        ))
+        let scope = (all, ids);
+        let filters = message_filters(project_id, scoped.then_some(&scope), sender);
+        let rows = project_messages::Entity::find()
+            .filter(filters.clone())
+            .order_by_asc(project_messages::Column::CreatedAt)
+            .limit(u64::try_from(f.limit).unwrap_or(0))
+            .offset(u64::try_from(offset).unwrap_or(0))
+            .all(&orm(&caller.db))
+            .await?;
+        let total = project_messages::Entity::find()
+            .filter(filters)
+            .count(&orm(&caller.db))
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let has_more = offset + i64::try_from(rows.len()).unwrap_or(0) < total;
+        Ok(crate::paged(json_rows(rows)?, total, has_more, None))
     }
     .await;
     Ok(reply(result, "Failed to list project messages"))
@@ -159,13 +178,11 @@ async fn list_messages(caller: &Caller, f: &Filters) -> Reply {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let row: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(m) from project_messages m where m.id = $1 and m.deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(row) = row.map(js_row) else {
+            let row = project_messages::Entity::find_by_id(id.as_str())
+                .filter(project_messages::Column::DeletedAt.is_null())
+                .one(&orm(&caller.db))
+                .await?;
+            let Some(row) = row.map(row_json).transpose()? else {
                 return Err(Refusal::not_found("Project message", &id));
             };
             if let Some(project) = row["projectId"].as_str().filter(|p| !p.is_empty())
@@ -234,22 +251,23 @@ async fn create(
     reply(
         async {
             let id = generate_id("pmsg");
-            sqlx::query(
-                "insert into project_messages
-                     (id, project_id, conversation_id, sender_id, message, message_type,
-                      reply_to_id, attachments, metadata, is_read, created_at, updated_at)
-                 values ($1, $2, $2, $3, $4, $5, $6, $7, $8, false, $9::timestamp, $9::timestamp)",
-            )
-            .bind(&id)
-            .bind(&input.project_id)
-            .bind(&user)
-            .bind(&input.message)
-            .bind(&input.message_type)
-            .bind(input.reply_to_id.as_deref())
-            .bind(input.attachments.clone().filter(|v| !v.is_null()))
-            .bind(input.metadata.clone())
-            .bind(now())
-            .execute(&caller.db)
+            let now = utc_now();
+            project_messages::Entity::insert(project_messages::ActiveModel {
+                id: Set(id.clone()),
+                project_id: Set(Some(input.project_id.clone())),
+                conversation_id: Set(input.project_id.clone()),
+                sender_id: Set(user.clone()),
+                message: Set(input.message.clone()),
+                message_type: Set(input.message_type.clone()),
+                reply_to_id: Set(input.reply_to_id.clone()),
+                attachments: Set(input.attachments.clone().filter(|v| !v.is_null())),
+                metadata: Set(input.metadata.clone()),
+                is_read: Set(false),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await?;
             caller.publish(
                 &state,
@@ -299,13 +317,7 @@ async fn update(
     };
     reply(
         async {
-            let existing: Option<(String, Option<String>)> = sqlx::query_as(
-                "select sender_id, project_id from project_messages where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some((sender, project)) = existing else {
+            let Some((sender, project)) = message_author(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("Project message", &id));
             };
             // Sharing with the client is the one change a project admin may make
@@ -328,20 +340,24 @@ async fn update(
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
             // `is_pinned` is not a column: Drizzle drops unknown keys from a set.
-            sqlx::query(
-                "update project_messages set
-                     message = coalesce($2, message),
-                     client_visible = coalesce($4::boolean, client_visible),
-                     edited_at = case when $2::text is not null then $3::timestamp else edited_at end,
-                     updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(data.get("message").and_then(Value::as_str))
-            .bind(now())
-            .bind(data.get("clientVisible").and_then(Value::as_bool))
-            .execute(&caller.db)
-            .await?;
+            {
+                use project_messages::Column;
+                let now = utc_now();
+                let mut update = project_messages::Entity::update_many();
+                if let Some(message) = data.get("message").and_then(Value::as_str) {
+                    update = update
+                        .col_expr(Column::Message, Expr::value(message))
+                        .col_expr(Column::EditedAt, Expr::value(now));
+                }
+                if let Some(visible) = data.get("clientVisible").and_then(Value::as_bool) {
+                    update = update.col_expr(Column::ClientVisible, Expr::value(visible));
+                }
+                update
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(id.as_str()))
+                    .exec(&orm(&caller.db))
+                    .await?;
+            }
             let mut out = data.clone();
             out.insert("id".to_owned(), json!(id));
             let out = Value::Object(out);
@@ -376,12 +392,16 @@ async fn react(
     };
     reply(
         async {
-            let existing: Option<(Option<Value>, Option<String>)> = sqlx::query_as(
-                "select reactions, project_id from project_messages where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let existing: Option<(Option<Value>, Option<String>)> = {
+                use project_messages::Column;
+                project_messages::Entity::find_by_id(id.as_str())
+                    .select_only()
+                    .columns([Column::Reactions, Column::ProjectId])
+                    .filter(Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await?
+            };
             let Some((reactions, project)) = existing else {
                 return Err(Refusal::not_found("Project message", &id));
             };
@@ -410,14 +430,15 @@ async fn react(
                 reactions.insert(emoji.clone(), Value::Array(users));
             }
             let reactions = Value::Object(reactions);
-            sqlx::query(
-                "update project_messages set reactions = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&reactions)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            project_messages::Entity::update_many()
+                .col_expr(
+                    project_messages::Column::Reactions,
+                    Expr::value(reactions.clone()),
+                )
+                .col_expr(project_messages::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(project_messages::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
             let out = json!({ "id": id, "reactions": reactions });
             caller.publish(&state, PROJECT_MESSAGE_UPDATED, &id, &out);
             Ok(Data(out).into_response())
@@ -436,13 +457,7 @@ async fn remove(
 ) -> Response {
     reply(
         async {
-            let existing: Option<(String, Option<String>)> = sqlx::query_as(
-                "select sender_id, project_id from project_messages where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some((sender, project)) = existing else {
+            let Some((sender, project)) = message_author(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("Project message", &id));
             };
             let is_author = sender == caller.user_id;
@@ -457,13 +472,13 @@ async fn remove(
             if !is_author && !can_moderate {
                 return Err(Refusal::forbidden("You can only delete your own messages"));
             }
-            sqlx::query(
-                "update project_messages set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let now = utc_now();
+            project_messages::Entity::update_many()
+                .col_expr(project_messages::Column::DeletedAt, Expr::value(now))
+                .col_expr(project_messages::Column::UpdatedAt, Expr::value(now))
+                .filter(project_messages::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(&state, PROJECT_MESSAGE_DELETED, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

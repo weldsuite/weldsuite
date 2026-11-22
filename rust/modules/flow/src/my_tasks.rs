@@ -21,17 +21,28 @@ use axum::Router;
 use axum::extract::{RawQuery, State};
 use axum::response::Response;
 use axum::routing::get;
-use serde_json::{Map, Value};
-use weldsuite_db::js_row;
+use sea_orm::sea_query::{CaseStatement, Expr, Func, Order};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
+use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{orm, orm_error, utc_timestamp};
 use weldsuite_flow_domain::day_bounds::workspace_day_bounds;
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_flow_domain::stage::task_status_aliases;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use weldsuite_schema::tenant::{projects, tasks};
+
 use crate::task_enrich::{attach_tree_across_projects, enrich};
 use crate::tasks::{SORT_FIELDS, csv_list, query_boolean, query_number, query_text};
-use crate::{Caller, FlowState, Query, Refusal, Reply, outside, reply, validate_value};
+use crate::{
+    Caller, FlowState, Query, Refusal, Reply, row_json, outside, project_not_deleted, reply,
+    validate_value,
+};
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -110,68 +121,149 @@ async fn list(State(state): State<FlowState>, caller: Caller, RawQuery(raw): Raw
     outside(my_tasks(&state, &caller, &filters).await)
 }
 
-macro_rules! my_task_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and not exists (select 1 from projects lp where lp.id = t.project_id and lp.deleted_at is not null)",
-            " and (t.assignee_id = $1 or t.assignee_ids::jsonb @> $2::jsonb)",
-            " and ($3::text[] is null or t.status = any($3))",
-            " and ($4::text[] is null or not (t.status = any($4)))",
-            " and ($5::text is null or t.priority = $5)",
-            " and ($6::text is null or t.project_id = $6)",
-            " and ($7::text[] is null or t.labels ?| $7::text[])",
-            " and ($8::text is null or (case $8",
-            " when 'overdue' then (t.due_date < $9::timestamp and t.due_date is not null)",
-            " when 'today' then (t.due_date >= $9::timestamp and t.due_date < $10::timestamp)",
-            " when 'this-week' then (t.due_date >= $10::timestamp and t.due_date < $11::timestamp)",
-            " when 'later' then t.due_date >= $11::timestamp",
-            " when 'no-date' then t.due_date is null end))",
-            " and ($12::text is null or (t.title ilike $12 or t.description ilike $12 or t.key ilike $12))"
-        )
-    };
+/// `myTasksFilters`: live tasks of live projects (or of none) assigned to
+/// `user`, with the query's filters.
+fn my_task_filters(user: &str, f: &Filters, p: &Params) -> Condition {
+    use tasks::Column;
+    let mut filters = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(project_not_deleted(Column::ProjectId))
+        .add(
+            Condition::any()
+                .add(Column::AssigneeId.eq(user))
+                .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                    Expr::col((tasks::Entity, Column::AssigneeIds)),
+                    json!([user]),
+                )),
+        );
+    if let Some(statuses) = &p.statuses {
+        filters = filters.add(Column::Status.is_in(statuses.iter().map(String::as_str)));
+    }
+    if let Some(excluded) = &p.excluded {
+        filters = filters.add(Column::Status.is_not_in(excluded.iter().map(String::as_str)));
+    }
+    if let Some(priority) = f.priority.as_deref().filter(|v| !v.is_empty()) {
+        filters = filters.add(Column::Priority.eq(priority));
+    }
+    if let Some(project_id) = f.project_id.as_deref().filter(|v| !v.is_empty()) {
+        filters = filters.add(Column::ProjectId.eq(project_id));
+    }
+    if let Some(labels) = &f.label_ids {
+        // `labels ?| $labels`.
+        filters = filters.add(Expr::from(
+            Func::cust("jsonb_exists_any")
+                .arg(Expr::col((tasks::Entity, Column::Labels)))
+                .arg(Expr::val(labels.clone())),
+        ));
+    }
+    if let Some(bucket) = f.due_bucket.as_deref() {
+        filters = filters.add(due_bucket(bucket, &p.bounds));
+    }
+    if let Some(search) = p.search.as_deref() {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(search))
+                .add(Column::Description.ilike(search))
+                .add(Column::Key.ilike(search)),
+        );
+    }
+    filters
 }
 
-/// `ORDER BY <column> <direction>` for one sort field.
-macro_rules! my_order_on {
-    ($name:literal, $col:literal) => {
-        concat!(
-            "(case when $13 = '",
-            $name,
-            "' and $14 = 'asc' then t.",
-            $col,
-            " end) asc, (case when $13 = '",
-            $name,
-            "' and $14 = 'desc' then t.",
-            $col,
-            " end) desc, "
-        )
-    };
+/// The due-date bucket over the workspace's day bounds (start of today, of
+/// tomorrow, of next week); a missing bound matches nothing, as `null` did.
+fn due_bucket(bucket: &str, bounds: &[Option<PrimitiveDateTime>; 3]) -> Condition {
+    use tasks::Column;
+    let none = || Condition::all().add(Expr::value(false));
+    match bucket {
+        "overdue" => bounds[0].map_or_else(none, |today| {
+            Condition::all()
+                .add(Column::DueDate.lt(today))
+                .add(Column::DueDate.is_not_null())
+        }),
+        "today" => match (bounds[0], bounds[1]) {
+            (Some(today), Some(tomorrow)) => Condition::all()
+                .add(Column::DueDate.gte(today))
+                .add(Column::DueDate.lt(tomorrow)),
+            _ => none(),
+        },
+        "this-week" => match (bounds[1], bounds[2]) {
+            (Some(tomorrow), Some(next_week)) => Condition::all()
+                .add(Column::DueDate.gte(tomorrow))
+                .add(Column::DueDate.lt(next_week)),
+            _ => none(),
+        },
+        "later" => bounds[2].map_or_else(none, |next_week| {
+            Condition::all().add(Column::DueDate.gte(next_week))
+        }),
+        "no-date" => Condition::all().add(Column::DueDate.is_null()),
+        // `case` without a match is null: no row.
+        _ => none(),
+    }
 }
 
-macro_rules! bind_my_filters {
-    ($query:expr, $user:expr, $f:expr, $p:expr) => {
-        $query
-            .bind(&$user)
-            .bind(serde_json::to_string(&[&$user]).unwrap_or_default())
-            .bind(&$p.statuses)
-            .bind(&$p.excluded)
-            .bind($f.priority.as_deref().filter(|v| !v.is_empty()))
-            .bind($f.project_id.as_deref().filter(|v| !v.is_empty()))
-            .bind(&$f.label_ids)
-            .bind($f.due_bucket.as_deref())
-            .bind($p.bounds[0].as_deref())
-            .bind($p.bounds[1].as_deref())
-            .bind($p.bounds[2].as_deref())
-            .bind($p.search.as_deref())
-    };
+/// The default order's status rank (todo, in progress, review, testing,
+/// backlog, done, cancelled, the rest).
+fn status_rank() -> Expr {
+    use tasks::Column;
+    let rank = [
+        ("todo", 1),
+        ("in_progress", 2),
+        ("review", 3),
+        ("in_review", 3),
+        ("testing", 4),
+        ("backlog", 5),
+        ("done", 6),
+        ("cancelled", 7),
+    ];
+    let mut case = CaseStatement::new();
+    for (status, rank) in rank {
+        case = case.case(Column::Status.eq(status), rank);
+    }
+    case.finally(8).into()
+}
+
+/// A task with the summary of its project (`leftJoin(projects)`).
+#[derive(Debug, FromQueryResult)]
+struct MyTask {
+    #[sea_orm(nested)]
+    task: tasks::Model,
+    project_ref: Option<String>,
+    project_name: Option<String>,
+    project_color: Option<String>,
+    project_icon: Option<String>,
+    project_status: Option<String>,
+}
+
+impl MyTask {
+    /// `{ id, name, color, icon, status }`, `null` without a project.
+    fn project(&self) -> Value {
+        match &self.project_ref {
+            None => Value::Null,
+            Some(id) => json!({
+                "id": id,
+                "name": self.project_name,
+                "color": self.project_color,
+                "icon": self.project_icon,
+                "status": self.project_status,
+            }),
+        }
+    }
 }
 
 struct Params {
     statuses: Option<Vec<String>>,
     excluded: Option<Vec<String>>,
-    bounds: [Option<String>; 3],
+    bounds: [Option<PrimitiveDateTime>; 3],
     search: Option<String>,
+}
+
+/// A JavaScript millisecond timestamp as the `timestamp` its
+/// `toISOString()` was cast to.
+fn stamp(millis: i64) -> Option<PrimitiveDateTime> {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .ok()
+        .map(utc_timestamp)
 }
 
 async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
@@ -179,12 +271,13 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
     let user = caller.user_id.clone();
     let mut bounds = [None, None, None];
     if f.due_bucket.is_some() {
-        let b = workspace_day_bounds(db, crate::now_ms()).await?;
-        let iso = weldsuite_flow_domain::js::iso_from_millis;
+        let b = workspace_day_bounds(db, crate::now_ms())
+            .await
+            .map_err(orm_error)?;
         bounds = [
-            iso(b.start_of_today),
-            iso(b.start_of_tomorrow),
-            iso(b.start_of_next_week),
+            stamp(b.start_of_today),
+            stamp(b.start_of_tomorrow),
+            stamp(b.start_of_next_week),
         ];
     }
     let params = Params {
@@ -212,54 +305,59 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
         #[allow(clippy::cast_possible_truncation)]
         let (limit, offset) = (f.page_size as i64, offset as i64);
         let default_sort = f.sort_field == "position";
-        let rows: Vec<(Value, Option<Value>)> = bind_my_filters!(
-            sqlx::query_as(concat!(
-                "select ",
-                task_json!("t"),
-                ", case when p.id is null then null else jsonb_build_object('id', p.id, 'name', p.name,",
-                " 'color', p.color, 'icon', p.icon, 'status', p.status) end",
-                " from tasks t left join projects p on t.project_id = p.id where ",
-                my_task_filters!(),
-                " order by (case when $15 then (case t.status when 'todo' then 1",
-                " when 'in_progress' then 2 when 'review' then 3 when 'in_review' then 3",
-                " when 'testing' then 4 when 'backlog' then 5 when 'done' then 6",
-                " when 'cancelled' then 7 else 8 end) end) asc, ",
-                my_order_on!("title", "title"),
-                my_order_on!("status", "status"),
-                my_order_on!("priority", "priority"),
-                my_order_on!("dueDate", "due_date"),
-                my_order_on!("assignee", "assignee_id"),
-                my_order_on!("createdAt", "created_at"),
-                "t.updated_at desc, t.id desc limit $16 offset $17"
-            )),
-            user,
-            f,
-            params
-        )
-        .bind(&f.sort_field)
-        .bind(&f.sort_direction)
-        .bind(default_sort)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = bind_my_filters!(
-            sqlx::query_scalar(concat!(
-                "select count(*) from tasks t where ",
-                my_task_filters!()
-            )),
-            user,
-            f,
-            params
-        )
-        .fetch_one(db)
-        .await?;
+        let project = tasks::Entity::belongs_to(projects::Entity)
+            .from(tasks::Column::ProjectId)
+            .to(projects::Column::Id)
+            .into();
+        let mut rows = tasks::Entity::find()
+            .column_as(projects::Column::Id, "project_ref")
+            .column_as(projects::Column::Name, "project_name")
+            .column_as(projects::Column::Color, "project_color")
+            .column_as(projects::Column::Icon, "project_icon")
+            .column_as(projects::Column::Status, "project_status")
+            .join(JoinType::LeftJoin, project)
+            .filter(my_task_filters(&user, f, &params));
+        // `asc` / `desc` on the chosen column (nulls last / first, as
+        // Postgres orders them); the default order ranks the statuses.
+        if default_sort {
+            rows = rows.order_by(status_rank(), Order::Asc);
+        }
+        let sorted = match f.sort_field.as_str() {
+            "title" => Some(tasks::Column::Title),
+            "status" => Some(tasks::Column::Status),
+            "priority" => Some(tasks::Column::Priority),
+            "dueDate" => Some(tasks::Column::DueDate),
+            "assignee" => Some(tasks::Column::AssigneeId),
+            "createdAt" => Some(tasks::Column::CreatedAt),
+            _ => None,
+        };
+        if let Some(column) = sorted {
+            let order = if f.sort_direction == "desc" {
+                Order::Desc
+            } else {
+                Order::Asc
+            };
+            rows = rows.order_by(column, order);
+        }
+        let rows = rows
+            .order_by_desc(tasks::Column::UpdatedAt)
+            .order_by_desc(tasks::Column::Id)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .offset(u64::try_from(offset).unwrap_or(0))
+            .into_model::<MyTask>()
+            .all(&orm(db))
+            .await?;
+        let total = tasks::Entity::find()
+            .filter(my_task_filters(&user, f, &params))
+            .count(&orm(db))
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
         let has_more = offset + i64::try_from(rows.len()).unwrap_or(0) < total;
-        let projects: Vec<Value> = rows
-            .iter()
-            .map(|(_, project)| project.clone().unwrap_or(Value::Null))
-            .collect();
-        let tasks: Vec<Value> = rows.into_iter().map(|(task, _)| js_row(task)).collect();
+        let projects: Vec<Value> = rows.iter().map(MyTask::project).collect();
+        let tasks = rows
+            .into_iter()
+            .map(|row| row_json(row.task))
+            .collect::<Result<Vec<Value>, _>>()?;
         let enriched = enrich(state, db, caller.request_master(), tasks).await?;
         let mut data: Vec<Value> = enriched
             .into_iter()

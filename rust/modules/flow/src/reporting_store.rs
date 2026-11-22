@@ -13,8 +13,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::raid::{RaidKind, raid_code};
 use weldsuite_flow_domain::risk::risk_band;
@@ -25,6 +31,14 @@ use weldsuite_flow_domain::status_report::{
     recipient_targets, risk_area, schedule_area, scope_area, start_of_day, window_days,
 };
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    milestones, people, project_baselines, project_benefit_measurements, project_benefits,
+    project_change_requests, project_decisions, project_deliverables, project_finance_snapshots,
+    project_raid_assessments, project_raid_items, project_stakeholders, project_status_reports,
+    projects, tasks, workspace_members,
+};
+
+use crate::raid_store::model_json;
 
 /// The default risk appetite (`DEFAULT_RISK_APPETITE`).
 pub(crate) const DEFAULT_RISK_APPETITE: i64 = 9;
@@ -33,11 +47,27 @@ fn iso(ms: i64) -> String {
     iso_from_millis(ms).unwrap_or_default()
 }
 
-/// `epoch milliseconds` of a timestamp column.
-macro_rules! ms {
-    ($c:literal) => {
-        concat!("(extract(epoch from ", $c, ") * 1000)::int8")
+/// `(extract(epoch from col) * 1000)::int8`: epoch milliseconds, the
+/// microseconds rounded half away from zero as Postgres casts the numeric.
+pub(crate) fn epoch_ms(at: OffsetDateTime) -> i64 {
+    let micros = at.unix_timestamp_nanos() / 1_000;
+    let millis = if micros >= 0 {
+        (micros + 500) / 1_000
+    } else {
+        (micros - 500) / 1_000
     };
+    i64::try_from(millis).unwrap_or(0)
+}
+
+/// [`epoch_ms`] of a `timestamp` column (UTC).
+pub(crate) fn epoch_ms_utc(at: PrimitiveDateTime) -> i64 {
+    epoch_ms(at.assume_utc())
+}
+
+/// `new Date(ms)`.
+pub(crate) fn instant(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 /// The project columns a report reads.
@@ -58,7 +88,7 @@ type ProjectRow = (
     String,
     String,
     Option<String>,
-    Option<i64>,
+    Option<PrimitiveDateTime>,
     Option<String>,
     Option<Value>,
 );
@@ -69,27 +99,44 @@ fn project_of(row: ProjectRow) -> ReportProject {
         name: row.1,
         status: row.2,
         project_manager_id: row.3,
-        end_date: row.4,
+        end_date: row.4.map(epoch_ms_utc),
         budget_currency: row.5,
         settings: row.6.unwrap_or(Value::Null),
     }
 }
 
-pub(crate) const PROJECT_COLUMNS: &str = concat!(
-    "id, name, status, project_manager_id, ",
-    ms!("end_date"),
-    ", budget_currency, settings"
-);
+/// The project columns a report reads.
+fn report_projects() -> sea_orm::Select<projects::Entity> {
+    projects::Entity::find().select_only().columns([
+        projects::Column::Id,
+        projects::Column::Name,
+        projects::Column::Status,
+        projects::Column::ProjectManagerId,
+        projects::Column::EndDate,
+        projects::Column::BudgetCurrency,
+        projects::Column::Settings,
+    ])
+}
 
 /// The projects of a tenant that have a status report schedule and are still running.
-pub(crate) async fn scheduled_projects(db: &PgPool) -> Result<Vec<ReportProject>, sqlx::Error> {
-    let rows: Vec<ProjectRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {PROJECT_COLUMNS} from projects where deleted_at is null
-           and jsonb_typeof(settings -> 'statusReport') = 'object'
-           and lower(status) not in ('closed', 'completed', 'archived', 'cancelled')"
-    )))
-    .fetch_all(db)
-    .await?;
+pub(crate) async fn scheduled_projects(db: &PgPool) -> Result<Vec<ReportProject>, DbErr> {
+    // `jsonb_typeof(settings -> 'statusReport') = 'object'`.
+    let schedule_kind = Func::cust("jsonb_typeof").arg(
+        sea_orm::sea_query::extension::postgres::PgExpr::get_json_field(
+            Expr::col(projects::Column::Settings),
+            "statusReport",
+        ),
+    );
+    let rows: Vec<ProjectRow> = report_projects()
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(Expr::from(schedule_kind), "object"))
+        .filter(sea_orm::ExprTrait::is_not_in(
+            Expr::from(Func::lower(Expr::col(projects::Column::Status))),
+            ["closed", "completed", "archived", "cancelled"],
+        ))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(project_of).collect())
 }
 
@@ -97,13 +144,13 @@ pub(crate) async fn scheduled_projects(db: &PgPool) -> Result<Vec<ReportProject>
 pub(crate) async fn load_report_project(
     db: &PgPool,
     project_id: &str,
-) -> Result<Option<ReportProject>, sqlx::Error> {
-    let row: Option<ProjectRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {PROJECT_COLUMNS} from projects where id = $1 and deleted_at is null limit 1"
-    )))
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<ReportProject>, DbErr> {
+    let row: Option<ProjectRow> = report_projects()
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(project_of))
 }
 
@@ -163,32 +210,36 @@ pub(crate) fn risk_appetite_of(project: &ReportProject) -> i64 {
 // ── Reports ─────────────────────────────────────────────────────────────────
 
 /// `findReport(db, id)`: a live report.
-pub(crate) async fn find_report(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from project_status_reports r where r.id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn find_report(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    project_status_reports::Entity::find()
+        .filter(project_status_reports::Column::Id.eq(id))
+        .filter(project_status_reports::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(model_json)
+        .transpose()
 }
 
 /// `supersededByMap(db, ids)`.
 pub(crate) async fn superseded_by_map(
     db: &PgPool,
     ids: &[String],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
+    use project_status_reports::Column;
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, supersedes_id from project_status_reports
-         where supersedes_id = any($1) and status = 'published' and deleted_at is null
-         order by published_at asc, id asc",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>)> = project_status_reports::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::SupersedesId])
+        .filter(Column::SupersedesId.is_in(ids))
+        .filter(Column::Status.eq("published"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::PublishedAt)
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(id, supersedes)| supersedes.map(|s| (s, id)))
@@ -200,17 +251,19 @@ pub(crate) async fn reports_of_period(
     db: &PgPool,
     project_id: &str,
     period: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from project_status_reports r
-         where r.project_id = $1 and r.period = $2 and r.deleted_at is null
-         order by r.created_at desc, r.id desc",
-    )
-    .bind(project_id)
-    .bind(period)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    use project_status_reports::Column;
+    project_status_reports::Entity::find()
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::Period.eq(period))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(model_json)
+        .collect()
 }
 
 /// `periodHandled(db, projectId, period)`: any row, discarded ones too.
@@ -218,14 +271,16 @@ pub(crate) async fn period_handled(
     db: &PgPool,
     project_id: &str,
     period: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from project_status_reports where project_id = $1 and period = $2 limit 1",
-    )
-    .bind(project_id)
-    .bind(period)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    use project_status_reports::Column;
+    let found: Option<String> = project_status_reports::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::Period.eq(period))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -272,6 +327,11 @@ fn sort_items(items: &mut [Value], newest_first: bool) {
     });
 }
 
+/// `col::text`: a `numeric` exactly as Postgres prints it.
+fn as_text<C: ColumnTrait>(column: C) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::col(column), "text")
+}
+
 type MilestoneRow = (String, String, Option<i64>, Option<i64>, String);
 type DeliverableRow = (String, i32, String, Option<i64>, Option<i64>, String);
 
@@ -282,58 +342,141 @@ pub(crate) async fn compute_report(
     project: &ReportProject,
     now: i64,
     window: i64,
-) -> Result<ComputedReport, sqlx::Error> {
+) -> Result<ComputedReport, DbErr> {
     let pid = project.id.as_str();
-    let since_done = iso(add_days(start_of_day(now), -window));
-    let day_start = iso(start_of_day(now));
-    let until_next = iso(add_days(start_of_day(now), window + 1));
+    let db = &orm(db);
+    let since_done = utc_timestamp(instant(add_days(start_of_day(now), -window)));
+    let day_start = utc_timestamp(instant(start_of_day(now)));
+    let until_next = utc_timestamp(instant(add_days(start_of_day(now), window + 1)));
 
-    let baseline: Option<(i32, Value)> = sqlx::query_as(
-        "select version, snapshot from project_baselines where project_id = $1 order by version desc limit 1",
-    )
-    .bind(pid)
-    .fetch_optional(db)
-    .await?;
-    let milestones: Vec<MilestoneRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select id, name, {}, {}, status from milestones where project_id = $1 and deleted_at is null",
-        ms!("due_date"),
-        ms!("completed_at")
-    )))
-    .bind(pid)
-    .fetch_all(db)
-    .await?;
-    let deliverables: Vec<DeliverableRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select id, number, title, {}, {}, status from project_deliverables
-         where project_id = $1 and deleted_at is null",
-        ms!("planned_end"),
-        ms!("accepted_at")
-    )))
-    .bind(pid)
-    .fetch_all(db)
-    .await?;
-    let finance: Option<(String, Option<String>, String, String, String, Option<String>)> = sqlx::query_as(
-        "select week, budget::text, planned_value::text, earned_value::text, actual_cost::text, forecast::text
-         from project_finance_snapshots where project_id = $1 order by week desc limit 1",
-    )
-    .bind(pid)
-    .fetch_optional(db)
-    .await?;
-    let pending: Vec<(String, i32, String, String, Option<String>, Option<i32>)> = sqlx::query_as(
-        "select id, number, title, status, cost_delta::text, schedule_delta_days
-         from project_change_requests
-         where project_id = $1 and deleted_at is null and status = any(array['assessing','awaiting_approval'])
-         order by number asc",
-    )
-    .bind(pid)
-    .fetch_all(db)
-    .await?;
-    let risks: Vec<(String, i32, String, i32, Option<String>)> = sqlx::query_as(
-        "select id, number, title, score, owner_id from project_raid_items
-         where project_id = $1 and kind = 'risk' and deleted_at is null and closed_at is null and score is not null",
-    )
-    .bind(pid)
-    .fetch_all(db)
-    .await?;
+    let baseline: Option<(i32, Value)> = project_baselines::Entity::find()
+        .select_only()
+        .columns([
+            project_baselines::Column::Version,
+            project_baselines::Column::Snapshot,
+        ])
+        .filter(project_baselines::Column::ProjectId.eq(pid))
+        .order_by_desc(project_baselines::Column::Version)
+        .into_tuple()
+        .one(db)
+        .await?;
+    let milestones: Vec<MilestoneRow> = {
+        use milestones::Column;
+        let rows: Vec<(String, String, PrimitiveDateTime, Option<PrimitiveDateTime>, String)> =
+            milestones::Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::Name,
+                    Column::DueDate,
+                    Column::CompletedAt,
+                    Column::Status,
+                ])
+                .filter(Column::ProjectId.eq(pid))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(db)
+                .await?;
+        rows.into_iter()
+            .map(|(id, name, due, completed, status)| {
+                (
+                    id,
+                    name,
+                    Some(epoch_ms_utc(due)),
+                    completed.map(epoch_ms_utc),
+                    status,
+                )
+            })
+            .collect()
+    };
+    let deliverables: Vec<DeliverableRow> = {
+        use project_deliverables::Column;
+        let rows: Vec<(
+            String,
+            i32,
+            String,
+            Option<OffsetDateTime>,
+            Option<OffsetDateTime>,
+            String,
+        )> = project_deliverables::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Number,
+                Column::Title,
+                Column::PlannedEnd,
+                Column::AcceptedAt,
+                Column::Status,
+            ])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
+        rows.into_iter()
+            .map(|(id, number, title, planned_end, accepted_at, status)| {
+                (
+                    id,
+                    number,
+                    title,
+                    planned_end.map(epoch_ms),
+                    accepted_at.map(epoch_ms),
+                    status,
+                )
+            })
+            .collect()
+    };
+    let finance: Option<(String, Option<String>, String, String, String, Option<String>)> = {
+        use project_finance_snapshots::Column;
+        project_finance_snapshots::Entity::find()
+            .select_only()
+            .column(Column::Week)
+            .column_as(as_text(Column::Budget), "budget")
+            .column_as(as_text(Column::PlannedValue), "planned_value")
+            .column_as(as_text(Column::EarnedValue), "earned_value")
+            .column_as(as_text(Column::ActualCost), "actual_cost")
+            .column_as(as_text(Column::Forecast), "forecast")
+            .filter(Column::ProjectId.eq(pid))
+            .order_by_desc(Column::Week)
+            .into_tuple()
+            .one(db)
+            .await?
+    };
+    let pending: Vec<(String, i32, String, String, Option<String>, Option<i32>)> = {
+        use project_change_requests::Column;
+        project_change_requests::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Number, Column::Title, Column::Status])
+            .column_as(as_text(Column::CostDelta), "cost_delta")
+            .column(Column::ScheduleDeltaDays)
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Status.is_in(["assessing", "awaiting_approval"]))
+            .order_by_asc(Column::Number)
+            .into_tuple()
+            .all(db)
+            .await?
+    };
+    let risks: Vec<(String, i32, String, i32, Option<String>)> = {
+        use project_raid_items::Column;
+        project_raid_items::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Number,
+                Column::Title,
+                Column::Score,
+                Column::OwnerId,
+            ])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::Kind.eq("risk"))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::ClosedAt.is_null())
+            .filter(Column::Score.is_not_null())
+            .into_tuple()
+            .all(db)
+            .await?
+    };
     let benefit_rows: Vec<(
         String,
         i32,
@@ -342,49 +485,131 @@ pub(crate) async fn compute_report(
         Option<String>,
         Option<i64>,
         i64,
-    )> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select id, number, status, baseline_value::text, target_value::text, {}, {}
-         from project_benefits where project_id = $1 and deleted_at is null and status <> 'closed'
-         order by number asc",
-        ms!("realise_by"),
-        ms!("created_at")
-    )))
-    .bind(pid)
-    .fetch_all(db)
-    .await?;
-    let decisions: Vec<(String, i32, String, Option<String>, Option<i64>)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select id, number, title, decider_id, {} from project_decisions
-         where project_id = $1 and deleted_at is null and status = 'proposed'
-         order by decision_due_at asc nulls last, number asc",
-            ms!("decision_due_at")
-        )))
-        .bind(pid)
-        .fetch_all(db)
-        .await?;
-    let done_tasks: Vec<(String, Option<i32>, String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select id, number, title, {} from tasks
-         where project_id = $1 and deleted_at is null and status = 'done'
-           and (completed_date >= $2::timestamp or (completed_date is null and updated_at >= $2::timestamp))",
-        ms!("coalesce(completed_date, updated_at)")
-    )))
-    .bind(pid)
-    .bind(&since_done)
-    .fetch_all(db)
-    .await?;
-    let next_tasks: Vec<(String, Option<i32>, String, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select id, number, title, {} from tasks
-         where project_id = $1 and deleted_at is null and due_date is not null
-           and due_date >= $2::timestamp and due_date <= $3::timestamp
-           and status <> 'done' and status <> 'cancelled'",
-            ms!("due_date")
-        )))
-        .bind(pid)
-        .bind(&day_start)
-        .bind(&until_next)
-        .fetch_all(db)
-        .await?;
+    )> = {
+        use project_benefits::Column;
+        let rows: Vec<(
+            String,
+            i32,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<OffsetDateTime>,
+            OffsetDateTime,
+        )> = project_benefits::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Number, Column::Status])
+            .column_as(as_text(Column::BaselineValue), "baseline_value")
+            .column_as(as_text(Column::TargetValue), "target_value")
+            .columns([Column::RealiseBy, Column::CreatedAt])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Status.ne("closed"))
+            .order_by_asc(Column::Number)
+            .into_tuple()
+            .all(db)
+            .await?;
+        rows.into_iter()
+            .map(|(id, number, status, baseline, target, realise_by, created_at)| {
+                (
+                    id,
+                    number,
+                    status,
+                    baseline,
+                    target,
+                    realise_by.map(epoch_ms),
+                    epoch_ms(created_at),
+                )
+            })
+            .collect()
+    };
+    let decisions: Vec<(String, i32, String, Option<String>, Option<i64>)> = {
+        use project_decisions::Column;
+        let rows: Vec<(String, i32, String, Option<String>, Option<OffsetDateTime>)> =
+            project_decisions::Entity::find()
+                .select_only()
+                .columns([
+                    Column::Id,
+                    Column::Number,
+                    Column::Title,
+                    Column::DeciderId,
+                    Column::DecisionDueAt,
+                ])
+                .filter(Column::ProjectId.eq(pid))
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Status.eq("proposed"))
+                .order_by_with_nulls(
+                    Column::DecisionDueAt,
+                    sea_orm::Order::Asc,
+                    sea_orm::sea_query::NullOrdering::Last,
+                )
+                .order_by_asc(Column::Number)
+                .into_tuple()
+                .all(db)
+                .await?;
+        rows.into_iter()
+            .map(|(id, number, title, decider, due)| {
+                (id, number, title, decider, due.map(epoch_ms))
+            })
+            .collect()
+    };
+    let done_tasks: Vec<(String, Option<i32>, String, i64)> = {
+        use tasks::Column;
+        let rows: Vec<(
+            String,
+            Option<i32>,
+            String,
+            Option<PrimitiveDateTime>,
+            PrimitiveDateTime,
+        )> = tasks::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Number,
+                Column::Title,
+                Column::CompletedDate,
+                Column::UpdatedAt,
+            ])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Status.eq("done"))
+            .filter(
+                Condition::any()
+                    .add(Column::CompletedDate.gte(since_done))
+                    .add(
+                        Condition::all()
+                            .add(Column::CompletedDate.is_null())
+                            .add(Column::UpdatedAt.gte(since_done)),
+                    ),
+            )
+            .into_tuple()
+            .all(db)
+            .await?;
+        // `coalesce(completed_date, updated_at)`.
+        rows.into_iter()
+            .map(|(id, number, title, completed, updated)| {
+                (id, number, title, epoch_ms_utc(completed.unwrap_or(updated)))
+            })
+            .collect()
+    };
+    let next_tasks: Vec<(String, Option<i32>, String, i64)> = {
+        use tasks::Column;
+        let rows: Vec<(String, Option<i32>, String, PrimitiveDateTime)> = tasks::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Number, Column::Title, Column::DueDate])
+            .filter(Column::ProjectId.eq(pid))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::DueDate.is_not_null())
+            .filter(Column::DueDate.gte(day_start))
+            .filter(Column::DueDate.lte(until_next))
+            .filter(Column::Status.ne("done"))
+            .filter(Column::Status.ne("cancelled"))
+            .into_tuple()
+            .all(db)
+            .await?;
+        rows.into_iter()
+            .map(|(id, number, title, due)| (id, number, title, epoch_ms_utc(due)))
+            .collect()
+    };
 
     // Schedule.
     let frozen = baseline.as_ref().map(|b| &b.1);
@@ -510,13 +735,16 @@ pub(crate) async fn compute_report(
     let measurements: Vec<(String, String)> = if benefit_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select benefit_id, value::text from project_benefit_measurements
-             where benefit_id = any($1) order by period desc",
-        )
-        .bind(&benefit_ids)
-        .fetch_all(db)
-        .await?
+        use project_benefit_measurements::Column;
+        project_benefit_measurements::Entity::find()
+            .select_only()
+            .column(Column::BenefitId)
+            .column_as(as_text(Column::Value), "value")
+            .filter(Column::BenefitId.is_in(&benefit_ids))
+            .order_by_desc(Column::Period)
+            .into_tuple()
+            .all(db)
+            .await?
     };
     let mut latest: HashMap<&str, &str> = HashMap::new();
     for (id, value) in &measurements {
@@ -549,13 +777,16 @@ pub(crate) async fn compute_report(
     let mut previous: HashMap<String, i64> = HashMap::new();
     if !top.is_empty() {
         let ids: Vec<String> = top.iter().map(|r| r.0.clone()).collect();
-        let assessments: Vec<(String, i16, i16)> = sqlx::query_as(
-            "select item_id, probability, impact from project_raid_assessments
-             where item_id = any($1) order by assessed_at desc, id desc",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?;
+        use project_raid_assessments::Column;
+        let assessments: Vec<(String, i16, i16)> = project_raid_assessments::Entity::find()
+            .select_only()
+            .columns([Column::ItemId, Column::Probability, Column::Impact])
+            .filter(Column::ItemId.is_in(&ids))
+            .order_by_desc(Column::AssessedAt)
+            .order_by_desc(Column::Id)
+            .into_tuple()
+            .all(db)
+            .await?;
         let mut count: HashMap<&str, i32> = HashMap::new();
         for (item, p, i) in &assessments {
             let n = count.entry(item.as_str()).or_insert(0);

@@ -14,7 +14,9 @@
 use std::sync::Arc;
 
 use sea_orm::sea_query::{Expr, Func, NullOrdering};
-use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, Order, QueryFilter, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::due_index::{SweepResult, run_sweep};
@@ -341,10 +343,10 @@ async fn sweep_workspace(
     let earliest: Option<Option<PrimitiveDateTime>> = workflow_schedules::Entity::find()
         .select_only()
         .column_as(
-            Func::min(Func::coalesce([
+            Expr::from(Func::min(Func::coalesce([
                 Expr::col(Column::NextRunAt),
                 Expr::val(stamp(now_ms)?),
-            ])),
+            ]))),
             "earliest",
         )
         .filter(Column::IsEnabled.eq(true))

@@ -6,6 +6,9 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select};
 use serde_json::{Value, json};
 use sqlx::postgres::PgArguments;
 use sqlx::query::Query;
@@ -14,12 +17,17 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_PHASE_CREATED, PROJECT_PIPELINE_STAGE_CREATED, PROJECT_RAID_ITEM_CREATED,
     PROJECT_TASK_CREATED, TASK_DEPENDENCY_CREATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::blueprint::{Json, summarize_stored_blueprint};
 use weldsuite_flow_domain::project_templates::{BlueprintSource, InstantiatePlan, read_blueprint};
 use weldsuite_flow_domain::raid::raid_event_data;
+use weldsuite_schema::tenant::{
+    milestones, project_deliverables, project_members, project_phases, project_pipeline_stages,
+    project_raid_items, project_templates, projects, task_dependencies, tasks,
+};
 
+use crate::tasks::row_json;
 use crate::{Caller, FlowState};
 
 /// A live template, by id (the caller checks who may see it).
@@ -27,16 +35,12 @@ pub(crate) async fn find_template(
     db: &PgPool,
     id: &str,
     live_only: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from project_templates t
-         where t.id = $1 and ($2::bool is not true or t.deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live_only)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    let mut select = project_templates::Entity::find_by_id(id.to_owned());
+    if live_only {
+        select = select.filter(project_templates::Column::DeletedAt.is_null());
+    }
+    select.one(&orm(db)).await?.map(row_json).transpose()
 }
 
 /// `findVisibleTemplate`: a live template this person may see: a shared one, or their own.
@@ -44,7 +48,7 @@ pub(crate) async fn find_visible_template(
     db: &PgPool,
     id: &str,
     user_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     Ok(find_template(db, id, true)
         .await?
         .filter(|row| row.flag("shared") || row.text("createdBy") == Some(user_id)))
@@ -54,19 +58,26 @@ pub(crate) async fn find_visible_template(
 pub(crate) async fn usage_counts(
     db: &PgPool,
     template_ids: &[String],
-) -> Result<HashMap<String, i64>, sqlx::Error> {
+) -> Result<HashMap<String, i64>, DbErr> {
     let mut usage: HashMap<String, i64> = template_ids.iter().map(|id| (id.clone(), 0)).collect();
     if template_ids.is_empty() {
         return Ok(usage);
     }
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "select settings->>'templateId', count(*)::int8 from projects
-         where deleted_at is null and settings->>'templateId' = any($1)
-         group by settings->>'templateId'",
-    )
-    .bind(template_ids)
-    .fetch_all(db)
-    .await?;
+    // `settings->>'templateId'`.
+    let template_id = || PgExpr::cast_json_field(Expr::col(projects::Column::Settings), "templateId");
+    let rows: Vec<(String, i64)> = projects::Entity::find()
+        .select_only()
+        .column_as(template_id(), "template_id")
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::is_in(
+            template_id(),
+            template_ids.iter().map(String::as_str),
+        ))
+        .group_by(template_id())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     usage.extend(rows);
     Ok(usage)
 }
@@ -106,7 +117,7 @@ pub(crate) fn template_event_data(row: &Value) -> Value {
 }
 
 /// The template with its blueprint and use count, as the detail routes answer it.
-pub(crate) async fn detail_of(db: &PgPool, row: &Value) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn detail_of(db: &PgPool, row: &Value) -> Result<Option<Value>, DbErr> {
     let id = row.text("id").unwrap_or_default().to_owned();
     let usage = usage_counts(db, std::slice::from_ref(&id)).await?;
     Ok(present_template_detail(
@@ -117,85 +128,106 @@ pub(crate) async fn detail_of(db: &PgPool, row: &Value) -> Result<Option<Value>,
 
 // ── Save as template ────────────────────────────────────────────────────────
 
-async fn rows_of(
-    db: &PgPool,
-    sql: &'static str,
-    project_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql)
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// The rows of `select`, as Drizzle returns them.
+async fn rows_of<E>(db: &PgPool, select: Select<E>) -> Result<Vec<Value>, DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize,
+{
+    select
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 /// `loadBlueprintSource`: every live row a blueprint of the project is built from.
 pub(crate) async fn load_blueprint_source(
     db: &PgPool,
     project: &Value,
-) -> Result<BlueprintSource, sqlx::Error> {
+) -> Result<BlueprintSource, DbErr> {
     let id = project.text("id").unwrap_or_default();
     Ok(BlueprintSource {
         project: project.clone(),
-        members: rows_of(
-            db,
-            "select to_jsonb(m) from project_members m where m.project_id = $1
-             and m.is_active = true and m.deleted_at is null",
-            id,
-        )
-        .await?,
-        stages: rows_of(
-            db,
-            "select to_jsonb(s) from project_pipeline_stages s where s.project_id = $1
-             and s.deleted_at is null order by s.position asc",
-            id,
-        )
-        .await?,
-        phases: rows_of(
-            db,
-            "select to_jsonb(p) from project_phases p where p.project_id = $1 and p.deleted_at is null",
-            id,
-        )
-        .await?,
-        milestones: rows_of(
-            db,
-            "select to_jsonb(m) from milestones m where m.project_id = $1 and m.deleted_at is null",
-            id,
-        )
-        .await?,
-        deliverables: rows_of(
-            db,
-            "select to_jsonb(d) from project_deliverables d where d.project_id = $1
-             and d.deleted_at is null",
-            id,
-        )
-        .await?,
-        tasks: rows_of(
-            db,
-            concat!(
-                "select ",
-                task_json!("t"),
-                " from tasks t where t.project_id = $1 and t.deleted_at is null"
-            ),
-            id,
-        )
-        .await?,
+        members: {
+            use project_members::Column;
+            rows_of(
+                db,
+                project_members::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::IsActive.eq(true))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
+        stages: {
+            use project_pipeline_stages::Column;
+            rows_of(
+                db,
+                project_pipeline_stages::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null())
+                    .order_by_asc(Column::Position),
+            )
+            .await?
+        },
+        phases: {
+            use project_phases::Column;
+            rows_of(
+                db,
+                project_phases::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
+        milestones: {
+            use milestones::Column;
+            rows_of(
+                db,
+                milestones::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
+        deliverables: {
+            use project_deliverables::Column;
+            rows_of(
+                db,
+                project_deliverables::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
+        tasks: {
+            use tasks::Column;
+            rows_of(
+                db,
+                tasks::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
         dependencies: rows_of(
             db,
-            "select to_jsonb(d) from task_dependencies d where d.project_id = $1",
-            id,
+            task_dependencies::Entity::find()
+                .filter(task_dependencies::Column::ProjectId.eq(id)),
         )
         .await?,
-        raid_items: rows_of(
-            db,
-            concat!(
-                "select ",
-                raid_json!("r"),
-                " from project_raid_items r where r.project_id = $1 and r.deleted_at is null"
-            ),
-            id,
-        )
-        .await?,
+        raid_items: {
+            use project_raid_items::Column;
+            rows_of(
+                db,
+                project_raid_items::Entity::find()
+                    .filter(Column::ProjectId.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
+            )
+            .await?
+        },
     })
 }
 
@@ -309,6 +341,11 @@ const ASSESSMENT_SQL: &str = populate!(
 /// need them (`planStatements`): the project first, tasks before their
 /// dependencies, register items before their assessments. Run them with
 /// `atomically`: the project is there whole or not at all.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "bulk inserts: each table's planned rows in one `insert … select … from \
+              jsonb_populate_recordset`, Postgres converting the values to the columns' types"
+)]
 pub(crate) fn plan_statements(
     plan: &InstantiatePlan,
 ) -> Vec<Query<'static, sqlx::Postgres, PgArguments>> {
@@ -340,7 +377,7 @@ pub(crate) async fn publish_planned_events(
     state: &FlowState,
     caller: &Caller,
     plan: &InstantiatePlan,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let project_id = plan.project_id.as_str();
     if let Some(fields) = plan.project.as_object() {
         caller.publish(
@@ -402,17 +439,14 @@ pub(crate) async fn publish_planned_events(
     });
     if !plan.raid_items.is_empty() {
         // The register events carry whole rows (score, band), so read them back as the database stored them.
-        let stored: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            raid_json!("r"),
-            " from project_raid_items r where r.project_id = $1"
-        ))
-        .bind(project_id)
-        .fetch_all(&caller.db)
+        let stored = rows_of(
+            &caller.db,
+            project_raid_items::Entity::find()
+                .filter(project_raid_items::Column::ProjectId.eq(project_id)),
+        )
         .await?;
         let by_id: HashMap<String, Value> = stored
             .into_iter()
-            .map(js_row)
             .map(|row| (row.text("id").unwrap_or_default().to_owned(), row))
             .collect();
         for planned in &plan.raid_items {

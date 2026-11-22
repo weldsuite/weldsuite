@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED, PROJECT_PIPELINE_STAGE_UPDATED,
 };
-use sea_orm::sea_query::{Asterisk, CaseStatement, Expr, Func, OnConflict};
+use sea_orm::sea_query::{CaseStatement, Expr, Func, OnConflict};
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect,
@@ -29,7 +29,7 @@ use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::tasks::{json_text, row_json};
+use crate::tasks::{count_int, json_text, plus, row_json};
 use crate::{Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, outside, reply, validate};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -251,15 +251,11 @@ async fn task_counts(
     db: &PgPool,
     project_id: &str,
 ) -> Result<Vec<(Option<String>, Option<String>, i32)>, DbErr> {
-    use sea_orm::ExprTrait as _;
     tasks::Entity::find()
         .select_only()
         .column(Task::StageId)
         .column(Task::Status)
-        .column_as(
-            Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"),
-            "count",
-        )
+        .column_as(count_int(), "count")
         .filter(Task::ProjectId.eq(project_id))
         .filter(Task::DeletedAt.is_null())
         .group_by(Task::StageId)
@@ -432,9 +428,8 @@ async fn create_stage(state: &FlowState, caller: &Caller, input: &NewStage, id: 
             .await?;
         let (position, shift_from) = position_for_new_stage(&existing, &system_status);
         if let Some(from) = shift_from {
-            use sea_orm::ExprTrait as _;
             stages::Entity::update_many()
-                .col_expr(Stage::Position, Expr::col(Stage::Position).add(1))
+                .col_expr(Stage::Position, plus(Stage::Position, 1))
                 .col_expr(Stage::UpdatedAt, Expr::value(at))
                 .filter(Stage::ProjectId.eq(&input.project_id))
                 .filter(Stage::DeletedAt.is_null())
@@ -522,7 +517,7 @@ async fn reorder(
                 );
             }
             stages::Entity::update_many()
-                .col_expr(Stage::Position, Expr::from(position))
+                .col_expr(Stage::Position, Expr::Case(Box::new(position)))
                 .col_expr(Stage::UpdatedAt, Expr::value(utc_now()))
                 .filter(Stage::Id.is_in(ids.iter().map(String::as_str)))
                 .filter(Stage::DeletedAt.is_null())

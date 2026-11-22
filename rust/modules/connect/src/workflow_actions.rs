@@ -26,6 +26,9 @@ use axum::response::{IntoResponse, Response};
 use http::header::{AUTHORIZATION, CONTENT_TYPE};
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, RuntimeErr};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
@@ -35,9 +38,11 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_chat_domain::Realtime;
 use weldsuite_chat_domain::text::{js_len, js_prefix, mention_bodies};
 use weldsuite_crm_domain::DomainError;
-use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries, js_row};
-use weldsuite_events::{
-    EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType, iso_timestamp,
+use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries, orm, utc_now};
+use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
+use weldsuite_schema::tenant::{
+    chat_channel_members, chat_channels, chat_messages, companies, people, tasks,
+    workspace_members,
 };
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, json_body};
 use weldsuite_kit::{RequestEnv, generate_id};
@@ -155,10 +160,28 @@ enum Failure {
     Internal(String),
 }
 
+/// The crates not converted to the ORM yet.
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
         Self::Internal(error.to_string())
     }
+}
+
+/// The 500's message is the driver's, as it was before the ORM.
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::Internal(match &error {
+            DbErr::Query(RuntimeErr::SqlxError(sqlx)) | DbErr::Exec(RuntimeErr::SqlxError(sqlx)) => {
+                sqlx.to_string()
+            }
+            other => other.to_string(),
+        })
+    }
+}
+
+/// A row as Drizzle returns it: the entity's JSON.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, Failure> {
+    serde_json::to_value(model).map_err(|error| Failure::Internal(error.to_string()))
 }
 
 impl From<DomainError> for Failure {
@@ -815,18 +838,6 @@ fn person_fields(contact: &Map<String, Value>) -> Map<String, Value> {
     fields
 }
 
-async fn row_of(
-    db: &PgPool,
-    table_query: &'static str,
-    id: &str,
-) -> Result<Option<Value>, Failure> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(table_query))
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    Ok(row.map(js_row))
-}
-
 async fn run(action: Action, parsed: Parsed, performer: &Performer<'_>) -> Answer {
     let result = match parsed {
         Parsed::Customer {
@@ -924,28 +935,31 @@ async fn create_customer(
     // `findCompanyByEmail`.
     let existing = match email.filter(|_| skip_if_email_exists) {
         Some(email) => {
-            sqlx::query_scalar::<_, Value>(
-                "select to_jsonb(c) from companies c
-                 where c.deleted_at is null and lower(c.email) = $1 limit 1",
-            )
-            .bind(email.to_lowercase())
-            .fetch_optional(db)
-            .await?
+            companies::Entity::find()
+                .filter(companies::Column::DeletedAt.is_null())
+                .filter(sea_orm::ExprTrait::eq(
+                    Expr::from(Func::lower(Expr::col(companies::Column::Email))),
+                    email.to_lowercase(),
+                ))
+                .one(&orm(db))
+                .await?
         }
         None => None,
     };
     let (created, company) = if let Some(row) = existing {
-        (false, js_row(row))
+        (false, js(row)?)
     } else {
         // `isValidWorkspaceMember`: a schedule run's `system`, or someone
         // who left, leaves the owner unset.
         let owner_id = if !acting.is_empty() && acting != "system" {
-            let member: Option<String> = sqlx::query_scalar(
-                "select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-            )
-            .bind(acting)
-            .fetch_optional(db)
-            .await?;
+            let member: Option<String> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::UserId)
+                .filter(workspace_members::Column::UserId.eq(acting))
+                .filter(workspace_members::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             member.map(|_| acting.to_owned())
         } else {
             None
@@ -1070,14 +1084,11 @@ async fn create_contact(
                 existing_person_id,
                 message,
             }) => {
-                match row_of(
-                    db,
-                    "select to_jsonb(p) from people p where p.id = $1 limit 1",
-                    &existing_person_id,
-                )
-                .await?
+                match people::Entity::find_by_id(existing_person_id)
+                    .one(&orm(db))
+                    .await?
                 {
-                    Some(existing) => existing,
+                    Some(existing) => js(existing)?,
                     None => return Err(Failure::Internal(message)),
                 }
             }

@@ -23,11 +23,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_TASK_COMPLETED, PROJECT_TASK_CREATED, PROJECT_TASK_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_now};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::recurrence::is_completion;
@@ -42,12 +44,13 @@ use weldsuite_flow_domain::task_relations::{
 use weldsuite_flow_domain::tasks::{CreateError, create_next_occurrence, create_task};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data};
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
 
 use crate::calendar::{REPLAN_KIND, TaskCalendar, TaskEvent};
 use crate::js::{Js, parse_body};
 use crate::task_changes::{Update, assignee_ids_involved, build_task_changes};
 use crate::task_enrich::{TASK_ENTITY, assignee_names, enrich};
-use crate::tasks::{PROJECT_WRITE_DENIED, guard_write, task_row};
+use crate::tasks::{PROJECT_WRITE_DENIED, Written, guard_write, task_row, written};
 use crate::{Caller, FlowState, Refusal, Reply, custom_values, now, reply, validate};
 
 /// `isTerminalStatus`.
@@ -485,11 +488,14 @@ impl Background {
 }
 
 /// `update(tasks).set({ calendarEventId })`.
-async fn link_event(db: &PgPool, task_id: &str, event_id: Option<&str>) -> Result<(), sqlx::Error> {
-    sqlx::query("update tasks set calendar_event_id = $2 where id = $1")
-        .bind(task_id)
-        .bind(event_id)
-        .execute(db)
+async fn link_event(db: &PgPool, task_id: &str, event_id: Option<&str>) -> Result<(), DbErr> {
+    tasks::Entity::update_many()
+        .col_expr(
+            Task::CalendarEventId,
+            Expr::value(event_id.map(str::to_owned)),
+        )
+        .filter(Task::Id.eq(task_id))
+        .exec(&orm(db))
         .await
         .map(|_| ())
 }
@@ -646,7 +652,7 @@ async fn write_task_change(
     id: &str,
     update: &Update,
     before: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let status = js_text(update, "status");
     if !is_completion(before, status) {
         write_columns(db, id, update, false).await?;
@@ -665,89 +671,70 @@ async fn write_task_change(
 
 /// The columns of `update` on the live task; `claim` writes only when the
 /// task is not done yet. Whether a row was written.
-async fn write_columns(
-    db: &PgPool,
-    id: &str,
-    update: &Update,
-    claim: bool,
-) -> Result<bool, sqlx::Error> {
-    write_columns_on(db, id, update, claim).await
+async fn write_columns(db: &PgPool, id: &str, update: &Update, claim: bool) -> Result<bool, DbErr> {
+    write_columns_on(&orm(db), id, update, claim).await
 }
 
-async fn write_columns_on<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+/// The task columns a body may write, by key.
+const WRITABLE: [(&str, Task, Written); 28] = [
+    ("title", Task::Title, Written::Text),
+    ("description", Task::Description, Written::Text),
+    ("status", Task::Status, Written::Text),
+    ("priority", Task::Priority, Written::Text),
+    ("type", Task::Type, Written::Text),
+    ("stageId", Task::StageId, Written::Text),
+    ("sprintId", Task::SprintId, Written::Text),
+    ("milestoneId", Task::MilestoneId, Written::Text),
+    ("deliverableId", Task::DeliverableId, Written::Text),
+    ("parentTaskId", Task::ParentTaskId, Written::Text),
+    ("assigneeId", Task::AssigneeId, Written::Text),
+    ("customerId", Task::CustomerId, Written::Text),
+    ("contactId", Task::ContactId, Written::Text),
+    ("personId", Task::PersonId, Written::Text),
+    ("startDate", Task::StartDate, Written::Cast("timestamp")),
+    ("dueDate", Task::DueDate, Written::Cast("timestamp")),
+    ("completedDate", Task::CompletedDate, Written::Cast("timestamp")),
+    ("estimatedHours", Task::EstimatedHours, Written::Cast("numeric")),
+    ("duration", Task::Duration, Written::Cast("int")),
+    ("storyPoints", Task::StoryPoints, Written::Cast("int")),
+    ("position", Task::Position, Written::Cast("int")),
+    ("boardPosition", Task::BoardPosition, Written::Cast("int")),
+    ("labels", Task::Labels, Written::Json),
+    ("tags", Task::Tags, Written::Json),
+    ("isBillable", Task::IsBillable, Written::Cast("boolean")),
+    ("repeat", Task::Repeat, Written::Json),
+    ("customFields", Task::CustomFields, Written::Json),
+    ("assigneeIds", Task::AssigneeIds, Written::Json),
+];
+
+/// [`write_columns`] on a connection (a transaction's).
+async fn write_columns_on<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     update: &Update,
     claim: bool,
-) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(concat!(
-        "update tasks set ",
-        set_text!("title", "title"),
-        ", ",
-        set_text!("description", "description"),
-        ", ",
-        set_text!("status", "status"),
-        ", ",
-        set_text!("priority", "priority"),
-        ", ",
-        set_text!("type", "type"),
-        ", ",
-        set_text!("stageId", "stage_id"),
-        ", ",
-        set_text!("sprintId", "sprint_id"),
-        ", ",
-        set_text!("milestoneId", "milestone_id"),
-        ", ",
-        set_text!("deliverableId", "deliverable_id"),
-        ", ",
-        set_text!("parentTaskId", "parent_task_id"),
-        ", ",
-        set_text!("assigneeId", "assignee_id"),
-        ", ",
-        set_text!("customerId", "customer_id"),
-        ", ",
-        set_text!("contactId", "contact_id"),
-        ", ",
-        set_text!("personId", "person_id"),
-        ", ",
-        set_ts!("startDate", "start_date"),
-        ", ",
-        set_ts!("dueDate", "due_date"),
-        ", ",
-        set_ts!("completedDate", "completed_date"),
-        ", ",
-        set_num!("estimatedHours", "estimated_hours"),
-        ", ",
-        set_int!("duration", "duration"),
-        ", ",
-        set_int!("storyPoints", "story_points"),
-        ", ",
-        set_int!("position", "position"),
-        ", ",
-        set_int!("boardPosition", "board_position"),
-        ", ",
-        set_json!("labels", "labels"),
-        ", ",
-        set_json!("tags", "tags"),
-        ", ",
-        set_bool!("isBillable", "is_billable"),
-        ", ",
-        set_json!("repeat", "repeat"),
-        ", ",
-        set_json!("customFields", "custom_fields"),
-        ", ",
-        set_json!("assigneeIds", "assignee_ids"),
-        ", updated_at = $2::timestamp",
-        " where id = $3 and deleted_at is null",
-        " and ($4::bool is not true or status is distinct from 'done')"
-    ))
-    .bind(update.to_value())
-    .bind(now())
-    .bind(id)
-    .bind(claim)
-    .execute(db)
-    .await?;
-    Ok(result.rows_affected() > 0)
+) -> Result<bool, DbErr> {
+    let body = update.to_value();
+    let mut statement = tasks::Entity::update_many();
+    // Only the keys the update holds (`case when $1 ? 'key'`).
+    for (key, column, kind) in WRITABLE {
+        if let Some(value) = body.get(key) {
+            statement = statement.col_expr(column, written(value, kind));
+        }
+    }
+    let mut statement = statement
+        .col_expr(Task::UpdatedAt, Expr::value(utc_now()))
+        .filter(Task::Id.eq(id))
+        .filter(Task::DeletedAt.is_null());
+    if claim {
+        // `status is distinct from 'done'`.
+        statement = statement.filter(
+            Condition::any()
+                .add(Task::Status.ne("done"))
+                .add(Task::Status.is_null()),
+        );
+    }
+    Ok(statement.exec(db).await?.rows_affected > 0)
 }
 
 // ── POST / and POST /projects/:projectId ────────────────────────────────────
@@ -871,7 +858,7 @@ async fn status_update(
     db: &PgPool,
     task: &Value,
     status: &str,
-) -> Result<(Update, Option<String>), sqlx::Error> {
+) -> Result<(Update, Option<String>), DbErr> {
     let mut update = Update::default();
     update.set("status", Js::String(status.to_owned()));
     if status == "done" {
@@ -883,7 +870,8 @@ async fn status_update(
         text_of(task, "stageId"),
         status,
     )
-    .await?;
+    .await
+    .map_err(orm_error)?;
     if let Some(stage) = &stage {
         update.set("stageId", Js::String(stage.clone()));
     }
@@ -1189,9 +1177,11 @@ async fn plan_links(
     caller: &Caller,
     id: &str,
     input: &LinkInput,
-) -> Result<Result<DependencyPlan, DependencyFailure>, sqlx::Error> {
+) -> Result<Result<DependencyPlan, DependencyFailure>, DbErr> {
     let access = LinkAccess::Projects(caller.accessible_project_ids().await?);
-    plan_dependency_update(&caller.db, id, input, &access).await
+    plan_dependency_update(&caller.db, id, input, &access)
+        .await
+        .map_err(orm_error)
 }
 
 pub(crate) async fn dependencies(
@@ -1331,7 +1321,7 @@ async fn relation_error(
     task: &Value,
     id: &str,
     body: &Update,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let current_project = text_of(task, "projectId");
     if let Some(sent) = body.get("projectId") {
         let sent = match sent {
@@ -1349,7 +1339,10 @@ async fn relation_error(
         parent_task_id: None,
         ..changed
     };
-    if let Some(message) = find_invalid_task_reference(db, current_project, &refs).await? {
+    if let Some(message) = find_invalid_task_reference(db, current_project, &refs)
+        .await
+        .map_err(orm_error)?
+    {
         return Ok(Some(message));
     }
     let parent = match body.get("parentTaskId") {
@@ -1365,6 +1358,7 @@ async fn relation_error(
         &parent,
     )
     .await
+    .map_err(orm_error)
 }
 
 pub(crate) async fn update(
@@ -1521,7 +1515,7 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
         let at = now();
         let mut tx = db.begin().await?;
         write_dependency_rows(&mut tx, id, plan, &at, &caller.user_id).await?;
-        write_columns_on(&mut *tx, id, &update, false).await?;
+        write_columns_on(&OrmConn::new(&mut tx), id, &update, false).await?;
         tx.commit().await?;
     } else {
         write_columns(db, id, &update, false).await?;

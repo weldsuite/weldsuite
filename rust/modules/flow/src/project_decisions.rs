@@ -29,7 +29,7 @@ use sea_orm::{
     ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_DELETED, PROJECT_DECISION_CREATED, PROJECT_DECISION_DECIDED,
@@ -57,7 +57,9 @@ use crate::governance_body::{
     RegisterQuery, decision_list_query, read_create_decision, read_decide, read_supersede,
     read_update_decision,
 };
-use crate::governance_store::{decisions_replaced_by, find_decision, find_decision_ref};
+use crate::governance_store::{
+    decisions_replaced_by, find_decision, find_decision_ref, insert_values, update_values,
+};
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, or_null, parse_limit, to_date};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
@@ -70,8 +72,7 @@ use weldsuite_flow_domain::approvals::{
 };
 
 const DECISION_LABEL: &str = "Decision";
-/// `project_decisions`, written from `{ column: value }` objects as Drizzle's
-/// `insert(...).values(...)` and `update(...).set(...)` wrote them.
+/// `project_decisions`, written from a body.
 const DECISIONS: JsonTable = JsonTable::of::<project_decisions::Entity>();
 pub(crate) const PROJECT_MANAGE_DENIED: &str = "You do not have manage access to this project";
 
@@ -414,10 +415,9 @@ async fn create_decision(
     let now = iso(crate::now_ms());
     let number = allocate_number(db, &decision_sequence(project_id)).await?;
     let decided = status == "decided";
-    // `{ column: value }`, each converted to its column's type by Postgres.
-    let mut values = Map::new();
+    let mut values = Body::new();
     values.insert("id".to_owned(), json!(id));
-    values.insert("project_id".to_owned(), json!(project_id));
+    values.insert("projectId".to_owned(), json!(project_id));
     values.insert("number".to_owned(), json!(number));
     values.insert("title".to_owned(), or_null(input, "title"));
     values.insert("status".to_owned(), json!(status));
@@ -431,7 +431,7 @@ async fn create_decision(
             .unwrap_or_else(|| json!([])),
     );
     values.insert(
-        "decider_id".to_owned(),
+        "deciderId".to_owned(),
         if decided {
             Value::Null
         } else {
@@ -439,7 +439,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decision_due_at".to_owned(),
+        "decisionDueAt".to_owned(),
         if decided {
             Value::Null
         } else {
@@ -447,7 +447,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decided_by".to_owned(),
+        "decidedBy".to_owned(),
         if decided {
             match input.get("decidedBy") {
                 Some(Value::String(by)) => json!(by),
@@ -458,7 +458,7 @@ async fn create_decision(
         },
     );
     values.insert(
-        "decided_at".to_owned(),
+        "decidedAt".to_owned(),
         if decided {
             match to_date(input.get("decidedAt")) {
                 Value::Null => json!(now),
@@ -468,10 +468,10 @@ async fn create_decision(
             Value::Null
         },
     );
-    values.insert("created_by".to_owned(), json!(caller.user_id));
-    values.insert("created_at".to_owned(), json!(now));
-    values.insert("updated_at".to_owned(), json!(now));
-    DECISIONS.insert(&orm(db), values).await?;
+    values.insert("createdBy".to_owned(), json!(caller.user_id));
+    values.insert("createdAt".to_owned(), json!(now));
+    values.insert("updatedAt".to_owned(), json!(now));
+    insert_values(db, DECISIONS, &values).await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::Internal("the new decision is missing".to_owned()));
     };
@@ -539,18 +539,11 @@ async fn update_decision(
 ) -> Reply {
     let db = &caller.db;
     let now = iso(crate::now_ms());
-    // `{ column: value }` of the fields sent, each converted to its column's
-    // type by Postgres.
-    let mut set = Map::new();
-    set.insert("updated_at".to_owned(), json!(now));
-    for (key, column) in [
-        ("title", "title"),
-        ("context", "context"),
-        ("consequences", "consequences"),
-        ("deciderId", "decider_id"),
-    ] {
+    let mut set = Body::new();
+    set.insert("updatedAt".to_owned(), json!(now));
+    for key in ["title", "context", "consequences", "deciderId"] {
         if let Some(value) = input.get(key) {
-            set.insert(column.to_owned(), value.clone());
+            set.insert(key.to_owned(), value.clone());
         }
     }
     if input.contains_key("options") {
@@ -558,7 +551,7 @@ async fn update_decision(
     }
     if input.contains_key("decisionDueAt") {
         set.insert(
-            "decision_due_at".to_owned(),
+            "decisionDueAt".to_owned(),
             to_date(input.get("decisionDueAt")),
         );
     }
@@ -591,7 +584,7 @@ async fn update_decision(
                 .any(|approval| approval.decision == "rejected"),
         );
 
-    DECISIONS.update(&orm(db), id, set, true).await?;
+    update_values(db, DECISIONS, &set, id).await?;
     let Some(row) = find_decision(db, id).await? else {
         return Err(Refusal::not_found(DECISION_LABEL, id));
     };

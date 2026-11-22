@@ -14,19 +14,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::id::ALPHANUMERIC;
 use weldsuite_kit::{generate_id, random_string};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::workflow_webhook_registry as registry;
+use weldsuite_schema::tenant::{workflow_schedules, workflow_trigger_index, workflow_webhooks};
 
 use crate::js::{bag, coalesce};
 use crate::mvp::{
     one_time_triggers, recurring_triggers, schedule_trigger_ids, webhook_trigger_ids,
     webhook_triggers,
 };
-use crate::{Caller, ConnectState, now};
+use crate::{Caller, ConnectState};
 
 /// The due-index kind of the integration polls (the integration workers'
 /// `weldsuite_integrations::workflow_polls::WORKFLOW_POLL_DUE_KIND`).
@@ -123,6 +129,16 @@ impl SyncContext {
 
 // ── Trigger index ───────────────────────────────────────────────────────────
 
+/// `r->>'key'` of an index row built as JSON: a string as it is, null as
+/// NULL, anything else as its JSON text.
+fn json_text(value: Option<Value>) -> Option<String> {
+    match value? {
+        Value::Null => None,
+        Value::String(text) => Some(text),
+        other => Some(other.to_string()),
+    }
+}
+
 /// `buildIndexRows` + `buildIndexStatements`, run on `conn` (inside the
 /// workflow write's transaction): the workflow's rows replaced by one per
 /// enabled trigger when the workflow is active.
@@ -131,14 +147,17 @@ pub(crate) async fn write_trigger_index(
     workflow_id: &str,
     triggers: Option<&Value>,
     active: bool,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from workflow_trigger_index where workflow_id = $1")
-        .bind(workflow_id)
-        .execute(&mut *conn)
+) -> Result<(), DbErr> {
+    use workflow_trigger_index::{ActiveModel, Column, Entity};
+    let db = OrmConn::new(conn);
+    Entity::delete_many()
+        .filter(Column::WorkflowId.eq(workflow_id))
+        .exec(&db)
         .await?;
     if !active {
         return Ok(());
     }
+    let stamp = utc_now();
     let mut rows = Vec::new();
     for raw in crate::js::array(triggers) {
         let t = bag(Some(raw));
@@ -152,41 +171,33 @@ pub(crate) async fn write_trigger_index(
             continue;
         }
         let cfg = bag(t.get("config"));
-        let pick = |key: &str| coalesce(&[t.get(key), cfg.get(key)]).cloned();
-        rows.push(json!({
-            "id": generate_id("wti"),
-            "trigger_id": id,
-            "category": coalesce(&[Some(kind), cfg.get("type")]).cloned().unwrap_or(json!("manual")),
-            "entity_type": pick("entityType"),
-            "event_type": pick("eventType"),
-            "provider": pick("provider"),
-            "integration_event": coalesce(&[t.get("event"), cfg.get("event")]).cloned(),
-            "integration_id": pick("integrationId"),
-            "source_workflow_id": cfg.get("sourceWorkflowId").filter(|v| !v.is_null()).cloned(),
-            "filters": coalesce(&[t.get("filters"), cfg.get("filters")]).cloned(),
-        }));
+        let pick = |key: &str| json_text(coalesce(&[t.get(key), cfg.get(key)]).cloned());
+        let category = coalesce(&[Some(kind), cfg.get("type")])
+            .cloned()
+            .unwrap_or(json!("manual"));
+        rows.push(ActiveModel {
+            id: Set(generate_id("wti")),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            workflow_id: Set(workflow_id.to_owned()),
+            trigger_id: Set(json_text(Some(id.clone())).unwrap_or_default()),
+            category: Set(json_text(Some(category)).unwrap_or_default()),
+            is_enabled: Set(true),
+            entity_type: Set(pick("entityType")),
+            event_type: Set(pick("eventType")),
+            provider: Set(pick("provider")),
+            integration_event: Set(json_text(
+                coalesce(&[t.get("event"), cfg.get("event")]).cloned(),
+            )),
+            integration_id: Set(pick("integrationId")),
+            source_workflow_id: Set(json_text(cfg.get("sourceWorkflowId").cloned())),
+            filters: Set(coalesce(&[t.get("filters"), cfg.get("filters")]).cloned()),
+        });
     }
     if rows.is_empty() {
         return Ok(());
     }
-    let stamp = now();
-    sqlx::query(
-        "insert into workflow_trigger_index
-            (id, created_at, updated_at, workflow_id, trigger_id, category, is_enabled,
-             entity_type, event_type, provider, integration_event, integration_id,
-             source_workflow_id, filters)
-         select r->>'id', $2::timestamp, $2::timestamp, $1, r->>'trigger_id', r->>'category', true,
-                r->>'entity_type', r->>'event_type', r->>'provider', r->>'integration_event',
-                r->>'integration_id', r->>'source_workflow_id',
-                case when jsonb_typeof(r->'filters') in ('null') or r->'filters' is null then null
-                     else r->'filters' end
-         from jsonb_array_elements($3::jsonb) r",
-    )
-    .bind(workflow_id)
-    .bind(&stamp)
-    .bind(Value::Array(rows))
-    .execute(&mut *conn)
-    .await?;
+    Entity::insert_many(rows).exec_without_returning(&db).await?;
     Ok(())
 }
 
@@ -212,7 +223,7 @@ pub(crate) async fn sync_schedules(
     previous: Option<&Value>,
     next: Option<&Value>,
     active: bool,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     ctx.poll_due(next, active).await;
     let recurring = recurring_triggers(next);
     let once = one_time_triggers(next);
@@ -225,30 +236,32 @@ pub(crate) async fn sync_schedules(
     if managed.is_empty() {
         return Ok(());
     }
-    let existing: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_schedules t
-         where t.workflow_id = $1 and t.trigger_id = any($2) and t.deleted_at is null",
-    )
-    .bind(workflow_id)
-    .bind(&managed)
-    .fetch_all(db)
-    .await?;
+    use workflow_schedules::{ActiveModel, Column, Entity, Model};
+    let db = orm(db);
+    let existing: Vec<Model> = Entity::find()
+        .filter(Column::WorkflowId.eq(workflow_id))
+        .filter(Column::TriggerId.is_in(&managed))
+        .filter(Column::DeletedAt.is_null())
+        .all(&db)
+        .await?;
     // `new Map(rows.map(...))`: one entry per trigger id, in first-seen
     // order, holding the last row.
-    let mut by_trigger: Vec<(String, Value)> = Vec::new();
+    let mut by_trigger: Vec<(String, Model)> = Vec::new();
     for row in existing {
-        let trigger_id = row["trigger_id"].as_str().unwrap_or_default().to_owned();
+        let trigger_id = row.trigger_id.clone().unwrap_or_default();
         match by_trigger.iter_mut().find(|(id, _)| *id == trigger_id) {
             Some(entry) => entry.1 = row,
             None => by_trigger.push((trigger_id, row)),
         }
     }
-    let mut take = |trigger_id: &str| -> Option<Value> {
+    let mut take = |trigger_id: &str| -> Option<Model> {
         let index = by_trigger.iter().position(|(id, _)| id == trigger_id)?;
         Some(by_trigger.remove(index).1)
     };
-    let stamp = now();
+    let stamp = utc_now();
     let mut indexed = false;
+    // `next_run_at = case when timing_changed then null else next_run_at end`.
+    let cleared = Option::<PrimitiveDateTime>::None;
 
     for trigger in &recurring {
         let enabled = active && trigger.is_enabled;
@@ -256,130 +269,139 @@ pub(crate) async fn sync_schedules(
             if !enabled {
                 continue;
             }
-            sqlx::query(
-                "insert into workflow_schedules
-                    (id, workflow_id, trigger_id, name, schedule_type, cron_expression, timezone,
-                     is_enabled, created_at, updated_at)
-                 values ($1, $2, $3, $4, 'recurring', $5, $6, $7, $8::timestamp, $8::timestamp)",
-            )
-            .bind(generate_id("sched"))
-            .bind(workflow_id)
-            .bind(&trigger.trigger_id)
-            .bind(&trigger.name)
-            .bind(&trigger.cron_expression)
-            .bind(&trigger.timezone)
-            .bind(enabled)
-            .bind(&stamp)
-            .execute(db)
+            Entity::insert(ActiveModel {
+                id: Set(generate_id("sched")),
+                workflow_id: Set(workflow_id.to_owned()),
+                trigger_id: Set(Some(trigger.trigger_id.clone())),
+                name: Set(trigger.name.clone()),
+                schedule_type: Set("recurring".to_owned()),
+                cron_expression: Set(Some(trigger.cron_expression.clone())),
+                timezone: Set(trigger.timezone.clone()),
+                is_enabled: Set(enabled),
+                created_at: Set(stamp),
+                updated_at: Set(stamp),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
             .await?;
             indexed = true;
             continue;
         };
-        let timing_changed = row["cron_expression"].as_str()
+        let timing_changed = row.cron_expression.as_deref()
             != Some(trigger.cron_expression.as_str())
-            || row["timezone"].as_str() != Some(trigger.timezone.as_str())
-            || row["is_enabled"].as_bool() != Some(enabled);
-        let name_same = row["name"].as_str() == trigger.name.as_deref();
+            || row.timezone != trigger.timezone
+            || row.is_enabled != enabled;
+        let name_same = row.name.as_deref() == trigger.name.as_deref();
         if !timing_changed && name_same {
             continue;
         }
-        sqlx::query(
-            "update workflow_schedules set name = $2, schedule_type = 'recurring', cron_expression = $3,
-                execute_at = null, timezone = $4, is_enabled = $5, updated_at = $6::timestamp,
-                next_run_at = case when $7 then null else next_run_at end
-             where id = $1",
-        )
-        .bind(row["id"].as_str())
-        .bind(&trigger.name)
-        .bind(&trigger.cron_expression)
-        .bind(&trigger.timezone)
-        .bind(enabled)
-        .bind(&stamp)
-        .bind(timing_changed)
-        .execute(db)
-        .await?;
+        let mut update = Entity::update_many()
+            .col_expr(Column::Name, Expr::value(trigger.name.clone()))
+            .col_expr(Column::ScheduleType, Expr::value("recurring"))
+            .col_expr(
+                Column::CronExpression,
+                Expr::value(trigger.cron_expression.clone()),
+            )
+            .col_expr(Column::ExecuteAt, Expr::value(cleared))
+            .col_expr(Column::Timezone, Expr::value(trigger.timezone.clone()))
+            .col_expr(Column::IsEnabled, Expr::value(enabled))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp));
+        if timing_changed {
+            update = update.col_expr(Column::NextRunAt, Expr::value(cleared));
+        }
+        update.filter(Column::Id.eq(&row.id)).exec(&db).await?;
         indexed |= timing_changed;
     }
 
     for trigger in &once {
         let row = take(&trigger.trigger_id);
-        let fired = row.as_ref().is_some_and(|r| !r["last_run_at"].is_null());
+        let fired = row.as_ref().is_some_and(|r| r.last_run_at.is_some());
         let enabled = !fired && active && trigger.is_enabled;
-        let execute_at = crate::cron::iso(trigger.execute_at).unwrap_or_default();
+        let execute_at = || execute_at(trigger.execute_at);
         let Some(row) = row else {
             if !enabled {
                 continue;
             }
-            sqlx::query(
-                "insert into workflow_schedules
-                    (id, workflow_id, trigger_id, name, schedule_type, cron_expression, execute_at,
-                     timezone, is_enabled, created_at, updated_at)
-                 values ($1, $2, $3, $4, 'one_time', null, $5::timestamp, $6, $7, $8::timestamp, $8::timestamp)",
-            )
-            .bind(generate_id("sched"))
-            .bind(workflow_id)
-            .bind(&trigger.trigger_id)
-            .bind(&trigger.name)
-            .bind(&execute_at)
-            .bind(&trigger.timezone)
-            .bind(enabled)
-            .bind(&stamp)
-            .execute(db)
+            Entity::insert(ActiveModel {
+                id: Set(generate_id("sched")),
+                workflow_id: Set(workflow_id.to_owned()),
+                trigger_id: Set(Some(trigger.trigger_id.clone())),
+                name: Set(trigger.name.clone()),
+                schedule_type: Set("one_time".to_owned()),
+                cron_expression: Set(None),
+                execute_at: Set(Some(execute_at()?)),
+                timezone: Set(trigger.timezone.clone()),
+                is_enabled: Set(enabled),
+                created_at: Set(stamp),
+                updated_at: Set(stamp),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
             .await?;
             indexed = true;
             continue;
         };
-        let id = row["id"].as_str().unwrap_or_default();
         if fired {
-            if row["name"].as_str() != trigger.name.as_deref() {
-                sqlx::query("update workflow_schedules set name = $2, updated_at = $3::timestamp where id = $1")
-                    .bind(id)
-                    .bind(&trigger.name)
-                    .bind(&stamp)
-                    .execute(db)
+            if row.name.as_deref() != trigger.name.as_deref() {
+                Entity::update_many()
+                    .col_expr(Column::Name, Expr::value(trigger.name.clone()))
+                    .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                    .filter(Column::Id.eq(&row.id))
+                    .exec(&db)
                     .await?;
             }
             continue;
         }
-        let stored_at = row["execute_at"].as_str().and_then(crate::cron::parse_ms);
+        let stored_at = row.execute_at.and_then(epoch_ms);
         let timing_changed = stored_at != Some(trigger.execute_at)
-            || row["timezone"].as_str() != Some(trigger.timezone.as_str())
-            || row["is_enabled"].as_bool() != Some(enabled);
-        if !timing_changed && row["name"].as_str() == trigger.name.as_deref() {
+            || row.timezone != trigger.timezone
+            || row.is_enabled != enabled;
+        if !timing_changed && row.name.as_deref() == trigger.name.as_deref() {
             continue;
         }
-        sqlx::query(
-            "update workflow_schedules set name = $2, schedule_type = 'one_time', cron_expression = null,
-                execute_at = $3::timestamp, timezone = $4, is_enabled = $5, updated_at = $6::timestamp,
-                next_run_at = case when $7 then null else next_run_at end
-             where id = $1",
-        )
-        .bind(id)
-        .bind(&trigger.name)
-        .bind(&execute_at)
-        .bind(&trigger.timezone)
-        .bind(enabled)
-        .bind(&stamp)
-        .bind(timing_changed)
-        .execute(db)
-        .await?;
+        let mut update = Entity::update_many()
+            .col_expr(Column::Name, Expr::value(trigger.name.clone()))
+            .col_expr(Column::ScheduleType, Expr::value("one_time"))
+            .col_expr(Column::CronExpression, Expr::value(Option::<String>::None))
+            .col_expr(Column::ExecuteAt, Expr::value(execute_at()?))
+            .col_expr(Column::Timezone, Expr::value(trigger.timezone.clone()))
+            .col_expr(Column::IsEnabled, Expr::value(enabled))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp));
+        if timing_changed {
+            update = update.col_expr(Column::NextRunAt, Expr::value(cleared));
+        }
+        update.filter(Column::Id.eq(&row.id)).exec(&db).await?;
         indexed |= timing_changed;
     }
 
     for (_, row) in by_trigger {
-        sqlx::query(
-            "update workflow_schedules set deleted_at = $2::timestamp, is_enabled = false,
-                updated_at = $2::timestamp where id = $1",
-        )
-        .bind(row["id"].as_str())
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+        Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::IsEnabled, Expr::value(false))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&row.id))
+            .exec(&db)
+            .await?;
     }
     if indexed {
         ctx.schedule_due().await;
     }
     Ok(())
+}
+
+/// A one-time trigger's `executeAt` (epoch ms) as the `timestamp` column
+/// stores it (`new Date(ms)`; Postgres refuses a time out of range).
+fn execute_at(ms: i64) -> Result<PrimitiveDateTime, DbErr> {
+    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .map(utc_timestamp)
+        .map_err(|error| DbErr::Custom(format!("invalid executeAt {ms}: {error}")))
+}
+
+/// A stored `timestamp` as `new Date(row.executeAt).getTime()`: epoch
+/// milliseconds, the microseconds cut.
+fn epoch_ms(at: PrimitiveDateTime) -> Option<i64> {
+    let at = utc_timestamp(at.assume_utc()).assume_utc();
+    i64::try_from(at.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
 // ── Webhook registry ────────────────────────────────────────────────────────
@@ -395,7 +417,7 @@ fn registry_key(webhook_id: &str) -> String {
 #[derive(Debug)]
 pub(crate) enum RegistryError {
     NoMaster,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for RegistryError {
@@ -407,8 +429,8 @@ impl std::fmt::Display for RegistryError {
     }
 }
 
-impl From<sqlx::Error> for RegistryError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RegistryError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -427,15 +449,22 @@ pub(crate) async fn register_owner(
     webhook_id: &str,
 ) -> Result<(), RegistryError> {
     let master = ctx.master.as_ref().ok_or(RegistryError::NoMaster)?;
-    sqlx::query(
-        "insert into workflow_webhook_registry (id, workspace_id, created_at, deleted_at)
-         values ($1, $2, $3::timestamp, null)
-         on conflict (id) do update set workspace_id = excluded.workspace_id, deleted_at = null",
+    registry::Entity::insert(registry::ActiveModel {
+        id: Set(webhook_id.to_owned()),
+        workspace_id: Set(ctx.clerk_org_id.clone()),
+        created_at: Set(utc_now()),
+        deleted_at: Set(None),
+    })
+    .on_conflict(
+        OnConflict::column(registry::Column::Id)
+            .update_column(registry::Column::WorkspaceId)
+            .value(
+                registry::Column::DeletedAt,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            )
+            .to_owned(),
     )
-    .bind(webhook_id)
-    .bind(&ctx.clerk_org_id)
-    .bind(now())
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     cache_put(
         ctx.cache.as_ref(),
@@ -452,10 +481,10 @@ pub(crate) async fn deregister_owner(
     webhook_id: &str,
 ) -> Result<(), RegistryError> {
     let master = ctx.master.as_ref().ok_or(RegistryError::NoMaster)?;
-    sqlx::query("update workflow_webhook_registry set deleted_at = $2::timestamp where id = $1")
-        .bind(webhook_id)
-        .bind(now())
-        .execute(master)
+    registry::Entity::update_many()
+        .col_expr(registry::Column::DeletedAt, Expr::value(utc_now()))
+        .filter(registry::Column::Id.eq(webhook_id))
+        .exec(&orm(master))
         .await?;
     cache_put(
         ctx.cache.as_ref(),
@@ -484,13 +513,15 @@ pub(crate) async fn resolve_owner(
         }
     }
     let master = master.ok_or(RegistryError::NoMaster)?;
-    let row: Option<(String, bool)> = sqlx::query_as(
-        "select workspace_id, deleted_at is not null from workflow_webhook_registry where id = $1 limit 1",
-    )
-    .bind(webhook_id)
-    .fetch_optional(master)
-    .await?;
-    if let Some((workspace, false)) = row {
+    let row: Option<(String, Option<PrimitiveDateTime>)> = registry::Entity::find()
+        .select_only()
+        .columns([registry::Column::WorkspaceId, registry::Column::DeletedAt])
+        .filter(registry::Column::Id.eq(webhook_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    if let Some((workspace, None)) = row {
         cache_put(cache, &key, &workspace).await;
         Ok(Some(workspace))
     } else {
@@ -507,7 +538,7 @@ pub(crate) fn webhook_secret() -> String {
 /// Why a webhook sync failed: the tenant write, or the registry.
 #[derive(Debug)]
 pub(crate) enum SyncError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Registry(RegistryError),
 }
 
@@ -520,8 +551,8 @@ impl std::fmt::Display for SyncError {
     }
 }
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -553,14 +584,17 @@ pub(crate) async fn sync_webhooks(
     if ctx.master.is_none() {
         return Err(RegistryError::NoMaster.into());
     }
-    let existing: Vec<(String, String, Option<bool>)> = sqlx::query_as(
-        "select id, trigger_id, is_enabled from workflow_webhooks
-         where workflow_id = $1 and trigger_id = any($2) and deleted_at is null",
-    )
-    .bind(workflow_id)
-    .bind(&managed)
-    .fetch_all(db)
-    .await?;
+    use workflow_webhooks::{ActiveModel, Column, Entity};
+    let db = orm(db);
+    let existing: Vec<(String, String, Option<bool>)> = Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::TriggerId, Column::IsEnabled])
+        .filter(Column::WorkflowId.eq(workflow_id))
+        .filter(Column::TriggerId.is_in(&managed))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
     let mut by_trigger: HashMap<String, (String, Option<bool>)> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for (id, trigger_id, enabled) in existing {
@@ -569,15 +603,15 @@ pub(crate) async fn sync_webhooks(
         }
         by_trigger.insert(trigger_id, (id, enabled));
     }
-    let stamp = now();
+    let stamp = utc_now();
     for trigger in &desired {
         if let Some((id, enabled)) = by_trigger.remove(&trigger.trigger_id) {
             if enabled != Some(trigger.is_enabled) {
-                sqlx::query("update workflow_webhooks set is_enabled = $2, updated_at = $3::timestamp where id = $1")
-                    .bind(&id)
-                    .bind(trigger.is_enabled)
-                    .bind(&stamp)
-                    .execute(db)
+                Entity::update_many()
+                    .col_expr(Column::IsEnabled, Expr::value(trigger.is_enabled))
+                    .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                    .filter(Column::Id.eq(&id))
+                    .exec(&db)
                     .await?;
             }
             register_owner(ctx, &id).await?;
@@ -588,22 +622,23 @@ pub(crate) async fn sync_webhooks(
         }
         let id = generate_id("wh");
         let url = format!("/api/workflows/webhook/{id}");
-        sqlx::query(
-            "insert into workflow_webhooks
-                (id, workflow_id, trigger_id, name, url, external_url, secret, validate_signature,
-                 signature_header, allowed_methods, is_enabled, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, false, 'x-webhook-signature', '[\"POST\"]'::jsonb, true,
-                     $8::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(workflow_id)
-        .bind(&trigger.trigger_id)
-        .bind(trigger.name.as_deref().unwrap_or("Webhook"))
-        .bind(&url)
-        .bind(format!("{}{url}", ctx.public_api_base))
-        .bind(webhook_secret())
-        .bind(&stamp)
-        .execute(db)
+        Entity::insert(ActiveModel {
+            id: Set(id.clone()),
+            workflow_id: Set(workflow_id.to_owned()),
+            trigger_id: Set(Some(trigger.trigger_id.clone())),
+            name: Set(trigger.name.as_deref().unwrap_or("Webhook").to_owned()),
+            external_url: Set(Some(format!("{}{url}", ctx.public_api_base))),
+            url: Set(Some(url)),
+            secret: Set(Some(webhook_secret())),
+            validate_signature: Set(Some(false)),
+            signature_header: Set(Some("x-webhook-signature".to_owned())),
+            allowed_methods: Set(Some(json!(["POST"]))),
+            is_enabled: Set(true),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         register_owner(ctx, &id).await?;
     }
@@ -611,14 +646,13 @@ pub(crate) async fn sync_webhooks(
         let Some((id, _)) = by_trigger.remove(&trigger_id) else {
             continue;
         };
-        sqlx::query(
-            "update workflow_webhooks set deleted_at = $2::timestamp, is_enabled = false,
-                updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+        Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::IsEnabled, Expr::value(false))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&db)
+            .await?;
         deregister_owner(ctx, &id).await?;
     }
     Ok(())

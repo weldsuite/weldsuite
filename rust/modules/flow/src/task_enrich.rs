@@ -18,7 +18,6 @@
 
 use std::collections::HashMap;
 
-use sea_orm::sea_query::{Asterisk, Expr, Func};
 use sea_orm::{
     ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select,
 };
@@ -28,7 +27,7 @@ use weldsuite_flow_domain::task_tree::MAX_SUBTASK_DEPTH;
 use weldsuite_schema::tenant::tasks::{self, Column as Task};
 use weldsuite_schema::tenant::{companies, files, people, workspace_members};
 
-use crate::tasks::row_json;
+use crate::tasks::{count_int, count_int_where, row_json};
 use crate::{FlowState, Refusal, custom_values};
 
 /// The custom fields' entity type of a task.
@@ -253,25 +252,16 @@ pub(crate) async fn hydrate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>,
     Ok(custom_values::hydrate(db, TASK_ENTITY, rows).await?)
 }
 
-/// `count(*)::int` of the rows a group holds.
-fn count_int() -> Expr {
-    use sea_orm::ExprTrait as _;
-    Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int")
-}
-
 /// `{ total, completed }` live children per parent id.
 pub(crate) async fn subtask_counts(
     db: &PgPool,
     parent_ids: &[String],
 ) -> Result<HashMap<String, (i64, i64)>, DbErr> {
-    use sea_orm::ExprTrait as _;
-    // `count(*) filter (where status = 'done')`: the rows the case keeps.
-    let done = Expr::from(Func::count(Expr::case(Task::Status.eq("done"), 1))).cast_as("int");
     let rows: Vec<(Option<String>, i32, i32)> = tasks::Entity::find()
         .select_only()
         .column(Task::ParentTaskId)
         .column_as(count_int(), "total")
-        .column_as(done, "done")
+        .column_as(count_int_where(Task::Status.eq("done")), "done")
         .filter(Task::ParentTaskId.is_in(parent_ids.iter().map(String::as_str)))
         .filter(Task::DeletedAt.is_null())
         .group_by(Task::ParentTaskId)

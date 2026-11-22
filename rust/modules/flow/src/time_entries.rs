@@ -29,13 +29,19 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, InsertStatement, OnConflict, Query as Statement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, IntoActiveModel,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     PROJECT_TIME_ENTRY_CREATED, PROJECT_TIME_ENTRY_DELETED, PROJECT_TIME_ENTRY_UPDATED,
     PROJECT_TIMESHEET_APPROVED, PROJECT_TIMESHEET_REJECTED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::analytics::time_entry_analytics_payload;
 use weldsuite_flow_domain::js::{
@@ -44,8 +50,13 @@ use weldsuite_flow_domain::js::{
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, js_number, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::active_timers::{self, Column as Timer};
+use weldsuite_schema::tenant::time_entries::{self, Column as Entry};
+use weldsuite_schema::tenant::{
+    merge_issues, project_members, projects, tasks, workspace_members,
+};
 
-use crate::tasks::query_boolean;
+use crate::tasks::{Written, cast_as, cast_text, count_int, query_boolean, row_json, written};
 use crate::{Caller, FlowState, Query, Refusal, Reply, reply, validate, validate_value};
 
 /// Approved hours are final until a manager rejects the entry.
@@ -96,11 +107,47 @@ where
 
 // ── Shared ──────────────────────────────────────────────────────────────────
 
-/// `new Date()` as an ISO timestamp and its milliseconds.
-fn now_stamp() -> (String, i64) {
+/// `new Date()` as an ISO timestamp, its milliseconds and the `timestamp`
+/// it is written as.
+fn now_stamp() -> (String, i64, PrimitiveDateTime) {
     let now = OffsetDateTime::now_utc();
     let ms = i64::try_from(now.unix_timestamp_nanos() / 1_000_000).unwrap_or(0);
-    (iso_timestamp(now), ms)
+    (iso_timestamp(now), ms, utc_timestamp(now))
+}
+
+/// `<column> <op> $n::date` of a text the request sent.
+fn date_compare(text: &str, op: fn(Expr, Expr) -> Expr) -> Expr {
+    op(
+        Expr::col((time_entries::Entity, Entry::Date)),
+        cast_text(Some(text.to_owned()), "date"),
+    )
+}
+
+/// `coalesce(sum(duration), 0)::float8`.
+fn minutes_sum() -> Expr {
+    cast_as(
+        Func::coalesce([
+            Expr::from(Func::sum(Expr::col((time_entries::Entity, Entry::Duration)))),
+            Expr::value(0),
+        ]),
+        "float8",
+    )
+}
+
+/// `insert into <table> (<columns>) values (<values>)`, each value an
+/// expression (the casts the bound texts had).
+fn insert_of<E: EntityTrait>(
+    entity: E,
+    values: Vec<(E::Column, Expr)>,
+) -> Result<InsertStatement, DbErr> {
+    let (columns, values): (Vec<E::Column>, Vec<Expr>) = values.into_iter().unzip();
+    let mut insert = Statement::insert();
+    insert
+        .into_table(entity)
+        .columns(columns)
+        .values(values)
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    Ok(insert)
 }
 
 /// `Number(value)` of a string-or-number body value, or of a numeric
@@ -153,7 +200,7 @@ async fn daily_limit_violation(
     date: &str,
     minutes: &Value,
     exclude_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let minutes = match minutes {
         Value::String(text) => {
             let raw = js_trim(text);
@@ -176,16 +223,20 @@ async fn daily_limit_violation(
             format_hours(minutes)
         )));
     }
-    let logged: f64 = sqlx::query_scalar(
-        "select coalesce(sum(duration), 0)::float8 from time_entries
-         where deleted_at is null and user_id = $1 and date = $2::date
-           and ($3::text is null or id <> $3)",
-    )
-    .bind(user_id)
-    .bind(date)
-    .bind(exclude_id)
-    .fetch_one(db)
-    .await?;
+    let mut select = time_entries::Entity::find()
+        .select_only()
+        .column_as(minutes_sum(), "logged")
+        .filter(Entry::DeletedAt.is_null())
+        .filter(Entry::UserId.eq(user_id))
+        .filter(date_compare(date, sea_orm::ExprTrait::eq));
+    if let Some(exclude_id) = exclude_id {
+        select = select.filter(Entry::Id.ne(exclude_id));
+    }
+    let logged: f64 = select
+        .into_tuple::<f64>()
+        .one(&orm(db))
+        .await?
+        .unwrap_or(0.0);
     if logged + minutes > MAX_MINUTES_PER_DAY {
         return Ok(Some(format!(
             "You cannot log more than 24 hours on a single day: {date} already has {} logged, \
@@ -199,10 +250,14 @@ async fn daily_limit_violation(
 
 /// A live task's project: `None` when the task is gone, `Some(None)` for
 /// a task without a project.
-async fn task_project(db: &PgPool, task_id: &str) -> Result<Option<Option<String>>, sqlx::Error> {
-    sqlx::query_scalar("select project_id from tasks where id = $1 and deleted_at is null limit 1")
-        .bind(task_id)
-        .fetch_optional(db)
+async fn task_project(db: &PgPool, task_id: &str) -> Result<Option<Option<String>>, DbErr> {
+    tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::ProjectId)
+        .filter(tasks::Column::Id.eq(task_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
         .await
 }
 
@@ -245,7 +300,7 @@ async fn usable_task_id(
     db: &PgPool,
     task_id: Option<&str>,
     project_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(task_id) = task_id.filter(|t| !t.is_empty()) else {
         return Ok(None);
     };
@@ -266,12 +321,14 @@ async fn check_merge_issue(caller: &Caller, merge_issue_id: Option<&str>) -> Res
     let Some(id) = merge_issue_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from merge_issues where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let found: Option<String> = merge_issues::Entity::find()
+        .select_only()
+        .column(merge_issues::Column::Id)
+        .filter(merge_issues::Column::Id.eq(id))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if found.is_none() || !caller.can("merge_issues:read") {
         return Err(Refusal::not_found("Merge issue", id));
     }
@@ -526,6 +583,47 @@ fn present(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|v| !v.is_empty())
 }
 
+/// A listed entry with its member's name and email and its task's title.
+#[derive(Debug, FromQueryResult)]
+struct ListedEntry {
+    #[sea_orm(nested)]
+    entry: time_entries::Model,
+    member_name: Option<String>,
+    member_email: Option<String>,
+    task_title: Option<String>,
+}
+
+/// The list's and the summary's filters on `time_entries` (the summary
+/// pins its project with them): each one only when set.
+fn entry_filters(user: Option<&str>, f: &Filters) -> Condition {
+    let mut all = Condition::all().add(Entry::DeletedAt.is_null());
+    if let Some(user) = user {
+        all = all.add(Entry::UserId.eq(user));
+    }
+    if let Some(project_id) = present(&f.project_id) {
+        all = all.add(Entry::ProjectId.eq(project_id));
+    }
+    if let Some(task_id) = present(&f.task_id) {
+        all = all.add(Entry::TaskId.eq(task_id));
+    }
+    if let Some(status) = present(&f.status) {
+        all = all.add(Entry::Status.eq(status));
+    }
+    if let Some(billable) = f.billable {
+        all = all.add(Entry::Billable.eq(billable));
+    }
+    if let Some(from) = present(&f.from_date) {
+        all = all.add(date_compare(from, sea_orm::ExprTrait::gte));
+    }
+    if let Some(to) = present(&f.to_date) {
+        all = all.add(date_compare(to, sea_orm::ExprTrait::lte));
+    }
+    if let Some(merge_issue_id) = present(&f.merge_issue_id) {
+        all = all.add(Entry::MergeIssueId.eq(merge_issue_id));
+    }
+    all
+}
+
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = Query::parse(raw.as_deref());
     let filters = match validate_value(&Value::Object(q.values().clone()), read_list_filters) {
@@ -554,67 +652,53 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         Some(caller.user_id.clone())
     };
     let result = async {
-        let rows: Vec<(Value, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as(concat!(
-                "select ",
-                time_entry_json!("t"),
-                ", wm.name, wm.email, tk.title from time_entries t",
-                " left join workspace_members wm on t.user_id = wm.user_id",
-                " left join tasks tk on t.task_id = tk.id",
-                " where t.deleted_at is null",
-                " and ($1::text is null or t.user_id = $1)",
-                " and ($2::text is null or t.project_id = $2)",
-                " and ($3::text is null or t.task_id = $3)",
-                " and ($4::text is null or t.status = $4)",
-                " and ($5::bool is null or t.billable = $5)",
-                " and ($6::text is null or t.date >= $6::date)",
-                " and ($7::text is null or t.date <= $7::date)",
-                " and ($10::text is null or t.merge_issue_id = $10)",
-                " order by t.date desc, t.created_at desc limit $8 offset $9"
-            ))
-            .bind(&user)
-            .bind(present(&f.project_id))
-            .bind(present(&f.task_id))
-            .bind(present(&f.status))
-            .bind(f.billable)
-            .bind(present(&f.from_date))
-            .bind(present(&f.to_date))
-            .bind(limit)
-            .bind(offset)
-            .bind(present(&f.merge_issue_id))
-            .fetch_all(&caller.db)
+        let db = &orm(&caller.db);
+        let filters = entry_filters(user.as_deref(), &f);
+        let rows: Vec<ListedEntry> = time_entries::Entity::find()
+            .column_as(workspace_members::Column::Name, "member_name")
+            .column_as(workspace_members::Column::Email, "member_email")
+            .column_as(tasks::Column::Title, "task_title")
+            .join(
+                JoinType::LeftJoin,
+                time_entries::Entity::belongs_to(workspace_members::Entity)
+                    .from(Entry::UserId)
+                    .to(workspace_members::Column::UserId)
+                    .into(),
+            )
+            .join(
+                JoinType::LeftJoin,
+                time_entries::Entity::belongs_to(tasks::Entity)
+                    .from(Entry::TaskId)
+                    .to(tasks::Column::Id)
+                    .into(),
+            )
+            .filter(filters.clone())
+            .order_by_desc(Entry::Date)
+            .order_by_desc(Entry::CreatedAt)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .offset(u64::try_from(offset).unwrap_or(0))
+            .into_model()
+            .all(db)
             .await?;
-        let total: i32 = sqlx::query_scalar(concat!(
-            "select count(*)::int from time_entries t where t.deleted_at is null",
-            " and ($1::text is null or t.user_id = $1)",
-            " and ($2::text is null or t.project_id = $2)",
-            " and ($3::text is null or t.task_id = $3)",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::bool is null or t.billable = $5)",
-            " and ($6::text is null or t.date >= $6::date)",
-            " and ($7::text is null or t.date <= $7::date)",
-            " and ($8::text is null or t.merge_issue_id = $8)"
-        ))
-        .bind(&user)
-        .bind(present(&f.project_id))
-        .bind(present(&f.task_id))
-        .bind(present(&f.status))
-        .bind(f.billable)
-        .bind(present(&f.from_date))
-        .bind(present(&f.to_date))
-        .bind(present(&f.merge_issue_id))
-        .fetch_one(&caller.db)
-        .await?;
+        // `count(*)::int`.
+        let total = time_entries::Entity::find().filter(filters).count(db).await?;
+        let total = i32::try_from(total).unwrap_or(i32::MAX);
         // Avatars are account pictures, not the member row's copy.
         let pictures = weldsuite_db::AccountPictures::load(
             caller.request_master(),
-            rows.iter().filter_map(|(row, ..)| row["user_id"].as_str()),
+            rows.iter().map(|row| row.entry.user_id.as_str()),
         )
         .await;
         let rows: Vec<Value> = rows
             .into_iter()
-            .map(|(row, name, email, task_title)| {
-                let mut row = js_row(row);
+            .map(|listed| {
+                let ListedEntry {
+                    entry,
+                    member_name: name,
+                    member_email: email,
+                    task_title,
+                } = listed;
+                let mut row = row_json(entry)?;
                 let user_id = row["userId"].clone();
                 let avatar = user_id
                     .as_str()
@@ -644,9 +728,9 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
                         fields.insert("task".to_owned(), json!({ "id": task_id, "title": title }));
                     }
                 }
-                row
+                Ok(row)
             })
-            .collect();
+            .collect::<Result<_, DbErr>>()?;
         let total = i64::from(total);
         let returned = i64::try_from(rows.len()).unwrap_or(i64::MAX);
         Ok(weldsuite_kit::List::new(
@@ -765,74 +849,111 @@ async fn team_summary(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     )
 }
 
-/// The WHERE of the summary queries (`buildTeamSummaryConditions`), on `t`.
-macro_rules! summary_where {
-    () => {
-        concat!(
-            " where t.deleted_at is null and t.project_id = $1",
-            " and ($2::text is null or t.user_id = $2)",
-            " and ($3::text is null or t.task_id = $3)",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::bool is null or t.billable = $5)",
-            " and ($6::text is null or t.date >= $6::date)",
-            " and ($7::text is null or t.date <= $7::date)"
-        )
-    };
+/// An entry of the summary, with its task's title.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SummaryEntry {
+    id: String,
+    project_id: Option<String>,
+    task_id: Option<String>,
+    user_id: String,
+    #[serde(with = "weldsuite_schema::js::date")]
+    date: time::Date,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    start_time: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    end_time: Option<PrimitiveDateTime>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    duration: sea_orm::prelude::BigDecimal,
+    description: Option<String>,
+    activity: Option<String>,
+    billable: bool,
+    status: String,
+    task_title: Option<String>,
 }
 
 async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
-    let db = &caller.db;
-    let project: Option<(String, String)> = sqlx::query_as(
-        "select id, name from projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+    let db = &orm(&caller.db);
+    let project: Option<(String, String)> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .column(projects::Column::Name)
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((project_id, project_name)) = project else {
         return Err(Refusal::not_found("Project", project_id));
     };
-    let members: Vec<MemberRow> = sqlx::query_as(
-        "select pm.user_id, pm.role, wm.name, wm.email from project_members pm
-         left join workspace_members wm on pm.user_id = wm.user_id
-         where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null",
-    )
-    .bind(&project_id)
-    .fetch_all(db)
-    .await?;
-    let totals: Vec<TotalRow> = sqlx::query_as(concat!(
-        "select t.user_id, t.billable, coalesce(sum(t.duration), 0)::float8, count(*)::int",
-        " from time_entries t",
-        summary_where!(),
-        " group by t.user_id, t.billable"
-    ))
-    .bind(&project_id)
-    .bind(present(&f.user_id))
-    .bind(present(&f.task_id))
-    .bind(present(&f.status))
-    .bind(f.billable)
-    .bind(present(&f.from_date))
-    .bind(present(&f.to_date))
-    .fetch_all(db)
-    .await?;
-    let entries: Vec<Value> = sqlx::query_scalar(concat!(
-        "select jsonb_build_object('id', t.id, 'project_id', t.project_id, 'task_id', t.task_id,",
-        " 'user_id', t.user_id, 'date', t.date, 'start_time', t.start_time, 'end_time', t.end_time,",
-        " 'duration', t.duration::text, 'description', t.description, 'activity', t.activity,",
-        " 'billable', t.billable, 'status', t.status, 'task_title', tk.title)",
-        " from time_entries t left join tasks tk on t.task_id = tk.id",
-        summary_where!(),
-        " order by t.date desc, t.created_at desc limit $8"
-    ))
-    .bind(&project_id)
-    .bind(present(&f.user_id))
-    .bind(present(&f.task_id))
-    .bind(present(&f.status))
-    .bind(f.billable)
-    .bind(present(&f.from_date))
-    .bind(present(&f.to_date))
-    .bind(f.limit.unwrap_or(1000))
-    .fetch_all(db)
-    .await?;
+    let members: Vec<MemberRow> = project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::UserId)
+        .column(project_members::Column::Role)
+        .column(workspace_members::Column::Name)
+        .column(workspace_members::Column::Email)
+        .join(
+            JoinType::LeftJoin,
+            project_members::Entity::belongs_to(workspace_members::Entity)
+                .from(project_members::Column::UserId)
+                .to(workspace_members::Column::UserId)
+                .into(),
+        )
+        .filter(project_members::Column::ProjectId.eq(&project_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
+    // `buildTeamSummaryConditions`: the project (the query's, which is the
+    // row's id) and the filters.
+    let filters = entry_filters(present(&f.user_id), f);
+    let totals: Vec<TotalRow> = time_entries::Entity::find()
+        .select_only()
+        .column(Entry::UserId)
+        .column(Entry::Billable)
+        .column_as(minutes_sum(), "minutes")
+        .column_as(count_int(), "entries")
+        .filter(filters.clone())
+        .group_by(Entry::UserId)
+        .group_by(Entry::Billable)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let entries: Vec<Value> = time_entries::Entity::find()
+        .select_only()
+        .columns([
+            Entry::Id,
+            Entry::ProjectId,
+            Entry::TaskId,
+            Entry::UserId,
+            Entry::Date,
+            Entry::StartTime,
+            Entry::EndTime,
+            Entry::Duration,
+            Entry::Description,
+            Entry::Activity,
+            Entry::Billable,
+            Entry::Status,
+        ])
+        .column_as(tasks::Column::Title, "task_title")
+        .join(
+            JoinType::LeftJoin,
+            time_entries::Entity::belongs_to(tasks::Entity)
+                .from(Entry::TaskId)
+                .to(tasks::Column::Id)
+                .into(),
+        )
+        .filter(filters)
+        .order_by_desc(Entry::Date)
+        .order_by_desc(Entry::CreatedAt)
+        .limit(u64::try_from(f.limit.unwrap_or(1000)).unwrap_or(0))
+        .into_model::<SummaryEntry>()
+        .all(db)
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<_, DbErr>>()?;
 
     // The roster first (zero-hour members included), then anyone with hours
     // who has since left the project.
@@ -854,12 +975,19 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
         }
     }
     if !off_roster.is_empty() {
-        let former: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, email from workspace_members where user_id = any($1)",
-        )
-        .bind(&off_roster)
-        .fetch_all(db)
-        .await?;
+        let former: Vec<(String, Option<String>, Option<String>)> =
+            workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::UserId)
+                .column(workspace_members::Column::Name)
+                .column(workspace_members::Column::Email)
+                .filter(
+                    workspace_members::Column::UserId
+                        .is_in(off_roster.iter().map(String::as_str)),
+                )
+                .into_tuple()
+                .all(db)
+                .await?;
         let directory: HashMap<String, (Option<String>, Option<String>)> = former
             .into_iter()
             .map(|(user, name, email)| (user, (name, email)))
@@ -912,8 +1040,7 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
     let entry_count = entries.len();
     let entries: Vec<Value> = entries
         .into_iter()
-        .map(|entry| {
-            let mut entry = js_row(entry);
+        .map(|mut entry| {
             let title = entry["taskTitle"]
                 .as_str()
                 .filter(|t| !t.is_empty())
@@ -963,29 +1090,14 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
 
 // ── Timer ───────────────────────────────────────────────────────────────────
 
-/// An `active_timers` row as Drizzle reads it.
-macro_rules! timer_json {
-    ($a:literal) => {
-        concat!(
-            "(to_jsonb(",
-            $a,
-            ") || jsonb_build_object('rate', ",
-            $a,
-            ".rate::text))"
-        )
-    };
-}
-
-async fn running_timer(db: &PgPool, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        timer_json!("a"),
-        " from active_timers a where a.user_id = $1 limit 1"
-    ))
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The caller's running timer, as Drizzle reads it.
+async fn running_timer(db: &PgPool, user_id: &str) -> Result<Option<Value>, DbErr> {
+    active_timers::Entity::find()
+        .filter(Timer::UserId.eq(user_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn timer(caller: Caller) -> Response {
@@ -1025,26 +1137,37 @@ async fn start_timer(caller: Caller, headers: HeaderMap, body: Bytes) -> Respons
                 text(&data, "taskId").as_deref(),
             )
             .await?;
-            let (now, _) = now_stamp();
-            let created: Value = sqlx::query_scalar(concat!(
-                "insert into active_timers as a (id, project_id, task_id, user_id, started_at,",
-                " description, activity, billable, rate, created_at, updated_at)",
-                " values ($1, $2, $3, $4, $5::timestamp, $6, $7, $8, $9::numeric, $5::timestamp, $5::timestamp)",
-                " returning ",
-                timer_json!("a")
-            ))
-            .bind(generate_id("timer"))
-            .bind(&project)
-            .bind(text(&data, "taskId"))
-            .bind(&user)
-            .bind(&now)
-            .bind(text(&data, "description"))
-            .bind(text(&data, "activity"))
-            .bind(data.get("billable").and_then(Value::as_bool).unwrap_or(true))
-            .bind(data.get("rate").map(js_string))
-            .fetch_one(&caller.db)
-            .await?;
-            Ok(Created(js_row(created)).into_response())
+            let at = weldsuite_db::utc_now();
+            let mut insert = insert_of(
+                active_timers::Entity,
+                vec![
+                    (Timer::Id, Expr::value(generate_id("timer"))),
+                    (Timer::ProjectId, Expr::value(project)),
+                    (Timer::TaskId, Expr::value(text(&data, "taskId"))),
+                    (Timer::UserId, Expr::value(&user)),
+                    (Timer::StartedAt, Expr::value(at)),
+                    (Timer::Description, Expr::value(text(&data, "description"))),
+                    (Timer::Activity, Expr::value(text(&data, "activity"))),
+                    (
+                        Timer::Billable,
+                        Expr::value(data.get("billable").and_then(Value::as_bool).unwrap_or(true)),
+                    ),
+                    (
+                        Timer::Rate,
+                        cast_text(data.get("rate").map(js_string), "numeric"),
+                    ),
+                    (Timer::CreatedAt, Expr::value(at)),
+                    (Timer::UpdatedAt, Expr::value(at)),
+                ],
+            )?;
+            insert.returning_all();
+            let db = orm(&caller.db);
+            let row = db
+                .query_one(&insert)
+                .await?
+                .ok_or(DbErr::RecordNotInserted)?;
+            let created = active_timers::Model::from_query_result(&row, "")?;
+            Ok(Created(row_json(created)?).into_response())
         }
         .await,
         "Failed to start timer",
@@ -1135,17 +1258,17 @@ async fn stop(
     );
     let (project, task) = resolve_timer_target(caller, stored, overrides).await?;
     // Claim the timer: exactly one request gets the row back.
-    let running: Option<Value> = sqlx::query_scalar(concat!(
-        "delete from active_timers a where a.id = $1 returning ",
-        timer_json!("a")
-    ))
-    .bind(current["id"].as_str().unwrap_or_default())
-    .fetch_optional(db)
-    .await?;
-    let Some(running) = running.map(js_row) else {
+    let claimed = active_timers::Entity::delete_many()
+        .filter(Timer::Id.eq(current["id"].as_str().unwrap_or_default()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let Some(claimed) = claimed else {
         return Err(Refusal::not_found("Running timer", user));
     };
-    let (now, now_ms) = now_stamp();
+    let running = row_json(&claimed)?;
+    let (now, now_ms, now_at) = now_stamp();
     let started = running["startedAt"].as_str().unwrap_or_default().to_owned();
     let started_ms = weldsuite_flow_domain::js::millis_of(&started).unwrap_or(now_ms);
     #[allow(clippy::cast_precision_loss)]
@@ -1167,40 +1290,36 @@ async fn stop(
     let pick =
         |key: &str| text(overrides, key).or_else(|| running[key].as_str().map(str::to_owned));
     let date = calendar_date(started_ms, text(overrides, "timeZone").as_deref())?;
-    let inserted = sqlx::query(
-        "insert into time_entries (id, project_id, task_id, user_id, date, start_time, end_time,
-             duration, description, activity, billable, rate, cost, status, created_at, updated_at)
-         values ($1, $2, $3, $4, $5::date, $6::timestamp, $7::timestamp, $8::numeric, $9, $10, $11,
-                 $12::numeric, $13::numeric, 'draft', $7::timestamp, $7::timestamp)",
-    )
-    .bind(&id)
-    .bind(&project)
-    .bind(&task)
-    .bind(user)
-    .bind(&date)
-    .bind(&started)
-    .bind(&now)
-    .bind(&duration)
-    .bind(pick("description"))
-    .bind(pick("activity"))
-    .bind(billable)
-    .bind(&rate)
-    .bind(&cost)
-    .execute(db)
-    .await;
-    if let Err(error) = inserted {
+    let entry = insert_of(
+        time_entries::Entity,
+        vec![
+            (Entry::Id, Expr::value(&id)),
+            (Entry::ProjectId, Expr::value(project.clone())),
+            (Entry::TaskId, Expr::value(task.clone())),
+            (Entry::UserId, Expr::value(user)),
+            (Entry::Date, cast_text(Some(date), "date")),
+            (
+                Entry::StartTime,
+                cast_text(Some(started.clone()), "timestamp"),
+            ),
+            (Entry::EndTime, Expr::value(now_at)),
+            (Entry::Duration, cast_text(Some(duration.clone()), "numeric")),
+            (Entry::Description, Expr::value(pick("description"))),
+            (Entry::Activity, Expr::value(pick("activity"))),
+            (Entry::Billable, Expr::value(billable)),
+            (Entry::Rate, cast_text(rate.clone(), "numeric")),
+            (Entry::Cost, cast_text(cost.clone(), "numeric")),
+            (Entry::Status, Expr::value("draft")),
+            (Entry::CreatedAt, Expr::value(now_at)),
+            (Entry::UpdatedAt, Expr::value(now_at)),
+        ],
+    )?;
+    if let Err(error) = orm(db).execute(&entry).await {
         // Keep the running time when the entry could not be written.
-        let restored = sqlx::query(
-            "insert into active_timers (id, created_at, updated_at, project_id, task_id, user_id,
-                 started_at, description, activity, billable, rate)
-             select x.id, x.created_at, x.updated_at, x.project_id, x.task_id, x.user_id,
-                    x.started_at, x.description, x.activity, x.billable, x.rate
-             from jsonb_populate_record(null::active_timers, $1) x
-             on conflict do nothing",
-        )
-        .bind(running_record(&running))
-        .execute(db)
-        .await;
+        let restored = active_timers::Entity::insert(claimed.into_active_model())
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&orm(db))
+            .await;
         if let Err(restore) = restored {
             tracing::error!(%restore, "[app-api/time-entries] restoring the timer failed");
         }
@@ -1228,36 +1347,15 @@ async fn stop(
     )
 }
 
-/// A timer row (camelCase, as read) back in its column names.
-fn running_record(running: &Value) -> Value {
-    let mut record = Map::new();
-    if let Value::Object(fields) = running {
-        for (key, value) in fields {
-            let column: String = key
-                .chars()
-                .flat_map(|ch| {
-                    if ch.is_ascii_uppercase() {
-                        vec!['_', ch.to_ascii_lowercase()]
-                    } else {
-                        vec![ch]
-                    }
-                })
-                .collect();
-            record.insert(column, value.clone());
-        }
-    }
-    Value::Object(record)
-}
-
 async fn discard_timer(caller: Caller) -> Response {
     let Some(user) = caller.user().map(str::to_owned) else {
         return ApiError::unauthorized().into_response();
     };
     reply(
         async {
-            sqlx::query("delete from active_timers where user_id = $1")
-                .bind(&user)
-                .execute(&caller.db)
+            active_timers::Entity::delete_many()
+                .filter(Timer::UserId.eq(&user))
+                .exec(&orm(&caller.db))
                 .await?;
             Ok(NoContent.into_response())
         }
@@ -1269,17 +1367,14 @@ async fn discard_timer(caller: Caller) -> Response {
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
 /// The caller's own live entry.
-async fn own_entry(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        time_entry_json!("t"),
-        " from time_entries t where t.id = $1 and t.deleted_at is null and t.user_id = $2 limit 1"
-    ))
-    .bind(id)
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+async fn own_entry(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    time_entries::Entity::find_by_id(id.to_owned())
+        .filter(Entry::DeletedAt.is_null())
+        .filter(Entry::UserId.eq(&caller.user_id))
+        .one(&orm(&caller.db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -1325,7 +1420,7 @@ async fn create_entry(
     data: &Map<String, Value>,
 ) -> Reply {
     let id = generate_id("time");
-    let (now, _) = now_stamp();
+    let (_, _, now) = now_stamp();
     let date = text(data, "date").unwrap_or_default();
     let duration = data.get("duration").cloned().unwrap_or(Value::Null);
     if let Some(violation) = daily_limit_violation(&caller.db, user, &date, &duration, None).await?
@@ -1343,37 +1438,47 @@ async fn create_entry(
         .unwrap_or(true);
     let start = optional_timestamp(data, "startTime")?;
     let end = optional_timestamp(data, "endTime")?;
-    sqlx::query(
-        "insert into time_entries (id, project_id, task_id, user_id, date, duration, description,
-             activity, billable, rate, cost, start_time, end_time, location, is_remote, status,
-             created_at, updated_at, merge_issue_id)
-         values ($1, $2, $3, $4, $5::date, $6::numeric, $7, $8, $9, $10::numeric, $11::numeric,
-                 $12::timestamp, $13::timestamp, $14, $15, 'draft', $16::timestamp, $16::timestamp,
-                 $17)",
-    )
-    .bind(&id)
-    .bind(&project)
-    .bind(&task)
-    .bind(user)
-    .bind(&date)
-    .bind(js_string(&duration))
-    .bind(text(data, "description"))
-    .bind(text(data, "activity"))
-    .bind(billable)
-    .bind(data.get("rate").map(js_string))
-    .bind(compute_cost(data.get("rate"), Some(&duration)))
-    .bind(start)
-    .bind(end)
-    .bind(text(data, "location"))
-    .bind(
-        data.get("isRemote")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
-    .bind(&now)
-    .bind(&merge_issue)
-    .execute(&caller.db)
-    .await?;
+    let entry = insert_of(
+        time_entries::Entity,
+        vec![
+            (Entry::Id, Expr::value(&id)),
+            (Entry::ProjectId, Expr::value(project.clone())),
+            (Entry::TaskId, Expr::value(task.clone())),
+            (Entry::UserId, Expr::value(user)),
+            (Entry::Date, cast_text(Some(date), "date")),
+            (
+                Entry::Duration,
+                cast_text(Some(js_string(&duration)), "numeric"),
+            ),
+            (Entry::Description, Expr::value(text(data, "description"))),
+            (Entry::Activity, Expr::value(text(data, "activity"))),
+            (Entry::Billable, Expr::value(billable)),
+            (
+                Entry::Rate,
+                cast_text(data.get("rate").map(js_string), "numeric"),
+            ),
+            (
+                Entry::Cost,
+                cast_text(compute_cost(data.get("rate"), Some(&duration)), "numeric"),
+            ),
+            (Entry::StartTime, cast_text(start, "timestamp")),
+            (Entry::EndTime, cast_text(end, "timestamp")),
+            (Entry::Location, Expr::value(text(data, "location"))),
+            (
+                Entry::IsRemote,
+                Expr::value(
+                    data.get("isRemote")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+            ),
+            (Entry::Status, Expr::value("draft")),
+            (Entry::CreatedAt, Expr::value(now)),
+            (Entry::UpdatedAt, Expr::value(now)),
+            (Entry::MergeIssueId, Expr::value(merge_issue)),
+        ],
+    )?;
+    orm(&caller.db).execute(&entry).await?;
     caller.publish(
         state,
         PROJECT_TIME_ENTRY_CREATED,
@@ -1437,6 +1542,20 @@ async fn resolve_patch_project(
     ))
 }
 
+/// The columns a PATCH copies from its body, by key.
+const ENTRY_WRITABLE: [(&str, Entry, Written); 10] = [
+    ("date", Entry::Date, Written::Cast("date")),
+    ("description", Entry::Description, Written::Text),
+    ("activity", Entry::Activity, Written::Text),
+    ("billable", Entry::Billable, Written::Cast("boolean")),
+    ("location", Entry::Location, Written::Text),
+    ("isRemote", Entry::IsRemote, Written::Cast("boolean")),
+    ("taskId", Entry::TaskId, Written::Text),
+    ("mergeIssueId", Entry::MergeIssueId, Written::Text),
+    ("duration", Entry::Duration, Written::Cast("numeric")),
+    ("rate", Entry::Rate, Written::Cast("numeric")),
+];
+
 async fn update_entry(
     state: &FlowState,
     caller: &Caller,
@@ -1472,7 +1591,7 @@ async fn update_entry(
     }
 
     // `buildTimeEntryUpdate`: only what was sent.
-    let (now, _) = now_stamp();
+    let (_, _, now) = now_stamp();
     let cost = if data.contains_key("rate") || data.contains_key("duration") {
         let rate = data
             .get("rate")
@@ -1522,45 +1641,29 @@ async fn update_entry(
             },
         );
     }
-    sqlx::query(concat!(
-        "update time_entries set updated_at = $2::timestamp,",
-        " date = case when $1::jsonb ? 'date' then ($1::jsonb->>'date')::date else date end, ",
-        set_text!("description", "description"),
-        ", ",
-        set_text!("activity", "activity"),
-        ", ",
-        set_bool!("billable", "billable"),
-        ", ",
-        set_text!("location", "location"),
-        ", ",
-        set_bool!("isRemote", "is_remote"),
-        ", ",
-        set_text!("taskId", "task_id"),
-        ", ",
-        set_text!("mergeIssueId", "merge_issue_id"),
-        ", ",
-        set_num!("duration", "duration"),
-        ", ",
-        set_num!("rate", "rate"),
-        ", start_time = case when $3 then $4::timestamp else start_time end",
-        ", end_time = case when $5 then $6::timestamp else end_time end",
-        ", cost = case when $7 then $8::numeric else cost end",
-        ", project_id = case when $9 then $10 else project_id end",
-        " where id = $11 and deleted_at is null"
-    ))
-    .bind(Value::Object(copied))
-    .bind(&now)
-    .bind(start.is_some())
-    .bind(start.flatten())
-    .bind(end.is_some())
-    .bind(end.flatten())
-    .bind(cost.is_some())
-    .bind(cost.clone().flatten())
-    .bind(resolved.is_some())
-    .bind(resolved.clone().flatten())
-    .bind(id)
-    .execute(db)
-    .await?;
+    let mut update = time_entries::Entity::update_many().col_expr(Entry::UpdatedAt, Expr::value(now));
+    for (key, column, kind) in ENTRY_WRITABLE {
+        if let Some(value) = copied.get(key) {
+            update = update.col_expr(column, written(value, kind));
+        }
+    }
+    if let Some(start) = start {
+        update = update.col_expr(Entry::StartTime, cast_text(start, "timestamp"));
+    }
+    if let Some(end) = end {
+        update = update.col_expr(Entry::EndTime, cast_text(end, "timestamp"));
+    }
+    if let Some(cost) = &cost {
+        update = update.col_expr(Entry::Cost, cast_text(cost.clone(), "numeric"));
+    }
+    if let Some(project) = &resolved {
+        update = update.col_expr(Entry::ProjectId, Expr::value(project.clone()));
+    }
+    update
+        .filter(Entry::Id.eq(id))
+        .filter(Entry::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
 
     // `costForEvent`: the recomputed cost, else the stored one.
     let event_cost = match cost.flatten() {
@@ -1631,16 +1734,7 @@ async fn reject(
 /// `reviewTimeEntry`: whoever manages the entry's project (`projects:scope:all`
 /// for an entry without one), never its author.
 async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) -> Reply {
-    let db = &caller.db;
-    let existing: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        time_entry_json!("t"),
-        " from time_entries t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(existing) = existing.map(js_row) else {
+    let Some(existing) = find_entry(&caller.db, id).await? else {
         return Err(Refusal::not_found("Time entry", id));
     };
     if let Some(denial) = review_denial(caller, &existing).await? {
@@ -1655,7 +1749,7 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
 pub(crate) async fn review_denial(
     caller: &Caller,
     existing: &Value,
-) -> Result<Option<&'static str>, sqlx::Error> {
+) -> Result<Option<&'static str>, DbErr> {
     if existing["userId"].as_str() == Some(caller.user_id.as_str()) {
         return Ok(Some("You cannot approve or reject your own time entry"));
     }
@@ -1666,17 +1760,14 @@ pub(crate) async fn review_denial(
     Ok((!allowed).then_some("Only a project manager can approve or reject time entries"))
 }
 
-/// A live time entry as `js_row` reads it.
-pub(crate) async fn find_entry(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let found: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        time_entry_json!("t"),
-        " from time_entries t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(found.map(js_row))
+/// A live time entry as Drizzle reads it.
+pub(crate) async fn find_entry(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    time_entries::Entity::find_by_id(id.to_owned())
+        .filter(Entry::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `applyTimeEntryReview(c, entry, status)`: write the status and publish the two entity events.
@@ -1686,21 +1777,22 @@ pub(crate) async fn apply_review(
     id: &str,
     existing: &Value,
     approved: bool,
-) -> Result<(), sqlx::Error> {
-    let db = &caller.db;
-    let (now, _) = now_stamp();
-    sqlx::query(
-        "update time_entries set status = $2, approved_by = $3,
-             approved_at = $4::timestamp, updated_at = $5::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(if approved { "approved" } else { "rejected" })
-    .bind(approved.then(|| caller.user_id.clone()))
-    .bind(approved.then(|| now.clone()))
-    .bind(&now)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let (_, _, now) = now_stamp();
+    time_entries::Entity::update_many()
+        .col_expr(
+            Entry::Status,
+            Expr::value(if approved { "approved" } else { "rejected" }),
+        )
+        .col_expr(
+            Entry::ApprovedBy,
+            Expr::value(approved.then(|| caller.user_id.clone())),
+        )
+        .col_expr(Entry::ApprovedAt, Expr::value(approved.then_some(now)))
+        .col_expr(Entry::UpdatedAt, Expr::value(now))
+        .filter(Entry::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
     let payload = entry_payload(id, existing);
     caller.publish(state, PROJECT_TIME_ENTRY_UPDATED, id, &payload);
     let mut reviewed = payload;
@@ -1749,13 +1841,13 @@ async fn remove(
             if existing["status"] == "approved" {
                 return Err(Refusal::conflict(APPROVED_LOCKED));
             }
-            sqlx::query(
-                "update time_entries set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now_stamp().0)
-            .execute(&caller.db)
-            .await?;
+            let (_, _, now) = now_stamp();
+            time_entries::Entity::update_many()
+                .col_expr(Entry::DeletedAt, Expr::value(now))
+                .col_expr(Entry::UpdatedAt, Expr::value(now))
+                .filter(Entry::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(&state, PROJECT_TIME_ENTRY_DELETED, &id, &entry_payload(&id, &existing));
             Ok(NoContent.into_response())
         }

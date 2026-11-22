@@ -67,11 +67,11 @@ pub(crate) async fn task_progress_for(
         return Ok(HashMap::new());
     }
     // `count(*) filter (where t.status = 'done')`: the rows the case keeps.
-    let done = Func::count(Expr::case(tasks::Column::Status.eq("done"), 1));
+    let done = Expr::from(Func::count(Expr::case(tasks::Column::Status.eq("done"), 1)));
     let rows: Vec<(String, i64, i64)> = links::Entity::find()
         .select_only()
         .column(links::Column::ToId)
-        .column_as(Func::count(Expr::col(Asterisk)), "total")
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
         .column_as(done, "done")
         .join(
             JoinType::InnerJoin,

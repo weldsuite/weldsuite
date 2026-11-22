@@ -808,11 +808,43 @@ where
     }))
 }
 
-/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`: the
-/// rows after the cursor in `created_at desc, id desc` order.
-pub(crate) fn keyset_before<C>(id: C, created_at: C, (at, cursor): &Keyset) -> sea_orm::Condition
+/// [`keyset_cursor`] of a table whose `created_at` is a `timestamptz`: the
+/// instant as JavaScript read it back (UTC, milliseconds), and the id.
+pub(crate) async fn keyset_cursor_tz<C>(
+    db: &PgPool,
+    id: C,
+    created_at: C,
+    cursor: &str,
+) -> Result<Option<(OffsetDateTime, String)>, sea_orm::DbErr>
 where
     C: sea_orm::ColumnTrait + Copy,
+    C::EntityName: sea_orm::EntityTrait,
+{
+    use sea_orm::{QueryFilter as _, QuerySelect as _};
+    let row: Option<(String, Option<OffsetDateTime>)> =
+        <C::EntityName as sea_orm::EntityTrait>::find()
+            .select_only()
+            .column(id)
+            .column(created_at)
+            .filter(id.eq(cursor))
+            .into_tuple()
+            .one(&weldsuite_db::orm(db))
+            .await?;
+    Ok(row.and_then(|(id, created)| {
+        created.map(|at| {
+            let at = weldsuite_db::utc_timestamp(at).assume_utc();
+            (at, id)
+        })
+    }))
+}
+
+/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`: the
+/// rows after the cursor (of [`keyset_cursor`] or [`keyset_cursor_tz`]) in
+/// `created_at desc, id desc` order.
+pub(crate) fn keyset_before<C, T>(id: C, created_at: C, (at, cursor): &(T, String)) -> sea_orm::Condition
+where
+    C: sea_orm::ColumnTrait + Copy,
+    T: Into<sea_orm::Value> + Copy,
 {
     sea_orm::Condition::any()
         .add(created_at.lt(*at))
@@ -825,15 +857,15 @@ where
 
 /// A model as the routes return the row: the entity serializes as Drizzle
 /// returned it.
-pub(crate) fn json_of<M: serde::Serialize>(model: M) -> Result<Value, sea_orm::DbErr> {
+pub(crate) fn row_json<M: serde::Serialize>(model: M) -> Result<Value, sea_orm::DbErr> {
     serde_json::to_value(model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
 }
 
-/// Models as [`json_of`] writes each.
+/// Models as [`row_json`] writes each.
 pub(crate) fn json_rows<M: serde::Serialize>(
     models: Vec<M>,
 ) -> Result<Vec<Value>, sea_orm::DbErr> {
-    models.into_iter().map(json_of).collect()
+    models.into_iter().map(row_json).collect()
 }
 
 /// `limit + 1` as Postgres takes it for a page: a negative `LIMIT` fails the

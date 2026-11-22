@@ -9,20 +9,31 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_WEBHOOK_CREATED, WORKFLOW_WEBHOOK_DELETED, WORKFLOW_WEBHOOK_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflow_webhooks::{self, Column};
+use weldsuite_schema::tenant::{workflow_executions, workflow_triggers, workflows};
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::mvp::webhook_trigger_ids;
 use crate::sync::{SyncContext, deregister_owner, register_owner, webhook_secret};
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -93,15 +104,60 @@ fn view(
     webhook
 }
 
-const JOINED: &str = "jsonb_build_object('webhook', to_jsonb(t), 'name', w.name, 'status', w.status, 'triggers', w.triggers)";
+/// A row as Drizzle returned it.
+fn js<M: Serialize>(model: M) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
 
-fn split(row: &Value) -> (Value, Value, Value, Value) {
-    (
-        js_row(row["webhook"].clone()),
-        row["name"].clone(),
-        row["status"].clone(),
-        row["triggers"].clone(),
-    )
+/// `leftJoin(workflows, eq(workflowWebhooks.workflowId, workflows.id))`.
+fn workflow() -> RelationDef {
+    workflow_webhooks::Entity::belongs_to(workflows::Entity)
+        .from(Column::WorkflowId)
+        .to(workflows::Column::Id)
+        .into()
+}
+
+/// A webhook with its workflow's name, status and triggers.
+#[derive(FromQueryResult)]
+struct Joined {
+    #[sea_orm(nested)]
+    webhook: workflow_webhooks::Model,
+    workflow_name: Option<String>,
+    workflow_status: Option<String>,
+    workflow_triggers: Option<Value>,
+}
+
+impl Joined {
+    fn query() -> sea_orm::Select<workflow_webhooks::Entity> {
+        workflow_webhooks::Entity::find()
+            .column_as(workflows::Column::Name, "workflow_name")
+            .column_as(workflows::Column::Status, "workflow_status")
+            .column_as(workflows::Column::Triggers, "workflow_triggers")
+            .join(JoinType::LeftJoin, workflow())
+    }
+
+    /// The webhook as Drizzle read it, the workflow's name, status and
+    /// triggers (null without one).
+    fn split(self) -> (Value, Value, Value, Value) {
+        (
+            js(self.webhook),
+            json!(self.workflow_name),
+            json!(self.workflow_status),
+            self.workflow_triggers.unwrap_or(Value::Null),
+        )
+    }
+}
+
+/// The list's filters: not deleted, the `workflowId` and `isEnabled` sent.
+fn filtered(workflow_id: Option<&str>, enabled: Option<bool>) -> Condition {
+    let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(workflow_id) = workflow_id {
+        filter = filter.add(Column::WorkflowId.eq(workflow_id));
+    }
+    if let Some(enabled) = enabled {
+        filter = filter.add(Column::IsEnabled.eq(enabled));
+    }
+    filter
 }
 
 async fn list(
@@ -114,38 +170,34 @@ async fn list(
     let workflow_id = query_truthy(query, "workflowId");
     let enabled = query_param(query, "isEnabled").map(|v| v == "true");
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.workflow_id = $1)
-        and ($2::boolean is null or t.is_enabled = $2)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {JOINED} from workflow_webhooks t left join workflows w on t.workflow_id = w.id
-         where {FILTER} and ($3::text is null or t.id < $3) order by t.id desc limit $4"
-    )))
-    .bind(&workflow_id)
-    .bind(enabled)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_webhooks t where {FILTER}"
-    )))
-    .bind(&workflow_id)
-    .bind(enabled)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let mut rows = Joined::query().filter(filtered(workflow_id.as_deref(), enabled));
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .into_model::<Joined>()
+        .all(&db)
+        .await;
+    let count = workflow_webhooks::Entity::find()
+        .filter(filtered(workflow_id.as_deref(), enabled))
+        .count(&db)
+        .await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
             let base = caller.overrides.public_api_base(&state);
-            let (rows, has_more) = page(rows, limit);
             let data: Vec<Value> = rows
                 .into_iter()
                 .map(|row| {
-                    let (webhook, name, status, triggers) = split(&row);
+                    let (webhook, name, status, triggers) = row.split();
                     view(webhook, &name, &status, Some(&triggers), &base)
                 })
                 .collect();
+            let (data, has_more) = page(data, limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow webhooks"),
     }
@@ -157,26 +209,30 @@ async fn for_workflow(
     Path(workflow_id): Path<String>,
 ) -> Response {
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_webhooks t
-             where t.workflow_id = $1 and t.deleted_at is null order by t.id desc",
-        )
-        .bind(&workflow_id)
-        .fetch_all(&caller.db)
-        .await?;
-        let triggers: Option<Value> = sqlx::query_scalar(
-            "select coalesce(triggers, 'null'::jsonb) from workflows where id = $1 limit 1",
-        )
-        .bind(&workflow_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let db = orm(&caller.db);
+        let rows = workflow_webhooks::Entity::find()
+            .filter(Column::WorkflowId.eq(&workflow_id))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_desc(Column::Id)
+            .all(&db)
+            .await?;
+        // `coalesce(triggers, 'null')`: null for a workflow without them.
+        let triggers: Option<Option<Value>> = workflows::Entity::find()
+            .select_only()
+            .column(workflows::Column::Triggers)
+            .filter(workflows::Column::Id.eq(&workflow_id))
+            .limit(1)
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let triggers = triggers.map(|t| t.unwrap_or(Value::Null));
+        let rows: Vec<Value> = rows.into_iter().map(js).collect();
         let webhook = rows
             .iter()
             .find(|row| is_managed(row, triggers.as_ref()))
             .or_else(|| rows.first());
         let Some(webhook) = webhook else {
-            return Ok::<_, sqlx::Error>(Data(Value::Null).into_response());
+            return Ok::<_, DbErr>(Data(Value::Null).into_response());
         };
         let external = match webhook["externalUrl"].as_str().filter(|u| !u.is_empty()) {
             Some(url) => url.to_owned(),
@@ -206,16 +262,15 @@ async fn get_one(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {JOINED} from workflow_webhooks t left join workflows w on t.workflow_id = w.id
-         where t.id = $1 and t.deleted_at is null limit 1"
-    )))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = Joined::query()
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .into_model::<Joined>()
+        .one(&orm(&caller.db))
+        .await;
     match row {
         Ok(Some(row)) => {
-            let (webhook, name, status, triggers) = split(&row);
+            let (webhook, name, status, triggers) = row.split();
             let base = caller.overrides.public_api_base(&state);
             Data(view(webhook, &name, &status, Some(&triggers), &base)).into_response()
         }
@@ -224,14 +279,24 @@ async fn get_one(
     }
 }
 
-async fn webhook_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_webhooks t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn webhook_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workflow_webhooks::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(js))
+}
+
+/// A run the webhook started, as `listWebhookEvents` selects it.
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Event {
+    id: String,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    started_at: Option<PrimitiveDateTime>,
+    status: String,
+    error_message: Option<String>,
+    source_ip: Option<String>,
 }
 
 async fn events(caller: Caller, Path(id): Path<String>) -> Response {
@@ -239,20 +304,30 @@ async fn events(caller: Caller, Path(id): Path<String>) -> Response {
         let Some(webhook) = webhook_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Webhook", &id));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', e.id, 'startedAt', e.started_at, 'status', e.status,
-                    'errorMessage', e.error->>'message', 'sourceIp', e.trigger_data->>'sourceIp')
-             from workflow_executions e
-             where e.workflow_id = $1 and e.trigger_type = 'webhook' and e.trigger_data->>'webhookId' = $2
-             order by e.started_at desc limit 50",
-        )
-        .bind(webhook["workflowId"].as_str())
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
+        use workflow_executions::Column as Execution;
+        // `column->>'key'`.
+        let field = |column: Execution, key: &str| {
+            pg::PgExpr::cast_json_field(Expr::col((workflow_executions::Entity, column)), key)
+        };
+        let rows = workflow_executions::Entity::find()
+            .select_only()
+            .columns([Execution::Id, Execution::StartedAt, Execution::Status])
+            .column_as(field(Execution::Error, "message"), "error_message")
+            .column_as(field(Execution::TriggerData, "sourceIp"), "source_ip")
+            .filter(Execution::WorkflowId.eq(webhook["workflowId"].as_str()))
+            .filter(Execution::TriggerType.eq("webhook"))
+            .filter(sea_orm::ExprTrait::eq(
+                field(Execution::TriggerData, "webhookId"),
+                id.as_str(),
+            ))
+            .order_by_desc(Execution::StartedAt)
+            .limit(50)
+            .into_model::<Event>()
+            .all(&orm(&caller.db))
+            .await?;
         let events: Vec<Value> = rows
             .into_iter()
-            .map(js_row)
+            .map(js)
             .map(|e| {
                 let mut out = Map::new();
                 out.insert("id".into(), e["id"].clone());
@@ -273,12 +348,16 @@ async fn events(caller: Caller, Path(id): Path<String>) -> Response {
         .unwrap_or_else(|refusal: Refusal| refusal.respond("Failed to fetch webhook events"))
 }
 
-async fn workflow_exists(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from workflows where id = $1 and deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+async fn workflow_exists(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Id)
+        .filter(workflows::Column::Id.eq(id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -351,28 +430,26 @@ async fn create_route(
         let id = generate_id("wh");
         let url = format!("/api/workflows/webhook/{id}");
         let ctx = SyncContext::for_caller(&caller, &state);
-        let stamp = now();
-        sqlx::query(
-            "insert into workflow_webhooks
-                (id, workflow_id, trigger_id, name, description, url, external_url, secret,
-                 validate_signature, signature_header, allowed_methods, ip_whitelist, is_enabled,
-                 created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13::timestamp, $13::timestamp)",
-        )
-        .bind(&id)
-        .bind(&workflow_id)
-        .bind(&trigger_id)
-        .bind(&name)
-        .bind(&description)
-        .bind(&url)
-        .bind(format!("{}{url}", ctx.public_api_base))
-        .bind(webhook_secret())
-        .bind(validate_signature)
-        .bind(&header)
-        .bind(json!(methods))
-        .bind(whitelist.map(|w| json!(w)))
-        .bind(&stamp)
-        .execute(&caller.db)
+        let stamp = utc_now();
+        workflow_webhooks::Entity::insert(workflow_webhooks::ActiveModel {
+            id: Set(id.clone()),
+            workflow_id: Set(workflow_id.clone()),
+            trigger_id: Set(trigger_id),
+            name: Set(name),
+            description: Set(description),
+            url: Set(Some(url.clone())),
+            external_url: Set(Some(format!("{}{url}", ctx.public_api_base))),
+            secret: Set(Some(webhook_secret())),
+            validate_signature: Set(Some(validate_signature)),
+            signature_header: Set(Some(header)),
+            allowed_methods: Set(Some(json!(methods))),
+            ip_whitelist: Set(whitelist.map(|w| json!(w))),
+            is_enabled: Set(true),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         register_owner(&ctx, &id)
             .await
@@ -418,49 +495,52 @@ async fn create_trigger(
         let secret = webhook_secret();
         let url = format!("/api/workflows/webhook/{webhook_id}");
         let ctx = SyncContext::for_caller(&caller, &state);
-        let stamp = now();
-        sqlx::query(
-            "insert into workflow_triggers (id, workflow_id, name, category, config, is_enabled, created_at, updated_at)
-             values ($1, $2, 'Webhook Trigger', 'webhook', $3, true, $4::timestamp, $4::timestamp)",
-        )
-        .bind(&trigger_id)
-        .bind(&workflow_id)
-        .bind(json!({ "method": "POST", "validateSignature": false }))
-        .bind(&stamp)
-        .execute(&caller.db)
+        let stamp = utc_now();
+        let db = orm(&caller.db);
+        workflow_triggers::Entity::insert(workflow_triggers::ActiveModel {
+            id: Set(trigger_id.clone()),
+            workflow_id: Set(workflow_id.clone()),
+            name: Set("Webhook Trigger".to_owned()),
+            category: Set("webhook".to_owned()),
+            config: Set(json!({ "method": "POST", "validateSignature": false })),
+            is_enabled: Set(true),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
-        sqlx::query(
-            "insert into workflow_webhooks
-                (id, workflow_id, trigger_id, name, url, external_url, secret, validate_signature,
-                 signature_header, allowed_methods, is_enabled, created_at, updated_at)
-             values ($1, $2, $3, 'Webhook', $4, $5, $6, false, 'x-webhook-signature', '[\"POST\"]'::jsonb, true,
-                     $7::timestamp, $7::timestamp)",
-        )
-        .bind(&webhook_id)
-        .bind(&workflow_id)
-        .bind(&trigger_id)
-        .bind(&url)
-        .bind(format!("{}{url}", ctx.public_api_base))
-        .bind(&secret)
-        .bind(&stamp)
-        .execute(&caller.db)
+        workflow_webhooks::Entity::insert(workflow_webhooks::ActiveModel {
+            id: Set(webhook_id.clone()),
+            workflow_id: Set(workflow_id.clone()),
+            trigger_id: Set(Some(trigger_id.clone())),
+            name: Set("Webhook".to_owned()),
+            url: Set(Some(url.clone())),
+            external_url: Set(Some(format!("{}{url}", ctx.public_api_base))),
+            secret: Set(Some(secret.clone())),
+            validate_signature: Set(Some(false)),
+            signature_header: Set(Some("x-webhook-signature".to_owned())),
+            allowed_methods: Set(Some(json!(["POST"]))),
+            is_enabled: Set(true),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         register_owner(&ctx, &webhook_id)
             .await
             .map_err(|error| registry_refusal(&error, "Failed to create webhook trigger"))?;
-        let trigger: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from workflow_triggers t where t.id = $1 limit 1",
-        )
-        .bind(&trigger_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let trigger = workflow_triggers::Entity::find_by_id(trigger_id.clone())
+            .one(&db)
+            .await?;
         caller.publish(
             &state,
             WORKFLOW_WEBHOOK_CREATED,
             &webhook_id,
             &json!({ "id": webhook_id, "workflowId": workflow_id, "triggerId": trigger_id }),
         );
-        let mut body = trigger.map_or_else(|| json!({}), js_row);
+        let mut body = trigger.map_or_else(|| json!({}), js);
         if let Value::Object(map) = &mut body {
             map.insert("webhookId".into(), json!(webhook_id));
             map.insert("webhookUrl".into(), json!(url));
@@ -506,35 +586,45 @@ async fn update_route(
         let Some(existing) = webhook_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Webhook", &id));
         };
-        sqlx::query(
-            "update workflow_webhooks set updated_at = $2::timestamp,
-                name = case when $3 then $4 else name end,
-                description = case when $5 then $6 else description end,
-                validate_signature = case when $7 then $8 else validate_signature end,
-                signature_header = case when $9 then $10 else signature_header end,
-                allowed_methods = case when $11 then $12 else allowed_methods end,
-                ip_whitelist = case when $13 then $14 else ip_whitelist end,
-                is_enabled = case when $15 then $16 else is_enabled end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(!name.is_absent())
-        .bind(name.as_set())
-        .bind(!description.is_absent())
-        .bind(description.as_set())
-        .bind(!validate_signature.is_absent())
-        .bind(validate_signature.as_set().copied())
-        .bind(!header.is_absent())
-        .bind(header.as_set())
-        .bind(!methods.is_absent())
-        .bind(methods.as_set().map(|m| json!(m)))
-        .bind(!whitelist.is_absent())
-        .bind(whitelist.as_set().map(|w| json!(w)))
-        .bind(!enabled.is_absent())
-        .bind(enabled.as_set().copied())
-        .execute(&caller.db)
-        .await?;
+        let mut update = workflow_webhooks::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        if !name.is_absent() {
+            update = update.col_expr(Column::Name, Expr::value(name.as_set().cloned()));
+        }
+        if !description.is_absent() {
+            update = update.col_expr(
+                Column::Description,
+                Expr::value(description.as_set().cloned()),
+            );
+        }
+        if !validate_signature.is_absent() {
+            update = update.col_expr(
+                Column::ValidateSignature,
+                Expr::value(validate_signature.as_set().copied()),
+            );
+        }
+        if !header.is_absent() {
+            update = update.col_expr(Column::SignatureHeader, Expr::value(header.as_set().cloned()));
+        }
+        if !methods.is_absent() {
+            update = update.col_expr(
+                Column::AllowedMethods,
+                Expr::value(methods.as_set().map(|m| json!(m))),
+            );
+        }
+        if !whitelist.is_absent() {
+            update = update.col_expr(
+                Column::IpWhitelist,
+                Expr::value(whitelist.as_set().map(|w| json!(w))),
+            );
+        }
+        if !enabled.is_absent() {
+            update = update.col_expr(Column::IsEnabled, Expr::value(enabled.as_set().copied()));
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let mut webhook = webhook_row(&caller.db, &id).await?.unwrap_or(Value::Null);
         caller.publish(
             &state,
@@ -579,17 +669,16 @@ async fn rotate_secret(
         let Some(existing) = webhook_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Webhook", &id));
         };
-        sqlx::query(
-            "update workflow_webhooks set secret = $2, updated_at = $3::timestamp,
-                validate_signature = case when $4 then true else validate_signature end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(webhook_secret())
-        .bind(now())
-        .bind(enable == Some(true))
-        .execute(&caller.db)
-        .await?;
+        let mut update = workflow_webhooks::Entity::update_many()
+            .col_expr(Column::Secret, Expr::value(webhook_secret()))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        if enable == Some(true) {
+            update = update.col_expr(Column::ValidateSignature, Expr::value(true));
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let webhook = webhook_row(&caller.db, &id).await?.unwrap_or(Value::Null);
         caller.publish(
             &state,
@@ -610,30 +699,29 @@ async fn delete(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('webhook', to_jsonb(t), 'triggers', w.triggers)
-             from workflow_webhooks t left join workflows w on t.workflow_id = w.id
-             where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row = Joined::query()
+            .filter(Column::Id.eq(&id))
+            .filter(Column::DeletedAt.is_null())
+            .into_model::<Joined>()
+            .one(&orm(&caller.db))
+            .await?;
         let Some(row) = row else {
             return Err(Refusal::not_found("Webhook", &id));
         };
-        let existing = js_row(row["webhook"].clone());
-        if is_managed(&existing, row.get("triggers")) {
+        let (existing, _, _, triggers) = row.split();
+        if is_managed(&existing, Some(&triggers)) {
             return Err(ApiError::conflict(
                 "This webhook belongs to a workflow's webhook trigger. Remove the trigger in the workflow editor instead.",
             )
             .with_details(json!({ "reason": "managed_by_trigger", "workflowId": existing["workflowId"] }))
             .into());
         }
-        let stamp = now();
-        sqlx::query("update workflow_webhooks set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&stamp)
-            .execute(&caller.db)
+        let stamp = utc_now();
+        workflow_webhooks::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         let ctx = SyncContext::for_caller(&caller, &state);
         deregister_owner(&ctx, &id)

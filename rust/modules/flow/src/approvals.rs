@@ -49,9 +49,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{FLOW_APPROVAL_DELEGATED, PROJECT_UPDATED};
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_flow_domain::approval_views::{
     SPONSOR_NOT_MEMBER, TIMESHEET_NO_PERMISSION, TIMESHEET_ONLY_APPROVE_OR_DECLINE,
     delegation_event_data, delegation_input_error, present_delegation, present_review_approver,
@@ -64,16 +68,20 @@ use weldsuite_flow_domain::approvals::{
 use weldsuite_flow_domain::js::{js_date_millis, parse_int};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    flow_approval_delegations as delegations, flow_approvals as approvals, project_members,
+    projects,
+};
 
 use self::announce::{
     AftermathInfo, ApprovalAction, SubjectLabel, announce_approvals_cancelled,
     announce_steps_activated, publish_approval, run_aftermath,
 };
 use self::body::{page_query, read_decide, read_delegation, read_sponsor};
-use self::store::{ListFilters, MineOptions};
+use self::store::{ListFilters, MineOptions, approval_rows, at_millis};
 use crate::raid_body::parse_body;
 use crate::time_entries::{apply_review, find_entry, review_denial};
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, paged, reply};
+use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, paged, reply, row_json};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_EDIT_DENIED: &str =
@@ -225,11 +233,12 @@ async fn done(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 // ── Delegations ─────────────────────────────────────────────────────────────
 
-fn delegation_rows(values: Vec<Value>) -> Vec<DelegationRow> {
-    values
-        .into_iter()
-        .filter_map(|v| DelegationRow::from_json(&js_row(v)))
-        .collect()
+fn delegation_rows(models: Vec<delegations::Model>) -> Result<Vec<DelegationRow>, DbErr> {
+    let mut rows = Vec::with_capacity(models.len());
+    for model in models {
+        rows.extend(DelegationRow::from_json(&row_json(model)?));
+    }
+    Ok(rows)
 }
 
 fn iso(ms: i64) -> String {
@@ -239,20 +248,18 @@ fn iso(ms: i64) -> String {
 async fn delegations(caller: Caller) -> Response {
     reply(
         async {
-            let now = iso(now_ms());
+            let now = at_millis(now_ms())?;
             let mut lists = Vec::new();
-            for column in ["member_id", "delegate_id"] {
-                let sql = format!(
-                    "select to_jsonb(d) from flow_approval_delegations d where d.{column} = $1
-                     and d.deleted_at is null and d.ends_at > $2::timestamptz
-                     order by d.starts_at asc, d.id asc"
-                );
-                let found: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-                    .bind(&caller.user_id)
-                    .bind(&now)
-                    .fetch_all(&caller.db)
+            for column in [delegations::Column::MemberId, delegations::Column::DelegateId] {
+                let found = delegations::Entity::find()
+                    .filter(column.eq(&caller.user_id))
+                    .filter(delegations::Column::DeletedAt.is_null())
+                    .filter(delegations::Column::EndsAt.gt(now))
+                    .order_by_asc(delegations::Column::StartsAt)
+                    .order_by_asc(delegations::Column::Id)
+                    .all(&orm(&caller.db))
                     .await?;
-                lists.push(delegation_rows(found));
+                lists.push(delegation_rows(found)?);
             }
             Ok(Data(json!({
                 "given": lists[0].iter().map(present_delegation).collect::<Vec<_>>(),
@@ -293,21 +300,21 @@ async fn create_delegation(
     }
     reply(
         async {
-            let row: Option<Value> = sqlx::query_scalar(
-                "insert into flow_approval_delegations (id, member_id, delegate_id, starts_at, ends_at,
-                     created_by, created_at, updated_at)
-                 values ($1, $2, $3, $4::timestamptz, $5::timestamptz, $2, $6::timestamptz, $6::timestamptz)
-                 returning to_jsonb(flow_approval_delegations.*)",
-            )
-            .bind(generate_id("apd"))
-            .bind(&caller.user_id)
-            .bind(&delegate)
-            .bind(iso(starts_ms))
-            .bind(iso(ends_ms))
-            .bind(iso(now))
-            .fetch_optional(&caller.db)
+            let created = at_millis(now)?;
+            let row = delegations::Entity::insert(delegations::ActiveModel {
+                id: Set(generate_id("apd")),
+                member_id: Set(caller.user_id.clone()),
+                delegate_id: Set(delegate.clone()),
+                starts_at: Set(at_millis(starts_ms)?),
+                ends_at: Set(at_millis(ends_ms)?),
+                created_by: Set(caller.user_id.clone()),
+                created_at: Set(created),
+                updated_at: Set(created),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(&caller.db))
             .await?;
-            let Some(row) = row.and_then(|v| DelegationRow::from_json(&js_row(v))) else {
+            let Some(row) = DelegationRow::from_json(&row_json(row)?) else {
                 return Err(Refusal::Internal("the delegation is missing".to_owned()));
             };
             caller.publish(&state, FLOW_APPROVAL_DELEGATED, &row.id, &delegation_event_data(&row, false));
@@ -325,25 +332,27 @@ async fn end_delegation(
 ) -> Response {
     reply(
         async {
-            let found: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(d) from flow_approval_delegations d
-                 where d.id = $1 and d.member_id = $2 and d.deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(row) = found.and_then(|v| DelegationRow::from_json(&js_row(v))) else {
+            let db = orm(&caller.db);
+            let found = delegations::Entity::find_by_id(id.clone())
+                .filter(delegations::Column::MemberId.eq(&caller.user_id))
+                .filter(delegations::Column::DeletedAt.is_null())
+                .one(&db)
+                .await?;
+            let Some(row) = found
+                .map(row_json)
+                .transpose()?
+                .and_then(|v| DelegationRow::from_json(&v))
+            else {
                 return Err(Refusal::not_found("Delegation", &id));
             };
-            sqlx::query(
-                "update flow_approval_delegations set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(iso(now_ms()))
-            .execute(&caller.db)
-            .await?;
+            let ended = at_millis(now_ms())?;
+            delegations::Entity::update_many()
+                .col_expr(delegations::Column::DeletedAt, Expr::value(ended))
+                .col_expr(delegations::Column::UpdatedAt, Expr::value(ended))
+                .filter(delegations::Column::Id.eq(&id))
+                .filter(delegations::Column::DeletedAt.is_null())
+                .exec(&db)
+                .await?;
             caller.publish(&state, FLOW_APPROVAL_DELEGATED, &id, &delegation_event_data(&row, true));
             Ok(NoContent.into_response())
         }
@@ -354,34 +363,31 @@ async fn end_delegation(
 
 // ── Sponsor ─────────────────────────────────────────────────────────────────
 
-/// `findLiveProject(db, projectId)`: the project as `js_row` reads it.
-pub(crate) async fn find_live_project(
-    db: &sqlx::PgPool,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        project_json!("p"),
-        " from projects p where p.id = $1 and p.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// `findLiveProject(db, projectId)`: the project as Drizzle reads it.
+pub(crate) async fn find_live_project(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    projects::Entity::find_by_id(id.to_owned())
+        .filter(projects::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `projectMemberIds(db, projectId, managerId)`: the manager and the active members.
 pub(crate) async fn project_member_ids(
-    db: &sqlx::PgPool,
+    db: &PgPool,
     project_id: &str,
     manager: Option<&str>,
-) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select user_id from project_members where project_id = $1 and is_active = true and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<std::collections::HashSet<String>, DbErr> {
+    let ids: Vec<String> = project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::UserId)
+        .filter(project_members::Column::ProjectId.eq(project_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut set: std::collections::HashSet<String> = ids.into_iter().collect();
     if let Some(manager) = manager.filter(|m| !m.is_empty()) {
         set.insert(manager.to_owned());
@@ -394,7 +400,7 @@ pub(crate) async fn publish_project_updated(
     state: &FlowState,
     caller: &Caller,
     project_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if let Some(Value::Object(fields)) = find_live_project(&caller.db, project_id).await? {
         caller.publish(
             state,
@@ -438,21 +444,36 @@ async fn set_sponsor(
                     return Err(Refusal::bad_request(SPONSOR_NOT_MEMBER));
                 }
             }
-            sqlx::query(
-                "update projects set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('sponsorId', $2::text),
-                     updated_at = $3::timestamp where id = $1 and deleted_at is null",
-            )
-            .bind(&project_id)
-            .bind(&sponsor)
-            .bind(crate::now())
-            .execute(&caller.db)
-            .await?;
+            set_sponsor_id(&caller.db, &project_id, sponsor.as_deref()).await?;
             publish_project_updated(&state, &caller, &project_id).await?;
             Ok(Data(json!({"projectId": project_id, "sponsorId": sponsor})).into_response())
         }
         .await,
         "Failed to set the sponsor",
     )
+}
+
+/// `settings = coalesce(settings, '{}') || { sponsorId }` and `updatedAt` of
+/// the live project.
+async fn set_sponsor_id(db: &PgPool, project_id: &str, sponsor: Option<&str>) -> Result<(), DbErr> {
+    let settings = Func::coalesce([
+        Expr::col((projects::Entity, projects::Column::Settings)),
+        Expr::val(json!({})),
+    ]);
+    projects::Entity::update_many()
+        .col_expr(
+            projects::Column::Settings,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::from(settings),
+                Expr::val(json!({ "sponsorId": sponsor })),
+            ),
+        )
+        .col_expr(projects::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 // ── Answer a review ─────────────────────────────────────────────────────────
@@ -488,13 +509,14 @@ async fn decide_review(
     note: Option<String>,
 ) -> Reply {
     let db = &caller.db;
-    let found: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a where a.id = $1 and a.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = found.and_then(|v| ApprovalRow::from_json(&js_row(v))) else {
+    let found = approvals::Entity::find_by_id(id.to_owned())
+        .filter(approvals::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(row) = approval_rows(found.into_iter().collect())?
+        .into_iter()
+        .next()
+    else {
         return decide_time_entry(state, caller, id, decision, note.as_deref()).await;
     };
 
@@ -559,9 +581,11 @@ pub(crate) async fn decide_and_announce(
     actor: ApprovalActor,
     decision: &str,
     note: Option<String>,
-) -> Result<DecideApprovalResult, sqlx::Error> {
+) -> Result<DecideApprovalResult, DbErr> {
     let db = &caller.db;
-    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id).await?;
+    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id)
+        .await
+        .map_err(orm_error)?;
     let result = decide_approval(
         db,
         &DecideApprovalInput {
@@ -572,7 +596,8 @@ pub(crate) async fn decide_and_announce(
             now_ms: now_ms(),
         },
     )
-    .await?;
+    .await
+    .map_err(orm_error)?;
     let DecideApprovalResult::Decided(decided) = &result else {
         return Ok(result);
     };

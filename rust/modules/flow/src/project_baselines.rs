@@ -19,23 +19,30 @@ use axum::Router;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::PROJECT_BASELINE_CREATED;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::baselines::{
     baseline_event_data, baseline_is_empty, build_snapshot, compare_snapshots, find_baseline,
     latest_baseline, load_plan_state, messages, present_baseline,
 };
 use weldsuite_flow_domain::changes::{change_code, list_pending_changes};
-use weldsuite_flow_domain::js::{iso_from_millis, js_date, parse_int};
+use weldsuite_flow_domain::js::{js_date, parse_int};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_baselines, project_change_requests};
 
 use crate::approvals::find_live_project;
 use crate::raid_body::read_query;
 use crate::{
-    Caller, FlowState, Refusal, access_scope, keyset_cursor, now_ms, outside, page, paged, reply,
+    Caller, FlowState, Refusal, access_scope, fetch_limit, in_accessible, json_rows,
+    keyset_before, keyset_cursor_tz, now_ms, outside, page, paged, reply,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -64,7 +71,8 @@ where
 async fn changes_of(
     db: &PgPool,
     rows: &[Value],
-) -> Result<HashMap<String, (String, String)>, sqlx::Error> {
+) -> Result<HashMap<String, (String, String)>, DbErr> {
+    use project_change_requests::Column;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| r["changeRequestId"].as_str().map(str::to_owned))
@@ -73,11 +81,13 @@ async fn changes_of(
     if ids.is_empty() {
         return Ok(out);
     }
-    let found: Vec<(String, i32, String)> =
-        sqlx::query_as("select id, number, title from project_change_requests where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let found: Vec<(String, i32, String)> = project_change_requests::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Number, Column::Title])
+        .filter(Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for row in rows {
         let change = row["changeRequestId"]
             .as_str()
@@ -92,7 +102,7 @@ async fn changes_of(
     Ok(out)
 }
 
-async fn present_one(db: &PgPool, row: &Value) -> Result<Value, sqlx::Error> {
+async fn present_one(db: &PgPool, row: &Value) -> Result<Value, DbErr> {
     let changes = changes_of(db, std::slice::from_ref(row)).await?;
     let change = row["id"].as_str().and_then(|id| changes.get(id));
     Ok(present_baseline(
@@ -135,9 +145,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &cursor_id {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_baselines where id = $1 limit 1",
+            project_baselines::Column::Id,
+            project_baselines::Column::CreatedAt,
             cursor,
         )
         .await
@@ -149,34 +160,27 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
-            let filter = concat!(
-                "($1::text is null or t.project_id = $1) and ($1::text is not null or ",
-                in_accessible!("t.project_id", "$2", "$3"),
-                ")"
-            );
-            let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select to_jsonb(t) from project_baselines t where {filter}
-                 and ($4::timestamptz is null or t.created_at < $4::timestamptz
-                      or (t.created_at = $4::timestamptz and t.id < $5))
-                 order by t.created_at desc, t.id desc limit $6"
-            )))
-            .bind(project_id.as_deref())
-            .bind(all)
-            .bind(&ids)
-            .bind(cursor.as_ref().map(|c| c.0.as_str()))
-            .bind(cursor.as_ref().map(|c| c.1.as_str()))
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?;
-            let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select count(*)::int8 from project_baselines t where {filter}"
-            )))
-            .bind(project_id.as_deref())
-            .bind(all)
-            .bind(&ids)
-            .fetch_one(&caller.db)
-            .await?;
-            let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+            use project_baselines::Column;
+            let filter = match project_id.as_deref() {
+                Some(project_id) => sea_orm::Condition::all().add(Column::ProjectId.eq(project_id)),
+                None => in_accessible(Column::ProjectId, &(all, ids)),
+            };
+            let mut rows = project_baselines::Entity::find().filter(filter.clone());
+            if let Some(cursor) = &cursor {
+                rows = rows.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+            }
+            let rows = rows
+                .order_by_desc(Column::CreatedAt)
+                .order_by_desc(Column::Id)
+                .limit(fetch_limit(limit)?)
+                .all(&orm(&caller.db))
+                .await?;
+            let total = project_baselines::Entity::find()
+                .filter(filter)
+                .count(&orm(&caller.db))
+                .await?;
+            let total = i64::try_from(total).unwrap_or(i64::MAX);
+            let (rows, has_more, next) = page(json_rows(rows)?, limit);
             let changes = changes_of(&caller.db, &rows).await?;
             let items = rows
                 .iter()
@@ -390,18 +394,20 @@ async fn sign_off(
                 return Err(Refusal::bad_request(messages::NOTHING_TO_BASELINE));
             }
             let id = generate_id("bsl");
-            let row = json!({
-                "id": id, "project_id": project_id, "version": 1, "change_request_id": null,
-                "snapshot": build_snapshot(&plan), "created_by": caller.user_id,
-                "created_at": iso_from_millis(now_ms()),
-            });
-            sqlx::query(
-                "insert into project_baselines (id, project_id, version, change_request_id, snapshot, created_by, created_at)
-                 select p.id, p.project_id, p.version, p.change_request_id, p.snapshot, p.created_by, p.created_at
-                 from jsonb_populate_record(null::project_baselines, $1) p",
-            )
-            .bind(row)
-            .execute(db)
+            // `new Date()`: the instant to the millisecond.
+            let created_at =
+                OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms()) * 1_000_000)
+                    .map_err(|error| Refusal::Internal(error.to_string()))?;
+            project_baselines::Entity::insert(project_baselines::ActiveModel {
+                id: Set(id.clone()),
+                project_id: Set(project_id.clone()),
+                version: Set(1),
+                change_request_id: Set(None),
+                snapshot: Set(build_snapshot(&plan)),
+                created_by: Set(caller.user_id.clone()),
+                created_at: Set(created_at),
+            })
+            .exec_without_returning(&orm(db))
             .await?;
             let Some(created) = find_baseline(db, &id).await? else {
                 return Err(Refusal::Internal("the baseline is missing".to_owned()));

@@ -438,9 +438,11 @@ fn votes_with(user: &str, vote: bool) -> Expr {
     let user = Expr::value(user).cast_as("text");
     if vote {
         Expr::case(
-            Func::cust("jsonb_exists")
-                .arg(Expr::col(Column::Votes))
-                .arg(user.clone()),
+            Expr::expr(
+                Func::cust("jsonb_exists")
+                    .arg(Expr::col(Column::Votes))
+                    .arg(user.clone()),
+            ),
             Expr::col(Column::Votes),
         )
         .finally(Expr::col(Column::Votes).concat(Func::cust("jsonb_build_array").arg(user)))

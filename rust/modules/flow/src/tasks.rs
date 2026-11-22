@@ -28,9 +28,16 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, IntoColumnRef, IntoCondition};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, TransactionTrait,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{PROJECT_TASK_DELETED, PROJECT_TASK_UPDATED};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, js_row, orm, utc_now, utc_timestamp};
 use weldsuite_flow_domain::day_bounds::{DayBounds, workspace_day_bounds};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_flow_domain::stage::task_status_aliases;
@@ -38,6 +45,8 @@ use weldsuite_flow_domain::task_tree::{MAX_SUBTASK_DEPTH, soft_delete_task_tree}
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
+use weldsuite_schema::tenant::{files, project_pipeline_stages, projects, task_dependencies};
 
 use crate::task_enrich::{
     attach_attachment_counts, attach_subtask_counts, attach_subtask_tree, enrich, hydrate,
@@ -47,6 +56,97 @@ use crate::{
     Caller, FlowState, Query, Refusal, Reply, now, outside, reply, task_writes, validate,
     validate_value,
 };
+
+/// A row as the API returns it: the entity serializes as Drizzle read it.
+pub(crate) fn row_json(model: impl Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `$1::jsonb->>'key'` of a body value: a string's text, `null` as SQL
+/// null, anything else as the JSON text `jsonb` prints.
+pub(crate) fn json_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Array(_) | Value::Object(_) => Some(jsonb_text(value)),
+    }
+}
+
+/// A value as `jsonb` prints it: `", "` between items, `": "` after keys.
+fn jsonb_text(value: &Value) -> String {
+    match value {
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(jsonb_text).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(fields) => {
+            let mut entries: Vec<(&String, &Value)> = fields.iter().collect();
+            entries.sort_by(|(a, _), (b, _)| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+            format!(
+                "{{{}}}",
+                entries
+                    .into_iter()
+                    .map(|(key, value)| format!("{}: {}", Value::String(key.clone()), jsonb_text(value)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        other => other.to_string(),
+    }
+}
+
+/// `count(*)::int` of the rows a group holds.
+pub(crate) fn count_int() -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int")
+}
+
+/// `(count(*) filter (where condition))::int`: `count` skips the rows the
+/// case leaves null.
+pub(crate) fn count_int_where(condition: impl IntoCondition) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::from(Func::count(Expr::case(condition, 1))).cast_as("int")
+}
+
+/// `col + n`.
+pub(crate) fn plus(column: impl IntoColumnRef, n: i32) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::col(column).add(n)
+}
+
+/// `expr::<type>`.
+pub(crate) fn cast_as(expr: impl Into<Expr>, sql_type: &'static str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    expr.into().cast_as(sql_type)
+}
+
+/// `$1::<type>` of a text: Postgres reads it (and refuses what it cannot
+/// read, as the bound text did).
+pub(crate) fn cast_text(text: Option<String>, sql_type: &'static str) -> Expr {
+    cast_as(Expr::value(text), sql_type)
+}
+
+/// How a key of a body (the SQL's jsonb `$1`) is written to its column.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Written {
+    /// The text (`$1->>'key'`).
+    Text,
+    /// The text read as this Postgres type (`($1->>'key')::<type>`).
+    Cast(&'static str),
+    /// The JSON value, `null` as SQL null (`nullif($1->'key', 'null')`).
+    Json,
+}
+
+/// A body value as its column takes it.
+pub(crate) fn written(value: &Value, kind: Written) -> Expr {
+    match kind {
+        Written::Text => Expr::value(json_text(value)),
+        Written::Cast(sql_type) => cast_text(json_text(value), sql_type),
+        Written::Json => Expr::value((!value.is_null()).then(|| value.clone())),
+    }
+}
 
 pub(crate) const TASK_PROJECT_DENIED: &str = "You are not a member of this task's project";
 pub(crate) const PROJECT_MEMBER_DENIED: &str = "You are not a member of this project";
@@ -113,16 +213,13 @@ where
 }
 
 /// A live task row (`select().from(tasks).where(id, not deleted)`).
-pub(crate) async fn task_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        task_json!("t"),
-        " from tasks t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn task_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    tasks::Entity::find_by_id(id.to_owned())
+        .filter(Task::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// What `canAccessTaskProject` / `canWriteTaskProject` answer.
@@ -138,14 +235,16 @@ pub(crate) async fn task_access(
     caller: &Caller,
     id: &str,
     write: bool,
-) -> Result<TaskAccess, sqlx::Error> {
-    let task: Option<(Option<String>, bool)> = sqlx::query_as(
-        "select project_id, deleted_at is not null from tasks where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some((project_id, false)) = task else {
+) -> Result<TaskAccess, DbErr> {
+    let task: Option<(Option<String>, Option<PrimitiveDateTime>)> = tasks::Entity::find()
+        .select_only()
+        .column(Task::ProjectId)
+        .column(Task::DeletedAt)
+        .filter(Task::Id.eq(id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    let Some((project_id, None)) = task else {
         return Ok(TaskAccess::NotFound);
     };
     let Some(project_id) = project_id.filter(|p| !p.is_empty()) else {
@@ -659,11 +758,13 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
         params.due_to = date(&q.due_to)?;
         let cursor_id = match q.cursor.as_deref().filter(|c| !c.is_empty()) {
             Some(cursor) => {
-                let found: Option<String> =
-                    sqlx::query_scalar("select id from tasks where id = $1 limit 1")
-                        .bind(cursor)
-                        .fetch_optional(db)
-                        .await?;
+                let found: Option<String> = tasks::Entity::find()
+                    .select_only()
+                    .column(Task::Id)
+                    .filter(Task::Id.eq(cursor))
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?;
                 found
             }
             None => None,
@@ -684,67 +785,14 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
         }
         #[allow(clippy::cast_possible_truncation)]
         let (fetch, offset) = (fetch as i64, offset as i64);
-        let rows: Vec<Value> = bind_filters!(
-            sqlx::query_scalar(concat!(
-                "with cur as (select id, title, status, priority, assignee_id,",
-                " date_trunc('milliseconds', due_date) as due_date,",
-                " date_trunc('milliseconds', created_at) as created_at, position",
-                " from tasks where id = $34)",
-                " select ",
-                task_json!("t"),
-                " from tasks t where ",
-                task_list_filters!(),
-                " and ($34::text is null or exists (select 1 from cur where (case $35",
-                " when 'title' then ",
-                cursor_on!("title"),
-                " when 'status' then ",
-                cursor_on!("status"),
-                " when 'priority' then ",
-                cursor_on!("priority"),
-                " when 'dueDate' then ",
-                cursor_on!("due_date"),
-                " when 'assignee' then ",
-                cursor_on!("assignee_id"),
-                " when 'createdAt' then ",
-                cursor_on!("created_at"),
-                " else ",
-                cursor_on!("position"),
-                " end)))",
-                " order by ",
-                order_on!("title", "title"),
-                order_on!("status", "status"),
-                order_on!("priority", "priority"),
-                order_on!("dueDate", "due_date"),
-                order_on!("assignee", "assignee_id"),
-                order_on!("createdAt", "created_at"),
-                order_on!("position", "position"),
-                "(case when $37 then t.id end) desc,",
-                " (case when not $37 then t.created_at end) asc,",
-                " (case when not $37 then t.id end) asc",
-                " limit $38 offset $39"
-            )),
-            q,
-            params
-        )
-        .bind(cursor_id.as_deref())
-        .bind(&q.sort_field)
-        .bind(&q.sort_direction)
-        .bind(use_cursor)
-        .bind(fetch)
-        .bind(offset)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = bind_filters!(
-            sqlx::query_scalar(concat!(
-                "select count(*) from tasks t where ",
-                task_list_filters!()
-            )),
-            q,
-            params
-        )
-        .fetch_one(db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let page = ListPage {
+            cursor_id: cursor_id.as_deref(),
+            use_cursor,
+            fetch,
+            offset,
+        };
+        let rows = list_rows(db, q, &params, &page).await?;
+        let total = list_total(db, q, &params).await?;
         #[allow(clippy::cast_possible_truncation)]
         let limit = q.limit as usize;
         let (data, has_more, next) = if use_cursor {
@@ -784,6 +832,100 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
     Ok(reply(result, "Failed to list tasks"))
 }
 
+/// Where a page of the list starts: the cursor row, or an offset.
+struct ListPage<'a> {
+    cursor_id: Option<&'a str>,
+    use_cursor: bool,
+    fetch: i64,
+    offset: i64,
+}
+
+/// The page of tasks (`$34`–`$39`: the cursor row, the sort, the paging).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the task list stays one statement: a recursive CTE finds parents of matching \
+              subtasks (`hasMatchingSubtask`), labels match with `?|`, and the order and the \
+              cursor condition follow the requested sort column"
+)]
+async fn list_rows(
+    db: &PgPool,
+    q: &ListQuery,
+    params: &ListParams,
+    page: &ListPage<'_>,
+) -> Result<Vec<Value>, DbErr> {
+    let rows: Vec<Value> = bind_filters!(
+        sqlx::query_scalar(concat!(
+            "with cur as (select id, title, status, priority, assignee_id,",
+            " date_trunc('milliseconds', due_date) as due_date,",
+            " date_trunc('milliseconds', created_at) as created_at, position",
+            " from tasks where id = $34)",
+            " select ",
+            task_json!("t"),
+            " from tasks t where ",
+            task_list_filters!(),
+            " and ($34::text is null or exists (select 1 from cur where (case $35",
+            " when 'title' then ",
+            cursor_on!("title"),
+            " when 'status' then ",
+            cursor_on!("status"),
+            " when 'priority' then ",
+            cursor_on!("priority"),
+            " when 'dueDate' then ",
+            cursor_on!("due_date"),
+            " when 'assignee' then ",
+            cursor_on!("assignee_id"),
+            " when 'createdAt' then ",
+            cursor_on!("created_at"),
+            " else ",
+            cursor_on!("position"),
+            " end)))",
+            " order by ",
+            order_on!("title", "title"),
+            order_on!("status", "status"),
+            order_on!("priority", "priority"),
+            order_on!("dueDate", "due_date"),
+            order_on!("assignee", "assignee_id"),
+            order_on!("createdAt", "created_at"),
+            order_on!("position", "position"),
+            "(case when $37 then t.id end) desc,",
+            " (case when not $37 then t.created_at end) asc,",
+            " (case when not $37 then t.id end) asc",
+            " limit $38 offset $39"
+        )),
+        q,
+        params
+    )
+    .bind(page.cursor_id)
+    .bind(&q.sort_field)
+    .bind(&q.sort_direction)
+    .bind(page.use_cursor)
+    .bind(page.fetch)
+    .bind(page.offset)
+    .fetch_all(db)
+    .await
+    .map_err(weldsuite_db::orm_error)?;
+    Ok(rows.into_iter().map(js_row).collect())
+}
+
+/// How many tasks the list's filters match.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the count of the task list's filters, which stay SQL with the list (`list_rows`)"
+)]
+async fn list_total(db: &PgPool, q: &ListQuery, params: &ListParams) -> Result<i64, DbErr> {
+    bind_filters!(
+        sqlx::query_scalar(concat!(
+            "select count(*) from tasks t where ",
+            task_list_filters!()
+        )),
+        q,
+        params
+    )
+    .fetch_one(db)
+    .await
+    .map_err(weldsuite_db::orm_error)
+}
+
 fn last_id(rows: &[Value]) -> Option<String> {
     rows.last()
         .and_then(|row| row.get("id"))
@@ -815,16 +957,7 @@ async fn detail(
         let mut task = hydrate(db, enriched).await?.pop().unwrap_or(Value::Null);
         let counts = subtask_counts(db, std::slice::from_ref(&id)).await?;
         let (total, done) = counts.get(&id).copied().unwrap_or((0, 0));
-        let attachments: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'fileName', file_name,
-                 'fileKey', coalesce(file_key, storage_path), 'fileSize', file_size,
-                 'mimeType', mime_type, 'url', coalesce(url, ''))
-             from files where entity_type = 'task' and entity_id = $1 and deleted_at is null
-             order by created_at asc",
-        )
-        .bind(&id)
-        .fetch_all(db)
-        .await?;
+        let attachments = task_attachments(db, &id).await?;
         if let Value::Object(map) = &mut task {
             map.insert("subtaskCount".to_owned(), json!(total));
             map.insert("completedSubtaskCount".to_owned(), json!(done));
@@ -834,6 +967,52 @@ async fn detail(
     }
     .await;
     reply(result, "Failed to fetch task")
+}
+
+/// A task's attachment as the detail lists it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Attachment {
+    id: String,
+    file_name: String,
+    /// `coalesce(file_key, storage_path)`.
+    file_key: String,
+    file_size: i32,
+    mime_type: String,
+    /// `coalesce(url, '')`.
+    url: String,
+}
+
+/// The task's live files, oldest first.
+async fn task_attachments(db: &PgPool, task_id: &str) -> Result<Vec<Value>, DbErr> {
+    use files::Column as File;
+    files::Entity::find()
+        .select_only()
+        .column(File::Id)
+        .column(File::FileName)
+        .column_as(
+            Expr::from(Func::coalesce([
+                Expr::col(File::FileKey),
+                Expr::col(File::StoragePath),
+            ])),
+            "file_key",
+        )
+        .column(File::FileSize)
+        .column(File::MimeType)
+        .column_as(
+            Expr::from(Func::coalesce([Expr::col(File::Url), Expr::value("")])),
+            "url",
+        )
+        .filter(File::EntityType.eq("task"))
+        .filter(File::EntityId.eq(task_id))
+        .filter(File::DeletedAt.is_null())
+        .order_by_asc(File::CreatedAt)
+        .into_model::<Attachment>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 // ── GET /:id/subtasks ───────────────────────────────────────────────────────
@@ -854,21 +1033,16 @@ async fn subtasks(
     }
     let result = async {
         let db = &caller.db;
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            task_json!("t"),
-            " from tasks t where t.parent_task_id = $1 and t.deleted_at is null order by t.position"
-        ))
-        .bind(&id)
-        .fetch_all(db)
-        .await?;
-        let rows = enrich(
-            &state,
-            db,
-            caller.request_master(),
-            rows.into_iter().map(js_row).collect(),
-        )
-        .await?;
+        let rows: Vec<Value> = tasks::Entity::find()
+            .filter(Task::ParentTaskId.eq(&id))
+            .filter(Task::DeletedAt.is_null())
+            .order_by_asc(Task::Position)
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<_, DbErr>>()?;
+        let rows = enrich(&state, db, caller.request_master(), rows).await?;
         let mut rows = hydrate(db, rows).await?;
         if !rows.is_empty() {
             attach_subtask_counts(db, &mut rows).await?;
@@ -995,27 +1169,28 @@ async fn remove_attachment(
     }
     let result = async {
         let db = &caller.db;
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from files
-             where id = $1 and entity_type = 'task' and entity_id = $2 and deleted_at is null
-             limit 1",
-        )
-        .bind(&file_id)
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
+        use files::Column as File;
+        let existing: Option<String> = files::Entity::find()
+            .select_only()
+            .column(File::Id)
+            .filter(File::Id.eq(&file_id))
+            .filter(File::EntityType.eq("task"))
+            .filter(File::EntityId.eq(&id))
+            .filter(File::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if existing.is_none() {
             return Err(Refusal::not_found("Attachment", &file_id));
         }
-        let at = time::OffsetDateTime::now_utc();
-        let deleted_at = weldsuite_events::iso_timestamp(at);
-        sqlx::query(
-            "update files set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&file_id)
-        .bind(&deleted_at)
-        .execute(db)
-        .await?;
+        let at = OffsetDateTime::now_utc();
+        let deleted_at = utc_timestamp(at);
+        files::Entity::update_many()
+            .col_expr(File::DeletedAt, Expr::value(deleted_at))
+            .col_expr(File::UpdatedAt, Expr::value(deleted_at))
+            .filter(File::Id.eq(&file_id))
+            .exec(&orm(db))
+            .await?;
         crate::project_files::mark_purge_due(&state, &caller, at).await;
         Ok(NoContent.into_response())
     }
@@ -1106,14 +1281,18 @@ async fn reorder(
     }
     let result = async {
         let db = &caller.db;
-        let rows: Vec<(String, Option<String>, i32)> = sqlx::query_as(
-            "select id, project_id, position from tasks
-             where id = any($1) and deleted_at is null and ($2::text is null or project_id = $2)",
-        )
-        .bind(&task_ids)
-        .bind(project_id.as_deref())
-        .fetch_all(db)
-        .await?;
+        let mut select = tasks::Entity::find()
+            .select_only()
+            .column(Task::Id)
+            .column(Task::ProjectId)
+            .column(Task::Position)
+            .filter(Task::Id.is_in(task_ids.iter().map(String::as_str)))
+            .filter(Task::DeletedAt.is_null());
+        if let Some(project_id) = &project_id {
+            select = select.filter(Task::ProjectId.eq(project_id));
+        }
+        let rows: Vec<(String, Option<String>, i32)> =
+            select.into_tuple().all(&orm(db)).await?;
         let mut projects: Vec<String> = Vec::new();
         for (_, project, _) in &rows {
             if let Some(project) = project.as_ref().filter(|p| !p.is_empty())
@@ -1133,17 +1312,18 @@ async fn reorder(
             .collect();
         let positions = reordered_by_project(&rows, &task_ids);
         if !positions.is_empty() {
-            let at = now();
-            let mut tx = db.begin().await?;
+            let at = utc_now();
+            let tx = orm(db).begin().await?;
             for (task_id, position) in &positions {
-                sqlx::query(
-                    "update tasks set position = $2, updated_at = $3::timestamp where id = $1",
-                )
-                .bind(task_id)
-                .bind(i32::try_from(*position).unwrap_or(i32::MAX))
-                .bind(&at)
-                .execute(&mut *tx)
-                .await?;
+                tasks::Entity::update_many()
+                    .col_expr(
+                        Task::Position,
+                        Expr::value(i32::try_from(*position).unwrap_or(i32::MAX)),
+                    )
+                    .col_expr(Task::UpdatedAt, Expr::value(at))
+                    .filter(Task::Id.eq(task_id))
+                    .exec(&tx)
+                    .await?;
             }
             tx.commit().await?;
         }
@@ -1194,13 +1374,16 @@ async fn move_task(
 }
 
 async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> Reply {
-    let db = &caller.db;
-    let existing: Option<(Option<String>, String)> = sqlx::query_as(
-        "select project_id, title from tasks where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let db = &orm(&caller.db);
+    let existing: Option<(Option<String>, String)> = tasks::Entity::find()
+        .select_only()
+        .column(Task::ProjectId)
+        .column(Task::Title)
+        .filter(Task::Id.eq(id))
+        .filter(Task::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((current_project, title)) = existing else {
         return Err(Refusal::not_found("Task", id));
     };
@@ -1209,21 +1392,30 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
             Data(json!({ "id": id, "projectId": dest, "movedSubtaskCount": 0 })).into_response(),
         );
     }
-    let project: Option<String> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(dest)
-            .fetch_optional(db)
-            .await?;
+    let project: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(dest))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     if project.is_none() {
         return Err(Refusal::not_found("Project", dest));
     }
-    let default_stage: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, system_status from project_pipeline_stages
-         where project_id = $1 and deleted_at is null order by position asc limit 1",
-    )
-    .bind(dest)
-    .fetch_optional(db)
-    .await?;
+    let default_stage: Option<(String, Option<String>)> = {
+        use project_pipeline_stages::Column as Stage;
+        project_pipeline_stages::Entity::find()
+            .select_only()
+            .column(Stage::Id)
+            .column(Stage::SystemStatus)
+            .filter(Stage::ProjectId.eq(dest))
+            .filter(Stage::DeletedAt.is_null())
+            .order_by_asc(Stage::Position)
+            .into_tuple()
+            .one(db)
+            .await?
+    };
     let reset_stage = default_stage.as_ref().map(|(id, _)| id.clone());
     let reset_status = default_stage
         .and_then(|(_, status)| status)
@@ -1236,12 +1428,15 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         if frontier.is_empty() {
             break;
         }
-        let children: Vec<(String, String)> = sqlx::query_as(
-            "select id, title from tasks where parent_task_id = any($1) and deleted_at is null",
-        )
-        .bind(&frontier)
-        .fetch_all(db)
-        .await?;
+        let children: Vec<(String, String)> = tasks::Entity::find()
+            .select_only()
+            .column(Task::Id)
+            .column(Task::Title)
+            .filter(Task::ParentTaskId.is_in(frontier.iter().map(String::as_str)))
+            .filter(Task::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         let fresh: Vec<(String, String)> = children
             .into_iter()
             .filter(|(child, _)| !seen.contains(child))
@@ -1253,43 +1448,53 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
         seen.extend(frontier.iter().cloned());
         descendants.extend(fresh);
     }
-    let max_position: i32 = sqlx::query_scalar(
-        "select coalesce(max(position), 0)::int from tasks where project_id = $1 and deleted_at is null",
-    )
-    .bind(dest)
-    .fetch_one(db)
-    .await?;
-    let base = i64::from(max_position) + 1;
-    let at = now();
+    // `coalesce(max(position), 0)`.
+    let max_position: Option<Option<i32>> = tasks::Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::max(Expr::col(Task::Position))), "max")
+        .filter(Task::ProjectId.eq(dest))
+        .filter(Task::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
+    let base = i64::from(max_position.flatten().unwrap_or(0)) + 1;
+    let at = utc_now();
     let mut all = vec![id.to_owned()];
     all.extend(descendants.iter().map(|(child, _)| child.clone()));
-    let mut tx = db.begin().await?;
+    let tx = db.begin().await?;
     for (i, task_id) in all.iter().enumerate() {
-        sqlx::query(
-            "update tasks set project_id = $2,
-                 parent_task_id = case when $3 then null else parent_task_id end,
-                 sprint_id = null, milestone_id = null, deliverable_id = null,
-                 stage_id = $4, status = $5, key = null,
-                 position = $6, board_position = null, updated_at = $7::timestamp
-             where id = $1",
-        )
-        .bind(task_id)
-        .bind(dest)
-        .bind(task_id == id)
-        .bind(reset_stage.as_deref())
-        .bind(&reset_status)
-        .bind(i32::try_from(base + i64::try_from(i).unwrap_or(0)).unwrap_or(i32::MAX))
-        .bind(&at)
-        .execute(&mut *tx)
-        .await?;
+        let mut update = tasks::Entity::update_many().col_expr(Task::ProjectId, Expr::value(dest));
+        // The moved task leaves its parent; its subtasks keep theirs.
+        if task_id == id {
+            update = update.col_expr(Task::ParentTaskId, Expr::value(Option::<String>::None));
+        }
+        let position = i32::try_from(base + i64::try_from(i).unwrap_or(0)).unwrap_or(i32::MAX);
+        update
+            .col_expr(Task::SprintId, Expr::value(Option::<String>::None))
+            .col_expr(Task::MilestoneId, Expr::value(Option::<String>::None))
+            .col_expr(Task::DeliverableId, Expr::value(Option::<String>::None))
+            .col_expr(Task::StageId, Expr::value(reset_stage.clone()))
+            .col_expr(Task::Status, Expr::value(&reset_status))
+            .col_expr(Task::Key, Expr::value(Option::<String>::None))
+            .col_expr(Task::Position, Expr::value(position))
+            .col_expr(Task::BoardPosition, Expr::value(Option::<i32>::None))
+            .col_expr(Task::UpdatedAt, Expr::value(at))
+            .filter(Task::Id.eq(task_id))
+            .exec(&tx)
+            .await?;
     }
     // A typed dependency stays inside one project (FLOW-015): the moved tasks' rows go.
-    sqlx::query(
-        "delete from task_dependencies where predecessor_id = any($1) or successor_id = any($1)",
-    )
-    .bind(&all)
-    .execute(&mut *tx)
-    .await?;
+    {
+        use task_dependencies::Column as Dependency;
+        task_dependencies::Entity::delete_many()
+            .filter(
+                Condition::any()
+                    .add(Dependency::PredecessorId.is_in(all.iter().map(String::as_str)))
+                    .add(Dependency::SuccessorId.is_in(all.iter().map(String::as_str))),
+            )
+            .exec(&tx)
+            .await?;
+    }
     tx.commit().await?;
     let moved = std::iter::once((id.to_owned(), title)).chain(descendants.iter().cloned());
     for (task_id, task_title) in moved {

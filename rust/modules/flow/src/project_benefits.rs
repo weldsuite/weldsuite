@@ -27,7 +27,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
+use sea_orm::sea_query::{Asterisk, Expr, Func, Order};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_BENEFIT_CREATED, PROJECT_BENEFIT_DELETED, PROJECT_BENEFIT_REALISED,
     PROJECT_BENEFIT_UPDATED, PROJECT_CONTROL_LINK_DELETED,
@@ -42,8 +48,10 @@ use weldsuite_flow_domain::benefits::{
 };
 use weldsuite_flow_domain::js::{contains_pattern, number_text};
 use weldsuite_flow_domain::numbering::allocate_number;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_benefits, project_goals, tasks};
 
 use crate::governance_body::{
     RegisterQuery, benefit_list_query, goal_targets_query, read_create_benefit,
@@ -53,11 +61,14 @@ use crate::governance_store::{
     BENEFITS, find_benefit, insert_values, latest_measurements, measurements_of, update_values,
     upsert_measurement,
 };
-use crate::project_decisions::project_scope;
+use crate::project_decisions::{delete_links, project_scope};
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED, iso_ms, or_null, parse_limit, to_date};
 use crate::raid_body::{Body, parse_body};
 use crate::raid_store::{Direction, links_of_object, live_project_exists, present_linked_objects};
-use crate::{Caller, FlowState, Refusal, Reply, keyset_cursor, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, fetch_limit, in_accessible, json_rows, keyset_before,
+    keyset_cursor_tz, outside, page, paged, reply,
+};
 
 const BENEFIT_LABEL: &str = "Benefit";
 
@@ -137,8 +148,14 @@ async fn mark_measure_due(state: &FlowState, caller: &Caller, now_ms: i64) {
     }
 }
 
+/// `new Date(millis)`: the instant a `timestamptz` column stores.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
 /// `presentBenefitRow(db, row)`: the benefit with its newest measurement.
-async fn present_row(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+async fn present_row(caller: &Caller, row: &Value) -> Result<Value, Refusal> {
     let id = row["id"].as_str().unwrap_or_default().to_owned();
     let latest = latest_measurements(&caller.db, std::slice::from_ref(&id)).await?;
     let latest = latest.get(&id).map(|m| latest_of(std::slice::from_ref(m)));
@@ -147,20 +164,30 @@ async fn present_row(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error>
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-/// The list's `where`, without the cursor: the project scope (`$1` the
-/// project, else `$2`/`$3` the accessible ones), the status and the search.
-macro_rules! benefit_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ")",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::text is null or t.title ilike $5 or t.description ilike $5)"
-        )
+/// The list's `where`, without the cursor: the project scope (the
+/// project, else the accessible ones), the status and the search.
+fn benefit_filters(
+    q: &RegisterQuery,
+    scope: &(bool, Vec<String>),
+    search: Option<&str>,
+) -> Condition {
+    use project_benefits::Column;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    filters = match q.project_id.as_deref() {
+        Some(project_id) => filters.add(Column::ProjectId.eq(project_id)),
+        None => filters.add(in_accessible(Column::ProjectId, scope)),
     };
+    if let Some(status) = q.status.as_deref() {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = search {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(search))
+                .add(Column::Description.ilike(search)),
+        );
+    }
+    filters
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -174,9 +201,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_benefits where id = $1 limit 1",
+            project_benefits::Column::Id,
+            project_benefits::Column::CreatedAt,
             cursor,
         )
         .await
@@ -187,7 +215,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         None => None,
     };
     reply(
-        list_benefits(&caller, &q, limit, (all, &ids), cursor).await,
+        list_benefits(&caller, &q, limit, &(all, ids), cursor).await,
         "Failed to list benefits",
     )
 }
@@ -196,42 +224,29 @@ async fn list_benefits(
     caller: &Caller,
     q: &RegisterQuery,
     limit: i64,
-    (all, ids): (bool, &[String]),
-    cursor: Option<(String, String)>,
+    scope: &(bool, Vec<String>),
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
+    use project_benefits::Column;
     let db = &caller.db;
     let search = q.search.as_deref().map(contains_pattern);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        benefit_json!("t"),
-        " from project_benefits t where ",
-        benefit_filters!(),
-        " and ($6::timestamptz is null or t.created_at < $6::timestamptz",
-        " or (t.created_at = $6::timestamptz and t.id < $7))",
-        " order by t.created_at desc, t.id desc limit $8"
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_benefits t where ",
-        benefit_filters!()
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.status.as_deref())
-    .bind(search.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(weldsuite_db::js_row).collect(), limit);
+    let filters = benefit_filters(q, scope, search.as_deref());
+    let mut rows = project_benefits::Entity::find().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = project_benefits::Entity::find()
+        .filter(filters)
+        .count(&orm(db))
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let page_ids: Vec<String> = rows
         .iter()
         .filter_map(|row| row["id"].as_str().map(str::to_owned))
@@ -257,19 +272,29 @@ async fn list_benefits(
 async fn find_goals_canvas(
     caller: &Caller,
     project_id: &str,
-) -> Result<Option<Vec<Value>>, sqlx::Error> {
-    let row: Option<Option<Value>> = sqlx::query_scalar(
-        "select g.goals from project_goals g
-         where g.project_id = $1 and g.deleted_at is null
-         order by (case when g.mission is not null
-                          or jsonb_array_length(coalesce(g.goals, '[]'::jsonb)) > 0
-                        then 0 else 1 end),
-                  g.updated_at desc, g.id desc
-         limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(&caller.db)
-    .await?;
+) -> Result<Option<Vec<Value>>, DbErr> {
+    use project_goals::Column;
+    let cards = Func::coalesce([
+        Expr::col((project_goals::Entity, Column::Goals)),
+        Expr::val(json!([])),
+    ]);
+    let filled = Condition::any()
+        .add(Column::Mission.is_not_null())
+        .add(sea_orm::ExprTrait::gt(
+            Expr::from(Func::cust("jsonb_array_length").arg(cards)),
+            0,
+        ));
+    let row: Option<Option<Value>> = project_goals::Entity::find()
+        .select_only()
+        .column(Column::Goals)
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by(Into::<Expr>::into(Expr::case(filled, 0).finally(1)), Order::Asc)
+        .order_by_desc(Column::UpdatedAt)
+        .order_by_desc(Column::Id)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(row.map(|goals| match goals {
         Some(Value::Array(cards)) => cards,
         _ => Vec::new(),
@@ -282,27 +307,38 @@ async fn count_filtered_tasks(
     caller: &Caller,
     project_id: &str,
     filter: &GoalTaskFilter,
-) -> Result<(i64, i64), sqlx::Error> {
-    let (total, done): (i64, i64) = sqlx::query_as(
-        "select count(*)::int8, (count(*) filter (where t.status = 'done'))::int8
-         from tasks t
-         where t.project_id = $1 and t.deleted_at is null and t.status <> 'cancelled'
-           and ($2::text is null or t.deliverable_id = $2)
-           and ($3::text is null or t.milestone_id = $3)
-           and ($4::text is null or t.sprint_id = $4)
-           and ($5::text is null or t.assignee_id = $5)
-           and ($6::text is null or t.type = $6)
-           and ($7::text is null or t.tags @> jsonb_build_array($7::text))",
-    )
-    .bind(project_id)
-    .bind(filter.deliverable_id.as_deref())
-    .bind(filter.milestone_id.as_deref())
-    .bind(filter.sprint_id.as_deref())
-    .bind(filter.assignee_id.as_deref())
-    .bind(filter.task_type.as_deref())
-    .bind(filter.tag.as_deref())
-    .fetch_one(&caller.db)
-    .await?;
+) -> Result<(i64, i64), DbErr> {
+    use tasks::Column;
+    let mut found = tasks::Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+        .column_as(
+            Expr::from(Func::count(Expr::case(Column::Status.eq("done"), 1))),
+            "done",
+        )
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.ne("cancelled"));
+    for (value, column) in [
+        (&filter.deliverable_id, Column::DeliverableId),
+        (&filter.milestone_id, Column::MilestoneId),
+        (&filter.sprint_id, Column::SprintId),
+        (&filter.assignee_id, Column::AssigneeId),
+        (&filter.task_type, Column::Type),
+    ] {
+        if let Some(value) = value.as_deref() {
+            found = found.filter(column.eq(value));
+        }
+    }
+    if let Some(tag) = filter.tag.as_deref() {
+        // `tags @> jsonb_build_array(tag)`.
+        found = found.filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((tasks::Entity, Column::Tags)),
+            json!([tag]),
+        ));
+    }
+    let counts: Option<(i64, i64)> = found.into_tuple().one(&orm(&caller.db)).await?;
+    let (total, done) = counts.unwrap_or_default();
     Ok((done, total))
 }
 
@@ -350,18 +386,15 @@ async fn load_goal_targets(caller: &Caller, project_id: &str) -> Reply {
     let benefit_rows: Vec<Value> = if benefit_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            benefit_json!("b"),
-            " from project_benefits b",
-            " where b.project_id = $1 and b.deleted_at is null and b.id = any($2)"
-        ))
-        .bind(project_id)
-        .bind(&benefit_ids)
-        .fetch_all(db)
-        .await?
+        use project_benefits::Column;
+        let rows = project_benefits::Entity::find()
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Id.is_in(benefit_ids))
+            .all(&orm(db))
+            .await?;
+        json_rows(rows)?
     };
-    let benefit_rows: Vec<Value> = benefit_rows.into_iter().map(weldsuite_db::js_row).collect();
     let row_ids: Vec<String> = benefit_rows
         .iter()
         .filter_map(|row| row["id"].as_str().map(str::to_owned))
@@ -684,26 +717,25 @@ async fn remove_benefit(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     }
 
     let links = links_of_object(db, "benefit", id).await?;
-    let now = iso_ms(crate::now_ms());
+    let now = instant(crate::now_ms());
     // The benefit's links go with it, in the same batch; its measurements stay (append-only).
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "update project_benefits set deleted_at = $2::timestamptz,
-                        updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-            sqlx::query(
-                "delete from project_control_links
-                 where (from_type = 'benefit' and from_id = $1)
-                    or (to_type = 'benefit' and to_id = $1)",
-            )
-            .bind(id.to_owned()),
-        ],
-    )
+    let id_owned = id.to_owned();
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            use project_benefits::Column;
+            let tx = OrmConn::new(tx);
+            let id = id_owned.as_str();
+            project_benefits::Entity::update_many()
+                .col_expr(Column::DeletedAt, Expr::value(now))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            delete_links(&tx, "benefit", id).await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     let number = existing["number"].as_i64().unwrap_or_default();
     caller.publish(

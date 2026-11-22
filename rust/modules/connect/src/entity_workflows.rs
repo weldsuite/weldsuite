@@ -7,8 +7,10 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{workflow_trigger_index as trigger_index, workflows};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
 use weldsuite_subscribers::{HubEvent, Tenants};
 
@@ -140,7 +142,8 @@ async fn matches(
     event: &HubEvent,
     event_types: &[String],
     data: &Map<String, Value>,
-) -> Result<Vec<Match>, sqlx::Error> {
+) -> Result<Vec<Match>, DbErr> {
+    let db = orm(db);
     let indexed: Result<
         Vec<(
             String,
@@ -151,15 +154,31 @@ async fn matches(
             Option<Value>,
         )>,
         _,
-    > = sqlx::query_as(
-        "select i.workflow_id, i.trigger_id, i.event_type, i.filters, w.name, w.settings
-             from workflow_trigger_index i join workflows w on i.workflow_id = w.id
-             where i.category = 'entity_event' and i.entity_type = $1 and i.is_enabled = true
-               and w.status = 'active' and w.deleted_at is null",
-    )
-    .bind(&event.entity_type)
-    .fetch_all(db)
-    .await;
+    > = trigger_index::Entity::find()
+        .select_only()
+        .columns([
+            trigger_index::Column::WorkflowId,
+            trigger_index::Column::TriggerId,
+            trigger_index::Column::EventType,
+            trigger_index::Column::Filters,
+        ])
+        .column(workflows::Column::Name)
+        .column(workflows::Column::Settings)
+        .join(
+            JoinType::InnerJoin,
+            trigger_index::Entity::belongs_to(workflows::Entity)
+                .from(trigger_index::Column::WorkflowId)
+                .to(workflows::Column::Id)
+                .into(),
+        )
+        .filter(trigger_index::Column::Category.eq("entity_event"))
+        .filter(trigger_index::Column::EntityType.eq(&event.entity_type))
+        .filter(trigger_index::Column::IsEnabled.eq(true))
+        .filter(workflows::Column::Status.eq("active"))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await;
     match indexed {
         Ok(rows) => Ok(rows
             .into_iter()
@@ -178,13 +197,22 @@ async fn matches(
             .collect()),
         Err(error) => {
             tracing::warn!(%error, "[TriggerMatcher] trigger index unavailable, falling back to JSONB scan");
-            let workflows: Vec<(String, Option<String>, Option<Value>, Option<Value>)> = sqlx::query_as(
-                "select id, name, triggers, settings from workflows where status = 'active' and deleted_at is null",
-            )
-            .fetch_all(db)
-            .await?;
+            let active: Vec<(String, Option<String>, Option<Value>, Option<Value>)> =
+                workflows::Entity::find()
+                    .select_only()
+                    .columns([
+                        workflows::Column::Id,
+                        workflows::Column::Name,
+                        workflows::Column::Triggers,
+                        workflows::Column::Settings,
+                    ])
+                    .filter(workflows::Column::Status.eq("active"))
+                    .filter(workflows::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(&db)
+                    .await?;
             let mut out = Vec::new();
-            for (id, name, triggers, settings) in workflows {
+            for (id, name, triggers, settings) in active {
                 for trigger in triggers
                     .as_ref()
                     .and_then(Value::as_array)
@@ -253,7 +281,7 @@ async fn dispatch(
     runs: &dyn WorkflowRuns,
     event: &HubEvent,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let chain_depth = event.metadata.workflow_depth.map_or(0, |depth| depth + 1);
     if chain_depth >= MAX_DEPTH {
         tracing::warn!(
