@@ -497,6 +497,86 @@ async fn soft_delete_mapped(
 
 // ── events ──────────────────────────────────────────────────────────────────
 
+/// After a Moneybird record was written: what WeldBooks has now is what
+/// Moneybird has, the two-way sync's baseline (ADR INT-013). Best effort: a
+/// missing baseline is set by the next push pass.
+async fn moneybird_baseline(
+    args: &IngestArgs<'_>,
+    external_type: &str,
+    external_id: &str,
+    internal_id: &str,
+) {
+    if args.provider != "moneybird" {
+        return;
+    }
+    if let Err(error) = crate::moneybird_push::two_way::refresh_baseline(
+        args.db,
+        args.connection_id,
+        external_type,
+        external_id,
+        internal_id,
+    )
+    .await
+    {
+        tracing::warn!(%error, "[connectors/ingest] Moneybird baseline failed");
+    }
+}
+
+/// After a Moneybird record was removed: nothing left to sync.
+async fn moneybird_unbaseline(args: &IngestArgs<'_>, external_type: &str, external_id: &str) {
+    if args.provider != "moneybird" {
+        return;
+    }
+    if let Err(error) = crate::moneybird_push::two_way::drop_baseline(
+        args.db,
+        args.connection_id,
+        external_type,
+        external_id,
+    )
+    .await
+    {
+        tracing::warn!(%error, "[connectors/ingest] Moneybird baseline cleanup failed");
+    }
+}
+
+/// A bill WeldBooks sent to Moneybird keeps its WeldBooks status while
+/// Moneybird still calls it new (which reads as a draft and would undo the
+/// approval).
+async fn keep_pushed_bill_status(
+    args: &IngestArgs<'_>,
+    external_id: &str,
+    mut values: Map<String, Value>,
+) -> Result<Map<String, Value>, sqlx::Error> {
+    if values.get("status").and_then(Value::as_str) != Some("draft") {
+        return Ok(values);
+    }
+    let Some(mapping) = find_mapping(
+        args.db,
+        args.connection_id,
+        args.external_type(),
+        external_id,
+    )
+    .await?
+    else {
+        return Ok(values);
+    };
+    let status: Option<String> = sqlx::query_scalar(
+        "select b.status from bills b
+         where b.id = $1 and exists (select 1 from integration_entity_mappings x
+           where x.connection_id = $2 and x.external_entity_type = $3 and x.internal_entity_id = b.id)
+         limit 1",
+    )
+    .bind(&mapping.internal_id)
+    .bind(args.connection_id)
+    .bind(crate::moneybird_push::two_way::PUSHED_BILL_TYPE)
+    .fetch_optional(args.db)
+    .await?;
+    if status.is_some_and(|s| s != "draft") {
+        values.remove("status");
+    }
+    Ok(values)
+}
+
 async fn publish(args: &IngestArgs<'_>, entity_type: &str, action: &str, entity_id: &str) {
     let event = match EventType::catalog(entity_type, action) {
         Ok(event) => event,
@@ -937,6 +1017,7 @@ async fn delete_catalog_record(
         soft_delete_mapped(args.db, table, &mapping.internal_id, &mapping.id).await?;
     }
     result.deleted += 1;
+    moneybird_unbaseline(args, args.external_type(), external_id).await;
     publish(args, entity_type, "deleted", &mapping.internal_id).await;
     Ok(())
 }
@@ -1054,6 +1135,15 @@ async fn ingest_catalog_record(
             && outcome.action != Action::Skipped
         {
             upsert_product_variants(args.db, &outcome.internal_id, variants).await?;
+        }
+        if outcome.action != Action::Skipped {
+            moneybird_baseline(
+                args,
+                args.external_type(),
+                external_id,
+                &outcome.internal_id,
+            )
+            .await;
         }
     }
     tally(result, outcome.action);
@@ -1669,6 +1759,11 @@ async fn ingest_document(
             ("journalEntryId", Value::Null),
         ],
     );
+    let values = if args.provider == "moneybird" && !invoice {
+        keep_pushed_bill_status(args, external_id, values).await?
+    } else {
+        values
+    };
     let outcome = upsert_by_mapping(
         args.db,
         args.connection_id,
@@ -1701,6 +1796,13 @@ async fn ingest_document(
             },
         )
         .await?;
+        moneybird_baseline(
+            args,
+            args.external_type(),
+            external_id,
+            &outcome.internal_id,
+        )
+        .await;
         publish_upsert(args, entity, &outcome).await;
     }
     if let Some(files) = args.moneybird_files
@@ -1817,6 +1919,7 @@ async fn ingest_accounting_record(
             if invoice { "invoice" } else { "bill" }
         };
         result.deleted += 1;
+        moneybird_unbaseline(args, args.external_type(), external_id).await;
         publish(args, entity_type, "deleted", &mapping.internal_id).await;
         return Ok(());
     }
@@ -1844,6 +1947,15 @@ async fn ingest_accounting_record(
             )
             .await?;
             tally(result, outcome.action);
+            if outcome.action != Action::Skipped {
+                moneybird_baseline(
+                    args,
+                    &party_external_type(args.provider),
+                    &party_external_id,
+                    &outcome.internal_id,
+                )
+                .await;
+            }
             publish_upsert(args, kind, &outcome).await;
             Ok(())
         }
