@@ -458,8 +458,18 @@ with publishing through `social-domain`), WeldBooks
 (knowledge-spaces and -pages, on `know-domain`'s access rules), the
 drive (files with their content, folders, drive aggregates), WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
-schedules and executions)
-and WeldFlow's project-sheets list (with `sheets`).
+schedules and executions),
+WeldFlow's project-sheets list (with `sheets`), and WeldMail
+(`modules/external-api/src/mail`: mail-accounts, -messages, -threads,
+-labels, -folders, -drafts and -attachments, and sending: uploads,
+compose, reply, forward and draft-send, under the API's policies of a
+verified sender domain and the account's daily limit). A workspace key or
+an app token acts as the workspace there and opens shared mailboxes only;
+a personal key opens what WeldMail opens for its member. The shared mail
+logic (the principal's access, the public account shape, folders, drafts,
+uploads, forward) is `weldsuite-mail-domain`, which WeldMail's own routes
+send through too; an attachment the virus scan locked downloads as 403 or
+409, as in WeldMail.
 WeldDesk's BI connector, the read-only OData 4.0 feed at `/v1/odata`
 (`modules/external-api/src/odata`), is mounted with desk's groups: its
 tables come from `catalogs/odata.json`, which `pnpm rust:catalogs` exports
@@ -470,7 +480,7 @@ Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
 statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
-yet: mail (8 groups), custom-objects and reach.
+yet: custom-objects and reach.
 
 The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
 is served at `/mcp` (with the EU values on a host of its own, `mcp.<domain>`,
