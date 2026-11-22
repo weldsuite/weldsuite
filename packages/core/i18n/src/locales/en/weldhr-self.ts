@@ -144,7 +144,6 @@ export const weldhrSelf = {
           days: 'Days',
           status: 'Status',
         },
-        cancel: 'Cancel',
         reviewNote: 'Note from HR: {note}',
       },
       cancelConfirm: {
@@ -284,6 +283,27 @@ export const weldhrSelf = {
       empty: {
         leave: 'Leave you request shows up here, with its approval.',
         balances: 'Your HR team sets your allowance per leave type.',
+      },
+      panel: {
+        sickReportTitle: 'Sick report of {date}',
+        requestedOn: 'Requested on',
+        reviewedBy: 'Reviewed by',
+        reviewedOn: 'Reviewed on',
+        reviewNote: 'Note from HR',
+        reportedOn: 'Reported on',
+        fullAllowance: 'Full-year allowance',
+        overAllowance: 'Over the allowance',
+        overAllowanceValues: {
+          allow: 'Allowed',
+          block: 'Not allowed',
+        },
+        requests: 'Requests',
+        noRequests: {
+          title: 'No requests yet',
+          description: 'Leave of this type that you request shows up here.',
+        },
+        loadFailed: 'Could not load this item.',
+        notFound: 'This item is no longer there.',
       },
     },
     tasks: {

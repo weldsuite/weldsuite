@@ -145,7 +145,6 @@ export const weldhrSelf = {
           days: 'Dagen',
           status: 'Status',
         },
-        cancel: 'Annuleren',
         reviewNote: 'Opmerking van HR: {note}',
       },
       cancelConfirm: {
@@ -285,6 +284,27 @@ export const weldhrSelf = {
       empty: {
         leave: 'Verlof dat je aanvraagt staat hier, met de goedkeuring.',
         balances: 'Je HR-team stelt je tegoed per verlofsoort in.',
+      },
+      panel: {
+        sickReportTitle: 'Ziekmelding van {date}',
+        requestedOn: 'Aangevraagd op',
+        reviewedBy: 'Beoordeeld door',
+        reviewedOn: 'Beoordeeld op',
+        reviewNote: 'Notitie van HR',
+        reportedOn: 'Gemeld op',
+        fullAllowance: 'Tegoed voor een heel jaar',
+        overAllowance: 'Boven het tegoed',
+        overAllowanceValues: {
+          allow: 'Toegestaan',
+          block: 'Niet toegestaan',
+        },
+        requests: 'Aanvragen',
+        noRequests: {
+          title: 'Nog geen aanvragen',
+          description: 'Verlof van deze soort dat je aanvraagt, staat hier.',
+        },
+        loadFailed: 'Kon dit item niet laden.',
+        notFound: 'Dit item bestaat niet meer.',
       },
     },
     tasks: {

@@ -36,6 +36,7 @@ import './ledger-account';
 import './payment-run';
 import './payroll-run';
 import './hr-employee';
+import './hr-my-time-off';
 import './panel-person';
 import './panel-group';
 import './vat-return';

@@ -3,6 +3,8 @@
 import { Scale } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrLeaveBalance } from '@weldsuite/app-api-client/domains/weldhr';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_LEAVE_BALANCE_PANEL_TYPE } from '@/components/objects/hr-my-time-off/types';
 import { PanelEntityList, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/panel-entity-list';
 import { useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
@@ -14,6 +16,7 @@ type BalanceRow = HrLeaveBalance & { id: string };
 export function MyLeaveBalancesList() {
   const t = useTranslations();
   const { data, isLoading, error } = useMyHrLeave();
+  const { open: openPanel } = useObjectPanel();
   const rows: BalanceRow[] = (data?.balances ?? []).map((b) => ({ ...b, id: b.leaveTypeId }));
   const days = (value: number | null) => (value === null ? t('weldhr.me.leave.balances.unlimited') : value);
 
@@ -87,6 +90,8 @@ export function MyLeaveBalancesList() {
         isLoading={isLoading}
         error={data ? null : (error as Error | null)}
         columns={columns}
+        onRowClick={(b) => openPanel({ type: MY_LEAVE_BALANCE_PANEL_TYPE, id: b.id })}
+        objectPanel={{ type: MY_LEAVE_BALANCE_PANEL_TYPE }}
         filters={filters}
         applyFilters={applyFilters}
         searchFields={['name']}

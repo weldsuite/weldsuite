@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { HeartPulse } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfAbsence } from '@weldsuite/app-api-client/domains/weldhr';
 import {
@@ -12,6 +12,8 @@ import {
   type FilterConfig,
   type GroupConfig,
 } from '@/components/panel-entity-list';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_SICK_REPORT_PANEL_TYPE } from '@/components/objects/hr-my-time-off/types';
 import { useMyHrAbsences } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { AbsenceDialog } from '../../absenteeism/components/absence-dialog';
@@ -23,6 +25,7 @@ import { StatusBadge, formatDate } from '../../components/shared';
 export function MySickReportsList() {
   const t = useTranslations();
   const { data, isLoading, error } = useMyHrAbsences();
+  const { open: openPanel } = useObjectPanel();
   const [reporting, setReporting] = useState(false);
   const [recovering, setRecovering] = useState<HrSelfAbsence | null>(null);
 
@@ -92,27 +95,6 @@ export function MySickReportsList() {
       width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
       render: (r) => <StatusBadge group="absence" status={r.status} />,
     },
-    {
-      id: 'actions',
-      header: '',
-      width: cn(HR_COL.fixed, 'w-[150px]'),
-      render: (r) =>
-        r.id === current?.id ? (
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRecovering(r);
-              }}
-            >
-              {t('weldhr.absenteeism.reportRecovered')}
-            </Button>
-          </div>
-        ) : null,
-    },
   ];
 
   // Reported sick: the button reports you recovered; otherwise it reports you sick.
@@ -128,6 +110,17 @@ export function MySickReportsList() {
           isLoading={isLoading}
           error={data ? null : (error as Error | null)}
           columns={columns}
+          onRowClick={(r) => openPanel({ type: MY_SICK_REPORT_PANEL_TYPE, id: r.id })}
+          objectPanel={{ type: MY_SICK_REPORT_PANEL_TYPE }}
+          // The row's "⋮" menu (on hover): only the open report can be reported recovered.
+          rowMenu={(r) =>
+            r.id === current?.id ? (
+              <DropdownMenuItem onClick={() => setRecovering(r)}>
+                <HeartPulse />
+                {t('weldhr.absenteeism.reportRecovered')}
+              </DropdownMenuItem>
+            ) : null
+          }
           groups={groups}
           filters={filters}
           applyFilters={applyFilters}

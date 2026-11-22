@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { CalendarRange, X } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import {
   PanelEntityList,
   type ActiveFilter,
@@ -14,6 +14,8 @@ import {
   type FilterConfig,
   type GroupConfig,
 } from '@/components/panel-entity-list';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_LEAVE_REQUEST_PANEL_TYPE } from '@/components/objects/hr-my-time-off/types';
 import { useMyHrCancelLeave, useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
@@ -25,7 +27,7 @@ const STATUSES = ['pending', 'approved', 'rejected', 'cancelled'] as const;
 const KNOWN_STATUSES = new Set<string>(STATUSES);
 
 /** Mirrors the server: pending requests, and approved ones that have not started yet. */
-function isCancellable(request: HrSelfLeaveRequest): boolean {
+export function isCancellable(request: HrSelfLeaveRequest): boolean {
   return request.status === 'pending' || (request.status === 'approved' && request.startDate > todayIso());
 }
 
@@ -33,6 +35,7 @@ export function MyLeaveList({ canRequest }: Readonly<{ canRequest: boolean }>) {
   const t = useTranslations();
   const { data, isLoading, error } = useMyHrLeave();
   const cancelLeave = useMyHrCancelLeave();
+  const { open: openPanel } = useObjectPanel();
   const [creating, setCreating] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<HrSelfLeaveRequest | null>(null);
 
@@ -131,28 +134,6 @@ export function MyLeaveList({ canRequest }: Readonly<{ canRequest: boolean }>) {
       width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[100px]'),
       render: (r) => <StatusBadge group="leave" status={r.status} />,
     },
-    {
-      id: 'actions',
-      header: '',
-      width: cn(HR_COL.fixed, 'w-[100px]'),
-      render: (r) =>
-        isCancellable(r) ? (
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCancelTarget(r);
-              }}
-            >
-              <X className="mr-1 h-3.5 w-3.5" />
-              {t('weldhr.me.leave.requests.cancel')}
-            </Button>
-          </div>
-        ) : null,
-    },
   ];
 
   const requestButton = canRequest ? { label: t('weldhr.me.leave.requestLeave'), onClick: () => setCreating(true) } : undefined;
@@ -165,6 +146,17 @@ export function MyLeaveList({ canRequest }: Readonly<{ canRequest: boolean }>) {
           isLoading={isLoading}
           error={data ? null : (error as Error | null)}
           columns={columns}
+          onRowClick={(r) => openPanel({ type: MY_LEAVE_REQUEST_PANEL_TYPE, id: r.id })}
+          objectPanel={{ type: MY_LEAVE_REQUEST_PANEL_TYPE }}
+          // The row's "⋮" menu (on hover): cancelling, while the request can still be cancelled.
+          rowMenu={(r) =>
+            isCancellable(r) ? (
+              <DropdownMenuItem variant="destructive" onClick={() => setCancelTarget(r)}>
+                <X />
+                {t('weldhr.me.leave.cancelConfirm.confirm')}
+              </DropdownMenuItem>
+            ) : null
+          }
           groups={groups}
           filters={filters}
           applyFilters={applyFilters}
