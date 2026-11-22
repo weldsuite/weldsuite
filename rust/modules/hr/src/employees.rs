@@ -592,25 +592,18 @@ async fn list_route(
 async fn employee_detail(db: &PgPool, id: &str) -> Result<Value, HrError> {
     let row = require_employee(db, id).await?;
     let mut decorated = decorate(db, vec![row]).await?.pop().unwrap_or(Value::Null);
-    let reports: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
-             'preferredName', preferred_name, 'jobTitle', job_title, 'avatarUrl', avatar_url, 'status', status)
-         from hr_employees where manager_id = $1 and deleted_at is null
-         order by last_name asc, first_name asc",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let reports: Vec<OrgChartPerson> = OrgChartPerson::select()
+        .filter(hr_employees::Column::ManagerId.eq(id))
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .order_by_asc(hr_employees::Column::LastName)
+        .order_by_asc(hr_employees::Column::FirstName)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let reports: Vec<Value> = reports
         .into_iter()
-        .map(|mut report| {
-            let name = display_name_of(&report);
-            if let Some(map) = report.as_object_mut() {
-                map.insert("displayName".to_owned(), Value::String(name));
-            }
-            report
-        })
-        .collect();
+        .map(|report| report.json(false))
+        .collect::<Result<_, _>>()?;
     if let Some(map) = decorated.as_object_mut() {
         map.insert("directReports".to_owned(), Value::Array(reports));
     }
@@ -626,31 +619,74 @@ async fn detail_route(
     Ok(Data(employee_detail(&caller.db, &id).await?).into_response())
 }
 
+/// A person of the org chart (or a direct report: without `managerId` and
+/// `departmentId`), as the route's `jsonb_build_object` had it, plus
+/// `displayName`.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrgChartPerson {
+    id: String,
+    first_name: String,
+    last_name: String,
+    preferred_name: Option<String>,
+    job_title: Option<String>,
+    avatar_url: Option<String>,
+    manager_id: Option<String>,
+    department_id: Option<String>,
+    status: String,
+}
+
+impl OrgChartPerson {
+    fn select() -> sea_orm::Select<hr_employees::Entity> {
+        use hr_employees::Column;
+        hr_employees::Entity::find().select_only().columns([
+            Column::Id,
+            Column::FirstName,
+            Column::LastName,
+            Column::PreferredName,
+            Column::JobTitle,
+            Column::AvatarUrl,
+            Column::ManagerId,
+            Column::DepartmentId,
+            Column::Status,
+        ])
+    }
+
+    /// The object with `displayName`; `with_place` keeps `managerId` and
+    /// `departmentId` (the org chart's, not a direct report's).
+    fn json(self, with_place: bool) -> Result<Value, HrError> {
+        let name = display_name(
+            &self.first_name,
+            &self.last_name,
+            self.preferred_name.as_deref(),
+        );
+        let mut row = to_json(self)?;
+        if let Some(map) = row.as_object_mut() {
+            if !with_place {
+                map.remove("managerId");
+                map.remove("departmentId");
+            }
+            map.insert("displayName".to_owned(), Value::String(name));
+        }
+        Ok(row)
+    }
+}
+
 async fn org_chart_route(caller: Caller) -> HrResult {
     let scope = caller.scope().await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
-             'preferredName', preferred_name, 'jobTitle', job_title, 'avatarUrl', avatar_url,
-             'managerId', manager_id, 'departmentId', department_id, 'status', status)
-         from hr_employees where deleted_at is null and status <> 'terminated'
-           and ($1::text[] is null or legal_entity_id = any($1)
-                or ($2::boolean and legal_entity_id is null))
-         order by last_name asc, first_name asc",
-    )
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(&caller.db)
-    .await?;
+    let rows: Vec<OrgChartPerson> = OrgChartPerson::select()
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(hr_employees::Column::Status.ne("terminated"))
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_asc(hr_employees::Column::LastName)
+        .order_by_asc(hr_employees::Column::FirstName)
+        .into_model()
+        .all(&orm(&caller.db))
+        .await?;
     let rows: Vec<Value> = rows
         .into_iter()
-        .map(|mut row| {
-            let name = display_name_of(&row);
-            if let Some(map) = row.as_object_mut() {
-                map.insert("displayName".to_owned(), Value::String(name));
-            }
-            row
-        })
-        .collect();
+        .map(|row| row.json(true))
+        .collect::<Result<_, _>>()?;
     Ok(Data(rows).into_response())
 }
 
@@ -678,23 +714,57 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
         .map(|s| crate::js_trim(&s).to_owned())
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{}%", escape_like_term(&s)));
-    let mut rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', m.user_id, 'name', m.name, 'email', m.email,
-             'picture', null, 'title', m.title, 'phone', m.phone,
-             'memberType', case when m.member_type = 'EMPLOYEE' then 'EMPLOYEE' else 'INTERNAL' end)
-         from workspace_members m
-         where m.deleted_at is null and m.status = 'ACTIVE' and m.member_type = any($1)
-           and m.user_id not like 'invited\\_%'
-           and not exists (select 1 from hr_employees t where t.user_id = m.user_id and t.deleted_at is null)
-           and ($2::text is null or m.name ilike $2 or m.email ilike $2)
-         order by m.name asc, m.email asc
-         limit $3",
-    )
-    .bind(EMPLOYABLE_MEMBER_TYPES.map(str::to_owned).to_vec())
-    .bind(search)
-    .bind(limit)
-    .fetch_all(&caller.db)
-    .await?;
+    use workspace_members::Column as Member;
+    let mut members = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            Member::UserId,
+            Member::Name,
+            Member::Email,
+            Member::Title,
+            Member::Phone,
+            Member::MemberType,
+        ])
+        .filter(Member::DeletedAt.is_null())
+        .filter(Member::Status.eq("ACTIVE"))
+        .filter(Member::MemberType.is_in(EMPLOYABLE_MEMBER_TYPES))
+        .filter(Member::UserId.not_like("invited\\_%"))
+        .filter(Member::UserId.not_in_subquery(linked_user_ids()));
+    if let Some(search) = &search {
+        members = members.filter(
+            Condition::any()
+                .add(Member::Name.ilike(search))
+                .add(Member::Email.ilike(search)),
+        );
+    }
+    let members: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    )> = members
+        .order_by_asc(Member::Name)
+        .order_by_asc(Member::Email)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
+    let mut rows: Vec<Value> = members
+        .into_iter()
+        .map(|(user_id, name, email, title, phone, member_type)| {
+            json!({
+                "userId": user_id,
+                "name": name,
+                "email": email,
+                "picture": null,
+                "title": title,
+                "phone": phone,
+                "memberType": if member_type == "EMPLOYEE" { "EMPLOYEE" } else { "INTERNAL" },
+            })
+        })
+        .collect();
     // Avatars are account pictures, not the member row's copy.
     weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "userId", "picture")
         .await;
@@ -709,39 +779,53 @@ pub(crate) async fn link_invited_employees(
     user_id: Option<&str>,
     employee_id: Option<&str>,
 ) -> Result<Vec<(String, String)>, HrError> {
-    let candidates: Vec<(String, String)> = sqlx::query_as(
-        "select t.id, m.user_id from hr_employees t
-         join workspace_members m on lower(m.email) = lower(t.email)
-         where t.user_id is null and t.deleted_at is null and m.deleted_at is null
-           and m.status = 'ACTIVE' and m.member_type = any($1)
-           and m.user_id not like 'invited\\_%' and m.user_id not like 'pending\\_clerk\\_%'
-           and not exists (select 1 from hr_employees linked where linked.user_id = m.user_id
-                           and linked.deleted_at is null)
-           and ($2::text is null or m.user_id = $2)
-           and ($3::text is null or t.id = $3)
-         limit 50",
-    )
-    .bind(EMPLOYABLE_MEMBER_TYPES.map(str::to_owned).to_vec())
-    .bind(user_id)
-    .bind(employee_id)
-    .fetch_all(&caller.db)
-    .await?;
+    use workspace_members::Column as Member;
+    let db = &orm(&caller.db);
+    let mut candidates = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::Id)
+        .column(Member::UserId)
+        .filter(hr_employees::Column::UserId.is_null())
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(Member::DeletedAt.is_null())
+        .filter(Member::Status.eq("ACTIVE"))
+        .filter(Member::MemberType.is_in(EMPLOYABLE_MEMBER_TYPES))
+        .filter(Member::UserId.not_like("invited\\_%"))
+        .filter(Member::UserId.not_like("pending\\_clerk\\_%"))
+        .filter(Member::UserId.not_in_subquery(linked_user_ids()));
+    if let Some(user_id) = user_id {
+        candidates = candidates.filter(Member::UserId.eq(user_id));
+    }
+    if let Some(employee_id) = employee_id {
+        candidates = candidates.filter(hr_employees::Column::Id.eq(employee_id));
+    }
+    // `join workspace_members m on lower(m.email) = lower(t.email)`.
+    QueryTrait::query(&mut candidates).join(
+        JoinType::InnerJoin,
+        workspace_members::Entity,
+        sea_orm::ExprTrait::eq(
+            Func::lower(Expr::col((workspace_members::Entity, Member::Email))),
+            Func::lower(Expr::col((hr_employees::Entity, hr_employees::Column::Email))),
+        ),
+    );
+    let candidates: Vec<(String, String)> = candidates.limit(50).into_tuple().all(db).await?;
     let mut linked = Vec::new();
     let mut taken: HashSet<String> = HashSet::new();
     for (candidate_employee, candidate_user) in candidates {
         if taken.contains(&candidate_user) {
             continue;
         }
-        let row: Option<String> = sqlx::query_scalar(
-            "update hr_employees set user_id = $2, updated_at = $3::timestamp
-             where id = $1 and user_id is null returning id",
-        )
-        .bind(&candidate_employee)
-        .bind(&candidate_user)
-        .bind(now())
-        .fetch_optional(&caller.db)
-        .await?;
-        if row.is_none() {
+        let done = hr_employees::Entity::update_many()
+            .col_expr(
+                hr_employees::Column::UserId,
+                Expr::value(candidate_user.as_str()),
+            )
+            .col_expr(hr_employees::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(hr_employees::Column::Id.eq(candidate_employee.as_str()))
+            .filter(hr_employees::Column::UserId.is_null())
+            .exec(db)
+            .await?;
+        if done.rows_affected == 0 {
             continue;
         }
         taken.insert(candidate_user.clone());
@@ -758,6 +842,22 @@ pub(crate) async fn link_invited_employees(
             .await?;
     }
     Ok(linked)
+}
+
+/// `select user_id from hr_employees where deleted_at is null`: the members
+/// already linked to an employee (`not exists (… where t.user_id =
+/// m.user_id …)`; a null `user_id` is left out so `not in` stays the same
+/// test).
+fn linked_user_ids() -> sea_orm::sea_query::SelectStatement {
+    Query::select()
+        .column(hr_employees::Column::UserId)
+        .from(hr_employees::Entity)
+        .cond_where(
+            Condition::all()
+                .add(hr_employees::Column::DeletedAt.is_null())
+                .add(hr_employees::Column::UserId.is_not_null()),
+        )
+        .to_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,12 +1369,14 @@ async fn assert_email_free(
     email: &str,
     except_id: Option<&str>,
 ) -> Result<(), HrError> {
-    let dupe: Option<String> = sqlx::query_scalar(
-        "select id from hr_employees where lower(email) = $1 and deleted_at is null limit 1",
-    )
-    .bind(email.to_lowercase())
-    .fetch_optional(db)
-    .await?;
+    let dupe: Option<String> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::Id)
+        .filter(lower_email_is(hr_employees::Column::Email, email.to_lowercase()))
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if dupe.is_some_and(|dupe| Some(dupe.as_str()) != except_id) {
         return Err(HrError::conflict(
             "Another employee already uses this email address",
@@ -1292,12 +1394,14 @@ async fn assert_user_id_free(
     let Some(user_id) = user_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let dupe: Option<String> = sqlx::query_scalar(
-        "select id from hr_employees where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let dupe: Option<String> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::Id)
+        .filter(hr_employees::Column::UserId.eq(user_id))
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if dupe.is_some_and(|dupe| Some(dupe.as_str()) != except_id) {
         return Err(HrError::conflict(
             "Another employee is already linked to this workspace member",
@@ -1313,13 +1417,12 @@ async fn require_active_workspace_member(db: &PgPool, user_id: &str) -> Result<V
             "That is not an active workspace member",
         ));
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m where m.user_id = $1 and m.deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row.map(js_row) else {
+    let row = workspace_members::Entity::find()
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(row) = row.map(to_json).transpose()? else {
         return Err(HrError::not_found("Workspace member", user_id));
     };
     if row["status"] != "ACTIVE" {
@@ -1333,6 +1436,11 @@ async fn require_active_workspace_member(db: &PgPool, user_id: &str) -> Result<V
     Ok(row)
 }
 
+/// `lower(email) = $n`.
+fn lower_email_is(column: impl ColumnTrait, email: String) -> Expr {
+    sea_orm::ExprTrait::eq(Func::lower(Expr::col(column.as_column_ref())), email)
+}
+
 /// `isPlaceholderUserId(userId)`.
 fn is_placeholder_user_id(user_id: &str) -> bool {
     user_id.starts_with("invited_") || user_id.starts_with("pending_clerk_")
@@ -1341,13 +1449,21 @@ fn is_placeholder_user_id(user_id: &str) -> bool {
 /// `memberForNewEmployee(db, email)`: an active member with that email, or
 /// `None` for someone whose invite is pending.
 async fn member_for_new_employee(db: &PgPool, email: &str) -> Result<Option<String>, HrError> {
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select user_id, status, member_type from workspace_members
-         where lower(email) = $1 and deleted_at is null",
-    )
-    .bind(crate::js_trim(email).to_lowercase())
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, String)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Status,
+            workspace_members::Column::MemberType,
+        ])
+        .filter(lower_email_is(
+            workspace_members::Column::Email,
+            crate::js_trim(email).to_lowercase(),
+        ))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let member = rows
         .iter()
         .find(|(user, status, _)| status == "ACTIVE" && !is_placeholder_user_id(user))
@@ -1387,11 +1503,13 @@ async fn assert_manager(
         if current == self_id {
             return Err(HrError::validation("That manager reports to this employee"));
         }
-        let next: Option<Option<String>> =
-            sqlx::query_scalar("select manager_id from hr_employees where id = $1 limit 1")
-                .bind(&current)
-                .fetch_optional(db)
-                .await?;
+        let next: Option<Option<String>> = hr_employees::Entity::find()
+            .select_only()
+            .column(hr_employees::Column::ManagerId)
+            .filter(hr_employees::Column::Id.eq(current.as_str()))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         cursor = next.flatten().filter(|id| !id.is_empty());
         depth += 1;
     }
@@ -1502,26 +1620,13 @@ async fn create_employee(
         .or_insert_with(|| json!("onboarding"));
     record.insert("sensitive_encrypted".to_owned(), json!(sealed));
     record.insert("created_by".to_owned(), json!(caller.user_id));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_employees as t (id, employee_number, first_name, last_name, preferred_name, email,
-             phone, avatar_url, pronouns, job_title, department_id, manager_id, legal_entity_id, user_id,
-             employment_type, status, start_date, end_date, probation_end_date, location, timezone,
-             weekly_hours, work_location_ids, sensitive_encrypted, custom_fields, created_by)
-         select r.id, r.employee_number, r.first_name, r.last_name, r.preferred_name, r.email,
-             r.phone, r.avatar_url, r.pronouns, r.job_title, r.department_id, r.manager_id,
-             r.legal_entity_id, r.user_id, r.employment_type, r.status, r.start_date, r.end_date,
-             r.probation_end_date, r.location, r.timezone, r.weekly_hours, r.work_location_ids,
-             r.sensitive_encrypted, r.custom_fields, r.created_by
-         from jsonb_populate_record(null::hr_employees, $1) r
-         returning to_jsonb(t)",
-    )
-    .bind(Value::Object(record))
-    .fetch_one(db)
-    .await?;
+    // `insert into hr_employees (<the route's columns>) select … from
+    // jsonb_populate_record(…)`: every column the route names is in `record`.
+    let row = EMPLOYEES.insert(&orm(db), record).await?;
     if has_custom {
         custom_fields::sync_values_for_entity(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, &id, custom).await;
     }
-    Ok(js_row(row))
+    Ok(row)
 }
 
 fn location_ids(value: Option<&Value>) -> Option<Vec<String>> {
@@ -1611,17 +1716,23 @@ async fn assert_entity_fits_payroll(
     employee_id: &str,
     legal_entity_id: &str,
 ) -> Result<(), HrError> {
-    let clash: Option<String> = sqlx::query_scalar(
-        "select p.employer_id from hr_payroll_profiles p
-         join hr_payroll_employers pe on pe.id = p.employer_id
-         where p.employee_id = $1 and p.status <> 'ended'
-           and pe.legal_entity_id is not null and pe.legal_entity_id <> $2
-         limit 1",
-    )
-    .bind(employee_id)
-    .bind(legal_entity_id)
-    .fetch_optional(db)
-    .await?;
+    let clash: Option<String> = hr_payroll_profiles::Entity::find()
+        .select_only()
+        .column(hr_payroll_profiles::Column::EmployerId)
+        .join(
+            JoinType::InnerJoin,
+            hr_payroll_profiles::Entity::belongs_to(hr_payroll_employers::Entity)
+                .from(hr_payroll_profiles::Column::EmployerId)
+                .to(hr_payroll_employers::Column::Id)
+                .into(),
+        )
+        .filter(hr_payroll_profiles::Column::EmployeeId.eq(employee_id))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .filter(hr_payroll_employers::Column::LegalEntityId.is_not_null())
+        .filter(hr_payroll_employers::Column::LegalEntityId.ne(legal_entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if clash.is_some() {
         return Err(HrError::conflict(
             "This employee is on the payroll of an employer of another legal entity. Move or end their payroll profile first.",
@@ -1795,44 +1906,16 @@ async fn update_route(
             record.insert(column.to_owned(), value.clone());
         }
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_employees as t set
-             employee_number = case when $1 ? 'employee_number' then r.employee_number else t.employee_number end,
-             first_name = case when $1 ? 'first_name' then r.first_name else t.first_name end,
-             last_name = case when $1 ? 'last_name' then r.last_name else t.last_name end,
-             preferred_name = case when $1 ? 'preferred_name' then r.preferred_name else t.preferred_name end,
-             email = case when $1 ? 'email' then r.email else t.email end,
-             phone = case when $1 ? 'phone' then r.phone else t.phone end,
-             avatar_url = case when $1 ? 'avatar_url' then r.avatar_url else t.avatar_url end,
-             pronouns = case when $1 ? 'pronouns' then r.pronouns else t.pronouns end,
-             job_title = case when $1 ? 'job_title' then r.job_title else t.job_title end,
-             department_id = case when $1 ? 'department_id' then r.department_id else t.department_id end,
-             manager_id = case when $1 ? 'manager_id' then r.manager_id else t.manager_id end,
-             legal_entity_id = case when $1 ? 'legal_entity_id' then r.legal_entity_id else t.legal_entity_id end,
-             user_id = case when $1 ? 'user_id' then r.user_id else t.user_id end,
-             employment_type = case when $1 ? 'employment_type' then r.employment_type else t.employment_type end,
-             status = case when $1 ? 'status' then r.status else t.status end,
-             start_date = case when $1 ? 'start_date' then r.start_date else t.start_date end,
-             end_date = case when $1 ? 'end_date' then r.end_date else t.end_date end,
-             probation_end_date = case when $1 ? 'probation_end_date' then r.probation_end_date else t.probation_end_date end,
-             location = case when $1 ? 'location' then r.location else t.location end,
-             timezone = case when $1 ? 'timezone' then r.timezone else t.timezone end,
-             weekly_hours = case when $1 ? 'weekly_hours' then r.weekly_hours else t.weekly_hours end,
-             work_location_ids = case when $1 ? 'work_location_ids' then r.work_location_ids else t.work_location_ids end,
-             custom_fields = case when $1 ? 'custom_fields' then r.custom_fields else t.custom_fields end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_employees, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(Value::Object(record))
-    .bind(&id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
+    // `update hr_employees set <each column sent> = r.<column>, updated_at
+    // = now from jsonb_populate_record(…) r where id = $id`.
+    record.insert("updated_at".to_owned(), Value::String(now()));
+    let row = EMPLOYEES
+        .update(&orm(db), &id, record, false)
+        .await?
+        .ok_or_else(|| no_row("hr_employees"))?;
     if has_custom {
         custom_fields::sync_values_for_entity(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, &id, custom).await;
     }
-    let row = js_row(row);
     caller.emit(
         &state,
         HR_EMPLOYEE_UPDATED,
@@ -1848,10 +1931,12 @@ async fn delete_route(
     Path(id): Path<String>,
 ) -> HrResult {
     require_employee(&caller.db, &id).await?;
-    sqlx::query("update hr_employees set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let now = utc_now();
+    hr_employees::Entity::update_many()
+        .col_expr(hr_employees::Column::DeletedAt, Expr::value(now))
+        .col_expr(hr_employees::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_employees::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     caller
         .audit("employee.deleted", Some(&id), json!({}))
@@ -1915,11 +2000,11 @@ async fn write_sensitive_route(
     }
     if !changed.is_empty() {
         let sealed = encrypt_sensitive(&Value::Object(next), &keyring)?;
-        sqlx::query("update hr_employees set sensitive_encrypted = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(sealed)
-            .bind(now())
-            .execute(&caller.db)
+        hr_employees::Entity::update_many()
+            .col_expr(hr_employees::Column::SensitiveEncrypted, Expr::value(sealed))
+            .col_expr(hr_employees::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(hr_employees::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
             .await?;
         caller
             .audit(
