@@ -32,3 +32,15 @@ export const Preselected: Story = {
     );
   },
 };
+
+/** 24-hour clock (`hourCycle={24}`) with translated column headings, as a Dutch user would see it. */
+export const TwentyFourHour: Story = {
+  render: () => {
+    const [value, setValue] = useState<string>('09:30');
+    return (
+      <div className="w-48">
+        <TimePicker value={value} onChange={setValue} hourCycle={24} hourLabel="Uur" minuteLabel="Min" placeholder="Kies een tijd" />
+      </div>
+    );
+  },
+};

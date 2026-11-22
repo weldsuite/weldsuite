@@ -1,128 +1,172 @@
 /**
- * My HR → Announcements: what the HR team posted for you, pinned first. Opening
- * one marks it as read; one you have not opened yet carries a dot (and the
- * sidebar item a count).
+ * My HR → Announcements: what the HR team posted for you, pinned first, in the
+ * standard list. A row opens the announcement in its panel, which marks it as
+ * read; one you have not opened yet says "New" (and the sidebar item counts it).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, Megaphone, Pin } from 'lucide-react';
+import { Check, Megaphone, Pin } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfAnnouncement } from '@weldsuite/app-api-client/domains/weldhr';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_ANNOUNCEMENT_PANEL_TYPE } from '@/components/objects/hr-my-hr/types';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import { useMyHrAnnouncements, useMyHrMarkAnnouncementRead } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
-import { emptyIcon } from '../../components/page-kit';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
 import { errorMessage, formatDate } from '../../components/shared';
-import { TabLoading } from './shared';
-import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
-export function MyAnnouncementsTab({ openId }: Readonly<{ openId?: string }>) {
+/** Marks an announcement as read once (a refetch in flight does not send it twice), with a toast when that fails. */
+export function useMarkMyAnnouncementRead() {
   const t = useTranslations();
-  const { data, isLoading, error } = useMyHrAnnouncements();
-  const markRead = useMyHrMarkAnnouncementRead();
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  // Announcements already sent to the server as read, so a refetch in flight does not send them twice.
-  const requestedRead = useRef(new Set<string>());
-  const openedFromLink = useRef<string | null>(null);
-
-  function markAsRead(announcement: HrSelfAnnouncement) {
-    if (announcement.readAt || requestedRead.current.has(announcement.id)) return;
-    requestedRead.current.add(announcement.id);
-    markRead.mutate(announcement.id, {
-      onError: (err) => {
-        requestedRead.current.delete(announcement.id);
-        toast.error(errorMessage(err, t('weldhr.me.announcements.markReadFailed')));
-      },
-    });
-  }
-
-  function toggle(announcement: HrSelfAnnouncement) {
-    const opening = !expanded.has(announcement.id);
-    setExpanded((previous) => {
-      const next = new Set(previous);
-      if (opening) next.add(announcement.id);
-      else next.delete(announcement.id);
-      return next;
-    });
-    if (opening) markAsRead(announcement);
-  }
-
-  // A link from a push notification: open that announcement once the list is there.
-  const linked = openId ? data?.announcements.find((a) => a.id === openId) : undefined;
-  useEffect(() => {
-    if (!linked || openedFromLink.current === linked.id) return;
-    openedFromLink.current = linked.id;
-    setExpanded((previous) => new Set(previous).add(linked.id));
-    if (!linked.readAt && !requestedRead.current.has(linked.id)) {
-      requestedRead.current.add(linked.id);
-      markRead.mutate(linked.id, {
+  const { mutate } = useMyHrMarkAnnouncementRead();
+  const requested = useRef(new Set<string>());
+  return useCallback(
+    (announcement: HrSelfAnnouncement) => {
+      if (announcement.readAt || requested.current.has(announcement.id)) return;
+      requested.current.add(announcement.id);
+      mutate(announcement.id, {
         onError: (err) => {
-          requestedRead.current.delete(linked.id);
+          requested.current.delete(announcement.id);
           toast.error(errorMessage(err, t('weldhr.me.announcements.markReadFailed')));
         },
       });
-    }
-    document.getElementById(`my-hr-announcement-${linked.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, [linked, markRead, t]);
+    },
+    [mutate, t],
+  );
+}
 
-  if (isLoading) return <TabLoading />;
-  if (!data) return <ErrorBanner error={errorMessage(error, t('weldhr.me.announcements.loadFailed'))} />;
+/** "New" for one you have not opened yet, otherwise a muted "Read". */
+export function AnnouncementReadState({ announcement }: Readonly<{ announcement: HrSelfAnnouncement }>) {
+  const t = useTranslations();
+  return announcement.readAt ? (
+    <span className="text-muted-foreground">{t('weldhr.me.announcements.read')}</span>
+  ) : (
+    <Badge>{t('weldhr.me.announcements.new')}</Badge>
+  );
+}
 
-  if (data.announcements.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-        {emptyIcon(Megaphone)}
-        <h2 className="mb-1.5 text-[15px] font-semibold">{t('weldhr.me.announcements.empty.title')}</h2>
-        <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{t('weldhr.me.announcements.empty.description')}</p>
-      </div>
-    );
-  }
+export function MyAnnouncementsList() {
+  const t = useTranslations();
+  const { data, isLoading, error } = useMyHrAnnouncements();
+  const markAsRead = useMarkMyAnnouncementRead();
+  const { open: openPanel } = useObjectPanel();
+  const announcements = data?.announcements ?? [];
+
+  // The same groups as the back office's announcements.
+  const groups: GroupConfig<HrSelfAnnouncement>[] = [
+    { id: 'pinned', label: t('weldhr.announcements.groups.pinned'), sortOrder: 1, filter: (a) => a.pinned },
+    { id: 'other', label: t('weldhr.announcements.groups.other'), sortOrder: 2, filter: (a) => !a.pinned },
+  ];
+
+  const authors = [...new Set(announcements.map((a) => a.createdByName).filter((name): name is string => !!name))].sort();
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: t('weldhr.me.announcements.table.status'),
+      operators: ['is'],
+      options: [
+        { value: 'new', label: t('weldhr.me.announcements.new') },
+        { value: 'read', label: t('weldhr.me.announcements.read') },
+      ],
+    },
+    ...(authors.length > 0
+      ? [
+          {
+            field: 'postedBy',
+            label: t('weldhr.me.announcements.table.postedBy'),
+            operators: ['is'],
+            options: authors.map((name) => ({ value: name, label: name })),
+          },
+        ]
+      : []),
+  ];
+
+  const applyFilters = (rows: HrSelfAnnouncement[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'status') return list.filter((a) => (filter.value === 'new') === !a.readAt);
+      if (filter.field === 'postedBy') return list.filter((a) => a.createdByName === filter.value);
+      return list;
+    }, rows);
+
+  const columns: ColumnDef<HrSelfAnnouncement>[] = [
+    {
+      id: 'title',
+      header: t('weldhr.me.announcements.table.title'),
+      width: HR_COL.main,
+      render: (a) => (
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {a.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('weldhr.me.announcements.pinned')} />}
+            <p className={cn('truncate', a.readAt ? 'font-medium' : 'font-semibold')}>{a.title}</p>
+          </div>
+          {/* What the hidden columns would show, once the list is too narrow for them. */}
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground @lg:hidden">
+            <span className="tabular-nums">{formatDate(a.publishedAt)}</span>
+            {!a.readAt && <AnnouncementReadState announcement={a} />}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'postedBy',
+      header: t('weldhr.me.announcements.table.postedBy'),
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[160px]'),
+      render: (a) => <span className="block truncate text-muted-foreground">{a.createdByName ?? '—'}</span>,
+    },
+    {
+      id: 'published',
+      header: t('weldhr.me.announcements.table.published'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
+      render: (a) => <span className="block truncate tabular-nums text-muted-foreground">{formatDate(a.publishedAt)}</span>,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.me.announcements.table.status'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[90px]'),
+      render: (a) => <AnnouncementReadState announcement={a} />,
+    },
+  ];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
-      {data.announcements.map((announcement) => {
-        const open = expanded.has(announcement.id);
-        const unread = !announcement.readAt;
-        return (
-          <Card key={announcement.id} id={`my-hr-announcement-${announcement.id}`} className="scroll-mt-4">
-            <CardContent className="p-0">
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={() => toggle(announcement)}
-                className="flex w-full items-start gap-3 rounded-xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span
-                  className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', unread ? 'bg-primary' : 'bg-transparent')}
-                  role={unread ? 'img' : undefined}
-                  aria-label={unread ? t('weldhr.me.announcements.new') : undefined}
-                />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className={cn('text-sm', unread ? 'font-semibold' : 'font-medium')}>{announcement.title}</h2>
-                    {announcement.pinned && (
-                      <Badge variant="outline" className="gap-1">
-                        <Pin className="h-3 w-3" />
-                        {t('weldhr.me.announcements.pinned')}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {[announcement.createdByName ? t('weldhr.me.announcements.postedBy', { name: announcement.createdByName }) : null, formatDate(announcement.publishedAt)]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                  {/* Plain text from HR: keep its line breaks, never render it as markup. */}
-                  <p className={cn('whitespace-pre-wrap break-words text-sm text-muted-foreground', !open && 'line-clamp-2')}>{announcement.body}</p>
-                </div>
-                <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden />
-              </button>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
+    <HrListContainer>
+      <PanelEntityList<HrSelfAnnouncement>
+        items={announcements}
+        isLoading={isLoading}
+        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.announcements.loadFailed'))) : null}
+        columns={columns}
+        onRowClick={(a) => openPanel({ type: MY_ANNOUNCEMENT_PANEL_TYPE, id: a.id })}
+        objectPanel={{ type: MY_ANNOUNCEMENT_PANEL_TYPE }}
+        // The row's "⋮" menu (on hover): marking one as read without opening it.
+        rowMenu={(a) =>
+          a.readAt ? null : (
+            <DropdownMenuItem onClick={() => markAsRead(a)}>
+              <Check />
+              {t('weldhr.me.announcements.markRead')}
+            </DropdownMenuItem>
+          )
+        }
+        groups={groups}
+        filters={filters}
+        applyFilters={applyFilters}
+        searchFields={['title', 'body', 'createdByName']}
+        searchPlaceholder={t('weldhr.me.announcements.searchPlaceholder')}
+        emptyState={{
+          icon: emptyIcon(Megaphone),
+          title: t('weldhr.me.announcements.empty.title'),
+          description: t('weldhr.me.announcements.empty.description'),
+        }}
+      />
+    </HrListContainer>
   );
 }

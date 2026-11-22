@@ -20,6 +20,7 @@ import { useCreateHrLeaveRequest, useHrEmployee, useHrLeaveBalances, useHrLeaveT
 import { EmployeePicker, errorMessage, formatDate, todayIso, workingDaysBetween } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 export function LeaveRequestDialog({
   fixedEmployeeId,
@@ -80,7 +81,7 @@ export function LeaveRequestDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.leave.requests.form.title')}</DialogTitle>
         </DialogHeader>
 
@@ -120,11 +121,11 @@ export function LeaveRequestDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="hr-leave-start">{t('weldhr.leave.requests.form.startDate')}</Label>
-              <Input id="hr-leave-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <HrDateInput id="hr-leave-start" value={startDate} onChange={setStartDate} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="hr-leave-end">{t('weldhr.leave.requests.form.endDate')}</Label>
-              <Input id="hr-leave-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <HrDateInput id="hr-leave-end" value={endDate} onChange={setEndDate} />
             </div>
           </div>
 

@@ -44,7 +44,7 @@ export function PaymentDetailsCard({ employeeId, detail, canEdit }: Readonly<{ e
       {editing && (
         <Dialog open onOpenChange={(open) => !open && !save.isPending && setEditing(false)}>
           <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-            <DialogHeader>
+            <DialogHeader className="mb-2">
               <DialogTitle>{t('weldhr.payroll.details.editTitle')}</DialogTitle>
               <DialogDescription>{t('weldhr.payroll.details.editDescriptionHr')}</DialogDescription>
             </DialogHeader>

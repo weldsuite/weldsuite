@@ -186,7 +186,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       // payroll items follow the weldhr-payroll flag.
       // The legal-entity switcher sits on top once the workspace has an entity WeldHR is enabled for.
       menuItems = hrEntity.hasEntities
-        ? [{ group: '', items: [], customContent: <WeldhrEntitySwitcher /> }, ...weldhrItems.adjust(staticItems)]
+        ? [{ group: '', items: [], customContent: <WeldhrEntitySwitcher />, sticky: true }, ...weldhrItems.adjust(staticItems)]
         : weldhrItems.adjust(staticItems);
       break;
     case 'weldpanel':

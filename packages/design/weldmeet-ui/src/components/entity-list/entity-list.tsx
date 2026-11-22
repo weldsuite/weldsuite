@@ -454,6 +454,23 @@ export function EntityList<T extends { id: string }>({
       </div>
       )}
 
+      {/* Mobile: the filter and the left-hand buttons (a view switch, a period)
+          get their own row under the search, instead of disappearing below md.
+          It scrolls sideways when they don't fit. */}
+      {!hideTopBar && ((!hideFilter && filterConfigs.length > 0) || leftActionButtons) && (
+        <div className="md:hidden flex items-center gap-2 overflow-x-auto px-3 py-2 border-b border-border [&>*]:shrink-0">
+          {!hideFilter && filterConfigs.length > 0 && (
+            <FilterPills
+              filters={activeFilters}
+              filterConfigs={filterConfigs}
+              maxFilters={maxFilters}
+              onFiltersChange={setActiveFilters}
+            />
+          )}
+          {leftActionButtons}
+        </div>
+      )}
+
       <ListFrame className={listClassName}>
         {/* Table Header - hidden on mobile */}
         {(headerColumns || columns) && (

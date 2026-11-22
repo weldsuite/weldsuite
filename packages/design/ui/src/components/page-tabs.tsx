@@ -178,7 +178,10 @@ function OverflowTabs({
   const [trailingWidth, setTrailingWidth] = React.useState(0);
   const available = Math.max(0, rowWidth - trailingWidth);
   const [widths, setWidths] = React.useState<number[]>([]);
+  // The plain "+N more" trigger, and the trigger naming the active tab (used
+  // only when the active tab itself lands in the overflow).
   const [moreWidth, setMoreWidth] = React.useState(0);
+  const [moreActiveWidth, setMoreActiveWidth] = React.useState(0);
 
   // Track the row's content width (excludes padding via contentRect).
   React.useLayoutEffect(() => {
@@ -220,12 +223,9 @@ function OverflowTabs({
     tabRefs.current.length = tabs.length;
     const next = tabs.map((_, i) => tabRefs.current[i]?.offsetWidth ?? 0);
     setWidths(next);
-    // The trigger can render either "+N more" or the active overflow tab's
-    // label, so reserve room for whichever is wider.
-    setMoreWidth(
-      Math.max(moreRef.current?.offsetWidth ?? 0, moreActiveRef.current?.offsetWidth ?? 0),
-    );
-  }, [tabs]);
+    setMoreWidth(moreRef.current?.offsetWidth ?? 0);
+    setMoreActiveWidth(moreActiveRef.current?.offsetWidth ?? 0);
+  }, [tabs, activeTab]);
 
   const { visibleIndices, overflowIndices } = React.useMemo(() => {
     const n = tabs.length;
@@ -239,17 +239,26 @@ function OverflowTabs({
       return { visibleIndices: tabs.map((_, i) => i), overflowIndices: [] as number[] };
     }
 
-    const reserve = moreWidth + GAP_PX;
-    const budget = available - reserve;
-    let used = 0;
-    let fit = 0;
-    for (let i = 0; i < n; i++) {
-      const need = (widths[i] ?? 0) + (fit > 0 ? GAP_PX : 0);
-      if (used + need <= budget) {
+    /** How many leading tabs fit next to a trigger of `triggerWidth`. */
+    const fitBeside = (triggerWidth: number) => {
+      const budget = available - triggerWidth - GAP_PX;
+      let used = 0;
+      let count = 0;
+      for (let i = 0; i < n; i++) {
+        const need = (widths[i] ?? 0) + (count > 0 ? GAP_PX : 0);
+        if (used + need > budget) break;
         used += need;
-        fit++;
-      } else break;
-    }
+        count++;
+      }
+      return count;
+    };
+
+    // Room for the plain "+N more" trigger. Only when the active tab overflows
+    // does the trigger name it, so only then reserve that wider label; reserving
+    // it always left a 400px panel with a single tab (WeldHR employee panel).
+    let fit = fitBeside(moreWidth);
+    const activeIndex = tabs.findIndex((t) => t.id === activeTab);
+    if (activeIndex >= fit) fit = fitBeside(Math.max(moreWidth, moreActiveWidth));
 
     // Keep the natural prefix visible; the rest collapse into "+N more". When
     // the active tab is one of the overflowed tabs we don't pull it forward —
@@ -258,7 +267,7 @@ function OverflowTabs({
       visibleIndices: range(0, fit),
       overflowIndices: range(fit, n),
     };
-  }, [tabs, widths, available, moreWidth]);
+  }, [tabs, activeTab, widths, available, moreWidth, moreActiveWidth]);
 
   const hasOverflow = overflowIndices.length > 0;
   const overflowActive = overflowIndices.some((i) => tabs[i]?.id === activeTab);
@@ -266,12 +275,9 @@ function OverflowTabs({
   // shows how many other tabs remain) instead of an anonymous "+N more".
   const activeOverflowTab = overflowActive ? tabs.find((t) => t.id === activeTab) : undefined;
   const ActiveOverflowIcon = activeOverflowTab?.icon;
-  // Widest label, used by the hidden mirror to size the trigger's reserved space.
-  const longestTab = tabs.reduce<PageTab | undefined>(
-    (best, t) => (!best || t.label.length > best.label.length ? t : best),
-    undefined,
-  );
-  const LongestIcon = longestTab?.icon;
+  // The active tab as the trigger would name it, measured by the hidden mirror.
+  const triggerTab = tabs.find((t) => t.id === activeTab);
+  const TriggerIcon = triggerTab?.icon;
 
   return (
     <div className="relative w-full min-w-0">
@@ -410,8 +416,8 @@ function OverflowTabs({
           </div>
           <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
             <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
-              {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
-              <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
+              {TriggerIcon && <TriggerIcon className="h-4 w-4 mr-1" />}
+              <span className="truncate max-w-[8rem]">{triggerTab?.label}</span>
               <span className="text-xs font-normal ml-0.5">+88</span>
             </span>
           </div>

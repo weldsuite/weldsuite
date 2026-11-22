@@ -79,10 +79,11 @@ function usePendingInvite(employee: HrEmployeeDetail, enabled: boolean) {
 const VALUE_BOX =
   'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent text-left';
 
-function LinkedMember({ userId }: Readonly<{ userId: string }>) {
+function LinkedMember({ userId, fallbackName }: Readonly<{ userId: string; fallbackName: string }>) {
   const { data: profile } = useMemberProfile(userId);
   const { open: openPanel } = useObjectPanel();
-  const name = profile?.name || profile?.email || userId;
+  // The member's name, else the employee's own (the account is theirs): never the raw user id.
+  const name = profile?.name || profile?.email || fallbackName;
   return (
     <button
       type="button"
@@ -187,7 +188,7 @@ export function EmployeeWorkspaceAccountRow({
 
   let value;
   if (employee.userId) {
-    value = <LinkedMember userId={employee.userId} />;
+    value = <LinkedMember userId={employee.userId} fallbackName={employee.displayName || employee.email} />;
   } else if (pendingInvite) {
     value = (
       <span className={`${VALUE_BOX} text-muted-foreground`} title={t('weldhr.employees.workspace.invitePending', { email: employee.email })}>
@@ -240,7 +241,7 @@ export function EmployeeWorkspaceAccountRow({
       {dialog === 'invite' && (
         <Dialog open onOpenChange={(open) => !open && !pending && setDialog(null)}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader>
+            <DialogHeader className="mb-2">
               <DialogTitle>{t('weldhr.employees.workspace.inviteTitle')}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
@@ -306,7 +307,7 @@ export function EmployeeWorkspaceAccountRow({
       {dialog === 'link' && (
         <Dialog open onOpenChange={(open) => !open && !pending && setDialog(null)}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader>
+            <DialogHeader className="mb-2">
               <DialogTitle>{t('weldhr.employees.workspace.linkTitle')}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">

@@ -19,7 +19,7 @@ import { MY_LEAVE_REQUEST_PANEL_TYPE } from '@/components/objects/hr-my-hr/types
 import { useMyHrCancelLeave, useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, errorMessage, formatDate, todayIso } from '../../components/shared';
+import { DayCount, StatusBadge, errorMessage, formatDate, todayIso } from '../../components/shared';
 import { LeaveRequestDialog } from './leave-request-dialog';
 import { ColorDot } from './shared';
 
@@ -94,7 +94,8 @@ export function MyLeaveList({ canRequest }: Readonly<{ canRequest: boolean }>) {
           </p>
           {/* What the hidden columns would show, once the list is too narrow for them. */}
           <p className="truncate text-xs text-muted-foreground @lg:hidden">
-            {formatDate(r.startDate)} – {formatDate(r.endDate)} · {r.days}d
+            {formatDate(r.startDate)} – {formatDate(r.endDate)} ·{' '}
+            <DayCount days={r.days} startDate={r.startDate} endDate={r.endDate} format={(days) => `${days}d`} />
           </p>
           <div className="mt-1 @lg:hidden">
             <StatusBadge group="leave" status={r.status} />
@@ -115,18 +116,8 @@ export function MyLeaveList({ canRequest }: Readonly<{ canRequest: boolean }>) {
     {
       id: 'days',
       header: t('weldhr.me.leave.requests.table.days'),
-      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[60px]'),
-      render: (r) => <span className="tabular-nums">{r.days}</span>,
-    },
-    {
-      id: 'note',
-      header: t('weldhr.leave.requests.table.reason'),
-      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[200px]'),
-      render: (r) => (
-        <span className="block truncate text-muted-foreground">
-          {r.reviewNote ? t('weldhr.me.leave.requests.reviewNote', { note: r.reviewNote }) : (r.reason ?? '—')}
-        </span>
-      ),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[72px]'),
+      render: (r) => <DayCount days={r.days} startDate={r.startDate} endDate={r.endDate} />,
     },
     {
       id: 'status',

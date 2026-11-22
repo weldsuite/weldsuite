@@ -15,6 +15,7 @@ export const weldhrTime = {
       import: 'Importeren',
     },
     records: {
+      searchPlaceholder: 'Registraties zoeken...',
       title: 'Aanwezigheidsregistraties',
       filters: {
         from: 'Van',
@@ -135,6 +136,13 @@ export const weldhrTime = {
       deleteConfirmDescription: 'Dit verwijdert de dienst definitief.',
       deleteFailed: 'Deze dienst kon niet worden verwijderd.',
       loadFailed: 'Het rooster kon niet worden geladen.',
+      panel: {
+        title: 'Dienst',
+        time: 'Tijd',
+        break: 'Pauze',
+        plannedHours: 'Geplande uren',
+        notFound: 'Deze dienst staat niet meer in het rooster.',
+      },
       empty: {
         title: 'Geen diensten ingepland',
         description: 'Voeg een dienst toe voor een medewerker om de week te plannen.',
@@ -160,6 +168,7 @@ export const weldhrTime = {
       },
     },
     requests: {
+      searchPlaceholder: 'Aanvragen zoeken...',
       groups: {
         pending: 'In behandeling',
         reviewed: 'Recent beoordeeld',
@@ -177,7 +186,14 @@ export const weldhrTime = {
       },
       approve: 'Goedkeuren',
       decline: 'Afwijzen',
-      openShiftBadge: 'Open dienst',
+      panel: {
+        title: 'Dienstaanvraag',
+        notFound: 'Deze dienstaanvraag staat niet meer in de lijst.',
+        kind: 'Soort aanvraag',
+        kindOpenShift: 'Aanmelding voor open dienst',
+        kindProposed: 'Voorgesteld door de medewerker',
+        reviewNote: 'Notitie bij beoordeling',
+      },
       approvedToast: 'Dienst goedgekeurd en op het rooster gezet.',
       reviewFailed: 'Deze dienstaanvraag kon niet worden beoordeeld.',
       declineTitle: 'Dienstaanvraag afwijzen',
@@ -189,6 +205,7 @@ export const weldhrTime = {
       },
     },
     openShifts: {
+      searchPlaceholder: 'Open diensten zoeken...',
       groups: {
         open: 'Aankomend',
         cancelled: 'Ingetrokken',
@@ -298,7 +315,6 @@ export const weldhrTime = {
     halfFirstDay: 'halve dag',
     relapse: 'Binnen 4 weken',
     relapseHelp: 'De vorige ziekmelding van deze medewerker eindigde minder dan vier weken eerder, dus dit hoort bij dezelfde verzuimperiode.',
-    reportedBySelf: 'Medewerker',
     reportSick: 'Ziek melden',
     reportRecovered: 'Beter melden',
     mine: {
@@ -319,6 +335,7 @@ export const weldhrTime = {
       status: 'Status',
     },
     list: {
+      searchPlaceholder: 'Ziekmeldingen zoeken...',
       filters: {
         employee: 'Medewerker',
         department: 'Afdeling',
@@ -377,6 +394,7 @@ export const weldhrTime = {
       balances: 'Saldi',
     },
     requests: {
+      searchPlaceholder: 'Verlofaanvragen zoeken...',
       filters: {
         status: 'Status',
         allStatuses: 'Alle statussen',
@@ -414,7 +432,7 @@ export const weldhrTime = {
       deleteConfirmTitle: 'Deze verlofaanvraag verwijderen?',
       deleteConfirmDescription: 'Dit verwijdert de aanvraag definitief.',
       deleteFailed: 'Deze aanvraag kon niet worden verwijderd.',
-      newRequest: 'Nieuwe aanvraag',
+      newRequest: 'Nieuwe verlofaanvraag',
       empty: {
         title: 'Geen verlofaanvragen',
         description: 'Aanvragen namens een medewerker, of ingediend via Mijn HR, verschijnen hier.',

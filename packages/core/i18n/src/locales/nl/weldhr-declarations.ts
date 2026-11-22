@@ -5,6 +5,7 @@
 export const weldhrDeclarations = {
 
   declarations: {
+    searchPlaceholder: 'Declaraties zoeken...',
     title: 'Declaraties',
     category: {
       travel: 'Reiskosten',
@@ -17,7 +18,6 @@ export const weldhrDeclarations = {
     table: {
       employee: 'Medewerker',
       date: 'Datum',
-      description: 'Omschrijving',
       amount: 'Bedrag',
       receipt: 'Bonnetje',
       status: 'Status',

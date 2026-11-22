@@ -82,7 +82,7 @@ export const settings = {
       mailAccounts: 'Mail Accounts',
       manageMailAccounts: 'Manage email accounts',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Departments and leave types',
+      configureWeldhr: 'Departments, leave types, work locations and self-service',
     },
 
     companyInfo: {
@@ -1799,7 +1799,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Departments and leave types.',
+      description: 'Departments, leave types, work locations and self-service.',
     },
 
     weldflow: {

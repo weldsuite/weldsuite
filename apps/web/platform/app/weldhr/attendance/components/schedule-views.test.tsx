@@ -101,7 +101,7 @@ const TIME_OFF = new Map<string, TimeOff[]>([
 
 describe('ScheduleWeekView', () => {
   function renderWeek() {
-    const handlers = { onAddShift: vi.fn(), onEditShift: vi.fn(), onOpenDay: vi.fn() };
+    const handlers = { onAddShift: vi.fn(), onOpenShift: vi.fn(), onOpenDay: vi.fn() };
     const shiftsByCell = byCell(SHIFTS);
     wrap(
       <ScheduleWeekView
@@ -116,7 +116,6 @@ describe('ScheduleWeekView', () => {
         dayStats={buildDayStats(WEEK, ROSTER, shiftsByCell, TIME_OFF)}
         timeFormat="24h"
         canCreate
-        canUpdate
         {...handlers}
       />,
     );
@@ -144,7 +143,7 @@ describe('ScheduleWeekView', () => {
   it('edits a shift and adds one to an empty day', () => {
     const handlers = renderWeek();
     fireEvent.click(screen.getByRole('button', { name: /09:00 – 17:00/ }));
-    expect(handlers.onEditShift).toHaveBeenCalledWith(SHIFTS[0]);
+    expect(handlers.onOpenShift).toHaveBeenCalledWith(SHIFTS[0]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add shift: Julia Smit, Mon 16 Nov' }));
     expect(handlers.onAddShift).toHaveBeenCalledWith(JULIA, '2026-11-16');
@@ -153,7 +152,7 @@ describe('ScheduleWeekView', () => {
 
 describe('ScheduleDayView', () => {
   function renderDay(overnight = new Map<string, HrShift[]>()) {
-    const handlers = { onAddShift: vi.fn(), onEditShift: vi.fn() };
+    const handlers = { onAddShift: vi.fn(), onOpenShift: vi.fn() };
     wrap(
       <ScheduleDayView
         day="2026-11-18"
@@ -164,7 +163,6 @@ describe('ScheduleDayView', () => {
         timeOffByEmployee={TIME_OFF}
         timeFormat="24h"
         canCreate
-        canUpdate
         {...handlers}
       />,
     );
@@ -195,7 +193,7 @@ describe('ScheduleDayView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add shift: Julia Smit, Wed 18 Nov' }));
     expect(handlers.onAddShift).toHaveBeenCalledWith(JULIA, '2026-11-18');
     fireEvent.click(screen.getByRole('button', { name: /09:00 – 17:00/ }));
-    expect(handlers.onEditShift).toHaveBeenCalledWith(SHIFTS[0]);
+    expect(handlers.onOpenShift).toHaveBeenCalledWith(SHIFTS[0]);
   });
 });
 

@@ -45,6 +45,7 @@ import { WorkLocationsField, useWorkLocationOptions } from './work-locations-fie
 import { EmployerField } from './employer-field';
 import { useCurrentLegalEntity } from '@/hooks/use-current-legal-entity';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({
@@ -189,7 +190,7 @@ export function CreateEmployeeDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.employees.create.title')}</DialogTitle>
         </DialogHeader>
 
@@ -382,7 +383,7 @@ export function CreateEmployeeDialog({
                     <FormItem>
                       <FormLabel>{t('weldhr.employees.create.startDate')}</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} />
+                        <HrDateInput {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

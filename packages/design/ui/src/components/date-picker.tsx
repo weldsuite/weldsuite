@@ -22,6 +22,15 @@ interface DatePickerProps
   locale?: Locale
   /** Days that can't be picked, e.g. `{ before: tomorrow }` for a date in the future. */
   disabledDays?: Matcher | Matcher[]
+  /** The trigger's label for the picked date; date-fns "PPP" ("November 22nd, 2026") when left out. */
+  formatDate?: (date: Date) => string
+  /**
+   * "dropdown" puts month and year menus in the calendar's caption, for dates
+   * far from today (a date of birth). Set `startMonth` and `endMonth` with it.
+   */
+  captionLayout?: React.ComponentProps<typeof Calendar>["captionLayout"]
+  startMonth?: Date
+  endMonth?: Date
 }
 
 /**
@@ -35,6 +44,10 @@ export function DatePicker({
   placeholder = "Pick a date",
   locale,
   disabledDays,
+  formatDate,
+  captionLayout,
+  startMonth,
+  endMonth,
   className,
   ...props
 }: Readonly<DatePickerProps>) {
@@ -53,7 +66,7 @@ export function DatePicker({
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "PPP", { locale }) : <span>{placeholder}</span>}
+          {date ? (formatDate ? formatDate(date) : format(date, "PPP", { locale })) : <span>{placeholder}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">
@@ -63,6 +76,9 @@ export function DatePicker({
           defaultMonth={date}
           locale={locale}
           disabled={disabledDays}
+          captionLayout={captionLayout}
+          startMonth={startMonth}
+          endMonth={endMonth}
           onSelect={(next) => {
             onDateChange?.(next)
             setOpen(false)

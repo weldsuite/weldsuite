@@ -8,13 +8,13 @@ import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useMyHrReportRecovered, useRecoverHrAbsence } from '@/hooks/queries/use-weldhr-queries';
 import { formatDate, todayIso } from '../../components/shared';
 import { absenceFailure, suggestedLastSickDay } from './shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 export function RecoverDialog({
   absence,
@@ -61,7 +61,7 @@ export function RecoverDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.absenteeism.form.recoverTitle')}</DialogTitle>
         </DialogHeader>
 
@@ -75,13 +75,12 @@ export function RecoverDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="hr-absence-last-day">{t('weldhr.absenteeism.form.lastSickDay')}</Label>
-            <Input
+            <HrDateInput
               id="hr-absence-last-day"
-              type="date"
               min={absence.startDate}
               max={self ? today : undefined}
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={setEndDate}
               aria-invalid={Boolean(invalid)}
             />
             <p className={invalid ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>

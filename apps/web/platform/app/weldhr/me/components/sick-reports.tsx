@@ -20,7 +20,7 @@ import { AbsenceDialog } from '../../absenteeism/components/absence-dialog';
 import { RecoverDialog } from '../../absenteeism/components/recover-dialog';
 import { formatDays } from '../../absenteeism/components/shared';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, formatDate } from '../../components/shared';
+import { DayCount, StatusBadge, formatDate } from '../../components/shared';
 
 export function MySickReportsList() {
   const t = useTranslations();
@@ -86,8 +86,8 @@ export function MySickReportsList() {
     {
       id: 'days',
       header: t('weldhr.absenteeism.table.days'),
-      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[70px]'),
-      render: (r) => <span className="tabular-nums">{formatDays(r.days)}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[72px]'),
+      render: (r) => <DayCount days={r.days} startDate={r.startDate} endDate={r.endDate} format={formatDays} />,
     },
     {
       id: 'status',

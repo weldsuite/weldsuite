@@ -5,6 +5,7 @@
 export const weldhrDeclarations = {
 
   declarations: {
+    searchPlaceholder: 'Search declarations...',
     title: 'Declarations',
     category: {
       travel: 'Travel',
@@ -17,7 +18,6 @@ export const weldhrDeclarations = {
     table: {
       employee: 'Employee',
       date: 'Date',
-      description: 'Description',
       amount: 'Amount',
       receipt: 'Receipt',
       status: 'Status',

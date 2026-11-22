@@ -46,6 +46,12 @@ export const weldhr = {
     internalOnly: 'Alleen intern',
     noPermission: 'Je hebt geen toegang tot deze gegevens.',
     dismiss: 'Sluiten',
+    weekend: 'Weekend',
+    weekendHelp: 'Valt in het weekend, dus er tellen geen werkdagen.',
+    pickDate: 'Kies een datum',
+    pickTime: 'Kies een tijd',
+    hour: 'Uur',
+    minute: 'Min',
   },
 
   status: {

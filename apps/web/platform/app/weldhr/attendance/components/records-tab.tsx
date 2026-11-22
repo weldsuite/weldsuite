@@ -138,6 +138,8 @@ export function RecordsTab() {
       field: 'date',
       label: t('weldhr.attendance.records.table.date'),
       filterType: 'date',
+      // The pill shows the date the way the list does ("16 Nov 2026"), not the browser's own format.
+      getDisplayValue: (value) => formatDate(value),
       options: [],
     },
     {
@@ -291,6 +293,8 @@ export function RecordsTab() {
           filters={filterConfigs}
           activeFilters={activeFilters}
           onFiltersChange={setActiveFilters}
+          searchFields={['employeeName', 'companyName', 'notes', 'clockInLocationName']}
+          searchPlaceholder={t('weldhr.attendance.records.searchPlaceholder')}
           onEdit={canWrite ? (r) => setDialogState(r) : undefined}
           onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
           hasMore={data?.pagination.hasMore}
@@ -318,9 +322,20 @@ export function RecordsTab() {
                 </div>
               )}
               {canApprove && unapprovedVisible.length > 0 && (
-                <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => setConfirmApproveAll(true)} disabled={approve.isPending}>
-                  <Check className="mr-1.5 h-4 w-4" />
-                  {t('weldhr.attendance.records.approveAllPending', { count: unapprovedVisible.length })}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={() => setConfirmApproveAll(true)}
+                  disabled={approve.isPending}
+                  aria-label={t('weldhr.attendance.records.approveAllPending', { count: unapprovedVisible.length })}
+                >
+                  <Check className="h-4 w-4 md:mr-1.5" />
+                  {/* On a phone only the count, so the search box keeps its room. */}
+                  <span className="hidden md:inline">
+                    {t('weldhr.attendance.records.approveAllPending', { count: unapprovedVisible.length })}
+                  </span>
+                  <span className="tabular-nums md:hidden">{unapprovedVisible.length}</span>
                 </Button>
               )}
             </div>

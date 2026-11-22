@@ -1,7 +1,8 @@
 /**
- * My HR → Expenses: your expense declarations as a list grouped by status (the
- * open amounts on the group headers), a new declaration, downloading a receipt
- * and withdrawing a declaration from the row menu, and its details panel.
+ * My HR → Expenses → Declarations: your expense declarations as a list grouped
+ * by status (the open amounts on the group headers), downloading a receipt and
+ * withdrawing a declaration from the row menu, and its details panel. The page
+ * holds the filters, so the Payouts tab can open this list filtered.
  */
 
 import { Fragment, useState } from 'react';
@@ -27,12 +28,30 @@ import {
 } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, errorMessage, formatDate, formatMoney } from '../../components/shared';
-import { MyDeclarationDialog } from './declaration-dialog';
+import { StatusBadge, errorMessage, formatDate, formatMoney, formatMonth } from '../../components/shared';
 
 const STATUSES = ['pending', 'approved', 'paid', 'rejected', 'cancelled'] as const;
 const KNOWN_STATUSES = new Set<string>(STATUSES);
 const CATEGORIES = ['travel', 'meals', 'accommodation', 'equipment', 'training', 'other'] as const;
+
+/** The month a paid declaration was paid out in, as `YYYY-MM` in local time; null while not paid. */
+export function paidMonthOf(declaration: HrSelfDeclaration): string | null {
+  if (declaration.status !== 'paid') return null;
+  // A paid declaration has `paidAt`; the review date stands in should it be missing.
+  const at = new Date(declaration.paidAt ?? declaration.reviewedAt ?? declaration.createdAt);
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Narrows the declarations to the filters picked in the list. */
+export function filterDeclarations(rows: HrSelfDeclaration[], active: ActiveFilter[]): HrSelfDeclaration[] {
+  return active.reduce((list, filter) => {
+    if (!filter.value) return list;
+    if (filter.field === 'status') return list.filter((d) => d.status === filter.value);
+    if (filter.field === 'category') return list.filter((d) => d.category === filter.value);
+    if (filter.field === 'paidMonth') return list.filter((d) => paidMonthOf(d) === filter.value);
+    return list;
+  }, rows);
+}
 
 /** Only a declaration that still waits for a decision can be withdrawn (as the server). */
 export function isWithdrawable(declaration: HrSelfDeclaration): boolean {
@@ -52,13 +71,22 @@ export function useDownloadMyReceipt() {
   };
 }
 
-export function MyDeclarationsList({ canSubmit }: Readonly<{ canSubmit: boolean }>) {
+export function MyDeclarationsList({
+  canSubmit,
+  onNewDeclaration,
+  activeFilters,
+  onFiltersChange,
+}: Readonly<{
+  canSubmit: boolean;
+  onNewDeclaration: () => void;
+  activeFilters: ActiveFilter[];
+  onFiltersChange: (filters: ActiveFilter[]) => void;
+}>) {
   const t = useTranslations();
   const { data, isLoading, error } = useMyHrDeclarations();
   const cancelDeclaration = useMyHrCancelDeclaration();
   const receipt = useDownloadMyReceipt();
   const { open: openPanel } = useObjectPanel();
-  const [creating, setCreating] = useState(false);
   const [withdrawTarget, setWithdrawTarget] = useState<HrSelfDeclaration | null>(null);
 
   async function confirmWithdraw(declaration: HrSelfDeclaration) {
@@ -120,13 +148,16 @@ export function MyDeclarationsList({ canSubmit }: Readonly<{ canSubmit: boolean 
     },
   ];
 
-  const applyFilters = (rows: HrSelfDeclaration[], active: ActiveFilter[]) =>
-    active.reduce((list, filter) => {
-      if (!filter.value) return list;
-      if (filter.field === 'status') return list.filter((d) => d.status === filter.value);
-      if (filter.field === 'category') return list.filter((d) => d.category === filter.value);
-      return list;
-    }, rows);
+  const declarations = data?.declarations ?? [];
+  const paidMonths = [...new Set(declarations.map(paidMonthOf).filter((m): m is string => m !== null))].sort().reverse();
+  if (paidMonths.length > 0) {
+    filters.push({
+      field: 'paidMonth',
+      label: t('weldhr.me.declarations.list.filters.paidMonth'),
+      operators: ['is'],
+      options: paidMonths.map((month) => ({ value: month, label: formatMonth(month) })),
+    });
+  }
 
   const columns: ColumnDef<HrSelfDeclaration>[] = [
     {
@@ -213,13 +244,14 @@ export function MyDeclarationsList({ canSubmit }: Readonly<{ canSubmit: boolean 
     ));
   }
 
-  const newButton = canSubmit ? { label: t('weldhr.me.declarations.newDeclaration'), onClick: () => setCreating(true) } : undefined;
+  const newButton = canSubmit ? { label: t('weldhr.me.declarations.newDeclaration'), onClick: onNewDeclaration } : undefined;
 
   return (
     <>
       <HrListContainer>
         <PanelEntityList<HrSelfDeclaration>
-          items={data?.declarations ?? []}
+          // The filters are the page's, so the list gets the rows they leave.
+          items={filterDeclarations(declarations, activeFilters)}
           isLoading={isLoading}
           error={data ? null : (error as Error | null)}
           columns={columns}
@@ -228,7 +260,8 @@ export function MyDeclarationsList({ canSubmit }: Readonly<{ canSubmit: boolean 
           rowMenu={rowMenu}
           groups={groups}
           filters={filters}
-          applyFilters={applyFilters}
+          activeFilters={activeFilters}
+          onFiltersChange={onFiltersChange}
           searchFields={['description', 'reviewNote']}
           searchPlaceholder={t('weldhr.me.declarations.list.searchPlaceholder')}
           createButton={newButton}
@@ -239,10 +272,13 @@ export function MyDeclarationsList({ canSubmit }: Readonly<{ canSubmit: boolean 
             description: canSubmit ? t('weldhr.me.declarations.list.emptyHint') : t('weldhr.me.declarations.submitOff'),
             action: newButton,
           }}
+          noResultsState={{
+            icon: emptyIcon(ReceiptText),
+            title: t('weldhr.me.declarations.list.noResults.title'),
+            description: t('weldhr.me.declarations.list.noResults.description'),
+          }}
         />
       </HrListContainer>
-
-      {creating && <MyDeclarationDialog onClose={() => setCreating(false)} />}
 
       {withdrawTarget && (
         <ConfirmDialog

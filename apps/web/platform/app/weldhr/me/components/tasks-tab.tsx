@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { ListChecks } from 'lucide-react';
+import { SquareCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -217,7 +217,7 @@ export function MyTasksTab() {
       searchFields={['title', 'description', 'checklistName']}
       topBarClassName="pt-2 pb-2"
       emptyState={{
-        icon: emptyIcon(ListChecks),
+        icon: emptyIcon(SquareCheck),
         title: t('weldhr.me.tasks.title'),
         description: t('weldhr.me.tasks.empty'),
       }}

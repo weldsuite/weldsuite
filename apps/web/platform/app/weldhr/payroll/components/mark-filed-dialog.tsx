@@ -40,7 +40,7 @@ export function MarkFiledDialog({ filing, onClose }: Readonly<{ filing: HrPayrol
   return (
     <Dialog open onOpenChange={(open) => !open && !markFiled.isPending && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.payroll.filings.markFiled.title')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.filings.markFiled.description')}</DialogDescription>
         </DialogHeader>

@@ -112,7 +112,8 @@ export function WorkLocationsTab() {
     {
       id: 'radius',
       header: t('weldhr.settings.workLocations.radius'),
-      width: 'shrink-0 w-[90px]',
+      // Wide enough for "Radius (metres)" on one line.
+      width: 'shrink-0 w-[130px]',
       render: (l) => <span className="tabular-nums">{t('weldhr.settings.workLocations.radiusValue', { count: l.radiusMeters })}</span>,
     },
   ];
@@ -218,7 +219,7 @@ function WorkLocationDialog({ location, onClose }: Readonly<{ location?: HrWorkL
   return (
     <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{location ? t('weldhr.settings.workLocations.editTitle') : t('weldhr.settings.workLocations.addTitle')}</DialogTitle>
         </DialogHeader>
 

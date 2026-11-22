@@ -7,7 +7,7 @@
  *   - Details: the time clock, what needs attention (each row links to the
  *     My HR page behind it) and the profile, as read-only property rows.
  *   - Leave balances and Upcoming shifts: standard list rows; a row opens
- *     Time off or Schedule & hours.
+ *     Time off or Schedule.
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
@@ -44,7 +44,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Button } from '@weldsuite/ui/components/button';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { ObjectPanelTabs } from '@/components/object-panel';
-import { EntityList, type HeaderColumn } from '@/components/entity-list';
+import { EntityList, type ActiveFilter, type FilterConfig, type HeaderColumn } from '@/components/entity-list';
 import { LinkedRecordStatus } from '@/components/objects/_shared/linked-record-row';
 import { PanelRow, RecordLoadFailed } from '@/components/objects/_shared/record-panel-parts';
 import {
@@ -54,11 +54,19 @@ import {
   tabBodyClassName,
 } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
-import { HR_EMPLOYEE_STATUS_TONE } from '@/components/objects/hr-employee/hr-employee-tabs';
 import { useMyHrClock, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
-import { useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import { formatClockRange, useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import { applySelectFilters } from '@/lib/list-filters';
 import { MY_HR_PATHS, type MyHrPath } from '../../access';
-import { errorMessage, formatDate, formatDateTime, formatTime, useFormatTime } from '../../components/shared';
+import {
+  ScoreBadge,
+  StatusBadge,
+  errorMessage,
+  formatDate,
+  formatDateTime,
+  formatTime,
+  formatWeekdayDate,
+} from '../../components/shared';
 import { GeolocationError, getDevicePosition, type GeolocationFailure } from '../../lib/geolocation';
 import { useMyHrSelf } from './my-hr-context';
 import { ColorDot } from './shared';
@@ -169,6 +177,16 @@ function MyDetailsTab({
   const latest = overview.latestEvaluation;
   const latestScore = latest?.overallScore;
   const totalMilestones = overview.milestones.achieved + overview.milestones.open;
+  const { coaching, evaluations } = overview.toAcknowledge;
+  const toAcknowledgeParts = [
+    coaching > 0 ? t('weldhr.me.overview.record.toAcknowledgeCoaching', { count: coaching }) : null,
+    evaluations > 0
+      ? t(
+          evaluations === 1 ? 'weldhr.me.overview.record.toAcknowledgeEvaluation' : 'weldhr.me.overview.record.toAcknowledgeEvaluations',
+          { count: evaluations },
+        )
+      : null,
+  ].filter((part): part is string => part !== null);
 
   let clockValue = t('weldhr.me.overview.record.notClockedIn');
   if (overview.clock.clockedIn && overview.clock.since) {
@@ -188,17 +206,14 @@ function MyDetailsTab({
         icon={MessageSquareHeart}
         label={t('weldhr.me.overview.record.toAcknowledge')}
         value={String(toAcknowledge)}
-        renderValue={(value) => (
-          <>
-            <RowLink to={MY_HR_PATHS.reviews}>{value}</RowLink>
-            <Muted>
-              {t('weldhr.me.overview.kpis.toAcknowledgeHint', {
-                coaching: overview.toAcknowledge.coaching,
-                evaluations: overview.toAcknowledge.evaluations,
-              })}
-            </Muted>
-          </>
-        )}
+        // What there is to confirm, once ("1 coaching"), rather than the total and then the breakdown.
+        renderValue={() =>
+          toAcknowledge > 0 ? (
+            <RowLink to={MY_HR_PATHS.reviews}>{toAcknowledgeParts.join(', ')}</RowLink>
+          ) : (
+            <span className="text-muted-foreground">{t('weldhr.me.overview.record.toAcknowledgeNone')}</span>
+          )
+        }
       />
       <PanelRow
         icon={Star}
@@ -207,7 +222,10 @@ function MyDetailsTab({
         renderValue={(value) =>
           latest ? (
             <>
-              <RowLink to={MY_HR_PATHS.reviews}>{value}</RowLink>
+              {/* The same coloured score badge as the Evaluations list. */}
+              <Link to={MY_HR_PATHS.reviews} className="rounded-md transition-opacity hover:opacity-80" aria-label={value ?? undefined}>
+                <ScoreBadge score={latestScore} />
+              </Link>
               <Muted>
                 {[latest.formName, latest.submittedAt ? formatDate(latest.submittedAt) : null].filter(Boolean).join(' · ')}
               </Muted>
@@ -247,11 +265,8 @@ function MyDetailsTab({
         icon={CircleUser}
         label={t('weldhr.employees.create.status')}
         value={employee.status}
-        renderValue={() => (
-          <LinkedRecordStatus tone={HR_EMPLOYEE_STATUS_TONE[employee.status]}>
-            {t(`weldhr.status.employee.${employee.status}`)}
-          </LinkedRecordStatus>
-        )}
+        // The same status label as the Employees list.
+        renderValue={() => <StatusBadge group="employee" status={employee.status} />}
       />
       <PanelRow icon={Hash} label={t('weldhr.employees.detail.fields.employeeNumber')} value={employee.employeeNumber} />
       <PanelRow
@@ -300,6 +315,22 @@ function MyLeaveTab({ balances }: Readonly<{ balances: HrLeaveBalance[] }>) {
     [balances],
   );
 
+  const filterConfigs = useMemo<FilterConfig[]>(
+    () => [
+      {
+        field: 'type',
+        label: t('weldhr.leave.balances.table.type'),
+        options: items.map((balance) => ({ value: balance.leaveTypeId, label: balance.name })),
+      },
+    ],
+    [items, t],
+  );
+  const applyFilters = useCallback(
+    (list: LeaveBalanceItem[], filters: ActiveFilter[]) =>
+      applySelectFilters(list, filters, { type: (balance, value) => balance.leaveTypeId === value }),
+    [],
+  );
+
   const headerColumns = useMemo<HeaderColumn[]>(
     () => [
       { id: 'name', header: t('weldhr.leave.balances.table.type'), width: LEAVE_COLUMN.name },
@@ -340,8 +371,10 @@ function MyLeaveTab({ balances }: Readonly<{ balances: HrLeaveBalance[] }>) {
         items={items}
         isLoading={false}
         error={null}
-        filters={[]}
-        hideTopBar
+        filters={filterConfigs}
+        applyFilters={applyFilters}
+        searchFields={['name']}
+        searchPlaceholder={t('weldhr.me.overview.record.leaveSearchPlaceholder')}
         headerColumns={headerColumns}
         renderRow={renderRow}
         emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
@@ -349,6 +382,10 @@ function MyLeaveTab({ balances }: Readonly<{ balances: HrLeaveBalance[] }>) {
           icon: <NotesIllustration />,
           title: t('weldhr.me.overview.record.leaveEmptyTitle'),
           description: t('weldhr.me.overview.record.leaveEmptyDescription'),
+        }}
+        noResultsState={{
+          title: t('weldhr.me.overview.record.noResultsTitle'),
+          description: t('weldhr.me.overview.record.noResultsDescription'),
         }}
       />
     </TabListScope>
@@ -359,7 +396,7 @@ function MyLeaveTab({ balances }: Readonly<{ balances: HrLeaveBalance[] }>) {
 
 const SHIFT_COLUMN = {
   date: 'min-w-0 flex-1',
-  time: 'w-[140px]',
+  time: 'w-[170px]',
   client: 'w-[200px] @max-[560px]:hidden',
 };
 
@@ -368,7 +405,21 @@ type Shift = HrSelfOverview['upcomingShifts'][number];
 function MyShiftsTab({ shifts }: Readonly<{ shifts: Shift[] }>) {
   const t = useTranslations();
   const navigate = useNavigate();
-  const formatShiftTime = useFormatTime();
+  const timeFormat = useTimeFormat();
+
+  const clients = useMemo(
+    () => [...new Set(shifts.map((shift) => shift.companyName).filter((name): name is string => !!name))].sort(),
+    [shifts],
+  );
+  const filterConfigs = useMemo<FilterConfig[]>(
+    () => [{ field: 'client', label: t('weldhr.common.client'), options: clients.map((name) => ({ value: name, label: name })) }],
+    [clients, t],
+  );
+  const applyFilters = useCallback(
+    (list: Shift[], filters: ActiveFilter[]) =>
+      applySelectFilters(list, filters, { client: (shift, value) => shift.companyName === value }),
+    [],
+  );
 
   const headerColumns = useMemo<HeaderColumn[]>(
     () => [
@@ -383,19 +434,20 @@ function MyShiftsTab({ shifts }: Readonly<{ shifts: Shift[] }>) {
     (shift: Shift) => (
       <TabListRow
         key={shift.id}
-        label={formatDate(shift.startsAt)}
+        label={formatWeekdayDate(shift.startsAt)}
         onOpen={() => void navigate({ to: MY_HR_PATHS.schedule })}
       >
+        {/* The same date and time format as My HR → Schedule: "Tue, 24 Nov 2026", "9:30 AM – 6:30 PM". */}
         <span className={`${SHIFT_COLUMN.date} truncate text-sm font-medium text-foreground tabular-nums`}>
-          {formatDate(shift.startsAt)}
+          {formatWeekdayDate(shift.startsAt)}
         </span>
-        <span className={`${SHIFT_COLUMN.time} text-sm text-muted-foreground tabular-nums`}>
-          {formatShiftTime(shift.startsAt)}–{formatShiftTime(shift.endsAt)}
+        <span className={`${SHIFT_COLUMN.time} truncate text-sm text-muted-foreground tabular-nums`}>
+          {formatClockRange(new Date(shift.startsAt), new Date(shift.endsAt), timeFormat)}
         </span>
         <span className={`${SHIFT_COLUMN.client} truncate text-sm text-muted-foreground`}>{shift.companyName ?? '—'}</span>
       </TabListRow>
     ),
-    [formatShiftTime, navigate],
+    [navigate, timeFormat],
   );
 
   return (
@@ -404,8 +456,14 @@ function MyShiftsTab({ shifts }: Readonly<{ shifts: Shift[] }>) {
         items={shifts}
         isLoading={false}
         error={null}
-        filters={[]}
-        hideTopBar
+        filters={filterConfigs}
+        applyFilters={applyFilters}
+        searchFields={['companyName']}
+        searchPlaceholder={t('weldhr.me.overview.record.shiftsSearchPlaceholder')}
+        noResultsState={{
+          title: t('weldhr.me.overview.record.noResultsTitle'),
+          description: t('weldhr.me.overview.record.noResultsDescription'),
+        }}
         headerColumns={headerColumns}
         renderRow={renderRow}
         emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}

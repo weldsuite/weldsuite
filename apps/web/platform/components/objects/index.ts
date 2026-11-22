@@ -37,6 +37,8 @@ import './payment-run';
 import './payroll-run';
 import './hr-employee';
 import './hr-my-hr';
+import './hr-shift';
+import './hr-announcement';
 import './panel-person';
 import './panel-group';
 import './vat-return';
