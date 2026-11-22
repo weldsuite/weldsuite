@@ -9,11 +9,11 @@
 use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait,
+    QuerySelect, QueryTrait, Select,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_desk_domain::priority_matrix;
 use weldsuite_schema::tenant::{
@@ -152,17 +152,19 @@ pub(crate) async fn options(db: &PgPool) -> Result<Value, sea_orm::DbErr> {
 /// jsonb_array_elements_text(tags) as tag … group by tag order by count
 /// desc, tag asc limit …`.
 async fn tag_counts(db: &DatabaseConnection) -> Result<Vec<(String, i32)>, sea_orm::DbErr> {
-    use desk_conversations::Column;
-    use sea_orm::ExprTrait as _;
-    let tag = Alias::new("tag");
     let since = utc_timestamp(OffsetDateTime::now_utc() - Duration::days(TAG_WINDOW_DAYS.into()));
+    tag_counts_query(since).into_tuple().all(db).await
+}
+
+/// [`tag_counts`]' statement, for conversations active since `since`.
+fn tag_counts_query(since: PrimitiveDateTime) -> Select<desk_conversations::Entity> {
+    use sea_orm::ExprTrait as _;
+    use desk_conversations::Column;
+    let tag = Alias::new("tag");
     let mut select = desk_conversations::Entity::find()
         .select_only()
         .column_as(Expr::col(tag.clone()), "tag")
-        .column_as(
-            Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"),
-            "count",
-        )
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"), "count")
         .filter(Column::Tags.ne(json!([])))
         .filter(
             Expr::from(Func::coalesce([
@@ -180,21 +182,21 @@ async fn tag_counts(db: &DatabaseConnection) -> Result<Vec<(String, i32)>, sea_o
             .arg(Expr::col((desk_conversations::Entity, Column::Tags))),
         tag,
     );
-    eprintln!(
-        "SQLDUMP {}",
-        QueryTrait::build(&select, sea_orm::DbBackend::Postgres)
-    );
-    select.into_tuple().all(db).await
+    select
 }
 
 #[cfg(test)]
-mod sql_probe {
-    #[tokio::test]
-    async fn probe() {
-        let db = sea_orm::Database::connect("postgres://x:y@127.0.0.1:1/z").await;
-        if let Ok(db) = db {
-            let _ = super::tag_counts(&db).await;
-        }
+mod tests {
+    use sea_orm::{DbBackend, QueryTrait};
+
+    #[test]
+    fn tags_are_counted_over_their_array_elements() {
+        let at = time::macros::datetime!(2026-11-22 10:00:00);
+        let statement = super::tag_counts_query(at).build(DbBackend::Postgres);
+        assert_eq!(
+            statement.sql,
+            r#"SELECT "tag" AS "tag", CAST(COUNT(*) AS int) AS "count" FROM "desk_conversations", jsonb_array_elements_text("desk_conversations"."tags") AS "tag" WHERE "desk_conversations"."tags" <> $1 AND COALESCE("desk_conversations"."last_message_at", "desk_conversations"."created_at") > $2 GROUP BY "tag" ORDER BY "count" DESC, "tag" ASC LIMIT $3"#
+        );
     }
 }
 

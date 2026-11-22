@@ -2200,3 +2200,21 @@ async fn auto_link_contact(
     );
     Data(json!({ "contactId": contact_id })).into_response()
 }
+
+#[cfg(test)]
+mod scratch_sql {
+    use super::*;
+    use sea_orm::{DbBackend, QueryTrait};
+
+    #[test]
+    fn print_sql() {
+        let filters = list_filters(Some("search=ab&myConversations=true&isRead=false"), "u1");
+        let page = WithContact::query().filter(filters.clone()).order_by_desc(convs::Column::CreatedAt).limit(26);
+        println!("{}", page.build(DbBackend::Postgres).to_string());
+        let count = |condition: Condition| Expr::from(Func::count(Expr::case(condition, 1)));
+        let q = convs::Entity::find().select_only().column_as(count(Condition::all().add(convs::Column::IsRead.eq(false)).add(Condition::any().add(convs::Column::AssigneeId.is_null()).add(convs::Column::AssigneeId.eq("u1")))), "all").filter(convs::Column::DeletedAt.is_null());
+        println!("{}", q.build(DbBackend::Postgres).to_string());
+        let u = convs::Entity::update_many().col_expr(convs::Column::MessageCount, sea_orm::ExprTrait::add(Expr::col(convs::Column::MessageCount), 1)).filter(convs::Column::Id.eq("x"));
+        println!("{}", u.build(DbBackend::Postgres).to_string());
+    }
+}
