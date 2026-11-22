@@ -12,7 +12,8 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Calculator, Check, ChevronsUpDown, Layers } from 'lucide-react';
+import { Calculator, ChevronsUpDown, Layers } from 'lucide-react';
+import { PickerCheck } from '@weldsuite/ui/components/picker-menu';
 import {
   PANEL_PAGEVIEW,
   PANEL_WEBVITALS,
@@ -153,7 +154,6 @@ export function NamePicker({
                 <CommandGroup key={group} heading={groupLabel[group]}>
                   {items.map((option) => (
                     <CommandItem key={option.name} value={option.label ? `${option.label} ${option.name}` : option.name} onSelect={() => pick(option.name)}>
-                      <Check className={cn('size-4', option.name === value ? 'opacity-100' : 'opacity-0')} />
                       <GroupIcon group={option.group} />
                       <span className="min-w-0 flex-1 truncate">
                         {option.label ?? option.name}
@@ -163,6 +163,7 @@ export function NamePicker({
                       {typeof option.count === 'number' && option.count > 0 && (
                         <span className="text-xs tabular-nums text-muted-foreground">{formatNumber(option.count, language)}</span>
                       )}
+                      <PickerCheck selected={option.name === value} />
                     </CommandItem>
                   ))}
                 </CommandGroup>

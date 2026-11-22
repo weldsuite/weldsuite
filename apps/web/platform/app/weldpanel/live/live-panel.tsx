@@ -9,7 +9,7 @@
  * shown as anonymous visitors.
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelLiveDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -57,30 +57,22 @@ interface BreakdownProps {
   rows: { value: string; count: number }[];
   label?: (value: string) => string;
   loading: boolean;
+  /** Makes each row a button (the countries: fly the map there). */
+  onSelect?: (value: string) => void;
 }
 
-/** A top list: the #1 with its count and share, then every row as a ranked bar. */
-function Breakdown({ title, dimension, rows, label = (value) => value, loading }: Readonly<BreakdownProps>) {
+/** A top list: every row as a ranked bar. */
+function Breakdown({ title, dimension, rows, label = (value) => value, loading, onSelect }: Readonly<BreakdownProps>) {
   const { t, language, format } = useI18n();
   const tl = t.weldpanel.observe.live;
   const [all, setAll] = useState(false);
-  const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const top = rows[0];
-  const percent = new Intl.NumberFormat(language, { style: 'percent', maximumFractionDigits: 1 });
   return (
     <Part title={title}>
       {loading ? (
         <Skeleton className="h-40 w-full" />
       ) : (
         <>
-          <div className="grid gap-0.5">
-        <p className="truncate text-xs text-muted-foreground">{format(t.weldpanel.observe.common.rankTop, { name: top ? label(top.value) : '–' })}</p>
-        <p className="flex items-baseline gap-2">
-          <span className="text-2xl font-semibold tabular-nums">{formatNumber(top?.count ?? 0, language)}</span>
-          {top && <span className="text-sm text-muted-foreground tabular-nums">{percent.format(top.count / total)}</span>}
-        </p>
-      </div>
-      <div className="flex items-center justify-between border-b pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <span>{dimension}</span>
         <span>{tl.activeVisitors}</span>
       </div>
@@ -93,6 +85,7 @@ function Breakdown({ title, dimension, rows, label = (value) => value, loading }
           onShowAll={() => setAll(true)}
           showAllLabel={format(t.weldpanel.observe.common.showAll, { count: rows.length })}
           label={title}
+          onSelect={onSelect ? (item) => onSelect(item.key) : undefined}
         />
       )}
         </>
@@ -254,6 +247,8 @@ export function LivePanel({ projectId }: Readonly<{ projectId: string }>) {
   const { data: live, error, isLoading, refetch } = useWeldPanelLive(projectId);
   const averages = useMemo(() => sessionAverages(live?.sessions ?? []), [live?.sessions]);
   const oneDecimal = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
+  const mapRef = useRef<HTMLElement>(null);
+  const [focus, setFocus] = useState<{ code: string } | null>(null);
 
   const breakdowns = useMemo(() => {
     const sessions = live?.sessions ?? [];
@@ -268,11 +263,18 @@ export function LivePanel({ projectId }: Readonly<{ projectId: string }>) {
   if (error) return <QueryErrorState className="p-6" error={error} onRetry={() => void refetch()} />;
 
   const country = (code: string) => countryName(code, language);
+  /** A country row flies the map there, bringing the map into view first if the page is scrolled past it. */
+  const showOnMap = (code: string) => {
+    const still = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    mapRef.current?.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'nearest' });
+    setFocus({ code });
+  };
   return (
     <div data-testid="live-panel">
       {/* The map across the page, at its own shape (shorter on very wide screens). */}
-      <section aria-label={tl.byCountry} className="border-b">
+      <section ref={mapRef} aria-label={tl.byCountry} className="border-b">
         <WorldMap
+          focus={focus}
           items={breakdowns.countries.map((row) => ({ code: row.value, label: country(row.value), value: row.count, display: formatNumber(row.count, language) }))}
           valueLabel={tl.activeVisitors}
           countryLabel={tl.where}
@@ -298,7 +300,7 @@ export function LivePanel({ projectId }: Readonly<{ projectId: string }>) {
 
       {/* The three lists side by side; the row's gap shows its border colour between them. */}
       <div className="grid gap-px border-b bg-border md:grid-cols-3">
-        <Breakdown title={tl.byCountry} dimension={tl.where} rows={breakdowns.countries} label={country} loading={isLoading} />
+        <Breakdown title={tl.byCountry} dimension={tl.where} rows={breakdowns.countries} label={country} loading={isLoading} onSelect={showOnMap} />
         <Breakdown title={tl.byPage} dimension={tl.page} rows={breakdowns.pages} loading={isLoading} />
         <Breakdown title={tl.byDevice} dimension={tl.device} rows={breakdowns.devices} label={(value) => devices[value as keyof typeof devices] ?? value} loading={isLoading} />
       </div>

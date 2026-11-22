@@ -8,18 +8,18 @@ import { useMemo, useState } from 'react';
 import { PANEL_IMPACT_MATHS, type PanelImpactSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { Input } from '@weldsuite/ui/components/input';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useWeldPanelImpact } from '@/hooks/queries/use-weldpanel-analysis-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ChartCard } from '../components/chart-card';
 import { PanelDefinitionsProvider } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { EventPicker, PropertyPicker } from '../components/pickers';
-import { ReportActions } from '../components/report-actions';
+import { ReportSaveButtons, ReportTools } from '../components/report-actions';
+import { ReportLayout } from '../components/report-layout';
 import { ImpactResultView } from '../components/results/impact-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
@@ -56,83 +56,90 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   if (saved.isLoading) return <PageLoader fullScreen={false} label={t.weldpanel.analytics.insights.loadingReport} />;
 
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ReportActions projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.launchEvent)} onSaved={saved.open} />
-      </div>
-      <SavedReportNotices saved={saved} />
-
-      <SectionCard title={tx.title}>
-        <div className="grid gap-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <ReportLayout
+      title={tx.title}
+      actions={<ReportTools projectId={projectId} report={saved.wrongKindPath ? null : saved.report} />}
+      controls={<ReportSaveButtons projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.launchEvent)} onSaved={saved.open} />}
+      sidebar={{
+        title: t.common.labels.settings,
+        content: (
+          <div className="grid gap-5">
             <LabeledField label={tx.launchEvent} htmlFor="weldpanel-impact-launch" hint={tx.launchEventHint}>
               <EventPicker id="weldpanel-impact-launch" projectId={projectId} value={draft.launchEvent} onChange={(launchEvent) => setDraft((d) => ({ ...d, launchEvent }))} ariaLabel={tx.launchEvent} />
             </LabeledField>
-            <LabeledField label={tx.launchDate} htmlFor="weldpanel-impact-date">
-              <Input
-                id="weldpanel-impact-date"
-                type="date"
-                value={draft.launchDate}
-                max={todayYmd()}
-                onChange={(event) => event.target.value && setDraft((d) => ({ ...d, launchDate: event.target.value }))}
-              />
-            </LabeledField>
-            <LabeledField label={tx.windowDays} htmlFor="weldpanel-impact-window">
-              <Select value={String(draft.windowDays ?? 28)} onValueChange={(next) => setDraft((d) => ({ ...d, windowDays: Number(next) }))}>
-                <SelectTrigger id="weldpanel-impact-window">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {windowChoices.map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
-          </div>
-
-          <div className="grid gap-3 rounded-lg border p-3" role="group" aria-label={tx.metric}>
-            <p className="text-sm font-medium">{tx.metric}</p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <LabeledField label={tx.metricEvent} htmlFor="weldpanel-impact-metric-event">
-                <EventPicker id="weldpanel-impact-metric-event" projectId={projectId} value={draft.metric.event} onChange={(event) => setMetric({ event })} ariaLabel={tx.metricEvent} />
+            <div className="grid grid-cols-2 gap-4">
+              <LabeledField label={tx.launchDate} htmlFor="weldpanel-impact-date">
+                <Input
+                  id="weldpanel-impact-date"
+                  type="date"
+                  value={draft.launchDate}
+                  max={todayYmd()}
+                  onChange={(event) => event.target.value && setDraft((d) => ({ ...d, launchDate: event.target.value }))}
+                />
               </LabeledField>
-              <LabeledField label={tx.math} htmlFor="weldpanel-impact-math">
-                <Select value={math} onValueChange={(next) => setMetric({ math: next as ImpactMath, property: next === 'sum' || next === 'avg' ? draft.metric.property : undefined })}>
-                  <SelectTrigger id="weldpanel-impact-math">
+              <LabeledField label={tx.windowDays} htmlFor="weldpanel-impact-window">
+                <Select value={String(draft.windowDays ?? 28)} onValueChange={(next) => setDraft((d) => ({ ...d, windowDays: Number(next) }))}>
+                  <SelectTrigger id="weldpanel-impact-window">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PANEL_IMPACT_MATHS.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {tx.maths[m]}
+                    {windowChoices.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </LabeledField>
-              {(math === 'sum' || math === 'avg') && (
-                <LabeledField label={tx.property} htmlFor="weldpanel-impact-property">
-                  <PropertyPicker id="weldpanel-impact-property" projectId={projectId} value={draft.metric.property ?? ''} onChange={(property) => setMetric({ property })} ariaLabel={tx.property} includeComputed />
-                </LabeledField>
-              )}
             </div>
-            <div className="grid gap-1">
-              <p className="text-xs text-muted-foreground">{t.weldpanel.analytics.insights.seriesFilters}</p>
-              <FilterBuilder compact projectId={projectId} filters={draft.metric.filters ?? []} onChange={(filters) => setMetric({ filters })} />
-            </div>
-          </div>
 
-          <div className="grid gap-1">
-            <p className="text-xs text-muted-foreground">{t.weldpanel.analytics.retention.globalFilters}</p>
-            <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+            <fieldset className="min-w-0">
+              <legend className="sr-only">{tx.metric}</legend>
+              <div className="grid gap-4 rounded-lg border p-3">
+                <p aria-hidden className="text-sm font-medium">
+                  {tx.metric}
+                </p>
+                <LabeledField label={tx.metricEvent} htmlFor="weldpanel-impact-metric-event">
+                  <EventPicker id="weldpanel-impact-metric-event" projectId={projectId} value={draft.metric.event} onChange={(event) => setMetric({ event })} ariaLabel={tx.metricEvent} />
+                </LabeledField>
+                <LabeledField label={tx.math} htmlFor="weldpanel-impact-math">
+                  <Select value={math} onValueChange={(next) => setMetric({ math: next as ImpactMath, property: next === 'sum' || next === 'avg' ? draft.metric.property : undefined })}>
+                    <SelectTrigger id="weldpanel-impact-math">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PANEL_IMPACT_MATHS.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {tx.maths[m]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </LabeledField>
+                {(math === 'sum' || math === 'avg') && (
+                  <LabeledField label={tx.property} htmlFor="weldpanel-impact-property">
+                    <PropertyPicker id="weldpanel-impact-property" projectId={projectId} value={draft.metric.property ?? ''} onChange={(property) => setMetric({ property })} ariaLabel={tx.property} includeComputed />
+                  </LabeledField>
+                )}
+                <div className="grid gap-1.5">
+                  <p className="text-sm font-medium">{t.weldpanel.analytics.insights.seriesFilters}</p>
+                  <FilterBuilder compact projectId={projectId} filters={draft.metric.filters ?? []} onChange={(filters) => setMetric({ filters })} />
+                </div>
+              </div>
+            </fieldset>
+
+            <div className="grid gap-1.5">
+              <p className="text-sm font-medium">{t.weldpanel.analytics.retention.globalFilters}</p>
+              <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+            </div>
           </div>
-        </div>
-      </SectionCard>
+        ),
+      }}
+    >
+      <SavedReportNotices saved={saved} />
 
       <ChartCard
+        bare
         title={t.weldpanel.analytics.insights.resultsTitle}
         loading={ready && isLoading}
         error={ready ? error : undefined}
@@ -148,7 +155,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
           </div>
         )}
       </ChartCard>
-    </div>
+    </ReportLayout>
   );
 }
 
@@ -156,12 +163,12 @@ export default function ImpactPage() {
   const { t } = useI18n();
   const tx = t.weldpanel.explore.impact;
   return (
-    <AnalyticsPage title={tx.title} description={tx.description}>
+    <AnalyticsListPage title={tx.title}>
       {(project) => (
         <PanelDefinitionsProvider key={project.id} projectId={project.id}>
           <Builder projectId={project.id} />
         </PanelDefinitionsProvider>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

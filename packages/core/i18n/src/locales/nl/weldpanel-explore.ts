@@ -396,6 +396,11 @@ export const weldpanelExplore = {
 
   performance: {
     title: 'Prestaties',
+    searchPages: 'Pagina’s zoeken',
+    searchLists: 'Elementen, landen en apparaten zoeken',
+    noMatchTitle: 'Geen pagina’s gevonden',
+    noMatchDescription: 'Probeer een andere zoekopdracht of verwijder een filter.',
+    back: 'Terug naar prestaties',
     description: 'De Core Web Vitals die je bezoekers ervoeren, gemeten op hun eigen paginaweergaven.',
     metrics: {
       lcp: 'LCP',
@@ -438,6 +443,7 @@ export const weldpanelExplore = {
     countries: 'Landen',
     devicesTitle: 'Apparaten',
     columns: {
+      page: 'Pagina',
       value: 'Waarde',
       samples: 'Paginaweergaven',
       rating: 'Beoordeling',
