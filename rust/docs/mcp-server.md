@@ -165,6 +165,21 @@ paths.
   active member of is 403, unknown or foreign alike. With a token that
   names its workspace (claim mode, Clerk) a workspace URL must name that
   one, by id or organization id.
+- **Clients on WeldID register themselves.** Unlike Zitadel, WeldID takes
+  MCP clients without anyone setting them up, on the platform issuer only
+  (WeldID's `ARCHITECTURE.md`, "Registered clients"): a client ID metadata
+  document (an `https://` client id, as claude.ai and Claude Code send) or
+  RFC 7591 registration at `https://auth.<domain>/register` (a `dcr_…` id).
+  The `weldid-switch` layer turns both on and lists the server's URLs as
+  RFC 8707 resources (`rust/deploy/flux/apps/weldid-switch/values/weldid.yaml`), so the
+  authorization-server document passed through here names
+  `registration_endpoint` and `client_id_metadata_document_supported`. Such
+  a client is public (PKCE), is asked for consent, and gets access tokens for
+  `weldsuite-api`, the audience this server verifies. WeldID gives it the
+  code and refresh grants only: an extension grant it lists (claude.ai's
+  `urn:ietf:params:oauth:grant-type:jwt-bearer`) is not granted. WeldID
+  0.1.0-alpha.2 refused the whole document for it, so claude.ai couldn't
+  sign in; 0.1.0-alpha.3 (weldsuite/weldid#26) ignores the extension grant.
 - **One resource per URL (RFC 9728).** The 401's `WWW-Authenticate` points
   at the metadata of the URL the client called
   (`/.well-known/oauth-protected-resource/mcp`, or `…/mcp/w/<workspace>`),
