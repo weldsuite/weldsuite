@@ -882,43 +882,124 @@ these first:
      on the test cluster before turning it on). WeldID's chart keeps its
      `networkPolicy` off. No other chart in the base layers renders one.
 
+   **The first second.** kube-router holds a pod to its policies only once
+   it has built that pod's chain, about a second after the pod starts. On
+   the EU test cluster, a probe that tried every 0.2 s from container start
+   reached `169.254.169.254` at t=0 and was refused from t=1 s. That is
+   enough for a start command to fetch `/hetzner/v1/userdata`, the Talos
+   machine configuration with its secrets, and it makes the sandbox
+   isolation check, which runs in a fresh pod, pass or fail at random. The
+   layer's metadata guard closes it: a DaemonSet in kube-system
+   (`metadata-guard.yaml`) that keeps one rule on every node,
+   `FORWARD -s <pod network> -d 169.254.169.254/32 -j REJECT`, so a pod's
+   traffic to the metadata service is refused before kube-router knows the
+   pod. Once it does, the pod's policies decide, as before. The pod network
+   is Flannel's `FLANNEL_NETWORK` (`/run/flannel/subnet.env` on the node).
+   The guard checks the rule every 15 seconds and puts it back if something
+   rewrote the chain. It is ready only while the rule is there, and
+   `NetworkPolicyEnforcementDegraded` warns about a node where kube-router or
+   the guard isn't ready.
+
    Still open after it: hostNetwork pods (LiveKit, the MTA, Fluent Bit, the
-   node exporter, Flannel, kube-proxy, kube-router itself) use the node's
-   network, which no NetworkPolicy restricts, so they can still reach the
-   metadata service; so can `flux-system`, whose `allow-egress` allows all
-   egress, and any namespace you add until it gets a copy of the policy.
+   node exporter, Flannel, kube-proxy, kube-router and the guard) send from
+   the node itself, which neither NetworkPolicy nor the guard's rule covers,
+   so they can still reach the metadata service. So can `flux-system`, whose
+   `allow-egress` allows all egress, and any namespace you add until it gets
+   a copy of the policy (after the first second; the guard covers every pod
+   until then).
 
    **Rollout**: the test cluster first, a day of normal use, then production.
 
    1. List `network-policy.yaml` in the cluster's `kustomization.yaml`.
       `flux get kustomizations network-policy` turns ready once kube-router
-      runs on every node: `kubectl -n kube-system get ds kube-router`, and
-      `kubectl -n kube-system logs -l app.kubernetes.io/name=kube-router`
+      and the guard run on every node: `kubectl -n kube-system get ds
+      kube-router metadata-guard` (one ready pod per node each), and their
+      logs (`kubectl -n kube-system logs -l
+      app.kubernetes.io/name=metadata-guard` says `guarding <node>`)
       without errors.
-   2. A throwaway pod can't reach the metadata service, and still reaches
-      DNS, other namespaces and the outside:
+   2. **The policy**: a pod that waits a few seconds is refused by the
+      metadata service and still reaches other namespaces and the outside.
+      **The guard**: a pod whose start command asks the metadata service on
+      its very first packet is refused too. Both specs pass the restricted
+      Pod Security Standard, so they run in any namespace with the policy
+      (`weldsuite` here, which enforces it):
 
       ```bash
-      kubectl -n default run np-check --rm -it --restart=Never --image=busybox:1.37.0 -- sh -c '
-        wget -q -T 5 -O- http://169.254.169.254/hetzner/v1/metadata/hostname; echo "metadata: $?";
-        wget -q -T 5 -O- http://kube-prometheus-stack-prometheus.monitoring.svc:9090/-/ready; echo " prometheus: $?";
-        wget -q -T 5 -O /dev/null http://example.com; echo "outside: $?"'
+      kubectl -n weldsuite apply -f - <<'EOF'
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: np-check-policy
+      spec:
+        restartPolicy: Never
+        automountServiceAccountToken: false
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile: { type: RuntimeDefault }
+        containers:
+          - name: check
+            image: busybox:1.37.0
+            command: ["sh", "-c"]
+            args:
+              - |
+                sleep 5
+                wget -q -T 5 -O- http://169.254.169.254/hetzner/v1/metadata/hostname; echo "metadata: $?"
+                wget -q -T 5 -O- http://kube-prometheus-stack-prometheus.monitoring.svc:9090/-/ready; echo " prometheus: $?"
+                wget -q -T 5 -O /dev/null http://example.com; echo "outside: $?"
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: [ALL] }
+      ---
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: np-check-guard
+      spec:
+        restartPolicy: Never
+        automountServiceAccountToken: false
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile: { type: RuntimeDefault }
+        containers:
+          - name: check
+            image: busybox:1.37.0
+            command: ["wget", "-q", "-T", "5", "-O-", "http://169.254.169.254/hetzner/v1/metadata/hostname"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: [ALL] }
+      EOF
+      kubectl -n weldsuite wait --for=jsonpath='{.status.phase}'=Succeeded pod/np-check-policy --timeout=2m
+      kubectl -n weldsuite wait --for=jsonpath='{.status.phase}'=Failed pod/np-check-guard --timeout=2m
+      kubectl -n weldsuite logs np-check-policy   # metadata: 1 (Connection refused), prometheus: 0, outside: 0
+      kubectl -n weldsuite logs np-check-guard    # wget: can't connect to remote host (169.254.169.254): Connection refused
+      kubectl -n weldsuite delete pod np-check-policy np-check-guard
       ```
 
-      `metadata` must fail at once ("Connection refused": kube-router
-      rejects), the other two print 0. Before the layer, the first prints
-      the node's name.
+      `np-check-guard` must end `Failed` (wget got nothing). A leak shows
+      as the node's name in a log, and `np-check-guard` then ends
+      `Succeeded`, so its wait times out. Before the guard, `np-check-guard`
+      leaks while `np-check-policy` is refused: that is the first-second
+      window. The
+      outside check is plain http on purpose: busybox's wget can't do TLS
+      1.3, so an https site would fail whatever the policy.
    3. `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor
       --no-model-calls` (step 5 below): with the sandbox on, `sandbox
-      isolation` passes.
+      isolation` passes, every time.
    4. Nothing else changed: Flux reconciles (`flux get all -A`), and
       Alertmanager stays quiet (no `EndpointDown`, `CoreWorkloadDown`,
-      `KubePodCrashLooping` for kube-router).
+      `NetworkPolicyEnforcementDegraded`, `KubePodCrashLooping` for
+      kube-router).
 
-   **Taking it out**: remove the layer. Flux deletes kube-router and the
-   policies, but the rules kube-router wrote stay in each node's netfilter
-   tables, enforcing what was there, until the node reboots (`talosctl -n
-   <node> reboot`, one node at a time).
+   **Taking it out**: remove the layer. Flux deletes kube-router, the guard
+   and the policies, but the rules they wrote stay in each node's netfilter
+   tables, kube-router's enforcing what was there and the guard's refusing
+   the metadata service, until the node reboots (`talosctl -n <node>
+   reboot`, one node at a time). The guard also leaves its rule in place
+   when its pod stops (an upgrade, a drain), so a rolling update has no gap.
 3. **The token secret.** `SANDBOX_TOKEN_SECRET` in `weldsuite-env`, the same
    on every replica: `fill-secrets.mjs --update` generates it.
 4. **The nodes' public addresses** in `sandbox.deniedCidrs` (`tofu output`):
