@@ -23,14 +23,17 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_db::due_index::{list_due, settle};
 use weldsuite_desk_domain::report_schedule::{DUE_KIND, next_report_run};
 use weldsuite_desk_domain::sla_calendar::iso;
 use weldsuite_mail_domain::outbound::OutboundBindings;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::helpdesk_report_schedules::{self, Column};
 
 use crate::settings::report_mail::{Mailer, SendOutcome, outbound_of, send_scheduled_report};
 use crate::settings::schedules::{ScheduleRow, record_run};
@@ -106,6 +109,13 @@ struct WorkspaceSweep {
     next: Option<OffsetDateTime>,
 }
 
+/// A JavaScript time (milliseconds) as a `timestamp` column holds it.
+fn report_stamp(ms: i64) -> PrimitiveDateTime {
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    weldsuite_db::utc_timestamp(at)
+}
+
 /// `sweepWorkspaceReports(env, db, orgId, now, { limit })`: send one
 /// workspace's due schedules and answer when it next has one due.
 async fn sweep_workspace(
@@ -117,6 +127,7 @@ async fn sweep_workspace(
     let failed = |error: sqlx::Error| error.to_string();
     let mut result = WorkspaceSweep::default();
     let now_text = iso(now);
+    let now_stamp = report_stamp(now);
 
     let due: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from helpdesk_report_schedules t
@@ -153,46 +164,46 @@ async fn sweep_workspace(
 
         match send_scheduled_report(mailer, &schedule, now).await {
             SendOutcome::Gone => {
-                sqlx::query(
-                    "update helpdesk_report_schedules
-                     set enabled = false, next_run_at = null, last_run_at = $2::timestamp,
-                         last_status = 'failed', last_error = $3
-                     where id = $1",
-                )
-                .bind(&schedule.id)
-                .bind(&now_text)
-                .bind(REPORT_GONE_MESSAGE)
-                .execute(db)
-                .await
-                .map_err(failed)?;
+                helpdesk_report_schedules::Entity::update_many()
+                    .col_expr(Column::Enabled, Expr::value(false))
+                    .col_expr(Column::NextRunAt, Expr::value(None::<PrimitiveDateTime>))
+                    .col_expr(Column::LastRunAt, Expr::value(now_stamp))
+                    .col_expr(Column::LastStatus, Expr::value("failed"))
+                    .col_expr(Column::LastError, Expr::value(REPORT_GONE_MESSAGE))
+                    .filter(Column::Id.eq(&schedule.id))
+                    .exec(&orm(db))
+                    .await
+                    .map_err(|error| error.to_string())?;
                 result.disabled += 1;
             }
             SendOutcome::Sent => {
                 record_run(db, &schedule.id, now, "sent", None)
                     .await
-                    .map_err(failed)?;
+                    .map_err(|error| error.to_string())?;
                 result.sent += 1;
             }
             SendOutcome::Failed(error) => {
                 record_run(db, &schedule.id, now, "failed", Some(&error))
                     .await
-                    .map_err(failed)?;
+                    .map_err(|error| error.to_string())?;
                 result.failed += 1;
             }
         }
     }
 
-    let earliest: Option<String> = sqlx::query_scalar(
-        "select to_char(min(next_run_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-         from helpdesk_report_schedules
-         where enabled = true and next_run_at is not null",
-    )
-    .fetch_one(db)
-    .await
-    .map_err(failed)?;
-    result.next = earliest.and_then(|at| {
-        OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339).ok()
-    });
+    let earliest: Option<Option<PrimitiveDateTime>> = helpdesk_report_schedules::Entity::find()
+        .select_only()
+        .column_as(Column::NextRunAt.min(), "earliest")
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::NextRunAt.is_not_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    // To the millisecond, as the TypeScript sweep reads it.
+    result.next = earliest
+        .flatten()
+        .map(|at| weldsuite_db::utc_timestamp(at.assume_utc()).assume_utc());
     Ok(result)
 }
 
