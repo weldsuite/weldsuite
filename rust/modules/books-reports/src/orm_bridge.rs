@@ -15,9 +15,8 @@ pub(crate) fn sqlx_error(error: DbErr) -> sqlx::Error {
     match error {
         DbErr::Conn(RuntimeErr::SqlxError(inner))
         | DbErr::Exec(RuntimeErr::SqlxError(inner))
-        | DbErr::Query(RuntimeErr::SqlxError(inner)) => {
-            Arc::try_unwrap(inner).unwrap_or_else(|shared| sqlx::Error::Protocol(shared.to_string()))
-        }
+        | DbErr::Query(RuntimeErr::SqlxError(inner)) => Arc::try_unwrap(inner)
+            .unwrap_or_else(|shared| sqlx::Error::Protocol(shared.to_string())),
         other => sqlx::Error::Protocol(other.to_string()),
     }
 }

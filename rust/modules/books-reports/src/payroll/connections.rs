@@ -13,6 +13,8 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -28,13 +30,16 @@ use weldsuite_catalogs::entity_events::{
     PAYROLL_CONNECTION_CREATED, PAYROLL_CONNECTION_DELETED, PAYROLL_CONNECTION_UPDATED,
     PAYROLL_IMPORT_CREATED,
 };
-use weldsuite_db::{Keyring, decrypt_field, encrypt_field};
+use weldsuite_db::{Keyring, decrypt_field, encrypt_field, orm};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::payroll_connections;
 
 use super::journal::{Totals, build_payroll_lines, payroll_error};
 use super::mapping::{Deferred, read_account_record};
-use super::{Fail, fail};
+use super::{CONNECTIONS, Fail, fail};
+use crate::orm_bridge::refused;
+use crate::rows::{js, js_rows, now_and_stamp};
 
 const GUSTO_API_VERSION: &str = "2024-04-01";
 
@@ -388,16 +393,12 @@ fn event_data(row: &Value) -> Value {
 }
 
 /// `loadConnection(db, id)`: a connection that isn't deleted.
-async fn load_connection(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payroll_connections),
-        " from payroll_connections t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| PAYROLL_CONNECTIONS.js(row)))
+async fn load_connection(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = payroll_connections::Entity::find_by_id(id.to_owned())
+        .filter(payroll_connections::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| js!(row)).transpose()
 }
 
 /// A provider connection this route serves (`csv` is the saved mapping's).
@@ -461,17 +462,15 @@ pub(super) async fn list(caller: Caller, State(state): State<BooksState>) -> Res
             return Ok(paged(Vec::new(), 0, false, None));
         };
         let keyring = caller.keyring(&state);
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(payroll_connections),
-            " from payroll_connections t where t.entity_id = $1 and t.deleted_at is null \
-             and t.provider <> 'csv' order by t.created_at desc, t.id desc"
-        ))
-        .bind(&entity_id)
-        .fetch_all(&caller.db)
-        .await?;
-        let data: Vec<Value> = PAYROLL_CONNECTIONS
-            .js_rows(rows)
+        let rows = payroll_connections::Entity::find()
+            .filter(payroll_connections::Column::EntityId.eq(&entity_id))
+            .filter(payroll_connections::Column::DeletedAt.is_null())
+            .filter(payroll_connections::Column::Provider.ne("csv"))
+            .order_by_desc(payroll_connections::Column::CreatedAt)
+            .order_by_desc(payroll_connections::Column::Id)
+            .all(&orm(&caller.db))
+            .await?;
+        let data: Vec<Value> = js_rows!(rows)?
             .iter()
             .map(|row| public_connection(row, &keyring))
             .collect();
@@ -557,6 +556,25 @@ fn read_create(issues: &mut Issues, body: &Map<String, Value>) -> Option<CreateB
     })
 }
 
+/// A live Gusto connection of the entity to `company_id`.
+async fn gusto_company_connected(
+    caller: &Caller,
+    entity_id: &str,
+    company_id: &str,
+) -> Result<bool, DbErr> {
+    let existing: Option<String> = payroll_connections::Entity::find()
+        .select_only()
+        .column(payroll_connections::Column::Id)
+        .filter(payroll_connections::Column::EntityId.eq(entity_id))
+        .filter(payroll_connections::Column::Provider.eq("gusto"))
+        .filter(payroll_connections::Column::ProviderCompanyId.eq(company_id))
+        .filter(payroll_connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(existing.is_some())
+}
+
 pub(super) async fn create(
     caller: Caller,
     State(state): State<BooksState>,
@@ -582,15 +600,7 @@ pub(super) async fn create(
                 "No accounting entity resolved",
             )));
         };
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from payroll_connections where entity_id = $1 and provider = 'gusto' \
-             and provider_company_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(&entity_id)
-        .bind(&data.company_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if existing.is_some() {
+        if gusto_company_connected(&caller, &entity_id, &data.company_id).await? {
             return Err(Fail::Post(payroll_error(
                 "This Gusto company is already connected to this accounting entity",
             )));
@@ -637,13 +647,13 @@ pub(super) async fn create(
             "lastSyncedAt": null,
             "lastError": null,
         });
-        PAYROLL_CONNECTIONS
-            .insert_raw(
-                &caller.db,
+        CONNECTIONS
+            .insert(
+                &orm(&caller.db),
                 PAYROLL_CONNECTIONS.values(row.as_object().expect("an object")),
             )
             .await
-            .map_err(Refusal::from)?;
+            .map_err(refused)?;
         let id = row["id"].as_str().unwrap_or_default().to_owned();
         write_accounting_audit(
             &caller,
@@ -698,18 +708,22 @@ pub(super) async fn set_mapping(
     };
     let result = async {
         let connection = provider_connection(&caller, &id).await?;
-        let entity_id = connection["entityId"].as_str().unwrap_or_default().to_owned();
+        let entity_id = connection["entityId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         assert_mapping_accounts(&caller, &entity_id, &mapping).await?;
-        let at = now();
+        let (at, stamp) = now_and_stamp();
         let new_mapping = mapping_json(&mapping);
-        sqlx::query(
-            "update payroll_connections set account_mapping = $1, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(&new_mapping)
-        .bind(&at)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        payroll_connections::Entity::update_many()
+            .col_expr(
+                payroll_connections::Column::AccountMapping,
+                Expr::value(new_mapping.clone()),
+            )
+            .col_expr(payroll_connections::Column::UpdatedAt, Expr::value(stamp))
+            .filter(payroll_connections::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let mut row = connection.clone();
         row["accountMapping"] = new_mapping.clone();
         row["updatedAt"] = json!(at);
@@ -794,15 +808,17 @@ fn windows(from: &str, to: &str) -> Vec<(String, String)> {
     result
 }
 
-async fn set_connection_error(caller: &Caller, id: &str, message: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update payroll_connections set status = 'error', last_error = $1, updated_at = $2::timestamp where id = $3",
-    )
-    .bind(message)
-    .bind(now())
-    .bind(id)
-    .execute(&caller.db)
-    .await?;
+async fn set_connection_error(caller: &Caller, id: &str, message: &str) -> Result<(), DbErr> {
+    payroll_connections::Entity::update_many()
+        .col_expr(payroll_connections::Column::Status, Expr::value("error"))
+        .col_expr(payroll_connections::Column::LastError, Expr::value(message))
+        .col_expr(
+            payroll_connections::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(payroll_connections::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(())
 }
 
@@ -968,17 +984,15 @@ pub(super) async fn sync(
                 failed.len()
             )
         });
-        let at = now();
-        sqlx::query(
-            "update payroll_connections set status = $1, last_synced_at = $2::timestamp, \
-             last_error = $3, updated_at = $2::timestamp where id = $4",
-        )
-        .bind(status)
-        .bind(&at)
-        .bind(&last_error)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        payroll_connections::Entity::update_many()
+            .col_expr(payroll_connections::Column::Status, Expr::value(status))
+            .col_expr(payroll_connections::Column::LastSyncedAt, Expr::value(at))
+            .col_expr(payroll_connections::Column::LastError, Expr::value(last_error))
+            .col_expr(payroll_connections::Column::UpdatedAt, Expr::value(at))
+            .filter(payroll_connections::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
 
         for (external_id, pay_date, import_id, journal_entry_id) in &imported {
             write_accounting_audit(
@@ -1037,15 +1051,21 @@ pub(super) async fn disconnect(
 ) -> Response {
     let result = async {
         let connection = provider_connection(&caller, &id).await?;
-        let at = now();
-        sqlx::query(
-            "update payroll_connections set deleted_at = $1::timestamp, status = 'disconnected', \
-             credentials_encrypted = null, updated_at = $1::timestamp where id = $2",
-        )
-        .bind(&at)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        payroll_connections::Entity::update_many()
+            .col_expr(payroll_connections::Column::DeletedAt, Expr::value(at))
+            .col_expr(
+                payroll_connections::Column::Status,
+                Expr::value("disconnected"),
+            )
+            .col_expr(
+                payroll_connections::Column::CredentialsEncrypted,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(payroll_connections::Column::UpdatedAt, Expr::value(at))
+            .filter(payroll_connections::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let entity_id = connection["entityId"]
             .as_str()
             .unwrap_or_default()

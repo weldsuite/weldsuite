@@ -26,6 +26,11 @@ use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use base64::Engine;
 use http::HeaderMap;
+use sea_orm::sea_query::{Condition, Expr};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::dates::is_iso_date;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
@@ -34,16 +39,21 @@ use weldsuite_books_domain::http::{BooksState, Caller, Refusal, created, ok, pag
 use weldsuite_books_domain::js::parse_int;
 use weldsuite_books_domain::payroll::{PAYROLL_CATEGORIES, reverse_payroll_import};
 use weldsuite_books_domain::posting::{PostError, load_entity_accounts};
-use weldsuite_books_domain::tables::{PAYROLL_CONNECTIONS, PAYROLL_IMPORTS};
+use weldsuite_books_domain::tables::PAYROLL_CONNECTIONS;
 use weldsuite_catalogs::entity_events::{
     PAYROLL_CONNECTION_CREATED, PAYROLL_CONNECTION_UPDATED, PAYROLL_IMPORT_CREATED,
     PAYROLL_IMPORT_DELETED,
 };
+use weldsuite_db::orm;
+use weldsuite_db::record::JsonTable;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{accounts, journal_lines, payroll_connections, payroll_imports};
 
+use crate::orm_bridge::sqlx_error;
+use crate::rows::{date_of, js, js_rows, money_text};
 use csv_import::{CsvImportArgs, ImportError, import_payroll_csv, problems_message};
 use journal::payroll_error;
 use mapping::{CsvMapping, Deferred, expand_csv_mapping, read_mapping};
@@ -146,6 +156,14 @@ impl From<sqlx::Error> for Fail {
     }
 }
 
+/// `PostError` (`weldsuite-books-domain`, not on the ORM yet) still holds
+/// sqlx's error.
+impl From<DbErr> for Fail {
+    fn from(error: DbErr) -> Self {
+        Self::Post(PostError::Database(sqlx_error(error)))
+    }
+}
+
 impl From<Refusal> for Fail {
     fn from(refusal: Refusal) -> Self {
         Self::Refusal(refusal)
@@ -214,27 +232,25 @@ async fn categories() -> Response {
 
 // ── the saved CSV mapping (the `csv` pseudo connection) ─────────────────────
 
-async fn load_csv_connection(
-    caller: &Caller,
-    entity_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payroll_connections),
-        " from payroll_connections t where t.entity_id = $1 and t.provider = 'csv' \
-         and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| PAYROLL_CONNECTIONS.js(row)))
+/// `payrollConnections`, written from a `{ column: value }` object as
+/// Drizzle's `insert` wrote it.
+pub(crate) const CONNECTIONS: JsonTable = JsonTable::of::<payroll_connections::Entity>();
+
+async fn load_csv_connection(caller: &Caller, entity_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = payroll_connections::Entity::find()
+        .filter(payroll_connections::Column::EntityId.eq(entity_id))
+        .filter(payroll_connections::Column::Provider.eq("csv"))
+        .filter(payroll_connections::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| js!(row)).transpose()
 }
 
 /// `loadSavedCsvMapping(db, entityId)`.
 async fn load_saved_csv_mapping(
     caller: &Caller,
     entity_id: &str,
-) -> Result<Option<CsvMapping>, sqlx::Error> {
+) -> Result<Option<CsvMapping>, DbErr> {
     let row = load_csv_connection(caller, entity_id).await?;
     Ok(expand_csv_mapping(
         row.as_ref().and_then(|r| r.get("accountMapping")),
@@ -268,17 +284,23 @@ async fn save_csv_mapping(
 ) -> Result<(Value, bool), PostError> {
     assert_csv_mapping_accounts(caller, entity_id, mapping).await?;
     let flat = mapping.flatten();
-    let now = weldsuite_books_domain::http::now();
-    if let Some(mut existing) = load_csv_connection(caller, entity_id).await? {
+    let (now, stamp) = crate::rows::now_and_stamp();
+    let db = orm(&caller.db);
+    if let Some(mut existing) = load_csv_connection(caller, entity_id)
+        .await
+        .map_err(sqlx_error)?
+    {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
-        sqlx::query(
-            "update payroll_connections set account_mapping = $1, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(&flat)
-        .bind(&now)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        payroll_connections::Entity::update_many()
+            .col_expr(
+                payroll_connections::Column::AccountMapping,
+                Expr::value(flat.clone()),
+            )
+            .col_expr(payroll_connections::Column::UpdatedAt, Expr::value(stamp))
+            .filter(payroll_connections::Column::Id.eq(&id))
+            .exec(&db)
+            .await
+            .map_err(sqlx_error)?;
         existing["accountMapping"] = flat;
         existing["updatedAt"] = json!(now);
         return Ok((existing, false));
@@ -299,7 +321,7 @@ async fn save_csv_mapping(
         "lastError": null,
     });
     let values = PAYROLL_CONNECTIONS.values(row.as_object().expect("an object"));
-    PAYROLL_CONNECTIONS.insert_raw(&caller.db, values).await?;
+    CONNECTIONS.insert(&db, values).await.map_err(sqlx_error)?;
     Ok((row, true))
 }
 
@@ -464,18 +486,26 @@ async fn list_import_rows(caller: &Caller) -> Result<Response, Fail> {
     if to.is_some_and(|d| !is_iso_date(d)) {
         return Err(Refusal::bad_request("to must be a date (YYYY-MM-DD)").into());
     }
-    let total: i32 = sqlx::query_scalar(
-        "select count(*)::int from payroll_imports where entity_id = $1 \
-         and ($2::text is null or status = $2) and ($3::text is null or source = $3) \
-         and ($4::date is null or pay_date >= $4::date) and ($5::date is null or pay_date <= $5::date)",
-    )
-    .bind(&entity_id)
-    .bind(status)
-    .bind(source)
-    .bind(from)
-    .bind(to)
-    .fetch_one(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let mut filters = Condition::all().add(payroll_imports::Column::EntityId.eq(&entity_id));
+    if let Some(status) = status {
+        filters = filters.add(payroll_imports::Column::Status.eq(status));
+    }
+    if let Some(source) = source {
+        filters = filters.add(payroll_imports::Column::Source.eq(source));
+    }
+    if let Some(from) = from {
+        filters = filters.add(payroll_imports::Column::PayDate.gte(date_of(from)?));
+    }
+    if let Some(to) = to {
+        filters = filters.add(payroll_imports::Column::PayDate.lte(date_of(to)?));
+    }
+    let total = payroll_imports::Entity::find()
+        .filter(filters.clone())
+        .count(&db)
+        .await?;
+    // `count(*)::int`.
+    let total = i32::try_from(total).unwrap_or(i32::MAX);
     let cursor = match q.present("cursor") {
         Some(cursor) => match decode_cursor(cursor) {
             Some(decoded) => Some(decoded),
@@ -483,27 +513,24 @@ async fn list_import_rows(caller: &Caller) -> Result<Response, Fail> {
         },
         None => None,
     };
-    let (cursor_date, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payroll_imports),
-        " from payroll_imports t where t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.source = $3) \
-         and ($4::date is null or t.pay_date >= $4::date) and ($5::date is null or t.pay_date <= $5::date) \
-         and ($6::date is null or (t.pay_date, t.id) < ($6::date, $7)) \
-         order by t.pay_date desc, t.id desc limit $8"
-    ))
-    .bind(&entity_id)
-    .bind(status)
-    .bind(source)
-    .bind(from)
-    .bind(to)
-    .bind(cursor_date)
-    .bind(cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let mut rows = PAYROLL_IMPORTS.js_rows(rows);
+    if let Some((cursor_date, cursor_id)) = cursor {
+        // `(pay_date, id) < ($date::date, $id)`.
+        filters = filters.add(sea_orm::ExprTrait::lt(
+            Expr::tuple([
+                Expr::col((payroll_imports::Entity, payroll_imports::Column::PayDate)),
+                Expr::col((payroll_imports::Entity, payroll_imports::Column::Id)),
+            ]),
+            Expr::tuple([Expr::val(date_of(&cursor_date)?), Expr::val(cursor_id)]),
+        ));
+    }
+    let rows = payroll_imports::Entity::find()
+        .filter(filters)
+        .order_by_desc(payroll_imports::Column::PayDate)
+        .order_by_desc(payroll_imports::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let mut rows = js_rows!(rows)?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     if has_more {
         rows.truncate(usize::try_from(limit).unwrap_or(0));
@@ -703,22 +730,25 @@ type EntryLineRow = (
     String,
     String,
     String,
-    Option<String>,
-    Option<String>,
+    Option<sea_orm::prelude::BigDecimal>,
+    Option<sea_orm::prelude::BigDecimal>,
     Option<String>,
 );
 
 /// `loadImport(db, id)`.
-async fn load_import(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payroll_imports),
-        " from payroll_imports t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| PAYROLL_IMPORTS.js(row)))
+async fn load_import(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = payroll_imports::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| js!(row)).transpose()
+}
+
+/// `innerJoin(accounts, eq(journalLines.accountId, accounts.id))`.
+fn line_account() -> RelationDef {
+    journal_lines::Entity::belongs_to(accounts::Entity)
+        .from(journal_lines::Column::AccountId)
+        .to(accounts::Column::Id)
+        .into()
 }
 
 async fn import_detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -728,14 +758,20 @@ async fn import_detail(caller: Caller, Path(id): Path<String>) -> Response {
         };
         let lines: Vec<Value> = match row["journalEntryId"].as_str().filter(|e| !e.is_empty()) {
             Some(entry_id) => {
-                let rows: Vec<EntryLineRow> =
-                    sqlx::query_as(
-                        "select jl.account_id, a.code, a.name, jl.debit::text, jl.credit::text, jl.description \
-                         from journal_lines jl inner join accounts a on jl.account_id = a.id \
-                         where jl.journal_entry_id = $1 order by jl.sort_order",
-                    )
-                    .bind(entry_id)
-                    .fetch_all(&caller.db)
+                let rows: Vec<EntryLineRow> = journal_lines::Entity::find()
+                    .select_only()
+                    .column(journal_lines::Column::AccountId)
+                    .columns([accounts::Column::Code, accounts::Column::Name])
+                    .columns([
+                        journal_lines::Column::Debit,
+                        journal_lines::Column::Credit,
+                        journal_lines::Column::Description,
+                    ])
+                    .join(JoinType::InnerJoin, line_account())
+                    .filter(journal_lines::Column::JournalEntryId.eq(entry_id))
+                    .order_by_asc(journal_lines::Column::SortOrder)
+                    .into_tuple()
+                    .all(&orm(&caller.db))
                     .await?;
                 rows.into_iter()
                     .map(|(account_id, code, name, debit, credit, description)| {
@@ -743,8 +779,9 @@ async fn import_detail(caller: Caller, Path(id): Path<String>) -> Response {
                             "accountId": account_id,
                             "accountCode": code,
                             "accountName": name,
-                            "debit": debit,
-                            "credit": credit,
+                            // `debit::text`, `credit::text`.
+                            "debit": debit.as_ref().map(money_text),
+                            "credit": credit.as_ref().map(money_text),
                             "description": description,
                         })
                     })

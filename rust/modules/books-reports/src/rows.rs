@@ -54,7 +54,11 @@ pub(crate) fn timestamp_of_millis(millis: i64) -> Result<PrimitiveDateTime, DbEr
 /// error (the route's 500).
 pub(crate) fn timestamp_of_iso(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
     weldsuite_books_domain::js::js_date_millis(iso)
-        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type timestamp: \"{iso}\"")))
+        .ok_or_else(|| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
         .and_then(timestamp_of_millis)
 }
 

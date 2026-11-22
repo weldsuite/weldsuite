@@ -141,8 +141,8 @@ pub(crate) async fn load_ledger_rows(
     asset_id: &str,
     book_id: Option<&str>,
 ) -> Result<Vec<Value>, DbErr> {
-    let mut rows =
-        fixed_asset_depreciation::Entity::find().filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id));
+    let mut rows = fixed_asset_depreciation::Entity::find()
+        .filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id));
     if let Some(book_id) = book_id {
         rows = rows.filter(fixed_asset_depreciation::Column::BookId.eq(book_id));
     }
@@ -801,10 +801,7 @@ async fn asset_number_taken(db: &PgPool, entity_id: &str, number: &str) -> Resul
 
 /// `refreshMacrsConventions(db, entity)`: store each MACRS book's convention
 /// from the mid-quarter test over the entity's federal assets.
-pub(crate) async fn refresh_macrs_conventions(
-    db: &PgPool,
-    entity: &Value,
-) -> Result<usize, DbErr> {
+pub(crate) async fn refresh_macrs_conventions(db: &PgPool, entity: &Value) -> Result<usize, DbErr> {
     let config = fiscal_config_of(entity);
     let rows = load_entity_book_rows(db, text(entity, "id")).await?;
     let conventions: Conventions = macrs_convention_map(&config, &rows);
@@ -1180,17 +1177,22 @@ pub(crate) async fn update_fixed_asset(
 
     let id = asset_id.to_owned();
     let book_rows: Vec<Map<String, Value>> = books.iter().map(book_values).collect();
-    let book_updates: Vec<(String, String, sea_orm::prelude::BigDecimal)> = books
-        .iter()
-        .map(|book| {
-            Ok((
-                text(book, "id").to_owned(),
-                text(book, "convention").to_owned(),
-                // `$n::numeric` of the `toFixed(2)` text.
-                decimal_of(text(book, "depreciableBasis"))?,
-            ))
-        })
-        .collect::<Result<_, DbErr>>()?;
+    // The books kept as they are get their convention and basis rewritten.
+    let book_updates: Vec<(String, String, sea_orm::prelude::BigDecimal)> = if replace {
+        Vec::new()
+    } else {
+        books
+            .iter()
+            .map(|book| {
+                Ok((
+                    text(book, "id").to_owned(),
+                    text(book, "convention").to_owned(),
+                    // `$n::numeric` of the `toFixed(2)` text.
+                    decimal_of(text(book, "depreciableBasis"))?,
+                ))
+            })
+            .collect::<Result<_, DbErr>>()?
+    };
     let ledger_inserts = ledger.as_ref().map_or_else(Vec::new, |(book, rows)| {
         ledger_insert_rows(&updated, book, rows, &at, &HashSet::new())
     });
@@ -1209,7 +1211,10 @@ pub(crate) async fn update_fixed_asset(
             } else {
                 for (book_id, convention, basis) in book_updates {
                     fixed_asset_books::Entity::update_many()
-                        .col_expr(fixed_asset_books::Column::Convention, Expr::value(convention))
+                        .col_expr(
+                            fixed_asset_books::Column::Convention,
+                            Expr::value(convention),
+                        )
                         .col_expr(
                             fixed_asset_books::Column::DepreciableBasis,
                             Expr::value(basis),
@@ -1541,7 +1546,12 @@ pub(crate) async fn posted_cents_by_asset<C: ConnectionTrait>(
     // The sum's text read as a number, then cents (`toCents(asNumber(…))`).
     Ok(rows
         .into_iter()
-        .map(|(id, total)| (id, to_cents(as_number(Some(&json!(total.to_plain_string())), 0.0))))
+        .map(|(id, total)| {
+            (
+                id,
+                to_cents(as_number(Some(&json!(total.to_plain_string())), 0.0)),
+            )
+        })
         .collect())
 }
 

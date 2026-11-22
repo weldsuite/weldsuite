@@ -326,7 +326,10 @@ async fn finish_assets<C: ConnectionTrait>(
         return Ok(());
     }
     fixed_assets::Entity::update_many()
-        .col_expr(fixed_assets::Column::Status, Expr::value("fully_depreciated"))
+        .col_expr(
+            fixed_assets::Column::Status,
+            Expr::value("fully_depreciated"),
+        )
         .col_expr(fixed_assets::Column::UpdatedAt, Expr::value(at))
         .filter(fixed_assets::Column::Id.is_in(asset_ids))
         .filter(fixed_assets::Column::Status.eq("active"))
@@ -393,8 +396,7 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
             items
                 .iter()
                 .filter(|p| {
-                    last_ends.get(&p.book_id).map(String::as_str)
-                        == Some(text(&p.row, "periodEnd"))
+                    last_ends.get(&p.book_id).map(String::as_str) == Some(text(&p.row, "periodEnd"))
                 })
                 .map(|p| text(&p.asset, "id").to_owned())
                 .collect()
