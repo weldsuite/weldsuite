@@ -368,21 +368,26 @@ async fn deposited_payments(db: &impl ConnectionTrait, id: &str) -> Result<Vec<V
         .await?;
     Ok(payments
         .into_iter()
-        .map(|DepositedPayment { payment, party_display_name: name }| {
-            let row = serde_json::to_value(payment).unwrap_or_default();
-            json!({
-                "id": field(&row, "id"),
-                "date": field(&row, "date"),
-                "amount": field(&row, "amount"),
-                "currency": field(&row, "currency"),
-                "paymentMethod": field(&row, "paymentMethod"),
-                "checkNumber": field(&row, "checkNumber"),
-                "reference": field(&row, "reference"),
-                "contactId": field(&row, "contactId"),
-                "contactName": name,
-                "invoiceId": field(&row, "invoiceId"),
-            })
-        })
+        .map(
+            |DepositedPayment {
+                 payment,
+                 party_display_name: name,
+             }| {
+                let row = serde_json::to_value(payment).unwrap_or_default();
+                json!({
+                    "id": field(&row, "id"),
+                    "date": field(&row, "date"),
+                    "amount": field(&row, "amount"),
+                    "currency": field(&row, "currency"),
+                    "paymentMethod": field(&row, "paymentMethod"),
+                    "checkNumber": field(&row, "checkNumber"),
+                    "reference": field(&row, "reference"),
+                    "contactId": field(&row, "contactId"),
+                    "contactName": name,
+                    "invoiceId": field(&row, "invoiceId"),
+                })
+            },
+        )
         .collect())
 }
 
@@ -646,9 +651,7 @@ async fn create_deposit(
     if payment_ids.is_empty() && other_lines.is_empty() {
         return Err(posting("Pick at least one payment to deposit"));
     }
-    let candidates = list_undeposited(db, entity_id)
-        .await
-        .map_err(post_failed)?;
+    let candidates = list_undeposited(db, entity_id).await.map_err(post_failed)?;
     let mut chosen: Vec<&Undeposited> = Vec::new();
     for id in &payment_ids {
         let Some(found) = candidates
@@ -983,7 +986,10 @@ async fn release(db: &impl ConnectionTrait, id: &str, at: PrimitiveDateTime) -> 
         .exec(db)
         .await?;
     bank_transactions::Entity::update_many()
-        .col_expr(bank_transactions::Column::Status, Expr::value("unreconciled"))
+        .col_expr(
+            bank_transactions::Column::Status,
+            Expr::value("unreconciled"),
+        )
         .col_expr(bank_transactions::Column::ReconciliationType, none())
         .col_expr(bank_transactions::Column::DepositId, none())
         .col_expr(bank_transactions::Column::JournalEntryId, none())
@@ -1003,10 +1009,7 @@ async fn void_deposit(
     id: &str,
     user_id: Option<&str>,
 ) -> Result<Value, PostError> {
-    let Some(deposit) = find_deposit(db, entity_id, id)
-        .await
-        .map_err(post_failed)?
-    else {
+    let Some(deposit) = find_deposit(db, entity_id, id).await.map_err(post_failed)? else {
         return Err(posting("Deposit not found"));
     };
     if text(&deposit, "status") == Some("void") {

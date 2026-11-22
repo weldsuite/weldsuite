@@ -16,7 +16,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_books_domain::bank_categorize::{Categorize, categorize};
 use weldsuite_books_domain::bank_matching::{
     auto_reconcile_batch, find_matches, reconcile_to_deposit, reconcile_to_document,
@@ -36,18 +42,22 @@ use weldsuite_catalogs::entity_events::{
     BANK_ACCOUNT_UPDATED, BANK_DEPOSIT_UPDATED, BANK_TRANSACTION_CREATED, BANK_TRANSACTION_DELETED,
     BANK_TRANSACTION_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED, PAYMENT_UPDATED,
 };
+use weldsuite_db::{orm, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{
     Field, Issues, Number, Presence, js_number, string_or_number_issue,
 };
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{bank_accounts, bank_import_batches, bank_transactions};
 
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
 use crate::import::{
     DeleteScope, count_duplicates, delete_lines, import_transactions, line_delete_blocker,
 };
+use crate::orm_bridge::refused;
 use crate::parsers::{CsvFormatRequired, ParseOptions, ParseResult, parse_bank_file};
 
 const FILE_FORMATS: [&str; 7] = ["mt940", "camt053", "csv", "ofx", "qfx", "qbo", "bai2"];
@@ -132,6 +142,70 @@ fn line_event(txn: &Value, status: &str) -> Value {
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
+/// `$n::<type_name>`: text Postgres reads as the type, as the old statements
+/// bound it.
+fn cast(text: &str, type_name: &'static str) -> Expr {
+    Func::cast_as(Expr::val(text), type_name).into()
+}
+
+/// What `GET /` filters on (`and(...)` of the given conditions).
+struct LineFilters<'a> {
+    entity_id: &'a str,
+    account: Option<&'a str>,
+    status: Option<&'a str>,
+    check_number: Option<&'a str>,
+    source: Option<&'a str>,
+    deposit: Option<&'a str>,
+    /// `new Date(from|to).toISOString()`, compared as `timestamp`s.
+    from: Option<String>,
+    to: Option<String>,
+    search: Option<&'a str>,
+}
+
+impl LineFilters<'_> {
+    /// The live lines of the entity that pass: what the page and its
+    /// `count(*)` share. `search` is `like '%term%'` on the description,
+    /// counterparty and reference, or the trimmed term as the check number.
+    fn select(&self) -> sea_orm::Select<bank_transactions::Entity> {
+        use bank_transactions::Column;
+        let equal = |q: sea_orm::Select<bank_transactions::Entity>, column: Column, value| {
+            q.apply_if(value, |q, value: &str| q.filter(column.eq(value)))
+        };
+        let mut query = bank_transactions::Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::EntityId.eq(self.entity_id));
+        query = equal(query, Column::BankAccountId, self.account);
+        query = equal(query, Column::Status, self.status);
+        query = equal(query, Column::CheckNumber, self.check_number);
+        query = equal(query, Column::Source, self.source);
+        query = equal(query, Column::DepositId, self.deposit);
+        query
+            .apply_if(self.from.as_deref(), |q, from| {
+                q.filter(sea_orm::ExprTrait::gte(
+                    Column::Date.into_expr(),
+                    cast(from, "timestamp"),
+                ))
+            })
+            .apply_if(self.to.as_deref(), |q, to| {
+                q.filter(sea_orm::ExprTrait::lte(
+                    Column::Date.into_expr(),
+                    cast(to, "timestamp"),
+                ))
+            })
+            .apply_if(self.search, |q, search| {
+                let term = format!("%{search}%");
+                let exact = weldsuite_books_domain::jurisdictions::js_trim(search);
+                q.filter(
+                    Condition::any()
+                        .add(Column::Description.like(term.as_str()))
+                        .add(Column::CounterpartyName.like(term.as_str()))
+                        .add(Column::Reference.like(term.as_str()))
+                        .add(Column::CheckNumber.eq(exact)),
+                )
+            })
+    }
+}
+
 async fn list(caller: Caller) -> Response {
     reply(
         list_lines(&caller).await,
@@ -157,67 +231,32 @@ async fn list_lines(caller: &Caller) -> Reply {
                 .ok_or_else(|| Refusal::Internal(format!("Invalid time value ({key})"))),
         }
     };
-    let from = date_bound("from")?;
-    let to = date_bound("to")?;
-    let search = q.present("search");
-    let term = search.map(|s| format!("%{s}%"));
-    let exact = search.map(|s| weldsuite_books_domain::jurisdictions::js_trim(s).to_owned());
-    let filters = (
-        q.present("bankAccountId"),
-        q.present("status"),
-        q.present("checkNumber"),
-        q.present("source"),
-        q.present("depositId"),
-    );
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_transactions),
-        " from bank_transactions t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.bank_account_id = $2) and ($3::text is null or t.status = $3) \
-         and ($4::text is null or t.check_number = $4) and ($5::text is null or t.source = $5) \
-         and ($6::text is null or t.deposit_id = $6) \
-         and ($7::text is null or t.date >= $7::timestamp) and ($8::text is null or t.date <= $8::timestamp) \
-         and ($9::text is null or t.description like $9 or t.counterparty_name like $9 \
-              or t.reference like $9 or t.check_number = $10) \
-         order by t.date desc limit $11 offset $12"
-    ))
-    .bind(&entity_id)
-    .bind(filters.0)
-    .bind(filters.1)
-    .bind(filters.2)
-    .bind(filters.3)
-    .bind(filters.4)
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .bind(term.as_deref())
-    .bind(exact.as_deref())
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from bank_transactions t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.bank_account_id = $2) and ($3::text is null or t.status = $3) \
-         and ($4::text is null or t.check_number = $4) and ($5::text is null or t.source = $5) \
-         and ($6::text is null or t.deposit_id = $6) \
-         and ($7::text is null or t.date >= $7::timestamp) and ($8::text is null or t.date <= $8::timestamp) \
-         and ($9::text is null or t.description like $9 or t.counterparty_name like $9 \
-              or t.reference like $9 or t.check_number = $10)",
-    )
-    .bind(&entity_id)
-    .bind(filters.0)
-    .bind(filters.1)
-    .bind(filters.2)
-    .bind(filters.3)
-    .bind(filters.4)
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .bind(term.as_deref())
-    .bind(exact.as_deref())
-    .fetch_one(&caller.db)
-    .await?;
+    let filters = LineFilters {
+        entity_id: &entity_id,
+        account: q.present("bankAccountId"),
+        status: q.present("status"),
+        check_number: q.present("checkNumber"),
+        source: q.present("source"),
+        deposit: q.present("depositId"),
+        from: date_bound("from")?,
+        to: date_bound("to")?,
+        search: q.present("search"),
+    };
+    let db = orm(&caller.db);
+    let rows = filters
+        .select()
+        .order_by_desc(bank_transactions::Column::Date)
+        .limit(u64::try_from(size).unwrap_or(0))
+        .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(refused)?;
+    let total = filters.select().count(&db).await.map_err(refused)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
     Ok(paged(
-        BANK_TRANSACTIONS.js_rows(rows),
+        rows.into_iter()
+            .map(|row| serde_json::to_value(row).unwrap_or_default())
+            .collect(),
         total,
         page * size < total,
         None,
@@ -232,18 +271,23 @@ async fn unreconciled(caller: Caller) -> Response {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
         let account = caller.query().present("bankAccountId").map(str::to_owned);
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bank_transactions),
-            " from bank_transactions t where t.deleted_at is null and t.entity_id = $1 \
-             and t.status = 'unreconciled' and ($2::text is null or t.bank_account_id = $2) \
-             order by t.date desc limit 100"
-        ))
-        .bind(&entity_id)
-        .bind(account)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(BANK_TRANSACTIONS.js_rows(rows))))
+        let rows = bank_transactions::Entity::find()
+            .filter(bank_transactions::Column::DeletedAt.is_null())
+            .filter(bank_transactions::Column::EntityId.eq(entity_id.as_str()))
+            .filter(bank_transactions::Column::Status.eq("unreconciled"))
+            .apply_if(account, |q, account| {
+                q.filter(bank_transactions::Column::BankAccountId.eq(account))
+            })
+            .order_by_desc(bank_transactions::Column::Date)
+            .limit(100)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        Ok(ok(Value::Array(
+            rows.into_iter()
+                .map(|row| serde_json::to_value(row).unwrap_or_default())
+                .collect(),
+        )))
     }
     .await;
     reply(result, "Failed to fetch unreconciled transactions")
@@ -392,7 +436,9 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
             .unwrap_or("0"),
     );
     let running = round_text(previous + js_number(&amount));
-    let stamp = now();
+    // One instant: the line's timestamps and the account's `updatedAt`.
+    let instant = OffsetDateTime::now_utc();
+    let stamp = iso_timestamp(instant);
     let id = generate_id("bt");
     let iban = data
         .counterparty_iban
@@ -440,12 +486,19 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
     BANK_TRANSACTIONS
         .insert_raw(&caller.db, BANK_TRANSACTIONS.values(&txn))
         .await?;
-    sqlx::query("update bank_accounts set current_balance = $2::numeric, updated_at = $3::timestamp where id = $1")
-        .bind(&data.bank_account_id)
-        .bind(&running)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+    bank_accounts::Entity::update_many()
+        .col_expr(
+            bank_accounts::Column::CurrentBalance,
+            cast(&running, "numeric"),
+        )
+        .col_expr(
+            bank_accounts::Column::UpdatedAt,
+            Expr::value(utc_timestamp(instant)),
+        )
+        .filter(bank_accounts::Column::Id.eq(data.bank_account_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await
+        .map_err(refused)?;
 
     let mut journal_entry_id: Option<String> = None;
     if let Some(category) = &data.category_account_id {
@@ -711,7 +764,8 @@ async fn preview_file(caller: &Caller, data: FileBody) -> Reply {
                 text(account, "id").unwrap_or_default(),
                 &parse.transactions,
             )
-            .await?,
+            .await
+            .map_err(refused)?,
         ),
         None => None,
     };
@@ -873,7 +927,8 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         &batch_id,
         &parse.transactions,
     )
-    .await?;
+    .await
+    .map_err(refused)?;
     let (imported, duplicates) = (counts.imported, counts.duplicates);
     let auto_reconciled = if weldsuite_books_domain::js::truthy(account.get("autoReconcile")) {
         let http = caller.http(state);
@@ -890,18 +945,26 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
     } else {
         "partial"
     };
-    sqlx::query(
-        "update bank_import_batches set status = $2, imported_count = $3, duplicate_count = $4, \
-         auto_reconciled_count = $5, updated_at = $6::timestamp where id = $1",
-    )
-    .bind(&batch_id)
-    .bind(status)
-    .bind(i64::try_from(imported).unwrap_or(i64::MAX))
-    .bind(i64::try_from(duplicates).unwrap_or(i64::MAX))
-    .bind(i64::try_from(auto_reconciled).unwrap_or(i64::MAX))
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    let count = |n: usize| Expr::value(i64::try_from(n).unwrap_or(i64::MAX));
+    bank_import_batches::Entity::update_many()
+        .col_expr(bank_import_batches::Column::Status, Expr::value(status))
+        .col_expr(bank_import_batches::Column::ImportedCount, count(imported))
+        .col_expr(
+            bank_import_batches::Column::DuplicateCount,
+            count(duplicates),
+        )
+        .col_expr(
+            bank_import_batches::Column::AutoReconciledCount,
+            count(auto_reconciled),
+        )
+        .col_expr(
+            bank_import_batches::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
+        .filter(bank_import_batches::Column::Id.eq(batch_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await
+        .map_err(refused)?;
 
     let remember = (parse.format == "csv" && data.remember_csv_format)
         .then(|| data.csv_format.clone())
@@ -931,14 +994,20 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
             .patch_raw(&caller.db, &account_id, BANK_ACCOUNTS.values(&set), false)
             .await?;
         if closing.is_none() && counts.net != 0.0 {
-            sqlx::query(
-                "update bank_accounts set current_balance = \
-                 (coalesce(current_balance, 0)::numeric + $2::numeric) where id = $1",
-            )
-            .bind(&account_id)
-            .bind(to_fixed(counts.net, 2))
-            .execute(&caller.db)
-            .await?;
+            // `coalesce(current_balance, 0)::numeric + $n::numeric`
+            let balance = sea_orm::ExprTrait::add(
+                Expr::expr(Func::coalesce([
+                    bank_accounts::Column::CurrentBalance.into_expr(),
+                    Expr::val(0),
+                ])),
+                cast(&to_fixed(counts.net, 2), "numeric"),
+            );
+            bank_accounts::Entity::update_many()
+                .col_expr(bank_accounts::Column::CurrentBalance, balance)
+                .filter(bank_accounts::Column::Id.eq(account_id.as_str()))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(refused)?;
         }
         caller.publish(
             state,
@@ -1507,11 +1576,13 @@ async fn exclude(
         let Some(txn) = find_transaction(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Transaction", &id));
         };
-        sqlx::query("update bank_transactions set status = 'excluded', updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        bank_transactions::Entity::update_many()
+            .col_expr(bank_transactions::Column::Status, Expr::value("excluded"))
+            .col_expr(bank_transactions::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(bank_transactions::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1520,11 +1591,20 @@ async fn exclude(
                 entity_type: "bank_transaction",
                 entity_id: &id,
                 action: "excluded",
-                changes: Some(changes(vec![("status", field(&txn, "status"), json!("excluded"))])),
+                changes: Some(changes(vec![(
+                    "status",
+                    field(&txn, "status"),
+                    json!("excluded"),
+                )])),
             },
         )
         .await;
-        caller.publish(&state, BANK_TRANSACTION_UPDATED, &id, line_event(&txn, "excluded"));
+        caller.publish(
+            &state,
+            BANK_TRANSACTION_UPDATED,
+            &id,
+            line_event(&txn, "excluded"),
+        );
         Ok(ok(json!({ "message": "Transaction excluded" })))
     }
     .await;
@@ -1588,20 +1668,22 @@ async fn undo_import(
         let Some(batch) = BANK_IMPORT_BATCHES.find_live(&caller.db, &batch_id).await? else {
             return Err(Refusal::not_found("Import", &batch_id));
         };
-        let lines: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bank_transactions),
-            " from bank_transactions t where t.import_batch_id = $1 and t.deleted_at is null"
-        ))
-        .bind(&batch_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let lines = bank_transactions::Entity::find()
+            .filter(bank_transactions::Column::ImportBatchId.eq(batch_id.as_str()))
+            .filter(bank_transactions::Column::DeletedAt.is_null())
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         let (deleted, kept) = delete_lines(
             &caller.db,
-            BANK_TRANSACTIONS.js_rows(lines),
+            lines
+                .into_iter()
+                .map(|line| serde_json::to_value(line).unwrap_or_default())
+                .collect(),
             DeleteScope::ImportBatch(&batch_id),
         )
-        .await?;
+        .await
+        .map_err(refused)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1658,7 +1740,9 @@ async fn remove(
             }
             None => {}
         }
-        let (deleted, _) = delete_lines(&caller.db, vec![txn], DeleteScope::Line(&id)).await?;
+        let (deleted, _) = delete_lines(&caller.db, vec![txn], DeleteScope::Line(&id))
+            .await
+            .map_err(refused)?;
         // Another request deleted or reconciled it after the read above.
         if deleted.is_empty() {
             return Err(Refusal::conflict(

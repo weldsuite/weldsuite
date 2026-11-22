@@ -347,11 +347,8 @@ impl BooksSettings {
             .map(i32::try_from)
             .transpose()
             .map_err(|_| DbErr::Custom("integer out of range".to_owned()))?;
-        let given = |value: &Option<String>| {
-            value
-                .clone()
-                .map_or(ActiveValue::NotSet, ActiveValue::Set)
-        };
+        let given =
+            |value: &Option<String>| value.clone().map_or(ActiveValue::NotSet, ActiveValue::Set);
         let insert = books_settings::Entity::insert(books_settings::ActiveModel {
             bank_account_id: given(&self.bank_account_id),
             entity_id: given(&self.entity_id),

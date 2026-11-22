@@ -11,6 +11,8 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -21,12 +23,15 @@ use weldsuite_books_domain::tables::RECONCILIATION_RULES;
 use weldsuite_catalogs::entity_events::{
     RECONCILIATION_RULE_CREATED, RECONCILIATION_RULE_DELETED, RECONCILIATION_RULE_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, string_or_number_issue};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::reconciliation_rules;
 
 use crate::common::text;
+use crate::orm_bridge::refused;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -167,16 +172,18 @@ async fn list(caller: Caller) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(reconciliation_rules),
-            " from reconciliation_rules t where t.deleted_at is null and t.entity_id = $1 \
-             order by t.priority desc"
-        ))
-        .bind(&entity_id)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(RECONCILIATION_RULES.js_rows(rows))))
+        let rows = reconciliation_rules::Entity::find()
+            .filter(reconciliation_rules::Column::DeletedAt.is_null())
+            .filter(reconciliation_rules::Column::EntityId.eq(entity_id.as_str()))
+            .order_by_desc(reconciliation_rules::Column::Priority)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        Ok(ok(Value::Array(
+            rows.into_iter()
+                .map(|row| serde_json::to_value(row).unwrap_or_default())
+                .collect(),
+        )))
     }
     .await;
     reply(result, "Failed to fetch rules")
@@ -318,14 +325,14 @@ async fn remove(
         let Some(rule) = find(&caller, &id).await? else {
             return Err(Refusal::not_found("Rule", &id));
         };
-        let stamp = now();
-        sqlx::query(
-            "update reconciliation_rules set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        reconciliation_rules::Entity::update_many()
+            .col_expr(reconciliation_rules::Column::DeletedAt, Expr::value(stamp))
+            .col_expr(reconciliation_rules::Column::UpdatedAt, Expr::value(stamp))
+            .filter(reconciliation_rules::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -338,7 +345,12 @@ async fn remove(
             },
         )
         .await;
-        caller.publish(&state, RECONCILIATION_RULE_DELETED, &id, json!({ "id": id }));
+        caller.publish(
+            &state,
+            RECONCILIATION_RULE_DELETED,
+            &id,
+            json!({ "id": id }),
+        );
         Ok(no_content())
     }
     .await;

@@ -877,8 +877,14 @@ fn event_data(rec: &Value) -> Value {
 async fn list(caller: Caller) -> Response {
     let result = async {
         let q = caller.query();
-        let page = parse_int(q.present("page").unwrap_or("1")).filter(|n| *n != 0).unwrap_or(1).max(1);
-        let size = parse_int(q.present("pageSize").unwrap_or("25")).filter(|n| *n != 0).unwrap_or(25).clamp(1, 100);
+        let page = parse_int(q.present("page").unwrap_or("1"))
+            .filter(|n| *n != 0)
+            .unwrap_or(1)
+            .max(1);
+        let size = parse_int(q.present("pageSize").unwrap_or("25"))
+            .filter(|n| *n != 0)
+            .unwrap_or(25)
+            .clamp(1, 100);
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Ok(paged(Vec::new(), 0, false, None));
         };
@@ -889,7 +895,9 @@ async fn list(caller: Caller) -> Response {
             use bank_reconciliations::Column;
             bank_reconciliations::Entity::find()
                 .filter(Column::EntityId.eq(entity_id.as_str()))
-                .apply_if(account, |q, account| q.filter(Column::BankAccountId.eq(account)))
+                .apply_if(account, |q, account| {
+                    q.filter(Column::BankAccountId.eq(account))
+                })
                 .apply_if(status, |q, status| q.filter(Column::Status.eq(status)))
         };
         let rows = of_entity()
@@ -1128,7 +1136,10 @@ async fn start_reconciliation(
     let orm_db = orm(db);
     let bank: Option<(String, Option<String>)> = bank_accounts::Entity::find()
         .select_only()
-        .columns([bank_accounts::Column::Id, bank_accounts::Column::LedgerAccountId])
+        .columns([
+            bank_accounts::Column::Id,
+            bank_accounts::Column::LedgerAccountId,
+        ])
         .filter(bank_accounts::Column::Id.eq(data.bank_account_id.as_str()))
         .filter(bank_accounts::Column::EntityId.eq(entity_id))
         .filter(bank_accounts::Column::DeletedAt.is_null())

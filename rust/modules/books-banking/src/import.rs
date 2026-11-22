@@ -339,8 +339,12 @@ pub(crate) async fn delete_lines(
               batch's status): the deletable check, the balance and the batch must move \
               together, so a request that loses a race deletes nothing"
 )]
-async fn delete_scope(db: &PgPool, query: &str, id: &str) -> Result<HashSet<String>, DbErr> {
-    let gone: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
+async fn delete_scope(
+    db: &PgPool,
+    query: &'static str,
+    id: &str,
+) -> Result<HashSet<String>, DbErr> {
+    let gone: Vec<String> = sqlx::query_scalar(query)
         .bind(id)
         .bind(now())
         .fetch_all(db)
