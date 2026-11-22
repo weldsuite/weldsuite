@@ -66,7 +66,7 @@ export function useObjectPanelTabConfig({ tabs }: Readonly<{ tabs: { id: string 
 }
 
 export function useObjectPanel() {
-  return { open: panelOpen, close: vi.fn(), stack: [] };
+  return { open: panelOpen, close: vi.fn(), closeAll: vi.fn(), stack: [] };
 }
 
 export const useObjectPanelUrlSync = vi.fn();

@@ -4,13 +4,16 @@
  * area chart (Insights "area"), a pie of totals, bars over categories (stacked
  * or not: lifecycle, stickiness, histograms) and a line chart with a value
  * formatter and optional reference lines (retention curve, conversion over
- * time, web vitals with their thresholds).
+ * time, web vitals with their thresholds). The cartesian ones over dates
+ * (rows with a `bucket`) show the project's annotations as markers along the
+ * bottom, like the time chart (`charts/chart-annotations.tsx`).
  */
 
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { formatCompact, formatNumber } from '../../lib/format';
+import { ChartAnnotations, annotationChartClick, annotationMarkLines, annotationTooltipActive } from '../charts/chart-annotations';
 
 export interface ExploreSeries {
   key: string;
@@ -19,7 +22,8 @@ export interface ExploreSeries {
   color?: string;
 }
 
-export type ExploreDatum = { label: string } & Record<string, string | number | null>;
+/** A row of a chart; `bucket` (the start of its hour, day, week or month) places annotations on a chart over dates. */
+export type ExploreDatum = { label: string; bucket?: string } & Record<string, string | number | null>;
 
 export function paletteColor(index: number): string {
   return `var(--chart-${(index % 5) + 1})`;
@@ -29,8 +33,8 @@ function chartConfig(series: readonly ExploreSeries[]): ChartConfig {
   return Object.fromEntries(series.map((s, i) => [s.key, { label: s.label, color: s.color ?? paletteColor(i) }]));
 }
 
-function tooltip(format: (value: number) => string) {
-  return <ChartTooltip content={<ChartTooltipContent formatter={(value) => <span className="font-mono font-medium tabular-nums">{format(Number(value))}</span>} />} />;
+function tooltip(format: (value: number) => string, active?: boolean) {
+  return <ChartTooltip active={active} content={<ChartTooltipContent formatter={(value) => <span className="font-mono font-medium tabular-nums">{format(Number(value))}</span>} />} />;
 }
 
 interface CartesianProps {
@@ -49,28 +53,33 @@ interface CartesianProps {
 export function StackedAreaChart({ data, series, locale, className, format, axisFormat, legend }: Readonly<CartesianProps>) {
   const fmt = format ?? ((v: number) => formatNumber(v, locale));
   return (
-    <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', className)}>
-      <AreaChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
-        <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={axisFormat ?? ((v: number) => formatCompact(v, locale))} />
-        {tooltip(fmt)}
-        {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
-        {series.map((s) => (
-          <Area
-            key={s.key}
-            dataKey={s.key}
-            type="monotone"
-            stackId="stack"
-            stroke={`var(--color-${s.key})`}
-            fill={`var(--color-${s.key})`}
-            fillOpacity={0.35}
-            isAnimationActive={false}
-            connectNulls
-          />
-        ))}
-      </AreaChart>
-    </ChartContainer>
+    <ChartAnnotations rows={data}>
+      {(annotations) => (
+        <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', annotations.onPickIndex && 'cursor-crosshair', className)}>
+          <AreaChart data={data} margin={{ left: 0, right: 8, top: 8 }} onClick={annotationChartClick(annotations, data)}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+            <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={axisFormat ?? ((v: number) => formatCompact(v, locale))} />
+            {tooltip(fmt, annotationTooltipActive(annotations))}
+            {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
+            {series.map((s) => (
+              <Area
+                key={s.key}
+                dataKey={s.key}
+                type="monotone"
+                stackId="stack"
+                stroke={`var(--color-${s.key})`}
+                fill={`var(--color-${s.key})`}
+                fillOpacity={0.35}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ))}
+            {annotationMarkLines(annotations)}
+          </AreaChart>
+        </ChartContainer>
+      )}
+    </ChartAnnotations>
   );
 }
 
@@ -110,19 +119,24 @@ interface BarProps extends CartesianProps {
 export function CategoryBarChart({ data, series, locale, className, format, axisFormat, legend, stacked = false }: Readonly<BarProps>) {
   const fmt = format ?? ((v: number) => formatNumber(v, locale));
   return (
-    <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', className)}>
-      <BarChart data={data} margin={{ left: 0, right: 8, top: 8 }} stackOffset={stacked ? 'sign' : undefined}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={12} />
-        <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={axisFormat ?? ((v: number) => formatCompact(v, locale))} />
-        {tooltip(fmt)}
-        {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
-        {stacked && <ReferenceLine y={0} stroke="var(--border)" />}
-        {series.map((s) => (
-          <Bar key={s.key} dataKey={s.key} stackId={stacked ? 'stack' : undefined} fill={`var(--color-${s.key})`} radius={stacked ? 0 : [3, 3, 0, 0]} isAnimationActive={false} />
-        ))}
-      </BarChart>
-    </ChartContainer>
+    <ChartAnnotations rows={data}>
+      {(annotations) => (
+        <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', annotations.onPickIndex && 'cursor-crosshair', className)}>
+          <BarChart data={data} margin={{ left: 0, right: 8, top: 8 }} stackOffset={stacked ? 'sign' : undefined} onClick={annotationChartClick(annotations, data)}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={12} />
+            <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={axisFormat ?? ((v: number) => formatCompact(v, locale))} />
+            {tooltip(fmt, annotationTooltipActive(annotations))}
+            {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
+            {stacked && <ReferenceLine y={0} stroke="var(--border)" />}
+            {series.map((s) => (
+              <Bar key={s.key} dataKey={s.key} stackId={stacked ? 'stack' : undefined} fill={`var(--color-${s.key})`} radius={stacked ? 0 : [3, 3, 0, 0]} isAnimationActive={false} />
+            ))}
+            {annotationMarkLines(annotations)}
+          </BarChart>
+        </ChartContainer>
+      )}
+    </ChartAnnotations>
   );
 }
 
@@ -142,20 +156,25 @@ interface LineProps extends CartesianProps {
 export function ValueLineChart({ data, series, locale, className, format, axisFormat, legend, referenceLines = [], yDomain }: Readonly<LineProps>) {
   const fmt = format ?? ((v: number) => formatNumber(v, locale));
   return (
-    <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', className)}>
-      <LineChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
-        <YAxis tickLine={false} axisLine={false} width={52} domain={yDomain} tickFormatter={axisFormat ?? fmt} />
-        {tooltip(fmt)}
-        {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
-        {referenceLines.map((line) => (
-          <ReferenceLine key={line.label} y={line.y} stroke={line.color} strokeDasharray="4 4" label={{ value: line.label, position: 'insideTopRight', fontSize: 11, fill: line.color }} />
-        ))}
-        {series.map((s) => (
-          <Line key={s.key} dataKey={s.key} type="monotone" stroke={`var(--color-${s.key})`} strokeWidth={2} dot={data.length <= 2} isAnimationActive={false} connectNulls />
-        ))}
-      </LineChart>
-    </ChartContainer>
+    <ChartAnnotations rows={data}>
+      {(annotations) => (
+        <ChartContainer config={chartConfig(series)} className={cn('aspect-auto h-64 w-full', annotations.onPickIndex && 'cursor-crosshair', className)}>
+          <LineChart data={data} margin={{ left: 0, right: 8, top: 8 }} onClick={annotationChartClick(annotations, data)}>
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+            <YAxis tickLine={false} axisLine={false} width={52} domain={yDomain} tickFormatter={axisFormat ?? fmt} />
+            {tooltip(fmt, annotationTooltipActive(annotations))}
+            {(legend ?? series.length > 1) && <ChartLegend content={<ChartLegendContent />} />}
+            {referenceLines.map((line) => (
+              <ReferenceLine key={line.label} y={line.y} stroke={line.color} strokeDasharray="4 4" label={{ value: line.label, position: 'insideTopRight', fontSize: 11, fill: line.color }} />
+            ))}
+            {series.map((s) => (
+              <Line key={s.key} dataKey={s.key} type="monotone" stroke={`var(--color-${s.key})`} strokeWidth={2} dot={data.length <= 2} isAnimationActive={false} connectNulls />
+            ))}
+            {annotationMarkLines(annotations)}
+          </LineChart>
+        </ChartContainer>
+      )}
+    </ChartAnnotations>
   );
 }

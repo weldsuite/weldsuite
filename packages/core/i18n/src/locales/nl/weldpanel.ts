@@ -118,6 +118,9 @@ export const weldpanel = {
     },
     anySite: 'Elke site',
     moreDomains: '+{count} meer',
+    search: 'Projecten zoeken',
+    noMatchTitle: 'Geen projecten gevonden',
+    noMatchDescription: 'Probeer een andere zoekterm of filter.',
     // Waar de omgeving geen analyse-opslag heeft (de editiefunctie `panel-analytics`).
     editionNoticeTitle: 'Alleen verzamelen in deze editie',
     editionNotice:

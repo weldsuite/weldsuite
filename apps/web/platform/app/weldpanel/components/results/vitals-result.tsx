@@ -82,7 +82,7 @@ export function VitalsList({ title, rows, unit, valueLabel = (v) => v, hint }: R
 export function VitalsSummaryView({ result }: Readonly<{ result: PanelVitalsResult }>) {
   const { t, language, format } = useI18n();
   const tx = t.weldpanel.explore.performance;
-  const data = result.series.map((p) => ({ label: formatBucket(p.bucket, result.interval, language), value: p.value }));
+  const data = result.series.map((p) => ({ label: formatBucket(p.bucket, result.interval, language), bucket: p.bucket, value: p.value }));
   const fmt = (v: number) => formatVital(v, result.unit, language);
 
   return (

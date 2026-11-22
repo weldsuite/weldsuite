@@ -394,6 +394,10 @@ export const weldpanelObserve = {
   frustration: {
     title: 'Frustration',
     description: 'Rage clicks, dead clicks, quick backs, excessive scrolling and errors, and the recordings behind them.',
+    signals: 'Signals',
+    versusBefore: '{change} vs the period before',
+    noneBefore: 'None the period before',
+    periodBefore: 'The period before',
     device: 'Device',
     search: 'Search pages and elements',
     types: { rage: 'Rage clicks', dead: 'Dead clicks', quickback: 'Quick backs', excessive_scroll: 'Excessive scrolling', errors: 'Errors' },

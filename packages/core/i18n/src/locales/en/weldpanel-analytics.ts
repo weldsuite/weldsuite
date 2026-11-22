@@ -539,6 +539,9 @@ export const weldpanelAnalytics = {
     emptyTitle: 'No cohorts yet',
     emptyDescription: 'A cohort is a rule such as "signed up in the last 30 days and did not upgrade".',
     loadFailed: 'Could not load the cohorts.',
+    search: 'Search cohorts',
+    noMatchTitle: 'No cohorts match',
+    noMatchDescription: 'Try another search or filter.',
     columns: {
       name: 'Name',
       rule: 'Rule',

@@ -1,18 +1,19 @@
 /**
  * WeldPanel projects: every website and app the workspace tracks. A row opens
  * the project (install, settings); "New project" opens the create dialog, which
- * lands on the new project's Install tab.
+ * lands on the new project's Install tab. Filter by type and status, search by
+ * name or domain.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Globe } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
-import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
+import { PANEL_PROJECT_KINDS, PANEL_PROJECT_STATUSES, type PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { PanelEntityList, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/panel-entity-list';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldPanelProjects } from '@/hooks/queries/use-weldpanel-queries';
 import { isFeatureAvailable } from '@/lib/edition';
@@ -24,6 +25,23 @@ import { ProjectKindBadge, ProjectStatusBadge } from '../components/project-badg
 /** How many domains a row names before it says "+N more". */
 const DOMAINS_SHOWN = 2;
 
+/** Whether a project passes one complete pill (type or status, `is` / `is not`); an unfinished pill lets everything through. */
+export function matchesProjectFilter(project: Pick<PanelProjectDto, 'kind' | 'status'>, filter: ActiveFilter): boolean {
+  if (!filter.value) return true;
+  let value: string | undefined;
+  if (filter.field === 'kind') value = project.kind;
+  else if (filter.field === 'status') value = project.status;
+  const hit = value === filter.value;
+  return filter.operator === 'is not' ? !hit : hit;
+}
+
+/** Whether the search text is in the project's name or one of its domains (case-insensitive). */
+export function matchesProjectSearch(project: Pick<PanelProjectDto, 'name' | 'allowedDomains'>, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return true;
+  return project.name.toLowerCase().includes(needle) || project.allowedDomains.some((domain) => domain.toLowerCase().includes(needle));
+}
+
 export default function WeldPanelProjectsPage() {
   const { t, format, language } = useI18n();
   const tp = t.weldpanel.projects;
@@ -31,11 +49,22 @@ export default function WeldPanelProjectsPage() {
   const canCreate = useCan('panel_projects:create');
   const { data: projects, isLoading, isError, refetch } = useWeldPanelProjects();
   const [creating, setCreating] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [search, setSearch] = useState('');
   useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   useBreadcrumbs([{ label: t.weldpanel.breadcrumb.home, href: '/weldpanel' }, { label: t.weldpanel.breadcrumb.projects }]);
 
   const dateFormat = new Intl.DateTimeFormat(language, { dateStyle: 'medium' });
+
+  const shown = useMemo(
+    () => (projects ?? []).filter((project) => matchesProjectSearch(project, search) && activeFilters.every((filter) => matchesProjectFilter(project, filter))),
+    [projects, search, activeFilters],
+  );
+  const filterConfigs: FilterConfig[] = [
+    { field: 'kind', label: tp.table.kind, options: PANEL_PROJECT_KINDS.map((kind) => ({ value: kind, label: t.weldpanel.kinds[kind] })) },
+    { field: 'status', label: tp.table.status, options: PANEL_PROJECT_STATUSES.map((status) => ({ value: status, label: t.weldpanel.statuses[status] })) },
+  ];
 
   const columns: ColumnDef<PanelProjectDto>[] = [
     {
@@ -107,11 +136,15 @@ export default function WeldPanelProjectsPage() {
         </InfoBanner>
       )}
       <PanelEntityList<PanelProjectDto>
-        items={projects}
+        items={shown}
         isLoading={false}
         columns={columns}
-        // Nothing to filter projects on: the popover would be empty.
-        hideFilter
+        filters={filterConfigs}
+        activeFilters={activeFilters}
+        onFiltersChange={setActiveFilters}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={tp.search}
         onRowClick={(project) => router.push(`/weldpanel/projects/${project.id}`)}
         createButton={canCreate ? { label: tp.newProject, onClick: openCreate } : undefined}
         emptyState={{
@@ -120,6 +153,7 @@ export default function WeldPanelProjectsPage() {
           description: tp.emptyDescription,
           action: canCreate ? { label: tp.newProject, onClick: openCreate } : undefined,
         }}
+        noResultsState={{ title: tp.noMatchTitle, description: tp.noMatchDescription }}
       />
       <CreateProjectDialog open={creating} onOpenChange={setCreating} />
     </>

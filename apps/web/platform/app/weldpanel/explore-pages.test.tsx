@@ -34,6 +34,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(state.search),
@@ -163,27 +164,39 @@ describe('Signal', () => {
 });
 
 describe('Performance', () => {
-  it('shows LCP at p75 with its rating, score and the worst pages', () => {
+  const pathFilter = { source: 'column', field: 'path', operator: 'eq', value: '/pricing' };
+
+  it('lists the pages with their LCP, INP and CLS, and opens a page from its row', async () => {
     state.results.vitals = makeVitalsResult();
     render(<PerformancePage />);
-    expect(last('vitals')?.spec).toMatchObject({ kind: 'vitals', metric: 'lcp', percentile: 'p75', filters: [] });
-    expect(screen.getByText('2.34 s')).toBeTruthy();
-    expect(screen.getByText('91')).toBeTruthy();
+    const metrics = (state.calls.vitals ?? []).map((call) => (call as { spec: { metric: string } }).spec.metric);
+    expect(new Set(metrics)).toEqual(new Set(['lcp', 'inp', 'cls']));
+    expect(last('vitals')?.spec).toMatchObject({ kind: 'vitals', limit: 50, cleanPaths: false, filters: [] });
     expect(screen.getByText('/pricing')).toBeTruthy();
-    expect(screen.getByText('img.hero')).toBeTruthy();
   });
 
-  it('switches the metric and narrows to a device with a filter', async () => {
+  it("shows one page's report: LCP at p75 with its rating, score and worst elements", () => {
+    state.search = `page=${encodeURIComponent('/pricing')}`;
+    state.results.vitals = makeVitalsResult();
+    render(<PerformancePage />);
+    expect(last('vitals')?.spec).toMatchObject({ kind: 'vitals', metric: 'lcp', percentile: 'p75', filters: [pathFilter] });
+    expect(screen.getByRole('heading', { name: '/pricing' })).toBeTruthy();
+    expect(screen.getByText('2.34 s')).toBeTruthy();
+    expect(screen.getByText('91')).toBeTruthy();
+    expect(screen.getByText('img.hero')).toBeTruthy();
+    expect(screen.getByRole('button', { name: tx.performance.back })).toBeTruthy();
+  });
+
+  it("switches the metric in a page's report", async () => {
+    state.search = `page=${encodeURIComponent('/pricing')}`;
     state.results.vitals = makeVitalsResult();
     render(<PerformancePage />);
     await userEvent.click(screen.getByRole('tab', { name: tx.performance.metrics.inp }));
-    expect(last('vitals')?.spec).toMatchObject({ metric: 'inp' });
-    await userEvent.click(screen.getByRole('radio', { name: tx.performance.devices.mobile }));
-    expect(last('vitals')?.spec.filters).toEqual([{ source: 'column', field: 'device_type', operator: 'eq', value: 'mobile' }]);
+    expect(last('vitals')?.spec).toMatchObject({ metric: 'inp', filters: [pathFilter] });
   });
 
   it('says how to get web vitals when there are none', () => {
-    state.results.vitals = makeVitalsResult({ samples: 0 });
+    state.results.vitals = makeVitalsResult({ samples: 0, paths: [] });
     render(<PerformancePage />);
     expect(screen.getByText(tx.performance.noSamplesTitle)).toBeTruthy();
   });

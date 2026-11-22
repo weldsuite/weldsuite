@@ -23,6 +23,7 @@ export function LifecycleResultView({ result, compact = false }: Readonly<{ resu
   const tx = t.weldpanel.explore.lifecycle;
   const data = result.buckets.map((b) => ({
     label: formatBucket(b.bucket, result.interval, language),
+    bucket: b.bucket,
     new: b.new,
     returning: b.returning,
     resurrecting: b.resurrecting,
