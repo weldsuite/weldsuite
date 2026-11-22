@@ -1,7 +1,9 @@
 /**
  * WeldChat activity routes — flat /api/chat-activity/* surface.
  *
- * Surfaces the WeldChat activity feed from chat-category notifications.
+ * Surfaces the WeldChat activity feed from chat-category notifications: what
+ * asks for the caller's attention (mentions, replies in their threads, missed
+ * calls). A DM's messages are not activity: they show in the DM itself.
  *
  *   GET  /                 — cursor-paginated list (filter: all|mentions|replies|dms)
  *   POST /read             — mark one or all as read (204)
@@ -31,10 +33,14 @@ const t = schema.notifications;
 
 type ActivityFilter = 'all' | 'mentions' | 'replies' | 'dms';
 
+/** What the feed lists, counts and marks read. */
+const FEED_TYPES = ['chat_mention', 'chat_thread_reply', 'chat_missed_call'];
+
 const FILTER_TYPES: Record<ActivityFilter, string[]> = {
-  all: ['chat_mention', 'chat_dm', 'chat_thread_reply', 'chat_missed_call'],
+  all: FEED_TYPES,
   mentions: ['chat_mention'],
   replies: ['chat_thread_reply'],
+  // Kept for clients one version behind, which still offer a DMs filter.
   dms: ['chat_dm'],
 };
 
@@ -165,7 +171,8 @@ app.post('/read', requirePermission('messages:read'), zValidator('json', markRea
       isNull(t.readAt),
       isNull(t.deletedAt),
     ];
-    if (notificationId) conditions.push(eq(t.id, notificationId));
+    // "Mark all read" clears the feed, not the notifications it leaves out.
+    conditions.push(notificationId ? eq(t.id, notificationId) : inArray(t.notificationType, FEED_TYPES));
 
     await db.update(t).set({ readAt: new Date(), isRead: true }).where(and(...conditions));
     return noContent(c);
@@ -189,6 +196,7 @@ app.get('/unread-count', requirePermission('messages:read'), async (c) => {
           eq(t.category, 'weldchat'),
           isNull(t.readAt),
           isNull(t.deletedAt),
+          inArray(t.notificationType, FEED_TYPES),
         ),
       );
     return success(c, { count: Number(result?.count ?? 0) });

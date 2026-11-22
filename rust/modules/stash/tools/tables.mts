@@ -1,8 +1,7 @@
 /**
  * Generates rust/modules/stash/src/tables.rs: the tenant tables stash-api
  * writes with `db.insert(t).values({ id, ...data })` / `db.update(t).set(data)`
- * (and the rows it builds itself; `products` too, the catalogue it serves
- * at /api/products), as Drizzle sees them (property → column,
+ * (and the rows it builds itself), as Drizzle sees them (property → column,
  * kind) with the database defaults of the latest tenant snapshot, and the
  * insert / patch SQL that writes a `{ column: value }` JSON object the way
  * Drizzle's would: a column the object leaves out gets its database default
@@ -54,7 +53,6 @@ const TABLES = [
   'parcels',
   'shipments',
   'orders',
-  'products',
 ] as const;
 
 type Kind = 'Text' | 'Number' | 'Bool' | 'Json' | 'Date' | 'DateString' | 'Numeric' | 'Array' | 'Other';

@@ -54,9 +54,17 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
-  // MCP servers are WeldAgent's tools. Every other integration syncs or
-  // takes webhooks through workers the Kubernetes editions don't run yet.
+  // MCP servers are WeldAgent's tools.
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
+  // WeldConnect's store and accounting connectors: `/api/connectors`, their
+  // webhooks, the catch-up and the Moneybird push run on both backends.
+  // Shopify and WooCommerce also feed WeldCommerce's order hub.
+  ['/settings/integrations/woocommerce', { modules: ['connect'] }],
+  ['/settings/integrations/shopify', { modules: ['connect'] }],
+  ['/settings/integrations/moneybird', { modules: ['connect'] }],
+  ['/settings/integrations/picqer', { modules: ['connect'] }],
+  // The other integrations (CRM sync, Slack, Discord, GitHub, Google
+  // Calendar) need `integration-sync`, which the Kubernetes editions lack.
   ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
   ['/settings/integrations', { modules: ['connect'] }],
   // The public API (external-api) has no Kubernetes port yet: keys need the

@@ -150,6 +150,41 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
   });
 
+  it('offers the store and accounting connectors without integration-sync, and only those', () => {
+    const connectors = [
+      '/settings/integrations/woocommerce',
+      '/settings/integrations/shopify',
+      '/settings/integrations/moneybird',
+      '/settings/integrations/picqer',
+    ];
+    const others = [
+      '/settings/integrations/slack',
+      '/settings/integrations/discord',
+      '/settings/integrations/github',
+      '/settings/integrations/google-calendar',
+      '/settings/integrations/hubspot',
+      '/settings/integrations/salesforce',
+      '/settings/integrations/attio',
+      '/settings/integrations/crm-sync',
+    ];
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    for (const path of connectors) {
+      expect(routeRequirement(path), path).toEqual({ modules: ['connect'] });
+      expect(isRouteOffered(path), path).toBe(true);
+    }
+    // A link into one, with a workspace prefix and a query.
+    expect(isHrefOffered('/w/acme/settings/integrations/moneybird?connected=1')).toBe(true);
+    for (const path of others) expect(isRouteOffered(path), path).toBe(false);
+    // A longer name is another integration, not a connector's page.
+    expect(routeRequirement('/settings/integrations/shopifyx')).toEqual({ modules: ['connect'], feature: 'integration-sync' });
+    // Still WeldConnect's: hidden where connect isn't served.
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    for (const path of connectors) expect(isRouteOffered(path), path).toBe(false);
+    // Global offers every integration, as before.
+    setRuntimeConfig(null);
+    for (const path of [...connectors, ...others]) expect(isRouteOffered(path), path).toBe(true);
+  });
+
   it('offers API keys on a Kubernetes edition only once it names the public API', () => {
     expect(isRouteOffered('/settings/api-keys')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core'] });

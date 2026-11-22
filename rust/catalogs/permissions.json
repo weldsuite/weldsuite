@@ -54,6 +54,8 @@
         "categories",
         "orders",
         "discounts",
+        "commerce_settings",
+        "commerce_channels",
         "companies",
         "people"
       ]
@@ -69,6 +71,7 @@
         "locations",
         "suppliers",
         "orders",
+        "purchase_orders",
         "parcels",
         "carriers",
         "boxes",
@@ -822,6 +825,28 @@
       ]
     },
     {
+      "key": "purchase_orders",
+      "label": "Purchase Orders",
+      "permissions": [
+        {
+          "key": "purchase_orders:read",
+          "label": "View purchase orders"
+        },
+        {
+          "key": "purchase_orders:create",
+          "label": "Create purchase orders"
+        },
+        {
+          "key": "purchase_orders:update",
+          "label": "Edit purchase orders"
+        },
+        {
+          "key": "purchase_orders:delete",
+          "label": "Delete purchase orders"
+        }
+      ]
+    },
+    {
       "key": "picklists",
       "label": "Pick Lists",
       "permissions": [
@@ -1030,6 +1055,42 @@
         {
           "key": "categories:delete",
           "label": "Delete categories"
+        }
+      ]
+    },
+    {
+      "key": "commerce_settings",
+      "label": "Commerce settings",
+      "permissions": [
+        {
+          "key": "commerce_settings:read",
+          "label": "View commerce settings"
+        },
+        {
+          "key": "commerce_settings:update",
+          "label": "Edit commerce settings"
+        }
+      ]
+    },
+    {
+      "key": "commerce_channels",
+      "label": "Sales channels",
+      "permissions": [
+        {
+          "key": "commerce_channels:read",
+          "label": "View sales channels"
+        },
+        {
+          "key": "commerce_channels:create",
+          "label": "Create sales channels"
+        },
+        {
+          "key": "commerce_channels:update",
+          "label": "Edit sales channels"
+        },
+        {
+          "key": "commerce_channels:delete",
+          "label": "Delete sales channels"
         }
       ]
     },
@@ -3258,6 +3319,10 @@
         "orders:create",
         "orders:update",
         "orders:delete",
+        "purchase_orders:read",
+        "purchase_orders:create",
+        "purchase_orders:update",
+        "purchase_orders:delete",
         "picklists:read",
         "picklists:create",
         "picklists:update",
@@ -3716,6 +3781,9 @@
         "orders:read",
         "orders:create",
         "orders:update",
+        "purchase_orders:read",
+        "purchase_orders:create",
+        "purchase_orders:update",
         "picklists:read",
         "picklists:create",
         "picklists:update",
@@ -3937,6 +4005,7 @@
         "products:read",
         "inventory:read",
         "orders:read",
+        "purchase_orders:read",
         "picklists:read",
         "locations:read",
         "warehouses:read",

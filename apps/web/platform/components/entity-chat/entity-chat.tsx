@@ -213,7 +213,7 @@ function FirstMessageComposer({
     // parent is always a flex column here), however short that column is.
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col min-h-full py-4 space-y-1">
+        <div className="flex flex-col min-h-full py-4">
           <div className="flex-1" />
           {pending.map((msg) => (
             <MessageItem key={msg.id} message={msg} membersMap={membersMap} />

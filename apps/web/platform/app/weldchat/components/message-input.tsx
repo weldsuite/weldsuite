@@ -1,11 +1,18 @@
-import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
-import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
+import { Fragment, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  ComposerActions,
+  ComposerFrame,
+  ComposerSendButton,
+  composerFieldClass,
+  composerIconButtonClass,
+} from '@weldsuite/ui/components/composer';
 import { EmojiPicker } from './emoji-picker';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -28,7 +35,6 @@ import {
   type ReplyTo,
 } from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
-import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
 import { useDraftAutosave } from '@/hooks/weldchat/use-draft-autosave';
@@ -204,7 +210,6 @@ export function MessageInput({
   const [inlineUploadingCount, setInlineUploadingCount] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
-  const [showClipRecorder, setShowClipRecorder] = useState(false);
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [voiceUploading, setVoiceUploading] = useState(false);
   // True only AFTER this session has actually produced a recording — prevents
@@ -1019,7 +1024,7 @@ export function MessageInput({
   const isUploading = uploadingCount > 0;
   // Inline uploads show as placeholders in the text, not in the strip.
   const isStripUploading = uploadingCount > inlineUploadingCount;
-  const canSend = hasContent && !isPending && !isUploading;
+  const canSend = Boolean(hasContent) && !isPending && !isUploading;
 
   let containerTopPadding = 'pt-[10px]';
   if (replyTo || attachments.length > 0 || isStripUploading) containerTopPadding = 'pt-[20px]';
@@ -1091,11 +1096,6 @@ export function MessageInput({
           opacity: 0.55;
           animation: pulse 1.5s ease-in-out infinite;
         }
-        [contenteditable]:empty:before {
-          content: attr(data-placeholder);
-          color: #9ca3af;
-          pointer-events: none;
-        }
         [contenteditable] ul, [contenteditable] ol {
           padding-left: 1.5em;
           margin: 2px 0;
@@ -1115,12 +1115,8 @@ export function MessageInput({
         <TypingIndicator channelId={channelId} client={client} />
       </div>
 
-      <div
-        className={cn(
-          "relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text",
-          containerTopPadding
-        )}
-        role="presentation"
+      <ComposerFrame
+        className={containerTopPadding}
         data-chat-composer-root=""
         onClick={(e) => {
           // Focus editor when clicking anywhere in the container (but not on buttons/popovers)
@@ -1286,50 +1282,46 @@ export function MessageInput({
                 </div>
               )}
 
-              {/* Formatting toolbar */}
+              {/* Formatting toolbar: compact 28px buttons. Its line runs into
+                  the box's border (out past the box's 10px padding, in the
+                  border's colour); the icons still line up with the text below
+                  (14px row padding + 6px button inset = 10px + 10px). */}
               {showToolbar && (
-                <div className="flex items-center gap-0.5 px-[10px] -mt-[2px] pt-[2px] pb-2 mb-2 border-b border-gray-100 dark:border-border/50">
+                <div className="-mx-[10px] mb-1.5 flex items-center gap-0.5 border-b border-gray-200 px-[14px] pb-1.5 dark:border-border">
                   {[
-                    { icon: Bold, command: 'bold', title: st('sweep.weldchat.messageInput.bold') },
-                    { icon: Italic, command: 'italic', title: st('sweep.weldchat.messageInput.italic') },
-                    { icon: Underline, command: 'underline', title: st('sweep.weldchat.messageInput.underline') },
-                    { icon: Strikethrough, command: 'strikeThrough', title: st('sweep.weldchat.messageInput.strikethrough') },
-                    { icon: Code, command: 'code', title: st('sweep.weldchat.messageInput.code') },
-                  ].map(({ icon: Icon, command, title }) => (
-                    <Button
-                      key={command}
-                      variant="ghost"
-                      onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
-                      className={cn(
-                        "p-1.5 rounded-md transition-colors",
-                        activeFormats.has(command)
-                          ? "bg-gray-200 dark:bg-accent text-gray-800 dark:text-foreground"
-                          : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                      )}
-                      title={title}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </Button>
-                  ))}
-                  <div className="w-px h-4 bg-gray-200 dark:bg-border mx-1" />
-                  {[
-                    { icon: List, command: 'insertUnorderedList', title: st('sweep.weldchat.messageInput.bulletList') },
-                    { icon: ListOrdered, command: 'insertOrderedList', title: st('sweep.weldchat.messageInput.numberedList') },
-                  ].map(({ icon: Icon, command, title }) => (
-                    <Button
-                      key={command}
-                      variant="ghost"
-                      onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
-                      className={cn(
-                        "p-1.5 rounded-md transition-colors",
-                        activeFormats.has(command)
-                          ? "bg-gray-200 dark:bg-accent text-gray-800 dark:text-foreground"
-                          : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                      )}
-                      title={title}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </Button>
+                    [
+                      { icon: Bold, command: 'bold', title: st('sweep.weldchat.messageInput.bold') },
+                      { icon: Italic, command: 'italic', title: st('sweep.weldchat.messageInput.italic') },
+                      { icon: Underline, command: 'underline', title: st('sweep.weldchat.messageInput.underline') },
+                      { icon: Strikethrough, command: 'strikeThrough', title: st('sweep.weldchat.messageInput.strikethrough') },
+                      { icon: Code, command: 'code', title: st('sweep.weldchat.messageInput.code') },
+                    ],
+                    [
+                      { icon: List, command: 'insertUnorderedList', title: st('sweep.weldchat.messageInput.bulletList') },
+                      { icon: ListOrdered, command: 'insertOrderedList', title: st('sweep.weldchat.messageInput.numberedList') },
+                    ],
+                  ].map((group, index) => (
+                    <Fragment key={group[0].command}>
+                      {index > 0 && <div className="mx-1 h-4 w-px bg-gray-200 dark:bg-border" />}
+                      {group.map(({ icon: Icon, command, title }) => (
+                        <Button
+                          key={command}
+                          variant="ghost"
+                          size="icon"
+                          onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
+                          aria-pressed={activeFormats.has(command)}
+                          className={cn(
+                            "size-7 rounded-md transition-colors",
+                            activeFormats.has(command)
+                              ? "bg-gray-200 text-gray-800 dark:bg-accent dark:text-foreground"
+                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
+                          )}
+                          title={title}
+                        >
+                          <Icon className="size-4" />
+                        </Button>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               )}
@@ -1342,11 +1334,7 @@ export function MessageInput({
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 data-placeholder={placeholder || t.weldchat.messageInput.placeholder}
-                className={cn(
-                  "w-full bg-transparent text-[15px] text-gray-900 dark:text-foreground placeholder:text-gray-500 dark:placeholder:text-muted-foreground outline-none resize-none min-h-[40px] flex-1 pl-[10px] pt-[7px] pb-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words",
-                  isVoiceRecording && "pointer-events-none opacity-50"
-                )}
-                style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
+                className={cn(composerFieldClass, isVoiceRecording && "pointer-events-none opacity-50")}
                 role="textbox"
                 aria-multiline="true"
                 aria-label={placeholder || t.weldchat.messageInput.placeholder}
@@ -1365,7 +1353,7 @@ export function MessageInput({
             />
 
             {/* Bottom Actions */}
-            <div className="flex items-center justify-between mt-auto">
+            <ComposerActions>
               {/* Left - Plus and Emoji */}
               <div className="flex items-center gap-0">
                 {attachmentsEnabled && (
@@ -1373,7 +1361,8 @@ export function MessageInput({
                   variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isPending}
-                  className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  size="icon"
+                  className={composerIconButtonClass}
                   title={t.weldchat.messageInput.addAttachment}
                 >
                   <Plus className="h-[18px] w-[18px]" />
@@ -1384,11 +1373,10 @@ export function MessageInput({
                     <Button
                       variant="ghost"
                       disabled={isPending}
+                      size="icon"
                       className={cn(
-                        "p-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                        emojiPickerOpen
-                          ? "bg-gray-100 dark:bg-accent text-gray-700 dark:text-foreground"
-                          : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
+                        composerIconButtonClass,
+                        emojiPickerOpen && "bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground"
                       )}
                       title={t.weldchat.messageInput.emoji}
                     >
@@ -1403,7 +1391,8 @@ export function MessageInput({
                   variant="ghost"
                   onClick={triggerMention}
                   disabled={isPending}
-                  className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  size="icon"
+                  className={composerIconButtonClass}
                   title={t.weldchat.messageInput.mentionSomeone}
                 >
                   <AtSign className="h-[18px] w-[18px]" />
@@ -1412,11 +1401,10 @@ export function MessageInput({
                   variant="ghost"
                   onClick={() => setShowToolbar(prev => !prev)}
                   disabled={isPending}
+                  size="icon"
                   className={cn(
-                    "p-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-                    showToolbar
-                      ? "bg-gray-100 dark:bg-accent text-gray-700 dark:text-foreground"
-                      : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
+                    composerIconButtonClass,
+                    showToolbar && "bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground"
                   )}
                   title={t.weldchat.messageInput.formatting}
                 >
@@ -1424,16 +1412,6 @@ export function MessageInput({
                 </Button>
                 {attachmentsEnabled && (
                 <>
-                <div className="w-px h-4 bg-gray-200 dark:bg-border mx-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowClipRecorder(true)}
-                  disabled={isPending}
-                  className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={t.weldchat.messageInput.recordClip}
-                >
-                  <Video className="h-[18px] w-[18px]" />
-                </Button>
                 <div className="relative">
                   <Button
                     variant="ghost"
@@ -1447,11 +1425,10 @@ export function MessageInput({
                     }}
                     onClick={() => { if (!isVoiceRecording) startVoiceRecording(); }}
                     disabled={isPending || isVoiceRecording}
+                    size="icon"
                     className={cn(
-                      "p-1.5 rounded-lg transition-colors disabled:cursor-not-allowed",
-                      isVoiceRecording
-                        ? "bg-gray-100 dark:bg-accent text-gray-700 dark:text-foreground"
-                        : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent disabled:opacity-50"
+                      composerIconButtonClass,
+                      isVoiceRecording && "bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground"
                     )}
                     title={t.weldchat.messageInput.recordVoiceClip}
                   >
@@ -1542,34 +1519,16 @@ export function MessageInput({
 
               {/* Right - Send */}
               <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
+                <ComposerSendButton
+                  type="button"
                   onClick={handleSend}
-                  disabled={!canSend}
+                  canSend={canSend}
+                  label={t.weldchat.messageInput.sendMessage}
                   data-testid="chat-send"
-                  className={cn(
-                    'w-8 h-8 rounded-[12px] flex items-center justify-center transition-all',
-                    canSend
-                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      : 'bg-gray-300 dark:bg-muted text-gray-500 dark:text-muted-foreground cursor-not-allowed'
-                  )}
-                  title={t.weldchat.messageInput.sendMessage}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className={cn("h-[15px] w-[15px]", canSend ? "text-primary-foreground" : "text-gray-500 dark:text-muted-foreground")}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                  </svg>
-                </Button>
+                />
               </div>
-            </div>
-      </div>
-
-      {/* Clip Recorder Dialog */}
-      <ClipRecorder
-        open={showClipRecorder}
-        onClose={() => setShowClipRecorder(false)}
-        onClipReady={handleClipReady}
-        initialMode="video"
-      />
+            </ComposerActions>
+      </ComposerFrame>
     </div>
   );
 }

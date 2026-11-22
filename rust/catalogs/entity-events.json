@@ -188,6 +188,25 @@
     "updated",
     "deleted"
   ],
+  "commerce_buyer": [
+    "created",
+    "updated",
+    "deleted",
+    "invited"
+  ],
+  "commerce_channel": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "commerce_channel_key": [
+    "created",
+    "revoked",
+    "rotated"
+  ],
+  "commerce_company_settings": [
+    "updated"
+  ],
   "commerce_customer": [
     "created",
     "updated",
@@ -200,6 +219,19 @@
     "placed",
     "cancelled",
     "completed"
+  ],
+  "commerce_payment_connection": [
+    "connected",
+    "updated",
+    "disconnected"
+  ],
+  "commerce_settings": [
+    "updated"
+  ],
+  "commerce_shipping_rate": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "company": [
     "created",
@@ -910,7 +942,11 @@
     "deleted",
     "placed",
     "cancelled",
-    "completed"
+    "completed",
+    "paid",
+    "refunded",
+    "approved",
+    "rejected"
   ],
   "panel_alert": [
     "created",

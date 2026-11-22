@@ -10,6 +10,7 @@ import {
   SquareCheck,
   Folder,
   History,
+  Store,
 } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 
@@ -32,7 +33,8 @@ export interface CompanyTab extends ObjectPanelTabDescriptor {
     | 'meetings'
     | 'tasks'
     | 'files'
-    | 'audit';
+    | 'audit'
+    | 'buyers';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
   required?: boolean;
@@ -50,4 +52,16 @@ export const COMPANY_TABS: CompanyTab[] = [
   { id: 'tasks', label: 'Tasks', icon: SquareCheck, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'files', label: 'Files', icon: Folder, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'audit', label: 'Audit Log', icon: History, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  // WeldCommerce (phase 6): only where WeldCommerce is offered and the member can read companies, see `companyTabs`.
+  { id: 'buyers', label: 'Buyers', icon: Store, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
 ];
+
+/** The tabs a member gets: Buyers only where WeldCommerce is offered (edition) and companies are readable. */
+export function companyTabs(showBuyers: boolean): CompanyTab[] {
+  return showBuyers ? COMPANY_TABS : COMPANY_TABS.filter((tab) => tab.id !== 'buyers');
+}
+
+/** Whether the Buyers tab applies, from the edition and the member's permission to read companies. */
+export function canShowBuyers(commerceOffered: boolean, canReadCompanies: boolean): boolean {
+  return commerceOffered && canReadCompanies;
+}

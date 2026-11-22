@@ -5,12 +5,34 @@
  * can listen to (mapped from order:created inside agent-dispatch).
  */
 export const COMMERCE_ENTITY_EVENTS = {
-  order: ['created', 'updated', 'deleted', 'placed', 'cancelled', 'completed'],
+  order: [
+    'created',
+    'updated',
+    'deleted',
+    'placed',
+    'cancelled',
+    'completed',
+    'paid',
+    'refunded',
+    // B2B approval decisions (phase 6)
+    'approved',
+    'rejected',
+  ],
   commerce_order: ['created', 'updated', 'deleted', 'placed', 'cancelled', 'completed'],
   product: ['created', 'updated', 'deleted', 'archived'],
   category: ['created', 'updated', 'deleted'],
   commerce_customer: ['created', 'updated', 'deleted'],
   discount: ['created', 'updated', 'deleted'],
+  commerce_settings: ['updated'],
+  // Sales channels (phase 4). A key event never carries the secret.
+  commerce_channel: ['created', 'updated', 'deleted'],
+  commerce_channel_key: ['created', 'revoked', 'rotated'],
+  commerce_shipping_rate: ['created', 'updated', 'deleted'],
+  // The workspace's Mollie connection (phase 5). Never carries a token or key.
+  commerce_payment_connection: ['connected', 'updated', 'disconnected'],
+  // B2B buyers and company settings (phase 6). Never carry a code, session or token.
+  commerce_buyer: ['created', 'updated', 'deleted', 'invited'],
+  commerce_company_settings: ['updated'],
   website: ['created', 'updated', 'deleted', 'archived'],
   website_domain: ['created', 'updated', 'deleted'],
   website_page: ['created', 'updated', 'deleted', 'archived'],

@@ -847,6 +847,8 @@ mod tests {
             details: mollie::MethodDetails::default(),
             paid_at: None,
             failure_reason: None,
+            expires_at: None,
+            raw: serde_json::Value::Null,
         }
     }
 

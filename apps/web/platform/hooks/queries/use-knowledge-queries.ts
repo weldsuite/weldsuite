@@ -12,7 +12,16 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+
+/**
+ * A 4xx (deleted page, no access) won't change on a retry: answer at once
+ * instead of spinning through three retries before "Page not found" shows.
+ */
+function retryUnlessClientError(failureCount: number, error: unknown): boolean {
+  return !(isApiError(error) && error.status >= 400 && error.status < 500) && failureCount < 3;
+}
 
 // =============================================================================
 // Types — mirror packages/core/db/src/schema/knowledge-* + packages/clients/core-api-client/src/schemas/knowledge.ts
@@ -206,6 +215,7 @@ export function useKnowledgePage(id: string, enabled = true) {
       return client.get<{ data: KnowledgePage }>(`/knowledge/pages/${id}`);
     },
     enabled: !!id && enabled,
+    retry: retryUnlessClientError,
   });
 }
 

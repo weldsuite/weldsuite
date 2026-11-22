@@ -212,8 +212,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
 }
 
 /// WeldStash (`weldsuite-stash`): stash-api's routes at their own prefixes
-/// (`/warehouses`, `/inventory`, `/pick-lists`, `/products`, …), once the
-/// module is marked ported (always in conformance builds).
+/// (`/warehouses`, `/inventory`, `/pick-lists`, …), once the module is
+/// marked ported (always in conformance builds). `/products`, which
+/// stash-api serves on Global, is [`commerce`]'s on this backend.
 fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("stash") {
         return router;
@@ -255,16 +256,32 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 }
 
 /// WeldCommerce (`weldsuite-commerce`), rebuilt in Rust only (ADR COM-009):
-/// its routes at their own prefixes (`/commerce`, …), once the module is
-/// marked ported. There is no TypeScript worker, so no conformance suite.
+/// its routes at their own prefixes (`/commerce`, `/products`,
+/// `/categories`), once the module is marked ported (always in conformance
+/// builds). There is no TypeScript worker, so no conformance suite, except
+/// for `/products`: stash-api serves it on Global, and its "stash: products"
+/// suite runs against this crate.
 fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("commerce") {
         return router;
     }
     let commerce = weldsuite_commerce::CommerceState {
+        mail: state.infra.mail.clone(),
         events: state.infra.events.clone(),
+        http: shared_outbound(),
+        payments: commerce_payments(state),
     };
-    router.merge(weldsuite_commerce::router(commerce, &state.permissions))
+    // The master database holds the storefront key registry (conformance
+    // builds have none: the key routes answer 503 there).
+    let api = weldsuite_commerce::router(commerce, &state.permissions);
+    let api = if cfg!(feature = "conformance") {
+        api
+    } else {
+        api.layer(axum::Extension(weldsuite_commerce::StorefrontRegistry(
+            state.workspaces.master().clone(),
+        )))
+    };
+    router.merge(api)
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes
@@ -1926,6 +1943,76 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
     Router::new().nest("/public/helpdesk-widget", widget)
 }
 
+/// WeldCommerce's public storefront API (`/storefront/v1`, ADR COM-011):
+/// the catalogue, carts and checkout of a sales channel, authenticated by the
+/// channel's key (`wcp_`/`wcs_`) and answering CORS per key itself, so it is
+/// merged outside the server's first-party CORS, like the widget.
+pub(crate) fn commerce_storefront(state: &AppState) -> Router {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    weldsuite_commerce::storefront::storefront_router(
+        weldsuite_commerce::storefront::StorefrontState {
+            mail: state.infra.mail.clone(),
+            events: state.infra.events.clone(),
+            http: shared_outbound(),
+            master: state.workspaces.master().clone(),
+            workspaces: Arc::clone(&state.workspaces),
+            cache: state.infra.cache.clone(),
+            trusted_proxies: state.trusted_proxies,
+            payments: commerce_payments(state),
+        },
+    )
+}
+
+/// WeldCommerce's payments settings (ADR COM-013), from the install's
+/// config: the keys that open stored Mollie credentials, the public URL
+/// Mollie's webhook and the OAuth callback are on, the Mollie Connect app
+/// (`MOLLIE_CONNECT_CLIENT_ID` and `MOLLIE_CONNECT_CLIENT_SECRET`; without
+/// them OAuth is unavailable and a merchant connects with an API key), and
+/// WeldBooks for invoices and credit notes.
+fn commerce_payments(state: &AppState) -> weldsuite_commerce::PaymentsConfig {
+    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let public_url = env("CONNECTOR_WEBHOOK_BASE_URL")
+        .or_else(|| env("WEBHOOK_BASE_URL"))
+        .or_else(|| env("PUBLIC_URL"));
+    let connect = env("MOLLIE_CONNECT_CLIENT_ID")
+        .zip(env("MOLLIE_CONNECT_CLIENT_SECRET"))
+        .map(|(id, secret)| weldsuite_mollie::connect::ConnectApp::new(&id, &secret));
+    weldsuite_commerce::PaymentsConfig {
+        keyring: weldsuite_db::Keyring {
+            v1: env("DATABASE_ENCRYPTION_KEY"),
+            v2: env("DATABASE_ENCRYPTION_KEY_V2"),
+        },
+        app_url: env("PUBLIC_APP_URL").or_else(|| public_url.clone()),
+        public_url,
+        connect,
+        state_secret: env("CLERK_SECRET_KEY").or_else(|| env("INTERNAL_API_SECRET")),
+        invoicing: Some(Arc::new(weldsuite_books_sales::CommerceInvoicing::new(
+            books::books_state(state),
+        ))),
+        ..weldsuite_commerce::PaymentsConfig::default()
+    }
+}
+
+/// Mollie's webhook and the OAuth callback of WeldCommerce's payments, ahead
+/// of the session (ADR COM-013): the webhook has no credential and reads the
+/// payment back from Mollie, the callback carries a signed state.
+fn commerce_public(state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    Router::new().merge(weldsuite_commerce::payments_public_router(
+        weldsuite_commerce::PaymentsPublicState {
+            events: state.infra.events.clone(),
+            http: shared_outbound(),
+            master: state.workspaces.master().clone(),
+            workspaces: Arc::clone(&state.workspaces),
+            payments: commerce_payments(state),
+        },
+    ))
+}
+
 /// WeldDesk's handle on the app, with the helpdesk workflow engine in this
 /// process (`HELPDESK_WORKFLOW` on Global). Conformance builds answer as the
 /// worker does without the binding: the desk tests bind none.
@@ -2227,6 +2314,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(chat_public(state))
         .merge(reach_public(state))
         .merge(books::public(state))
+        .merge(commerce_public(state))
         .merge(host::public(state))
         .merge(flow_public(state))
         .merge(connect_public(state))

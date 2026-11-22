@@ -62,6 +62,22 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/calendar.event.update.json"),
     ),
     (
+        "commerce.approval-decided",
+        include_str!("../../../catalogs/emails/templates/commerce.approval-decided.json"),
+    ),
+    (
+        "commerce.approval-requested",
+        include_str!("../../../catalogs/emails/templates/commerce.approval-requested.json"),
+    ),
+    (
+        "commerce.buyer-invitation",
+        include_str!("../../../catalogs/emails/templates/commerce.buyer-invitation.json"),
+    ),
+    (
+        "commerce.order-confirmation",
+        include_str!("../../../catalogs/emails/templates/commerce.order-confirmation.json"),
+    ),
+    (
         "desk.report",
         include_str!("../../../catalogs/emails/templates/desk.report.json"),
     ),

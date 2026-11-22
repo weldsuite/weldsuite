@@ -7911,6 +7911,7 @@ dependencies = [
  "tracing",
  "weldsuite-books-domain",
  "weldsuite-catalogs",
+ "weldsuite-commerce-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
@@ -8106,19 +8107,51 @@ name = "weldsuite-commerce"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
+ "hex",
+ "hmac",
  "http",
+ "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
+ "time",
  "tokio",
  "tower",
  "tracing",
+ "unicode-normalization",
+ "url",
  "weldsuite-auth",
+ "weldsuite-books-domain",
  "weldsuite-catalogs",
+ "weldsuite-commerce-domain",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mollie",
  "weldsuite-permissions",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-commerce-domain"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "sea-orm",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-mollie",
+ "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8183,6 +8216,7 @@ dependencies = [
  "url",
  "uuid",
  "weldsuite-books-domain",
+ "weldsuite-commerce-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
@@ -9156,6 +9190,7 @@ dependencies = [
 name = "weldsuite-mollie"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "serde_json",
  "tokio",
  "url",
@@ -9618,7 +9653,6 @@ dependencies = [
  "tower",
  "tracing",
  "weldsuite-auth",
- "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-connect-domain",
  "weldsuite-db",

@@ -1,0 +1,36 @@
+{
+  "name": "commerce-starter",
+  "version": "0.1.0",
+  "description": "A starter shop on the WeldCommerce storefront API (Next.js App Router)",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3030",
+    "build": "next build",
+    "start": "next start --port 3030",
+    "lint": "eslint .",
+    "type-check": "next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@weldsuite/commerce-sdk": "workspace:*",
+    "next": "16.4.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@next/eslint-plugin-next": "^15.5.9",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.2",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.51.0"
+  }
+}

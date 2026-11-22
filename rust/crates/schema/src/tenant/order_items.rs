@@ -23,6 +23,8 @@ pub struct Model {
     pub order_id: String,
     #[serde(rename = "createdAt", with = "crate::js::timestamp")]
     pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
     #[sea_orm(column_type = "String(StringLen::N(30))")]
     #[serde(rename = "productId")]
     pub product_id: Option<String>,
@@ -61,6 +63,15 @@ pub struct Model {
         serialize_with = "crate::js::Numeric::<2>::serialize_option"
     )]
     pub tax_amount: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "vatCategory")]
+    pub vat_category: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((7, 4)))")]
+    #[serde(
+        rename = "taxRate",
+        serialize_with = "crate::js::Numeric::<4>::serialize_option"
+    )]
+    pub tax_rate: Option<BigDecimal>,
     #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
     #[serde(
         rename = "total",
@@ -80,6 +91,9 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     #[serde(rename = "properties")]
     pub properties: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "externalLineId")]
+    pub external_line_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -93,6 +107,14 @@ pub const DDL: Table = Table {
     columns: &[
         DdlColumn {
             name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
             sql_type: None,
             default: Some(DdlDefault::Sql("now()")),
             generated: None,
@@ -149,6 +171,24 @@ pub const DDL: Table = Table {
                 is_expression: false,
                 asc: true,
             }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "order_items_order_external_line_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "order_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "external_line_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
             unique: false,
             method: "btree",
             filter: None,

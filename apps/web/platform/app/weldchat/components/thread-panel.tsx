@@ -7,6 +7,8 @@ import { useChannel } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { getRecordChatTypeInfo } from '../lib/record-chat-types';
+import { APP_LOGO_IN_COLOUR } from '../lib/app-logo-icon';
 
 interface ThreadPanelProps {
   channelId: string;
@@ -21,6 +23,9 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
   const { data: channelData } = useChannel(channelId);
   const channel = (channelData?.data ?? channelData) as ChatChannel | undefined;
   const isPrivate = channel?.type === 'private' || channel?.isPrivate;
+  // A record's chat (a sheet's, a board's, …) shows its app's logo, as in the chat header.
+  const recordInfo = getRecordChatTypeInfo(channel?.entityType);
+  const PrivacyIcon = isPrivate ? Lock : Hash;
 
   const [threadName, setThreadName] = useState(t.weldchat.threadPanel.defaultName);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -80,10 +85,10 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
         <div className="flex items-center gap-1.5 min-w-0">
           {channel?.name && (
             <div className="flex items-center gap-1 min-w-0">
-              {isPrivate ? (
-                <Lock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              {recordInfo ? (
+                <recordInfo.icon className={`h-4 w-4 flex-shrink-0 ${APP_LOGO_IN_COLOUR}`} />
               ) : (
-                <Hash className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <PrivacyIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               )}
               <span className="text-[15px] font-semibold truncate">{channel.name}</span>
             </div>

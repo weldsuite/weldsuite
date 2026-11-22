@@ -52,6 +52,9 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
   // unable to create or retire a bucket.
   ['weldstash', 'inventory',  'inventory',  ['read', 'create', 'update', 'delete', 'manage']],
   ['weldstash', 'orders',     'orders',     ['read', 'create', 'update', 'delete']],
+  // WeldStash purchase orders to suppliers, split off `orders` (which now means
+  // sales orders). Listed so `weldstash:*` expands to them.
+  ['weldstash', 'purchase_orders', 'purchase_orders', ['read', 'create', 'update', 'delete']],
   ['weldstash', 'picklists',  'picklists',  ['read', 'create', 'update', 'delete']],
   ['weldstash', 'locations',  'locations',  ['read', 'create', 'update', 'delete']],
   ['weldstash', 'warehouses', 'warehouses', ['read', 'create', 'update', 'delete', 'manage']],

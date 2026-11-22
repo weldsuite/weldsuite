@@ -61,10 +61,17 @@ modules, each with conformance suites that reach every route:
   service catalogue, `/api/desk/catalog` with requests, approval steps and
   the WeldFlow tasks of an approved request through `flow-domain`,
   `catalog.rs` and `fulfilment.rs`; the help center's catalogue pages are
-  part of `/api/portal`, which is not served here) and **stash** (the WMS, and
-  the product catalogue at `/api/products`, which moved here from commerce-api
-  when WeldCommerce was removed to be rebuilt; the pick-list ship action records
-  the shipment and calls no carrier)
+  part of `/api/portal`, which is not served here) and **stash** (the WMS; the
+  pick-list ship action records the shipment and calls no carrier)
+- **commerce** (WeldCommerce, rebuilt in Rust only, ADR COM-009: no
+  TypeScript worker and no conformance suite, its own tests in
+  `modules/commerce/tests`): the overview, and the catalogue. `/api/products`
+  moved here from the stash crate with stash-api's behaviour, so the
+  "stash: products" suite still runs against it (the prefix stays stash's in
+  `@weldsuite/api-modules` while Global's stash-api serves it); its variants
+  (`/api/products/:id/variants`, SKUs and barcodes unique among live products
+  and variants) and `/api/categories` (the tree, manual members, automated
+  members evaluated on read) are Rust only
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
   code is `crates/ads-domain`, for connect-api's integration endpoints
@@ -621,6 +628,8 @@ rust/
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
                         helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS),
+                        modules/commerce (WeldCommerce, Rust only: the catalogue, `/api/products`
+                        included; tools/tables.mts writes its table descriptors),
                         modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
@@ -1057,6 +1066,7 @@ log none.
 | `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Invitations are accepted there too, on `/invite` at `PUBLIC_APP_URL` (`/api/sign-in/invitation/accept`). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; seal and open WeldAds' Meta tokens (`encryptField`); seal and open WeldConnect's store connection credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_REDIRECT_URL`, `MOLLIE_API_URL` | Buying credits (the `credit-top-up` feature; unset key: unavailable, and `POST /api/credits/checkout` answers as without billing-worker): Mollie's API key, where Mollie posts payment changes (default `<PUBLIC_API_URL>/api/webhooks/mollie`, else `APP_API_PUBLIC_URL`, `PUBLIC_URL`), where a checkout returns when the client names no address (default `<PUBLIC_APP_URL>/settings/billing?credits=success`, else `PUBLIC_URL`), and the API's base URL (tests). A key without a webhook or return address stops the start. Packages are master `credit_packages` rows priced in EUR; pending checkouts are kept a week in Valkey (or this process) for the return page |
+| `MOLLIE_CONNECT_CLIENT_ID`, `MOLLIE_CONNECT_CLIENT_SECRET`, `CLERK_SECRET_KEY` or `INTERNAL_API_SECRET` | WeldCommerce taking payments into each workspace's own Mollie account (ADR COM-013): the Mollie Connect app (both or neither; without it a workspace connects with its own API key and `oauthAvailable` is false), and the key that signs the OAuth `state` (the first of the two that is set). The OAuth callback is `<CONNECTOR_WEBHOOK_BASE_URL, else WEBHOOK_BASE_URL, else PUBLIC_URL>/api/commerce-payments/connection/mollie/callback`, Mollie's webhook `<same>/webhooks/commerce/mollie/<connection id>`, and the merchant returns to `PUBLIC_APP_URL` (else the same). Stored tokens and keys are sealed with `DATABASE_ENCRYPTION_KEY` |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
 | `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`/`_ENV`/`_APPLICATION_ID`, `PONTO_MTLS_CERT`/`_KEY`, `PONTO_SIGNATURE_CERT_ID`, `PONTO_SIGNATURE_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM, `PONTO_ENV=sandbox` for a sandbox application, whose people authorize on the sandbox's own page, `PONTO_APPLICATION_ID` (the application's id in Isabel's developer portal) to turn on Ponto's webhooks, which then poll each connection once a day instead of every six hours, and optionally the signature certificate's id from Isabel's developer portal and its unencrypted private key as PEM, which then sign every Ponto request; Ponto requires signatures for payments only; Ponto's "sync now" sends the member's address, the `X-Forwarded-For` entry `TRUSTED_PROXIES` from the right, as Ponto API v2 requires, and waits up to 15 seconds for Ponto's synchronizations, while `bank-feed-due` only reads what Ponto's own four daily syncs fetched), and the field-encryption AAD switch the workers share. Starting a bank link asks for a second factor verified in the last 10 minutes only with Clerk sign-in; with `AUTH_PROVIDER=oidc` that step-up is off for now, as Zitadel's access tokens carry no `auth_time` or `amr` and the platform has no OIDC step-up yet. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |

@@ -217,7 +217,9 @@ describe('WeldKnow page title', () => {
     page.isLocked = true;
     render(<PageView pageId="kpag_1" />);
 
-    expect(titleField().disabled).toBe(true);
+    // Read-only rather than disabled: no "not allowed" cursor over a title you can read.
+    expect(titleField().readOnly).toBe(true);
+    expect(titleField().disabled).toBe(false);
     expect(document.activeElement).not.toBe(titleField());
   });
 });
