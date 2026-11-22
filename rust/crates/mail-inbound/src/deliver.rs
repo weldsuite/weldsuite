@@ -19,6 +19,7 @@ use crate::recipients::{
 };
 use crate::rules::{RuleState, apply_mail_rules, finalize_inbound};
 use crate::store::{Stored, inbound_labels, preview, store_email};
+use crate::threats::MessageThreats;
 
 /// What `processInboundEmail` returns.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -30,11 +31,13 @@ pub struct Processed {
 
 /// `processInboundEmail(env, email, attachments, ctx)`. A failure to read
 /// the registry is an error (the delivery is retried); everything per
-/// mailbox is logged and skipped, as in the worker.
+/// mailbox is logged and skipped, as in the worker. `threats` is what
+/// [`crate::threats::inspect`] found, once for every mailbox.
 pub async fn process_inbound_email(
     ctx: &InboundContext,
     email: &ParsedEmail,
     attachments: &[ParsedAttachment],
+    threats: &MessageThreats,
 ) -> Result<Processed, sqlx::Error> {
     let recipient_emails = delivery_recipient_emails(email);
     let accounts = find_recipient_accounts(ctx, &recipient_emails).await?;
@@ -59,7 +62,9 @@ pub async fn process_inbound_email(
                 continue;
             }
         };
-        let Some(stored) = store_email(ctx, &db, account, email, &names, attachments).await else {
+        let Some(stored) =
+            store_email(ctx, &db, account, email, &names, attachments, threats).await
+        else {
             continue;
         };
         out.stored += 1;

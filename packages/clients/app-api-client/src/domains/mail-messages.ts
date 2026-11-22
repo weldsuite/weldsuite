@@ -4,6 +4,7 @@
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
+import type { MailAttachmentScanStatus } from '../schemas/mail-attachments';
 import type {
   UpdateMailMessageInput,
   BulkMailMessageActionInput,
@@ -11,6 +12,9 @@ import type {
   ReplyMailMessageInput,
   ForwardMailMessageInput,
   ListMailMessagesQuery,
+  MailLinkCheckInput,
+  MailLinkCheckResult,
+  MailThreat,
 } from '../schemas/mail-messages';
 
 export interface MailAddress {
@@ -57,6 +61,8 @@ export interface MailMessageRow {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** Threats found in the message; absent on Global, `null` when none. */
+  threats?: MailThreat[] | null;
 }
 
 export interface MailMessageWithAttachments extends MailMessageRow {
@@ -66,6 +72,8 @@ export interface MailMessageWithAttachments extends MailMessageRow {
     contentType: string | null;
     size: number;
     isInline: boolean | null;
+    scanStatus?: MailAttachmentScanStatus | null;
+    scanSignature?: string | null;
   }>;
 }
 
@@ -160,6 +168,11 @@ export function createMailMessagesApi(api: ClientApi) {
 
     forward(id: string, data: ForwardMailMessageInput): Promise<DataResponse<ForwardMailResponse>> {
       return api.post<DataResponse<ForwardMailResponse>>(`/mail-messages/${id}/forward`, data);
+    },
+
+    /** Click-time check of one link in a received message (EU and self-hosted editions). */
+    linkCheck(id: string, data: MailLinkCheckInput): Promise<DataResponse<MailLinkCheckResult>> {
+      return api.post<DataResponse<MailLinkCheckResult>>(`/mail-messages/${id}/link-check`, data);
     },
 
     delete(id: string): Promise<void> {

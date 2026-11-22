@@ -97,7 +97,7 @@ pub(crate) async fn load_scheduled(
     id: &str,
 ) -> Result<Option<ScheduledRow>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
+        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
     )
     .bind(id)
     .fetch_optional(db)

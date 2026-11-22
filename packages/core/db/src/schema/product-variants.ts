@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -7,6 +8,7 @@ import {
   jsonb,
   numeric,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // Variant rows for products.hasVariants — one per combination of products.options.
@@ -44,6 +46,9 @@ export const productVariants = pgTable('product_variants', {
   lowStockThreshold: integer('low_stock_threshold').default(5),
   allowBackorder: boolean('allow_backorder').default(false),
 
+  // EU VAT category (`products.vat_category`); null inherits the product's.
+  vatCategory: varchar('vat_category', { length: 20 }),
+
   // Physical Properties
   weight: numeric('weight', { precision: 10, scale: 3 }),
   weightUnit: varchar('weight_unit', { length: 10 }).default('kg'),
@@ -73,6 +78,14 @@ export const productVariants = pgTable('product_variants', {
   index('product_variants_sku_idx').on(table.sku),
   index('product_variants_barcode_idx').on(table.barcode),
   index('product_variants_status_idx').on(table.status),
+  // sku is unique among live rows of this table (uniqueness across products and variants is checked in code).
+  uniqueIndex('product_variants_sku_uidx')
+    .on(table.sku)
+    .where(sql`${table.sku} IS NOT NULL AND ${table.sku} <> '' AND ${table.deletedAt} IS NULL`),
+  // barcode is unique among live rows of this table (uniqueness across products and variants is checked in code).
+  uniqueIndex('product_variants_barcode_uidx')
+    .on(table.barcode)
+    .where(sql`${table.barcode} IS NOT NULL AND ${table.barcode} <> '' AND ${table.deletedAt} IS NULL`),
 ]);
 
 export type ProductVariant = typeof productVariants.$inferSelect;

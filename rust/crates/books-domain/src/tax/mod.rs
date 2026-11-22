@@ -15,6 +15,7 @@
 //!   ([`crate::sales_tax::document_tax`]); a US bill keeps the vendor's tax
 //!   and adds use tax on the lines marked to accrue it.
 
+pub mod eu_vat;
 pub mod gst;
 pub mod totals;
 

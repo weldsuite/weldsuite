@@ -142,6 +142,9 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(50))")]
     #[serde(rename = "taxClass")]
     pub tax_class: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "vatCategory")]
+    pub vat_category: String,
     #[serde(rename = "requiresShipping")]
     pub requires_shipping: Option<bool>,
     #[sea_orm(column_type = "String(StringLen::N(50))")]
@@ -320,6 +323,14 @@ pub const DDL: Table = Table {
             on_update: false,
         },
         DdlColumn {
+            name: "vat_category",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'standard'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
             name: "requires_shipping",
             sql_type: None,
             default: Some(DdlDefault::Bool(true)),
@@ -413,6 +424,32 @@ pub const DDL: Table = Table {
             unique: false,
             method: "btree",
             filter: None,
+        },
+        Index {
+            name: "products_sku_uidx",
+            columns: &[IndexColumn {
+                expression: "sku",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"products\".\"sku\" IS NOT NULL AND \"products\".\"sku\" <> '' AND \"products\".\"deleted_at\" IS NULL",
+            ),
+        },
+        Index {
+            name: "products_barcode_uidx",
+            columns: &[IndexColumn {
+                expression: "barcode",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"products\".\"barcode\" IS NOT NULL AND \"products\".\"barcode\" <> '' AND \"products\".\"deleted_at\" IS NULL",
+            ),
         },
     ],
     foreign_keys: &[],

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -8,6 +9,7 @@ import {
   text,
   numeric,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // Discount definitions backing orders.discount_id / orders.discount_code.
@@ -73,7 +75,33 @@ export const discounts = pgTable('discounts', {
   index('discounts_status_idx').on(table.status),
   index('discounts_type_idx').on(table.type),
   index('discounts_ends_at_idx').on(table.endsAt),
+  // A code is unique (case-insensitive, trimmed) among live, non-archived discounts.
+  uniqueIndex('discounts_code_uidx')
+    .on(sql`lower(trim(${table.code}))`)
+    .where(sql`${table.code} IS NOT NULL AND ${table.deletedAt} IS NULL AND ${table.status} <> 'archived'`),
 ]);
 
 export type Discount = typeof discounts.$inferSelect;
 export type NewDiscount = typeof discounts.$inferInsert;
+
+// One row per discount applied to an order. Written in the same transaction as
+// the order and the discounts.usage_count bump.
+export const discountRedemptions = pgTable('discount_redemptions', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  discountId: varchar('discount_id', { length: 30 }).notNull(),
+  orderId: varchar('order_id', { length: 30 }).notNull(),
+  personId: varchar('person_id', { length: 30 }),
+  customerEmail: varchar('customer_email', { length: 255 }),
+  amount: numeric('amount', { precision: 18, scale: 2 }).notNull().default('0'),
+  currency: varchar('currency', { length: 3 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('discount_redemptions_discount_idx').on(table.discountId),
+  index('discount_redemptions_order_idx').on(table.orderId),
+  index('discount_redemptions_person_idx').on(table.personId),
+  index('discount_redemptions_email_idx').on(sql`lower(${table.customerEmail}::text)`),
+  uniqueIndex('discount_redemptions_discount_order_uidx').on(table.discountId, table.orderId),
+]);
+
+export type DiscountRedemption = typeof discountRedemptions.$inferSelect;
+export type NewDiscountRedemption = typeof discountRedemptions.$inferInsert;

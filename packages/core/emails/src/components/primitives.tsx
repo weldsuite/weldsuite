@@ -190,7 +190,7 @@ export interface DetailRow {
 }
 
 /** Label/value rows between two hairlines: when, where, who. Empty rows are skipped. */
-export function Details({ rows }: { rows: DetailRow[] }) {
+export function Details({ rows, labelWidth = 96 }: { rows: DetailRow[]; labelWidth?: number }) {
   const visible = rows.filter((r) => r.value !== undefined && r.value !== null && r.value !== '');
   if (!visible.length) return null;
   const cell: CSSProperties = { padding: '6px 0', verticalAlign: 'top', fontSize: size.small, lineHeight: lineHeight.body };
@@ -205,7 +205,7 @@ export function Details({ rows }: { rows: DetailRow[] }) {
     >
       {visible.map((row) => (
         <Row key={row.label}>
-          <Column data-text="label" style={{ ...cell, width: 96, color: color.muted }}>
+          <Column data-text="label" style={{ ...cell, width: labelWidth, color: color.muted }}>
             {row.label}
           </Column>
           <Column data-text="value" style={{ ...cell, color: color.ink }}>

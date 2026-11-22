@@ -205,6 +205,10 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
       return `/welddrive?file=${encodeURIComponent(id)}`;
     case 'warehouse':
       return `/weldstash/warehouses?stack=warehouse:${encodeURIComponent(id)}`;
+    // WeldCommerce orders are searched by the Rust backend only (EU edition);
+    // this search never returns them, the case keeps the type list complete.
+    case 'order':
+      return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
   }
 }
 

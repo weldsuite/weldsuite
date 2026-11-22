@@ -1,0 +1,266 @@
+{
+ "schema": 1,
+ "source": "European Commission, Your Europe, VAT rules and rates (europa.eu/youreurope/business/taxation/vat/vat-rules-rates), table last checked 2026-07-13 by the Commission; cross-checked 2026-11-21 against Estonian Tax and Customs Board (EE 24% from 2025-07-01), Tax Foundation and BDO (FI reduced 13.5% from 2026-01-01, RO 21%/11% from 2025-08-01). Versions before 2025 are from secondary sources and national announcements, not re-verified against TEDB.",
+ "checked_on": "2026-11-21",
+ "definitions": {
+  "standard": "The standard rate.",
+  "reduced": "The upper (broad) reduced rate of the country. A country without a reduced rate maps to its standard rate.",
+  "super_reduced": "The lowest reduced rate that applies broadly to goods (basic food, books). A country with a single reduced rate maps to that rate; one without any maps to its standard rate. Narrow-scope rates (FR 2.1, IE 4.8, GR 4, CY 3, regional rates) are not reachable.",
+  "zero": "0%, asserted by the merchant (zero-rated).",
+  "exempt": "0%, exempt supply asserted by the merchant."
+ },
+ "countries": {
+  "AT": [
+   {
+    "from": "2024-01-01",
+    "standard": 2000,
+    "reduced": 1300,
+    "super_reduced": 1000
+   }
+  ],
+  "BE": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 1200,
+    "super_reduced": 600
+   }
+  ],
+  "BG": [
+   {
+    "from": "2024-01-01",
+    "standard": 2000,
+    "reduced": 900,
+    "super_reduced": 900
+   }
+  ],
+  "HR": [
+   {
+    "from": "2024-01-01",
+    "standard": 2500,
+    "reduced": 1300,
+    "super_reduced": 500
+   }
+  ],
+  "CY": [
+   {
+    "from": "2024-01-01",
+    "standard": 1900,
+    "reduced": 900,
+    "super_reduced": 500
+   }
+  ],
+  "CZ": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 1200,
+    "super_reduced": 1200
+   }
+  ],
+  "DK": [
+   {
+    "from": "2024-01-01",
+    "standard": 2500,
+    "reduced": 2500,
+    "super_reduced": 2500
+   }
+  ],
+  "EE": [
+   {
+    "from": "2024-01-01",
+    "standard": 2200,
+    "reduced": 900,
+    "super_reduced": 900
+   },
+   {
+    "from": "2025-07-01",
+    "standard": 2400,
+    "reduced": 900,
+    "super_reduced": 900
+   }
+  ],
+  "FI": [
+   {
+    "from": "2024-01-01",
+    "standard": 2400,
+    "reduced": 1400,
+    "super_reduced": 1000
+   },
+   {
+    "from": "2024-09-01",
+    "standard": 2550,
+    "reduced": 1400,
+    "super_reduced": 1000
+   },
+   {
+    "from": "2026-01-01",
+    "standard": 2550,
+    "reduced": 1350,
+    "super_reduced": 1000
+   }
+  ],
+  "FR": [
+   {
+    "from": "2024-01-01",
+    "standard": 2000,
+    "reduced": 1000,
+    "super_reduced": 550
+   }
+  ],
+  "DE": [
+   {
+    "from": "2024-01-01",
+    "standard": 1900,
+    "reduced": 700,
+    "super_reduced": 700
+   }
+  ],
+  "GR": [
+   {
+    "from": "2024-01-01",
+    "standard": 2400,
+    "reduced": 1300,
+    "super_reduced": 600
+   }
+  ],
+  "HU": [
+   {
+    "from": "2024-01-01",
+    "standard": 2700,
+    "reduced": 1800,
+    "super_reduced": 500
+   }
+  ],
+  "IE": [
+   {
+    "from": "2024-01-01",
+    "standard": 2300,
+    "reduced": 1350,
+    "super_reduced": 900
+   }
+  ],
+  "IT": [
+   {
+    "from": "2024-01-01",
+    "standard": 2200,
+    "reduced": 1000,
+    "super_reduced": 400
+   }
+  ],
+  "LV": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 1200,
+    "super_reduced": 500
+   }
+  ],
+  "LT": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 900,
+    "super_reduced": 500
+   },
+   {
+    "from": "2026-01-01",
+    "standard": 2100,
+    "reduced": 1200,
+    "super_reduced": 500
+   }
+  ],
+  "LU": [
+   {
+    "from": "2024-01-01",
+    "standard": 1700,
+    "reduced": 800,
+    "super_reduced": 300
+   }
+  ],
+  "MT": [
+   {
+    "from": "2024-01-01",
+    "standard": 1800,
+    "reduced": 700,
+    "super_reduced": 500
+   }
+  ],
+  "NL": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 900,
+    "super_reduced": 900
+   }
+  ],
+  "PL": [
+   {
+    "from": "2024-01-01",
+    "standard": 2300,
+    "reduced": 800,
+    "super_reduced": 500
+   }
+  ],
+  "PT": [
+   {
+    "from": "2024-01-01",
+    "standard": 2300,
+    "reduced": 1300,
+    "super_reduced": 600
+   }
+  ],
+  "RO": [
+   {
+    "from": "2024-01-01",
+    "standard": 1900,
+    "reduced": 900,
+    "super_reduced": 500
+   },
+   {
+    "from": "2025-08-01",
+    "standard": 2100,
+    "reduced": 1100,
+    "super_reduced": 1100
+   }
+  ],
+  "SK": [
+   {
+    "from": "2024-01-01",
+    "standard": 2000,
+    "reduced": 1000,
+    "super_reduced": 1000
+   },
+   {
+    "from": "2025-01-01",
+    "standard": 2300,
+    "reduced": 1900,
+    "super_reduced": 500
+   }
+  ],
+  "SI": [
+   {
+    "from": "2024-01-01",
+    "standard": 2200,
+    "reduced": 950,
+    "super_reduced": 500
+   }
+  ],
+  "ES": [
+   {
+    "from": "2024-01-01",
+    "standard": 2100,
+    "reduced": 1000,
+    "super_reduced": 400
+   }
+  ],
+  "SE": [
+   {
+    "from": "2024-01-01",
+    "standard": 2500,
+    "reduced": 1200,
+    "super_reduced": 600
+   }
+  ]
+ }
+}

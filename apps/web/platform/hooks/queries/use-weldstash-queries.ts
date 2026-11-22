@@ -62,7 +62,8 @@ export interface WmsSupplier {
   updatedAt: string;
 }
 
-const weldstashKeys = {
+/** Exported so WeldCommerce, which edits the same products, can refresh these lists. */
+export const weldstashKeys = {
   all: ['weldstash'] as const,
   products: () => [...weldstashKeys.all, 'products'] as const,
   productList: (params?: WeldstashListQuery) => [...weldstashKeys.products(), 'list', params ?? {}] as const,

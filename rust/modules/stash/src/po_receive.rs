@@ -46,7 +46,7 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_RECEIVED;
-use weldsuite_catalogs::permission_keys::ORDERS_UPDATE;
+use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_UPDATE;
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
@@ -77,7 +77,7 @@ where
 {
     Router::new().route(
         "/{id}/receive",
-        post(receive).route_layer(gate.require([ORDERS_UPDATE])),
+        post(receive).route_layer(gate.require([PURCHASE_ORDERS_UPDATE])),
     )
 }
 

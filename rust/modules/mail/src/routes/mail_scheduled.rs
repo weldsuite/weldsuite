@@ -140,7 +140,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             return Ok(Data(json!([])).into_response());
         }
         let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) from mail_messages m
+            "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
              where m.deleted_at is null and m.send_status = 'scheduled'
                and m.account_id = any($1::text[])
              order by m.scheduled_for",

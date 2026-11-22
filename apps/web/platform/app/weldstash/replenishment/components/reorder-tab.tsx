@@ -61,7 +61,7 @@ export function ReorderTab({ onOpenPlan, onOpenSettings }: Readonly<ReorderTabPr
   );
   const selectedPlans = plans.filter((p) => selected.has(p.id));
   const hasFilters = Object.keys(planFilterQuery(filters, search)).length > 0;
-  const canOrder = can('orders:create');
+  const canOrder = can('purchase_orders:create');
   const canDismiss = can('inventory:update');
 
   const toggle = (ids: readonly string[], on: boolean) =>

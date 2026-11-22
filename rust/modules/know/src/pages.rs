@@ -7,26 +7,38 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     KNOWLEDGE_PAGE_CREATED, KNOWLEDGE_PAGE_DELETED, KNOWLEDGE_PAGE_MOVED, KNOWLEDGE_PAGE_RESTORED,
     KNOWLEDGE_PAGE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_know_domain::pages::{next_page_position, position as int};
+use weldsuite_schema::tenant::{knowledge_pages as pages, knowledge_spaces as spaces};
 
 use crate::access::{self, SpaceAccess, text};
-use crate::{Caller, KnowError, KnowState, Refusal, all, now, validate, versions};
+use crate::{Caller, KnowError, KnowState, Refusal, all, now, row, validate, versions};
 
-/// A live page as Drizzle returns it.
-pub(crate) async fn page_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(p) from knowledge_pages p where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+/// A page as Drizzle returns it.
+pub(crate) async fn page_row(db: &PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
+    let page = pages::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(page.map(row))
+}
+
+/// `id = any(ids)`.
+fn among(ids: &[String]) -> sea_orm::sea_query::SimpleExpr {
+    pages::Column::Id.is_in(ids.iter().cloned())
 }
 
 /// A live page plus the caller's access to its space (`loadPage`). A page in
@@ -36,13 +48,11 @@ pub(crate) async fn load_page(
     id: &str,
     user_id: &str,
 ) -> Result<(Value, SpaceAccess), KnowError> {
-    let page: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from knowledge_pages p where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(page) = page.map(js_row) else {
+    let page = pages::Entity::find_by_id(id.to_owned())
+        .filter(pages::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(page) = page.map(row) else {
         return Err(KnowError::not_found("Page", id));
     };
     let access = match access::require_space(db, user_id, text(&page, "spaceId"), false).await {
@@ -78,16 +88,8 @@ async fn next_position(
     db: &PgPool,
     space_id: &str,
     parent_id: Option<&str>,
-) -> Result<i64, sqlx::Error> {
-    let max: i64 = sqlx::query_scalar(
-        "select coalesce(max(position), -1)::bigint from knowledge_pages
-         where space_id = $1 and parent_id is not distinct from $2 and deleted_at is null",
-    )
-    .bind(space_id)
-    .bind(parent_id)
-    .fetch_one(db)
-    .await?;
-    Ok(max + 1)
+) -> Result<i64, sea_orm::DbErr> {
+    next_page_position(db, space_id, parent_id).await
 }
 
 /// The ids of `root_id` and its descendants (breadth first), live ones or
@@ -96,18 +98,24 @@ async fn subtree_ids(
     db: &PgPool,
     root_id: &str,
     trashed: bool,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, sea_orm::DbErr> {
+    let db = orm(db);
     let mut all = vec![root_id.to_owned()];
     let mut frontier = all.clone();
     while !frontier.is_empty() {
-        frontier = sqlx::query_scalar(
-            "select id from knowledge_pages
-             where parent_id = any($1) and (deleted_at is not null) = $2",
-        )
-        .bind(&frontier)
-        .bind(trashed)
-        .fetch_all(db)
-        .await?;
+        let state = if trashed {
+            pages::Column::DeletedAt.is_not_null()
+        } else {
+            pages::Column::DeletedAt.is_null()
+        };
+        frontier = pages::Entity::find()
+            .select_only()
+            .column(pages::Column::Id)
+            .filter(pages::Column::ParentId.is_in(frontier))
+            .filter(state)
+            .into_tuple()
+            .all(&db)
+            .await?;
         all.extend(frontier.iter().cloned());
     }
     Ok(all)
@@ -119,7 +127,7 @@ async fn would_create_cycle(
     db: &PgPool,
     page_id: &str,
     new_parent_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, sea_orm::DbErr> {
     if page_id == new_parent_id {
         return Ok(true);
     }
@@ -130,11 +138,13 @@ async fn would_create_cycle(
         if id == page_id || seen.contains(&id) {
             return Ok(true);
         }
-        let parent: Option<Option<String>> =
-            sqlx::query_scalar("select parent_id from knowledge_pages where id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(db)
-                .await?;
+        let parent: Option<Option<String>> = pages::Entity::find()
+            .select_only()
+            .column(pages::Column::ParentId)
+            .filter(pages::Column::Id.eq(&id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         seen.push(id);
         current = parent.flatten();
     }
@@ -151,6 +161,33 @@ fn truthy(field: &Field<String>) -> Option<&str> {
 
 // ── GET /pages/tree, GET /trash ─────────────────────────────────────────────
 
+/// A page in the sidebar tree: no content.
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TreePage {
+    id: String,
+    space_id: String,
+    parent_id: Option<String>,
+    position: i32,
+    title: String,
+    icon: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    updated_at: PrimitiveDateTime,
+}
+
+/// A page in the trash.
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TrashedPage {
+    id: String,
+    space_id: String,
+    parent_id: Option<String>,
+    title: String,
+    icon: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    deleted_at: Option<PrimitiveDateTime>,
+}
+
 /// Tree metadata for the sidebar, without content.
 pub(crate) async fn tree(caller: Caller, Query(query): Query<HashMap<String, String>>) -> Response {
     let result = async {
@@ -162,18 +199,25 @@ pub(crate) async fn tree(caller: Caller, Query(query): Query<HashMap<String, Str
         if scope.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object(
-                      'id', id, 'spaceId', space_id, 'parentId', parent_id, 'position', position,
-                      'title', title, 'icon', icon, 'updatedAt', updated_at)
-             from knowledge_pages
-             where space_id = any($1) and deleted_at is null
-             order by position asc, created_at asc",
-        )
-        .bind(&scope)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, KnowError>(rows.into_iter().map(js_row).collect())
+        let rows: Vec<TreePage> = pages::Entity::find()
+            .select_only()
+            .columns([
+                pages::Column::Id,
+                pages::Column::SpaceId,
+                pages::Column::ParentId,
+                pages::Column::Position,
+                pages::Column::Title,
+                pages::Column::Icon,
+                pages::Column::UpdatedAt,
+            ])
+            .filter(pages::Column::SpaceId.is_in(scope))
+            .filter(pages::Column::DeletedAt.is_null())
+            .order_by_asc(pages::Column::Position)
+            .order_by_asc(pages::Column::CreatedAt)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, KnowError>(rows.into_iter().map(row).collect())
     }
     .await;
     match result {
@@ -190,19 +234,24 @@ pub(crate) async fn trash(caller: Caller) -> Response {
         if space_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object(
-                      'id', id, 'spaceId', space_id, 'parentId', parent_id, 'title', title,
-                      'icon', icon, 'deletedAt', deleted_at)
-             from knowledge_pages
-             where space_id = any($1) and deleted_at is not null
-             order by deleted_at desc
-             limit 200",
-        )
-        .bind(&space_ids)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, KnowError>(rows.into_iter().map(js_row).collect())
+        let rows: Vec<TrashedPage> = pages::Entity::find()
+            .select_only()
+            .columns([
+                pages::Column::Id,
+                pages::Column::SpaceId,
+                pages::Column::ParentId,
+                pages::Column::Title,
+                pages::Column::Icon,
+                pages::Column::DeletedAt,
+            ])
+            .filter(pages::Column::SpaceId.is_in(space_ids))
+            .filter(pages::Column::DeletedAt.is_not_null())
+            .order_by_desc(pages::Column::DeletedAt)
+            .limit(200)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, KnowError>(rows.into_iter().map(row).collect())
     }
     .await;
     match result {
@@ -278,25 +327,25 @@ async fn create_page(state: &KnowState, caller: &Caller, input: NewPage) -> Resu
         .as_set()
         .filter(|title| !title.is_empty())
         .map_or("Untitled", String::as_str);
-    sqlx::query(
-        "insert into knowledge_pages
-             (id, space_id, parent_id, position, title, icon, cover_image, content_json,
-              content_text, created_by, last_edited_by, created_at, updated_at)
-         values ($1, $2, $3, $4::int, $5, $6, $7, $8, '', $9, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(&input.space_id)
-    .bind(&parent_id)
-    .bind(position)
-    .bind(title)
-    .bind(input.icon.as_set())
-    .bind(input.cover_image.as_set())
-    .bind(Value::Array(
-        input.content_json.as_set().cloned().unwrap_or_default(),
-    ))
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(db)
+    pages::Entity::insert(pages::ActiveModel {
+        id: Set(id.clone()),
+        space_id: Set(input.space_id.clone()),
+        parent_id: Set(parent_id.clone()),
+        position: Set(int(position)),
+        title: Set(title.to_owned()),
+        icon: Set(input.icon.as_set().cloned()),
+        cover_image: Set(input.cover_image.as_set().cloned()),
+        content_json: Set(Some(Value::Array(
+            input.content_json.as_set().cloned().unwrap_or_default(),
+        ))),
+        content_text: Set(Some(String::new())),
+        created_by: Set(Some(caller.user_id.clone())),
+        last_edited_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     // The event carries the title as sent (`data.title ?? 'Untitled'`).
     let event_title = input.title.as_set().map_or("Untitled", String::as_str);
@@ -333,29 +382,32 @@ pub(crate) async fn update(
     let result = async {
         let db = &caller.db;
         let page = load_writable_page(db, &id, &caller.user_id).await?;
-        sqlx::query(
-            "update knowledge_pages set
-                 title = case when $2 then $3 else title end,
-                 icon = case when $4 then $5 else icon end,
-                 cover_image = case when $6 then $7 else cover_image end,
-                 is_locked = case when $8 then $9 else is_locked end,
-                 last_edited_by = $10,
-                 updated_at = $11::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(!title.is_absent())
-        .bind(title.as_set())
-        .bind(!icon.is_absent())
-        .bind(icon.as_set())
-        .bind(!cover_image.is_absent())
-        .bind(cover_image.as_set())
-        .bind(!is_locked.is_absent())
-        .bind(is_locked.as_set())
-        .bind(&caller.user_id)
-        .bind(now())
-        .execute(db)
-        .await?;
+        // A field the body sent is set (`null` included); one it left out stays.
+        let mut update = pages::Entity::update_many();
+        if !title.is_absent() {
+            update = update.col_expr(pages::Column::Title, Expr::value(title.as_set().cloned()));
+        }
+        if !icon.is_absent() {
+            update = update.col_expr(pages::Column::Icon, Expr::value(icon.as_set().cloned()));
+        }
+        if !cover_image.is_absent() {
+            update = update.col_expr(
+                pages::Column::CoverImage,
+                Expr::value(cover_image.as_set().cloned()),
+            );
+        }
+        if !is_locked.is_absent() {
+            update = update.col_expr(
+                pages::Column::IsLocked,
+                Expr::value(is_locked.as_set().copied()),
+            );
+        }
+        update
+            .col_expr(pages::Column::LastEditedBy, Expr::value(&caller.user_id))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now()))
+            .filter(pages::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
         let title = title
             .as_set()
             .map_or_else(|| page["title"].clone(), |title| json!(title));
@@ -405,18 +457,14 @@ pub(crate) async fn save_content(
         let content_text = content_text
             .into_option()
             .or_else(|| page["contentText"].as_str().map(str::to_owned));
-        sqlx::query(
-            "update knowledge_pages
-             set content_json = $2, content_text = $3, last_edited_by = $4, updated_at = $5::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&content)
-        .bind(content_text)
-        .bind(&caller.user_id)
-        .bind(now())
-        .execute(db)
-        .await?;
+        pages::Entity::update_many()
+            .col_expr(pages::Column::ContentJson, Expr::value(content.clone()))
+            .col_expr(pages::Column::ContentText, Expr::value(content_text))
+            .col_expr(pages::Column::LastEditedBy, Expr::value(&caller.user_id))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now()))
+            .filter(pages::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
         versions::maybe_auto_snapshot(db, &id, &content, &caller.user_id).await?;
         caller.publish(
             &state,
@@ -493,20 +541,15 @@ async fn move_subtree(
         _ => next_position(db, &target_space, parent_id.as_deref()).await?,
     };
     let now = now();
-    sqlx::query(
-        "update knowledge_pages
-         set parent_id = $2, space_id = $3, position = $4::int, last_edited_by = $5,
-             updated_at = $6::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&parent_id)
-    .bind(&target_space)
-    .bind(position)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    pages::Entity::update_many()
+        .col_expr(pages::Column::ParentId, Expr::value(parent_id.clone()))
+        .col_expr(pages::Column::SpaceId, Expr::value(&target_space))
+        .col_expr(pages::Column::Position, Expr::value(int(position)))
+        .col_expr(pages::Column::LastEditedBy, Expr::value(&caller.user_id))
+        .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+        .filter(pages::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
 
     // A move to another space carries the whole subtree along.
     if target_space != from_space {
@@ -516,15 +559,12 @@ async fn move_subtree(
             .filter(|page| page != id)
             .collect();
         if !descendants.is_empty() {
-            sqlx::query(
-                "update knowledge_pages set space_id = $2, updated_at = $3::timestamp
-                 where id = any($1)",
-            )
-            .bind(&descendants)
-            .bind(&target_space)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            pages::Entity::update_many()
+                .col_expr(pages::Column::SpaceId, Expr::value(&target_space))
+                .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+                .filter(among(&descendants))
+                .exec(&orm(db))
+                .await?;
         }
     }
 
@@ -549,14 +589,13 @@ pub(crate) async fn remove(
         let db = &caller.db;
         let page = load_writable_page(db, &id, &caller.user_id).await?;
         let subtree = subtree_ids(db, &id, false).await?;
-        sqlx::query(
-            "update knowledge_pages set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = any($1)",
-        )
-        .bind(&subtree)
-        .bind(now())
-        .execute(db)
-        .await?;
+        let now = now();
+        pages::Entity::update_many()
+            .col_expr(pages::Column::DeletedAt, Expr::value(now))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+            .filter(among(&subtree))
+            .exec(&orm(db))
+            .await?;
         caller.publish(
             &state,
             KNOWLEDGE_PAGE_DELETED,
@@ -589,22 +628,22 @@ pub(crate) async fn restore(
 
 async fn restore_page(state: &KnowState, caller: &Caller, id: &str) -> Result<Value, Refusal> {
     let db = &caller.db;
-    let page: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from knowledge_pages p where id = $1 and deleted_at is not null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(page) = page.map(js_row) else {
+    let page = pages::Entity::find_by_id(id.to_owned())
+        .filter(pages::Column::DeletedAt.is_not_null())
+        .one(&orm(db))
+        .await?;
+    let Some(page) = page.map(row) else {
         return Err(Refusal::not_found("Page", id));
     };
     let space_id = text(&page, "spaceId").to_owned();
-    let space: Option<String> = sqlx::query_scalar(
-        "select id from knowledge_spaces where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&space_id)
-    .fetch_optional(db)
-    .await?;
+    let space: Option<String> = spaces::Entity::find()
+        .select_only()
+        .column(spaces::Column::Id)
+        .filter(spaces::Column::Id.eq(&space_id))
+        .filter(spaces::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if space.is_none() {
         return Err(Refusal::conflict(
             "The space this page belonged to no longer exists",
@@ -620,37 +659,37 @@ async fn restore_page(state: &KnowState, caller: &Caller, id: &str) -> Result<Va
     // The old parent still in the trash: re-root at the top of the space.
     let mut parent_id = page["parentId"].as_str().map(str::to_owned);
     if let Some(parent) = parent_id.as_deref().filter(|parent| !parent.is_empty()) {
-        let live: Option<String> = sqlx::query_scalar(
-            "select id from knowledge_pages where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(parent)
-        .fetch_optional(db)
-        .await?;
+        let live: Option<String> = pages::Entity::find()
+            .select_only()
+            .column(pages::Column::Id)
+            .filter(pages::Column::Id.eq(parent))
+            .filter(pages::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if live.is_none() {
             parent_id = None;
         }
     }
 
     let now = now();
-    sqlx::query(
-        "update knowledge_pages set deleted_at = null, updated_at = $2::timestamp
-         where id = any($1)",
-    )
-    .bind(&to_restore)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    pages::Entity::update_many()
+        .col_expr(
+            pages::Column::DeletedAt,
+            Expr::value(None::<PrimitiveDateTime>),
+        )
+        .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+        .filter(among(&to_restore))
+        .exec(&orm(db))
+        .await?;
     let position = next_position(db, &space_id, parent_id.as_deref()).await?;
-    sqlx::query(
-        "update knowledge_pages set parent_id = $2, position = $3::int, updated_at = $4::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&parent_id)
-    .bind(position)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    pages::Entity::update_many()
+        .col_expr(pages::Column::ParentId, Expr::value(parent_id.clone()))
+        .col_expr(pages::Column::Position, Expr::value(int(position)))
+        .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+        .filter(pages::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
 
     caller.publish(
         state,

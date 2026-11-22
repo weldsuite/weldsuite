@@ -512,6 +512,20 @@
       "when": 1794991771063,
       "tag": "0072_weldpanel_lakehouse",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795270293839,
+      "tag": "0073_weldcommerce_registries",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795300963832,
+      "tag": "0074_mail_threat_indicators",
+      "breakpoints": true
     }
   ]
 }

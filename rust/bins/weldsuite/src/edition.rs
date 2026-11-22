@@ -123,11 +123,13 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
-    // Third-party integrations: their syncs and webhooks run in Global's
-    // integration-sync-worker and integration-webhook-worker (the CRM_SYNC
-    // Workflow, connector syncs, Slack, Discord and GitHub events, Google
-    // Calendar pushes), which aren't ported. The connect routes answer, but
-    // nothing would sync, so the platform hides those integrations.
+    // Third-party integrations not offered here yet: the CRM sync (Attio,
+    // HubSpot, Salesforce), Slack, Discord, GitHub and Google Calendar. The
+    // platform hides their pages under Settings › Integrations. WeldConnect's
+    // store and accounting connectors (WooCommerce, Shopify, Moneybird,
+    // Picqer) don't depend on this: `/api/connectors`, their webhooks
+    // (`weldsuite_integrations::connectors`) and the `connector-catchup` and
+    // `moneybird-push` cron jobs run here, so their pages stay.
     "integration-sync",
 ];
 

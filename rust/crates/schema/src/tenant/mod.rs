@@ -40,6 +40,8 @@ pub mod calendar_shares;
 pub mod calendars;
 pub mod carrier_services;
 pub mod carriers;
+pub mod cart_items;
+pub mod carts;
 pub mod categories;
 pub mod category_products;
 pub mod chat_bookmarks;
@@ -53,8 +55,17 @@ pub mod chat_messages;
 pub mod chat_reminders;
 pub mod chat_sections;
 pub mod chat_user_status;
+pub mod commerce_buyers;
+pub mod commerce_channel_keys;
+pub mod commerce_channels;
+pub mod commerce_company_settings;
+pub mod commerce_payment_connections;
+pub mod commerce_payments;
 pub mod commerce_portal_access;
 pub mod commerce_portal_settings;
+pub mod commerce_refunds;
+pub mod commerce_settings;
+pub mod commerce_shipping_rates;
 pub mod companies;
 pub mod connector_connections;
 pub mod connector_sync_runs;
@@ -89,6 +100,7 @@ pub mod desk_visitors;
 pub mod desk_voice_agents;
 pub mod desk_widget_settings;
 pub mod device_tokens;
+pub mod discount_redemptions;
 pub mod discounts;
 pub mod dns_records;
 pub mod dns_zones;
@@ -271,6 +283,7 @@ pub mod milestones;
 pub mod notification_preferences;
 pub mod notifications;
 pub mod object_templates;
+pub mod order_approvals;
 pub mod order_items;
 pub mod orders;
 pub mod panel_ai_summaries;
@@ -316,6 +329,7 @@ pub mod pick_list_items;
 pub mod pick_lists;
 pub mod pickups;
 pub mod product_connections;
+pub mod product_prices;
 pub mod product_sales_channels;
 pub mod product_suppliers;
 pub mod product_variants;
@@ -547,6 +561,8 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<calendars::Entity>(&calendars::DDL),
         crate::snapshot::table::<carrier_services::Entity>(&carrier_services::DDL),
         crate::snapshot::table::<carriers::Entity>(&carriers::DDL),
+        crate::snapshot::table::<cart_items::Entity>(&cart_items::DDL),
+        crate::snapshot::table::<carts::Entity>(&carts::DDL),
         crate::snapshot::table::<categories::Entity>(&categories::DDL),
         crate::snapshot::table::<category_products::Entity>(&category_products::DDL),
         crate::snapshot::table::<chat_bookmarks::Entity>(&chat_bookmarks::DDL),
@@ -560,8 +576,21 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<chat_reminders::Entity>(&chat_reminders::DDL),
         crate::snapshot::table::<chat_sections::Entity>(&chat_sections::DDL),
         crate::snapshot::table::<chat_user_status::Entity>(&chat_user_status::DDL),
+        crate::snapshot::table::<commerce_buyers::Entity>(&commerce_buyers::DDL),
+        crate::snapshot::table::<commerce_channel_keys::Entity>(&commerce_channel_keys::DDL),
+        crate::snapshot::table::<commerce_channels::Entity>(&commerce_channels::DDL),
+        crate::snapshot::table::<commerce_company_settings::Entity>(
+            &commerce_company_settings::DDL,
+        ),
+        crate::snapshot::table::<commerce_payment_connections::Entity>(
+            &commerce_payment_connections::DDL,
+        ),
+        crate::snapshot::table::<commerce_payments::Entity>(&commerce_payments::DDL),
         crate::snapshot::table::<commerce_portal_access::Entity>(&commerce_portal_access::DDL),
         crate::snapshot::table::<commerce_portal_settings::Entity>(&commerce_portal_settings::DDL),
+        crate::snapshot::table::<commerce_refunds::Entity>(&commerce_refunds::DDL),
+        crate::snapshot::table::<commerce_settings::Entity>(&commerce_settings::DDL),
+        crate::snapshot::table::<commerce_shipping_rates::Entity>(&commerce_shipping_rates::DDL),
         crate::snapshot::table::<companies::Entity>(&companies::DDL),
         crate::snapshot::table::<connector_connections::Entity>(&connector_connections::DDL),
         crate::snapshot::table::<connector_sync_runs::Entity>(&connector_sync_runs::DDL),
@@ -598,6 +627,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<desk_voice_agents::Entity>(&desk_voice_agents::DDL),
         crate::snapshot::table::<desk_widget_settings::Entity>(&desk_widget_settings::DDL),
         crate::snapshot::table::<device_tokens::Entity>(&device_tokens::DDL),
+        crate::snapshot::table::<discount_redemptions::Entity>(&discount_redemptions::DDL),
         crate::snapshot::table::<discounts::Entity>(&discounts::DDL),
         crate::snapshot::table::<dns_records::Entity>(&dns_records::DDL),
         crate::snapshot::table::<dns_zones::Entity>(&dns_zones::DDL),
@@ -811,6 +841,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<notification_preferences::Entity>(&notification_preferences::DDL),
         crate::snapshot::table::<notifications::Entity>(&notifications::DDL),
         crate::snapshot::table::<object_templates::Entity>(&object_templates::DDL),
+        crate::snapshot::table::<order_approvals::Entity>(&order_approvals::DDL),
         crate::snapshot::table::<order_items::Entity>(&order_items::DDL),
         crate::snapshot::table::<orders::Entity>(&orders::DDL),
         crate::snapshot::table::<panel_ai_summaries::Entity>(&panel_ai_summaries::DDL),
@@ -858,6 +889,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<pick_lists::Entity>(&pick_lists::DDL),
         crate::snapshot::table::<pickups::Entity>(&pickups::DDL),
         crate::snapshot::table::<product_connections::Entity>(&product_connections::DDL),
+        crate::snapshot::table::<product_prices::Entity>(&product_prices::DDL),
         crate::snapshot::table::<product_sales_channels::Entity>(&product_sales_channels::DDL),
         crate::snapshot::table::<product_suppliers::Entity>(&product_suppliers::DDL),
         crate::snapshot::table::<product_variants::Entity>(&product_variants::DDL),
@@ -1136,6 +1168,8 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "calendars" => json(Box::pin(calendars::Entity::find().all(db)).await?),
         "carrier_services" => json(Box::pin(carrier_services::Entity::find().all(db)).await?),
         "carriers" => json(Box::pin(carriers::Entity::find().all(db)).await?),
+        "cart_items" => json(Box::pin(cart_items::Entity::find().all(db)).await?),
+        "carts" => json(Box::pin(carts::Entity::find().all(db)).await?),
         "categories" => json(Box::pin(categories::Entity::find().all(db)).await?),
         "category_products" => json(Box::pin(category_products::Entity::find().all(db)).await?),
         "chat_bookmarks" => json(Box::pin(chat_bookmarks::Entity::find().all(db)).await?),
@@ -1153,11 +1187,28 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "chat_reminders" => json(Box::pin(chat_reminders::Entity::find().all(db)).await?),
         "chat_sections" => json(Box::pin(chat_sections::Entity::find().all(db)).await?),
         "chat_user_status" => json(Box::pin(chat_user_status::Entity::find().all(db)).await?),
+        "commerce_buyers" => json(Box::pin(commerce_buyers::Entity::find().all(db)).await?),
+        "commerce_channel_keys" => {
+            json(Box::pin(commerce_channel_keys::Entity::find().all(db)).await?)
+        }
+        "commerce_channels" => json(Box::pin(commerce_channels::Entity::find().all(db)).await?),
+        "commerce_company_settings" => {
+            json(Box::pin(commerce_company_settings::Entity::find().all(db)).await?)
+        }
+        "commerce_payment_connections" => {
+            json(Box::pin(commerce_payment_connections::Entity::find().all(db)).await?)
+        }
+        "commerce_payments" => json(Box::pin(commerce_payments::Entity::find().all(db)).await?),
         "commerce_portal_access" => {
             json(Box::pin(commerce_portal_access::Entity::find().all(db)).await?)
         }
         "commerce_portal_settings" => {
             json(Box::pin(commerce_portal_settings::Entity::find().all(db)).await?)
+        }
+        "commerce_refunds" => json(Box::pin(commerce_refunds::Entity::find().all(db)).await?),
+        "commerce_settings" => json(Box::pin(commerce_settings::Entity::find().all(db)).await?),
+        "commerce_shipping_rates" => {
+            json(Box::pin(commerce_shipping_rates::Entity::find().all(db)).await?)
         }
         "companies" => json(Box::pin(companies::Entity::find().all(db)).await?),
         "connector_connections" => {
@@ -1213,6 +1264,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
             json(Box::pin(desk_widget_settings::Entity::find().all(db)).await?)
         }
         "device_tokens" => json(Box::pin(device_tokens::Entity::find().all(db)).await?),
+        "discount_redemptions" => {
+            json(Box::pin(discount_redemptions::Entity::find().all(db)).await?)
+        }
         "discounts" => json(Box::pin(discounts::Entity::find().all(db)).await?),
         "dns_records" => json(Box::pin(dns_records::Entity::find().all(db)).await?),
         "dns_zones" => json(Box::pin(dns_zones::Entity::find().all(db)).await?),
@@ -1498,6 +1552,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         }
         "notifications" => json(Box::pin(notifications::Entity::find().all(db)).await?),
         "object_templates" => json(Box::pin(object_templates::Entity::find().all(db)).await?),
+        "order_approvals" => json(Box::pin(order_approvals::Entity::find().all(db)).await?),
         "order_items" => json(Box::pin(order_items::Entity::find().all(db)).await?),
         "orders" => json(Box::pin(orders::Entity::find().all(db)).await?),
         "panel_ai_summaries" => json(Box::pin(panel_ai_summaries::Entity::find().all(db)).await?),
@@ -1555,6 +1610,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "pick_lists" => json(Box::pin(pick_lists::Entity::find().all(db)).await?),
         "pickups" => json(Box::pin(pickups::Entity::find().all(db)).await?),
         "product_connections" => json(Box::pin(product_connections::Entity::find().all(db)).await?),
+        "product_prices" => json(Box::pin(product_prices::Entity::find().all(db)).await?),
         "product_sales_channels" => {
             json(Box::pin(product_sales_channels::Entity::find().all(db)).await?)
         }

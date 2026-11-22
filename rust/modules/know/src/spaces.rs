@@ -4,18 +4,21 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, SimpleExpr};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect, UpdateMany};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     KNOWLEDGE_SPACE_CREATED, KNOWLEDGE_SPACE_DELETED, KNOWLEDGE_SPACE_MEMBER_ADDED,
     KNOWLEDGE_SPACE_MEMBER_REMOVED, KNOWLEDGE_SPACE_MEMBER_UPDATED, KNOWLEDGE_SPACE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::KNOWLEDGE_CREATE;
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{knowledge_pages as pages, knowledge_spaces as spaces};
 
 use crate::access::{self, SpaceAccess, text};
-use crate::{Caller, KnowError, KnowState, Refusal, all, now, validate};
+use crate::{Caller, KnowError, KnowState, Refusal, all, now, row, validate};
 
 const VISIBILITIES: [&str; 3] = ["open", "closed", "private"];
 const ROLES: [&str; 3] = ["owner", "editor", "viewer"];
@@ -39,9 +42,9 @@ pub(crate) async fn list(caller: Caller) -> Response {
     let result = async {
         let now = now();
         if caller.can(KNOWLEDGE_CREATE) {
-            access::ensure_personal_space(&caller.db, &caller.user_id, &now).await?;
+            access::ensure_personal_space(&caller.db, &caller.user_id, now).await?;
         }
-        access::join_default_spaces(&caller.db, &caller.user_id, &now).await?;
+        access::join_default_spaces(&caller.db, &caller.user_id, now).await?;
         access::list_spaces(&caller.db, &caller.user_id, caller.can_manage_all()).await
     }
     .await;
@@ -117,42 +120,40 @@ async fn create_space(
     let sort_order = if let Field::Set(order) = input.sort_order {
         order
     } else {
-        let max: i64 = sqlx::query_scalar(
-            "select coalesce(max(sort_order), -1)::bigint from knowledge_spaces
-             where deleted_at is null",
-        )
-        .fetch_one(db)
-        .await?;
-        max + 1
+        let max: Option<Option<i32>> = spaces::Entity::find()
+            .select_only()
+            .column_as(spaces::Column::SortOrder.max(), "max")
+            .filter(spaces::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        max.flatten().map_or(-1, i64::from) + 1
     };
     let name = input.name.into_option().unwrap_or_default();
-    sqlx::query(
-        "insert into knowledge_spaces
-             (id, name, description, icon, color, kind, visibility, is_default, sort_order,
-              created_by, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, 'team', $6, $7, $8::int, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(&name)
-    .bind(input.description.into_option())
-    .bind(input.icon.into_option())
-    .bind(input.color.into_option())
-    .bind(
-        input
+    spaces::Entity::insert(spaces::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name.clone()),
+        description: Set(input.description.into_option()),
+        icon: Set(input.icon.into_option()),
+        color: Set(input.color.into_option()),
+        kind: Set("team".to_owned()),
+        visibility: Set(input
             .visibility
             .into_option()
-            .unwrap_or_else(|| "open".to_owned()),
-    )
-    .bind(is_default)
-    .bind(sort_order)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(db)
+            .unwrap_or_else(|| "open".to_owned())),
+        is_default: Set(is_default),
+        sort_order: Set(int(sort_order)),
+        created_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     // The creator is the teamspace's first owner.
-    access::add_space_member(db, &id, &caller.user_id, "owner", &caller.user_id, &now).await?;
+    access::add_space_member(db, &id, &caller.user_id, "owner", &caller.user_id, now).await?;
     if is_default {
-        access::add_everyone_to_space(db, &id, &caller.user_id, &now).await?;
+        access::add_everyone_to_space(db, &id, &caller.user_id, now).await?;
     }
     caller.publish(
         state,
@@ -164,22 +165,34 @@ async fn create_space(
 }
 
 async fn space_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Value, KnowError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(s) from knowledge_spaces s where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map_or(Value::Null, js_row))
+    let space = spaces::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(space.map_or(Value::Null, row))
 }
 
-/// `(set, value)` for an `update … set col = case when set then value …`:
-/// a field the body left out keeps the column.
-fn change<T: Clone>(field: &Field<T>) -> (bool, Option<T>) {
-    match field {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(value) => (true, Some(value.clone())),
-    }
+/// An `integer` column's value.
+fn int(value: i64) -> i32 {
+    i32::try_from(value).unwrap_or(if value < 0 { i32::MIN } else { i32::MAX })
+}
+
+/// `set col = value` for a field the body sent (`null` included); a field
+/// it left out keeps the column.
+fn change<T>(
+    update: UpdateMany<spaces::Entity>,
+    column: spaces::Column,
+    field: &Field<T>,
+) -> UpdateMany<spaces::Entity>
+where
+    T: Clone + Into<sea_orm::Value>,
+    Option<T>: Into<sea_orm::Value>,
+{
+    let value: SimpleExpr = match field {
+        Field::Absent => return update,
+        Field::Null => Expr::value(None::<T>),
+        Field::Set(value) => Expr::value(value.clone()),
+    };
+    update.col_expr(column, value)
 }
 
 pub(crate) async fn update(
@@ -218,48 +231,33 @@ async fn update_space(
     }
 
     let now = now();
-    let (set_name, name) = change(&input.name);
-    let (set_description, description) = change(&input.description);
-    let (set_icon, icon) = change(&input.icon);
-    let (set_color, color) = change(&input.color);
-    let (set_visibility, visibility) = change(&input.visibility);
-    let (set_default, default) = change(&input.is_default);
-    let (set_order, order) = change(&input.sort_order);
-    sqlx::query(
-        "update knowledge_spaces set
-             name = case when $2 then $3 else name end,
-             description = case when $4 then $5 else description end,
-             icon = case when $6 then $7 else icon end,
-             color = case when $8 then $9 else color end,
-             visibility = case when $10 then $11 else visibility end,
-             is_default = case when $12 then $13 else is_default end,
-             sort_order = case when $14 then $15::int else sort_order end,
-             updated_at = $16::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(set_name)
-    .bind(&name)
-    .bind(set_description)
-    .bind(description)
-    .bind(set_icon)
-    .bind(icon)
-    .bind(set_color)
-    .bind(color)
-    .bind(set_visibility)
-    .bind(visibility)
-    .bind(set_default)
-    .bind(default)
-    .bind(set_order)
-    .bind(order)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let sort_order: Field<i32> = match &input.sort_order {
+        Field::Absent => Field::Absent,
+        Field::Null => Field::Null,
+        Field::Set(order) => Field::Set(int(*order)),
+    };
+    let mut update = spaces::Entity::update_many();
+    update = change(update, spaces::Column::Name, &input.name);
+    update = change(update, spaces::Column::Description, &input.description);
+    update = change(update, spaces::Column::Icon, &input.icon);
+    update = change(update, spaces::Column::Color, &input.color);
+    update = change(update, spaces::Column::Visibility, &input.visibility);
+    update = change(update, spaces::Column::IsDefault, &input.is_default);
+    update = change(update, spaces::Column::SortOrder, &sort_order);
+    update
+        .col_expr(spaces::Column::UpdatedAt, Expr::value(now))
+        .filter(spaces::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     if turns_default_on {
-        access::add_everyone_to_space(db, id, &caller.user_id, &now).await?;
+        access::add_everyone_to_space(db, id, &caller.user_id, now).await?;
     }
 
-    let name = name.unwrap_or_else(|| text(&access.space, "name").to_owned());
+    let name = input
+        .name
+        .as_set()
+        .cloned()
+        .unwrap_or_else(|| text(&access.space, "name").to_owned());
     caller.publish(
         state,
         KNOWLEDGE_SPACE_UPDATED,
@@ -280,23 +278,21 @@ pub(crate) async fn remove(
         let access = space_for(&caller, &id).await?;
         access::assert_can_manage(&access)?;
         let now = now();
-        sqlx::query(
-            "update knowledge_spaces set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        spaces::Entity::update_many()
+            .col_expr(spaces::Column::DeletedAt, Expr::value(now))
+            .col_expr(spaces::Column::UpdatedAt, Expr::value(now))
+            .filter(spaces::Column::Id.eq(&id))
+            .exec(&db)
+            .await?;
         // Soft-delete every live page in the space so they surface in trash.
-        sqlx::query(
-            "update knowledge_pages set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where space_id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        pages::Entity::update_many()
+            .col_expr(pages::Column::DeletedAt, Expr::value(now))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+            .filter(pages::Column::SpaceId.eq(&id))
+            .filter(pages::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
         caller.publish(&state, KNOWLEDGE_SPACE_DELETED, &id, &json!({ "id": id }));
         Ok::<_, KnowError>(())
     }
@@ -358,7 +354,7 @@ pub(crate) async fn add_member(
         let access = space_for(&caller, &id).await?;
         access::assert_can_manage(&access)?;
         let created =
-            access::add_space_member(&caller.db, &id, &user_id, &role, &caller.user_id, &now())
+            access::add_space_member(&caller.db, &id, &user_id, &role, &caller.user_id, now())
                 .await?;
         let event = if created {
             KNOWLEDGE_SPACE_MEMBER_ADDED
@@ -393,7 +389,7 @@ pub(crate) async fn set_member_role(
     let result = async {
         let access = space_for(&caller, &id).await?;
         access::assert_can_manage(&access)?;
-        access::set_space_member_role(&caller.db, &id, &member_id, &role, &now()).await?;
+        access::set_space_member_role(&caller.db, &id, &member_id, &role, now()).await?;
         let body = membership(&id, &member_id, &role);
         caller.publish(&state, KNOWLEDGE_SPACE_MEMBER_UPDATED, &id, &body);
         Ok::<_, KnowError>(body)
@@ -417,7 +413,7 @@ pub(crate) async fn remove_member(
         if member_id != caller.user_id {
             access::assert_can_manage(&access)?;
         }
-        access::remove_space_member(&caller.db, &id, &member_id, &now()).await?;
+        access::remove_space_member(&caller.db, &id, &member_id, now()).await?;
         caller.publish(
             &state,
             KNOWLEDGE_SPACE_MEMBER_REMOVED,
@@ -445,7 +441,7 @@ pub(crate) async fn join(
         if let Some(role) = &access.role {
             return Ok(membership(&id, &caller.user_id, role));
         }
-        access::join_space(&caller.db, &access, &caller.user_id, &now()).await?;
+        access::join_space(&caller.db, &access, &caller.user_id, now()).await?;
         let body = membership(&id, &caller.user_id, "editor");
         caller.publish(&state, KNOWLEDGE_SPACE_MEMBER_ADDED, &id, &body);
         Ok::<_, KnowError>(body)
@@ -465,7 +461,7 @@ pub(crate) async fn leave(
 ) -> Response {
     let result = async {
         space_for(&caller, &id).await?;
-        access::remove_space_member(&caller.db, &id, &caller.user_id, &now()).await?;
+        access::remove_space_member(&caller.db, &id, &caller.user_id, now()).await?;
         caller.publish(
             &state,
             KNOWLEDGE_SPACE_MEMBER_REMOVED,

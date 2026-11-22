@@ -155,6 +155,7 @@ where
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
         .merge(routes::mail_ai::routes(state.clone(), gate))
+        .merge(routes::mail_link_check::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 
