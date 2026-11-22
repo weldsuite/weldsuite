@@ -6,7 +6,7 @@ import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { makeProject } from '../test-fixtures';
-import WeldPanelProjectsPage from './page';
+import WeldPanelProjectsPage, { matchesProjectFilter, matchesProjectSearch } from './page';
 
 const state = vi.hoisted(() => ({
   locale: 'en' as 'en' | 'nl',
@@ -40,11 +40,15 @@ vi.mock('@/components/panel-entity-list', () => ({
     columns: { id: string; header: string; render: (item: never) => ReactNode }[];
     onRowClick?: (item: never) => void;
     createButton?: { label: string; onClick: () => void };
-    hideFilter?: boolean;
+    filters?: { field: string; label: string }[];
+    onSearchChange?: (query: string) => void;
     emptyState: { title: string; description: string; action?: { label: string; onClick: () => void } };
   }) => (
     <div>
-      <div data-testid="header" data-hide-filter={String(!!props.hideFilter)}>{props.columns.map((col) => col.header).join('|')}</div>
+      <div data-testid="header" data-filters={(props.filters ?? []).map((f) => f.label).join('|')}>
+        {props.columns.map((col) => col.header).join('|')}
+      </div>
+      {props.onSearchChange && <input aria-label="search" onChange={(event) => props.onSearchChange?.(event.target.value)} />}
       {props.createButton && <button onClick={props.createButton.onClick}>{props.createButton.label}</button>}
       {props.items.length === 0 && (
         <div data-testid="empty">
@@ -54,11 +58,11 @@ vi.mock('@/components/panel-entity-list', () => ({
         </div>
       )}
       {props.items.map((item) => (
-        <div key={item.id} data-testid="row" onClick={() => props.onRowClick?.(item as never)}>
+        <button type="button" key={item.id} data-testid="row" onClick={() => props.onRowClick?.(item as never)}>
           {props.columns.map((col) => (
             <span key={col.id}>{col.render(item as never)}</span>
           ))}
-        </div>
+        </button>
       ))}
     </div>
   ),
@@ -141,10 +145,30 @@ describe('WeldPanel projects', () => {
     expect(screen.getByText(en.common.labels.loading)).toBeTruthy();
   });
 
-  it('offers no Filter button: there is nothing to filter projects on', () => {
+  it('offers filters on type and status', () => {
     state.projects = [makeProject()];
     render(<WeldPanelProjectsPage />);
-    expect(screen.getByTestId('header').getAttribute('data-hide-filter')).toBe('true');
+    expect(screen.getByTestId('header').getAttribute('data-filters')).toBe(`${tp.table.kind}|${tp.table.status}`);
+  });
+
+  it('searches by name and domain', async () => {
+    state.projects = [
+      makeProject({ id: 'wpp_1', name: 'Marketing site', allowedDomains: ['example.com'] }),
+      makeProject({ id: 'wpp_2', name: 'Web app', allowedDomains: ['app.weld.test'] }),
+    ];
+    render(<WeldPanelProjectsPage />);
+    await userEvent.type(screen.getByLabelText('search'), 'WELD');
+    expect(screen.getAllByTestId('row').map((row) => row.textContent)).toEqual([expect.stringContaining('Web app')]);
+  });
+
+  it('matches a project against a type or status pill', () => {
+    const project = { kind: 'app' as const, status: 'paused' as const };
+    expect(matchesProjectFilter(project, { id: '1', field: 'kind', operator: 'is', value: 'app' })).toBe(true);
+    expect(matchesProjectFilter(project, { id: '2', field: 'kind', operator: 'is not', value: 'app' })).toBe(false);
+    expect(matchesProjectFilter(project, { id: '3', field: 'status', operator: 'is', value: 'active' })).toBe(false);
+    expect(matchesProjectFilter(project, { id: '4', field: 'status', operator: 'is', value: '' })).toBe(true);
+    expect(matchesProjectSearch({ name: 'Shop', allowedDomains: ['shop.example.com'] }, ' example ')).toBe(true);
+    expect(matchesProjectSearch({ name: 'Shop', allowedDomains: [] }, 'blog')).toBe(false);
   });
 
   it('says what this edition offers when it has no analytics store (panel-analytics)', () => {

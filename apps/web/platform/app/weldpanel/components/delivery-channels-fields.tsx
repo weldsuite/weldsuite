@@ -1,16 +1,14 @@
 /**
  * Where an alert or a scheduled report goes: members by email, an in-app
- * notification, a Slack incoming webhook (write-only: shown as "set", then
- * kept, replaced or removed) and a WeldChat channel. A controlled field
- * group over `ChannelsDraft` (`lib/channels.ts`).
+ * notification and a WeldChat channel. A controlled field group over
+ * `ChannelsDraft` (`lib/channels.ts`). The form no longer offers Slack; a
+ * webhook an alert or schedule already has is kept as it is.
  */
 
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import { PANEL_MAX_EMAIL_RECIPIENTS, type PanelDeliveryReportDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
-import { Button } from '@weldsuite/ui/components/button';
 import { InlineError } from '@weldsuite/ui/components/error-banner';
-import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { MultiSelect } from '@weldsuite/ui/components/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -65,43 +63,6 @@ export function DeliveryChannelsFields({ value, onChange, disabled, showErrors }
           <p className="text-xs text-muted-foreground">{tch.inAppHint}</p>
         </div>
         <Switch id="weldpanel-channels-inapp" checked={value.inApp} onCheckedChange={(inApp) => set({ inApp })} disabled={disabled} />
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor="weldpanel-channels-slack">{tch.slackLabel}</Label>
-        {value.slackMode === 'keep' || value.slackMode === 'remove' ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <span className="min-w-0 flex-1 text-muted-foreground">{value.slackMode === 'keep' ? tch.slackSet : tch.slackRemoved}</span>
-            {value.slackMode === 'keep' ? (
-              <>
-                <Button type="button" size="sm" variant="outline" onClick={() => set({ slackMode: 'set', slackUrl: '' })}>
-                  {tch.slackReplace}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => set({ slackMode: 'remove' })}>
-                  {tch.slackRemove}
-                </Button>
-              </>
-            ) : (
-              <Button type="button" size="sm" variant="outline" onClick={() => set({ slackMode: 'keep' })}>
-                {tch.slackKeep}
-              </Button>
-            )}
-          </div>
-        ) : (
-          <Input
-            id="weldpanel-channels-slack"
-            type="url"
-            inputMode="url"
-            autoComplete="off"
-            value={value.slackUrl}
-            placeholder={tch.slackPlaceholder}
-            onChange={(event) => set({ slackMode: 'set', slackUrl: event.target.value })}
-            aria-invalid={problem === 'slackInvalid' || undefined}
-            disabled={disabled}
-          />
-        )}
-        <p className="text-xs text-muted-foreground">{tch.slackHint}</p>
-        {problem === 'slackInvalid' && value.slackUrl.trim() !== '' && <InlineError>{tch.slackInvalid}</InlineError>}
       </div>
 
       <div className="grid gap-1.5">

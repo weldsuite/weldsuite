@@ -1,9 +1,10 @@
 /**
  * A ranked list, as on dub.co's analytics ("Top links"): a row per item,
  * biggest first, whose bar is a light tint behind the label, as wide as the
- * item's share of the biggest one, with the value on the right. Under the
- * pointer (or keyboard focus) the row gets an edge in the bar colour and the
- * value slides aside for the item's share of the total.
+ * item's share of the biggest one, with the value on the right. The bars run
+ * edge to edge, in line with the column headings above them. Under the
+ * pointer (or keyboard focus) the row gets a faint tint and the item's share
+ * of the total shows before its value.
  *
  * Rows can be buttons (`onSelect`), and a long list can stop at `limit` with
  * a "show all" button under it (`onShowAll`). The component holds no text of
@@ -76,12 +77,10 @@ export function RankedBars({
               {item.icon && <span className="relative flex size-5 shrink-0 items-center justify-center">{item.icon}</span>}
               <span className="relative min-w-0 flex-1 truncate">{item.label}</span>
               <span className="relative flex shrink-0 items-center text-muted-foreground tabular-nums">
-                <span className="transition-transform duration-300 group-hover/rank:-translate-x-12 group-focus-within/rank:-translate-x-12 motion-reduce:transition-none">
-                  {item.display}
-                </span>
-                <span className="absolute right-0 opacity-0 transition-opacity duration-300 group-hover/rank:opacity-100 group-focus-within/rank:opacity-100 motion-reduce:transition-none">
+                <span className="absolute right-full mr-3 whitespace-nowrap opacity-0 group-hover/rank:opacity-100 group-focus-within/rank:opacity-100">
                   {formatShare(total > 0 ? Math.max(item.value, 0) / total : 0)}
                 </span>
+                <span>{item.display}</span>
               </span>
             </>
           );
@@ -89,7 +88,7 @@ export function RankedBars({
           return (
             <li
               key={item.key}
-              className="group/rank border-l-2 border-transparent py-0.5 pl-1 pr-1 hover:border-(--rank-color) hover:bg-[color-mix(in_oklab,var(--rank-color)_6%,transparent)] focus-within:border-(--rank-color)"
+              className="group/rank rounded-md py-0.5 hover:bg-[color-mix(in_oklab,var(--rank-color)_6%,transparent)]"
             >
               {onSelect ? (
                 <button type="button" className={cn(row, 'rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring')} onClick={() => onSelect(item)}>

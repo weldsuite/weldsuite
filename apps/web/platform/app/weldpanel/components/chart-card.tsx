@@ -38,6 +38,8 @@ interface ChartCardProps {
    * `csvFilename(reportOrPageName)`.
    */
   csv?: () => CsvExport;
+  /** No card around it: the title row and the content sit flat on the page, for a report that is the page's whole body (Flows). */
+  bare?: boolean;
 }
 
 /** The "Export CSV" icon button; also usable outside a card (a table's toolbar, the users list). */
@@ -64,6 +66,7 @@ export function ChartCard({
   contentClassName,
   skeletonClassName,
   csv,
+  bare = false,
 }: Readonly<ChartCardProps>) {
   const { t } = useI18n();
   let body: ReactNode = children;
@@ -71,18 +74,33 @@ export function ChartCard({
   else if (loading) body = <Skeleton className={cn('h-48 w-full', skeletonClassName)} />;
   else if (empty) body = <EmptyText>{emptyText ?? t.weldpanel.analytics.common.noData}</EmptyText>;
   const showCsv = csv !== undefined && !error && !loading && !empty;
+  const toolbar = (actions || showCsv) && (
+    <div className="ml-auto flex flex-wrap items-center gap-2">
+      {actions}
+      {showCsv && csv && <CsvExportButton csv={csv} />}
+    </div>
+  );
+
+  if (bare) {
+    return (
+      <section className={cn('grid min-w-0 gap-3', className)}>
+        {(title || toolbar) && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {title && <h2 className="text-sm font-medium">{title}</h2>}
+            {toolbar}
+          </div>
+        )}
+        <div className={contentClassName}>{body}</div>
+      </section>
+    );
+  }
 
   return (
     <Card className={cn('min-w-0 gap-3 py-4', className)}>
       {(title || actions || showCsv) && (
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 px-4 pb-0">
           {title && <CardTitle className="text-sm font-medium">{title}</CardTitle>}
-          {(actions || showCsv) && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {actions}
-              {showCsv && csv && <CsvExportButton csv={csv} />}
-            </div>
-          )}
+          {toolbar}
         </CardHeader>
       )}
       <CardContent className={cn('px-4', contentClassName)}>{body}</CardContent>

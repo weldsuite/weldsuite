@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { en } from '@weldsuite/i18n/locales/en';
 import type { PanelAlertDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
+import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { makeReport } from '../analytics-fixtures';
 import { resetCurrentProjectChoice } from '../lib/use-current-project';
 import { makeProject } from '../test-fixtures';
@@ -38,6 +39,10 @@ vi.mock('@/lib/router', () => ({
   Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
 }));
 vi.mock('sonner', () => ({ toast: state.toast }));
+vi.mock('@/components/object-panel', async () => ({
+  ...(await import('@/components/objects/_shared/object-panel-test-mock')),
+  useObjectPanelNavigationReporter: () => () => undefined,
+}));
 vi.mock('../components/use-members', () => ({
   useMembers: () => ({ members: [], isLoading: false, me: 'user_1', nameOf: () => 'Someone' }),
 }));
@@ -107,7 +112,7 @@ describe('Alerts', () => {
     state.listParams = [];
     state.alert = alert();
     state.events = [];
-    for (const fn of [state.update, state.remove, state.snooze, state.test, state.replace, state.toast.success, state.toast.error]) fn.mockReset();
+    for (const fn of [state.update, state.remove, state.snooze, state.test, state.replace, state.toast.success, state.toast.error, panelOpen]) fn.mockReset();
     window.localStorage.clear();
     resetCurrentProjectChoice();
   });
@@ -121,20 +126,22 @@ describe('Alerts', () => {
     expect(screen.getByText(ta.states.firing)).toBeTruthy();
   });
 
-  it('opens the alert named in the link, with its history', () => {
+  it('turns the link of alert emails into the alert panel', () => {
     state.search = 'alert=pnal_1';
-    state.events = [{ id: 'pnae_1', alertId: 'pnal_1', kind: 'fired', value: 80, bound: 100, message: null, createdAt: '2026-11-01T06:00:00.000Z' }];
     render(<AlertsPage />);
-    const sheet = screen.getByRole('dialog');
-    expect(within(sheet).getByText(ta.detail.historyTitle)).toBeTruthy();
-    expect(within(sheet).getByText(ta.detail.events.fired)).toBeTruthy();
-    expect(within(sheet).getByRole('link', { name: ta.detail.openReport }).getAttribute('href')).toBe('/weldpanel/insights?report=wpr_1');
+    expect(state.replace).toHaveBeenCalledWith('/weldpanel/alerts?stack=panel_alert:pnal_1');
   });
 
-  it('opens an alert from the list by putting it in the URL', async () => {
+  it('opens an alert from the list in its record panel', async () => {
     render(<AlertsPage />);
     await userEvent.click(screen.getByRole('button', { name: en.common.actions.view }));
-    expect(state.replace).toHaveBeenCalledWith('/weldpanel/alerts?alert=pnal_1');
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'panel_alert', id: 'pnal_1' });
+  });
+
+  it('opens the history tab from the row menu', async () => {
+    render(<AlertsPage />);
+    await openMenu('Signups dropped', ta.actions.history);
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'panel_alert', id: 'pnal_1', initialTab: 'history' });
   });
 
   it('turns an alert off', async () => {

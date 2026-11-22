@@ -1,34 +1,41 @@
 /**
  * Frustration: rage clicks, dead clicks, quick backs, excessive scrolling and
- * errors over time, the pages and elements with the most of the chosen
- * signal, and a link from each to the recordings that show it. All numbers
- * come from the trends query; nothing here needs a recording.
+ * errors, in the platform's flat style (no cards): full-width sections
+ * divided by lines.
  *
- * The page opens with the standard toolbar row: Filter (device, page) narrows
- * every number on it, search narrows the pages and elements tables, and the
- * freshness and period sit on the right.
+ * - The standard toolbar row: Filter (device, page) narrows every number,
+ *   search narrows the two lists, the freshness and period on the right.
+ * - The five signals as figures that pick (`FigureRow` as tabs), each with
+ *   its change on the period before.
+ * - The picked signal: what it is, a way to its recordings, and its chart
+ *   (this period against the one before, dashed), as on the WeldBooks
+ *   dashboard.
+ * - Its pages and elements side by side as top lists; a page opens the
+ *   recordings that show the signal there.
+ *
+ * All numbers come from the trends query; nothing here needs a recording.
  */
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, MousePointerClick, MousePointerBan, ScrollText } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { PANEL_DEVICE_CLASSES, type PanelDateRange, type PanelFilter, type PanelTrendsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { Button } from '@weldsuite/ui/components/button';
-import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { ComparisonChart, type ComparisonPoint } from '@weldsuite/ui/components/comparison-chart';
+import { FigureRow } from '@weldsuite/ui/components/figure-row';
 import { ListToolbar } from '@weldsuite/ui/components/list-toolbar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { useWeldPanelTrends } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link } from '@/lib/router';
+import { Link, useRouter } from '@/lib/router';
 import { AnalyticsListPage } from '../components/analytics-page';
-import { ChartCard } from '../components/chart-card';
-import { TimeSeriesChart, type ChartDatum, type ChartSeries } from '../components/charts/time-series-chart';
 import { DateRangePicker } from '../components/date-range-picker';
 import { FreshnessBadge } from '../components/freshness-badge';
+import { QueryErrorState } from '../components/query-error-state';
+import { TopList, TopLists } from '../components/top-list';
 import { browserTimezone, defaultInterval, useDateRange } from '../lib/date-range';
-import { formatBucket, formatNumber } from '../lib/format';
+import { formatBucket, formatCompact, formatNumber, formatSignedPercent, relativeChange } from '../lib/format';
 import { frustrationHref } from '../lib/observe-links';
 
 export const FRUSTRATION_TYPES = ['rage', 'dead', 'quickback', 'excessive_scroll', 'errors'] as const;
@@ -42,8 +49,6 @@ export const FRUSTRATION_EVENTS: Record<FrustrationKind, string> = {
   errors: '$exception',
 };
 
-const ICONS = { rage: MousePointerClick, dead: MousePointerBan, quickback: ArrowLeftRight, excessive_scroll: ScrollText, errors: AlertTriangle } as const;
-
 /** Only click-based signals carry the element that was clicked. */
 const HAS_ELEMENT: Record<FrustrationKind, boolean> = { rage: true, dead: true, quickback: false, excessive_scroll: false, errors: false };
 
@@ -55,11 +60,6 @@ export default function FrustrationPage() {
       {(project) => <Frustration key={project.id} project={project} />}
     </AnalyticsListPage>
   );
-}
-
-function kindTone(kind: string, total: number): 'danger' | 'warning' | 'default' {
-  if (total <= 0) return 'default';
-  return kind === 'errors' ? 'danger' : 'warning';
 }
 
 /** The toolbar's pills as query filters: Device is / is not, Page contains / does not contain. Unfinished pills are left out. */
@@ -85,7 +85,8 @@ function trendsSpec(projectId: string, range: PanelDateRange, events: string[], 
     interval: defaultInterval(range),
     series: events.map((event) => ({ event, math: 'total' as const, filters: [] })),
     breakdown: breakdown ? { source: 'column', field: breakdown, limit: 10 } : undefined,
-    compare: false,
+    // The overview compares with the period before (the figures' change and the chart's dashed line).
+    compare: breakdown === undefined,
     filters,
   };
 }
@@ -93,6 +94,7 @@ function trendsSpec(projectId: string, range: PanelDateRange, events: string[], 
 function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
   const { t, language, format } = useI18n();
   const tf = t.weldpanel.observe.frustration;
+  const router = useRouter();
   const canWatch = useCan('panel_recordings:read');
   const [range, setRange] = useDateRange();
   const [selected, setSelected] = useState<FrustrationKind>('rage');
@@ -112,25 +114,29 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
   const pages = useWeldPanelTrends(pagesSpec);
   const elements = useWeldPanelTrends(elementsSpec, { enabled: HAS_ELEMENT[selected] });
 
-  const totals = overview.data?.result.series ?? [];
-  const totalOf = (kind: FrustrationKind) => totals.find((s) => s.seriesIndex === FRUSTRATION_TYPES.indexOf(kind))?.total ?? 0;
-  const anything = totals.some((s) => s.total > 0);
-
+  const seriesOf = (kind: FrustrationKind) => overview.data?.result.series.find((s) => s.seriesIndex === FRUSTRATION_TYPES.indexOf(kind));
   const interval = overview.data?.result.interval ?? 'day';
-  const { chartData, chartSeries } = useMemo(() => {
-    const series: ChartSeries[] = FRUSTRATION_TYPES.map((kind) => ({ key: kind, label: tf.types[kind] }));
-    const byBucket = new Map<string, ChartDatum>();
-    for (const s of overview.data?.result.series ?? []) {
-      const kind = FRUSTRATION_TYPES[s.seriesIndex];
-      if (!kind) continue;
-      for (const point of s.points) {
-        const row = byBucket.get(point.bucket) ?? ({ label: formatBucket(point.bucket, interval, language), bucket: point.bucket } as ChartDatum);
-        row[kind] = point.value;
-        byBucket.set(point.bucket, row);
-      }
-    }
-    return { chartData: [...byBucket.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, row]) => row), chartSeries: series };
-  }, [overview.data, interval, language, tf.types]);
+  const bucketLabel = (bucket: string) => formatBucket(bucket, interval, language);
+
+  const figures = FRUSTRATION_TYPES.map((kind) => {
+    const series = seriesOf(kind);
+    const total = series?.total ?? 0;
+    const change = relativeChange(total, series?.previous?.total);
+    return {
+      key: kind,
+      label: tf.types[kind],
+      value: formatNumber(total, language),
+      note: change === null ? tf.noneBefore : format(tf.versusBefore, { change: formatSignedPercent(change, language) }),
+      // More frustration than before is the bad direction.
+      warn: change !== null && change > 0,
+    };
+  });
+
+  const picked = seriesOf(selected);
+  const points: ComparisonPoint[] = (picked?.points ?? []).map((point, i) => {
+    const before = picked?.previous?.points[i];
+    return { month: point.bucket, value: point.value, compareMonth: before?.bucket, compareValue: before?.value };
+  });
 
   const query = search.trim().toLowerCase();
   const rows = (data: typeof pages.data) =>
@@ -138,8 +144,23 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
       .filter((s) => s.breakdownValue && s.total > 0 && (query === '' || s.breakdownValue.toLowerCase().includes(query)))
       .sort((a, b) => b.total - a.total)
       .map((s) => ({ value: s.breakdownValue as string, count: s.total }));
-  const pageRows = rows(pages.data);
-  const elementRows = rows(elements.data);
+
+  let chart = (
+    <ComparisonChart
+      variant="card"
+      points={points}
+      label={tf.types[selected]}
+      compareLabel={tf.periodBefore}
+      formatTick={bucketLabel}
+      formatAxisValue={(value) => formatCompact(value, language)}
+      formatValue={(value) => formatNumber(value, language)}
+      formatPeriod={bucketLabel}
+      className="aspect-auto h-[240px] w-full"
+    />
+  );
+  if (overview.error) chart = <QueryErrorState error={overview.error} onRetry={() => void overview.refetch()} />;
+  else if (overview.isLoading) chart = <Skeleton className="h-[240px] w-full" />;
+  else if (points.length === 0) chart = <p className="py-16 text-center text-sm text-muted-foreground">{tf.trendEmpty}</p>;
 
   return (
     <div className="flex h-full flex-col">
@@ -156,108 +177,54 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
           </>
         }
       />
+
       <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto grid max-w-[1600px] gap-4 p-6">
+        {/* The signals as tabs: the picked one's underline sits on the line under the row. */}
+        <section className="border-b px-4 pt-4">
+          <FigureRow columns={5} items={figures} loading={overview.isLoading} selected={selected} onSelect={(key) => setSelected(key as FrustrationKind)} label={tf.signals} />
+        </section>
 
-      <KpiGrid className="sm:grid-cols-2 lg:grid-cols-5">
-        {FRUSTRATION_TYPES.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            aria-pressed={selected === kind}
-            aria-label={tf.types[kind]}
-            onClick={() => setSelected(kind)}
-            className={`rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${selected === kind ? 'ring-2 ring-primary' : ''}`}
-          >
-            <KpiCard
-              interactive
-              label={tf.types[kind]}
-              icon={ICONS[kind]}
-              loading={overview.isLoading}
-              value={formatNumber(totalOf(kind), language)}
-              tone={kindTone(kind, totalOf(kind))}
-            />
-          </button>
-        ))}
-      </KpiGrid>
+        <section aria-label={tf.types[selected]} className="grid gap-4 border-b p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium">{tf.types[selected]}</h2>
+              <p className="text-sm text-muted-foreground">{tf.typeHelp[selected]}</p>
+            </div>
+            {canWatch ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={frustrationHref(selected, { range, project: project.id })}>{tf.watch}</Link>
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">{tf.noRecordingsPermission}</p>
+            )}
+          </div>
+          {chart}
+        </section>
 
-      <ChartCard title={tf.trend} loading={overview.isLoading} error={overview.error} onRetry={() => void overview.refetch()} empty={!anything} emptyText={tf.trendEmpty}>
-        <TimeSeriesChart data={chartData} series={chartSeries} type="line" locale={language} legend />
-      </ChartCard>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{tf.types[selected]}</p>
-          <p className="text-sm text-muted-foreground">{tf.typeHelp[selected]}</p>
-        </div>
-        {canWatch ? (
-          <Button asChild size="sm">
-            <Link href={frustrationHref(selected, { range, project: project.id })}>{tf.watch}</Link>
-          </Button>
-        ) : (
-          <p className="text-xs text-muted-foreground">{tf.noRecordingsPermission}</p>
-        )}
+        <TopLists columns={2}>
+          <TopList
+            title={tf.topPages}
+            dimension={tf.page}
+            metric={tf.count}
+            rows={rows(pages.data)}
+            loading={pages.isLoading}
+            error={pages.error}
+            onRetry={() => void pages.refetch()}
+            emptyText={tf.emptyDescription}
+            onSelect={canWatch ? (page) => router.push(frustrationHref(selected, { range, page, project: project.id })) : undefined}
+          />
+          <TopList
+            title={tf.topElements}
+            dimension={tf.element}
+            metric={tf.count}
+            rows={HAS_ELEMENT[selected] ? rows(elements.data) : []}
+            loading={HAS_ELEMENT[selected] && elements.isLoading}
+            error={HAS_ELEMENT[selected] ? elements.error : undefined}
+            onRetry={() => void elements.refetch()}
+            emptyText={HAS_ELEMENT[selected] ? tf.emptyDescription : tf.elementsHint}
+          />
+        </TopLists>
       </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title={tf.topPages} loading={pages.isLoading} error={pages.error} onRetry={() => void pages.refetch()} empty={pageRows.length === 0} emptyText={tf.emptyDescription}>
-          <SignalTable heading={tf.page} rows={pageRows} canWatch={canWatch} watchLabel={(value) => format(tf.watchPage, { value })} hrefFor={(value) => frustrationHref(selected, { range, page: value, project: project.id })} />
-        </ChartCard>
-        <ChartCard
-          title={tf.topElements}
-          loading={HAS_ELEMENT[selected] && elements.isLoading}
-          error={HAS_ELEMENT[selected] ? elements.error : undefined}
-          onRetry={() => void elements.refetch()}
-          empty={!HAS_ELEMENT[selected] || elementRows.length === 0}
-          emptyText={HAS_ELEMENT[selected] ? tf.emptyDescription : tf.elementsHint}
-        >
-          <SignalTable heading={tf.element} rows={elementRows} canWatch={false} watchLabel={() => ''} hrefFor={() => ''} mono />
-        </ChartCard>
-      </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SignalTable({
-  heading,
-  rows,
-  canWatch,
-  watchLabel,
-  hrefFor,
-  mono,
-}: Readonly<{ heading: string; rows: { value: string; count: number }[]; canWatch: boolean; watchLabel: (value: string) => string; hrefFor: (value: string) => string; mono?: boolean }>) {
-  const { t, language } = useI18n();
-  const tf = t.weldpanel.observe.frustration;
-  return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{heading}</TableHead>
-            <TableHead className="text-right">{tf.count}</TableHead>
-            {canWatch && <TableHead />}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.value}>
-              <TableCell className={`max-w-72 truncate ${mono ? 'font-mono text-xs' : ''}`} title={row.value}>
-                {row.value}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">{formatNumber(row.count, language)}</TableCell>
-              {canWatch && (
-                <TableCell className="text-right">
-                  <Button asChild variant="ghost" size="sm" aria-label={watchLabel(row.value)}>
-                    <Link href={hrefFor(row.value)}>{tf.watch}</Link>
-                  </Button>
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
     </div>
   );
 }

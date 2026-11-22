@@ -1,19 +1,18 @@
 import { useMemo, useState } from 'react';
 import type { PanelFlowsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useWeldPanelFlows } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ChartCard } from '../components/chart-card';
-import { DateRangePicker } from '../components/date-range-picker';
 import { PanelDefinitionsProvider } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { EventPicker } from '../components/pickers';
-import { ReportActions } from '../components/report-actions';
+import { ReportSaveButtons, ReportTools } from '../components/report-actions';
+import { ReportLayout } from '../components/report-layout';
 import { FlowsResultView, flowsCsvRows } from '../components/results/flows-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
@@ -50,17 +49,16 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   const direction = draft.direction ?? 'after';
 
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ReportActions projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.anchor.event)} onSaved={saved.open} />
-        <DateRangePicker value={range} onChange={setRange} />
-      </div>
-      <SavedReportNotices saved={saved} />
-
-      <SectionCard title={tf.title}>
-        <div className="grid gap-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <LabeledField label={tf.anchor} htmlFor="weldpanel-flows-anchor" hint={tf.anchorHint} className="lg:col-span-2">
+    <ReportLayout
+      title={tf.title}
+      actions={<ReportTools projectId={projectId} report={saved.wrongKindPath ? null : saved.report} />}
+      controls={<ReportSaveButtons projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.anchor.event)} onSaved={saved.open} />}
+      dateRange={{ value: range, onChange: setRange }}
+      sidebar={{
+        title: t.common.labels.settings,
+        content: (
+          <div className="grid gap-5">
+            <LabeledField label={tf.anchor} htmlFor="weldpanel-flows-anchor" hint={tf.anchorHint}>
               <EventPicker
                 id="weldpanel-flows-anchor"
                 projectId={projectId}
@@ -80,20 +78,36 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                 </SelectContent>
               </Select>
             </LabeledField>
-            <LabeledField label={tf.depth} htmlFor="weldpanel-flows-depth">
-              <Select value={String(draft.depth ?? 3)} onValueChange={(next) => setDraft((d) => ({ ...d, depth: Number(next) }))}>
-                <SelectTrigger id="weldpanel-flows-depth">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEPTHS.map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {tf.depthValue.replace('{count}', String(n))}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
+            <div className="grid grid-cols-2 gap-4">
+              <LabeledField label={tf.depth} htmlFor="weldpanel-flows-depth">
+                <Select value={String(draft.depth ?? 3)} onValueChange={(next) => setDraft((d) => ({ ...d, depth: Number(next) }))}>
+                  <SelectTrigger id="weldpanel-flows-depth">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DEPTHS.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {tf.depthValue.replace('{count}', String(n))}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </LabeledField>
+              <LabeledField label={tf.limit} htmlFor="weldpanel-flows-limit">
+                <Select value={String(draft.limit ?? 20)} onValueChange={(next) => setDraft((d) => ({ ...d, limit: Number(next) }))}>
+                  <SelectTrigger id="weldpanel-flows-limit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LIMITS.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </LabeledField>
+            </div>
             <LabeledField label={tf.scope} htmlFor="weldpanel-flows-scope">
               <Select value={draft.scope ?? 'all'} onValueChange={(next) => setDraft((d) => ({ ...d, scope: next as FlowsDraft['scope'] }))}>
                 <SelectTrigger id="weldpanel-flows-scope">
@@ -108,31 +122,18 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                 </SelectContent>
               </Select>
             </LabeledField>
+            <div className="grid gap-1.5">
+              <p className="text-sm font-medium">{tf.globalFilters}</p>
+              <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+            </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <LabeledField label={tf.limit} htmlFor="weldpanel-flows-limit">
-              <Select value={String(draft.limit ?? 20)} onValueChange={(next) => setDraft((d) => ({ ...d, limit: Number(next) }))}>
-                <SelectTrigger id="weldpanel-flows-limit">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LIMITS.map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
-          </div>
-          <div className="grid gap-1">
-            <p className="text-xs text-muted-foreground">{tf.globalFilters}</p>
-            <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
-          </div>
-        </div>
-      </SectionCard>
+        ),
+      }}
+    >
+      <SavedReportNotices saved={saved} />
 
       <ChartCard
+        bare
         title={direction === 'before' ? tf.columnsTitleBefore : tf.columnsTitle}
         loading={ready && isLoading}
         error={ready ? error : undefined}
@@ -148,7 +149,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
           </div>
         )}
       </ChartCard>
-    </div>
+    </ReportLayout>
   );
 }
 
@@ -156,12 +157,12 @@ export default function FlowsPage() {
   const { t } = useI18n();
   const tf = t.weldpanel.analytics.flows;
   return (
-    <AnalyticsPage title={tf.title} description={tf.description}>
+    <AnalyticsListPage title={tf.title}>
       {(project) => (
         <PanelDefinitionsProvider key={project.id} projectId={project.id}>
           <Builder projectId={project.id} />
         </PanelDefinitionsProvider>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

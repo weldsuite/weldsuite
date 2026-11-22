@@ -3,29 +3,16 @@
  * Series come as columns of `data`; a series with `dashed` is drawn dotted
  * (the previous period).
  *
- * Annotations: where the WeldPanel layout turns them on
- * (`ChartAnnotationsProvider`) and the points carry their `bucket`, the
- * project's annotations (and the open report's own) show as vertical lines
- * with a marker; hovering the marker names them, clicking it lists them, and
- * clicking a date on the chart adds one there.
+ * Annotations: where the WeldPanel layout turns them on and the points carry
+ * their `bucket`, the project's annotations (and the open report's own) show
+ * as round markers along the bottom of the chart (`chart-annotations.tsx`).
  */
 
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis, type MouseHandlerDataParam } from 'recharts';
-import type { PanelAnnotationDto } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
-import { useCan } from '@weldsuite/permissions/react';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
 import { cn } from '@weldsuite/ui/lib/utils';
-import { useWeldPanelAnnotations } from '@/hooks/queries/use-weldpanel-collab-queries';
-import { useSearchParams } from '@/lib/router';
-import { annotationTimeForBucket, annotationsByBucket, bucketRange } from '../../lib/annotations';
 import { formatCompact, formatNumber } from '../../lib/format';
-import { useCurrentProject } from '../../lib/use-current-project';
-import { useChartAnnotationsScope, type ChartAnnotationsScope } from './annotations-context';
-
-// Loaded when opened, so a chart costs nothing extra until someone annotates it.
-const AnnotationEditDialog = lazy(() => import('../annotation-dialogs').then((m) => ({ default: m.AnnotationEditDialog })));
-const AnnotationsListDialog = lazy(() => import('../annotation-dialogs').then((m) => ({ default: m.AnnotationsListDialog })));
+import { ChartAnnotations, annotationChartClick, annotationMarkLines, annotationTooltipActive, type ChartAnnotationsApi } from './chart-annotations';
 
 export interface ChartSeries {
   key: string;
@@ -58,50 +45,19 @@ export function seriesColor(index: number): string {
   return `var(--chart-${(index % 5) + 1})`;
 }
 
-interface AnnotationMark {
-  label: string;
-  title: string;
-}
-
-interface ChartBodyProps extends TimeSeriesChartProps {
-  marks?: AnnotationMark[];
-  onPickIndex?: (index: number) => void;
-  onPickMark?: () => void;
-}
-
-function MarkLabel({ viewBox, title, onPick }: Readonly<{ viewBox?: { x?: number; y?: number }; title: string; onPick?: () => void }>) {
-  if (viewBox?.x === undefined || viewBox.y === undefined) return null;
-  return (
-    <g
-      transform={`translate(${viewBox.x}, ${viewBox.y + 4})`}
-      className={onPick ? 'cursor-pointer' : undefined}
-      onClick={(event) => {
-        event.stopPropagation();
-        onPick?.();
-      }}
-      data-testid="weldpanel-annotation-marker"
-    >
-      <title>{title}</title>
-      <circle r={5} fill="var(--primary)" stroke="var(--background)" strokeWidth={1.5} />
-    </g>
-  );
-}
-
-function ChartBody({ data, series, type = 'line', locale, className, legend, guides = [], marks = [], onPickIndex, onPickMark }: Readonly<ChartBodyProps>) {
+function ChartBody({ data, series, type = 'line', locale, className, legend, guides = [], annotations }: Readonly<TimeSeriesChartProps & { annotations: ChartAnnotationsApi }>) {
   const config: ChartConfig = Object.fromEntries(series.map((s, i) => [s.key, { label: s.label, color: s.color ?? seriesColor(i) }]));
   const showLegend = legend ?? series.length > 1;
-  const onClick = onPickIndex
-    ? (state: MouseHandlerDataParam) => {
-        const index = Number(state.activeTooltipIndex);
-        if (Number.isInteger(index) && index >= 0 && index < data.length) onPickIndex(index);
-      }
-    : undefined;
+  const onClick = annotationChartClick(annotations, data);
   const common = (
     <>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
       <YAxis tickLine={false} axisLine={false} width={44} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v, locale)} />
-      <ChartTooltip content={<ChartTooltipContent formatter={(value) => <span className="font-mono font-medium tabular-nums">{formatNumber(Number(value), locale)}</span>} />} />
+      <ChartTooltip
+        active={annotationTooltipActive(annotations)}
+        content={<ChartTooltipContent formatter={(value) => <span className="font-mono font-medium tabular-nums">{formatNumber(Number(value), locale)}</span>} />}
+      />
       {showLegend && <ChartLegend content={<ChartLegendContent />} />}
       {guides.map((guide) => (
         <ReferenceLine
@@ -113,21 +69,12 @@ function ChartBody({ data, series, type = 'line', locale, className, legend, gui
           label={{ value: guide.label, position: 'insideTopRight', fill: 'var(--muted-foreground)', fontSize: 11 }}
         />
       ))}
-      {marks.map((mark) => (
-        <ReferenceLine
-          key={`mark:${mark.label}`}
-          x={mark.label}
-          stroke="var(--muted-foreground)"
-          strokeDasharray="3 3"
-          ifOverflow="extendDomain"
-          label={(props: { viewBox?: { x?: number; y?: number } }) => <MarkLabel viewBox={props.viewBox} title={mark.title} onPick={onPickMark} />}
-        />
-      ))}
+      {annotationMarkLines(annotations)}
     </>
   );
 
   return (
-    <ChartContainer config={config} className={cn('aspect-auto h-64 w-full', onPickIndex && 'cursor-crosshair', className)}>
+    <ChartContainer config={config} className={cn('aspect-auto h-64 w-full', onClick && 'cursor-crosshair', className)}>
       {type === 'bar' ? (
         <BarChart data={data} margin={{ left: 0, right: 8, top: 8 }} onClick={onClick}>
           {common}
@@ -157,57 +104,6 @@ function ChartBody({ data, series, type = 'line', locale, className, legend, gui
   );
 }
 
-/** The chart with the annotations of its range; only mounted where annotations are on. */
-function AnnotatedChart({ scope, ...props }: Readonly<TimeSeriesChartProps & { scope: ChartAnnotationsScope }>) {
-  const { project } = useCurrentProject();
-  const params = useSearchParams();
-  const canCreate = useCan('panel_reports:create');
-  const projectId = scope.projectId ?? project?.id ?? '';
-  const reportId = scope.reportId === undefined ? params.get('report') || null : scope.reportId;
-  const buckets = useMemo(() => props.data.map((d) => d.bucket ?? ''), [props.data]);
-  const range = useMemo(() => bucketRange(buckets), [buckets]);
-  const query = useMemo(() => ({ projectId, ...(range ?? {}), ...(reportId ? { reportId } : {}) }), [projectId, range, reportId]);
-  const { data: annotations } = useWeldPanelAnnotations(query, range !== null);
-  const [creatingAt, setCreatingAt] = useState<string | null>(null);
-  const [listing, setListing] = useState(false);
-
-  const marks = useMemo<AnnotationMark[]>(() => {
-    if (!annotations || annotations.length === 0) return [];
-    const byBucket = annotationsByBucket<PanelAnnotationDto>(buckets, annotations);
-    return [...byBucket.entries()]
-      .map(([index, list]) => ({ label: props.data[index]?.label ?? '', title: list.map((a) => a.label).join('\n') }))
-      .filter((m) => m.label !== '');
-  }, [annotations, buckets, props.data]);
-
-  const pickable = canCreate && projectId !== '' && range !== null;
-  let dialogs: ReactNode = null;
-  if (projectId !== '' && (creatingAt !== null || listing)) {
-    dialogs = (
-      <Suspense fallback={null}>
-        {creatingAt !== null && (
-          <AnnotationEditDialog open onOpenChange={(open) => !open && setCreatingAt(null)} projectId={projectId} reportId={reportId} defaultOccurredAt={creatingAt} />
-        )}
-        {listing && <AnnotationsListDialog open onOpenChange={setListing} projectId={projectId} reportId={reportId} from={range?.from} to={range?.to} />}
-      </Suspense>
-    );
-  }
-
-  return (
-    <>
-      <ChartBody
-        {...props}
-        marks={marks}
-        onPickIndex={pickable ? (index) => setCreatingAt(annotationTimeForBucket(buckets[index] ?? '')) : undefined}
-        onPickMark={() => setListing(true)}
-      />
-      {dialogs}
-    </>
-  );
-}
-
 export function TimeSeriesChart(props: Readonly<TimeSeriesChartProps>) {
-  const scope = useChartAnnotationsScope();
-  const placeable = props.data.some((d) => typeof d.bucket === 'string' && d.bucket !== '');
-  if (!scope || !placeable) return <ChartBody {...props} />;
-  return <AnnotatedChart {...props} scope={scope} />;
+  return <ChartAnnotations rows={props.data}>{(annotations) => <ChartBody {...props} annotations={annotations} />}</ChartAnnotations>;
 }

@@ -118,6 +118,9 @@ export const weldpanel = {
     },
     anySite: 'Any site',
     moreDomains: '+{count} more',
+    search: 'Search projects',
+    noMatchTitle: 'No projects match',
+    noMatchDescription: 'Try another search or filter.',
     // Where the deployment has no analytics store (the `panel-analytics` edition feature).
     editionNoticeTitle: 'Collection only on this edition',
     editionNotice:

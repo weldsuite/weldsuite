@@ -36,9 +36,11 @@ interface FormulasEditorProps {
   formulaOnly: boolean;
   onFormulaOnlyChange: (value: boolean) => void;
   seriesCount: number;
+  /** The label under the formula instead of beside it, for a narrow column. */
+  stacked?: boolean;
 }
 
-export function FormulasEditor({ formulas, onChange, formulaOnly, onFormulaOnlyChange, seriesCount }: Readonly<FormulasEditorProps>) {
+export function FormulasEditor({ formulas, onChange, formulaOnly, onFormulaOnlyChange, seriesCount, stacked = false }: Readonly<FormulasEditorProps>) {
   const { t, format } = useI18n();
   const tx = t.weldpanel.explore.insights.formulas;
   const update = (index: number, patch: Partial<PanelTrendFormula>) => onChange(formulas.map((f, i) => (i === index ? { ...f, ...patch } : f)));
@@ -51,7 +53,10 @@ export function FormulasEditor({ formulas, onChange, formulaOnly, onFormulaOnlyC
         const problem = formulaProblem(formula.expression, seriesCount);
         const errorId = `weldpanel-formula-${index}-error`;
         return (
-          <div key={index} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_14rem_auto] sm:items-start">
+          <div
+            key={index}
+            className={stacked ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-lg border p-3' : 'grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_14rem_auto] sm:items-start'}
+          >
             <div className="grid gap-1.5">
               <Label htmlFor={`weldpanel-formula-${index}`}>{format(tx.expression, { n })}</Label>
               <Input
@@ -72,7 +77,7 @@ export function FormulasEditor({ formulas, onChange, formulaOnly, onFormulaOnlyC
                 </p>
               )}
             </div>
-            <div className="grid gap-1.5">
+            <div className={stacked ? 'col-start-1 grid gap-1.5' : 'grid gap-1.5'}>
               <Label htmlFor={`weldpanel-formula-${index}-label`}>{tx.label}</Label>
               <Input
                 id={`weldpanel-formula-${index}-label`}
@@ -87,7 +92,7 @@ export function FormulasEditor({ formulas, onChange, formulaOnly, onFormulaOnlyC
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 sm:mt-6"
+              className={stacked ? 'col-start-2 row-start-1 mt-6 size-8' : 'size-8 sm:mt-6'}
               aria-label={format(tx.remove, { n })}
               onClick={() => {
                 const next = formulas.filter((_, i) => i !== index);

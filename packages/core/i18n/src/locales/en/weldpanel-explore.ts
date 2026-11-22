@@ -396,6 +396,11 @@ export const weldpanelExplore = {
 
   performance: {
     title: 'Performance',
+    searchPages: 'Search pages',
+    searchLists: 'Search elements, countries and devices',
+    noMatchTitle: 'No pages found',
+    noMatchDescription: 'Try another search or remove a filter.',
+    back: 'Back to performance',
     description: 'The Core Web Vitals your visitors experienced, measured on their own page views.',
     metrics: {
       lcp: 'LCP',
@@ -438,6 +443,7 @@ export const weldpanelExplore = {
     countries: 'Countries',
     devicesTitle: 'Devices',
     columns: {
+      page: 'Page',
       value: 'Value',
       samples: 'Page views',
       rating: 'Rating',

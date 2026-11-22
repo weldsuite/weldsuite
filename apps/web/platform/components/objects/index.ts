@@ -38,6 +38,7 @@ import './payroll-run';
 import './hr-employee';
 import './panel-person';
 import './panel-group';
+import './panel-alert';
 import './vat-return';
 import './sales-tax-agency';
 import './tax-exemption-certificate';
