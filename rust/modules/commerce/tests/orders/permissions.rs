@@ -3,6 +3,7 @@
 
 use http::StatusCode;
 use serde_json::json;
+use weldsuite_permissions::{ResolvedPermissions, check_app_permission, role_row_permissions};
 
 use crate::harness::{ALL, app, discount, fresh, lazy_pool, priced, tenant};
 
@@ -129,4 +130,29 @@ async fn the_other_object_is_not_enough() {
     let member = app(lazy_pool(), &["discounts:read", "commerce_settings:read"]);
     let (status, _) = member.get("/orders").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// The built-in roles as the code defines them (`SYSTEM_ROLES`): an Admin
+/// holds every permission these routes need, a Viewer every read. Members on
+/// those roles take their keys from code, so without these only the owner
+/// could open WeldCommerce (an admin once saw its settings fail to load).
+#[test]
+fn the_built_in_roles_cover_these_routes() {
+    let role = |name| ResolvedPermissions {
+        permissions: role_row_permissions(true, name, None),
+        ..ResolvedPermissions::default()
+    };
+    let (admin, viewer) = (role("Admin"), role("Viewer"));
+    for (method, path, needed) in ROUTES {
+        assert!(
+            check_app_permission(&admin, needed, Some("weldcommerce")).allowed,
+            "Admin: {method} {path} needs {needed}"
+        );
+        if needed.ends_with(":read") {
+            assert!(
+                check_app_permission(&viewer, needed, Some("weldcommerce")).allowed,
+                "Viewer: {method} {path} needs {needed}"
+            );
+        }
+    }
 }

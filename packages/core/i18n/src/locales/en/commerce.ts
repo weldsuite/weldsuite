@@ -1189,6 +1189,7 @@ export const commerce = {
     title: 'WeldCommerce',
     description: 'Order numbering and the defaults WeldCommerce starts from.',
     loadFailed: 'Could not load the WeldCommerce settings.',
+    noPermission: 'You do not have access to the WeldCommerce settings.',
     readOnly: 'You can view these settings but not change them.',
     sectionNumbering: 'Order numbers',
     sectionNumberingDescription: 'Orders are numbered with a prefix and a running number, such as WC-1001.',
