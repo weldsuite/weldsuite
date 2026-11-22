@@ -17,8 +17,8 @@ use std::str::FromStr;
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::{Expr, Func, OnConflict, Query, SelectStatement};
 use sea_orm::{
-    ActiveValue, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, JoinType,
-    QueryFilter, QuerySelect,
+    ActiveValue, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, Insert, JoinType,
+    QueryFilter, QuerySelect, UpdateMany,
 };
 use sqlx::{Acquire, PgConnection, Postgres};
 use time::{OffsetDateTime, PrimitiveDateTime};
@@ -133,10 +133,7 @@ pub(crate) async fn bucket_is_managed(db: &PgPool, inventory_id: &str) -> Result
     Ok(owned(owner.flatten()))
 }
 
-async fn refuse_managed<C: ConnectionTrait>(
-    db: &C,
-    warehouse_id: &str,
-) -> Result<(), LedgerError> {
+async fn refuse_managed<C: ConnectionTrait>(db: &C, warehouse_id: &str) -> Result<(), LedgerError> {
     if warehouse_managed_on(db, warehouse_id).await? {
         return Err(managed_warehouse());
     }
@@ -343,6 +340,20 @@ async fn increment<C: ConnectionTrait>(
     keys: &Keys<'_>,
     inc: &Increment,
 ) -> Result<Option<(String, i64)>, DbErr> {
+    let rows = increment_statement(keys, inc)
+        .exec_with_returning(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .next()
+        .map(|row| (row.id, i64::from(row.quantity_on_hand))))
+}
+
+/// The increment, one statement so concurrent changes add up:
+/// `quantity_on_hand = quantity_on_hand + delta` (and what follows from
+/// it) on the bucket, guarded by `quantity_on_hand >= -delta` when an issue
+/// may not oversell.
+fn increment_statement(keys: &Keys<'_>, inc: &Increment) -> UpdateMany<inventory::Entity> {
     use inventory::Column;
     use sea_orm::ExprTrait as _;
     let on_hand = || Column::QuantityOnHand.into_expr();
@@ -376,15 +387,9 @@ async fn increment<C: ConnectionTrait>(
     if inc.guarded {
         filter = filter.add(Column::QuantityOnHand.gte(-inc.delta));
     }
-    let rows = update
+    update
         .col_expr(Column::UpdatedAt, Expr::value(inc.now))
         .filter(filter)
-        .exec_with_returning(db)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .next()
-        .map(|row| (row.id, i64::from(row.quantity_on_hand))))
 }
 
 async fn find_bucket<C: ConnectionTrait>(
@@ -407,10 +412,31 @@ async fn insert_bucket<C: ConnectionTrait>(
     change: &StockChange,
     now: PrimitiveDateTime,
 ) -> Result<Option<(String, i64)>, DbErr> {
+    let inserted = bucket_insert(change, now)?
+        .try_insert()
+        .exec_with_returning(db)
+        .await?;
+    Ok(match inserted {
+        sea_orm::TryInsertResult::Inserted(row) => Some((row.id, i64::from(row.quantity_on_hand))),
+        sea_orm::TryInsertResult::Empty | sea_orm::TryInsertResult::Conflicted => None,
+    })
+}
+
+/// The first receipt's bucket, `on conflict (product_id, warehouse_id,
+/// variant_id, location_id, lot_number) where deleted_at is null do
+/// nothing` (`inventory_bucket_unique`).
+fn bucket_insert(
+    change: &StockChange,
+    now: PrimitiveDateTime,
+) -> Result<Insert<inventory::ActiveModel>, DbErr> {
     use inventory::Column;
     use sea_orm::ExprTrait as _;
     let units = i32::try_from(change.delta).map_err(|_| out_of_range("quantity_on_hand"))?;
-    let expiry = change.expiry_date.as_deref().map(timestamp_of).transpose()?;
+    let expiry = change
+        .expiry_date
+        .as_deref()
+        .map(timestamp_of)
+        .transpose()?;
     let decimal = |text: String| {
         BigDecimal::from_str(&text)
             .map_err(|_| DbErr::Type(format!("invalid input syntax for type numeric: \"{text}\"")))
@@ -446,28 +472,18 @@ async fn insert_bucket<C: ConnectionTrait>(
         updated_at: ActiveValue::Set(now),
         ..Default::default()
     };
-    let inserted = inventory::Entity::insert(bucket)
-        .on_conflict(
-            OnConflict::columns([
-                Column::ProductId,
-                Column::WarehouseId,
-                Column::VariantId,
-                Column::LocationId,
-                Column::LotNumber,
-            ])
-            .target_and_where(Expr::col(Column::DeletedAt).is_null())
-            .do_nothing()
-            .to_owned(),
-        )
-        .try_insert()
-        .exec_with_returning(db)
-        .await?;
-    Ok(match inserted {
-        sea_orm::TryInsertResult::Inserted(row) => {
-            Some((row.id, i64::from(row.quantity_on_hand)))
-        }
-        sea_orm::TryInsertResult::Empty | sea_orm::TryInsertResult::Conflicted => None,
-    })
+    Ok(inventory::Entity::insert(bucket).on_conflict(
+        OnConflict::columns([
+            Column::ProductId,
+            Column::WarehouseId,
+            Column::VariantId,
+            Column::LocationId,
+            Column::LotNumber,
+        ])
+        .target_and_where(Expr::col(Column::DeletedAt).is_null())
+        .do_nothing()
+        .to_owned(),
+    ))
 }
 
 /// `(select coalesce(sum(i.quantity_on_hand), 0) from inventory i where
@@ -962,18 +978,29 @@ pub(crate) async fn allocate_stock(
     }
     refuse_managed_bucket(db, inventory_id).await?;
     let db = orm(db);
-    let allocated = || Expr::from(Func::coalesce([inventory::Column::QuantityAllocated.into_expr(), Expr::val(0)]));
+    let allocated = || {
+        Expr::from(Func::coalesce([
+            inventory::Column::QuantityAllocated.into_expr(),
+            Expr::val(0),
+        ]))
+    };
     let updated = {
         use sea_orm::ExprTrait as _;
         inventory::Entity::update_many()
-            .col_expr(inventory::Column::QuantityAllocated, allocated().add(quantity))
+            .col_expr(
+                inventory::Column::QuantityAllocated,
+                allocated().add(quantity),
+            )
             .col_expr(
                 inventory::Column::QuantityAvailable,
                 inventory::Column::QuantityOnHand
                     .into_expr()
                     .sub(allocated().add(quantity)),
             )
-            .col_expr(inventory::Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .col_expr(
+                inventory::Column::UpdatedAt,
+                Expr::value(weldsuite_db::utc_now()),
+            )
             .filter(inventory::Column::Id.eq(inventory_id))
             .filter(inventory::Column::DeletedAt.is_null())
             .filter(
@@ -1030,18 +1057,29 @@ pub(crate) async fn release_allocation(
     }
     refuse_managed_bucket(db, inventory_id).await?;
     let db = orm(db);
-    let allocated = || Expr::from(Func::coalesce([inventory::Column::QuantityAllocated.into_expr(), Expr::val(0)]));
+    let allocated = || {
+        Expr::from(Func::coalesce([
+            inventory::Column::QuantityAllocated.into_expr(),
+            Expr::val(0),
+        ]))
+    };
     let updated = {
         use sea_orm::ExprTrait as _;
         inventory::Entity::update_many()
-            .col_expr(inventory::Column::QuantityAllocated, allocated().sub(quantity))
+            .col_expr(
+                inventory::Column::QuantityAllocated,
+                allocated().sub(quantity),
+            )
             .col_expr(
                 inventory::Column::QuantityAvailable,
                 inventory::Column::QuantityOnHand
                     .into_expr()
                     .sub(allocated().sub(quantity)),
             )
-            .col_expr(inventory::Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .col_expr(
+                inventory::Column::UpdatedAt,
+                Expr::value(weldsuite_db::utc_now()),
+            )
             .filter(inventory::Column::Id.eq(inventory_id))
             .filter(inventory::Column::DeletedAt.is_null())
             .filter(allocated().gte(quantity))
@@ -1086,8 +1124,12 @@ pub(crate) async fn issue_allocated_stock(
         use inventory::Column;
         use sea_orm::ExprTrait as _;
         let on_hand = || Column::QuantityOnHand.into_expr();
-        let allocated =
-            || Expr::from(Func::coalesce([Column::QuantityAllocated.into_expr(), Expr::val(0)]));
+        let allocated = || {
+            Expr::from(Func::coalesce([
+                Column::QuantityAllocated.into_expr(),
+                Expr::val(0),
+            ]))
+        };
         let quantity = issue.quantity;
         inventory::Entity::update_many()
             .col_expr(Column::QuantityOnHand, on_hand().sub(quantity))
@@ -1169,4 +1211,99 @@ pub(crate) async fn issue_allocated_stock(
         now,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{DbBackend, QueryTrait as _};
+
+    use super::*;
+
+    fn keys() -> Keys<'static> {
+        Keys {
+            product_id: "prod_1",
+            warehouse_id: "wh_1",
+            variant: None,
+            location: Some("loc_1"),
+            lot: None,
+        }
+    }
+
+    #[test]
+    fn a_receipt_with_a_cost_averages_it_in_one_statement() {
+        let now = time::macros::datetime!(2026-11-22 10:00:00.123);
+        let inc = Increment {
+            delta: 5,
+            averaged: Some(("2.5".to_owned(), "12.5".to_owned())),
+            expiry: None,
+            now,
+            guarded: false,
+        };
+        let sql = increment_statement(&keys(), &inc)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(
+            sql.starts_with(concat!(
+                r#"UPDATE "inventory" SET "quantity_on_hand" = "inventory"."quantity_on_hand" + 5, "#,
+                r#""quantity_available" = ("inventory"."quantity_on_hand" + 5) - COALESCE("inventory"."quantity_allocated", 0), "#,
+                r#""unit_cost" = ROUND(((GREATEST("inventory"."quantity_on_hand", 0) * COALESCE("inventory"."unit_cost", CAST('2.5' AS numeric))) + CAST('12.5' AS numeric)) / nullif(GREATEST("inventory"."quantity_on_hand", 0) + CAST(5 AS numeric), 0), 2), "#,
+                r#""total_value" = ROUND(COALESCE(ROUND("#,
+            )),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(r#""received_date" = '2026-11-22 10:00:00.123000'"#),
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with(r#"WHERE "inventory"."product_id" = 'prod_1' AND "inventory"."warehouse_id" = 'wh_1' AND "inventory"."variant_id" IS NULL AND "inventory"."location_id" = 'loc_1' AND "inventory"."lot_number" IS NULL AND "inventory"."deleted_at" IS NULL"#),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn an_issue_without_backorder_is_guarded() {
+        let inc = Increment {
+            delta: -3,
+            averaged: None,
+            expiry: None,
+            now: time::macros::datetime!(2026-11-22 10:00:00),
+            guarded: true,
+        };
+        let sql = increment_statement(&keys(), &inc)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(!sql.contains(r#""unit_cost" ="#), "{sql}");
+        assert!(!sql.contains("received_date"), "{sql}");
+        assert!(
+            sql.contains(r#""total_value" = ROUND(COALESCE("inventory"."unit_cost", 0) * ("inventory"."quantity_on_hand" + CAST(-3 AS numeric)), 2)"#),
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with(r#"AND "inventory"."quantity_on_hand" >= 3"#),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_first_receipt_yields_to_the_bucket_index() {
+        let change = StockChange {
+            product_id: "prod_1".to_owned(),
+            warehouse_id: "wh_1".to_owned(),
+            delta: 4,
+            unit_cost: Some(2.125),
+            kind: "received".to_owned(),
+            ..StockChange::default()
+        };
+        let now = time::macros::datetime!(2026-11-22 10:00:00);
+        let sql = bucket_insert(&change, now)
+            .expect("insert")
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(
+            sql.ends_with(r#"ON CONFLICT ("product_id", "warehouse_id", "variant_id", "location_id", "lot_number") WHERE "deleted_at" IS NULL DO NOTHING"#),
+            "{sql}"
+        );
+        assert!(sql.contains("2.125, 8.50"), "{sql}");
+    }
 }

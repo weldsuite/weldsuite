@@ -788,8 +788,7 @@ type PriorRow = (
 async fn lock_runs<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
     let mut lock = Query::select();
     lock.expr(
-        Func::cust("pg_advisory_xact_lock")
-            .arg(Func::cust("hashtext").arg("stash_planning_runs")),
+        Func::cust("pg_advisory_xact_lock").arg(Func::cust("hashtext").arg("stash_planning_runs")),
     );
     db.execute_raw(DbBackend::Postgres.build(&lock)).await?;
     Ok(())
@@ -960,7 +959,10 @@ pub(crate) async fn write_plans(
     run_id: &str,
 ) -> Result<Option<ChunkCounts>, DbErr> {
     let at = OffsetDateTime::now_utc();
-    let (text, stamp) = (weldsuite_events::iso_timestamp(at), weldsuite_db::utc_timestamp(at));
+    let (text, stamp) = (
+        weldsuite_events::iso_timestamp(at),
+        weldsuite_db::utc_timestamp(at),
+    );
     let run_id = run_id.to_owned();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
@@ -1169,7 +1171,10 @@ pub(crate) async fn finish_run(db: &PgPool, run_id: &str, planned: i64) -> Resul
             // `(select count(*)::integer from stash_item_plans p where …)`.
             let mut to_reorder = Query::select();
             to_reorder
-                .expr(Expr::from(Func::count(Expr::col(sea_orm::sea_query::Asterisk))).cast_as("integer"))
+                .expr(
+                    Expr::from(Func::count(Expr::col(sea_orm::sea_query::Asterisk)))
+                        .cast_as("integer"),
+                )
                 .from(plans::Entity)
                 .and_where(Expr::col((plans::Entity, plans::Column::RunId)).eq(run_id.as_str()))
                 .and_where(Expr::col((plans::Entity, plans::Column::ReviewStatus)).eq("open"))
@@ -1325,9 +1330,7 @@ pub async fn run_replenishment_sweep(
             let events = events.clone();
             async move {
                 let (db, clerk_org_id) = tenants(workspace_id.clone()).await?;
-                let settings = load_settings(&orm(&db))
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let settings = load_settings(&orm(&db)).await.map_err(|e| e.to_string())?;
                 if !settings.enabled {
                     return Ok::<_, String>(None);
                 }

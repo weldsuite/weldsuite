@@ -132,10 +132,7 @@ pub(crate) async fn demand_warehouse<C: ConnectionTrait>(
     }
     query
         .order_by(
-            Func::coalesce([
-                Expr::col(warehouses::Column::IsDefault),
-                Expr::val(false),
-            ]),
+            Func::coalesce([Expr::col(warehouses::Column::IsDefault), Expr::val(false)]),
             Order::Desc,
         )
         .order_by(warehouses::Column::CreatedAt, Order::Asc)

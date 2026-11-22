@@ -561,7 +561,10 @@ pub(crate) async fn assign(
     let next = if assigned { "assigned" } else { "pending" };
     pick_lists::Entity::update_many()
         .col_expr(pick_lists::Column::AssignedTo, Expr::value(assigned_to))
-        .col_expr(pick_lists::Column::AssignedToName, Expr::value(assigned_to_name))
+        .col_expr(
+            pick_lists::Column::AssignedToName,
+            Expr::value(assigned_to_name),
+        )
         .col_expr(
             pick_lists::Column::AssignedAt,
             Expr::value(assigned.then_some(now)),
@@ -629,10 +632,7 @@ fn scan_codes(codes: Option<(Option<String>, Option<String>)>) -> Vec<String> {
 }
 
 /// `barcodesForItem`: the location and product codes a scan may match.
-async fn barcodes_for_item(
-    db: &PgPool,
-    item: &Value,
-) -> Result<(Vec<String>, Vec<String>), DbErr> {
+async fn barcodes_for_item(db: &PgPool, item: &Value) -> Result<(Vec<String>, Vec<String>), DbErr> {
     let db = &orm(db);
     let mut location = Vec::new();
     if let Some(code) = truthy(item, "locationCode") {
@@ -791,8 +791,14 @@ pub(crate) async fn confirm(db: &PgPool, params: &Confirm) -> Result<Option<Valu
             pick_lists::Column::PickedItems,
             Expr::value(i64::try_from(picked_items).unwrap_or(0)),
         )
-        .col_expr(pick_lists::Column::PickedQuantity, Expr::value(picked_quantity))
-        .col_expr(pick_lists::Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+        .col_expr(
+            pick_lists::Column::PickedQuantity,
+            Expr::value(picked_quantity),
+        )
+        .col_expr(
+            pick_lists::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
         .filter(pick_lists::Column::Id.eq(list_id.as_str()))
         .exec(&orm(db))
         .await?;
@@ -1065,7 +1071,10 @@ pub(crate) async fn pack(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
         .col_expr(pick_lists::Column::Status, Expr::value("packed"))
         .col_expr(pick_lists::Column::PackedAt, Expr::value(stamp))
         .col_expr(pick_lists::Column::PackedBy, Expr::value(user_id))
-        .col_expr(pick_lists::Column::ParcelId, Expr::value(parcel_id.as_str()))
+        .col_expr(
+            pick_lists::Column::ParcelId,
+            Expr::value(parcel_id.as_str()),
+        )
         .col_expr(pick_lists::Column::UpdatedAt, Expr::value(stamp))
         .filter(pick_lists::Column::Id.eq(id))
         .exec(&orm(db))
@@ -1225,17 +1234,16 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
 /// `markOrderShipped`: partial or fulfilled. Tracking details already on the
 /// order stay.
 async fn mark_order_shipped(db: &PgPool, order_id: &str, now: &str) -> Result<(), PickError> {
-    let lines: Vec<(i32, Option<i32>)> =
-        order_items::Entity::find()
-            .select_only()
-            .columns([
-                order_items::Column::Quantity,
-                order_items::Column::FulfilledQuantity,
-            ])
-            .filter(order_items::Column::OrderId.eq(order_id))
-            .into_tuple()
-            .all(&orm(db))
-            .await?;
+    let lines: Vec<(i32, Option<i32>)> = order_items::Entity::find()
+        .select_only()
+        .columns([
+            order_items::Column::Quantity,
+            order_items::Column::FulfilledQuantity,
+        ])
+        .filter(order_items::Column::OrderId.eq(order_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let remaining = lines
         .iter()
         .any(|(quantity, fulfilled)| i64::from(*quantity) - i64::from(fulfilled.unwrap_or(0)) > 0);

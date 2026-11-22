@@ -12,11 +12,6 @@
 //! route moved to `weldsuite-commerce` (WeldCommerce phase 1), where the
 //! "stash: products" suite still checks it.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod activity;
 mod args;
 mod crud;

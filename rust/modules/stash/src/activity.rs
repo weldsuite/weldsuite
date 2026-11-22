@@ -21,8 +21,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::activity_logs::{Column, Entity};
 
 use crate::args::{
-    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced,
-    table_count, table_rows, timestamp_of,
+    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced, table_count,
+    table_rows, timestamp_of,
 };
 use crate::crud::cursor_failed;
 use crate::js::{js_limit, query_param, query_set, sql_limit_of};
@@ -166,9 +166,10 @@ async fn summary(caller: Caller, RawQuery(query): RawQuery) -> Response {
         _ => 7,
     };
     let start = now - time::Duration::days(days);
-    let mut select = Entity::find()
-        .select_only()
-        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "totalActivities");
+    let mut select = Entity::find().select_only().column_as(
+        Expr::from(Func::count(Expr::col(Asterisk))),
+        "totalActivities",
+    );
     for (key, kind) in [
         ("receives", "receive"),
         ("shipments", "ship"),
@@ -180,7 +181,10 @@ async fn summary(caller: Caller, RawQuery(query): RawQuery) -> Response {
         select = select.column_as(of_type(kind), key);
     }
     let mut select = select
-        .column_as(Expr::from(Func::count_distinct(Expr::col(Column::UserId))), "uniqueUsers")
+        .column_as(
+            Expr::from(Func::count_distinct(Expr::col(Column::UserId))),
+            "uniqueUsers",
+        )
         .filter(Column::CreatedAt.gte(utc_timestamp(start)));
     if let Some(warehouse) = warehouse {
         select = select.filter(Column::WarehouseId.eq(warehouse));
@@ -211,7 +215,11 @@ fn plain_limit(query: Option<&str>, fallback: f64, max: f64) -> Option<i64> {
 
 /// The newest rows a statement built on the log's `select()` matches,
 /// `limit` of them.
-async fn newest(db: &PgPool, condition: Condition, limit: Option<i64>) -> Result<Vec<Value>, DbErr> {
+async fn newest(
+    db: &PgPool,
+    condition: Condition,
+    limit: Option<i64>,
+) -> Result<Vec<Value>, DbErr> {
     let mut select: SelectStatement = ACTIVITY_LOGS.entity.select();
     select
         .cond_where(condition)

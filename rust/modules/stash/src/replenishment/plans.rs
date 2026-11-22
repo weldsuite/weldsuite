@@ -90,7 +90,11 @@ fn joined() -> Select<plans::Entity> {
     plans::Entity::find()
         .join(
             JoinType::LeftJoin,
-            left_join(products::Entity, plans::Column::ProductId, products::Column::Id),
+            left_join(
+                products::Entity,
+                plans::Column::ProductId,
+                products::Column::Id,
+            ),
         )
         .join(
             JoinType::LeftJoin,
@@ -181,12 +185,9 @@ fn conditions(filters: &Filters, today: Date) -> Condition {
             condition = condition.add(col(plans::Column::StockoutDate).lte(lead_time_end()));
         }
         Some("review") => {
-            condition = condition.add(
-                col(plans::Column::StockoutDate).lte(lead_time_end().add(Func::coalesce([
-                    col(plans::Column::ReviewPeriodDays),
-                    Expr::val(0),
-                ]))),
-            );
+            condition = condition.add(col(plans::Column::StockoutDate).lte(lead_time_end().add(
+                Func::coalesce([col(plans::Column::ReviewPeriodDays), Expr::val(0)]),
+            )));
         }
         _ => {}
     }
@@ -219,11 +220,12 @@ fn conditions(filters: &Filters, today: Date) -> Condition {
 fn after(cursor: &Cursor) -> Condition {
     use sea_orm::ExprTrait as _;
     let stockout = || Expr::col((plans::Entity, plans::Column::StockoutDate));
-    let later_name = Expr::tuple([sort_name(), Expr::col((plans::Entity, plans::Column::Id))])
-        .gt(Expr::tuple([
+    let later_name = Expr::tuple([sort_name(), Expr::col((plans::Entity, plans::Column::Id))]).gt(
+        Expr::tuple([
             Expr::val(cursor.name.as_str()),
             Expr::val(cursor.id.as_str()),
-        ]));
+        ]),
+    );
     match &cursor.stockout_date {
         None => Condition::all().add(stockout().is_null()).add(later_name),
         Some(day) => {
@@ -259,8 +261,14 @@ impl ListRow {
     fn query(filters: &Filters, today: Date) -> Select<plans::Entity> {
         use sea_orm::ExprTrait as _;
         let unit_cost = Func::coalesce([
-            Expr::col((product_suppliers::Entity, product_suppliers::Column::UnitCost)),
-            Expr::col((product_variants::Entity, product_variants::Column::CostPrice)),
+            Expr::col((
+                product_suppliers::Entity,
+                product_suppliers::Column::UnitCost,
+            )),
+            Expr::col((
+                product_variants::Entity,
+                product_variants::Column::CostPrice,
+            )),
             Expr::col((products::Entity, products::Column::CostPrice)),
         ]);
         joined()
@@ -288,7 +296,10 @@ impl ListRow {
             .column_as(suppliers::Column::Name, "joined_supplier_name")
             .column_as(
                 Expr::from(Func::coalesce([
-                    Expr::col((product_suppliers::Entity, product_suppliers::Column::Currency)),
+                    Expr::col((
+                        product_suppliers::Entity,
+                        product_suppliers::Column::Currency,
+                    )),
                     Expr::col((suppliers::Entity, suppliers::Column::Currency)),
                 ])),
                 "joined_currency",
@@ -425,10 +436,7 @@ async fn page(
 }
 
 /// The plan `id` in the list's shape.
-pub(crate) async fn find_plan(
-    db: &DatabaseConnection,
-    id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn find_plan(db: &DatabaseConnection, id: &str) -> Result<Option<Value>, DbErr> {
     let filters = Filters {
         id: Some(id.to_owned()),
         ..Filters::default()

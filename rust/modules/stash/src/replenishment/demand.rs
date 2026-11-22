@@ -196,8 +196,11 @@ pub(crate) fn link_query(products: &[String]) -> Select<product_suppliers::Entit
             product_suppliers::Column::SupplierId,
         ])
         .column_as(
-            Expr::col((product_suppliers::Entity, product_suppliers::Column::UnitCost))
-                .cast_as("float8"),
+            Expr::col((
+                product_suppliers::Entity,
+                product_suppliers::Column::UnitCost,
+            ))
+            .cast_as("float8"),
             "unit_cost",
         )
         .columns([
@@ -556,10 +559,7 @@ pub(crate) async fn links(
     db: &DatabaseConnection,
     products: &[String],
 ) -> Result<Vec<Link>, DbErr> {
-    let rows = link_query(products)
-        .into_model::<LinkRow>()
-        .all(db)
-        .await?;
+    let rows = link_query(products).into_model::<LinkRow>().all(db).await?;
     Ok(rows.into_iter().map(LinkRow::link).collect())
 }
 
@@ -582,7 +582,10 @@ async fn facts(
         .all(db)
         .await?;
     let cost = Func::coalesce([
-        Expr::col((product_variants::Entity, product_variants::Column::CostPrice)),
+        Expr::col((
+            product_variants::Entity,
+            product_variants::Column::CostPrice,
+        )),
         Expr::col((products::Entity, products::Column::CostPrice)),
     ]);
     let variants: Vec<(String, String, PrimitiveDateTime, Option<f64>)> =
@@ -601,9 +604,7 @@ async fn facts(
                     .to(products::Column::Id)
                     .into(),
             )
-            .filter(
-                product_variants::Column::ProductId.is_in(products.iter().map(String::as_str)),
-            )
+            .filter(product_variants::Column::ProductId.is_in(products.iter().map(String::as_str)))
             .into_tuple()
             .all(db)
             .await?;

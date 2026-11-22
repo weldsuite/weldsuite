@@ -34,8 +34,7 @@ use http::{HeaderMap, StatusCode};
 use sea_orm::sea_query::{Alias, Expr, OnConflict, Query};
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
-    FromQueryResult, Iterable, Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    Select,
+    FromQueryResult, Iterable, Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -202,9 +201,7 @@ pub(crate) fn variant_filter(query: Option<&str>) -> VariantFilter {
 pub(crate) fn variant_condition(column: impl ColumnTrait, filter: &VariantFilter) -> Condition {
     match filter {
         VariantFilter::Any => Condition::all(),
-        VariantFilter::None => Condition::any()
-            .add(column.is_null())
-            .add(column.eq("")),
+        VariantFilter::None => Condition::any().add(column.is_null()).add(column.eq("")),
         VariantFilter::Only(id) => Condition::all().add(column.eq(id.as_str())),
     }
 }
@@ -354,13 +351,19 @@ async fn upsert_settings(
         }
     };
     set(Column::ReplenishmentEnabled, !patch.enabled.is_absent());
-    set(Column::DefaultServiceLevel, !patch.service_level.is_absent());
+    set(
+        Column::DefaultServiceLevel,
+        !patch.service_level.is_absent(),
+    );
     set(
         Column::DefaultReviewPeriodDays,
         !patch.review_period_days.is_absent(),
     );
     set(Column::LookbackDays, !patch.lookback_days.is_absent());
-    set(Column::DefaultLeadTimeDays, !patch.lead_time_days.is_absent());
+    set(
+        Column::DefaultLeadTimeDays,
+        !patch.lead_time_days.is_absent(),
+    );
     set(Column::DemandWarehouseId, warehouse_given);
     set(Column::HistoryCutoverDate, cutover_given);
     set(Column::RunHourUtc, !patch.run_hour_utc.is_absent());

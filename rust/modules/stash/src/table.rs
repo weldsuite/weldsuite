@@ -18,7 +18,7 @@ use sea_orm::sea_query::{Alias, Expr, Query};
 use sea_orm::{ConnectionTrait, DbBackend, DbErr, Statement};
 use serde_json::{Map, Value};
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{OrmConn, PgPool, js_timestamp, orm};
+use weldsuite_db::{OrmConn, PgPool, orm};
 
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
@@ -62,15 +62,6 @@ pub(crate) struct Table {
     pub(crate) columns: &'static [Column],
 }
 
-/// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
-/// a `date` (`2026-10-29`) is midnight UTC.
-pub(crate) fn js_date(text: &str) -> String {
-    if text.len() == 10 {
-        return format!("{text}T00:00:00.000Z");
-    }
-    js_timestamp(text).unwrap_or_else(|| text.to_owned())
-}
-
 /// Why a write could not run.
 #[derive(Debug)]
 pub(crate) enum WriteError {
@@ -104,27 +95,6 @@ impl std::fmt::Display for WriteError {
 }
 
 impl Table {
-    /// A `to_jsonb(t)` row (`numeric` columns as text) as Drizzle's
-    /// `select()` returns it: the schema's property names (`relatedFAQs`,
-    /// not `relatedFaqs`), `Date`s as `toISOString()`, json strings
-    /// re-parsed, and only the schema's columns.
-    pub(crate) fn js(&self, row: Value) -> Value {
-        let Value::Object(mut row) = row else {
-            return row;
-        };
-        let mut out = Map::with_capacity(self.columns.len());
-        for column in self.columns {
-            let value = row.remove(column.name).unwrap_or(Value::Null);
-            let value = match (column.kind, value) {
-                (Kind::Date, Value::String(text)) => Value::String(js_date(&text)),
-                (Kind::Json, value) => json_value(value),
-                (_, value) => value,
-            };
-            out.insert(column.prop.to_owned(), value);
-        }
-        Value::Object(out)
-    }
-
     /// A row as the entity serializes it (Drizzle's property names, `Date`s
     /// and numerics as Drizzle returns them), with its json strings
     /// re-parsed as Drizzle does.
@@ -334,11 +304,10 @@ mod tests {
 
     #[test]
     fn a_patch_renames_with_the_id_as_postgres_reads_it() {
-        let statement =
-            crate::tables::BOXES.rename_statement("box_1", json!("box_2"), true);
+        let statement = crate::tables::BOXES.rename_statement("box_1", json!("box_2"), true);
         assert_eq!(
             statement.sql,
-            r#"UPDATE "boxes" SET "id" = (CAST($1 AS jsonb) ->> $2) WHERE "boxes"."id" = $3 AND "boxes"."deleted_at" IS NULL RETURNING "id""#
+            r#"UPDATE "boxes" SET "id" = CAST($1 AS jsonb) ->> $2 WHERE "boxes"."id" = $3 AND "boxes"."deleted_at" IS NULL RETURNING "id""#
         );
         let statement =
             crate::tables::INVENTORY_MOVEMENTS.rename_statement("mov_1", json!(7), true);

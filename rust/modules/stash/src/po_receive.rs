@@ -465,11 +465,7 @@ fn left_to_come() -> Expr {
 /// After the line updates: `received` (and `received_date`) once no line
 /// has anything left to come, else `partial`. One statement, so the status
 /// and the date read the lines alike.
-async fn finish(
-    db: &OrmConn<'_>,
-    order_id: &str,
-    now: PrimitiveDateTime,
-) -> Result<(), DbErr> {
+async fn finish(db: &OrmConn<'_>, order_id: &str, now: PrimitiveDateTime) -> Result<(), DbErr> {
     use sea_orm::ExprTrait as _;
     let open = || {
         Condition::all().add(Expr::exists(
@@ -528,9 +524,8 @@ async fn add_units(
     now: PrimitiveDateTime,
 ) -> Result<(), Refusal> {
     use sea_orm::ExprTrait as _;
-    let or_zero = |column: items::Column| {
-        Expr::from(Func::coalesce([column.into_expr(), Expr::val(0)]))
-    };
+    let or_zero =
+        |column: items::Column| Expr::from(Func::coalesce([column.into_expr(), Expr::val(0)]));
     let received = || or_zero(items::Column::QuantityReceived).add(line.quantity);
     let updated = items::Entity::update_many()
         .col_expr(items::Column::QuantityReceived, received())

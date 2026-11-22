@@ -1,4 +1,5 @@
-//! Statement parameters and the cursor-paged lists every route file shares.
+//! The cursor-paged lists every route file shares, and the timestamps they
+//! bind.
 //!
 //! A list pushes its conditions in the TypeScript route's order: each one
 //! is a slot that is on or off (a typed condition on the entity's columns),
@@ -99,7 +100,11 @@ pub(crate) async fn cursor_row<E: EntityTrait>(
 }
 
 /// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`.
-pub(crate) fn before<C: ColumnTrait>(created_at: C, id: C, (at, cursor_id): &CursorRow) -> Condition {
+pub(crate) fn before<C: ColumnTrait>(
+    created_at: C,
+    id: C,
+    (at, cursor_id): &CursorRow,
+) -> Condition {
     Condition::any().add(created_at.lt(*at)).add(
         Condition::all()
             .add(created_at.eq(*at))

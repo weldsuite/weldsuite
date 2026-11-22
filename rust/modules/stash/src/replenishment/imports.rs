@@ -51,9 +51,9 @@ use weldsuite_catalogs::entity_events::{
     SALES_HISTORY_IMPORT_COMPLETED, SALES_HISTORY_IMPORT_CREATED, SALES_HISTORY_IMPORT_DELETED,
 };
 use weldsuite_catalogs::permission_keys::{INVENTORY_MANAGE, INVENTORY_READ};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
-use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     orders, product_variants, products, stash_sales_history as history,

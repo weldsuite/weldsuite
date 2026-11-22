@@ -42,7 +42,9 @@ use weldsuite_schema::tenant::{
     warehouse_zones, warehouses,
 };
 
-use crate::args::{all_on, limit_plus_one, millis, page_list, pushed, sliced, table_count, table_rows};
+use crate::args::{
+    all_on, limit_plus_one, millis, page_list, pushed, sliced, table_count, table_rows,
+};
 use crate::js::{js_limit, number_text, query_param, query_set};
 use crate::table::{Table, WriteError};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
@@ -185,7 +187,16 @@ async fn list(crud: Handler, caller: Caller, RawQuery(query): RawQuery) -> Respo
         },
         None => None,
     };
-    match fetch(crud, &caller.db, query, cursor.is_some(), cursor_slot, limit).await {
+    match fetch(
+        crud,
+        &caller.db,
+        query,
+        cursor.is_some(),
+        cursor_slot,
+        limit,
+    )
+    .await
+    {
         Ok((rows, total)) => page_list(rows, limit, total),
         Err(error) => internal(&error, crud.messages.list),
     }
@@ -486,18 +497,20 @@ fn event_from(id: &str, data: &Body, keys: &[&str]) -> Value {
 }
 
 /// A filter slot: `eq(column, value)` when `value` is set and not empty.
-pub(crate) fn eq_slot<C: ColumnTrait>(query: Option<&str>, name: &str, column: C) -> Option<Condition> {
+pub(crate) fn eq_slot<C: ColumnTrait>(
+    query: Option<&str>,
+    name: &str,
+    column: C,
+) -> Option<Condition> {
     query_set(query, name).map(|value| Condition::all().add(column.eq(value)))
 }
 
 /// `or(like(a, term), like(b, term)…)` on `%search%`, when `search` is set.
 pub(crate) fn search_slot<C: ColumnTrait>(query: Option<&str>, columns: &[C]) -> Option<Condition> {
     let term = format!("%{}%", query_set(query, "search")?);
-    Some(
-        columns
-            .iter()
-            .fold(Condition::any(), |any, column| any.add(column.like(term.as_str()))),
-    )
+    Some(columns.iter().fold(Condition::any(), |any, column| {
+        any.add(column.like(term.as_str()))
+    }))
 }
 
 /// `eq(column, q.<name> === 'true')` whenever the parameter is there.
@@ -590,7 +603,6 @@ fn box_schema(issues: &mut Issues, body: &Body, partial: bool) -> Body {
     body.clone()
 }
 
-
 pub(crate) static BOXES: Crud = Crud {
     table: &crate::tables::BOXES,
     resource: "Box",
@@ -609,7 +621,12 @@ pub(crate) static BOXES: Crud = Crud {
         delete: "Failed to delete box",
     },
     schema: box_schema,
-    filters: |query| vec![search_slot(query, &[boxes::Column::Name, boxes::Column::Code])],
+    filters: |query| {
+        vec![search_slot(
+            query,
+            &[boxes::Column::Name, boxes::Column::Code],
+        )]
+    },
     live: true,
     cursor: Cursor::Created,
     order: NEWEST_FIRST,

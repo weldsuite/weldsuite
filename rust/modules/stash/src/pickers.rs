@@ -17,15 +17,15 @@ use weldsuite_catalogs::entity_events::{PICKER_CREATED, PICKER_DELETED, PICKER_U
 use weldsuite_catalogs::permission_keys::{
     WAREHOUSES_CREATE, WAREHOUSES_DELETE, WAREHOUSES_READ, WAREHOUSES_UPDATE,
 };
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
-use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{pick_lists, warehouse_workers};
 
 use crate::args::{
-    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced,
-    table_count, table_rows,
+    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced, table_count,
+    table_rows,
 };
 use crate::crud::{cursor_failed, soft_delete, write_failed};
 use crate::js::{js_limit, number_text, query_param, query_set};
@@ -98,7 +98,15 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         None => None,
     };
     let message = "Failed to list pickers";
-    match fetch(&caller.db, query, cursor_given.is_some(), cursor.as_ref(), limit).await {
+    match fetch(
+        &caller.db,
+        query,
+        cursor_given.is_some(),
+        cursor.as_ref(),
+        limit,
+    )
+    .await
+    {
         Ok((rows, total, by_status)) => page_body(rows, limit, total, "stats", by_status),
         Err(error) => internal(&error, message),
     }
@@ -165,7 +173,10 @@ async fn performance(db: &PgPool, id: &str) -> Result<Value, DbErr> {
     };
     Ok(Entity::find()
         .select_only()
-        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "totalPicklists")
+        .column_as(
+            Expr::from(Func::count(Expr::col(Asterisk))),
+            "totalPicklists",
+        )
         .column_as(
             Expr::from(Func::count(Expr::case(Column::Status.eq("completed"), 1))),
             "completedPicklists",

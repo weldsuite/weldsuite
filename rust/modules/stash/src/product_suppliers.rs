@@ -41,9 +41,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     SUPPLIERS_CREATE, SUPPLIERS_DELETE, SUPPLIERS_READ, SUPPLIERS_UPDATE,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
-use weldsuite_db::{OrmConn, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::product_suppliers::{ActiveModel, Column, Entity, Model};
 use weldsuite_schema::tenant::{product_variants, products, suppliers};
@@ -101,7 +101,10 @@ fn item(linked: Linked) -> Result<Value, DbErr> {
         ("supplierName", json!(linked.supplier_name)),
         ("supplierCode", json!(linked.supplier_code)),
         ("supplierCurrency", json!(linked.supplier_currency)),
-        ("supplierLeadTimeDays", json!(linked.supplier_lead_time_days)),
+        (
+            "supplierLeadTimeDays",
+            json!(linked.supplier_lead_time_days),
+        ),
         ("productName", json!(linked.product_name)),
         ("productSku", json!(linked.product_sku)),
     ] {
@@ -198,7 +201,10 @@ async fn items<C: ConnectionTrait>(db: &C, filters: &Filters<'_>) -> Result<Vec<
 }
 
 /// The live link `id` with its names.
-pub(crate) async fn find_item<C: ConnectionTrait>(db: &C, id: &str) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn find_item<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+) -> Result<Option<Value>, DbErr> {
     let filters = Filters {
         id: Some(id),
         product_id: None,
@@ -507,10 +513,20 @@ fn new_row(
         unit_cost: ActiveValue::Set(terms.unit_cost.as_set().copied().map(decimal).transpose()?),
         currency: ActiveValue::Set(terms.currency.as_set().cloned()),
         lead_time_days: ActiveValue::Set(
-            terms.lead_time_days.as_set().copied().map(integer).transpose()?,
+            terms
+                .lead_time_days
+                .as_set()
+                .copied()
+                .map(integer)
+                .transpose()?,
         ),
         min_order_qty: ActiveValue::Set(
-            terms.min_order_qty.as_set().copied().map(integer).transpose()?,
+            terms
+                .min_order_qty
+                .as_set()
+                .copied()
+                .map(integer)
+                .transpose()?,
         ),
         order_multiple: ActiveValue::Set(integer(
             terms.order_multiple.as_set().copied().unwrap_or(1),
@@ -525,8 +541,13 @@ fn new_row(
 async fn create_link(caller: &Caller, link: NewLink) -> Result<(Value, Vec<Value>), Refusal> {
     let db = &caller.db;
     let product = Condition::all().add(products::Column::Id.eq(link.product_id.as_str()));
-    if !exists::<products::Entity>(db, products::Column::Id, products::Column::DeletedAt, product)
-        .await?
+    if !exists::<products::Entity>(
+        db,
+        products::Column::Id,
+        products::Column::DeletedAt,
+        product,
+    )
+    .await?
     {
         return Err(Refusal::not_found("Product", &link.product_id));
     }
@@ -546,8 +567,13 @@ async fn create_link(caller: &Caller, link: NewLink) -> Result<(Value, Vec<Value
         }
     }
     let supplier = Condition::all().add(suppliers::Column::Id.eq(link.supplier_id.as_str()));
-    if !exists::<suppliers::Entity>(db, suppliers::Column::Id, suppliers::Column::DeletedAt, supplier)
-        .await?
+    if !exists::<suppliers::Entity>(
+        db,
+        suppliers::Column::Id,
+        suppliers::Column::DeletedAt,
+        supplier,
+    )
+    .await?
     {
         return Err(Refusal::not_found("Supplier", &link.supplier_id));
     }
@@ -565,7 +591,10 @@ async fn create_link(caller: &Caller, link: NewLink) -> Result<(Value, Vec<Value
                 .into_tuple()
                 .all(&db)
                 .await?;
-            if links.iter().any(|(_, supplier)| *supplier == link.supplier_id) {
+            if links
+                .iter()
+                .any(|(_, supplier)| *supplier == link.supplier_id)
+            {
                 return Err(duplicate());
             }
             let preferred = links.is_empty() || link.terms.is_preferred.as_set() == Some(&true);

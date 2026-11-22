@@ -36,9 +36,9 @@ use weldsuite_catalogs::entity_events::{
     PURCHASE_ORDER_ORDERED,
 };
 use weldsuite_catalogs::permission_keys::{PURCHASE_ORDERS_READ, PURCHASE_ORDERS_UPDATE};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Data, List, Pagination};
-use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     purchase_order_items as items, purchase_order_receipts as receipts_table,
@@ -393,7 +393,11 @@ async fn receipts(caller: Caller, Path(id): Path<String>) -> Response {
         .order_by_desc(receipts_table::Column::Id)
         .all(&orm(&caller.db))
         .await
-        .and_then(|rows| rows.into_iter().map(receipt_json).collect::<Result<Vec<_>, _>>());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(receipt_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     match rows {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);

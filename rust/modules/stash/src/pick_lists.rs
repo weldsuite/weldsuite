@@ -22,9 +22,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     PICKLISTS_CREATE, PICKLISTS_DELETE, PICKLISTS_READ, PICKLISTS_UPDATE,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
-use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::pick_lists::{Column, Entity};
 use weldsuite_schema::tenant::{orders, warehouses};

@@ -57,7 +57,6 @@ use crate::po_actions::{lock_order, order_json};
 use crate::po_guard::is_odoo_managed;
 use crate::{Caller, Refusal, StashState, now};
 
-const ORDER: &str = "Purchase order";
 const NOT_MANAGED: &str = "This purchase order's warehouse is not managed by an Odoo connection";
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<StashState>
@@ -515,7 +514,10 @@ async fn record(
         .col_expr(orders::Column::UpdatedAt, Expr::value(utc_now()))
         .col_expr(
             orders::Column::Metadata,
-            merged(orders::Column::Metadata.into_expr(), json!({ "odoo": odoo })),
+            merged(
+                orders::Column::Metadata.into_expr(),
+                json!({ "odoo": odoo }),
+            ),
         )
         .filter(orders::Column::Id.eq(id))
         .exec_with_returning(db)
@@ -672,9 +674,9 @@ async fn create_rfq(
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test fixtures")]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::too_many_lines)]
+    #![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
     use std::sync::Arc;
 

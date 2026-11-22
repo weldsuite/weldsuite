@@ -97,9 +97,15 @@ impl Task {
         row.insert("productName".to_owned(), json!(self.product_name));
         row.insert("productSku".to_owned(), json!(self.product_sku));
         row.insert("quantity".to_owned(), json!(self.quantity));
-        row.insert("sourceLocationId".to_owned(), json!(self.source_location_id));
+        row.insert(
+            "sourceLocationId".to_owned(),
+            json!(self.source_location_id),
+        );
         row.insert("destLocationId".to_owned(), json!(self.dest_location_id));
-        row.insert("destLocationCode".to_owned(), json!(self.dest_location_code));
+        row.insert(
+            "destLocationCode".to_owned(),
+            json!(self.dest_location_code),
+        );
         row.insert("status".to_owned(), json!(self.status));
         row.insert("priority".to_owned(), json!(self.priority));
         row.insert("assignedTo".to_owned(), json!(self.assigned_to));
@@ -664,7 +670,10 @@ async fn complete_task(
         .col_expr(movements::Column::DestLocationId, Expr::value(location_id))
         .col_expr(movements::Column::Status, Expr::value("completed"))
         .col_expr(movements::Column::CompletedAt, Expr::value(stamp))
-        .col_expr(movements::Column::CompletedBy, Expr::value(caller.user_id.as_str()))
+        .col_expr(
+            movements::Column::CompletedBy,
+            Expr::value(caller.user_id.as_str()),
+        )
         .col_expr(movements::Column::UpdatedAt, Expr::value(stamp))
         .filter(movements::Column::Id.eq(id))
         .exec(&conn)

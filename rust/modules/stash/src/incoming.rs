@@ -141,7 +141,8 @@ fn open_lines(query: &IncomingQuery) -> Select<items::Entity> {
         .add(still_to_come().gt(0));
     if let Some(products) = &query.product_ids {
         // `= any('{}')`: an empty list matches nothing.
-        condition = condition.add(items::Column::ProductId.is_in(products.iter().map(String::as_str)));
+        condition =
+            condition.add(items::Column::ProductId.is_in(products.iter().map(String::as_str)));
     }
     match &query.variant {
         VariantFilter::Any => {}
@@ -168,7 +169,13 @@ fn open_lines(query: &IncomingQuery) -> Select<items::Entity> {
         .filter(condition)
 }
 
-type IncomingRow = (String, Option<String>, String, i64, Option<PrimitiveDateTime>);
+type IncomingRow = (
+    String,
+    Option<String>,
+    String,
+    i64,
+    Option<PrimitiveDateTime>,
+);
 type LineRow = (
     String,
     String,
@@ -182,10 +189,7 @@ type LineRow = (
 /// Incoming stock per item (product, variant, destination warehouse) for
 /// the items `query` selects, ordered by product, variant (none first) and
 /// warehouse. Items with nothing to come are not listed.
-pub(crate) async fn incoming(
-    db: &PgPool,
-    query: &IncomingQuery,
-) -> Result<Vec<Incoming>, DbErr> {
+pub(crate) async fn incoming(db: &PgPool, query: &IncomingQuery) -> Result<Vec<Incoming>, DbErr> {
     let rows: Vec<IncomingRow> = per_item(query).into_tuple().all(&orm(db)).await?;
     Ok(rows
         .into_iter()
@@ -355,10 +359,13 @@ mod tests {
 
     #[test]
     fn an_empty_product_list_matches_nothing() {
-        let none = sql(&IncomingQuery {
+        use sea_orm::QueryTrait as _;
+        let none = per_item(&IncomingQuery {
             product_ids: Some(Vec::new()),
             ..IncomingQuery::default()
-        });
-        assert!(none.contains("1 = 2"), "{none}");
+        })
+        .build(sea_orm::DbBackend::Postgres)
+        .to_string();
+        assert!(none.contains("AND 1 = 2 GROUP BY"), "{none}");
     }
 }

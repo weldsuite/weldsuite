@@ -76,7 +76,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/sheets",
     "modules/sign",
     "modules/social",
-    "modules/stash",
 ];
 
 fn rust_dir() -> PathBuf {

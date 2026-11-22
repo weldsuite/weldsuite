@@ -38,9 +38,9 @@ use serde_json::{Map, Value, json};
 use time::{Duration, OffsetDateTime, PrimitiveDateTime, Time};
 use weldsuite_catalogs::entity_events::{EventName, PURCHASE_ORDER_CREATED};
 use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_CREATE;
+use weldsuite_db::{OrmConn, orm, utc_timestamp};
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, generate_id};
-use weldsuite_db::{OrmConn, orm, utc_timestamp};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     product_suppliers, product_variants, products, purchase_order_items, purchase_orders,
@@ -444,7 +444,10 @@ async fn lock_plans<C: ConnectionTrait>(
 ) -> Result<HashMap<String, PlanRow>, DbErr> {
     use sea_orm::ExprTrait as _;
     let cost = Func::coalesce([
-        Expr::col((product_variants::Entity, product_variants::Column::CostPrice)),
+        Expr::col((
+            product_variants::Entity,
+            product_variants::Column::CostPrice,
+        )),
         Expr::col((products::Entity, products::Column::CostPrice)),
     ]);
     let mut query = plans::Entity::find()
@@ -469,7 +472,11 @@ async fn lock_plans<C: ConnectionTrait>(
         .column_as(Expr::from(cost).cast_as("float8"), "cost")
         .join(
             JoinType::LeftJoin,
-            left_join(products::Entity, plans::Column::ProductId, products::Column::Id),
+            left_join(
+                products::Entity,
+                plans::Column::ProductId,
+                products::Column::Id,
+            ),
         )
         .join(
             JoinType::LeftJoin,

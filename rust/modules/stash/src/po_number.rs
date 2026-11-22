@@ -128,6 +128,9 @@ mod tests {
         let candidates: Vec<String> = ["a", "b", "c", "d"].map(str::to_owned).into();
         let taken: HashSet<String> = ["a", "c"].map(str::to_owned).into();
         assert_eq!(free(candidates.clone(), &taken, 1), vec!["b".to_owned()]);
-        assert_eq!(free(candidates, &taken, 3), vec!["b".to_owned(), "d".to_owned()]);
+        assert_eq!(
+            free(candidates, &taken, 3),
+            vec!["b".to_owned(), "d".to_owned()]
+        );
     }
 }

@@ -23,9 +23,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     INVENTORY_CREATE, INVENTORY_DELETE, INVENTORY_READ, INVENTORY_UPDATE,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
-use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     inventory, products, stock_adjustments, warehouse_locations, warehouses,
@@ -149,7 +149,11 @@ type Names = [Option<String>; 4];
 
 /// `{ ...row, productName, productSku, warehouseName, locationCode }`, the
 /// row as the entity serializes it.
-fn with_names(table: &Table, row: Result<Value, serde_json::Error>, names: Names) -> Result<Value, DbErr> {
+fn with_names(
+    table: &Table,
+    row: Result<Value, serde_json::Error>,
+    names: Names,
+) -> Result<Value, DbErr> {
     let row = row.map_err(|error| DbErr::Json(error.to_string()))?;
     let mut row = match table.drizzle(row) {
         Value::Object(row) => row,
@@ -165,10 +169,7 @@ fn with_names(table: &Table, row: Result<Value, serde_json::Error>, names: Names
 }
 
 /// `leftJoin(<table>, eq(t.<from>, <table>.id))`.
-fn left_join<E: EntityTrait, F: EntityTrait>(
-    from: E::Column,
-    to: F::Column,
-) -> RelationDef {
+fn left_join<E: EntityTrait, F: EntityTrait>(from: E::Column, to: F::Column) -> RelationDef {
     E::belongs_to(F::default()).from(from).to(to).into()
 }
 
@@ -331,7 +332,9 @@ fn ledger_filters(values: Vec<Option<String>>) -> Result<Condition, DbErr> {
         Column::LotNumber,
         Column::Type,
     ];
-    let mut values = values.into_iter().map(|value| value.filter(|value| !value.is_empty()));
+    let mut values = values
+        .into_iter()
+        .map(|value| value.filter(|value| !value.is_empty()));
     let mut filters = Condition::all();
     for column in columns {
         if let Some(value) = values.next().flatten() {
