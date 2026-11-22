@@ -14,6 +14,7 @@ import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   getAuthProvider,
   getAuthToken,
+  isWeldIdProvider,
   redirectToSignIn,
   setAuthImplementation,
   signInWithBrowser,
@@ -461,6 +462,17 @@ describe('the facade on OIDC', () => {
     expect(usesPlatformSignIn()).toBe(false);
     setAuthImplementation(createOidcAuth({ ...CONFIG, signIn: 'platform' }, { origin: ORIGIN }));
     expect(usesPlatformSignIn()).toBe(true);
+  });
+
+  it('knows WeldID, WeldSuite’s own provider, only when the deployment names it', () => {
+    setAuthImplementation(createOidcAuth(CONFIG, { origin: ORIGIN }));
+    expect(isWeldIdProvider()).toBe(false);
+    setAuthImplementation(
+      createOidcAuth({ ...CONFIG, identityProvider: 'weldid', workspaceSource: 'header' }, { origin: ORIGIN }),
+    );
+    expect(isWeldIdProvider()).toBe(true);
+    setAuthImplementation(clerkAuth);
+    expect(isWeldIdProvider()).toBe(false);
   });
 
   it('ends the session the sign-in screens opened, then signs out at the provider as before', async () => {

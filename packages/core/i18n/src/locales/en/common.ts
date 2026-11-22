@@ -796,6 +796,13 @@ export const common = {
         managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed by your organization\'s identity provider, not in WeldSuite.',
         openAccount: 'Manage sign-in and security',
         invitationsManaged: 'Workspace membership is managed by your organization\'s identity provider. Ask your administrator for access.',
+        weldId: {
+          managedTitle: 'Managed in WeldID',
+          managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed in your WeldID account, the account you sign in to WeldSuite with.',
+          openAccount: 'Open WeldID account',
+          invitationIncompleteTitle: 'Invitation link incomplete',
+          invitationIncomplete: 'This link doesn\'t point to an invitation. Open the link in your invitation email again, or ask a workspace admin to invite you again.',
+        },
         accountLocked: 'This account is locked. Try again later or contact your administrator.',
         tooManyAttempts: 'Too many attempts. Wait a few minutes and try again.',
         emailTaken: 'An account with this email address already exists. Sign in instead.',

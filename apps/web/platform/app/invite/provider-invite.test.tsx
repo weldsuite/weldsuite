@@ -21,6 +21,7 @@ vi.mock('@/lib/auth', () => ({
   useUser: () => ({ user: { primaryEmailAddress: { emailAddress: 'bob@acme.test' } } }),
   completeSignIn: vi.fn(),
   getAccountUrl: () => undefined,
+  isWeldIdProvider: () => false,
 }));
 
 const api = vi.hoisted(() => {
