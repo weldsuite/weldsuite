@@ -463,14 +463,20 @@ pub(crate) async fn revoke(
     );
     let revoked = async {
         let row = panel_share_links::Entity::update_many()
-            .col_expr(panel_share_links::Column::RevokedAt, Expr::value(revoked_at))
+            .col_expr(
+                panel_share_links::Column::RevokedAt,
+                Expr::value(revoked_at),
+            )
             .filter(panel_share_links::Column::Id.eq(text(&link, "id")))
             .exec_with_returning(&orm(&caller.db))
             .await?
             .into_iter()
             .next();
         panel_share_registry::Entity::update_many()
-            .col_expr(panel_share_registry::Column::RevokedAt, Expr::value(revoked_at))
+            .col_expr(
+                panel_share_registry::Column::RevokedAt,
+                Expr::value(revoked_at),
+            )
             .filter(panel_share_registry::Column::TokenHash.eq(text(&link, "tokenHash")))
             .filter(panel_share_registry::Column::WorkspaceId.eq(&caller.workspace_id))
             .exec(&orm(&master))

@@ -145,7 +145,10 @@ fn bumped_updated_at() -> Expr {
 }
 
 /// The row an update returned (`returning`), as Drizzle reads it.
-async fn updated(update: UpdateMany<projects::Entity>, db: &PgPool) -> Result<Option<Value>, DbErr> {
+async fn updated(
+    update: UpdateMany<projects::Entity>,
+    db: &PgPool,
+) -> Result<Option<Value>, DbErr> {
     update
         .exec_with_returning(&orm(db))
         .await?

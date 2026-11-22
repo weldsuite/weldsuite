@@ -10,14 +10,23 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::chat_drafts::{self, Column};
 
 use crate::ChatState;
 use crate::access::{Caller, ChatError, answer, unhandled, validate};
-use crate::util::{list_limit, list_response, ms_timestamp, now, page, query_map};
+use crate::groups::channels::{before_cursor, js, millis, sql_limit};
+use crate::util::{list_limit, list_response, page, query_map};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -46,72 +55,109 @@ fn is_empty_draft(content: Option<&Value>, attachments: Option<&Value>) -> bool 
     !has_text && !has_attachments
 }
 
+/// A stored draft that isn't empty: `btrim(content) <> '' or
+/// (jsonb_typeof(attachments) = 'array' and jsonb_array_length(attachments) > 0)`.
+fn not_empty() -> Condition {
+    let attachments = || Expr::col((chat_drafts::Entity, Column::Attachments));
+    Condition::any()
+        .add(sea_orm::ExprTrait::ne(
+            Func::cust("btrim").arg(Expr::col((chat_drafts::Entity, Column::Content))),
+            "",
+        ))
+        .add(
+            Condition::all()
+                .add(sea_orm::ExprTrait::eq(
+                    Func::cust("jsonb_typeof").arg(attachments()),
+                    "array",
+                ))
+                .add(sea_orm::ExprTrait::gt(
+                    Func::cust("jsonb_array_length").arg(attachments()),
+                    0,
+                )),
+        )
+}
+
+/// `column = $n`, or `column is null` for no value.
+fn same_or_null(column: Column, value: Option<&str>) -> Expr {
+    match value {
+        Some(value) => column.eq(value),
+        None => column.is_null(),
+    }
+}
+
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = query_map(raw.as_deref());
     let limit = list_limit(q.get("limit"));
     let channel = q.get("channelId").filter(|c| !c.is_empty()).cloned();
     let cursor = match q.get("cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
-                "select created_at::text, id from chat_drafts where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
+            let row: Result<Option<(PrimitiveDateTime, String)>, DbErr> =
+                chat_drafts::Entity::find()
+                    .select_only()
+                    .columns([Column::CreatedAt, Column::Id])
+                    .filter(Column::Id.eq(cursor))
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await;
             match row {
-                Ok(row) => row.map(|(at, id)| (ms_timestamp(&at), id)),
+                Ok(row) => row.map(|(at, id)| (millis(at), id)),
                 Err(error) => return unhandled(error.into()),
             }
         }
         None => None,
     };
     let result = async {
-        let (cursor_at, cursor_id) = cursor.unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from chat_drafts t
-             where t.user_id = $1
-               and (btrim(t.content) <> ''
-                    or (jsonb_typeof(t.attachments) = 'array' and jsonb_array_length(t.attachments) > 0))
-               and ($2::text is null or t.channel_id = $2)
-               and ($3::text is null or (t.created_at < $3::timestamp
-                    or (t.created_at = $3::timestamp and t.id < $4)))
-             order by t.created_at desc, t.id desc limit $5",
-        )
-        .bind(&caller.user_id)
-        .bind(&channel)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from chat_drafts t
-             where t.user_id = $1
-               and (btrim(t.content) <> ''
-                    or (jsonb_typeof(t.attachments) = 'array' and jsonb_array_length(t.attachments) > 0))
-               and ($2::text is null or t.channel_id = $2)",
-        )
-        .bind(&caller.user_id)
-        .bind(&channel)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let mut filters = Condition::all()
+            .add(Column::UserId.eq(&caller.user_id))
+            .add(not_empty());
+        if let Some(channel) = &channel {
+            filters = filters.add(Column::ChannelId.eq(channel));
+        }
+        let db = orm(&caller.db);
+        let mut rows = chat_drafts::Entity::find().filter(filters.clone());
+        if let Some(cursor) = &cursor {
+            rows = rows.filter(before_cursor(Column::CreatedAt, Column::Id, cursor));
+        }
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(sql_limit(limit + 1)?)
+            .all(&db)
+            .await?;
+        let total = chat_drafts::Entity::find()
+            .filter(filters)
+            .count(&db)
+            .await?;
+        let rows = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, total, has_more, next))
+        Ok(list_response(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     answer(result, "Failed to list chat drafts")
 }
 
-async fn own_draft(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_drafts t where t.id = $1 and t.user_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn own_draft(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    chat_drafts::Entity::find_by_id(id.to_owned())
+        .filter(Column::UserId.eq(&caller.user_id))
+        .one(&orm(&caller.db))
+        .await?
+        .map(js)
+        .transpose()
+}
+
+/// Delete the caller's draft `id`.
+async fn delete_own(caller: &Caller, id: &str) -> Result<(), DbErr> {
+    chat_drafts::Entity::delete_many()
+        .filter(Column::Id.eq(id))
+        .filter(Column::UserId.eq(&caller.user_id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -172,19 +218,18 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
                 .get("threadParentMessageId")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            let removed: Vec<String> = sqlx::query_scalar(
-                "delete from chat_drafts
-                 where user_id = $1
-                   and (case when $2::text is null then channel_id is null else channel_id = $2 end)
-                   and (case when $3::text is null then thread_parent_message_id is null
-                        else thread_parent_message_id = $3 end)
-                 returning id",
-            )
-            .bind(&caller.user_id)
-            .bind(&channel)
-            .bind(&parent)
-            .fetch_all(&caller.db)
-            .await?;
+            let removed: Vec<String> = chat_drafts::Entity::delete_many()
+                .filter(Column::UserId.eq(&caller.user_id))
+                .filter(same_or_null(Column::ChannelId, channel.as_deref()))
+                .filter(same_or_null(
+                    Column::ThreadParentMessageId,
+                    parent.as_deref(),
+                ))
+                .exec_with_returning(&orm(&caller.db))
+                .await?
+                .into_iter()
+                .map(|draft| draft.id)
+                .collect();
             return Ok(Data(json!({
                 "id": removed.first(),
                 "deleted": !removed.is_empty(),
@@ -192,23 +237,36 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
             .into_response());
         }
         let id = generate_id("cdft");
-        let at = now();
-        sqlx::query(
-            "insert into chat_drafts
-                (id, workspace_id, user_id, channel_id, thread_parent_message_id, content,
-                 attachments, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(&org)
-        .bind(&caller.user_id)
-        .bind(text_of(data.get("channelId")).flatten())
-        .bind(text_of(data.get("threadParentMessageId")).flatten())
-        .bind(text_of(data.get("content")).flatten())
-        .bind(data.get("attachments").filter(|a| !a.is_null()).cloned())
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        // A plain insert rather than an `ActiveModel`: a draft of attachments
+        // alone sends no `content`, and its `null` is refused by the column as
+        // the worker's insert is.
+        let insert = Query::insert()
+            .into_table(chat_drafts::Entity)
+            .columns([
+                Column::Id,
+                Column::WorkspaceId,
+                Column::UserId,
+                Column::ChannelId,
+                Column::ThreadParentMessageId,
+                Column::Content,
+                Column::Attachments,
+                Column::CreatedAt,
+                Column::UpdatedAt,
+            ])
+            .values_panic([
+                Expr::value(id.clone()),
+                Expr::value(org.clone()),
+                Expr::value(caller.user_id.clone()),
+                Expr::value(text_of(data.get("channelId")).flatten()),
+                Expr::value(text_of(data.get("threadParentMessageId")).flatten()),
+                Expr::value(text_of(data.get("content")).flatten()),
+                Expr::value(data.get("attachments").filter(|a| !a.is_null()).cloned()),
+                Expr::value(at),
+                Expr::value(at),
+            ])
+            .to_owned();
+        orm(&caller.db).execute(&insert).await?;
         Ok(Created(json!({ "id": id })).into_response())
     }
     .await;
@@ -234,40 +292,32 @@ async fn update_one(
             .get("attachments")
             .or_else(|| existing.get("attachments"));
         if is_empty_draft(next_content, next_attachments) {
-            sqlx::query("delete from chat_drafts where id = $1 and user_id = $2")
-                .bind(&id)
-                .bind(&caller.user_id)
-                .execute(&caller.db)
-                .await?;
+            delete_own(&caller, &id).await?;
             return Ok(Data(json!({ "id": id, "deleted": true })).into_response());
         }
-        let field = |key: &str| text_of(data.get(key));
-        let (set_channel, channel) = field("channelId").map_or((false, None), |v| (true, v));
-        let (set_parent, parent) =
-            field("threadParentMessageId").map_or((false, None), |v| (true, v));
-        let (set_content, content) = field("content").map_or((false, None), |v| (true, v));
-        let attachments = data.get("attachments").cloned();
-        sqlx::query(
-            "update chat_drafts set updated_at = $3::timestamp,
-                channel_id = case when $4 then $5 else channel_id end,
-                thread_parent_message_id = case when $6 then $7 else thread_parent_message_id end,
-                content = case when $8 then $9 else content end,
-                attachments = case when $10 then $11 else attachments end
-             where id = $1 and user_id = $2",
-        )
-        .bind(&id)
-        .bind(&caller.user_id)
-        .bind(now())
-        .bind(set_channel)
-        .bind(&channel)
-        .bind(set_parent)
-        .bind(&parent)
-        .bind(set_content)
-        .bind(&content)
-        .bind(attachments.is_some())
-        .bind(attachments.filter(|a| !a.is_null()))
-        .execute(&caller.db)
-        .await?;
+        // `case when $set then $value else column end`: the fields the body sent.
+        let mut update =
+            chat_drafts::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        for (key, column) in [
+            ("channelId", Column::ChannelId),
+            ("threadParentMessageId", Column::ThreadParentMessageId),
+            ("content", Column::Content),
+        ] {
+            if let Some(value) = text_of(data.get(key)) {
+                update = update.col_expr(column, Expr::value(value));
+            }
+        }
+        if let Some(attachments) = data.get("attachments") {
+            update = update.col_expr(
+                Column::Attachments,
+                Expr::value(Some(attachments.clone()).filter(|a| !a.is_null())),
+            );
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .filter(Column::UserId.eq(&caller.user_id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "id": id })).into_response())
     }
     .await;
@@ -279,11 +329,7 @@ async fn remove_one(caller: Caller, Path(id): Path<String>) -> Response {
         if own_draft(&caller, &id).await?.is_none() {
             return Err(ChatError::not_found("Chat draft", Some(&id)));
         }
-        sqlx::query("delete from chat_drafts where id = $1 and user_id = $2")
-            .bind(&id)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
-            .await?;
+        delete_own(&caller, &id).await?;
         Ok(NoContent.into_response())
     }
     .await;

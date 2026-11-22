@@ -16,13 +16,17 @@
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Served, Task, Tier};
+use weldsuite_db::{orm, orm_error, utc_now};
 use weldsuite_kit::ApiError;
+use weldsuite_schema::tenant::{merge_releases, merge_repositories};
 
-use super::{find_release, one_release_dto, release_contents, release_event};
+use super::{find_release, one_release_dto, release_contents, release_event, returned};
 use crate::db::{Row, col, text};
-use crate::{Answer, Caller, MergeError, MergeState, Refusal, now, publish};
+use crate::{Answer, Caller, MergeError, MergeState, Refusal, publish};
 
 /// Most pull requests and issues one call lists.
 const MAX_LISTED: usize = 200;
@@ -43,11 +47,11 @@ enum NotesError {
     NotConfigured,
     RequestFailed(String),
     Ai(AiError),
-    Db(sqlx::Error),
+    Db(DbErr),
 }
 
-impl From<sqlx::Error> for NotesError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for NotesError {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
@@ -164,11 +168,13 @@ async fn write_notes(
     };
     let call = notes_call(caller, state, text(release, "id"));
     ai.assert_credits(&call).await.map_err(NotesError::Ai)?;
-    let repository_full_name: Option<String> =
-        sqlx::query_scalar("select full_name from merge_repositories where id = $1 limit 1")
-            .bind(text(release, "repositoryId"))
-            .fetch_optional(db)
-            .await?;
+    let repository_full_name: Option<String> = merge_repositories::Entity::find()
+        .select_only()
+        .column(merge_repositories::Column::FullName)
+        .filter(merge_repositories::Column::Id.eq(text(release, "repositoryId")))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let prompt = notes_prompt(
         release,
         &repository_full_name.unwrap_or_default(),
@@ -206,9 +212,11 @@ pub(crate) async fn generate_notes(
         Err(NotesError::Ai(error @ AiError::InsufficientCredits { .. })) => {
             return Err(error.into_api_error().into());
         }
-        Err(NotesError::Ai(AiError::Database(error)) | NotesError::Db(error)) => {
-            return Err(MergeError::Db(error).into());
+        // The wallet's statements are not on the entities yet.
+        Err(NotesError::Ai(AiError::Database(error))) => {
+            return Err(MergeError::Db(orm_error(error)).into());
         }
+        Err(NotesError::Db(error)) => return Err(MergeError::Db(error).into()),
         Err(NotesError::Ai(error)) => {
             tracing::warn!(%error, "[merge-api] the release notes AI request failed");
             return Err(ApiError::bad_gateway()
@@ -222,18 +230,16 @@ pub(crate) async fn generate_notes(
                 .into());
         }
     };
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "update merge_releases set notes = $2, notes_generated_at = $3::timestamptz, \
-           updated_at = $3::timestamptz \
-         where id = $1 returning to_jsonb(merge_releases.*)",
-    )
-    .bind(&id)
-    .bind(&notes)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let saved = weldsuite_db::js_row(row);
+    let at = utc_now().assume_utc();
+    let saved = returned(
+        merge_releases::Entity::update_many()
+            .col_expr(merge_releases::Column::Notes, Expr::value(notes))
+            .col_expr(merge_releases::Column::NotesGeneratedAt, Expr::value(at))
+            .col_expr(merge_releases::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_releases::Column::Id.eq(&id))
+            .exec_with_returning(&orm(db))
+            .await?,
+    )?;
     let mut changes = serde_json::Map::new();
     changes.insert(
         "notes".to_owned(),

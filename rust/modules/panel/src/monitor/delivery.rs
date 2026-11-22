@@ -14,16 +14,20 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::CHAT_MESSAGE_CREATED;
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm};
 use weldsuite_emails::panel_monitor::{self, AlertProps, DigestProps};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_events::{EntityEventPublisher, EventContext, EventSource, publish_entity_event};
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 use weldsuite_panel_domain::js;
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, DynSystemMail, HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::{
+    chat_channels, user_preferences, workspace_members, workspace_settings,
+};
 
 use super::secrets;
 
@@ -349,12 +353,14 @@ pub(crate) struct Recipient {
     pub(crate) locale: EmailLocale,
 }
 
-async fn workspace_language(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<Option<String>> = sqlx::query_scalar(
-        "select language from workspace_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+async fn workspace_language(db: &PgPool) -> Result<Option<String>, DbErr> {
+    let row: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Language)
+        .filter(workspace_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.flatten())
 }
 
@@ -369,23 +375,35 @@ pub(crate) async fn workspace_locale(db: &PgPool) -> EmailLocale {
 pub(crate) async fn member_recipients(
     db: &PgPool,
     user_ids: &[String],
-) -> Result<Vec<Recipient>, sqlx::Error> {
+) -> Result<Vec<Recipient>, DbErr> {
     let ids = js::distinct(user_ids.iter().cloned());
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, email, name from workspace_members
-         where user_id = any($1) and deleted_at is null and status = 'ACTIVE'",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let prefs: Vec<(String, Option<String>)> =
-        sqlx::query_as("select user_id, language from user_preferences where user_id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let orm_db = orm(db);
+    let members: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Email,
+            workspace_members::Column::Name,
+        ])
+        .filter(workspace_members::Column::UserId.is_in(ids.iter().map(String::as_str)))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
+    let prefs: Vec<(String, String)> = user_preferences::Entity::find()
+        .select_only()
+        .columns([
+            user_preferences::Column::UserId,
+            user_preferences::Column::Language,
+        ])
+        .filter(user_preferences::Column::UserId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
     let workspace = workspace_language(db).await?;
     let mut seen: Vec<String> = Vec::new();
     let mut out = Vec::new();
@@ -399,7 +417,7 @@ pub(crate) async fn member_recipients(
             .iter()
             .rev()
             .find(|(id, _)| *id == user_id)
-            .and_then(|(_, language)| language.clone());
+            .map(|(_, language)| language.clone());
         out.push(Recipient {
             locale: EmailLocale::resolve([preference.as_deref(), workspace.as_deref()]),
             user_id,
@@ -414,7 +432,7 @@ pub(crate) async fn member_recipients(
 pub(crate) async fn unknown_members(
     db: &PgPool,
     user_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -433,13 +451,15 @@ pub(crate) async fn unknown_members(
 pub(crate) async fn chat_channel_exists(
     db: &PgPool,
     channel_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(
-        "select 1 from chat_channels where id = $1 and deleted_at is null and is_archived = false limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let found: Option<String> = chat_channels::Entity::find_by_id(channel_id)
+        .select_only()
+        .column(chat_channels::Column::Id)
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .filter(chat_channels::Column::IsArchived.eq(false))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -865,7 +885,7 @@ pub(crate) fn store_channels(
 pub(crate) async fn channels_problem(
     db: &PgPool,
     input: &Value,
-) -> Result<Option<&'static str>, sqlx::Error> {
+) -> Result<Option<&'static str>, DbErr> {
     let unknown = unknown_members(db, &ids(input.get("emailUserIds"))).await?;
     if !unknown.is_empty() {
         return Ok(Some(

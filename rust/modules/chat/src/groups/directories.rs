@@ -8,14 +8,23 @@ use axum::Router;
 use axum::extract::RawQuery;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_chat_domain::unreadable_record_chat_ids;
+use weldsuite_db::orm;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Format, Number, Presence, Text, js_date_iso};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{chat_channel_members as members, chat_channels, chat_messages};
 
 use crate::ChatState;
 use crate::access::{Caller, answer, validate_query};
+use crate::groups::channels::{js, member_exists, timestamp_of};
 
 pub(crate) fn directories_router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -47,25 +56,46 @@ async fn directory_channels(caller: Caller, RawQuery(raw): RawQuery) -> Response
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let rows: Vec<(String, String, Option<String>, i32, String, bool)> = sqlx::query_as(
-            // `isJoined` as chat-api computes it: Drizzle writes the select's
-            // columns unqualified, so inside the subquery `id` is the member
-            // row's own id and the test never holds (it answers false). Kept
-            // as is for parity; reported as a TypeScript bug.
-            "select c.id, c.name, c.description, c.member_count, c.type,
-                    exists (select 1 from chat_channel_members
-                            where channel_id = id and user_id = $1)
-             from chat_channels c
-             where c.deleted_at is null and c.is_archived = false
-               and (c.type = 'public' or exists (select 1 from chat_channel_members m
-                    where m.channel_id = c.id and m.user_id = $1))
-               and ($2::text is null or c.name ilike $2)
-             order by c.name",
-        )
-        .bind(&caller.user_id)
-        .bind(&search)
-        .fetch_all(&caller.db)
-        .await?;
+        // `isJoined` as chat-api computes it: Drizzle writes the select's
+        // columns unqualified, so inside the subquery `id` is the member
+        // row's own id and the test never holds (it answers false). Kept
+        // as is for parity; reported as a TypeScript bug.
+        let is_joined = Expr::exists(
+            Query::select()
+                .expr(Expr::val(1))
+                .from(members::Entity)
+                .and_where(sea_orm::ExprTrait::equals(
+                    Expr::col((members::Entity, members::Column::ChannelId)),
+                    (members::Entity, members::Column::Id),
+                ))
+                .and_where(members::Column::UserId.eq(&caller.user_id))
+                .to_owned(),
+        );
+        let mut query = chat_channels::Entity::find()
+            .select_only()
+            .columns([
+                chat_channels::Column::Id,
+                chat_channels::Column::Name,
+                chat_channels::Column::Description,
+                chat_channels::Column::MemberCount,
+                chat_channels::Column::Type,
+            ])
+            .expr(is_joined)
+            .filter(chat_channels::Column::DeletedAt.is_null())
+            .filter(chat_channels::Column::IsArchived.eq(false))
+            .filter(
+                Condition::any()
+                    .add(chat_channels::Column::Type.eq("public"))
+                    .add(member_exists(&caller.user_id)),
+            );
+        if let Some(search) = &search {
+            query = query.filter(chat_channels::Column::Name.ilike(search.as_str()));
+        }
+        let rows: Vec<(String, String, Option<String>, i32, String, bool)> = query
+            .order_by_asc(chat_channels::Column::Name)
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         let entity_ids: Vec<String> = rows
             .iter()
             .filter(|r| r.4 == "entity")
@@ -98,6 +128,28 @@ async fn directory_channels(caller: Caller, RawQuery(raw): RawQuery) -> Response
     }
     .await;
     answer(result, "Failed to fetch directory channels")
+}
+
+/// A search hit (`jsonb_build_object` of the message's columns).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Hit {
+    id: String,
+    channel_id: String,
+    author_id: String,
+    author_name: String,
+    author_avatar: Option<String>,
+    content: String,
+    html_content: Option<String>,
+    #[serde(rename = "type")]
+    kind: String,
+    parent_id: Option<String>,
+    is_pinned: bool,
+    has_attachments: bool,
+    attachments: Option<Value>,
+    reactions: Option<Value>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
 }
 
 struct SearchQuery {
@@ -173,18 +225,25 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let member: Vec<String> =
-            sqlx::query_scalar("select channel_id from chat_channel_members where user_id = $1")
-                .bind(&caller.user_id)
-                .fetch_all(&caller.db)
-                .await?;
+        use chat_messages::Column;
+        let db = orm(&caller.db);
+        let member: Vec<String> = members::Entity::find()
+            .select_only()
+            .column(members::Column::ChannelId)
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .into_tuple()
+            .all(&db)
+            .await?;
         let can = caller.context_can();
         let unreadable = unreadable_record_chat_ids(&caller.db, &caller.user_id, &member, Some(&can)).await?;
-        let public: Vec<String> = sqlx::query_scalar(
-            "select id from chat_channels where type = 'public' and deleted_at is null",
-        )
-        .fetch_all(&caller.db)
-        .await?;
+        let public: Vec<String> = chat_channels::Entity::find()
+            .select_only()
+            .column(chat_channels::Column::Id)
+            .filter(chat_channels::Column::Type.eq("public"))
+            .filter(chat_channels::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&db)
+            .await?;
         let mut accessible: Vec<String> = Vec::new();
         for id in member.into_iter().filter(|id| !unreadable.contains(id)).chain(public) {
             if !accessible.contains(&id) {
@@ -202,35 +261,54 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         }
         let after = query.after.as_deref().and_then(js_date_iso);
         let before = query.before.as_deref().and_then(js_date_iso);
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', m.id, 'channelId', m.channel_id, 'authorId', m.author_id,
-                    'authorName', m.author_name, 'authorAvatar', m.author_avatar,
-                    'content', m.content, 'htmlContent', m.html_content, 'type', m.type,
-                    'parentId', m.parent_id, 'isPinned', m.is_pinned,
-                    'hasAttachments', m.has_attachments, 'attachments', m.attachments,
-                    'reactions', m.reactions, 'createdAt', m.created_at)
-             from chat_messages m
-             where m.deleted_at is null and m.channel_id = any($1) and m.content ilike $2
-               and ($3::text is null or m.channel_id = $3)
-               and ($4::text is null or m.author_id = $4)
-               and ($5::text is null or m.created_at >= $5::timestamp)
-               and ($6::text is null or m.created_at <= $6::timestamp)
-               and ($7::boolean is null or m.has_attachments = $7)
-               and ($8::boolean is null or m.is_pinned = $8)
-             order by m.created_at desc limit $9",
-        )
-        .bind(&accessible)
-        .bind(format!("%{}%", query.q))
-        .bind(query.channel_id.as_deref().filter(|c| !c.is_empty()))
-        .bind(query.author_id.as_deref().filter(|a| !a.is_empty()))
-        .bind(&after)
-        .bind(&before)
-        .bind(query.has_file)
-        .bind(query.is_pinned)
-        .bind(query.limit)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let mut hits = chat_messages::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::ChannelId,
+                Column::AuthorId,
+                Column::AuthorName,
+                Column::AuthorAvatar,
+                Column::Content,
+                Column::HtmlContent,
+            ])
+            .column_as(Column::Type, "kind")
+            .columns([
+                Column::ParentId,
+                Column::IsPinned,
+                Column::HasAttachments,
+                Column::Attachments,
+                Column::Reactions,
+                Column::CreatedAt,
+            ])
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::ChannelId.is_in(accessible.iter().map(String::as_str)))
+            .filter(Column::Content.ilike(format!("%{}%", query.q)));
+        if let Some(channel) = query.channel_id.as_deref().filter(|c| !c.is_empty()) {
+            hits = hits.filter(Column::ChannelId.eq(channel));
+        }
+        if let Some(author) = query.author_id.as_deref().filter(|a| !a.is_empty()) {
+            hits = hits.filter(Column::AuthorId.eq(author));
+        }
+        if let Some(after) = after.as_deref() {
+            hits = hits.filter(Column::CreatedAt.gte(timestamp_of(after)?));
+        }
+        if let Some(before) = before.as_deref() {
+            hits = hits.filter(Column::CreatedAt.lte(timestamp_of(before)?));
+        }
+        if let Some(has_file) = query.has_file {
+            hits = hits.filter(Column::HasAttachments.eq(has_file));
+        }
+        if let Some(is_pinned) = query.is_pinned {
+            hits = hits.filter(Column::IsPinned.eq(is_pinned));
+        }
+        let rows = hits
+            .order_by_desc(Column::CreatedAt)
+            .limit(u64::try_from(query.limit).unwrap_or(0))
+            .into_model::<Hit>()
+            .all(&db)
+            .await?;
+        let rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         let channel_ids: Vec<String> = weldsuite_chat_domain::access::unique_ids(
             &rows
                 .iter()
@@ -239,12 +317,18 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         );
         let mut channels: Map<String, Value> = Map::new();
         if !channel_ids.is_empty() {
-            let found: Vec<(String, String, String, String)> = sqlx::query_as(
-                "select id, name, slug, type from chat_channels where id = any($1)",
-            )
-            .bind(&channel_ids)
-            .fetch_all(&caller.db)
-            .await?;
+            let found: Vec<(String, String, String, String)> = chat_channels::Entity::find()
+                .select_only()
+                .columns([
+                    chat_channels::Column::Id,
+                    chat_channels::Column::Name,
+                    chat_channels::Column::Slug,
+                    chat_channels::Column::Type,
+                ])
+                .filter(chat_channels::Column::Id.is_in(channel_ids.iter().map(String::as_str)))
+                .into_tuple()
+                .all(&db)
+                .await?;
             for (id, name, slug, kind) in found {
                 channels.insert(id, json!({ "name": name, "slug": slug, "type": kind }));
             }

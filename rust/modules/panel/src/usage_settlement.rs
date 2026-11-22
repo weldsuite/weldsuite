@@ -27,14 +27,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_core_domain::credits::{Consumed, LedgerEntry, consume_credits};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_panel_domain::js;
 use weldsuite_ports::{Cache, DynCache, PortError};
+use weldsuite_schema::master::panel_usage_monthly::{self as usage_monthly, Column};
+use weldsuite_schema::master::{plans, system_settings, workspaces};
 
 use crate::domain::quota_key;
-use crate::registry::apply_replay_tier;
+use crate::registry::{apply_replay_tier, workspace_plan};
+use crate::saved::instant;
 
 /// Overage is charged in blocks of this many events / recordings.
 pub const EVENT_BLOCK: i64 = 10_000;
@@ -153,15 +160,20 @@ type WorkspaceRow = (
 pub async fn load_workspace_plan(
     master: &PgPool,
     workspace_id: &str,
-) -> Result<Option<WorkspacePlan>, sqlx::Error> {
-    let row: Option<WorkspaceRow> = sqlx::query_as(
-        "select w.id, w.name, w.clerk_org_id, p.slug, p.features
-             from workspaces w left join plans p on p.id = w.plan_id
-             where w.id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<WorkspacePlan>, DbErr> {
+    let row: Option<WorkspaceRow> = workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::Id,
+            workspaces::Column::Name,
+            workspaces::Column::ClerkOrgId,
+        ])
+        .columns([plans::Column::Slug, plans::Column::Features])
+        .join(JoinType::LeftJoin, workspace_plan())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(
         row.map(|(id, name, clerk_org_id, slug, features)| WorkspacePlan {
             limits: plan_limits(slug.as_deref(), features.as_ref()),
@@ -189,47 +201,45 @@ pub struct UsageMonth {
 }
 
 impl UsageMonth {
-    #[allow(clippy::cast_possible_truncation, reason = "whole counts")]
-    fn from_row(row: &Value) -> Self {
-        let n = |key: &str| row[key].as_f64().map_or(0, |v| v as i64);
+    fn from_row(row: usage_monthly::Model) -> Self {
         Self {
-            id: row["id"].as_str().unwrap_or_default().to_owned(),
-            month: row["month"].as_str().unwrap_or_default().to_owned(),
-            events: n("events"),
-            recordings: n("recordings"),
-            event_blocks_charged: n("event_blocks_charged"),
-            recording_blocks_charged: n("recording_blocks_charged"),
-            event_credits_charged: n("event_credits_charged"),
-            recording_credits_charged: n("recording_credits_charged"),
-            notified: row["notified"]
-                .as_array()
-                .map(|list| {
-                    list.iter()
-                        .filter_map(|m| m.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
+            id: row.id,
+            month: row.month,
+            events: row.events,
+            recordings: i64::from(row.recordings),
+            event_blocks_charged: i64::from(row.event_blocks_charged),
+            recording_blocks_charged: i64::from(row.recording_blocks_charged),
+            event_credits_charged: i64::from(row.event_credits_charged),
+            recording_credits_charged: i64::from(row.recording_credits_charged),
+            notified: markers(&row.notified),
         }
     }
 }
 
-/// The row's columns as `to_jsonb` writes them.
-const ROW: &str = "to_jsonb(u)";
+/// The markers of a `notified` list: its strings.
+fn markers(notified: &Value) -> Vec<String> {
+    notified
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|m| m.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// `usageRow`: the stored row of a workspace's month, if any.
 pub async fn usage_row(
     master: &PgPool,
     workspace_id: &str,
     month: &str,
-) -> Result<Option<UsageMonth>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {ROW} from panel_usage_monthly u where u.workspace_id = $1 and u.month = $2 limit 1"
-    )))
-    .bind(workspace_id)
-    .bind(month)
-    .fetch_optional(master)
-    .await?;
-    Ok(row.as_ref().map(UsageMonth::from_row))
+) -> Result<Option<UsageMonth>, DbErr> {
+    let row = usage_monthly::Entity::find()
+        .filter(Column::WorkspaceId.eq(workspace_id))
+        .filter(Column::Month.eq(month))
+        .one(&orm(master))
+        .await?;
+    Ok(row.map(UsageMonth::from_row))
 }
 
 /// `quotaFor(limits, usage)`, where the install bills; without billing the
@@ -330,11 +340,14 @@ pub async fn pricing(master: &PgPool, cache: Option<&Arc<dyn DynCache>>) -> Pric
     {
         return parse_pricing(Some(&cached));
     }
-    let row: Result<Option<Value>, sqlx::Error> =
-        sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-            .bind(PRICING_KEY)
-            .fetch_optional(master)
-            .await;
+    // A row whose value is null fails to read, as before: the defaults, not cached.
+    let row: Result<Option<Value>, DbErr> = system_settings::Entity::find()
+        .select_only()
+        .column(system_settings::Column::Value)
+        .filter(system_settings::Column::Key.eq(PRICING_KEY))
+        .into_tuple()
+        .one(&orm(master))
+        .await;
     match row {
         Ok(value) => {
             let pricing = parse_pricing(value.as_ref());
@@ -411,7 +424,7 @@ pub struct Settled {
 /// What a settlement can fail with.
 #[derive(Debug)]
 pub enum SettlementError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Cache(PortError),
     Credits(String),
 }
@@ -428,8 +441,8 @@ impl std::fmt::Display for SettlementError {
 
 impl std::error::Error for SettlementError {}
 
-impl From<sqlx::Error> for SettlementError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SettlementError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -531,7 +544,7 @@ async fn plan_usage_notice(
     usage: &UsageMonth,
     quota: &str,
     now: i64,
-) -> Result<Option<UsageNotice>, sqlx::Error> {
+) -> Result<Option<UsageNotice>, DbErr> {
     let reached = reached_markers(&workspace.limits, usage, quota);
     let mut notified = usage.notified.clone();
     for _ in 0..3 {
@@ -549,33 +562,22 @@ async fn plan_usage_notice(
                 .cloned()
                 .chain(reached.iter().map(|m| (*m).to_owned())),
         );
-        let claimed: Option<String> = sqlx::query_scalar(
-            "update panel_usage_monthly set notified = $2, updated_at = $4::timestamptz
-             where id = $1 and notified = $3::jsonb returning id",
-        )
-        .bind(&usage.id)
-        .bind(json!(next))
-        .bind(json!(notified))
-        .bind(js::iso_string(now))
-        .fetch_optional(master)
-        .await?;
-        if claimed.is_none() {
-            // Another settlement moved the markers first: look again.
-            let fresh: Option<Value> = sqlx::query_scalar(
-                "select notified from panel_usage_monthly where id = $1 limit 1",
-            )
-            .bind(&usage.id)
-            .fetch_optional(master)
+        let claimed = usage_monthly::Entity::update_many()
+            .col_expr(Column::Notified, Expr::value(json!(next)))
+            .col_expr(Column::UpdatedAt, Expr::value(instant(now)))
+            .filter(Column::Id.eq(&usage.id))
+            .filter(Column::Notified.eq(json!(notified)))
+            .exec(&orm(master))
             .await?;
-            notified = fresh
-                .as_ref()
-                .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(|m| m.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default();
+        if claimed.rows_affected == 0 {
+            // Another settlement moved the markers first: look again.
+            let fresh: Option<Value> = usage_monthly::Entity::find_by_id(&usage.id)
+                .select_only()
+                .column(Column::Notified)
+                .into_tuple()
+                .one(&orm(master))
+                .await?;
+            notified = fresh.as_ref().map(markers).unwrap_or_default();
             continue;
         }
         let rank = |m: &str| NOTICE_MARKERS.iter().position(|n| *n == m).unwrap_or(0);
@@ -603,6 +605,39 @@ async fn plan_usage_notice(
     Ok(None)
 }
 
+/// Step 1: the month's totals into its row, which only ever grow; the row
+/// as stored.
+async fn store_totals(deps: &Settlement<'_>, input: &SettlementInput) -> Result<UsageMonth, DbErr> {
+    let recordings = i32::try_from(input.recordings).unwrap_or(i32::MAX);
+    let grown = |column: Column, value: Expr| {
+        Func::greatest([Expr::col((usage_monthly::Entity, column)), value])
+    };
+    let stored = usage_monthly::Entity::insert(usage_monthly::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnu")),
+        workspace_id: Set(input.workspace_id.clone()),
+        month: Set(input.month.clone()),
+        events: Set(input.events),
+        recordings: Set(recordings),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::WorkspaceId, Column::Month])
+            .value(
+                Column::Events,
+                grown(Column::Events, Expr::value(input.events)),
+            )
+            .value(
+                Column::Recordings,
+                grown(Column::Recordings, Expr::value(recordings)),
+            )
+            .value(Column::UpdatedAt, Expr::value(instant(deps.now)))
+            .to_owned(),
+    )
+    .exec_with_returning(&orm(deps.master))
+    .await?;
+    Ok(UsageMonth::from_row(stored))
+}
+
 /// `settleUsage`: `None` when the workspace does not exist (nothing is
 /// stored or charged).
 #[allow(
@@ -617,26 +652,7 @@ pub async fn settle_usage(
         return Ok(None);
     };
     let pricing = pricing(deps.master, deps.cache).await;
-    let now = js::iso_string(deps.now);
-
-    let stored: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "insert into panel_usage_monthly as u (id, workspace_id, month, events, recordings)
-         values ($1, $2, $3, $4, $5)
-         on conflict (workspace_id, month) do update set
-           events = greatest(u.events, $4),
-           recordings = greatest(u.recordings, $5),
-           updated_at = $6::timestamptz
-         returning {ROW}"
-    )))
-    .bind(weldsuite_kit::id::generate_id("pnu"))
-    .bind(&input.workspace_id)
-    .bind(&input.month)
-    .bind(input.events)
-    .bind(i32::try_from(input.recordings).unwrap_or(i32::MAX))
-    .bind(&now)
-    .fetch_one(deps.master)
-    .await?;
-    let stored = UsageMonth::from_row(&stored);
+    let stored = store_totals(deps, input).await?;
 
     let events_needed = overage_blocks(stored.events, workspace.limits.events, EVENT_BLOCK);
     let recordings_needed = overage_blocks(
@@ -668,27 +684,43 @@ pub async fn settle_usage(
         )
         .await?;
         // `greatest` keeps two settlements running at once from undoing each other.
-        let updated: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "update panel_usage_monthly as u set
-               event_blocks_charged = greatest(u.event_blocks_charged, $2),
-               recording_blocks_charged = greatest(u.recording_blocks_charged, $3),
-               event_credits_charged = greatest(u.event_credits_charged, $4),
-               recording_credits_charged = greatest(u.recording_credits_charged, $5),
-               updated_at = $6::timestamptz
-             where u.id = $1 returning {ROW}"
-        )))
-        .bind(&stored.id)
-        .bind(i32::try_from(event_blocks).unwrap_or(i32::MAX))
-        .bind(i32::try_from(recording_blocks).unwrap_or(i32::MAX))
-        .bind(i32::try_from(stored.event_credits_charged + event_credits).unwrap_or(i32::MAX))
-        .bind(
-            i32::try_from(stored.recording_credits_charged + recording_credits).unwrap_or(i32::MAX),
-        )
-        .bind(&now)
-        .fetch_optional(deps.master)
-        .await?;
-        if let Some(updated) = updated {
-            usage = UsageMonth::from_row(&updated);
+        let at_least = |column: Column, value: i64| {
+            Func::greatest([
+                Expr::col(column),
+                Expr::value(i32::try_from(value).unwrap_or(i32::MAX)),
+            ])
+        };
+        let updated = usage_monthly::Entity::update_many()
+            .col_expr(
+                Column::EventBlocksCharged,
+                at_least(Column::EventBlocksCharged, event_blocks).into(),
+            )
+            .col_expr(
+                Column::RecordingBlocksCharged,
+                at_least(Column::RecordingBlocksCharged, recording_blocks).into(),
+            )
+            .col_expr(
+                Column::EventCreditsCharged,
+                at_least(
+                    Column::EventCreditsCharged,
+                    stored.event_credits_charged + event_credits,
+                )
+                .into(),
+            )
+            .col_expr(
+                Column::RecordingCreditsCharged,
+                at_least(
+                    Column::RecordingCreditsCharged,
+                    stored.recording_credits_charged + recording_credits,
+                )
+                .into(),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(instant(deps.now)))
+            .filter(Column::Id.eq(&stored.id))
+            .exec_with_returning(&orm(deps.master))
+            .await?;
+        if let Some(updated) = updated.into_iter().next() {
+            usage = UsageMonth::from_row(updated);
         }
     }
 

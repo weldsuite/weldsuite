@@ -26,10 +26,10 @@ use sea_orm::{
     ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, orm};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_SUBSCRIPTION_CREATED, PANEL_SUBSCRIPTION_DELETED, PANEL_SUBSCRIPTION_UPDATED,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::EmailLocale;
 use weldsuite_emails::panel_monitor::{
     DigestBlock, DigestFigure, DigestProps, DigestRow, NumberFormat,

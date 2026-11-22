@@ -23,11 +23,18 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, ChatResponse, Feature, Task, Tier};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_mail_domain::access::{accessible_account_ids, check_account_access};
 use weldsuite_mail_domain::text::{js_trim, utf16_prefix};
+use weldsuite_schema::tenant::{mail_accounts, mail_messages};
+
+use crate::routes::mail_messages::message_json;
 
 /// `'Access to this mail account is not allowed'`.
 pub(crate) const NO_ACCESS: &str = "Access to this mail account is not allowed";
@@ -64,9 +71,16 @@ pub(crate) enum MailAiError {
     Internal(String),
 }
 
+impl From<DbErr> for MailAiError {
+    fn from(error: DbErr) -> Self {
+        Self::Internal(error.to_string())
+    }
+}
+
+/// The mailbox rules in `weldsuite-mail-domain` (not on the ORM yet).
 impl From<sqlx::Error> for MailAiError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.to_string())
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -259,14 +273,18 @@ impl AccountContext {
 pub(crate) async fn load_account_context(
     db: &PgPool,
     account_id: &str,
-) -> Result<Option<AccountContext>, sqlx::Error> {
-    let row: Option<(Option<Value>, Option<String>)> = sqlx::query_as(
-        "select ai_settings, display_name from mail_accounts
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<AccountContext>, DbErr> {
+    let row: Option<(Option<Value>, Option<String>)> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([
+            mail_accounts::Column::AiSettings,
+            mail_accounts::Column::DisplayName,
+        ])
+        .filter(mail_accounts::Column::Id.eq(account_id))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|(ai_settings, display_name)| AccountContext {
         ai_settings: ai_settings.unwrap_or(Value::Null),
         display_name,
@@ -274,15 +292,12 @@ pub(crate) async fn load_account_context(
 }
 
 /// `loadMessage(db, messageId)`: a live message row, camelCased.
-async fn load_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
-         where m.id = $1 and m.deleted_at is null limit 1",
-    )
-    .bind(message_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn load_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_messages::Entity::find_by_id(message_id.to_owned())
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(message_json).transpose()
 }
 
 /// `loadAccessibleMessage`: a message from a mailbox the caller may open;
@@ -305,25 +320,42 @@ async fn load_accessible_message(
 async fn load_recent_messages(
     db: &PgPool,
     account_ids: &[String],
-    limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
+    limit: u64,
+) -> Result<Vec<Value>, DbErr> {
+    /// `jsonb_build_object('id', …, 'subject', …, 'from', …, 'preview', …,
+    /// 'isRead', …)`.
+    #[derive(FromQueryResult, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Recent {
+        id: String,
+        subject: Option<String>,
+        from: Value,
+        preview: Option<String>,
+        is_read: bool,
+    }
     if account_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                'id', id, 'subject', subject, 'from', \"from\", 'preview', preview,
-                'isRead', is_read)
-         from mail_messages
-         where deleted_at is null and is_trash = false and account_id = any($1::text[])
-         order by sent_date desc
-         limit $2",
-    )
-    .bind(account_ids)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows)
+    let rows = mail_messages::Entity::find()
+        .select_only()
+        .columns([
+            mail_messages::Column::Id,
+            mail_messages::Column::Subject,
+            mail_messages::Column::From,
+            mail_messages::Column::Preview,
+            mail_messages::Column::IsRead,
+        ])
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .filter(mail_messages::Column::IsTrash.eq(false))
+        .filter(mail_messages::Column::AccountId.is_in(account_ids.iter().cloned()))
+        .order_by_desc(mail_messages::Column::SentDate)
+        .limit(limit)
+        .into_model::<Recent>()
+        .all(&orm(db))
+        .await?;
+    rows.into_iter()
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -989,21 +1021,20 @@ async fn persist_classification(
     message: &Value,
     category: &str,
     priority: &Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let categories = with_category(&message["categories"], category);
     let important = priority.as_str() == Some("high");
-    sqlx::query(
-        "update mail_messages
-            set categories = $2::jsonb, updated_at = $3::timestamp,
-                is_important = case when $4 then true else is_important end
-          where id = $1 and deleted_at is null",
-    )
-    .bind(message["id"].as_str().unwrap_or_default())
-    .bind(categories)
-    .bind(crate::util::now())
-    .bind(important)
-    .execute(db)
-    .await?;
+    let mut update = mail_messages::Entity::update_many()
+        .col_expr(mail_messages::Column::Categories, Expr::value(categories))
+        .col_expr(mail_messages::Column::UpdatedAt, Expr::value(utc_now()));
+    if important {
+        update = update.col_expr(mail_messages::Column::IsImportant, Expr::value(true));
+    }
+    update
+        .filter(mail_messages::Column::Id.eq(message["id"].as_str().unwrap_or_default()))
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 

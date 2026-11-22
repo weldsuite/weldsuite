@@ -6,17 +6,24 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
-use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde_json::json;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::merge_labels;
 
-use crate::db::{Row, one_by_id, opt_text, rows_of, text};
+use crate::db::{Row, json_row, json_rows, now_at, opt_text, same_or_null, text};
 use crate::mappers::label_dto;
 use crate::schemas::{color, nothing_to_update};
 use crate::teams::find_team;
 use crate::{
-    Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate, validate_query,
+    Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate, validate_query,
 };
 
 fn label_event(row: &Row, action: &'static str) -> PendingEvent {
@@ -28,13 +35,23 @@ fn label_event(row: &Row, action: &'static str) -> PendingEvent {
     )
 }
 
-async fn find_label(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(l) from merge_labels l where l.id = $1 and l.deleted_at is null limit 1",
-        id,
-    )
-    .await
+/// A label row as the services read it.
+pub(crate) fn label_row(label: merge_labels::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(label))
+}
+
+async fn find_label(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_labels::Entity::find_by_id(id.to_owned())
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(label_row)
+        .transpose()
+}
+
+/// `lower(name)`.
+pub(crate) fn lower_name() -> Expr {
+    Func::lower(merge_labels::Column::Name.into_expr()).into()
 }
 
 async fn name_taken(
@@ -42,16 +59,16 @@ async fn name_taken(
     team_id: Option<&str>,
     name: &str,
     except: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from merge_labels where deleted_at is null \
-         and (case when $1::text is null then team_id is null else team_id = $1 end) \
-         and lower(name) = $2",
-    )
-    .bind(team_id)
-    .bind(name.to_lowercase())
-    .fetch_all(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let ids: Vec<String> = merge_labels::Entity::find()
+        .select_only()
+        .column(merge_labels::Column::Id)
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .filter(same_or_null(merge_labels::Column::TeamId, team_id))
+        .filter(sea_orm::ExprTrait::eq(lower_name(), name.to_lowercase()))
+        .into_tuple::<String>()
+        .all(&orm(db))
+        .await?;
     Ok(ids.iter().any(|id| Some(id.as_str()) != except))
 }
 
@@ -65,16 +82,24 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
     })?;
     // `teamId ? … : undefined`: an empty id lists every label.
     let team_id = team_id.filter(|t| !t.is_empty());
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(l) from merge_labels l where l.deleted_at is null \
-             and ($1::text is null or l.team_id = $1 or l.team_id is null) \
-             order by l.name asc, l.id asc",
-        )
-        .bind(team_id)
-        .fetch_all(&caller.db)
-        .await?,
-    );
+    let mut select =
+        merge_labels::Entity::find().filter(merge_labels::Column::DeletedAt.is_null());
+    if let Some(team_id) = team_id {
+        select = select.filter(
+            Condition::any()
+                .add(merge_labels::Column::TeamId.eq(team_id))
+                .add(merge_labels::Column::TeamId.is_null()),
+        );
+    }
+    let rows = json_rows(
+        select
+            .order_by_asc(merge_labels::Column::Name)
+            .order_by_asc(merge_labels::Column::Id)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     Ok(all(rows.iter().map(label_dto).collect()))
 }
 
@@ -109,20 +134,20 @@ pub(crate) async fn create(
     if name_taken(&caller.db, scope, &name, None).await? {
         return Err(Refusal::conflict("A label with this name already exists"));
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_labels (id, team_id, name, color, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz) \
-         returning to_jsonb(merge_labels.*)",
-    )
-    .bind(generate_id("mlb"))
-    .bind(team_id)
-    .bind(&name)
-    .bind(color.into_option())
-    .bind(&now)
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let row = label_row(
+        merge_labels::Entity::insert(merge_labels::ActiveModel {
+            id: Set(generate_id("mlb")),
+            team_id: Set(team_id),
+            name: Set(name),
+            color: Set(color.into_option()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(&caller.db))
+        .await?,
+    )?;
     publish(&state, &caller.events, vec![label_event(&row, "created")]);
     Ok(Created(label_dto(&row)).into_response())
 }
@@ -162,25 +187,21 @@ pub(crate) async fn update(
         }
         _ => None,
     };
-    let (set_color, color) = match color {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(color) => (true, Some(color)),
+    let (_, at) = now_at();
+    let mut label = merge_labels::ActiveModel {
+        id: Unchanged(id.clone()),
+        updated_at: Set(at),
+        ..Default::default()
     };
-    let row: Value = sqlx::query_scalar(
-        "update merge_labels set updated_at = $2::timestamptz, \
-           name = case when $3::text is null then name else $3 end, \
-           color = case when $4 then $5 else color end \
-         where id = $1 returning to_jsonb(merge_labels.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(name)
-    .bind(set_color)
-    .bind(color)
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    if let Some(name) = name {
+        label.name = Set(name);
+    }
+    match color {
+        Field::Absent => {}
+        Field::Null => label.color = Set(None),
+        Field::Set(color) => label.color = Set(Some(color)),
+    }
+    let row = label_row(label.update(&orm(&caller.db)).await?)?;
     publish(&state, &caller.events, vec![label_event(&row, "updated")]);
     Ok(Data(label_dto(&row)).into_response())
 }
@@ -195,15 +216,17 @@ pub(crate) async fn remove(
     if find_label(&caller.db, &id).await?.is_none() {
         return Err(Refusal::not_found("Label", Some(&id)));
     }
-    let row: Value = sqlx::query_scalar(
-        "update merge_labels set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_labels.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let row = label_row(
+        merge_labels::ActiveModel {
+            id: Unchanged(id.clone()),
+            deleted_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&orm(&caller.db))
+        .await?,
+    )?;
     publish(&state, &caller.events, vec![label_event(&row, "deleted")]);
     Ok(NoContent.into_response())
 }
@@ -213,14 +236,19 @@ pub(crate) async fn count_usable(
     db: &PgPool,
     ids: &[String],
     team_id: &str,
-) -> Result<usize, sqlx::Error> {
-    let found: Vec<String> = sqlx::query_scalar(
-        "select id from merge_labels where id = any($1) and deleted_at is null \
-         and (team_id = $2 or team_id is null)",
-    )
-    .bind(ids)
-    .bind(team_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<usize, DbErr> {
+    let found: Vec<String> = merge_labels::Entity::find()
+        .select_only()
+        .column(merge_labels::Column::Id)
+        .filter(merge_labels::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(merge_labels::Column::TeamId.eq(team_id))
+                .add(merge_labels::Column::TeamId.is_null()),
+        )
+        .into_tuple::<String>()
+        .all(&orm(db))
+        .await?;
     Ok(found.len())
 }

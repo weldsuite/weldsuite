@@ -158,7 +158,6 @@ pub(crate) async fn post_pin_notice(
     pinned_message_id: &str,
     user_id: &str,
 ) -> Result<String, DbErr> {
-    use sea_orm::ExprTrait as _;
     let orm = orm(db);
     let name: Option<Option<String>> = workspace_members::Entity::find()
         .select_only()
@@ -195,7 +194,7 @@ pub(crate) async fn post_pin_notice(
         )
         .col_expr(
             channels::Column::MessageCount,
-            Expr::col(channels::Column::MessageCount).add(1),
+            sea_orm::ExprTrait::add(Expr::col(channels::Column::MessageCount), 1),
         )
         .col_expr(channels::Column::UpdatedAt, Expr::value(at))
         .filter(channels::Column::Id.eq(channel_id))

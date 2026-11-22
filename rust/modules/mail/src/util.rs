@@ -21,7 +21,7 @@ use crate::{Caller, MailState};
 #[derive(Debug)]
 pub(crate) enum MailError {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl MailError {
@@ -59,9 +59,17 @@ impl MailError {
     }
 }
 
+impl From<sea_orm::DbErr> for MailError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not on the ORM yet
+/// (`weldsuite-mail-domain`, `weldsuite-crm-domain`, …).
 impl From<sqlx::Error> for MailError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

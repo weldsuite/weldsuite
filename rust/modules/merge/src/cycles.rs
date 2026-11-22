@@ -9,17 +9,23 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{merge_cycles, merge_issues};
 
-use crate::db::{Row, is_unique_violation, one_by_id, rows_of, text};
+use crate::db::{Row, date, is_unique_violation, json_row, json_rows, now_at, text};
 use crate::mappers::cycle_dto;
 use crate::schemas::{aborted, date_only, js_string_ge, nothing_to_update};
 use crate::teams::find_team;
 use crate::{
-    Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate, validate_query,
+    Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate, validate_query,
 };
 
 const RANGE: &str = "The cycle must end on or after its start";
@@ -34,37 +40,46 @@ fn cycle_event(row: &Row, action: &'static str) -> PendingEvent {
 }
 
 /// Issues in each cycle, and how many are done (`withCounts`).
-async fn counts(db: &PgPool, rows: &[Row]) -> Result<HashMap<String, (i64, i64)>, sqlx::Error> {
+async fn counts(db: &PgPool, rows: &[Row]) -> Result<HashMap<String, (i64, i64)>, DbErr> {
     if rows.is_empty() {
         return Ok(HashMap::new());
     }
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let found: Vec<(Option<String>, i32, i32)> = sqlx::query_as(
-        "select cycle_id, count(*)::int, count(*) filter (where status = 'done')::int \
-         from merge_issues where cycle_id = any($1) and deleted_at is null group by cycle_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let done = Expr::case(merge_issues::Column::Status.eq("done"), 1);
+    let found: Vec<(Option<String>, i64, i64)> = merge_issues::Entity::find()
+        .select_only()
+        .column(merge_issues::Column::CycleId)
+        .column_as(merge_issues::Column::Id.count(), "total")
+        .column_as(Expr::from(Func::count(done)), "done")
+        .filter(merge_issues::Column::CycleId.is_in(ids))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .group_by(merge_issues::Column::CycleId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(found
         .into_iter()
-        .filter_map(|(id, total, done)| id.map(|id| (id, (i64::from(total), i64::from(done)))))
+        .filter_map(|(id, total, done)| id.map(|id| (id, (total, done))))
         .collect())
 }
 
-async fn dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+async fn dto(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     let counts = counts(db, std::slice::from_ref(row)).await?;
     let (total, done) = counts.get(text(row, "id")).copied().unwrap_or((0, 0));
     Ok(cycle_dto(row, total, done))
 }
 
-async fn find_cycle(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(c) from merge_cycles c where c.id = $1 and c.deleted_at is null limit 1",
-        id,
-    )
-    .await
+fn cycle_row(cycle: merge_cycles::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(cycle))
+}
+
+async fn find_cycle(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_cycles::Entity::find_by_id(id.to_owned())
+        .filter(merge_cycles::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(cycle_row)
+        .transpose()
 }
 
 /// `input.name?.trim() || null`.
@@ -81,16 +96,20 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
             .into_option()
     })?;
     let team_id = team_id.filter(|t| !t.is_empty());
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(c) from merge_cycles c where c.deleted_at is null \
-             and ($1::text is null or c.team_id = $1) \
-             order by c.team_id asc, c.number desc",
-        )
-        .bind(team_id)
-        .fetch_all(&caller.db)
-        .await?,
-    );
+    let mut select =
+        merge_cycles::Entity::find().filter(merge_cycles::Column::DeletedAt.is_null());
+    if let Some(team_id) = team_id {
+        select = select.filter(merge_cycles::Column::TeamId.eq(team_id));
+    }
+    let rows = json_rows(
+        select
+            .order_by_asc(merge_cycles::Column::TeamId)
+            .order_by_desc(merge_cycles::Column::Number)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let counts = counts(&caller.db, &rows).await?;
     Ok(all(rows
         .iter()
@@ -138,31 +157,34 @@ pub(crate) async fn create(
     let name = cycle_name(name);
     let starts_at = starts_at.into_option().unwrap_or_default();
     let ends_at = ends_at.into_option().unwrap_or_default();
+    let db = orm(&caller.db);
     let mut attempt = 0;
     let row = loop {
         // Numbers are never reused, so the max includes deleted cycles.
-        let last: Option<i32> =
-            sqlx::query_scalar("select max(number)::int from merge_cycles where team_id = $1")
-                .bind(&team_id)
-                .fetch_one(&caller.db)
-                .await?;
-        let now = now();
-        let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-            "insert into merge_cycles (id, team_id, number, name, starts_at, ends_at, created_at, updated_at) \
-             values ($1, $2, $3, $4, $5::date, $6::date, $7::timestamptz, $7::timestamptz) \
-             returning to_jsonb(merge_cycles.*)",
-        )
-        .bind(generate_id("mcy"))
-        .bind(&team_id)
-        .bind(last.unwrap_or(0) + 1)
-        .bind(&name)
-        .bind(&starts_at)
-        .bind(&ends_at)
-        .bind(&now)
-        .fetch_one(&caller.db)
+        let last: Option<i32> = merge_cycles::Entity::find()
+            .select_only()
+            .column_as(merge_cycles::Column::Number.max(), "max")
+            .filter(merge_cycles::Column::TeamId.eq(&team_id))
+            .into_tuple::<Option<i32>>()
+            .one(&db)
+            .await?
+            .flatten();
+        let (_, at) = now_at();
+        let inserted = merge_cycles::Entity::insert(merge_cycles::ActiveModel {
+            id: Set(generate_id("mcy")),
+            team_id: Set(team_id.clone()),
+            number: Set(last.unwrap_or(0) + 1),
+            name: Set(name.clone()),
+            starts_at: Set(date(&starts_at)?),
+            ends_at: Set(date(&ends_at)?),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_with_returning(&db)
         .await;
         match inserted {
-            Ok(row) => break weldsuite_db::js_row(row),
+            Ok(row) => break cycle_row(row)?,
             // Two cycles created at once picked the same number: take the next.
             Err(error) if is_unique_violation(&error) && attempt < 2 => attempt += 1,
             Err(error) => return Err(error.into()),
@@ -207,20 +229,18 @@ pub(crate) async fn update(
         return Err(Refusal::unprocessable(RANGE));
     }
     let set_name = !name.is_absent();
-    let row: Value = sqlx::query_scalar(
-        "update merge_cycles set updated_at = $2::timestamptz, starts_at = $3::date, ends_at = $4::date, \
-           name = case when $5 then $6 else name end \
-         where id = $1 returning to_jsonb(merge_cycles.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(&starts_at)
-    .bind(&ends_at)
-    .bind(set_name)
-    .bind(cycle_name(name))
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let mut cycle = merge_cycles::ActiveModel {
+        id: Unchanged(id.clone()),
+        updated_at: Set(at),
+        starts_at: Set(date(&starts_at)?),
+        ends_at: Set(date(&ends_at)?),
+        ..Default::default()
+    };
+    if set_name {
+        cycle.name = Set(cycle_name(name));
+    }
+    let row = cycle_row(cycle.update(&orm(&caller.db)).await?)?;
     let dto = dto(&caller.db, &row).await?;
     publish(&state, &caller.events, vec![cycle_event(&row, "updated")]);
     Ok(Data(dto).into_response())
@@ -235,23 +255,27 @@ pub(crate) async fn remove(
     if find_cycle(&caller.db, &id).await?.is_none() {
         return Err(Refusal::not_found("Cycle", Some(&id)));
     }
-    let now = now();
-    sqlx::query(
-        "update merge_issues set cycle_id = null, updated_at = $2::timestamptz where cycle_id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
-    let row: Value = sqlx::query_scalar(
-        "update merge_cycles set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_cycles.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let db = orm(&caller.db);
+    merge_issues::Entity::update_many()
+        .col_expr(
+            merge_issues::Column::CycleId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(merge_issues::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_issues::Column::CycleId.eq(&id))
+        .exec(&db)
+        .await?;
+    let row = cycle_row(
+        merge_cycles::ActiveModel {
+            id: Unchanged(id.clone()),
+            deleted_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&db)
+        .await?,
+    )?;
     publish(&state, &caller.events, vec![cycle_event(&row, "deleted")]);
     Ok(NoContent.into_response())
 }

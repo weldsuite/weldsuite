@@ -19,14 +19,26 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_chat_domain::agents::{AgentAccess, AgentViewer, can_access_agent};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    merge_cycles, merge_external_issues, merge_issue_pull_requests, merge_issues,
+    merge_pull_requests, merge_repositories, merge_teams, weldagent_agents,
+};
 
 use crate::automation::{StatusTimestamps, status_timestamps};
-use crate::db::{Row, col, like_pattern, one_by_id, opt_text, rows_of, text};
+use crate::db::{
+    Row, col, date, ilike, instant_opt, json_row, json_rows, like_pattern, now_at, opt_text, text,
+};
 use crate::keys::parse_issue_key;
 use crate::labels::count_usable;
 use crate::mappers::{
@@ -43,7 +55,7 @@ use crate::{
 
 /// `hydrateIssues(db, rows)`: issue rows to DTOs, with the team key and the
 /// linked pull request count.
-pub(crate) async fn hydrate_issues(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn hydrate_issues(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -54,24 +66,30 @@ pub(crate) async fn hydrate_issues(db: &PgPool, rows: &[Row]) -> Result<Vec<Valu
             team_ids.push(team);
         }
     }
-    let keys: HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("select id, key from merge_teams where id = any($1)")
-            .bind(&team_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect();
+    let db = orm(db);
+    let keys: HashMap<String, String> = merge_teams::Entity::find()
+        .select_only()
+        .column(merge_teams::Column::Id)
+        .column(merge_teams::Column::Key)
+        .filter(merge_teams::Column::Id.is_in(team_ids))
+        .into_tuple::<(String, String)>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .collect();
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let counts: HashMap<String, i64> = sqlx::query_as::<_, (String, i32)>(
-        "select issue_id, count(*)::int from merge_issue_pull_requests \
-         where issue_id = any($1) and dismissed_at is null group by issue_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|(id, count)| (id, i64::from(count)))
-    .collect();
+    let counts: HashMap<String, i64> = merge_issue_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_issue_pull_requests::Column::IssueId)
+        .column_as(merge_issue_pull_requests::Column::Id.count(), "count")
+        .filter(merge_issue_pull_requests::Column::IssueId.is_in(ids))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .group_by(merge_issue_pull_requests::Column::IssueId)
+        .into_tuple::<(String, i64)>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .collect();
     Ok(rows
         .iter()
         .map(|row| {
@@ -82,7 +100,7 @@ pub(crate) async fn hydrate_issues(db: &PgPool, rows: &[Row]) -> Result<Vec<Valu
 }
 
 /// One issue as a DTO.
-pub(crate) async fn one_dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+pub(crate) async fn one_dto(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     Ok(hydrate_issues(db, std::slice::from_ref(row))
         .await?
         .into_iter()
@@ -90,101 +108,175 @@ pub(crate) async fn one_dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error
         .unwrap_or(Value::Null))
 }
 
+/// `issue.team_id = team.id`.
+fn issue_team() -> RelationDef {
+    merge_issues::Entity::belongs_to(merge_teams::Entity)
+        .from(merge_issues::Column::TeamId)
+        .to(merge_teams::Column::Id)
+        .into()
+}
+
+/// An issue row as the services read it.
+pub(crate) fn issue_row(issue: merge_issues::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(issue))
+}
+
 /// `findIssue(db, id)`: a live issue.
-pub(crate) async fn find_issue(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(i) from merge_issues i where i.id = $1 and i.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn find_issue(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_issues::Entity::find_by_id(id.to_owned())
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(issue_row)
+        .transpose()
 }
 
 /// `findIssueByIdOrKey(db, idOrKey)`: by id, or by key (`PLAT-209`).
 pub(crate) async fn find_issue_by_id_or_key(
     db: &PgPool,
     id_or_key: &str,
-) -> Result<Option<Row>, sqlx::Error> {
+) -> Result<Option<Row>, DbErr> {
     let Some(key) = parse_issue_key(id_or_key) else {
         return find_issue(db, id_or_key).await;
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(i) from merge_issues i inner join merge_teams t on t.id = i.team_id \
-         where t.key = $1 and t.deleted_at is null and i.number = $2 and i.deleted_at is null limit 1",
-    )
-    .bind(&key.team_key)
-    .bind(key.number)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    merge_issues::Entity::find()
+        .join(JoinType::InnerJoin, issue_team())
+        .filter(merge_teams::Column::Key.eq(key.team_key))
+        .filter(merge_teams::Column::DeletedAt.is_null())
+        .filter(merge_issues::Column::Number.eq(key.number))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(issue_row)
+        .transpose()
+}
+
+/// A linked pull request with its repository's name and the link
+/// (`to_jsonb(p), r.full_name, l.source, l.closes`).
+#[derive(Debug, FromQueryResult)]
+struct LinkedPullRequest {
+    #[sea_orm(nested)]
+    pr: merge_pull_requests::Model,
+    full_name: String,
+    link_source: String,
+    link_closes: bool,
+}
+
+/// The live-repository pull requests linked to an issue and not dismissed,
+/// newest update first.
+async fn linked_pull_requests(
+    db: &sea_orm::DatabaseConnection,
+    issue_id: &str,
+) -> Result<Vec<LinkedPullRequest>, DbErr> {
+    merge_pull_requests::Entity::find()
+        .column_as(merge_repositories::Column::FullName, "full_name")
+        .column_as(merge_issue_pull_requests::Column::Source, "link_source")
+        .column_as(merge_issue_pull_requests::Column::Closes, "link_closes")
+        .join(
+            JoinType::InnerJoin,
+            merge_pull_requests::Entity::belongs_to(merge_issue_pull_requests::Entity)
+                .from(merge_pull_requests::Column::Id)
+                .to(merge_issue_pull_requests::Column::PullRequestId)
+                .into(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+                .from(merge_pull_requests::Column::RepositoryId)
+                .to(merge_repositories::Column::Id)
+                .into(),
+        )
+        .filter(merge_issue_pull_requests::Column::IssueId.eq(issue_id))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .order_by_desc(merge_pull_requests::Column::ProviderUpdatedAt)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .into_model::<LinkedPullRequest>()
+        .all(db)
+        .await
+}
+
+/// The provider issue an issue syncs with: `provider, number, url, state,
+/// repository_id` and the repository's name.
+type ExternalLink = (String, i32, String, String, String, String);
+
+async fn external_link(
+    db: &sea_orm::DatabaseConnection,
+    issue_id: &str,
+) -> Result<Option<ExternalLink>, DbErr> {
+    merge_external_issues::Entity::find()
+        .select_only()
+        .column(merge_external_issues::Column::Provider)
+        .column(merge_external_issues::Column::Number)
+        .column(merge_external_issues::Column::Url)
+        .column(merge_external_issues::Column::State)
+        .column(merge_external_issues::Column::RepositoryId)
+        .column_as(merge_repositories::Column::FullName, "full_name")
+        .join(
+            JoinType::InnerJoin,
+            merge_external_issues::Entity::belongs_to(merge_repositories::Entity)
+                .from(merge_external_issues::Column::RepositoryId)
+                .to(merge_repositories::Column::Id)
+                .into(),
+        )
+        .filter(merge_external_issues::Column::IssueId.eq(issue_id))
+        .into_tuple::<ExternalLink>()
+        .one(db)
+        .await
 }
 
 /// `getIssueDetail(db, idOrKey)`.
 pub(crate) async fn issue_detail(
     db: &PgPool,
     id_or_key: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(row) = find_issue_by_id_or_key(db, id_or_key).await? else {
         return Ok(None);
     };
     let id = text(&row, "id").to_owned();
-    let sub_rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(i) from merge_issues i where i.parent_issue_id = $1 and i.deleted_at is null \
-             order by i.number asc",
-        )
-        .bind(&id)
-        .fetch_all(db)
-        .await?,
-    );
+    let orm_db = orm(db);
+    let sub_rows = json_rows(
+        merge_issues::Entity::find()
+            .filter(merge_issues::Column::ParentIssueId.eq(&id))
+            .filter(merge_issues::Column::DeletedAt.is_null())
+            .order_by_asc(merge_issues::Column::Number)
+            .all(&orm_db)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let base = one_dto(db, &row).await?;
     let sub_issues = hydrate_issues(db, &sub_rows).await?;
-    let linked: Vec<(Value, String, String, bool)> = sqlx::query_as(
-        "select to_jsonb(p), r.full_name, l.source, l.closes from merge_issue_pull_requests l \
-         inner join merge_pull_requests p on p.id = l.pull_request_id \
-         inner join merge_repositories r on r.id = p.repository_id \
-         where l.issue_id = $1 and l.dismissed_at is null and r.deleted_at is null \
-         order by p.provider_updated_at desc, p.id desc",
-    )
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
+    let linked = linked_pull_requests(&orm_db, &id).await?;
     // The provider issue it syncs with, and the records it is linked to.
-    let external: Option<(Value, String)> = sqlx::query_as(
-        "select to_jsonb(x), r.full_name from merge_external_issues x \
-         inner join merge_repositories r on r.id = x.repository_id \
-         where x.issue_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await?;
-    let external = external.map_or(Value::Null, |(link, full_name)| {
-        let link = weldsuite_db::js_row(link);
-        json!({
-            "provider": col(&link, "provider"),
-            "number": col(&link, "number"),
-            "url": col(&link, "url"),
-            "state": col(&link, "state"),
-            "repositoryId": col(&link, "repositoryId"),
-            "repositoryFullName": full_name,
-        })
-    });
+    let external = external_link(&orm_db, &id).await?.map_or(
+        Value::Null,
+        |(provider, number, url, state, repository_id, full_name)| {
+            json!({
+                "provider": provider,
+                "number": number,
+                "url": url,
+                "state": state,
+                "repositoryId": repository_id,
+                "repositoryFullName": full_name,
+            })
+        },
+    );
     let record_links: Vec<Value> = list_record_links(db, &id)
         .await?
         .iter()
         .map(record_link_dto)
         .collect();
-    let pull_requests: Vec<Value> = linked
-        .into_iter()
-        .map(|(pr, full_name, source, closes)| {
-            let mut summary = pull_request_summary(&weldsuite_db::js_row(pr), &full_name);
-            summary.insert(
-                "link".to_owned(),
-                json!({ "source": source, "closes": closes }),
-            );
-            Value::Object(summary)
-        })
-        .collect();
+    let mut pull_requests: Vec<Value> = Vec::with_capacity(linked.len());
+    for linked in linked {
+        let pr = json_row(serde_json::to_value(linked.pr))?;
+        let mut summary = pull_request_summary(&pr, &linked.full_name);
+        summary.insert(
+            "link".to_owned(),
+            json!({ "source": linked.link_source, "closes": linked.link_closes }),
+        );
+        pull_requests.push(Value::Object(summary));
+    }
     let mut detail = match base {
         Value::Object(fields) => fields,
         _ => Map::new(),
@@ -318,7 +410,7 @@ pub(crate) async fn list_issues(
     db: &PgPool,
     query: &ListQuery,
     user_id: &str,
-) -> Result<IssuePage, sqlx::Error> {
+) -> Result<IssuePage, DbErr> {
     let truthy = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
     let (unassigned, assignee) = match query.assignee.as_deref() {
         Some("none") => (true, None),
@@ -327,50 +419,68 @@ pub(crate) async fn list_issues(
         _ => (false, None),
     };
     let q = truthy(&query.q);
+    let db = orm(db);
     // An exact key (`PLAT-209`) also finds the issue by its team and number.
-    let mut key_team: Option<String> = None;
-    let mut key_number: Option<i64> = None;
+    let mut key_team: Option<(String, i64)> = None;
     if let Some(key) = q.as_deref().and_then(parse_issue_key) {
-        key_team = sqlx::query_scalar(
-            "select id from merge_teams where key = $1 and deleted_at is null limit 1",
-        )
-        .bind(&key.team_key)
-        .fetch_optional(db)
-        .await?;
-        key_number = key_team.as_ref().map(|_| key.number);
+        key_team = merge_teams::Entity::find()
+            .select_only()
+            .column(merge_teams::Column::Id)
+            .filter(merge_teams::Column::Key.eq(key.team_key))
+            .filter(merge_teams::Column::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
+            .await?
+            .map(|team| (team, key.number));
     }
-    let label = truthy(&query.label_id).map(|label| json!([label]));
-    let statuses = (!query.status.is_empty()).then(|| query.status.clone());
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(i) from merge_issues i where i.deleted_at is null \
-             and ($1::text is null or i.team_id = $1) \
-             and ($2::text[] is null or i.status = any($2)) \
-             and (not $3 or i.assignee_user_id is null) \
-             and ($4::text is null or i.assignee_user_id = $4) \
-             and ($5::text is null or i.cycle_id = $5) \
-             and ($6::jsonb is null or i.label_ids @> $6) \
-             and ($7::text is null or i.parent_issue_id = $7) \
-             and ($8::text is null or i.title ilike $8 escape '\\' \
-                  or ($9::text is not null and i.team_id = $9 and i.number = $10)) \
-             and ($11::text is null or i.id < $11) \
-             order by i.id desc limit $12",
-        )
-        .bind(truthy(&query.team_id))
-        .bind(statuses)
-        .bind(unassigned)
-        .bind(assignee)
-        .bind(truthy(&query.cycle_id))
-        .bind(label)
-        .bind(truthy(&query.parent_issue_id))
-        .bind(q.as_deref().map(like_pattern))
-        .bind(key_team)
-        .bind(key_number)
-        .bind(truthy(&query.cursor))
-        .bind(query.limit + 1)
-        .fetch_all(db)
-        .await?,
-    );
+    let mut select = merge_issues::Entity::find().filter(merge_issues::Column::DeletedAt.is_null());
+    if let Some(team) = truthy(&query.team_id) {
+        select = select.filter(merge_issues::Column::TeamId.eq(team));
+    }
+    if !query.status.is_empty() {
+        select = select.filter(merge_issues::Column::Status.is_in(query.status.clone()));
+    }
+    if unassigned {
+        select = select.filter(merge_issues::Column::AssigneeUserId.is_null());
+    }
+    if let Some(assignee) = assignee {
+        select = select.filter(merge_issues::Column::AssigneeUserId.eq(assignee));
+    }
+    if let Some(cycle) = truthy(&query.cycle_id) {
+        select = select.filter(merge_issues::Column::CycleId.eq(cycle));
+    }
+    if let Some(label) = truthy(&query.label_id) {
+        select = select.filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            merge_issues::Column::LabelIds.into_expr(),
+            json!([label]),
+        ));
+    }
+    if let Some(parent) = truthy(&query.parent_issue_id) {
+        select = select.filter(merge_issues::Column::ParentIssueId.eq(parent));
+    }
+    if let Some(q) = q.as_deref() {
+        let mut search = Condition::any().add(ilike(merge_issues::Column::Title, &like_pattern(q)));
+        if let Some((team, number)) = key_team {
+            search = search.add(
+                Condition::all()
+                    .add(merge_issues::Column::TeamId.eq(team))
+                    .add(merge_issues::Column::Number.eq(number)),
+            );
+        }
+        select = select.filter(search);
+    }
+    if let Some(cursor) = truthy(&query.cursor) {
+        select = select.filter(merge_issues::Column::Id.lt(cursor));
+    }
+    let rows = json_rows(
+        select
+            .order_by_desc(merge_issues::Column::Id)
+            .limit(u64::try_from(query.limit + 1).unwrap_or(0))
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let limit = usize::try_from(query.limit).unwrap_or(0);
     let has_more = rows.len() > limit;
     let page_rows: Vec<Row> = rows.into_iter().take(limit).collect();
@@ -431,15 +541,17 @@ async fn validate_refs(
     parent_issue_id: Option<&str>,
     label_ids: Option<&[String]>,
     self_id: Option<&str>,
-) -> Result<Option<RefFailure>, sqlx::Error> {
+) -> Result<Option<RefFailure>, DbErr> {
     if let Some(cycle) = cycle_id.filter(|c| !c.is_empty()) {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from merge_cycles where id = $1 and team_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(cycle)
-        .bind(team_id)
-        .fetch_optional(db)
-        .await?;
+        let found = merge_cycles::Entity::find()
+            .select_only()
+            .column(merge_cycles::Column::Id)
+            .filter(merge_cycles::Column::Id.eq(cycle))
+            .filter(merge_cycles::Column::TeamId.eq(team_id))
+            .filter(merge_cycles::Column::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&orm(db))
+            .await?;
         if found.is_none() {
             return Ok(Some(RefFailure::Cycle));
         }
@@ -731,7 +843,7 @@ pub(crate) async fn create_issue(
     db: &PgPool,
     input: IssueInput,
     user_id: &str,
-) -> Result<Result<CreatedIssue, CreateFailure>, sqlx::Error> {
+) -> Result<Result<CreatedIssue, CreateFailure>, DbErr> {
     let team_id = input.team_id.into_option().unwrap_or_default();
     let Some(team) = find_team(db, &team_id).await? else {
         return Ok(Err(CreateFailure::TeamNotFound));
@@ -758,6 +870,65 @@ pub(crate) async fn create_issue(
         .unwrap_or_else(|| "backlog".to_owned());
     let stamps = status_timestamps(&status, &StatusTimestamps::default(), &now);
     let id = generate_id("mis");
+    let inserted = insert_numbered(
+        db,
+        &NewIssue {
+            team_id: text(&team, "id"),
+            id: &id,
+            title: input.title.into_option().unwrap_or_default(),
+            description: input.description.into_option(),
+            status: &status,
+            priority: input.priority.into_option().unwrap_or(0),
+            assignee_user_id: input.assignee_user_id.into_option(),
+            creator_user_id: user_id,
+            cycle_id,
+            parent_issue_id,
+            label_ids: json!(label_ids),
+            estimate: input.estimate.into_option(),
+            due_date: input.due_date.into_option(),
+            flow_project_id: input.flow_project_id.into_option(),
+            stamps,
+            now: &now,
+        },
+    )
+    .await?;
+    if !inserted {
+        return Ok(Err(CreateFailure::TeamNotFound));
+    }
+    let Some(issue) = find_issue(db, &id).await? else {
+        return Ok(Err(CreateFailure::TeamNotFound));
+    };
+    let links = insert_record_links(db, &id, &input.links, Some(user_id)).await?;
+    Ok(Ok(CreatedIssue { issue, team, links }))
+}
+
+/// The binds of [`insert_numbered`].
+struct NewIssue<'a> {
+    team_id: &'a str,
+    id: &'a str,
+    title: String,
+    description: Option<String>,
+    status: &'a str,
+    priority: i64,
+    assignee_user_id: Option<String>,
+    creator_user_id: &'a str,
+    cycle_id: Option<String>,
+    parent_issue_id: Option<String>,
+    label_ids: Value,
+    estimate: Option<i64>,
+    due_date: Option<String>,
+    flow_project_id: Option<String>,
+    stamps: StatusTimestamps,
+    now: &'a str,
+}
+
+/// Takes the team's next number and inserts the issue with it; `false`
+/// when the team is gone (nothing inserted).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the team's counter and the issue insert are one statement, so a failed insert hands no number out and concurrent creates never share one"
+)]
+async fn insert_numbered(db: &PgPool, issue: &NewIssue<'_>) -> Result<bool, DbErr> {
     let inserted: Vec<String> = sqlx::query_scalar(
         "with next as ( \
            update merge_teams set issue_counter = issue_counter + 1 \
@@ -775,34 +946,28 @@ pub(crate) async fn create_issue(
            $15::timestamptz, $16::timestamptz, $17::timestamptz, $18::timestamptz, $18::timestamptz \
          from next returning id",
     )
-    .bind(text(&team, "id"))
-    .bind(&id)
-    .bind(input.title.into_option().unwrap_or_default())
-    .bind(input.description.into_option())
-    .bind(&status)
-    .bind(input.priority.into_option().unwrap_or(0))
-    .bind(input.assignee_user_id.into_option())
-    .bind(user_id)
-    .bind(cycle_id)
-    .bind(parent_issue_id)
-    .bind(json!(label_ids))
-    .bind(input.estimate.into_option())
-    .bind(input.due_date.into_option())
-    .bind(input.flow_project_id.into_option())
-    .bind(stamps.started_at)
-    .bind(stamps.completed_at)
-    .bind(stamps.canceled_at)
-    .bind(&now)
+    .bind(issue.team_id)
+    .bind(issue.id)
+    .bind(&issue.title)
+    .bind(&issue.description)
+    .bind(issue.status)
+    .bind(issue.priority)
+    .bind(&issue.assignee_user_id)
+    .bind(issue.creator_user_id)
+    .bind(&issue.cycle_id)
+    .bind(&issue.parent_issue_id)
+    .bind(&issue.label_ids)
+    .bind(issue.estimate)
+    .bind(&issue.due_date)
+    .bind(&issue.flow_project_id)
+    .bind(&issue.stamps.started_at)
+    .bind(&issue.stamps.completed_at)
+    .bind(&issue.stamps.canceled_at)
+    .bind(issue.now)
     .fetch_all(db)
-    .await?;
-    if inserted.is_empty() {
-        return Ok(Err(CreateFailure::TeamNotFound));
-    }
-    let Some(issue) = find_issue(db, &id).await? else {
-        return Ok(Err(CreateFailure::TeamNotFound));
-    };
-    let links = insert_record_links(db, &id, &input.links, Some(user_id)).await?;
-    Ok(Ok(CreatedIssue { issue, team, links }))
+    .await
+    .map_err(orm_error)?;
+    Ok(!inserted.is_empty())
 }
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
@@ -852,12 +1017,13 @@ fn patch<T: Clone>(field: &Field<T>) -> (bool, Option<T>) {
 }
 
 /// A team's key, deleted or not (`select key from merge_teams where id`).
-pub(crate) async fn team_key_of(db: &PgPool, team_id: &str) -> Result<String, sqlx::Error> {
-    let key: Option<String> =
-        sqlx::query_scalar("select key from merge_teams where id = $1 limit 1")
-            .bind(team_id)
-            .fetch_optional(db)
-            .await?;
+pub(crate) async fn team_key_of(db: &PgPool, team_id: &str) -> Result<String, DbErr> {
+    let key = merge_teams::Entity::find_by_id(team_id.to_owned())
+        .select_only()
+        .column(merge_teams::Column::Key)
+        .into_tuple::<String>()
+        .one(&orm(db))
+        .await?;
     Ok(key.unwrap_or_default())
 }
 
@@ -904,17 +1070,20 @@ pub(crate) async fn can_assign_agent(
     db: &PgPool,
     agent_id: &str,
     assigner: &AgentAssigner,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if !assigner.can_use {
         return Ok(false);
     }
-    let agent: Option<(String, Option<String>, String, String)> = sqlx::query_as(
-        "select id, owner_id, visibility, status from weldagent_agents \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(agent_id)
-    .fetch_optional(db)
-    .await?;
+    let agent = weldagent_agents::Entity::find_by_id(agent_id.to_owned())
+        .select_only()
+        .column(weldagent_agents::Column::Id)
+        .column(weldagent_agents::Column::OwnerId)
+        .column(weldagent_agents::Column::Visibility)
+        .column(weldagent_agents::Column::Status)
+        .filter(weldagent_agents::Column::DeletedAt.is_null())
+        .into_tuple::<(String, Option<String>, String, String)>()
+        .one(&orm(db))
+        .await?;
     let Some((id, owner_id, visibility, status)) = agent else {
         return Ok(false);
     };
@@ -931,6 +1100,7 @@ pub(crate) async fn can_assign_agent(
         &assigner.viewer,
     )
     .await
+    .map_err(orm_error)
 }
 
 /// An updated issue: the rows around the change and the team's key.
@@ -1007,7 +1177,7 @@ pub(crate) async fn update_issue(
     id: &str,
     input: &IssueInput,
     agent_assigner: Option<&AgentAssigner>,
-) -> Result<Result<UpdatedIssue, UpdateFailure>, sqlx::Error> {
+) -> Result<Result<UpdatedIssue, UpdateFailure>, DbErr> {
     let Some(before) = find_issue(db, id).await? else {
         return Ok(Err(UpdateFailure::NotFound));
     };
@@ -1035,73 +1205,60 @@ pub(crate) async fn update_issue(
             return Ok(Err(UpdateFailure::Agent));
         }
     }
-    let now = now();
-    let (set_description, description) = patch(&input.description);
-    let (set_assignee, assignee) = patch(&input.assignee_user_id);
-    let (set_cycle, cycle) = patch(&input.cycle_id);
-    let (set_parent, parent) = patch(&input.parent_issue_id);
-    let (set_estimate, estimate) = patch(&input.estimate);
-    let (set_due, due) = patch(&input.due_date);
-    let (set_flow, flow) = patch(&input.flow_project_id);
-    let (set_agent, agent) = patch(&input.agent_id);
+    let (now, at) = now_at();
+    // Only the fields the input sends change.
+    let mut issue = merge_issues::ActiveModel {
+        id: Unchanged(id.to_owned()),
+        updated_at: Set(at),
+        ..Default::default()
+    };
+    if let Some(title) = input.title.as_set() {
+        issue.title = Set(title.clone());
+    }
+    if let (true, description) = patch(&input.description) {
+        issue.description = Set(description);
+    }
+    if let Some(priority) = input.priority.as_set() {
+        issue.priority = Set(int4(*priority)?);
+    }
+    if let (true, assignee) = patch(&input.assignee_user_id) {
+        issue.assignee_user_id = Set(assignee);
+    }
+    if let (true, cycle) = patch(&input.cycle_id) {
+        issue.cycle_id = Set(cycle);
+    }
+    if let (true, parent) = patch(&input.parent_issue_id) {
+        issue.parent_issue_id = Set(parent);
+    }
+    if let Some(label_ids) = label_ids {
+        issue.label_ids = Set(json!(label_ids));
+    }
+    if let (true, estimate) = patch(&input.estimate) {
+        issue.estimate = Set(estimate.map(int4).transpose()?);
+    }
+    if let (true, due) = patch(&input.due_date) {
+        issue.due_date = Set(due.as_deref().map(date).transpose()?);
+    }
+    if let (true, flow) = patch(&input.flow_project_id) {
+        issue.flow_project_id = Set(flow);
+    }
+    if let Some(sort_order) = input.sort_order.as_set() {
+        issue.sort_order = Set(*sort_order);
+    }
     // The status, with its timestamps, only when it changes.
     let status = input
         .status
         .as_set()
-        .filter(|status| status.as_str() != text(&before, "status"))
-        .cloned();
-    let stamps = status
-        .as_deref()
-        .map(|status| status_timestamps(status, &timestamps_of(&before), &now));
-    let row: Value = sqlx::query_scalar(
-        "update merge_issues set updated_at = $2::timestamptz, \
-           title = case when $3::text is null then title else $3 end, \
-           description = case when $4 then $5 else description end, \
-           priority = case when $6::int is null then priority else $6 end, \
-           assignee_user_id = case when $7 then $8 else assignee_user_id end, \
-           cycle_id = case when $9 then $10 else cycle_id end, \
-           parent_issue_id = case when $11 then $12 else parent_issue_id end, \
-           label_ids = case when $13::jsonb is null then label_ids else $13 end, \
-           estimate = case when $14 then $15::int else estimate end, \
-           due_date = case when $16 then $17::date else due_date end, \
-           flow_project_id = case when $18 then $19 else flow_project_id end, \
-           sort_order = case when $20::double precision is null then sort_order else $20 end, \
-           status = case when $21::text is null then status else $21 end, \
-           started_at = case when $21::text is null then started_at else $22::timestamptz end, \
-           completed_at = case when $21::text is null then completed_at else $23::timestamptz end, \
-           canceled_at = case when $21::text is null then canceled_at else $24::timestamptz end, \
-           agent_id = case when $25 then $26 else agent_id end \
-         where id = $1 returning to_jsonb(merge_issues.*)",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(input.title.as_set().cloned())
-    .bind(set_description)
-    .bind(description)
-    .bind(input.priority.as_set().copied())
-    .bind(set_assignee)
-    .bind(assignee)
-    .bind(set_cycle)
-    .bind(cycle)
-    .bind(set_parent)
-    .bind(parent)
-    .bind(label_ids.map(|ids| json!(ids)))
-    .bind(set_estimate)
-    .bind(estimate)
-    .bind(set_due)
-    .bind(due)
-    .bind(set_flow)
-    .bind(flow)
-    .bind(input.sort_order.as_set().copied())
-    .bind(&status)
-    .bind(stamps.as_ref().and_then(|s| s.started_at.clone()))
-    .bind(stamps.as_ref().and_then(|s| s.completed_at.clone()))
-    .bind(stamps.as_ref().and_then(|s| s.canceled_at.clone()))
-    .bind(set_agent)
-    .bind(agent)
-    .fetch_one(db)
-    .await?;
-    let issue = weldsuite_db::js_row(row);
+        .filter(|status| status.as_str() != text(&before, "status"));
+    if let Some(status) = status {
+        let stamps = status_timestamps(status, &timestamps_of(&before), &now);
+        issue.status = Set(status.clone());
+        set_stamps(&mut issue, &stamps)?;
+    }
+    if let (true, agent) = patch(&input.agent_id) {
+        issue.agent_id = Set(agent);
+    }
+    let issue = issue_row(issue.update(&orm(db)).await?)?;
     let team_key = team_key_of(db, text(&before, "teamId")).await?;
     Ok(Ok(UpdatedIssue {
         before,
@@ -1110,29 +1267,39 @@ pub(crate) async fn update_issue(
     }))
 }
 
+/// A whole number bound as `$n::int`: one out of range is Postgres's error.
+fn int4(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
+}
+
+/// The status timestamps onto an issue being written.
+fn set_stamps(
+    issue: &mut merge_issues::ActiveModel,
+    stamps: &StatusTimestamps,
+) -> Result<(), DbErr> {
+    issue.started_at = Set(instant_opt(stamps.started_at.as_deref())?);
+    issue.completed_at = Set(instant_opt(stamps.completed_at.as_deref())?);
+    issue.canceled_at = Set(instant_opt(stamps.canceled_at.as_deref())?);
+    Ok(())
+}
+
 /// `moveIssueStatus(db, issue, status)`: an ordinary status update
 /// (timestamps included) on behalf of a pull request's automation.
 pub(crate) async fn move_issue_status(
     db: &PgPool,
     issue: &Row,
     status: &str,
-) -> Result<Row, sqlx::Error> {
-    let now = now();
+) -> Result<Row, DbErr> {
+    let (now, at) = now_at();
     let stamps = status_timestamps(status, &timestamps_of(issue), &now);
-    let row: Value = sqlx::query_scalar(
-        "update merge_issues set status = $2, started_at = $3::timestamptz, \
-           completed_at = $4::timestamptz, canceled_at = $5::timestamptz, updated_at = $6::timestamptz \
-         where id = $1 returning to_jsonb(merge_issues.*)",
-    )
-    .bind(text(issue, "id"))
-    .bind(status)
-    .bind(stamps.started_at)
-    .bind(stamps.completed_at)
-    .bind(stamps.canceled_at)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    Ok(weldsuite_db::js_row(row))
+    let mut moved = merge_issues::ActiveModel {
+        id: Unchanged(text(issue, "id").to_owned()),
+        status: Set(status.to_owned()),
+        updated_at: Set(at),
+        ..Default::default()
+    };
+    set_stamps(&mut moved, &stamps)?;
+    issue_row(moved.update(&orm(db)).await?)
 }
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
@@ -1147,24 +1314,27 @@ pub(crate) async fn remove(
     let Some(existing) = find_issue(db, &id).await? else {
         return Err(Refusal::not_found("Issue", Some(&id)));
     };
-    let now = now();
-    sqlx::query(
-        "update merge_issues set parent_issue_id = null, updated_at = $2::timestamptz \
-         where parent_issue_id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    let row: Value = sqlx::query_scalar(
-        "update merge_issues set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_issues.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let issue = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let orm_db = orm(db);
+    merge_issues::Entity::update_many()
+        .col_expr(
+            merge_issues::Column::ParentIssueId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(merge_issues::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_issues::Column::ParentIssueId.eq(&id))
+        .exec(&orm_db)
+        .await?;
+    let issue = issue_row(
+        merge_issues::ActiveModel {
+            id: Unchanged(id.clone()),
+            deleted_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&orm_db)
+        .await?,
+    )?;
     let team_key = team_key_of(db, text(&existing, "teamId")).await?;
     publish(
         &state,

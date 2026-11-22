@@ -6,9 +6,11 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{EMAIL_DELETED, EMAIL_UPDATED};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Data, NoContent};
 use weldsuite_mail_domain::access::check_account_access;
@@ -17,6 +19,7 @@ use weldsuite_mail_domain::messages::{
     FlagPatch, change_message_labels, existing_ids, live_messages_by_ids, set_labels,
     set_thread_id, soft_delete_message, update_message_flags,
 };
+use weldsuite_schema::tenant::mail_messages;
 
 use super::reads::locate;
 use crate::read_push::{clears_unread_banner, queue_mail_read_push};
@@ -246,12 +249,14 @@ pub(super) async fn bulk(
     };
     let result = async {
         // Every id's true mailbox, whatever the caller's access.
-        let located: Vec<(String, String)> = sqlx::query_as(
-            "select id, account_id from mail_messages where id = any($1::text[]) and deleted_at is null",
-        )
-        .bind(&ids)
-        .fetch_all(&caller.db)
-        .await?;
+        let located: Vec<(String, String)> = mail_messages::Entity::find()
+            .select_only()
+            .columns([mail_messages::Column::Id, mail_messages::Column::AccountId])
+            .filter(mail_messages::Column::Id.is_in(ids.iter().cloned()))
+            .filter(mail_messages::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         let mut checked: Vec<&String> = Vec::new();
         for (_, account) in &located {
             if checked.contains(&account) {

@@ -439,11 +439,7 @@ fn version_number(raw: &str) -> Option<i32> {
     })
 }
 
-async fn get_version(
-    db: &PgPool,
-    report_id: &str,
-    version: i32,
-) -> Result<Option<Value>, DbErr> {
+async fn get_version(db: &PgPool, report_id: &str, version: i32) -> Result<Option<Value>, DbErr> {
     versions::Entity::find()
         .filter(versions::Column::ReportId.eq(report_id))
         .filter(versions::Column::Version.eq(version))

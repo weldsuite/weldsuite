@@ -30,10 +30,16 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use http_crate::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+    RelationDef, Select,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data};
+use weldsuite_schema::tenant::{merge_connections, merge_pull_requests, merge_repositories};
 
 use crate::credentials::{connection_token, member_token};
 use crate::db::{Row, opt_text, text};
@@ -42,7 +48,7 @@ use crate::mappers::pull_request_event_data;
 use crate::providers::{self, AdapterContext, RepositoryRef};
 use crate::pull_requests::{linked_issues, pull_request_detail};
 use crate::{
-    Answer, Caller, MergeError, MergeState, Overrides, PendingEvent, Refusal, all, now, publish,
+    Answer, Caller, MergeError, MergeState, Overrides, PendingEvent, Refusal, all, publish,
     validate,
 };
 
@@ -333,22 +339,66 @@ impl Target {
     }
 }
 
+/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
+/// of the model).
+fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
+    row.map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `loadTarget`'s row: the pull request, and its repository's and
+/// connection's whole rows under their prefixes.
+#[derive(FromQueryResult)]
+struct TargetRow {
+    #[sea_orm(nested)]
+    pr: merge_pull_requests::Model,
+    #[sea_orm(nested(prefix = "repository__"))]
+    repository: merge_repositories::Model,
+    #[sea_orm(nested(prefix = "connection__"))]
+    connection: merge_connections::Model,
+}
+
+/// Every column of the joined `E`, as `<prefix><column>`.
+fn with_row_of<E: EntityTrait>(
+    select: Select<merge_pull_requests::Entity>,
+    prefix: &str,
+) -> Select<merge_pull_requests::Entity> {
+    use sea_orm::{IdenStatic, Iterable};
+    E::Column::iter().fold(select, |select, column| {
+        select.column_as(column, format!("{prefix}{}", column.as_str()))
+    })
+}
+
 /// `loadTarget(db, id)`: of a live repository on a live connection.
-async fn load_target(db: &PgPool, id: &str) -> Result<Option<Target>, sqlx::Error> {
-    let row: Option<(Value, Value, Value)> = sqlx::query_as(
-        "select to_jsonb(p), to_jsonb(r), to_jsonb(c) from merge_pull_requests p \
-         inner join merge_repositories r on r.id = p.repository_id \
-         inner join merge_connections c on c.id = r.connection_id \
-         where p.id = $1 and r.deleted_at is null and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|(pr, repository, connection)| Target {
-        pr: js_row(pr),
-        repository: js_row(repository),
-        connection: js_row(connection),
-    }))
+async fn load_target(db: &PgPool, id: &str) -> Result<Option<Target>, DbErr> {
+    let repository: RelationDef = merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+        .from(merge_pull_requests::Column::RepositoryId)
+        .to(merge_repositories::Column::Id)
+        .into();
+    let connection: RelationDef = merge_repositories::Entity::belongs_to(merge_connections::Entity)
+        .from(merge_repositories::Column::ConnectionId)
+        .to(merge_connections::Column::Id)
+        .into();
+    let select = with_row_of::<merge_repositories::Entity>(
+        merge_pull_requests::Entity::find(),
+        "repository__",
+    );
+    let row = with_row_of::<merge_connections::Entity>(select, "connection__")
+        .join(JoinType::InnerJoin, repository)
+        .join(JoinType::InnerJoin, connection)
+        .filter(merge_pull_requests::Column::Id.eq(id))
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .into_model::<TargetRow>()
+        .one(&orm(db))
+        .await?;
+    row.map(|row| {
+        Ok(Target {
+            pr: js(serde_json::to_value(row.pr))?,
+            repository: js(serde_json::to_value(row.repository))?,
+            connection: js(serde_json::to_value(row.connection))?,
+        })
+    })
+    .transpose()
 }
 
 /// What a review call works with: the request's database, state and overrides.
@@ -476,20 +526,21 @@ impl Review<'_> {
         if before.as_str() == Some(decision) {
             return Ok(Vec::new());
         }
-        let now = now();
-        let row: Option<Value> = sqlx::query_scalar(
-            "update merge_pull_requests set review_decision = $2, synced_at = $3::timestamptz, \
-               updated_at = $3::timestamptz \
-             where id = $1 returning to_jsonb(merge_pull_requests.*)",
-        )
-        .bind(text(&target.pr, "id"))
-        .bind(decision)
-        .bind(&now)
-        .fetch_optional(self.db())
-        .await?;
-        let Some(row) = row.map(js_row) else {
+        let at = utc_now().assume_utc();
+        let rows = merge_pull_requests::Entity::update_many()
+            .col_expr(
+                merge_pull_requests::Column::ReviewDecision,
+                Expr::value(decision),
+            )
+            .col_expr(merge_pull_requests::Column::SyncedAt, Expr::value(at))
+            .col_expr(merge_pull_requests::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_pull_requests::Column::Id.eq(text(&target.pr, "id")))
+            .exec_with_returning(&orm(self.db()))
+            .await?;
+        let Some(row) = rows.into_iter().next() else {
             return Ok(Vec::new());
         };
+        let row = js(serde_json::to_value(row))?;
         let id = text(&row, "id").to_owned();
         let issues = linked_issues(self.db(), std::slice::from_ref(&id)).await?;
         let issue_ids: Vec<String> = issues

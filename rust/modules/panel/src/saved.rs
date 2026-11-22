@@ -17,7 +17,9 @@ use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::PANEL_PROJECTS_MANAGE;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::Permissions;
-use weldsuite_schema::tenant::{panel_dashboard_tiles, panel_dashboards, panel_projects, panel_reports};
+use weldsuite_schema::tenant::{
+    panel_dashboard_tiles, panel_dashboards, panel_projects, panel_reports,
+};
 use weldsuite_zod::{Keys, S, Z};
 
 use crate::Caller;

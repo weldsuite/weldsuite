@@ -10,7 +10,15 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     CHAT_CHANNEL_CREATED, CHAT_CHANNEL_JOINED, CHAT_CHANNEL_LEFT, CHAT_CHANNEL_UPDATED,
     CHAT_MESSAGE_CREATED,
@@ -25,16 +33,19 @@ use weldsuite_chat_domain::policy::merge_agent_room_policy;
 use weldsuite_chat_domain::publish::object;
 use weldsuite_chat_domain::text::build_message_preview;
 use weldsuite_chat_domain::{can_access_channel, is_channel_moderator, unreadable_record_chat_ids};
+use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    chat_channel_members as members, chat_channels, chat_message_reads, chat_messages,
+    weldagent_agents, workspace_members,
+};
 
 use crate::ChatState;
 use crate::access::{Caller, ChatError, ChatResult, answer, unhandled, validate, validate_query};
 use crate::post::{PostError, PostInput, post_chat_message};
-use crate::util::{
-    consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map,
-};
+use crate::util::{consume_rate_limit, list_limit, list_response, now, page, query_map};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -82,6 +93,83 @@ where
 
 const CHANNEL_TYPES: [&str; 4] = ["public", "private", "dm", "entity"];
 
+// ── Rows through the entities (shared by the chat routes) ──────────────────
+
+/// A row as Drizzle returns it: the entity's own serialization.
+pub(crate) fn js<M: Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// A `timestamp` as JavaScript reads it (milliseconds): a keyset cursor's
+/// `createdAt` as the TypeScript routes bind it back.
+pub(crate) fn millis(at: PrimitiveDateTime) -> PrimitiveDateTime {
+    utc_timestamp(at.assume_utc())
+}
+
+/// A `timestamp` as `toISOString()` writes it.
+pub(crate) fn iso(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
+
+/// `new Date()` once: the ISO text the route answers or publishes, and the
+/// `timestamp` it stores (UTC, milliseconds, as Drizzle wrote it).
+pub(crate) fn now_stamped() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
+}
+
+/// `$n::timestamp` of a `toISOString()` text the route holds: Postgres
+/// keeps its wall clock and drops the `Z`. `Err` is the failed cast (the
+/// route's 500).
+pub(crate) fn timestamp_of(text: &str) -> Result<PrimitiveDateTime, DbErr> {
+    OffsetDateTime::parse(text, &Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|_| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{text}\""
+            ))
+        })
+}
+
+/// `limit $n` of a page's `limit + 1` probe: Postgres refuses a negative one
+/// (the route's 500), as it did when the number was bound.
+pub(crate) fn sql_limit(probe: i64) -> Result<u64, DbErr> {
+    u64::try_from(probe).map_err(|_| DbErr::Custom("LIMIT must not be negative".to_owned()))
+}
+
+/// `exists (select 1 from chat_channel_members m where m.channel_id =
+/// chat_channels.id and m.user_id = $user)`.
+pub(crate) fn member_exists(user_id: &str) -> Expr {
+    Expr::exists(
+        Query::select()
+            .expr(Expr::val(1))
+            .from(members::Entity)
+            .and_where(sea_orm::ExprTrait::equals(
+                Expr::col((members::Entity, members::Column::ChannelId)),
+                (chat_channels::Entity, chat_channels::Column::Id),
+            ))
+            .and_where(members::Column::UserId.eq(user_id))
+            .to_owned(),
+    )
+}
+
+/// `chat_channel_members left join workspace_members on user_id`.
+pub(crate) fn member_profile() -> RelationDef {
+    members::Entity::belongs_to(workspace_members::Entity)
+        .from(members::Column::UserId)
+        .to(workspace_members::Column::UserId)
+        .into()
+}
+
+/// A roster row with `picture: null`, for `overlay_account_pictures`.
+pub(crate) fn with_null_picture<M: Serialize>(row: M) -> Result<Value, DbErr> {
+    let mut row = js(row)?;
+    if let Value::Object(fields) = &mut row {
+        fields.insert("picture".to_owned(), Value::Null);
+    }
+    Ok(row)
+}
+
 fn forbidden_channel() -> ChatError {
     ChatError::forbidden("You do not have access to this channel")
 }
@@ -92,20 +180,33 @@ async fn channel_name_taken(
     caller: &Caller,
     name: &str,
     exclude_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let clash: Option<String> = sqlx::query_scalar(
-        "select id from chat_channels t
-         where t.deleted_at is null and lower(btrim(t.name)) = lower($1)
-           and (t.type = 'public' or (t.type = 'private' and exists (
-                select 1 from chat_channel_members m where m.channel_id = t.id and m.user_id = $2)))
-           and ($3::text is null or t.id <> $3)
-         limit 1",
-    )
-    .bind(name)
-    .bind(&caller.user_id)
-    .bind(exclude_id)
-    .fetch_optional(&caller.db)
-    .await?;
+) -> Result<bool, DbErr> {
+    // `lower(btrim(t.name)) = lower($1)`.
+    let same_name = sea_orm::ExprTrait::eq(
+        Func::lower(Func::cust("btrim").arg(Expr::col((
+            chat_channels::Entity,
+            chat_channels::Column::Name,
+        )))),
+        Func::lower(Expr::val(name)),
+    );
+    let mut query = chat_channels::Entity::find()
+        .select_only()
+        .column(chat_channels::Column::Id)
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .filter(same_name)
+        .filter(
+            Condition::any()
+                .add(chat_channels::Column::Type.eq("public"))
+                .add(
+                    Condition::all()
+                        .add(chat_channels::Column::Type.eq("private"))
+                        .add(member_exists(&caller.user_id)),
+                ),
+        );
+    if let Some(exclude_id) = exclude_id {
+        query = query.filter(chat_channels::Column::Id.ne(exclude_id));
+    }
+    let clash: Option<String> = query.into_tuple().one(&orm(&caller.db)).await?;
     Ok(clash.is_some())
 }
 
@@ -147,16 +248,32 @@ async fn list(State(state): State<ChatState>, caller: Caller, RawQuery(raw): Raw
     )
 }
 
+/// The cursor row's `createdAt` (as JavaScript read it) and id.
 async fn channel_cursor(
     caller: &Caller,
     id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("select created_at::text, id from chat_channels where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map(|(at, id)| (ms_timestamp(&at), id)))
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = chat_channels::Entity::find()
+        .select_only()
+        .columns([chat_channels::Column::CreatedAt, chat_channels::Column::Id])
+        .filter(chat_channels::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(|(at, id)| (millis(at), id)))
+}
+
+/// `created_at < $at or (created_at = $at and id < $id)`, newest first.
+pub(crate) fn before_cursor<C: ColumnTrait>(
+    created_at: C,
+    id: C,
+    (at, cursor_id): &(PrimitiveDateTime, String),
+) -> Condition {
+    Condition::any().add(created_at.lt(*at)).add(
+        Condition::all()
+            .add(created_at.eq(*at))
+            .add(id.lt(cursor_id.as_str())),
+    )
 }
 
 async fn list_inner(
@@ -164,52 +281,50 @@ async fn list_inner(
     q: &HashMap<String, String>,
     limit: i64,
     types: Option<Vec<String>>,
-    cursor: Option<(String, String)>,
+    cursor: Option<(PrimitiveDateTime, String)>,
 ) -> ChatResult<Response> {
     let kind = q.get("type").filter(|t| !t.is_empty());
     let search = q
         .get("search")
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_channels t
-         where t.deleted_at is null
-           and (t.type = 'public' or exists (
-                select 1 from chat_channel_members m where m.channel_id = t.id and m.user_id = $1))
-           and ($2::text is null or t.type = $2)
-           and ($3::text[] is null or t.type = any($3))
-           and ($4::text is null or t.name like $4)
-           and ($5::text is null or (t.created_at < $5::timestamp
-                or (t.created_at = $5::timestamp and t.id < $6)))
-         order by t.created_at desc, t.id desc
-         limit $7",
-    )
-    .bind(&caller.user_id)
-    .bind(kind)
-    .bind(&types)
-    .bind(&search)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from chat_channels t
-         where t.deleted_at is null
-           and (t.type = 'public' or exists (
-                select 1 from chat_channel_members m where m.channel_id = t.id and m.user_id = $1))
-           and ($2::text is null or t.type = $2)
-           and ($3::text[] is null or t.type = any($3))
-           and ($4::text is null or t.name like $4)",
-    )
-    .bind(&caller.user_id)
-    .bind(kind)
-    .bind(&types)
-    .bind(&search)
-    .fetch_one(&caller.db)
-    .await?;
-    let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let mut filters = Condition::all()
+        .add(chat_channels::Column::DeletedAt.is_null())
+        .add(
+            Condition::any()
+                .add(chat_channels::Column::Type.eq("public"))
+                .add(member_exists(&caller.user_id)),
+        );
+    if let Some(kind) = kind {
+        filters = filters.add(chat_channels::Column::Type.eq(kind.as_str()));
+    }
+    if let Some(types) = &types {
+        filters = filters.add(chat_channels::Column::Type.is_in(types.iter().map(String::as_str)));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(chat_channels::Column::Name.like(search.as_str()));
+    }
+    let db = orm(&caller.db);
+    let mut rows = chat_channels::Entity::find().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before_cursor(
+            chat_channels::Column::CreatedAt,
+            chat_channels::Column::Id,
+            cursor,
+        ));
+    }
+    let rows = rows
+        .order_by_desc(chat_channels::Column::CreatedAt)
+        .order_by_desc(chat_channels::Column::Id)
+        .limit(sql_limit(limit + 1)?)
+        .all(&db)
+        .await?;
+    let total = chat_channels::Entity::find()
+        .filter(filters)
+        .count(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
     let (data, has_more, next) = page(rows, limit);
     let entity_ids: Vec<String> = data
         .iter()
@@ -252,18 +367,25 @@ async fn list_inner(
 async fn caller_channel_state(
     caller: &Caller,
     channel_ids: &[String],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     if channel_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, bool, Option<String>, Option<String>, i32)> = sqlx::query_as(
-        "select channel_id, is_muted, last_read_at::text, last_read_message_id, unread_mention_count
-         from chat_channel_members where user_id = $1 and channel_id = any($2)",
-    )
-    .bind(&caller.user_id)
-    .bind(channel_ids)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows: Vec<(String, bool, Option<PrimitiveDateTime>, Option<String>, i32)> =
+        members::Entity::find()
+            .select_only()
+            .columns([
+                members::Column::ChannelId,
+                members::Column::IsMuted,
+                members::Column::LastReadAt,
+                members::Column::LastReadMessageId,
+                members::Column::UnreadMentionCount,
+            ])
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .filter(members::Column::ChannelId.is_in(channel_ids.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
     Ok(rows
         .into_iter()
         .map(|(channel_id, muted, read_at, read_id, mentions)| {
@@ -271,7 +393,7 @@ async fn caller_channel_state(
                 channel_id,
                 json!({
                     "isMuted": muted,
-                    "lastReadAt": read_at.map(|at| ms_timestamp(&at)),
+                    "lastReadAt": read_at.map(iso),
                     "lastReadMessageId": read_id,
                     "unreadMentionCount": mentions,
                 }),
@@ -281,14 +403,48 @@ async fn caller_channel_state(
 }
 
 /// A live channel row.
-async fn live_channel(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_channels t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn live_channel(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    chat_channels::Entity::find_by_id(id.to_owned())
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(js)
+        .transpose()
+}
+
+/// A member of the channel's roster (`GET /:id`), `picture` added null.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RosterMember {
+    id: String,
+    user_id: String,
+    role: String,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    joined_at: PrimitiveDateTime,
+    is_muted: bool,
+    notification_preference: String,
+    name: Option<String>,
+    email: Option<String>,
+}
+
+/// A member as `GET /:id/members` lists it, `picture` added null.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedMember {
+    id: String,
+    user_id: String,
+    member_type: String,
+    role: String,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    joined_at: PrimitiveDateTime,
+    is_muted: bool,
+    notification_preference: String,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    last_read_at: Option<PrimitiveDateTime>,
+    last_read_message_id: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
+    workspace_member_type: Option<String>,
 }
 
 /// `GET /:id`: the channel with its hydrated roster.
@@ -303,21 +459,27 @@ async fn detail_inner(caller: &Caller, id: &str) -> ChatResult<Response> {
     if !can_access_channel(&caller.db, id, &caller.user_id, None).await? {
         return Err(ChatError::not_found("Channel", Some(id)));
     }
-    let members: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', chat_channel_members.id,
-                'userId', chat_channel_members.user_id, 'role', chat_channel_members.role,
-                'joinedAt', chat_channel_members.joined_at, 'isMuted', chat_channel_members.is_muted,
-                'notificationPreference', chat_channel_members.notification_preference,
-                'name', workspace_members.name, 'email', workspace_members.email,
-                'picture', null)
-         from chat_channel_members
-         left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
-         where chat_channel_members.channel_id = $1",
-    )
-    .bind(id)
-    .fetch_all(&caller.db)
-    .await?;
-    let mut members: Vec<Value> = members.into_iter().map(weldsuite_db::js_row).collect();
+    let members = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::Id,
+            members::Column::UserId,
+            members::Column::Role,
+            members::Column::JoinedAt,
+            members::Column::IsMuted,
+            members::Column::NotificationPreference,
+        ])
+        .column_as(workspace_members::Column::Name, "name")
+        .column_as(workspace_members::Column::Email, "email")
+        .join(JoinType::LeftJoin, member_profile())
+        .filter(members::Column::ChannelId.eq(id))
+        .into_model::<RosterMember>()
+        .all(&orm(&caller.db))
+        .await?;
+    let mut members: Vec<Value> = members
+        .into_iter()
+        .map(with_null_picture)
+        .collect::<Result<_, _>>()?;
     // Avatars are account pictures, not the member row's copy.
     weldsuite_db::overlay_account_pictures(caller.master(), &mut members, "userId", "picture")
         .await;
@@ -587,7 +749,7 @@ async fn update_inner(
             "A channel named \"{name}\" already exists"
         )));
     }
-    let at = now();
+    let (at, stamp) = now_stamped();
     let mut update = Map::new();
     update.insert("updatedAt".to_owned(), Value::from(at.as_str()));
     for (key, value) in &input.set {
@@ -606,59 +768,68 @@ async fn update_inner(
             Value::from(resolve_channel_slug(&caller.db, name, id).await?),
         );
     }
-    let field = |key: &str| update.get(key);
-    let text = |key: &str| field(key).and_then(Value::as_str).map(str::to_owned);
-    let flag = |key: &str| field(key).and_then(Value::as_bool);
-    sqlx::query(
-        "update chat_channels set
-            updated_at = $2::timestamp,
-            name = coalesce($3, name),
-            description = case when $19 then $4 else description end,
-            topic = case when $20 then $5 else topic end,
-            icon = coalesce($6, icon),
-            voice_calls_enabled = coalesce($7, voice_calls_enabled),
-            video_calls_enabled = coalesce($8, video_calls_enabled),
-            threads_enabled = coalesce($9, threads_enabled),
-            attachments_enabled = coalesce($10, attachments_enabled),
-            reactions_enabled = coalesce($11, reactions_enabled),
-            slow_mode_seconds = coalesce($12, slow_mode_seconds),
-            is_archived = coalesce($13, is_archived),
-            section_id = case when $14 then $15 else section_id end,
-            metadata = case when $16 then $17 else metadata end,
-            slug = coalesce($18, slug)
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&at)
-    .bind(text("name"))
-    .bind(text("description"))
-    .bind(text("topic"))
-    .bind(text("icon"))
-    .bind(flag("voiceCallsEnabled"))
-    .bind(flag("videoCallsEnabled"))
-    .bind(flag("threadsEnabled"))
-    .bind(flag("attachmentsEnabled"))
-    .bind(flag("reactionsEnabled"))
-    .bind(
-        field("slowModeSeconds")
-            .and_then(Value::as_i64)
-            .and_then(|s| i32::try_from(s).ok()),
-    )
-    .bind(flag("isArchived"))
-    .bind(update.contains_key("sectionId"))
-    .bind(text("sectionId"))
-    .bind(update.contains_key("metadata"))
-    .bind(field("metadata").cloned())
-    .bind(text("slug"))
-    .bind(update.contains_key("description"))
-    .bind(update.contains_key("topic"))
-    .execute(&caller.db)
-    .await?;
+    channel_update(&update, stamp)
+        .filter(chat_channels::Column::Id.eq(id))
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     let updated = channel_row(&caller.db, id).await?;
     Caller::realtime(state)
         .channel_updated(id, Value::Object(update))
         .await;
     Ok(Data(updated.unwrap_or_else(|| json!({ "id": id }))).into_response())
+}
+
+/// The `update chat_channels set …` of a `PATCH /:id`: the fields the body
+/// set (`null` clears description, topic and section), `updatedAt` always.
+fn channel_update(
+    update: &Map<String, Value>,
+    stamp: PrimitiveDateTime,
+) -> sea_orm::UpdateMany<chat_channels::Entity> {
+    use chat_channels::Column;
+    let field = |key: &str| update.get(key);
+    let text = |key: &str| field(key).and_then(Value::as_str).map(str::to_owned);
+    let flag = |key: &str| field(key).and_then(Value::as_bool);
+    let mut query =
+        chat_channels::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(stamp));
+    // `coalesce($n, column)`: written when the body sent it.
+    for (key, column) in [("name", Column::Name), ("icon", Column::Icon), ("slug", Column::Slug)] {
+        if let Some(text) = text(key) {
+            query = query.col_expr(column, Expr::value(text));
+        }
+    }
+    // `case when $set then $n else column end`: `null` clears it.
+    for (key, column) in [
+        ("description", Column::Description),
+        ("topic", Column::Topic),
+        ("sectionId", Column::SectionId),
+    ] {
+        if update.contains_key(key) {
+            query = query.col_expr(column, Expr::value(text(key)));
+        }
+    }
+    for (key, column) in [
+        ("voiceCallsEnabled", Column::VoiceCallsEnabled),
+        ("videoCallsEnabled", Column::VideoCallsEnabled),
+        ("threadsEnabled", Column::ThreadsEnabled),
+        ("attachmentsEnabled", Column::AttachmentsEnabled),
+        ("reactionsEnabled", Column::ReactionsEnabled),
+        ("isArchived", Column::IsArchived),
+    ] {
+        if let Some(flag) = flag(key) {
+            query = query.col_expr(column, Expr::value(flag));
+        }
+    }
+    if let Some(seconds) = field("slowModeSeconds")
+        .and_then(Value::as_i64)
+        .and_then(|s| i32::try_from(s).ok())
+    {
+        query = query.col_expr(Column::SlowModeSeconds, Expr::value(seconds));
+    }
+    if update.contains_key("metadata") {
+        query = query.col_expr(Column::Metadata, Expr::value(field("metadata").cloned()));
+    }
+    query
 }
 
 /// `DELETE /:id`: owners and admins soft-delete a channel.
@@ -679,14 +850,13 @@ async fn remove_one(
                 "Only channel owners and admins can delete this channel",
             ));
         }
-        let at = now();
-        sqlx::query(
-            "update chat_channels set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        chat_channels::Entity::update_many()
+            .col_expr(chat_channels::Column::DeletedAt, Expr::value(at))
+            .col_expr(chat_channels::Column::UpdatedAt, Expr::value(at))
+            .filter(chat_channels::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Caller::realtime(&state)
             .channel_updated(&id, json!({ "deleted": true }))
             .await;
@@ -733,50 +903,43 @@ async fn list_messages(
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit.ceil() as i64;
     let result = async {
-        let cursor_of = |message: &str| {
-            let message = message.to_owned();
-            let db = caller.db.clone();
-            async move {
-                let at: Option<String> = sqlx::query_scalar(
-                    "select created_at::text from chat_messages where id = $1 limit 1",
-                )
-                .bind(&message)
-                .fetch_optional(&db)
+        use chat_messages::Column;
+        let db = orm(&caller.db);
+        // The message's `createdAt` as JavaScript read it.
+        let cursor_of = async |message: &str| -> Result<Option<PrimitiveDateTime>, DbErr> {
+            let at: Option<PrimitiveDateTime> = chat_messages::Entity::find()
+                .select_only()
+                .column(Column::CreatedAt)
+                .filter(Column::Id.eq(message))
+                .into_tuple()
+                .one(&db)
                 .await?;
-                Ok::<_, sqlx::Error>(at.map(|at| ms_timestamp(&at)))
+            Ok(at.map(millis))
+        };
+        let top_level = chat_messages::Entity::find()
+            .filter(Column::ChannelId.eq(&id))
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::ParentId.is_null());
+        let page_query = if let Some(after) = after.as_deref() {
+            let mut rows = top_level;
+            if let Some(at) = cursor_of(after).await? {
+                rows = rows.filter(Column::CreatedAt.gt(at));
             }
-        };
-        let rows: Vec<Value> = if let Some(after) = after.as_deref() {
-            let after_at = cursor_of(after).await?;
-            sqlx::query_scalar(
-                "select to_jsonb(m) from chat_messages m
-                 where m.channel_id = $1 and m.deleted_at is null and m.parent_id is null
-                   and ($2::text is null or m.created_at > $2::timestamp)
-                 order by m.created_at asc limit $3",
-            )
-            .bind(&id)
-            .bind(&after_at)
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?
+            rows.order_by_asc(Column::CreatedAt)
         } else {
-            let before_at = match before.as_deref() {
-                Some(before) => cursor_of(before).await?,
-                None => None,
-            };
-            sqlx::query_scalar(
-                "select to_jsonb(m) from chat_messages m
-                 where m.channel_id = $1 and m.deleted_at is null and m.parent_id is null
-                   and ($2::text is null or m.created_at < $2::timestamp)
-                 order by m.created_at desc limit $3",
-            )
-            .bind(&id)
-            .bind(&before_at)
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?
+            let mut rows = top_level;
+            if let Some(before) = before.as_deref()
+                && let Some(at) = cursor_of(before).await?
+            {
+                rows = rows.filter(Column::CreatedAt.lt(at));
+            }
+            rows.order_by_desc(Column::CreatedAt)
         };
-        let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let rows = page_query
+            .limit(sql_limit(limit + 1)?)
+            .all(&db)
+            .await?;
+        let rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         let (messages, has_more, next) = page(rows, limit);
         Ok(
             Data(json!({ "messages": messages, "hasMore": has_more, "nextCursor": next }))
@@ -985,26 +1148,35 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
         Err(error) => return unhandled(error.into()),
     }
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', chat_channel_members.id,
-                    'userId', chat_channel_members.user_id,
-                    'memberType', chat_channel_members.member_type,
-                    'role', chat_channel_members.role, 'joinedAt', chat_channel_members.joined_at,
-                    'isMuted', chat_channel_members.is_muted,
-                    'notificationPreference', chat_channel_members.notification_preference,
-                    'lastReadAt', chat_channel_members.last_read_at,
-                    'lastReadMessageId', chat_channel_members.last_read_message_id,
-                    'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', null,
-                    'workspaceMemberType', workspace_members.member_type)
-             from chat_channel_members
-             left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
-             where chat_channel_members.channel_id = $1",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
-        let mut rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let db = orm(&caller.db);
+        let rows = members::Entity::find()
+            .select_only()
+            .columns([
+                members::Column::Id,
+                members::Column::UserId,
+                members::Column::MemberType,
+                members::Column::Role,
+                members::Column::JoinedAt,
+                members::Column::IsMuted,
+                members::Column::NotificationPreference,
+                members::Column::LastReadAt,
+                members::Column::LastReadMessageId,
+            ])
+            .column_as(workspace_members::Column::Name, "name")
+            .column_as(workspace_members::Column::Email, "email")
+            .column_as(
+                workspace_members::Column::MemberType,
+                "workspace_member_type",
+            )
+            .join(JoinType::LeftJoin, member_profile())
+            .filter(members::Column::ChannelId.eq(&id))
+            .into_model::<ListedMember>()
+            .all(&db)
+            .await?;
+        let mut rows: Vec<Value> = rows
+            .into_iter()
+            .map(with_null_picture)
+            .collect::<Result<_, _>>()?;
         // Avatars are account pictures, not the member row's copy.
         weldsuite_db::overlay_account_pictures(caller.master(), &mut rows, "userId", "picture")
             .await;
@@ -1015,13 +1187,20 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
             .collect();
         let mut agents: HashMap<String, (String, Option<String>, Option<String>)> = HashMap::new();
         if !agent_ids.is_empty() {
-            let found: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-                "select id, name, icon, description from weldagent_agents
-                 where id = any($1) and deleted_at is null",
-            )
-            .bind(&agent_ids)
-            .fetch_all(&caller.db)
-            .await?;
+            let found: Vec<(String, String, Option<String>, Option<String>)> =
+                weldagent_agents::Entity::find()
+                    .select_only()
+                    .columns([
+                        weldagent_agents::Column::Id,
+                        weldagent_agents::Column::Name,
+                        weldagent_agents::Column::Icon,
+                        weldagent_agents::Column::Description,
+                    ])
+                    .filter(weldagent_agents::Column::Id.is_in(agent_ids.iter().map(String::as_str)))
+                    .filter(weldagent_agents::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(&db)
+                    .await?;
             for (id, name, icon, description) in found {
                 agents.insert(id, (name, icon, description));
             }
@@ -1107,12 +1286,14 @@ async fn add_members(
         }
     }
     let result = async {
-        let name: Option<String> = sqlx::query_scalar(
-            "select name from chat_channels where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let name: Option<String> = chat_channels::Entity::find()
+            .select_only()
+            .column(chat_channels::Column::Name)
+            .filter(chat_channels::Column::Id.eq(&id))
+            .filter(chat_channels::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let Some(name) = name else {
             return Err(ChatError::not_found("Channel", Some(&id)));
         };
@@ -1146,13 +1327,20 @@ async fn add_members(
 
 /// `resolveAgentRoom`: a channel or record chat the caller may write in.
 async fn resolve_agent_room(caller: &Caller, channel_id: &str) -> ChatResult<String> {
-    let channel: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, type, entity_type, entity_id from chat_channels
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let channel: Option<(String, String, Option<String>, Option<String>)> =
+        chat_channels::Entity::find()
+            .select_only()
+            .columns([
+                chat_channels::Column::Name,
+                chat_channels::Column::Type,
+                chat_channels::Column::EntityType,
+                chat_channels::Column::EntityId,
+            ])
+            .filter(chat_channels::Column::Id.eq(channel_id))
+            .filter(chat_channels::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
     let Some((name, kind, entity_type, entity_id)) = channel else {
         return Err(ChatError::not_found("Channel", Some(channel_id)));
     };
@@ -1274,12 +1462,14 @@ async fn remove_agent(
         Ok(name) => name,
         Err(error) => return unhandled(error),
     };
-    let live: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from weldagent_agents where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&agent_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let live: Result<Option<String>, DbErr> = weldagent_agents::Entity::find()
+        .select_only()
+        .column(weldagent_agents::Column::Id)
+        .filter(weldagent_agents::Column::Id.eq(&agent_id))
+        .filter(weldagent_agents::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let live = match live {
         Ok(live) => live,
         Err(error) => return unhandled(error.into()),
@@ -1402,17 +1592,25 @@ async fn read_receipts(caller: Caller, Path(id): Path<String>) -> Response {
         Err(error) => return unhandled(error.into()),
     }
     let result = async {
-        let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select chat_message_reads.message_id, chat_message_reads.user_id,
-                    chat_message_reads.read_at::text, workspace_members.name
-             from chat_message_reads
-             left join workspace_members on chat_message_reads.user_id = workspace_members.user_id
-             where chat_message_reads.channel_id = $1
-             order by chat_message_reads.read_at desc",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
+        let reader: RelationDef = chat_message_reads::Entity::belongs_to(workspace_members::Entity)
+            .from(chat_message_reads::Column::UserId)
+            .to(workspace_members::Column::UserId)
+            .into();
+        let rows: Vec<(String, String, Option<PrimitiveDateTime>, Option<String>)> =
+            chat_message_reads::Entity::find()
+                .select_only()
+                .columns([
+                    chat_message_reads::Column::MessageId,
+                    chat_message_reads::Column::UserId,
+                    chat_message_reads::Column::ReadAt,
+                ])
+                .column(workspace_members::Column::Name)
+                .join(JoinType::LeftJoin, reader)
+                .filter(chat_message_reads::Column::ChannelId.eq(&id))
+                .order_by_desc(chat_message_reads::Column::ReadAt)
+                .into_tuple()
+                .all(&orm(&caller.db))
+                .await?;
         let pictures = weldsuite_db::AccountPictures::load(
             caller.master(),
             rows.iter().map(|(_, user_id, _, _)| user_id.as_str()),
@@ -1429,7 +1627,7 @@ async fn read_receipts(caller: Caller, Path(id): Path<String>) -> Response {
                     "userId": user_id,
                     "userName": name,
                     "userAvatar": picture,
-                    "readAt": read_at.map(|at| ms_timestamp(&at)),
+                    "readAt": read_at.map(iso),
                 }));
             }
         }
@@ -1557,11 +1755,13 @@ async fn mark_read(
         let realtime = Caller::realtime(&state);
         realtime.unread_update(&org, &caller.user_id, &id, 0).await;
         if let Some(last_read) = result["lastReadMessageId"].as_str() {
-            let name: Option<Option<String>> =
-                sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-                    .bind(&caller.user_id)
-                    .fetch_optional(&caller.db)
-                    .await?;
+            let name: Option<Option<String>> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::Name)
+                .filter(workspace_members::Column::UserId.eq(&caller.user_id))
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
             let name = name.flatten();
             let avatar = weldsuite_db::load_account_picture(caller.master(), &caller.user_id).await;
             realtime
@@ -1603,20 +1803,17 @@ async fn update_me(
         Err(error) => return error.respond("Failed to update membership"),
     };
     let result = async {
-        let updated: Option<Value> = sqlx::query_scalar(
-            "update chat_channel_members m set is_muted = $3
-             where m.channel_id = $1 and m.user_id = $2 returning to_jsonb(m)",
-        )
-        .bind(&id)
-        .bind(&caller.user_id)
-        .bind(muted)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(updated) = updated else {
+        let updated = members::Entity::update_many()
+            .col_expr(members::Column::IsMuted, Expr::value(muted))
+            .filter(members::Column::ChannelId.eq(&id))
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .exec_with_returning(&orm(&caller.db))
+            .await?;
+        let Some(updated) = updated.into_iter().next() else {
             return Err(ChatError::not_found("Membership", None));
         };
         caller.publish(&state, CHAT_CHANNEL_UPDATED, &id, &json!({ "id": id }));
-        Ok(Data(weldsuite_db::js_row(updated)).into_response())
+        Ok(Data(js(updated)?).into_response())
     }
     .await;
     answer(result, "Failed to update membership")

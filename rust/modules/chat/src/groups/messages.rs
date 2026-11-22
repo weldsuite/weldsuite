@@ -11,24 +11,30 @@ use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, RawQuery, Re
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     CHAT_MESSAGE_CREATED, CHAT_MESSAGE_DELETED, CHAT_MESSAGE_UPDATED,
 };
 use weldsuite_chat_domain::{can_access_channel, can_access_message, is_channel_moderator};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Presence, js_date_iso};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{JobRequest, PutOptions};
+use weldsuite_schema::tenant::chat_messages;
 
 use crate::ChatState;
 use crate::access::{Caller, ChatError, answer, unhandled, validate};
-use crate::groups::channels::feature_error;
+use crate::groups::channels::{before_cursor, feature_error, js, millis, sql_limit};
 use crate::pins::{UNPIN_EXPIRED_MESSAGE_JOB, pin_message, post_pin_notice, unpin_message};
 use crate::post::{PostInput, channel_feature_flags, post_chat_message};
-use crate::util::{
-    consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map,
-};
+use crate::util::{consume_rate_limit, list_limit, list_response, now, page, query_map};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -90,52 +96,57 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let parent = q.get("parentId").filter(|p| !p.is_empty()).cloned();
     let cursor = match q.get("cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
-                "select created_at::text, id from chat_messages where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
+            let row: Result<Option<(PrimitiveDateTime, String)>, DbErr> =
+                chat_messages::Entity::find()
+                    .select_only()
+                    .columns([chat_messages::Column::CreatedAt, chat_messages::Column::Id])
+                    .filter(chat_messages::Column::Id.eq(cursor))
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await;
             match row {
-                Ok(row) => row.map(|(at, id)| (ms_timestamp(&at), id)),
+                Ok(row) => row.map(|(at, id)| (millis(at), id)),
                 Err(error) => return unhandled(error.into()),
             }
         }
         None => None,
     };
     let result = async {
-        let (cursor_at, cursor_id) = cursor.unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from chat_messages t
-             where t.deleted_at is null and t.channel_id = $1
-               and ($2::text is null or t.author_id = $2)
-               and (case when $3::text is null then t.parent_id is null else t.parent_id = $3 end)
-               and ($4::text is null or (t.created_at < $4::timestamp
-                    or (t.created_at = $4::timestamp and t.id < $5)))
-             order by t.created_at desc, t.id desc limit $6",
-        )
-        .bind(&channel)
-        .bind(&author)
-        .bind(&parent)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from chat_messages t
-             where t.deleted_at is null and t.channel_id = $1
-               and ($2::text is null or t.author_id = $2)
-               and (case when $3::text is null then t.parent_id is null else t.parent_id = $3 end)",
-        )
-        .bind(&channel)
-        .bind(&author)
-        .bind(&parent)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(weldsuite_db::js_row).collect();
+        use chat_messages::Column;
+        let mut filters = Condition::all()
+            .add(Column::DeletedAt.is_null())
+            .add(Column::ChannelId.eq(&channel));
+        if let Some(author) = &author {
+            filters = filters.add(Column::AuthorId.eq(author));
+        }
+        // Top-level messages, or the thread's replies.
+        filters = filters.add(match &parent {
+            None => Column::ParentId.is_null(),
+            Some(parent) => Column::ParentId.eq(parent),
+        });
+        let db = orm(&caller.db);
+        let mut rows = chat_messages::Entity::find().filter(filters.clone());
+        if let Some(cursor) = &cursor {
+            rows = rows.filter(before_cursor(Column::CreatedAt, Column::Id, cursor));
+        }
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(sql_limit(limit + 1)?)
+            .all(&db)
+            .await?;
+        let total = chat_messages::Entity::find()
+            .filter(filters)
+            .count(&db)
+            .await?;
+        let rows = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, total, has_more, next))
+        Ok(list_response(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     answer(result, "Failed to list chat messages")
@@ -153,29 +164,27 @@ async fn pinned(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(error) => return unhandled(error.into()),
     }
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from chat_messages t
-             where t.channel_id = $1 and t.is_pinned = true and t.deleted_at is null
-             order by t.pinned_at desc",
-        )
-        .bind(&channel)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let rows = chat_messages::Entity::find()
+            .filter(chat_messages::Column::ChannelId.eq(&channel))
+            .filter(chat_messages::Column::IsPinned.eq(true))
+            .filter(chat_messages::Column::DeletedAt.is_null())
+            .order_by_desc(chat_messages::Column::PinnedAt)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         Ok(Data(rows).into_response())
     }
     .await;
     answer(result, "Failed to list pinned messages")
 }
 
-async fn live_message(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_messages t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn live_message(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    chat_messages::Entity::find_by_id(id.to_owned())
+        .filter(chat_messages::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -328,28 +337,27 @@ async fn update_one(
         };
         let (set_content, content) = text_param("content");
         let (set_html, html) = text_param("htmlContent");
-        let at = now();
-        sqlx::query(
-            "update chat_messages set updated_at = $2::timestamp, is_edited = true,
-                edited_at = $2::timestamp,
-                content = case when $3 then $4 else content end,
-                html_content = case when $5 then $6 else html_content end
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&at)
-        .bind(set_content)
-        .bind(&content)
-        .bind(set_html)
-        .bind(&html)
-        .execute(&caller.db)
-        .await?;
-        let updated: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from chat_messages t where t.id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(&caller.db)
-                .await?;
-        let updated = updated.map(weldsuite_db::js_row);
+        let at = utc_now();
+        let db = orm(&caller.db);
+        let mut edit = chat_messages::Entity::update_many()
+            .col_expr(chat_messages::Column::UpdatedAt, Expr::value(at))
+            .col_expr(chat_messages::Column::IsEdited, Expr::value(true))
+            .col_expr(chat_messages::Column::EditedAt, Expr::value(at));
+        if set_content {
+            edit = edit.col_expr(chat_messages::Column::Content, Expr::value(content));
+        }
+        if set_html {
+            edit = edit.col_expr(chat_messages::Column::HtmlContent, Expr::value(html));
+        }
+        edit.filter(chat_messages::Column::Id.eq(&id))
+            .filter(chat_messages::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
+        let updated = chat_messages::Entity::find_by_id(id.clone())
+            .one(&db)
+            .await?
+            .map(js)
+            .transpose()?;
         caller.publish(
             &state,
             CHAT_MESSAGE_UPDATED,
@@ -395,21 +403,29 @@ async fn remove_one(
         {
             return Err(ChatError::forbidden("You can only delete your own messages"));
         }
-        let at = now();
-        sqlx::query("update chat_messages set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&at)
-            .execute(&caller.db)
+        let at = utc_now();
+        let db = orm(&caller.db);
+        chat_messages::Entity::update_many()
+            .col_expr(chat_messages::Column::DeletedAt, Expr::value(at))
+            .col_expr(chat_messages::Column::UpdatedAt, Expr::value(at))
+            .filter(chat_messages::Column::Id.eq(&id))
+            .exec(&db)
             .await?;
         if let Some(parent) = existing["parentId"].as_str().filter(|p| !p.is_empty()) {
-            sqlx::query(
-                "update chat_messages set thread_reply_count = greatest(thread_reply_count - 1, 0),
-                    updated_at = $2::timestamp where id = $1",
-            )
-            .bind(parent)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            // `greatest(thread_reply_count - 1, 0)`, in the one statement.
+            let fewer = sea_orm::ExprTrait::sub(
+                Expr::col(chat_messages::Column::ThreadReplyCount),
+                1,
+            );
+            chat_messages::Entity::update_many()
+                .col_expr(
+                    chat_messages::Column::ThreadReplyCount,
+                    Func::greatest([fewer, Expr::val(0)]).into(),
+                )
+                .col_expr(chat_messages::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(chat_messages::Column::Id.eq(parent))
+                .exec(&db)
+                .await?;
         }
         caller.publish(
             &state,
@@ -430,13 +446,19 @@ async fn toggle_reaction(
     id: &str,
     emoji: &str,
     add: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Option<Value>, String)> = sqlx::query_as(
-        "select reactions, channel_id from chat_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+) -> Result<Option<Value>, DbErr> {
+    let db = orm(&caller.db);
+    let row: Option<(Option<Value>, String)> = chat_messages::Entity::find()
+        .select_only()
+        .columns([
+            chat_messages::Column::Reactions,
+            chat_messages::Column::ChannelId,
+        ])
+        .filter(chat_messages::Column::Id.eq(id))
+        .filter(chat_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some((reactions, channel)) = row else {
         return Ok(None);
     };
@@ -462,15 +484,16 @@ async fn toggle_reaction(
         }
     }
     let reactions = Value::Object(reactions);
-    sqlx::query(
-        "update chat_messages set reactions = $2, updated_at = $3::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&reactions)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    chat_messages::Entity::update_many()
+        .col_expr(
+            chat_messages::Column::Reactions,
+            Expr::value(reactions.clone()),
+        )
+        .col_expr(chat_messages::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(chat_messages::Column::Id.eq(id))
+        .filter(chat_messages::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
     Ok(Some(
         json!({ "messageId": id, "channelId": channel, "reactions": reactions }),
     ))

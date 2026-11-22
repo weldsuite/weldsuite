@@ -12,8 +12,10 @@ use http::HeaderMap;
 use jiff::Timestamp;
 use jiff::civil::Weekday;
 use jiff::tz::TimeZone;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::EMAIL_EMAIL_SENT;
+use weldsuite_db::orm;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_mail_domain::messages::mailbox_message;
@@ -27,6 +29,7 @@ use weldsuite_mail_domain::send::{
 };
 use weldsuite_mail_domain::text::{escape_html, html_to_text, plain_text_body};
 use weldsuite_ports::get_stored;
+use weldsuite_schema::tenant::mail_attachments;
 
 use super::locate as locate_for_send;
 use crate::routes::mail_accounts::email_event_data;
@@ -130,17 +133,22 @@ async fn original_files(
     message_id: &str,
     exclude: &[String],
 ) -> Result<Vec<ExtraAttachment>, SendError> {
-    // `scan_status` through `to_jsonb`: the conformance suite's database
-    // has the frozen Drizzle schema, without the column.
-    let rows: Vec<StoredAttachment> = sqlx::query_as(
-        "select id, file_name, content_type, is_inline, storage_path,
-                to_jsonb(a) ->> 'scan_status'
-         from mail_attachments a
-         where message_id = $1 and deleted_at is null",
-    )
-    .bind(message_id)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows: Vec<StoredAttachment> = mail_attachments::Entity::find()
+        .select_only()
+        .columns([
+            mail_attachments::Column::Id,
+            mail_attachments::Column::FileName,
+            mail_attachments::Column::ContentType,
+            mail_attachments::Column::IsInline,
+            mail_attachments::Column::StoragePath,
+            mail_attachments::Column::ScanStatus,
+        ])
+        .filter(mail_attachments::Column::MessageId.eq(message_id))
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await
+        .map_err(|error| SendError::Internal(error.to_string()))?;
     let wanted: Vec<_> = rows
         .into_iter()
         .filter(|(id, _, _, inline, path, scan)| {

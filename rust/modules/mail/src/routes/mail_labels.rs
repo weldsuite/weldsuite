@@ -93,7 +93,7 @@ fn label_error(error: MailLabelError) -> MailError {
         MailLabelError::DuplicateName(message) => MailError::conflict(message),
         MailLabelError::NotFound => MailError::not_found("Label", None),
         MailLabelError::SystemLabelImmutable(message) => MailError::forbidden(message),
-        MailLabelError::Db(error) => MailError::Database(error),
+        MailLabelError::Db(error) => MailError::from(error),
     }
 }
 

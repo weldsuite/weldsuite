@@ -404,7 +404,7 @@ fn unique_or(error: sqlx::Error) -> MailError {
     if unique {
         MailError::conflict("This address is already taken")
     } else {
-        MailError::Database(error)
+        MailError::from(error)
     }
 }
 

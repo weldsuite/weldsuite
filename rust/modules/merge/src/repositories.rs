@@ -19,14 +19,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{merge_connections, merge_pull_requests, merge_repositories};
 
 use crate::connections::find_connection;
 use crate::credentials::adapter_context;
-use crate::db::{Row, is_unique_violation, one_by_id, rows_of, text};
+use crate::db::{Row, text};
 use crate::issues::diff_fields;
 use crate::mappers::{repository_dto, repository_event_data};
 use crate::pr_sync::{UpsertStatus, upsert_mirror};
@@ -34,41 +40,58 @@ use crate::providers::{self, AdapterContext, RepositoryRef, issue_sync_modes, re
 use crate::schemas::{ISSUE_SYNC_MODES, nothing_to_update};
 use crate::teams::find_team;
 use crate::webhooks::{register_repository_webhook, unregister_repository_webhook};
-use crate::{
-    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, now, publish, validate,
-};
+use crate::{Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, publish, validate};
+
+/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
+/// of the model).
+fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
+    row.map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// The row a `.returning()` update answers with: none is the error
+/// `fetch_one` raised (the route's 500).
+fn returned(rows: Vec<merge_repositories::Model>) -> Result<Row, DbErr> {
+    let repository = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("merge_repositories".to_owned()))?;
+    js(serde_json::to_value(repository))
+}
 
 /// Open pull requests per repository.
 async fn open_pull_request_counts(
     db: &PgPool,
     repository_ids: &[String],
-) -> Result<HashMap<String, i64>, sqlx::Error> {
+) -> Result<HashMap<String, i64>, DbErr> {
     if repository_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, i32)> = sqlx::query_as(
-        "select repository_id, count(*)::int from merge_pull_requests \
-         where repository_id = any($1) and state = 'open' group by repository_id",
-    )
-    .bind(repository_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(|(id, n)| (id, i64::from(n))).collect())
+    let rows: Vec<(String, i64)> = merge_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_pull_requests::Column::RepositoryId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(merge_pull_requests::Column::RepositoryId.is_in(repository_ids.iter().cloned()))
+        .filter(merge_pull_requests::Column::State.eq("open"))
+        .group_by(merge_pull_requests::Column::RepositoryId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
-async fn dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+async fn dto(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     let id = text(row, "id").to_owned();
     let counts = open_pull_request_counts(db, std::slice::from_ref(&id)).await?;
     Ok(repository_dto(row, counts.get(&id).copied().unwrap_or(0)))
 }
 
-pub(crate) async fn find_repository(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(r) from merge_repositories r where r.id = $1 and r.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn find_repository(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_repositories::Entity::find_by_id(id.to_owned())
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|repository| js(serde_json::to_value(repository)))
+        .transpose()
 }
 
 fn repository_event(row: &Row, action: &'static str) -> PendingEvent {
@@ -81,16 +104,22 @@ fn repository_event(row: &Row, action: &'static str) -> PendingEvent {
 }
 
 pub(crate) async fn list(caller: Caller) -> Answer {
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(r) from merge_repositories r \
-             inner join merge_connections c on c.id = r.connection_id \
-             where r.deleted_at is null and c.deleted_at is null \
-             order by r.full_name asc, r.id asc",
-        )
-        .fetch_all(&caller.db)
-        .await?,
-    );
+    let connection: RelationDef =
+        merge_repositories::Entity::belongs_to(merge_connections::Entity)
+            .from(merge_repositories::Column::ConnectionId)
+            .to(merge_connections::Column::Id)
+            .into();
+    let rows = merge_repositories::Entity::find()
+        .join(JoinType::InnerJoin, connection)
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .order_by_asc(merge_repositories::Column::FullName)
+        .order_by_asc(merge_repositories::Column::Id)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(|repository| js(serde_json::to_value(repository)))
+        .collect::<Result<Vec<Row>, DbErr>>()?;
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
     let counts = open_pull_request_counts(&caller.db, &ids).await?;
     Ok(all(rows
@@ -133,16 +162,16 @@ async fn sync_repository(
     Ok(summary)
 }
 
-async fn touch_synced(db: &PgPool, id: &str) -> Result<Row, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(
-        "update merge_repositories set last_synced_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_repositories.*)",
+async fn touch_synced(db: &PgPool, id: &str) -> Result<Row, DbErr> {
+    let at = utc_now().assume_utc();
+    returned(
+        merge_repositories::Entity::update_many()
+            .col_expr(merge_repositories::Column::LastSyncedAt, Expr::value(at))
+            .col_expr(merge_repositories::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_repositories::Column::Id.eq(id))
+            .exec_with_returning(&orm(db))
+            .await?,
     )
-    .bind(id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
 }
 
 pub(crate) async fn add(
@@ -193,14 +222,15 @@ pub(crate) async fn add(
     {
         return Err(Refusal::not_found("Team", Some(team)));
     }
-    let dupe: Option<String> = sqlx::query_scalar(
-        "select id from merge_repositories where connection_id = $1 and external_id = $2 \
-         and deleted_at is null limit 1",
-    )
-    .bind(text(&connection, "id"))
-    .bind(&external_id)
-    .fetch_optional(db)
-    .await?;
+    let dupe: Option<String> = merge_repositories::Entity::find()
+        .select_only()
+        .column(merge_repositories::Column::Id)
+        .filter(merge_repositories::Column::ConnectionId.eq(text(&connection, "id")))
+        .filter(merge_repositories::Column::ExternalId.eq(&external_id))
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if dupe.is_some() {
         return Err(Refusal::conflict("This repository is already tracked"));
     }
@@ -209,32 +239,35 @@ pub(crate) async fn add(
     else {
         return Err(Refusal::not_found("Repository", Some(&external_id)));
     };
-    let now = now();
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into merge_repositories (id, connection_id, provider, external_id, full_name, default_branch, \
-           private, url, external_project, team_id, issue_sync, pr_sync, created_by_user_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, coalesce($7, true), $8, $9, $10, 'off', $11, $12, \
-           $13::timestamptz, $13::timestamptz) \
-         returning to_jsonb(merge_repositories.*)",
-    )
-    .bind(generate_id("mrp"))
-    .bind(text(&connection, "id"))
-    .bind(text(&connection, "provider"))
-    .bind(&remote.external_id)
-    .bind(remote.full_name.as_str())
-    .bind(&remote.default_branch)
-    .bind(remote.private.as_bool())
-    .bind(&remote.url)
-    .bind(remote.external_project.clone().or(external_project))
-    .bind(&team_id)
-    .bind(pr_sync)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .fetch_one(db)
+    // A provider without the repository's name: the insert's not-null refusal (500).
+    let full_name = remote.full_name.as_str().map(str::to_owned).ok_or_else(|| {
+        DbErr::Custom("null value in column \"full_name\" of relation \"merge_repositories\"".to_owned())
+    })?;
+    let at = utc_now().assume_utc();
+    let inserted = merge_repositories::Entity::insert(merge_repositories::ActiveModel {
+        id: Set(generate_id("mrp")),
+        connection_id: Set(text(&connection, "id").to_owned()),
+        provider: Set(text(&connection, "provider").to_owned()),
+        external_id: Set(remote.external_id.clone()),
+        full_name: Set(full_name),
+        default_branch: Set(remote.default_branch.clone()),
+        // `coalesce($7, true)`
+        private: Set(remote.private.as_bool().unwrap_or(true)),
+        url: Set(remote.url.clone()),
+        external_project: Set(remote.external_project.clone().or(external_project)),
+        team_id: Set(team_id),
+        issue_sync: Set("off".to_owned()),
+        pr_sync: Set(pr_sync),
+        created_by_user_id: Set(caller.user_id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await;
     let mut repository = match inserted {
-        Ok(row) => js_row(row),
-        Err(error) if is_unique_violation(&error) => {
+        Ok(row) => js(serde_json::to_value(row))?,
+        Err(error) if weldsuite_db::is_unique_violation(&error) => {
             return Err(Refusal::conflict("This repository is already tracked"));
         }
         Err(error) => return Err(error.into()),
@@ -244,9 +277,8 @@ pub(crate) async fn add(
             Ok(row) => repository = row,
             Err(error) => {
                 // Nothing is tracked until its webhook is in place: take the new row back out.
-                sqlx::query("delete from merge_repositories where id = $1")
-                    .bind(text(&repository, "id"))
-                    .execute(db)
+                merge_repositories::Entity::delete_by_id(text(&repository, "id").to_owned())
+                    .exec(&orm(db))
                     .await?;
                 return Err(error.into());
             }
@@ -318,22 +350,28 @@ pub(crate) async fn update(
         Field::Null => (true, None),
         Field::Set(team) => (true, Some(team)),
     };
-    let row: Value = sqlx::query_scalar(
-        "update merge_repositories set updated_at = $2::timestamptz, \
-           team_id = case when $3 then $4 else team_id end, \
-           pr_sync = case when $5::boolean is null then pr_sync else $5 end, \
-           issue_sync = case when $6::text is null then issue_sync else $6 end \
-         where id = $1 returning to_jsonb(merge_repositories.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(set_team)
-    .bind(team)
-    .bind(pr_sync.into_option())
-    .bind(issue_sync.into_option())
-    .fetch_one(db)
-    .await?;
-    let repository = js_row(row);
+    let mut change = merge_repositories::Entity::update_many().col_expr(
+        merge_repositories::Column::UpdatedAt,
+        Expr::value(utc_now().assume_utc()),
+    );
+    if set_team {
+        change = change.col_expr(merge_repositories::Column::TeamId, Expr::value(team));
+    }
+    if let Some(pr_sync) = pr_sync.into_option() {
+        change = change.col_expr(merge_repositories::Column::PrSync, Expr::value(pr_sync));
+    }
+    if let Some(issue_sync) = issue_sync.into_option() {
+        change = change.col_expr(
+            merge_repositories::Column::IssueSync,
+            Expr::value(issue_sync),
+        );
+    }
+    let repository = returned(
+        change
+            .filter(merge_repositories::Column::Id.eq(&id))
+            .exec_with_returning(&orm(db))
+            .await?,
+    )?;
     let changes = diff_fields(&before, &repository, &["teamId", "prSync", "issueSync"]);
     publish(
         &state,
@@ -367,17 +405,18 @@ pub(crate) async fn remove(
         };
         unregister_repository_webhook(&state, &caller.overrides, ctx.as_ref(), &existing).await;
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "update merge_repositories set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 and deleted_at is null returning to_jsonb(merge_repositories.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    let Some(repository) = row.map(js_row) else {
+    let at = utc_now().assume_utc();
+    let rows = merge_repositories::Entity::update_many()
+        .col_expr(merge_repositories::Column::DeletedAt, Expr::value(at))
+        .col_expr(merge_repositories::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_repositories::Column::Id.eq(&id))
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?;
+    let Some(repository) = rows.into_iter().next() else {
         return Err(Refusal::not_found("Repository", Some(&id)));
     };
+    let repository = js(serde_json::to_value(repository))?;
     publish(
         &state,
         &caller.events,

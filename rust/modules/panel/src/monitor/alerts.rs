@@ -21,16 +21,24 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_ALERT_CREATED, PANEL_ALERT_DELETED, PANEL_ALERT_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_emails::panel_monitor::{AlertCondition, AlertEvent, AlertInterval, AlertProps};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_permissions::Permissions;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    panel_alert_events as alert_events, panel_alerts as alerts, panel_projects, panel_reports,
+};
 
 use super::anomaly::{anomaly_band, outside_band};
 use super::delivery::{self, Delivered, Message, Stored, Target, channels_dto, delivery_error};
@@ -42,7 +50,9 @@ use super::schemas::{
     ALERT_LIST_QUERY, ALERT_PAGE_QUERY, CONDITION, CREATE_ALERT, SNOOZE_ALERT, UPDATE_ALERT,
 };
 use super::{MonitorState, channels_for, master_of, now_of};
-use crate::saved::{Actor, can_change, can_see, field, get_report, project_exists, text};
+use crate::saved::{
+    Actor, can_change, can_see, field, get_report, instant, js_row, project_exists, text,
+};
 use crate::schemas_gen::TRENDS_SPEC;
 use crate::{Caller, unexpected};
 
@@ -117,28 +127,29 @@ fn alert_path(id: &str) -> String {
     )
 }
 
-fn row_of(row: Option<Value>) -> Option<Value> {
-    row.map(weldsuite_db::js_row)
+/// The first row a `returning` statement gave, as Drizzle returns it.
+fn first_row(rows: Vec<alerts::Model>) -> Result<Option<Value>, DbErr> {
+    rows.into_iter().next().map(js_row).transpose()
 }
 
 /// `getAlert(db, id)`.
-pub(crate) async fn get_alert(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from panel_alerts a where a.id = $1 and a.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row_of(row))
+pub(crate) async fn get_alert(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    alerts::Entity::find_by_id(id)
+        .filter(alerts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `projectName(db, projectId)`.
-pub(crate) async fn project_name(db: &PgPool, project_id: &str) -> Result<String, sqlx::Error> {
-    let name: Option<String> =
-        sqlx::query_scalar("select name from panel_projects where id = $1 limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?;
+pub(crate) async fn project_name(db: &PgPool, project_id: &str) -> Result<String, DbErr> {
+    let name: Option<String> = panel_projects::Entity::find_by_id(project_id)
+        .select_only()
+        .column(panel_projects::Column::Name)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(name.unwrap_or_default())
 }
 
@@ -162,7 +173,7 @@ pub(crate) fn parse_trends_spec(raw: &Value, project_id: &str) -> Result<Value, 
 pub(crate) async fn resolve_alert_spec(
     db: &PgPool,
     alert: &Value,
-) -> Result<Result<Value, String>, sqlx::Error> {
+) -> Result<Result<Value, String>, DbErr> {
     let project_id = text(alert, "projectId");
     let Some(report_id) = alert
         .get("reportId")
@@ -171,12 +182,13 @@ pub(crate) async fn resolve_alert_spec(
     else {
         return Ok(parse_trends_spec(&field(alert, "spec"), project_id));
     };
-    let report: Option<(Value, String)> = sqlx::query_as(
-        "select spec, project_id from panel_reports where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(report_id)
-    .fetch_optional(db)
-    .await?;
+    let report: Option<(Value, String)> = panel_reports::Entity::find_by_id(report_id)
+        .select_only()
+        .columns([panel_reports::Column::Spec, panel_reports::Column::ProjectId])
+        .filter(panel_reports::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match report {
         None => Err("The report this alert watches was deleted".to_owned()),
         Some((_, project)) if project != project_id => {
@@ -524,7 +536,7 @@ pub(crate) struct CheckResult {
 }
 
 /// `wasFiring(db, alert)`: in `firing`, or in `error` after an unresolved `fired`.
-async fn was_firing(db: &PgPool, alert: &Value) -> Result<bool, sqlx::Error> {
+async fn was_firing(db: &PgPool, alert: &Value) -> Result<bool, DbErr> {
     let state = text(alert, "state");
     if state == "firing" {
         return Ok(true);
@@ -532,13 +544,15 @@ async fn was_firing(db: &PgPool, alert: &Value) -> Result<bool, sqlx::Error> {
     if state != "error" || alert.get("lastFiredAt").is_none_or(Value::is_null) {
         return Ok(false);
     }
-    let last: Option<String> = sqlx::query_scalar(
-        "select kind from panel_alert_events where alert_id = $1 and kind in ('fired', 'resolved')
-         order by created_at desc limit 1",
-    )
-    .bind(text(alert, "id"))
-    .fetch_optional(db)
-    .await?;
+    let last: Option<String> = alert_events::Entity::find()
+        .select_only()
+        .column(alert_events::Column::Kind)
+        .filter(alert_events::Column::AlertId.eq(text(alert, "id")))
+        .filter(alert_events::Column::Kind.is_in(["fired", "resolved"]))
+        .order_by_desc(alert_events::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(last.as_deref() == Some("fired"))
 }
 
@@ -549,19 +563,18 @@ async fn record_event(
     value: Option<f64>,
     bound: Option<f64>,
     message: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into panel_alert_events (id, alert_id, project_id, kind, value, bound, message)
-         values ($1, $2, $3, $4, $5, $6, $7)",
-    )
-    .bind(weldsuite_kit::generate_id("pnae"))
-    .bind(text(alert, "id"))
-    .bind(text(alert, "projectId"))
-    .bind(kind)
-    .bind(value)
-    .bind(bound)
-    .bind(message)
-    .execute(db)
+) -> Result<(), DbErr> {
+    alert_events::Entity::insert(alert_events::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnae")),
+        alert_id: Set(text(alert, "id").to_owned()),
+        project_id: Set(text(alert, "projectId").to_owned()),
+        kind: Set(kind.to_owned()),
+        value: Set(value),
+        bound: Set(bound),
+        message: Set(message.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -625,30 +638,31 @@ async fn save(
     id: &str,
     now: i64,
     set: Save<'_>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_alerts a set
-           state = coalesce($3, a.state),
-           last_value = case when $4 then $5 else a.last_value end,
-           last_error = case when $6 then $7 else a.last_error end,
-           last_checked_at = case when $8 then $2::timestamptz else a.last_checked_at end,
-           last_fired_at = case when $9 then $2::timestamptz else a.last_fired_at end,
-           updated_at = $2::timestamptz
-         where a.id = $1 and a.deleted_at is null
-         returning to_jsonb(a)",
-    )
-    .bind(id)
-    .bind(js::iso_string(now))
-    .bind(set.state)
-    .bind(set.last_value.is_some())
-    .bind(set.last_value.flatten())
-    .bind(set.last_error.is_some())
-    .bind(set.last_error.flatten())
-    .bind(set.last_checked)
-    .bind(set.last_fired)
-    .fetch_optional(db)
-    .await?;
-    Ok(row_of(row))
+) -> Result<Option<Value>, DbErr> {
+    let now = instant(now);
+    let mut update = alerts::Entity::update_many();
+    if let Some(state) = set.state {
+        update = update.col_expr(alerts::Column::State, Expr::value(state));
+    }
+    if let Some(last_value) = set.last_value {
+        update = update.col_expr(alerts::Column::LastValue, Expr::value(last_value));
+    }
+    if let Some(last_error) = set.last_error {
+        update = update.col_expr(alerts::Column::LastError, Expr::value(last_error));
+    }
+    if set.last_checked {
+        update = update.col_expr(alerts::Column::LastCheckedAt, Expr::value(now));
+    }
+    if set.last_fired {
+        update = update.col_expr(alerts::Column::LastFiredAt, Expr::value(now));
+    }
+    update
+        .col_expr(alerts::Column::UpdatedAt, Expr::value(now))
+        .filter(alerts::Column::Id.eq(id))
+        .filter(alerts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .and_then(first_row)
 }
 
 /// `runAlertCheck(deps, alert)`: runs the query for the window, judges it,
@@ -660,7 +674,7 @@ pub(crate) async fn run_alert_check(
     now: i64,
     ports: &dyn CheckPorts,
     alert: &Value,
-) -> Result<CheckResult, sqlx::Error> {
+) -> Result<CheckResult, DbErr> {
     let id = text(alert, "id").to_owned();
     let measured = measure(db, now, ports, alert).await?;
     let (spec, window, evaluation) = match measured {
@@ -779,7 +793,7 @@ async fn measure(
     now: i64,
     ports: &dyn CheckPorts,
     alert: &Value,
-) -> Result<Measured, sqlx::Error> {
+) -> Result<Measured, DbErr> {
     let spec = match resolve_alert_spec(db, alert).await? {
         Ok(spec) => spec,
         Err(reason) => return Ok(Err((reason, "UTC".to_owned()))),
@@ -839,7 +853,7 @@ async fn announce(
     window: &CheckWindow,
     value: f64,
     bound: Option<f64>,
-) -> Result<(Value, Vec<Delivered>), sqlx::Error> {
+) -> Result<(Value, Vec<Delivered>), DbErr> {
     if snoozed(&row, now) {
         return Ok((row, Vec::new()));
     }
@@ -898,7 +912,7 @@ async fn alert_dto(
     caller: &Caller,
     state: &MonitorState,
     alert: &Value,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let master = master_of(caller, state);
     let next = match &master {
         Some(master) => next_runs_of(master, "alert", &[text(alert, "id").to_owned()]).await?,
@@ -913,7 +927,7 @@ async fn reschedule(
     state: &MonitorState,
     alert: &Value,
     time_zone: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(master) = master_of(caller, state) else {
         return Ok(());
     };
@@ -984,18 +998,21 @@ pub(crate) async fn list(
         Err(response) => return response,
     };
     let owner = (query.text("scope") == Some("mine")).then(|| caller.user_id.clone());
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(a) from panel_alerts a where a.deleted_at is null
-           and ($1::text is null or a.project_id = $1)
-           and ($2::text is null or a.owner_user_id = $2)
-         order by a.updated_at desc limit 500",
-    )
-    .bind(query.text("projectId"))
-    .bind(owner)
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = alerts::Entity::find().filter(alerts::Column::DeletedAt.is_null());
+    if let Some(project_id) = query.text("projectId") {
+        find = find.filter(alerts::Column::ProjectId.eq(project_id));
+    }
+    if let Some(owner) = owner {
+        find = find.filter(alerts::Column::OwnerUserId.eq(owner));
+    }
+    let found = find
+        .order_by_desc(alerts::Column::UpdatedAt)
+        .limit(500)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     let alerts: Vec<Value> = match found {
-        Ok(found) => found.into_iter().map(weldsuite_db::js_row).collect(),
+        Ok(found) => found,
         Err(error) => return unexpected(&error, "list alerts"),
     };
     let ids: Vec<String> = alerts.iter().map(|a| text(a, "id").to_owned()).collect();
@@ -1068,29 +1085,39 @@ pub(crate) async fn create(
         Ok(stored) => stored,
         Err(response) => return *response,
     };
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_alerts as a (id, project_id, name, report_id, spec, series_index, condition,
-             check_interval, channels, slack_webhook_ciphertext, enabled, owner_user_id)
-         values ($1, $2, $3, $4, $5, $6::int, $7, $8, $9, $10, $11, $12)
-         returning to_jsonb(a)",
-    )
-    .bind(weldsuite_kit::generate_id("pnal"))
-    .bind(&project_id)
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.get("reportId").and_then(Value::as_str).filter(|id| !id.is_empty()))
-    .bind(input.get("spec").filter(|s| !s.is_null()))
-    .bind(i32::try_from(series_index).unwrap_or(0))
-    .bind(input.get("condition"))
-    .bind(input.get("checkInterval").and_then(Value::as_str))
-    .bind(&stored.channels)
-    .bind(stored.slack_ciphertext.as_deref())
-    .bind(input.get("enabled").and_then(Value::as_bool).unwrap_or(true))
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await;
+    // The schema requires the name and the condition and defaults the interval.
+    let row = alerts::Entity::insert(alerts::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnal")),
+        project_id: Set(project_id.clone()),
+        name: Set(input
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()),
+        report_id: Set(input
+            .get("reportId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)),
+        spec: Set(input.get("spec").filter(|s| !s.is_null()).cloned()),
+        series_index: Set(i32::try_from(series_index).unwrap_or(0)),
+        condition: Set(input.get("condition").cloned().unwrap_or(Value::Null)),
+        check_interval: Set(input
+            .get("checkInterval")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()),
+        channels: Set(stored.channels.clone()),
+        slack_webhook_ciphertext: Set(stored.slack_ciphertext.clone()),
+        enabled: Set(input.get("enabled").and_then(Value::as_bool).unwrap_or(true)),
+        owner_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let alert = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
-        Ok(None) => return ApiError::internal().into_response(),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "create alert"),
     };
     if let Err(error) = reschedule(&caller, &state, &alert, &time_zone_of(&spec)).await {
@@ -1136,62 +1163,66 @@ async fn update_alert(
     input: &Map<String, Value>,
     stored: Option<&Stored>,
     now: i64,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let retarget = input.contains_key("reportId") || input.contains_key("spec");
     let restart = retarget
         || input.contains_key("condition")
         || input.contains_key("seriesIndex")
         || input.contains_key("checkInterval");
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_alerts a set
-           name = case when $2 then $3 else a.name end,
-           report_id = case when $4 then $5 else a.report_id end,
-           spec = case when $4 then $6::jsonb else a.spec end,
-           series_index = case when $7 then $8::int else a.series_index end,
-           condition = case when $9 then $10::jsonb else a.condition end,
-           check_interval = case when $11 then $12 else a.check_interval end,
-           enabled = case when $13 then $14 else a.enabled end,
-           channels = case when $15 then $16::jsonb else a.channels end,
-           slack_webhook_ciphertext = case when $15 then $17 else a.slack_webhook_ciphertext end,
-           state = case when $18 then 'pending' else a.state end,
-           last_value = case when $18 then null else a.last_value end,
-           last_error = case when $18 then null else a.last_error end,
-           updated_at = $19::timestamptz
-         where a.id = $1 and a.deleted_at is null
-         returning to_jsonb(a)",
-    )
-    .bind(id)
-    .bind(input.contains_key("name"))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(retarget)
-    .bind(
-        input
-            .get("reportId")
-            .and_then(Value::as_str)
-            .filter(|r| !r.is_empty()),
-    )
-    .bind(input.get("spec").filter(|s| truthy(Some(*s))))
-    .bind(input.contains_key("seriesIndex"))
-    .bind(
-        input
+    let text_of = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
+    let mut update = alerts::Entity::update_many();
+    if input.contains_key("name") {
+        update = update.col_expr(alerts::Column::Name, Expr::value(text_of("name")));
+    }
+    if retarget {
+        let report_id = text_of("reportId").filter(|r| !r.is_empty());
+        let spec = input.get("spec").filter(|s| truthy(Some(*s))).cloned();
+        update = update
+            .col_expr(alerts::Column::ReportId, Expr::value(report_id))
+            .col_expr(alerts::Column::Spec, Expr::value(spec));
+    }
+    if input.contains_key("seriesIndex") {
+        let index = input
             .get("seriesIndex")
             .and_then(Value::as_i64)
-            .and_then(|i| i32::try_from(i).ok()),
-    )
-    .bind(input.contains_key("condition"))
-    .bind(input.get("condition"))
-    .bind(input.contains_key("checkInterval"))
-    .bind(input.get("checkInterval").and_then(Value::as_str))
-    .bind(input.contains_key("enabled"))
-    .bind(input.get("enabled").and_then(Value::as_bool))
-    .bind(stored.is_some())
-    .bind(stored.map(|s| &s.channels))
-    .bind(stored.and_then(|s| s.slack_ciphertext.as_deref()))
-    .bind(restart)
-    .bind(js::iso_string(now))
-    .fetch_optional(db)
-    .await?;
-    Ok(row_of(row))
+            .and_then(|i| i32::try_from(i).ok());
+        update = update.col_expr(alerts::Column::SeriesIndex, Expr::value(index));
+    }
+    if input.contains_key("condition") {
+        let condition = input.get("condition").cloned();
+        update = update.col_expr(alerts::Column::Condition, Expr::value(condition));
+    }
+    if input.contains_key("checkInterval") {
+        update = update.col_expr(
+            alerts::Column::CheckInterval,
+            Expr::value(text_of("checkInterval")),
+        );
+    }
+    if input.contains_key("enabled") {
+        let enabled = input.get("enabled").and_then(Value::as_bool);
+        update = update.col_expr(alerts::Column::Enabled, Expr::value(enabled));
+    }
+    if let Some(stored) = stored {
+        update = update
+            .col_expr(alerts::Column::Channels, Expr::value(stored.channels.clone()))
+            .col_expr(
+                alerts::Column::SlackWebhookCiphertext,
+                Expr::value(stored.slack_ciphertext.clone()),
+            );
+    }
+    if restart {
+        update = update
+            .col_expr(alerts::Column::State, Expr::value("pending"))
+            .col_expr(alerts::Column::LastValue, Expr::value(Option::<f64>::None))
+            .col_expr(alerts::Column::LastError, Expr::value(Option::<String>::None));
+    }
+    update
+        .col_expr(alerts::Column::UpdatedAt, Expr::value(instant(now)))
+        .filter(alerts::Column::Id.eq(id))
+        .filter(alerts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .and_then(first_row)
 }
 
 /// `PATCH /:id`.
@@ -1309,17 +1340,18 @@ pub(crate) async fn remove(
             .with_message("Only the owner can delete this alert")
             .into_response();
     }
-    let now = js::iso_string(js::now_millis());
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_alerts a set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, enabled = false
-         where a.id = $1 and a.deleted_at is null returning to_jsonb(a)",
-    )
-    .bind(&id)
-    .bind(now)
-    .fetch_optional(&caller.db)
-    .await;
+    let now = instant(js::now_millis());
+    let row = alerts::Entity::update_many()
+        .col_expr(alerts::Column::DeletedAt, Expr::value(now))
+        .col_expr(alerts::Column::UpdatedAt, Expr::value(now))
+        .col_expr(alerts::Column::Enabled, Expr::value(false))
+        .filter(alerts::Column::Id.eq(&id))
+        .filter(alerts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     let alert = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Alert", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete alert"),
     };
@@ -1346,22 +1378,18 @@ pub(crate) async fn events(
         return response;
     }
     let limit = query.get("limit").and_then(Value::as_i64).unwrap_or(50);
-    let cursor = query
-        .text("cursor")
-        .and_then(js::parse_iso)
-        .map(js::iso_string);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(e) from panel_alert_events e
-         where e.alert_id = $1 and ($2::timestamptz is null or e.created_at < $2::timestamptz)
-         order by e.created_at desc limit $3",
-    )
-    .bind(&id)
-    .bind(cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = alert_events::Entity::find().filter(alert_events::Column::AlertId.eq(&id));
+    if let Some(cursor) = query.text("cursor").and_then(js::parse_iso) {
+        find = find.filter(alert_events::Column::CreatedAt.lt(instant(cursor)));
+    }
+    let rows = find
+        .order_by_desc(alert_events::Column::CreatedAt)
+        .limit(u64::try_from(limit + 1).unwrap_or_default())
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     let rows: Vec<Value> = match rows {
-        Ok(rows) => rows.into_iter().map(weldsuite_db::js_row).collect(),
+        Ok(rows) => rows,
         Err(error) => return unexpected(&error, "alert events"),
     };
     page(rows, limit, "createdAt", event_dto)
@@ -1466,17 +1494,16 @@ pub(crate) async fn snooze(
         ))
         .into_response();
     }
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_alerts a set snoozed_until = $2::timestamptz, updated_at = $3::timestamptz
-         where a.id = $1 and a.deleted_at is null returning to_jsonb(a)",
-    )
-    .bind(&id)
-    .bind(at.map(js::iso_string))
-    .bind(js::iso_string(now))
-    .fetch_optional(&caller.db)
-    .await;
+    let row = alerts::Entity::update_many()
+        .col_expr(alerts::Column::SnoozedUntil, Expr::value(at.map(instant)))
+        .col_expr(alerts::Column::UpdatedAt, Expr::value(instant(now)))
+        .filter(alerts::Column::Id.eq(&id))
+        .filter(alerts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     let alert = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Alert", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "snooze alert"),
     };

@@ -89,7 +89,12 @@ pub(crate) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(query) => query,
         Err(response) => return response,
     };
-    match list_rules(&orm(&caller.db), query.text("projectId").unwrap_or_default()).await {
+    match list_rules(
+        &orm(&caller.db),
+        query.text("projectId").unwrap_or_default(),
+    )
+    .await
+    {
         Ok(rules) => list_response(&rules),
         Err(error) => unexpected(&error, "list path rules"),
     }

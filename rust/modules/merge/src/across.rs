@@ -29,13 +29,15 @@ use axum::extract::{FromRequestParts, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
 use http::request::Parts;
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
-use weldsuite_kit::{Data, generate_id};
+use weldsuite_kit::Data;
 use weldsuite_permissions::{AppCheckMode, check_app_permission, resolve_effective_permissions};
 
+use crate::comments::{insert_comment, issue_comments};
 use crate::db::{Row, text};
 use crate::hooks::{CommentChange, HookContext};
 use crate::issues::{
@@ -43,7 +45,7 @@ use crate::issues::{
     issue_detail, list_issues, read_issue_input, read_list_query, team_key_of, update_issue,
 };
 use crate::mappers::comment_dto;
-use crate::{Answer, MergeError, MergeState, Overrides, PendingEvent, now, validate};
+use crate::{Answer, MergeError, MergeState, Overrides, PendingEvent, validate};
 
 /// The app a member's permissions are checked in.
 const MERGE_APP: &str = "weldmerge";
@@ -330,20 +332,7 @@ async fn comment_on_issue_as(
     let Some(issue) = find_issue_by_id_or_key(&scope.db, issue_ref).await? else {
         return Ok(Err(format!("Issue {issue_ref} was not found")));
     };
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_comments (id, issue_id, author_user_id, body, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz) \
-         returning to_jsonb(merge_comments.*)",
-    )
-    .bind(generate_id("mcm"))
-    .bind(text(&issue, "id"))
-    .bind(&actor.user_id)
-    .bind(weldsuite_kit::validation::js_trim(body))
-    .bind(&now)
-    .fetch_one(&scope.db)
-    .await?;
-    let comment = weldsuite_db::js_row(row);
+    let comment = insert_comment(&scope.db, text(&issue, "id"), &actor.user_id, body).await?;
     scope
         .publish(
             actor,
@@ -371,7 +360,7 @@ async fn comment_on_issue_as(
     }))
 }
 
-async fn dto(db: &PgPool, issue: &Row) -> Result<Value, sqlx::Error> {
+async fn dto(db: &PgPool, issue: &Row) -> Result<Value, DbErr> {
     Ok(hydrate_issues(db, std::slice::from_ref(issue))
         .await?
         .into_iter()
@@ -873,17 +862,10 @@ async fn run_tool(
                     .hide_titles(links)
                     .await?;
             }
-            let comments: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(c) from merge_comments c where c.issue_id = $1 and c.deleted_at is null \
-                 order by c.created_at asc, c.id asc",
-            )
-            .bind(text(&detail, "id"))
-            .fetch_all(db)
-            .await?;
-            let comments: Vec<Value> = comments
-                .into_iter()
-                .map(weldsuite_db::js_row)
-                .map(|c| comment_dto(&c))
+            let comments: Vec<Value> = issue_comments(db, text(&detail, "id"))
+                .await?
+                .iter()
+                .map(comment_dto)
                 .collect();
             if let Some(fields) = detail.as_object_mut() {
                 fields.insert("comments".to_owned(), Value::Array(comments));

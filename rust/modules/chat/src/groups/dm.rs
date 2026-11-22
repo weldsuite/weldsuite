@@ -12,19 +12,29 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     CHAT_CHANNEL_ARCHIVED, CHAT_CHANNEL_LEFT, CHAT_CHANNEL_UPDATED,
 };
 use weldsuite_chat_domain::members::channel_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_notifications::{chat as notify, create_and_deliver};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{chat_channel_members as members, chat_channels, workspace_members};
 
 use crate::ChatState;
 use crate::access::{Caller, ChatError, answer, validate};
-use crate::util::now;
+use crate::groups::channels::{js, member_profile, with_null_picture};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -54,11 +64,33 @@ async fn full_members(
     caller: &Caller,
     channel_id: &str,
     with_reads: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let mut members = member_rows(caller, channel_id, with_reads).await?;
     weldsuite_db::overlay_account_pictures(caller.master(), &mut members, "userId", "picture")
         .await;
     Ok(members)
+}
+
+/// A DM member with their name and email (`picture` added null).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DmMember {
+    user_id: String,
+    name: Option<String>,
+    email: Option<String>,
+}
+
+/// [`DmMember`] with their role and read cursor.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DmMemberWithReads {
+    user_id: String,
+    role: String,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    last_read_at: Option<PrimitiveDateTime>,
+    last_read_message_id: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
 }
 
 /// [`full_members`] with `picture` still null: avatars are account pictures,
@@ -67,36 +99,60 @@ async fn member_rows(
     caller: &Caller,
     channel_id: &str,
     with_reads: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = if with_reads {
-        sqlx::query_scalar(
-            "select jsonb_build_object('userId', chat_channel_members.user_id,
-                    'role', chat_channel_members.role,
-                    'lastReadAt', chat_channel_members.last_read_at,
-                    'lastReadMessageId', chat_channel_members.last_read_message_id,
-                    'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', null)
-             from chat_channel_members
-             left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
-             where chat_channel_members.channel_id = $1",
-        )
-        .bind(channel_id)
-        .fetch_all(&caller.db)
-        .await?
+) -> Result<Vec<Value>, DbErr> {
+    let mut query = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId);
+    if with_reads {
+        query = query.columns([
+            members::Column::Role,
+            members::Column::LastReadAt,
+            members::Column::LastReadMessageId,
+        ]);
+    }
+    let query = query
+        .column_as(workspace_members::Column::Name, "name")
+        .column_as(workspace_members::Column::Email, "email")
+        .join(JoinType::LeftJoin, member_profile())
+        .filter(members::Column::ChannelId.eq(channel_id));
+    let db = orm(&caller.db);
+    if with_reads {
+        query
+            .into_model::<DmMemberWithReads>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(with_null_picture)
+            .collect()
     } else {
-        sqlx::query_scalar(
-            "select jsonb_build_object('userId', chat_channel_members.user_id,
-                    'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', null)
-             from chat_channel_members
-             left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
-             where chat_channel_members.channel_id = $1",
-        )
-        .bind(channel_id)
-        .fetch_all(&caller.db)
-        .await?
-    };
-    Ok(rows.into_iter().map(weldsuite_db::js_row).collect())
+        query
+            .into_model::<DmMember>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(with_null_picture)
+            .collect()
+    }
+}
+
+/// `select … from workspace_members where user_id = any($1)`, the columns
+/// still to pick (`ids` not empty).
+fn workspace_members_among(ids: &[String]) -> sea_orm::Select<workspace_members::Entity> {
+    workspace_members::Entity::find()
+        .select_only()
+        .filter(workspace_members::Column::UserId.is_in(ids.iter().map(String::as_str)))
+}
+
+/// The member's `workspace_members.name` row: `None` without a row, `Some(None)`
+/// for a row without a name.
+async fn member_row_name(caller: &Caller, user_id: &str) -> Result<Option<Option<String>>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 fn with_fields(row: Option<Value>, fields: Vec<(&str, Value)>) -> Value {
@@ -113,26 +169,27 @@ fn with_fields(row: Option<Value>, fields: Vec<(&str, Value)>) -> Value {
 /// `GET /`: the caller's DMs, latest activity first.
 async fn list(caller: Caller) -> Response {
     let result = async {
-        let memberships: Vec<(String, bool)> = sqlx::query_as(
-            "select channel_id, is_muted from chat_channel_members where user_id = $1",
-        )
-        .bind(&caller.user_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let memberships: Vec<(String, bool)> = members::Entity::find()
+            .select_only()
+            .columns([members::Column::ChannelId, members::Column::IsMuted])
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .into_tuple()
+            .all(&db)
+            .await?;
         if memberships.is_empty() {
             return Ok(Data(Vec::<Value>::new()).into_response());
         }
-        let ids: Vec<String> = memberships.iter().map(|(id, _)| id.clone()).collect();
-        let channels: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(c) from chat_channels c
-             where c.id = any($1) and c.type = 'dm' and c.deleted_at is null
-             order by c.last_message_at desc",
-        )
-        .bind(&ids)
-        .fetch_all(&caller.db)
-        .await?;
+        let channels = chat_channels::Entity::find()
+            .filter(chat_channels::Column::Id.is_in(memberships.iter().map(|(id, _)| id.as_str())))
+            .filter(chat_channels::Column::Type.eq("dm"))
+            .filter(chat_channels::Column::DeletedAt.is_null())
+            .order_by_desc(chat_channels::Column::LastMessageAt)
+            .all(&db)
+            .await?;
         let mut rosters = Vec::with_capacity(channels.len());
-        for channel in channels.into_iter().map(weldsuite_db::js_row) {
+        for channel in channels {
+            let channel = js(channel)?;
             let id = channel["id"].as_str().unwrap_or_default().to_owned();
             let members = member_rows(&caller, &id, true).await?;
             rosters.push((channel, id, members));
@@ -188,29 +245,39 @@ fn sort_code_units(ids: &mut [String]) {
 async fn existing_dm(
     caller: &Caller,
     participants: &[String],
-) -> Result<Option<String>, sqlx::Error> {
-    let mine: Vec<String> =
-        sqlx::query_scalar("select channel_id from chat_channel_members where user_id = $1")
-            .bind(&caller.user_id)
-            .fetch_all(&caller.db)
-            .await?;
+) -> Result<Option<String>, DbErr> {
+    let db = orm(&caller.db);
+    let mine: Vec<String> = members::Entity::find()
+        .select_only()
+        .column(members::Column::ChannelId)
+        .filter(members::Column::UserId.eq(&caller.user_id))
+        .into_tuple()
+        .all(&db)
+        .await?;
     if mine.is_empty() {
         return Ok(None);
     }
-    let candidates: Vec<String> = sqlx::query_scalar(
-        "select id from chat_channels
-         where id = any($1) and type = 'dm' and member_count = $2 and deleted_at is null",
-    )
-    .bind(&mine)
-    .bind(i32::try_from(participants.len()).unwrap_or(i32::MAX))
-    .fetch_all(&caller.db)
-    .await?;
+    let candidates: Vec<String> = chat_channels::Entity::find()
+        .select_only()
+        .column(chat_channels::Column::Id)
+        .filter(chat_channels::Column::Id.is_in(mine.iter().map(String::as_str)))
+        .filter(chat_channels::Column::Type.eq("dm"))
+        .filter(
+            chat_channels::Column::MemberCount
+                .eq(i32::try_from(participants.len()).unwrap_or(i32::MAX)),
+        )
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
     for candidate in candidates {
-        let mut members: Vec<String> =
-            sqlx::query_scalar("select user_id from chat_channel_members where channel_id = $1")
-                .bind(&candidate)
-                .fetch_all(&caller.db)
-                .await?;
+        let mut members: Vec<String> = members::Entity::find()
+            .select_only()
+            .column(members::Column::UserId)
+            .filter(members::Column::ChannelId.eq(&candidate))
+            .into_tuple()
+            .all(&db)
+            .await?;
         sort_code_units(&mut members);
         if members == participants {
             return Ok(Some(candidate));
@@ -224,34 +291,36 @@ async fn insert_dm(
     caller: &Caller,
     name: &str,
     participants: &[String],
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("ch");
-    let at = now();
-    sqlx::query(
-        "insert into chat_channels (id, name, slug, type, member_count, created_by, created_at, updated_at)
-         values ($1, $2, $3, 'dm', $4, $5, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(name)
-    .bind(format!("dm-{id}"))
-    .bind(i32::try_from(participants.len()).unwrap_or(i32::MAX))
-    .bind(&caller.user_id)
-    .bind(&at)
-    .execute(&caller.db)
+    let at = utc_now();
+    let db = orm(&caller.db);
+    chat_channels::Entity::insert(chat_channels::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name.to_owned()),
+        slug: Set(format!("dm-{id}")),
+        type_: Set("dm".to_owned()),
+        member_count: Set(i32::try_from(participants.len()).unwrap_or(i32::MAX)),
+        created_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
-    let ids: Vec<String> = participants.iter().map(|_| generate_id("cmb")).collect();
-    sqlx::query(
-        "insert into chat_channel_members (id, channel_id, user_id, role, joined_at, created_at)
-         select m.id, $2, m.user_id, 'member', $4::timestamp, $4::timestamp
-         from unnest($1::varchar[], $3::varchar[]) with ordinality as m(id, user_id, n)
-         order by m.n",
-    )
-    .bind(&ids)
-    .bind(&id)
-    .bind(participants)
-    .bind(&at)
-    .execute(&caller.db)
-    .await?;
+    // One insert, the members in order.
+    let rows = participants.iter().map(|user| members::ActiveModel {
+        id: Set(generate_id("cmb")),
+        channel_id: Set(id.clone()),
+        user_id: Set(user.clone()),
+        role: Set("member".to_owned()),
+        joined_at: Set(at),
+        created_at: Set(at),
+        ..Default::default()
+    });
+    members::Entity::insert_many(rows)
+        .exec_without_returning(&db)
+        .await?;
     Ok(id)
 }
 
@@ -297,16 +366,16 @@ const INVITE_PLACEHOLDER_PREFIXES: [&str; 2] = ["invited_", "pending_clerk_"];
 async fn pending_invitees(
     caller: &Caller,
     user_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let pending: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = any($1) and status = 'PENDING'",
-    )
-    .bind(user_ids)
-    .fetch_all(&caller.db)
-    .await?;
+    let pending: Vec<String> = workspace_members_among(user_ids)
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::Status.eq("PENDING"))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     Ok(user_ids
         .iter()
         .filter(|id| {
@@ -328,13 +397,8 @@ fn invitation_pending(user_ids: &[String]) -> ChatError {
     )
 }
 
-async fn member_name(caller: &Caller, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(name.flatten())
+async fn member_name(caller: &Caller, user_id: &str) -> Result<Option<String>, DbErr> {
+    Ok(member_row_name(caller, user_id).await?.flatten())
 }
 
 /// `POST /`: the DM with these people, created when there is none.
@@ -378,11 +442,11 @@ async fn create_dm(
             .cloned()
             .collect();
         if !others.is_empty() {
-            let known: Vec<String> =
-                sqlx::query_scalar("select user_id from workspace_members where user_id = any($1)")
-                    .bind(&others)
-                    .fetch_all(&caller.db)
-                    .await?;
+            let known: Vec<String> = workspace_members_among(&others)
+                .column(workspace_members::Column::UserId)
+                .into_tuple()
+                .all(&orm(&caller.db))
+                .await?;
             let unknown: Vec<&String> = others.iter().filter(|id| !known.contains(id)).collect();
             if !unknown.is_empty() {
                 return Err(ChatError::api(
@@ -411,9 +475,10 @@ async fn create_dm(
         let names: Vec<Option<String>> = if others.is_empty() {
             Vec::new()
         } else {
-            sqlx::query_scalar("select name from workspace_members where user_id = any($1)")
-                .bind(&others)
-                .fetch_all(&caller.db)
+            workspace_members_among(&others)
+                .column(workspace_members::Column::Name)
+                .into_tuple()
+                .all(&orm(&caller.db))
                 .await?
         };
         let joined = names
@@ -499,11 +564,7 @@ async fn resolve_dm(
             let members = full_members(&caller, &existing, true).await?;
             return Ok(Data(answer_for(channel, members, true)).into_response());
         }
-        let target_member: Option<Option<String>> =
-            sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-                .bind(&target)
-                .fetch_optional(&caller.db)
-                .await?;
+        let target_member = member_row_name(&caller, &target).await?;
         if target_member.is_none() && target != caller.user_id {
             return Err(ChatError::not_found("User", Some(&target)));
         }
@@ -533,14 +594,15 @@ async fn resolve_dm(
     answer(result, "Failed to resolve DM")
 }
 
-async fn has_membership(caller: &Caller, channel_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await?;
+async fn has_membership(caller: &Caller, channel_id: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Id)
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(&caller.user_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -555,14 +617,13 @@ async fn set_archived(state: &ChatState, caller: &Caller, id: &str, archived: bo
         if !has_membership(caller, id).await? {
             return Err(ChatError::not_found("Channel", Some(id)));
         }
-        sqlx::query(
-            "update chat_channels set is_archived = $2, updated_at = $3::timestamp where id = $1 and type = 'dm'",
-        )
-        .bind(id)
-        .bind(archived)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        chat_channels::Entity::update_many()
+            .col_expr(chat_channels::Column::IsArchived, Expr::value(archived))
+            .col_expr(chat_channels::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(chat_channels::Column::Id.eq(id))
+            .filter(chat_channels::Column::Type.eq("dm"))
+            .exec(&orm(&caller.db))
+            .await?;
         let event = if archived { CHAT_CHANNEL_ARCHIVED } else { CHAT_CHANNEL_UPDATED };
         caller.publish(state, event, id, &json!({ "id": id }));
         Ok(Data(json!({ "id": id, "isArchived": archived })).into_response())
@@ -606,12 +667,15 @@ async fn pin(
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let metadata: Option<Option<Value>> = sqlx::query_scalar(
-            "select metadata from chat_channels where id = $1 and type = 'dm' limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let metadata: Option<Option<Value>> = chat_channels::Entity::find()
+            .select_only()
+            .column(chat_channels::Column::Metadata)
+            .filter(chat_channels::Column::Id.eq(&id))
+            .filter(chat_channels::Column::Type.eq("dm"))
+            .into_tuple()
+            .one(&db)
+            .await?;
         let Some(metadata) = metadata else {
             return Err(ChatError::not_found("Channel", Some(&id)));
         };
@@ -644,14 +708,15 @@ async fn pin(
             pinned_by.retain(|user| *user != caller.user_id);
         }
         meta.insert("pinnedBy".to_owned(), Value::from(pinned_by));
-        sqlx::query(
-            "update chat_channels set metadata = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(Value::Object(meta))
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        chat_channels::Entity::update_many()
+            .col_expr(
+                chat_channels::Column::Metadata,
+                Expr::value(Value::Object(meta)),
+            )
+            .col_expr(chat_channels::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(chat_channels::Column::Id.eq(&id))
+            .exec(&db)
+            .await?;
         caller.publish(&state, CHAT_CHANNEL_UPDATED, &id, &json!({ "id": id }));
         Ok(Data(json!({ "id": id, "isPinned": pinned })).into_response())
     }
@@ -669,10 +734,10 @@ async fn leave_dm(
         if !has_membership(&caller, &id).await? {
             return Err(ChatError::not_found("Channel", Some(&id)));
         }
-        sqlx::query("delete from chat_channel_members where channel_id = $1 and user_id = $2")
-            .bind(&id)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
+        members::Entity::delete_many()
+            .filter(members::Column::ChannelId.eq(&id))
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(&state, CHAT_CHANNEL_LEFT, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())

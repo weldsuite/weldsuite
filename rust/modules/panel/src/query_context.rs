@@ -145,13 +145,9 @@ async fn load_definitions(
         project_id: panel_custom_events::Column::ProjectId,
         deleted_at: panel_custom_events::Column::DeletedAt,
     };
-    let rows = definitions::<panel_custom_events::Entity>(
-        db,
-        columns,
-        project_id,
-        &refs.custom_event_ids,
-    )
-    .await?;
+    let rows =
+        definitions::<panel_custom_events::Entity>(db, columns, project_id, &refs.custom_event_ids)
+            .await?;
     // In row order, as `Object.values()` reads them.
     let custom_events: Vec<(String, CustomEventDefinition)> = rows
         .into_iter()
@@ -183,16 +179,16 @@ async fn load_definitions(
     let computed_properties =
         definitions::<panel_computed_properties::Entity>(db, columns, project_id, &computed_ids)
             .await?
-    .into_iter()
-    .filter_map(|(id, definition)| {
-        parse_definition(
-            &PANEL_COMPUTED_PROPERTY_DEFINITION,
-            &definition,
-            "computed property",
-        )
-        .map(|d| (id, d))
-    })
-    .collect();
+            .into_iter()
+            .filter_map(|(id, definition)| {
+                parse_definition(
+                    &PANEL_COMPUTED_PROPERTY_DEFINITION,
+                    &definition,
+                    "computed property",
+                )
+                .map(|d| (id, d))
+            })
+            .collect();
     let path_rules = if refs.uses_path_rules {
         panel_path_rules::Entity::find()
             .select_only()
@@ -206,11 +202,11 @@ async fn load_definitions(
             .all(&orm(db))
             .await?
             .into_iter()
-        .map(|(pattern, replacement)| PathRule {
-            pattern,
-            replacement,
-        })
-        .collect()
+            .map(|(pattern, replacement)| PathRule {
+                pattern,
+                replacement,
+            })
+            .collect()
     } else {
         Vec::new()
     };

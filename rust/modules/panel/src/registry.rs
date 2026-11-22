@@ -254,7 +254,10 @@ impl Registry {
 
 /// `loadPlanSlug`: the slug of the workspace's plan, `None` for a
 /// workspace without a plan, or none.
-pub(crate) async fn plan_slug(master: &PgPool, workspace_id: &str) -> Result<Option<String>, DbErr> {
+pub(crate) async fn plan_slug(
+    master: &PgPool,
+    workspace_id: &str,
+) -> Result<Option<String>, DbErr> {
     let slug: Option<Option<String>> = workspaces::Entity::find()
         .select_only()
         .column(plans::Column::Slug)
@@ -280,7 +283,9 @@ pub(crate) async fn replay_tier_of(
     master: &PgPool,
     workspace_id: &str,
 ) -> Result<&'static str, DbErr> {
-    Ok(plan_replay_tier(plan_slug(master, workspace_id).await?.as_deref()))
+    Ok(plan_replay_tier(
+        plan_slug(master, workspace_id).await?.as_deref(),
+    ))
 }
 
 /// `applyReplayTier(deps, workspaceId, tier)`: brings the cache records of

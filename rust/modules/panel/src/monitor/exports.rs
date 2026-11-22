@@ -24,12 +24,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_EXPORT_CREATED, PANEL_EXPORT_DELETED, PANEL_EXPORT_UPDATED,
 };
 use weldsuite_emails::panel_monitor::ExportFailingProps;
+use weldsuite_db::orm;
 use weldsuite_emails::{EmailBrand, SystemEmail, send_system_email};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
@@ -39,6 +45,9 @@ use weldsuite_panel_domain::query::export::{
 };
 use weldsuite_panel_domain::query::{PanelQueryContext, PanelSqlQuery, normalize_rows};
 use weldsuite_ports::{BoxFuture, OutboundHttp};
+use weldsuite_schema::tenant::{
+    panel_export_runs as export_runs, panel_exports as exports, panel_projects,
+};
 
 use super::delivery::{Delivery, member_recipients};
 use super::s3::{self, Credentials, Destination};
@@ -51,7 +60,7 @@ use super::schemas::{
 };
 use super::secrets::{self, SecretError};
 use super::{MonitorState, master_of, store_failure};
-use crate::saved::{field, project_exists, text};
+use crate::saved::{field, instant, js_row, project_exists, text};
 use crate::{Caller, unexpected};
 
 /// Most windows one run writes for one export (a day of hours).
@@ -134,15 +143,19 @@ pub(crate) fn next_run_of(row: &Value, now: i64) -> Option<i64> {
     Some(next_export_run(text(row, "frequency"), now))
 }
 
+/// The first row a `returning` statement gave, as Drizzle returns it.
+fn first_row(rows: Vec<exports::Model>) -> Result<Option<Value>, DbErr> {
+    rows.into_iter().next().map(js_row).transpose()
+}
+
 /// `getExport(db, id)`.
-pub(crate) async fn get_export(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from panel_exports e where e.id = $1 and e.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub(crate) async fn get_export(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    exports::Entity::find_by_id(id)
+        .filter(exports::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `destinationOf(d)`: the stored destination of a parsed one.
@@ -288,18 +301,18 @@ async fn write_table_window(
     to: i64,
 ) -> Result<(), String> {
     let run_id = weldsuite_kit::generate_id("pner");
-    sqlx::query(
-        "insert into panel_export_runs (id, export_id, project_id, table_name, window_from, window_to, status, started_at)
-         values ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, 'running', $7::timestamptz)",
-    )
-    .bind(&run_id)
-    .bind(text(export, "id"))
-    .bind(text(export, "projectId"))
-    .bind(table)
-    .bind(js::iso_string(from))
-    .bind(js::iso_string(to))
-    .bind(js::iso_string(js::now_millis()))
-    .execute(db)
+    export_runs::Entity::insert(export_runs::ActiveModel {
+        id: Set(run_id.clone()),
+        export_id: Set(text(export, "id").to_owned()),
+        project_id: Set(text(export, "projectId").to_owned()),
+        table_name: Set(table.to_owned()),
+        window_from: Set(instant(from)),
+        window_to: Set(instant(to)),
+        status: Set("running".to_owned()),
+        started_at: Set(instant(js::now_millis())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await
     .map_err(|error| error.to_string())?;
     let (mut rows, mut bytes, mut files) = (0_i64, 0_i64, 0_i64);
@@ -316,25 +329,28 @@ async fn write_table_window(
         &mut files,
     )
     .await;
-    let finished = js::iso_string(js::now_millis());
+    let finished = instant(js::now_millis());
     let (status, error) = match &outcome {
         Ok(()) => ("succeeded", None),
         Err(error) => ("failed", Some(js::slice_utf16(error, 0, 1000))),
     };
-    sqlx::query(
-        "update panel_export_runs set status = $2, rows = $3::int, bytes = $4, files = $5::int, error = $6,
-           finished_at = $7::timestamptz where id = $1",
-    )
-    .bind(&run_id)
-    .bind(status)
-    .bind(i32::try_from(rows).unwrap_or(i32::MAX))
-    .bind(bytes)
-    .bind(i32::try_from(files).unwrap_or(i32::MAX))
-    .bind(error)
-    .bind(finished)
-    .execute(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    export_runs::Entity::update_many()
+        .col_expr(export_runs::Column::Status, Expr::value(status))
+        .col_expr(
+            export_runs::Column::Rows,
+            Expr::value(i32::try_from(rows).unwrap_or(i32::MAX)),
+        )
+        .col_expr(export_runs::Column::Bytes, Expr::value(bytes))
+        .col_expr(
+            export_runs::Column::Files,
+            Expr::value(i32::try_from(files).unwrap_or(i32::MAX)),
+        )
+        .col_expr(export_runs::Column::Error, Expr::value(error))
+        .col_expr(export_runs::Column::FinishedAt, Expr::value(finished))
+        .filter(export_runs::Column::Id.eq(&run_id))
+        .exec(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     outcome
 }
 
@@ -404,15 +420,14 @@ async fn write_pages(
 
 /// `failuresAt(db, exportId, windowFrom)`: failed attempts at the window
 /// the export is stuck on, the failures in a row.
-async fn failures_at(db: &PgPool, export_id: &str, window_from: i64) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from panel_export_runs
-         where export_id = $1 and window_from = $2::timestamptz and status = 'failed'",
-    )
-    .bind(export_id)
-    .bind(js::iso_string(window_from))
-    .fetch_one(db)
-    .await
+async fn failures_at(db: &PgPool, export_id: &str, window_from: i64) -> Result<i64, DbErr> {
+    let failures = export_runs::Entity::find()
+        .filter(export_runs::Column::ExportId.eq(export_id))
+        .filter(export_runs::Column::WindowFrom.eq(instant(window_from)))
+        .filter(export_runs::Column::Status.eq("failed"))
+        .count(&orm(db))
+        .await?;
+    Ok(i64::try_from(failures).unwrap_or(i64::MAX))
 }
 
 /// `recordFailure(deps, exp, error, windowFrom)`.
@@ -423,21 +438,25 @@ async fn record_failure(
     export: &Value,
     error: String,
     window_from: i64,
-) -> Result<RunResult, sqlx::Error> {
+) -> Result<RunResult, DbErr> {
     let failing = text(export, "status") != "failing"
         && failures_at(db, text(export, "id"), window_from).await? >= FAILURES_BEFORE_FAILING;
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_exports e set last_error = $2, last_run_at = $3::timestamptz, updated_at = $3::timestamptz,
-           status = case when $4 then 'failing' else e.status end
-         where e.id = $1 returning to_jsonb(e)",
-    )
-    .bind(text(export, "id"))
-    .bind(js::slice_utf16(&error, 0, 1000))
-    .bind(js::iso_string(now))
-    .bind(failing)
-    .fetch_optional(db)
-    .await?;
-    let row = row.map(weldsuite_db::js_row);
+    let now = instant(now);
+    let mut update = exports::Entity::update_many()
+        .col_expr(
+            exports::Column::LastError,
+            Expr::value(js::slice_utf16(&error, 0, 1000)),
+        )
+        .col_expr(exports::Column::LastRunAt, Expr::value(now))
+        .col_expr(exports::Column::UpdatedAt, Expr::value(now));
+    if failing {
+        update = update.col_expr(exports::Column::Status, Expr::value("failing"));
+    }
+    let row = update
+        .filter(exports::Column::Id.eq(text(export, "id")))
+        .exec_with_returning(&orm(db))
+        .await
+        .and_then(first_row)?;
     if failing && let Some(row) = &row {
         ports.notify_failing(row, &error).await;
     }
@@ -459,7 +478,7 @@ pub(crate) async fn run_export(
     keyring: &weldsuite_db::Keyring,
     ports: &dyn ExportPorts,
     export: &Value,
-) -> Result<RunResult, sqlx::Error> {
+) -> Result<RunResult, DbErr> {
     let id = text(export, "id").to_owned();
     if text(export, "status") == "paused" || export.get("deletedAt").is_some_and(|d| !d.is_null()) {
         return Ok(RunResult {
@@ -485,14 +504,16 @@ pub(crate) async fn run_export(
     let (ctx, credentials) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
-            sqlx::query(
-                "update panel_exports set last_error = $2, last_run_at = $3::timestamptz, updated_at = $3::timestamptz where id = $1",
-            )
-            .bind(&id)
-            .bind(js::slice_utf16(&error, 0, 1000))
-            .bind(js::iso_string(now))
-            .execute(db)
-            .await?;
+            exports::Entity::update_many()
+                .col_expr(
+                    exports::Column::LastError,
+                    Expr::value(js::slice_utf16(&error, 0, 1000)),
+                )
+                .col_expr(exports::Column::LastRunAt, Expr::value(instant(now)))
+                .col_expr(exports::Column::UpdatedAt, Expr::value(instant(now)))
+                .filter(exports::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await?;
             return Ok(RunResult {
                 export: export.clone(),
                 windows: 0,
@@ -539,35 +560,41 @@ pub(crate) async fn run_export(
         if let Some(error) = failed {
             return record_failure(db, now, ports, &current, error, cursor).await;
         }
-        let row: Option<Value> = sqlx::query_scalar(
-            "update panel_exports e set exported_until = $2::timestamptz, last_run_at = $3::timestamptz,
-               last_error = null, updated_at = $3::timestamptz,
-               status = case when e.status = 'failing' then 'active' else e.status end
-             where e.id = $1 returning to_jsonb(e)",
-        )
-        .bind(&id)
-        .bind(js::iso_string(to))
-        .bind(js::iso_string(now))
-        .fetch_optional(db)
-        .await?;
+        let row = exports::Entity::update_many()
+            .col_expr(exports::Column::ExportedUntil, Expr::value(instant(to)))
+            .col_expr(exports::Column::LastRunAt, Expr::value(instant(now)))
+            .col_expr(
+                exports::Column::LastError,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(exports::Column::UpdatedAt, Expr::value(instant(now)))
+            .col_expr(
+                exports::Column::Status,
+                Expr::case(exports::Column::Status.eq("failing"), "active")
+                    .finally(Expr::col(exports::Column::Status))
+                    .into(),
+            )
+            .filter(exports::Column::Id.eq(&id))
+            .exec_with_returning(&orm(db))
+            .await
+            .and_then(first_row)?;
         if let Some(row) = row {
-            current = weldsuite_db::js_row(row);
+            current = row;
         }
         cursor = to;
         windows += 1;
     }
 
     if windows == 0 {
-        let row: Option<Value> = sqlx::query_scalar(
-            "update panel_exports e set last_run_at = $2::timestamptz, updated_at = $2::timestamptz
-             where e.id = $1 returning to_jsonb(e)",
-        )
-        .bind(&id)
-        .bind(js::iso_string(now))
-        .fetch_optional(db)
-        .await?;
+        let row = exports::Entity::update_many()
+            .col_expr(exports::Column::LastRunAt, Expr::value(instant(now)))
+            .col_expr(exports::Column::UpdatedAt, Expr::value(instant(now)))
+            .filter(exports::Column::Id.eq(&id))
+            .exec_with_returning(&orm(db))
+            .await
+            .and_then(first_row)?;
         if let Some(row) = row {
-            current = weldsuite_db::js_row(row);
+            current = row;
         }
     }
     Ok(RunResult {
@@ -640,12 +667,13 @@ pub(crate) async fn send_failing_mail(
     let Some(email) = recipient.email.as_deref().filter(|e| !e.is_empty()) else {
         return Ok(0);
     };
-    let project: Option<String> =
-        sqlx::query_scalar("select name from panel_projects where id = $1 limit 1")
-            .bind(text(export, "projectId"))
-            .fetch_optional(&ctx.db)
-            .await
-            .map_err(|error| error.to_string())?;
+    let project: Option<String> = panel_projects::Entity::find_by_id(text(export, "projectId"))
+        .select_only()
+        .column(panel_projects::Column::Name)
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await
+        .map_err(|error| error.to_string())?;
     let destination = field(export, "destination");
     let prefix = text(&destination, "prefix");
     let bucket = text(&destination, "bucket");
@@ -683,7 +711,7 @@ async fn export_dto(
     caller: &Caller,
     state: &MonitorState,
     export: &Value,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let next = match master_of(caller, state) {
         Some(master) => next_runs_of(&master, "export", &[text(export, "id").to_owned()]).await?,
         None => Vec::new(),
@@ -696,7 +724,7 @@ async fn schedule(
     state: &MonitorState,
     export: &Value,
     next: Option<i64>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(master) = master_of(caller, state) else {
         return Ok(());
     };
@@ -746,15 +774,16 @@ pub(crate) async fn list(
         Ok(query) => query,
         Err(response) => return response,
     };
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(e) from panel_exports e where e.project_id = $1 and e.deleted_at is null
-         order by e.created_at desc limit 100",
-    )
-    .bind(query.text("projectId"))
-    .fetch_all(&caller.db)
-    .await;
+    let found = exports::Entity::find()
+        .filter(exports::Column::ProjectId.eq(query.text("projectId").unwrap_or_default()))
+        .filter(exports::Column::DeletedAt.is_null())
+        .order_by_desc(exports::Column::CreatedAt)
+        .limit(100)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     let exports: Vec<Value> = match found {
-        Ok(found) => found.into_iter().map(weldsuite_db::js_row).collect(),
+        Ok(found) => found,
         Err(error) => return unexpected(&error, "list exports"),
     };
     let ids: Vec<String> = exports.iter().map(|e| text(e, "id").to_owned()).collect();
@@ -818,26 +847,24 @@ pub(crate) async fn create(
         Ok(secret) => secret,
         Err(response) => return *response,
     };
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_exports as e (id, project_id, name, destination, secret_ciphertext, tables,
-             frequency, start_at, status, created_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, 'active', $9)
-         returning to_jsonb(e)",
-    )
-    .bind(weldsuite_kit::generate_id("pnex"))
-    .bind(&project_id)
-    .bind(text(&input, "name"))
-    .bind(destination_of(&destination))
-    .bind(&secret)
-    .bind(field(&input, "tables"))
-    .bind(text(&input, "frequency"))
-    .bind(js::iso_string(start_at))
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = exports::Entity::insert(exports::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnex")),
+        project_id: Set(project_id.clone()),
+        name: Set(text(&input, "name").to_owned()),
+        destination: Set(destination_of(&destination)),
+        secret_ciphertext: Set(secret),
+        tables: Set(field(&input, "tables")),
+        frequency: Set(text(&input, "frequency").to_owned()),
+        start_at: Set(instant(start_at)),
+        status: Set("active".to_owned()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let export = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
-        Ok(None) => return ApiError::internal().into_response(),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "create export"),
     };
     // Due at once: the first run (and any backfill) starts with the next cron.
@@ -989,32 +1016,33 @@ pub(crate) async fn update(
         None => None,
     };
     let now = js::now_millis();
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_exports e set
-           name = case when $2 then $3 else e.name end,
-           destination = case when $4 then $5::jsonb else e.destination end,
-           secret_ciphertext = coalesce($6, e.secret_ciphertext),
-           tables = case when $7 then $8::jsonb else e.tables end,
-           frequency = case when $9 then $10 else e.frequency end,
-           updated_at = $11::timestamptz
-         where e.id = $1 and e.deleted_at is null
-         returning to_jsonb(e)",
-    )
-    .bind(&id)
-    .bind(input.contains_key("name"))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.contains_key("destination"))
-    .bind(input.get("destination").map(destination_of))
-    .bind(secret.as_deref())
-    .bind(input.contains_key("tables"))
-    .bind(input.get("tables"))
-    .bind(input.contains_key("frequency"))
-    .bind(input.get("frequency").and_then(Value::as_str))
-    .bind(js::iso_string(now))
-    .fetch_optional(&caller.db)
-    .await;
+    let text_of = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
+    let mut update = exports::Entity::update_many();
+    if input.contains_key("name") {
+        update = update.col_expr(exports::Column::Name, Expr::value(text_of("name")));
+    }
+    if input.contains_key("destination") {
+        let destination = input.get("destination").map(destination_of);
+        update = update.col_expr(exports::Column::Destination, Expr::value(destination));
+    }
+    if let Some(secret) = &secret {
+        update = update.col_expr(exports::Column::SecretCiphertext, Expr::value(secret));
+    }
+    if input.contains_key("tables") {
+        update = update.col_expr(exports::Column::Tables, Expr::value(input.get("tables").cloned()));
+    }
+    if input.contains_key("frequency") {
+        update = update.col_expr(exports::Column::Frequency, Expr::value(text_of("frequency")));
+    }
+    let row = update
+        .col_expr(exports::Column::UpdatedAt, Expr::value(instant(now)))
+        .filter(exports::Column::Id.eq(&id))
+        .filter(exports::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     let export = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Export", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "update export"),
     };
@@ -1042,17 +1070,17 @@ pub(crate) async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let now = js::iso_string(js::now_millis());
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_exports e set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where e.id = $1 and e.deleted_at is null returning to_jsonb(e)",
-    )
-    .bind(&id)
-    .bind(now)
-    .fetch_optional(&caller.db)
-    .await;
+    let now = instant(js::now_millis());
+    let row = exports::Entity::update_many()
+        .col_expr(exports::Column::DeletedAt, Expr::value(now))
+        .col_expr(exports::Column::UpdatedAt, Expr::value(now))
+        .filter(exports::Column::Id.eq(&id))
+        .filter(exports::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     let export = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Export", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete export"),
     };
@@ -1079,44 +1107,42 @@ pub(crate) async fn runs(
         return response;
     }
     let limit = query.get("limit").and_then(Value::as_i64).unwrap_or(50);
-    let cursor = query
-        .text("cursor")
-        .and_then(js::parse_iso)
-        .map(js::iso_string);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_export_runs r
-         where r.export_id = $1 and ($2::timestamptz is null or r.started_at < $2::timestamptz)
-         order by r.started_at desc limit $3",
-    )
-    .bind(&id)
-    .bind(cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = export_runs::Entity::find().filter(export_runs::Column::ExportId.eq(&id));
+    if let Some(cursor) = query.text("cursor").and_then(js::parse_iso) {
+        find = find.filter(export_runs::Column::StartedAt.lt(instant(cursor)));
+    }
+    let rows = find
+        .order_by_desc(export_runs::Column::StartedAt)
+        .limit(u64::try_from(limit + 1).unwrap_or_default())
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match rows {
-        Ok(rows) => super::alerts::page(
-            rows.into_iter().map(weldsuite_db::js_row).collect(),
-            limit,
-            "startedAt",
-            run_dto,
-        ),
+        Ok(rows) => super::alerts::page(rows, limit, "startedAt", run_dto),
         Err(error) => unexpected(&error, "export runs"),
     }
 }
 
 /// `setExportStatus(db, id, status)`.
-async fn set_status(db: &PgPool, id: &str, status: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_exports e set status = $2, updated_at = $3::timestamptz,
-           last_error = case when $2 = 'active' then null else e.last_error end
-         where e.id = $1 and e.deleted_at is null returning to_jsonb(e)",
-    )
-    .bind(id)
-    .bind(status)
-    .bind(js::iso_string(js::now_millis()))
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn set_status(db: &PgPool, id: &str, status: &str) -> Result<Option<Value>, DbErr> {
+    let mut update = exports::Entity::update_many()
+        .col_expr(exports::Column::Status, Expr::value(status))
+        .col_expr(
+            exports::Column::UpdatedAt,
+            Expr::value(instant(js::now_millis())),
+        );
+    if status == "active" {
+        update = update.col_expr(
+            exports::Column::LastError,
+            Expr::value(Option::<String>::None),
+        );
+    }
+    update
+        .filter(exports::Column::Id.eq(id))
+        .filter(exports::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .and_then(first_row)
 }
 
 /// `POST /:id/pause`.
