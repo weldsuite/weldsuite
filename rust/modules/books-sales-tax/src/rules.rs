@@ -490,8 +490,14 @@ async fn remove(
             let rule = require_rule(&caller.db, &entity_id, &id).await?;
             let at = utc_timestamp(time::OffsetDateTime::now_utc());
             sales_tax_taxability_rules::Entity::update_many()
-                .col_expr(sales_tax_taxability_rules::Column::DeletedAt, Expr::value(at))
-                .col_expr(sales_tax_taxability_rules::Column::UpdatedAt, Expr::value(at))
+                .col_expr(
+                    sales_tax_taxability_rules::Column::DeletedAt,
+                    Expr::value(at),
+                )
+                .col_expr(
+                    sales_tax_taxability_rules::Column::UpdatedAt,
+                    Expr::value(at),
+                )
                 .filter(sales_tax_taxability_rules::Column::Id.eq(id.as_str()))
                 .exec(&orm(&caller.db))
                 .await

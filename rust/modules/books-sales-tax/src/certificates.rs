@@ -786,7 +786,12 @@ async fn remove(
                 .await
                 .map_err(refusal)?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
-            caller.publish(&state, EXEMPTION_CERTIFICATE_DELETED, &id, event_data(&row, None));
+            caller.publish(
+                &state,
+                EXEMPTION_CERTIFICATE_DELETED,
+                &id,
+                event_data(&row, None),
+            );
             Ok(no_content())
         }
         .await,

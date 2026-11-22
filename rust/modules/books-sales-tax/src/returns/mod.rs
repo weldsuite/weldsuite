@@ -188,7 +188,8 @@ async fn periods(
                 q.get("to"),
                 &today,
             )
-            .await.map_err(refusal)?))
+            .await
+            .map_err(refusal)?))
         }
         .await,
         "Failed to fetch periods",
@@ -206,7 +207,8 @@ async fn overview(caller: Caller, State(state): State<BooksState>) -> Response {
             Ok(ok(lifecycle::sales_tax_overview(
                 &caller.db, &entity, &now, &today,
             )
-            .await.map_err(refusal)?))
+            .await
+            .map_err(refusal)?))
         }
         .await,
         "Failed to fetch the sales tax overview",
@@ -609,7 +611,9 @@ async fn documents(
                 agency,
             } = return_context(&caller, &id).await?;
             let rows = if is_filed(&ret) {
-                rows::load_filed_rows(&caller.db, s(&entity, "id"), &agency, &ret).await.map_err(refusal)?
+                rows::load_filed_rows(&caller.db, s(&entity, "id"), &agency, &ret)
+                    .await
+                    .map_err(refusal)?
             } else {
                 let now = now_iso(&caller, &state);
                 let today = today_of(&caller, &state, &entity);
@@ -624,10 +628,13 @@ async fn documents(
                         created_not_after: None,
                     },
                 )
-                .await.map_err(refusal)?
+                .await
+                .map_err(refusal)?
                 .rows
             };
-            let documents = return_documents(&caller.db, s(&entity, "id"), &rows.entries).await.map_err(refusal)?;
+            let documents = return_documents(&caller.db, s(&entity, "id"), &rows.entries)
+                .await
+                .map_err(refusal)?;
             let limit = clamp_limit(q.get("limit"), 100, 500);
             let offset = q
                 .get("cursor")
@@ -652,7 +659,9 @@ async fn documents(
                         .map(str::to_owned)
                 })
                 .collect();
-            let certificates = load_certificate_refs(&caller.db, s(&entity, "id"), &ids).await.map_err(refusal)?;
+            let certificates = load_certificate_refs(&caller.db, s(&entity, "id"), &ids)
+                .await
+                .map_err(refusal)?;
             let has_more = offset + limit < total;
             let page: Vec<Value> = page
                 .into_iter()
@@ -700,7 +709,8 @@ async fn pre_file(
             Ok(ok(checks::pre_file_check(
                 &caller.db, &entity, &agency, &ret, &now, &today,
             )
-            .await.map_err(refusal)?))
+            .await
+            .map_err(refusal)?))
         }
         .await,
         "Failed to run the pre-file check",
@@ -721,7 +731,9 @@ async fn liability(
             } = return_context(&caller, &id).await?;
             let today = today_of(&caller, &state, &entity);
             let returns =
-                common::load_agency_returns(&caller.db, s(&entity, "id"), s(&agency, "id")).await.map_err(refusal)?;
+                common::load_agency_returns(&caller.db, s(&entity, "id"), s(&agency, "id"))
+                    .await
+                    .map_err(refusal)?;
             let liability = checks::agency_liability(
                 &caller.db,
                 s(&entity, "id"),
@@ -730,7 +742,8 @@ async fn liability(
                 true,
                 &returns,
             )
-            .await.map_err(refusal)?;
+            .await
+            .map_err(refusal)?;
             let mut out = Map::new();
             out.insert("returnId".into(), ret["id"].clone());
             out.extend(liability.json);
@@ -745,7 +758,9 @@ async fn exceptions(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
             let ReturnContext { ret, agency, .. } = return_context(&caller, &id).await?;
-            let result = filing::list_exceptions(&caller.db, &agency, &ret).await.map_err(refusal)?;
+            let result = filing::list_exceptions(&caller.db, &agency, &ret)
+                .await
+                .map_err(refusal)?;
             Ok(ok(result.to_json(s(&ret, "id"))))
         }
         .await,
@@ -776,7 +791,9 @@ async fn export(
             let now = now_iso(&caller, &state);
             let today = today_of(&caller, &state, &entity);
             let artifact =
-                lifecycle::export_return(&caller.db, &entity, &agency, &ret, &now, &today).await.map_err(refusal)?;
+                lifecycle::export_return(&caller.db, &entity, &agency, &ret, &now, &today)
+                    .await
+                    .map_err(refusal)?;
             if format == "json" {
                 return Ok(ok(artifact));
             }

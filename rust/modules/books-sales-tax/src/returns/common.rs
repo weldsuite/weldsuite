@@ -137,9 +137,15 @@ pub(crate) fn add_months(day: &str, months: i64) -> String {
 /// A `YYYY-MM-DD` day bound as `$n::date`; a day Postgres can't read fails
 /// the statement (the route's 500).
 pub(crate) fn parse_day(day: &str) -> Result<time::Date, DbErr> {
-    time::Date::parse(day, time::macros::format_description!("[year]-[month]-[day]")).map_err(
-        |error| DbErr::Custom(format!("invalid input syntax for type date: \"{day}\" ({error})")),
+    time::Date::parse(
+        day,
+        time::macros::format_description!("[year]-[month]-[day]"),
     )
+    .map_err(|error| {
+        DbErr::Custom(format!(
+            "invalid input syntax for type date: \"{day}\" ({error})"
+        ))
+    })
 }
 
 /// A `date` as Postgres prints it (`::text`): `2026-10-29`.

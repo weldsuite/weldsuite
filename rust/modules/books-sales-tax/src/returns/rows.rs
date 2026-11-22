@@ -11,9 +11,7 @@
 
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::{Expr, Query as SqlQuery};
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::Value;
 use weldsuite_books_domain::sales_tax::worksheet::WorksheetLine;
 use weldsuite_db::{PgPool, orm};
@@ -233,9 +231,8 @@ async fn dated_rows(
     // `tax_return_id is null or tax_return_id = any($ids)`: `any('{}')` is false.
     let mut unstamped = Condition::any().add(Column::TaxReturnId.is_null());
     if !opts.include_stamped_by.is_empty() {
-        unstamped = unstamped.add(
-            Column::TaxReturnId.is_in(opts.include_stamped_by.iter().map(String::as_str)),
-        );
+        unstamped = unstamped
+            .add(Column::TaxReturnId.is_in(opts.include_stamped_by.iter().map(String::as_str)));
     }
     select = select.filter(unstamped);
     if let Some(at) = &opts.created_not_after {

@@ -18,8 +18,8 @@ use weldsuite_schema::tenant::{tax_lines, tax_returns};
 
 use super::calculate::{Calculation, CalculationInput, calculate_return, same_worksheet};
 use super::common::{
-    FILED_STATUSES, add_months, bad, bad_with, conflict, day_text, is_filed, n, num_at,
-    parse_day, parse_instant, reporting_basis_of, return_by_id, rows_json, s, sum_money,
+    FILED_STATUSES, add_months, bad, bad_with, conflict, day_text, is_filed, n, num_at, parse_day,
+    parse_instant, reporting_basis_of, return_by_id, rows_json, s, sum_money,
 };
 use super::documents::{describe_documents, document_key};
 use super::lifecycle::RETURN_ROWS;
@@ -84,10 +84,15 @@ async fn mark_filed(
     tax_returns::Entity::update_many()
         .col_expr(Column::Status, Expr::value("filed"))
         .col_expr(Column::FiledAt, Expr::value(parse_instant(filed_at)?))
-        .col_expr(Column::FiledBy, Expr::value(input.user_id.map(str::to_owned)))
+        .col_expr(
+            Column::FiledBy,
+            Expr::value(input.user_id.map(str::to_owned)),
+        )
         .col_expr(
             Column::ConfirmationNumber,
-            Expr::value(weldsuite_kit::validation::js_trim(input.confirmation_number)),
+            Expr::value(weldsuite_kit::validation::js_trim(
+                input.confirmation_number,
+            )),
         )
         .col_expr(Column::UpdatedAt, Expr::value(parse_instant(input.now)?))
         .filter(Column::Id.eq(s(ret, "id")))
@@ -781,10 +786,7 @@ pub(crate) async fn amend_return(
     let mut tx = db.begin().await?;
     {
         let conn = OrmConn::new(&mut tx);
-        RETURN_ROWS
-            .insert(&conn, values)
-            .await
-            .map_err(refusal)?;
+        RETURN_ROWS.insert(&conn, values).await.map_err(refusal)?;
         if !take_ids.is_empty() {
             let marked = with_resolutions(ret, &take_ids, "amended", user_id, now, Some(&id));
             set_exceptions(&conn, s(ret, "id"), marked, now)

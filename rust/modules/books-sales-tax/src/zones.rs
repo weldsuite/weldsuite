@@ -33,7 +33,9 @@ use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{sales_tax_jurisdiction_rates, sales_tax_jurisdictions, sales_tax_zones};
+use weldsuite_schema::tenant::{
+    sales_tax_jurisdiction_rates, sales_tax_jurisdictions, sales_tax_zones,
+};
 
 use crate::common::{changes, keep, merged, num, number_of, refuse, text, today};
 use crate::orm_bridge::refusal;

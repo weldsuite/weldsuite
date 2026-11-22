@@ -16,15 +16,17 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Expr, Query as SqlQuery};
-use sea_orm::{ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
 };
-use sea_orm::prelude::BigDecimal;
 use weldsuite_books_domain::jurisdictions::{js_trim, us};
 use weldsuite_books_domain::sales_tax::route_helpers::{
     optional_sales_tax_entity, page_params, require_agency, require_sales_tax_entity,
@@ -387,7 +389,12 @@ async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbEr
         use accounts::Column;
         accounts::Entity::find()
             .select_only()
-            .columns([Column::Id, Column::Code, Column::Name, Column::CurrentBalance])
+            .columns([
+                Column::Id,
+                Column::Code,
+                Column::Name,
+                Column::CurrentBalance,
+            ])
             .filter(Column::Id.is_in(ids))
             .into_tuple()
             .all(&orm(db))
@@ -1148,7 +1155,10 @@ async fn delete_with_children(
         .exec(conn)
         .await?;
     sales_tax_taxability_rules::Entity::update_many()
-        .col_expr(sales_tax_taxability_rules::Column::DeletedAt, Expr::value(at))
+        .col_expr(
+            sales_tax_taxability_rules::Column::DeletedAt,
+            Expr::value(at),
+        )
         .filter(sales_tax_taxability_rules::Column::AgencyId.eq(id))
         .exec(conn)
         .await?;
@@ -1227,9 +1237,14 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     }
     // Its rates, zones and rules go with it; its payable accounts stay.
     let mut tx = caller.db.begin().await?;
-    delete_with_children(&OrmConn::new(&mut tx), &entity_id, id, utc_timestamp(instant))
-        .await
-        .map_err(refusal)?;
+    delete_with_children(
+        &OrmConn::new(&mut tx),
+        &entity_id,
+        id,
+        utc_timestamp(instant),
+    )
+    .await
+    .map_err(refusal)?;
     tx.commit().await?;
     write_accounting_audit(
         caller,

@@ -170,8 +170,7 @@ async fn liability_report(db: &PgPool, entity: &Value, as_of: &str) -> Result<Va
     for agency in &agencies {
         let returns = load_agency_returns(db, entity_id, s(agency, "id")).await?;
         let liability = agency_liability(db, entity_id, agency, as_of, false, &returns).await?;
-        let grouped =
-            jurisdiction_groups(db, entity_id, s(agency, "id"), &next_day(as_of)).await?;
+        let grouped = jurisdiction_groups(db, entity_id, s(agency, "id"), &next_day(as_of)).await?;
         // (code, name, level, collected, filed, paid, outstanding)
         let mut jurisdictions: Vec<(String, String, String, f64, f64, f64, f64)> = Vec::new();
         for (code, name, level, return_id, tax) in grouped {
@@ -363,10 +362,7 @@ async fn sales_rows(
 }
 
 /// `customerNames(db, ids)`.
-async fn customer_names(
-    db: &PgPool,
-    ids: &[String],
-) -> Result<HashMap<String, String>, DbErr> {
+async fn customer_names(db: &PgPool, ids: &[String]) -> Result<HashMap<String, String>, DbErr> {
     let mut out = HashMap::new();
     for part in ids.chunks(1000) {
         let rows: Vec<(String, Option<String>)> = parties::Entity::find()

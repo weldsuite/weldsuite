@@ -13,7 +13,9 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -210,11 +212,7 @@ fn rate_on<'a>(rates: &'a [Value], day: &str) -> Option<&'a Value> {
 }
 
 /// The rates of jurisdictions, newest first.
-async fn load_rates(
-    db: &PgPool,
-    entity_id: &str,
-    ids: &[String],
-) -> Result<Vec<Value>, Refusal> {
+async fn load_rates(db: &PgPool, entity_id: &str, ids: &[String]) -> Result<Vec<Value>, Refusal> {
     use sales_tax_jurisdiction_rates::Column;
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -639,7 +637,10 @@ async fn delete_with_rates(
     at: time::PrimitiveDateTime,
 ) -> Result<(), DbErr> {
     sales_tax_jurisdiction_rates::Entity::update_many()
-        .col_expr(sales_tax_jurisdiction_rates::Column::DeletedAt, Expr::value(at))
+        .col_expr(
+            sales_tax_jurisdiction_rates::Column::DeletedAt,
+            Expr::value(at),
+        )
         .filter(sales_tax_jurisdiction_rates::Column::JurisdictionId.eq(id))
         .exec(conn)
         .await?;
@@ -901,8 +902,14 @@ async fn rate_delete(caller: &Caller, state: &BooksState, id: &str, rate_id: &st
     };
     let at = utc_timestamp(time::OffsetDateTime::now_utc());
     sales_tax_jurisdiction_rates::Entity::update_many()
-        .col_expr(sales_tax_jurisdiction_rates::Column::DeletedAt, Expr::value(at))
-        .col_expr(sales_tax_jurisdiction_rates::Column::UpdatedAt, Expr::value(at))
+        .col_expr(
+            sales_tax_jurisdiction_rates::Column::DeletedAt,
+            Expr::value(at),
+        )
+        .col_expr(
+            sales_tax_jurisdiction_rates::Column::UpdatedAt,
+            Expr::value(at),
+        )
         .filter(sales_tax_jurisdiction_rates::Column::Id.eq(rate_id))
         .exec(&orm(&caller.db))
         .await

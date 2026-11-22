@@ -16,8 +16,8 @@ use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_schema::tenant::{bank_accounts, tax_returns};
 
 use super::common::{
-    adjustments_of, bad, bad_with, compute_total_due, conflict, decimal, n, not_found, num,
-    num_at, parse_instant, return_by_id, round2, s, sum_money,
+    adjustments_of, bad, bad_with, compute_total_due, conflict, decimal, n, not_found, num, num_at,
+    parse_instant, return_by_id, round2, s, sum_money,
 };
 use crate::common::text;
 use crate::orm_bridge::{refusal, sqlx_error};
@@ -234,10 +234,7 @@ struct PaidMark<'a> {
 /// The return marked paid, as long as it is still filed: its status, the
 /// payment's day, amount (`toFixed(2)`), bank account and journal entry, the
 /// summary with the payment, the total due (`toFixed(2)`) and `updated_at`.
-fn mark_paid(
-    ret: &Value,
-    mark: &PaidMark<'_>,
-) -> Result<UpdateMany<tax_returns::Entity>, DbErr> {
+fn mark_paid(ret: &Value, mark: &PaidMark<'_>) -> Result<UpdateMany<tax_returns::Entity>, DbErr> {
     use tax_returns::Column;
     let PaidMark {
         paid_at,
