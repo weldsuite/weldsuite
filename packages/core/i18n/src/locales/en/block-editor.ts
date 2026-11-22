@@ -29,6 +29,17 @@ export const blockEditor = {
     untitled: 'Untitled',
     createError: 'Failed to create the page',
   },
+  // Emoji picker headings, by emoji-mart category id.
+  emojiCategories: {
+    people: 'Smileys & people',
+    nature: 'Animals & nature',
+    foods: 'Food & drink',
+    activity: 'Activity',
+    places: 'Travel & places',
+    objects: 'Objects',
+    symbols: 'Symbols',
+    flags: 'Flags',
+  },
   callout: {
     changeIcon: 'Change icon',
   },

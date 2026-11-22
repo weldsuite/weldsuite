@@ -557,9 +557,9 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
         .map(|s| crate::js_trim(&s).to_owned())
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{}%", escape_like_term(&s)));
-    let rows: Vec<Value> = sqlx::query_scalar(
+    let mut rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('userId', m.user_id, 'name', m.name, 'email', m.email,
-             'picture', m.picture, 'title', m.title, 'phone', m.phone,
+             'picture', null, 'title', m.title, 'phone', m.phone,
              'memberType', case when m.member_type = 'EMPLOYEE' then 'EMPLOYEE' else 'INTERNAL' end)
          from workspace_members m
          where m.deleted_at is null and m.status = 'ACTIVE' and m.member_type = any($1)
@@ -574,6 +574,9 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
     .bind(limit)
     .fetch_all(&caller.db)
     .await?;
+    // Avatars are account pictures, not the member row's copy.
+    weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "userId", "picture")
+        .await;
     Ok(Data(rows).into_response())
 }
 

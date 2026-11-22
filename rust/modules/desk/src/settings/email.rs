@@ -74,7 +74,7 @@ async fn addresses(
     .await;
     let registry = match registry {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let accounts: Result<Vec<(String, String, Option<String>)>, _> = sqlx::query_as(
         "select id, email, to_jsonb(created_at)#>>'{}' from mail_accounts
@@ -84,7 +84,7 @@ async fn addresses(
     .await;
     let accounts = match accounts {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -155,7 +155,7 @@ async fn mail_accounts(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list mail accounts"),
+        Err(error) => Refusal::from(error).respond("Failed to list mail accounts"),
     }
 }
 
@@ -181,7 +181,7 @@ async fn domains(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list email domains"),
+        Err(error) => Refusal::from(error).respond("Failed to list email domains"),
     }
 }
 
@@ -241,7 +241,7 @@ async fn connect(
     };
     match connect_address(&state, &caller, &master, &tenant.workspace_id, &email).await {
         Ok(response) => response,
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -352,7 +352,7 @@ async fn disconnect(
     };
     match disconnect_address(&state, &caller, &master, &tenant.workspace_id, &id).await {
         Ok(response) => response,
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 

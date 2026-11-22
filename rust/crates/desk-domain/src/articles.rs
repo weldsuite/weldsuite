@@ -15,8 +15,10 @@
 //! condition out (no companies, no locale) this binds a value that makes it
 //! false, so both read the same rows.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_schema::tenant::helpcenter_settings;
 
 use crate::table::js_date;
 use crate::webchat::normalize_email;
@@ -52,7 +54,11 @@ fn text_elements(column: &str) -> String {
 }
 
 /// `deskCompanyIdsForEmail(db, email)`.
-pub async fn company_ids_for_email(db: &PgPool, email: &str) -> Result<Vec<String>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "matches the address against each person's jsonb array of alternates"
+)]
+pub async fn company_ids_for_email(db: &PgPool, email: &str) -> Result<Vec<String>, DbErr> {
     let address = normalize_email(email);
     if address.is_empty() {
         return Ok(Vec::new());
@@ -70,10 +76,11 @@ pub async fn company_ids_for_email(db: &PgPool, email: &str) -> Result<Vec<Strin
     .bind(&address)
     .fetch_all(db)
     .await
+    .map_err(orm_error)
 }
 
 /// `deskReaderOf(db, principal)`: anonymous without a verified email.
-pub async fn reader_of(db: &PgPool, verified_email: Option<&str>) -> Result<Reader, sqlx::Error> {
+pub async fn reader_of(db: &PgPool, verified_email: Option<&str>) -> Result<Reader, DbErr> {
     let Some(email) = verified_email
         .map(normalize_email)
         .filter(|email| !email.is_empty())
@@ -313,13 +320,22 @@ pub const FOLDER_ID_SQL: &str = "coalesce((select o.category_id from helpdesk_ar
 
 /// `deskHelpCenterBaseUrl(db)`: `https://<host>` of the live help center,
 /// custom domain first; `None` when it is off or has no domain.
-pub async fn help_center_base_url(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<(Option<i32>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select is_enabled, default_subdomain, custom_domain from helpcenter_settings
-         where deleted_at is null order by created_at asc, id asc limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+pub async fn help_center_base_url(db: &PgPool) -> Result<Option<String>, DbErr> {
+    use helpcenter_settings::Column;
+    let row: Option<(Option<i32>, Option<String>, Option<String>)> =
+        helpcenter_settings::Entity::find()
+            .select_only()
+            .columns([
+                Column::IsEnabled,
+                Column::DefaultSubdomain,
+                Column::CustomDomain,
+            ])
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     let Some((Some(1), subdomain, custom)) = row else {
         return Ok(None);
     };
@@ -345,13 +361,17 @@ pub fn article_url(base: Option<&str>, slug: &str) -> Value {
 /// `searchDeskArticlesFor(db, reader, search, { locale, limit })`: the
 /// displayed versions that match, best first, as `{ id, title, slug,
 /// excerpt, url }`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "full-text search ranked by ts_rank, with the audience SQL the help-center routes share"
+)]
 pub async fn search_for_reader(
     db: &PgPool,
     reader: &Reader,
     search: &Search,
     locale: Option<&str>,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let displayed = displayed_ids_sql(1, 2, 3, 4);
     let matches = matches_sql("t", 5, 6);
     let rank = rank_sql("t", 5, 6);
@@ -369,7 +389,8 @@ pub async fn search_for_reader(
         .bind(&search.tsquery)
         .bind(limit)
         .fetch_all(db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
     let base = help_center_base_url(db).await?;
     Ok(rows
         .into_iter()
@@ -388,7 +409,11 @@ fn iso(value: &Value) -> Value {
 
 /// `listDeskAnnouncementsFor(db, reader)`: published, started, unexpired
 /// announcements the reader may see, pinned first, newest first, at most 20.
-pub async fn announcements_for(db: &PgPool, reader: &Reader) -> Result<Vec<Value>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "matches the reader's companies against each announcement's jsonb array of groups"
+)]
+pub async fn announcements_for(db: &PgPool, reader: &Reader) -> Result<Vec<Value>, DbErr> {
     let audience = audience_sql("a.target_groups", 1);
     let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(a) from helpdesk_announcements a
@@ -401,7 +426,8 @@ pub async fn announcements_for(db: &PgPool, reader: &Reader) -> Result<Vec<Value
     )))
     .bind(&reader.company_ids)
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(rows
         .iter()
         .map(|a| {

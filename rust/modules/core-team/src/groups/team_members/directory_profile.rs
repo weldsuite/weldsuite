@@ -63,8 +63,10 @@ fn holds(caller: &Caller, key: &str) -> bool {
 // ── profile ─────────────────────────────────────────────────────────────────
 
 /// `getMemberProfile`: the member row with their timezone and working hours.
+/// `picture` is the account picture (`master`), not the member row's copy.
 async fn member_profile(
     db: &PgPool,
+    master: Option<&PgPool>,
     subject: &str,
     viewer: &str,
     admin: bool,
@@ -86,6 +88,9 @@ async fn member_profile(
     .fetch_optional(db)
     .await?;
     let field = |key: &str| member.get(key).cloned().unwrap_or(Value::Null);
+    let picture = weldsuite_db::AccountPictures::load(master, member["userId"].as_str())
+        .await
+        .value(member["userId"].as_str());
     let (timezone, working_hours) = match prefs {
         Some((timezone, hours)) => (timezone, hours.unwrap_or(Value::Null)),
         None => ("UTC".to_owned(), Value::Null),
@@ -95,7 +100,7 @@ async fn member_profile(
         "userId": field("userId"),
         "name": field("name"),
         "email": field("email"),
-        "picture": field("picture"),
+        "picture": picture,
         "role": field("role"),
         "status": field("status"),
         "title": field("title"),
@@ -117,10 +122,16 @@ async fn profile(caller: Caller, Path(subject): Path<String>) -> Response {
 
 async fn profile_inner(caller: &Caller, subject: &str) -> TeamResult<Response> {
     let admin = holds(caller, "team:update");
-    let profile = member_profile(&caller.db, subject, &caller.user_id, admin)
-        .await
-        .map_err(failed("Failed to fetch profile"))?
-        .ok_or_else(|| ApiError::not_found("Member", Some(subject)))?;
+    let profile = member_profile(
+        &caller.db,
+        caller.request_master(),
+        subject,
+        &caller.user_id,
+        admin,
+    )
+    .await
+    .map_err(failed("Failed to fetch profile"))?
+    .ok_or_else(|| ApiError::not_found("Member", Some(subject)))?;
     Ok(Data(profile).into_response())
 }
 
@@ -230,10 +241,16 @@ async fn update_profile_inner(
     save_profile(&caller.db, subject, &patch)
         .await
         .map_err(failed(message))?;
-    let profile = member_profile(&caller.db, subject, &caller.user_id, admin)
-        .await
-        .map_err(failed(message))?
-        .ok_or_else(|| ApiError::not_found("Member", Some(subject)))?;
+    let profile = member_profile(
+        &caller.db,
+        caller.request_master(),
+        subject,
+        &caller.user_id,
+        admin,
+    )
+    .await
+    .map_err(failed(message))?
+    .ok_or_else(|| ApiError::not_found("Member", Some(subject)))?;
     Ok(Data(profile).into_response())
 }
 

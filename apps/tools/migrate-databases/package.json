@@ -24,6 +24,7 @@
     "backfill:legal-entities": "tsx src/backfill-legal-entities.ts",
     "backfill:legal-entities:execute": "tsx src/backfill-legal-entities.ts --execute",
     "inventory:global": "tsx src/global-inventory.ts",
+    "clerk:weldid": "tsx src/clerk-to-weldid.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -79,7 +79,6 @@ function chat(overrides: Partial<RecordChatListItem> = {}): RecordChatListItem {
 }
 
 const lastListCall = () => state.listCalls.at(-1);
-const tab = (name: string) => screen.getByRole('tab', { name });
 
 beforeEach(() => {
   state.search = {};
@@ -92,35 +91,63 @@ beforeEach(() => {
   }
 });
 
-describe('RecordChatsPage tabs', () => {
-  it('has an All tab and one tab per record type, in group order', () => {
+const OP = 'sweep.entities.operatorIs';
+const filterButtons = () => screen.getAllByRole('button', { name: /^common\.actions\.filter/ });
+/** Desktop: the shared Filter (field → value → pill). */
+const desktopFilterButton = () => filterButtons().find((b) => b.dataset.slot === 'popover-trigger')!;
+/** Phones: a menu on the right of the toolbar, its button counting the changed filters. */
+const filterButton = () => filterButtons().find((b) => b.dataset.slot === 'dropdown-menu-trigger')!;
+const pills = () => [...document.querySelectorAll<HTMLElement>('[data-slot="filter-pill"]')];
+const pillTexts = () => pills().map((pill) => pill.textContent);
+const removePill = (pill: HTMLElement) => fireEvent.click(within(pill).getByRole('button', { name: 'Remove' }));
+
+/** The value options of the pill's open value picker, after `first` shows. */
+async function valueOptions(first: string) {
+  const option = await screen.findByRole('button', { name: first });
+  return [...option.parentElement!.querySelectorAll('button')];
+}
+
+describe('RecordChatsPage type filter', () => {
+  it('has no tab row: the type is a filter', () => {
     render(<RecordChatsPage />);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      `${K}.page.allTab`,
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(pills()).toHaveLength(0);
+    expect(lastListCall()).toEqual({ type: undefined, filter: 'following', sort: 'unread', search: '' });
+  });
+
+  it('adds a Type pill from the Filter button, one value per record type in group order', async () => {
+    const user = userEvent.setup();
+    render(<RecordChatsPage />);
+    await user.click(desktopFilterButton());
+    await user.click(await screen.findByRole('button', { name: `${K}.page.typeHeader` }));
+    const options = await valueOptions(`${K}.groups.company`);
+    expect(options.map((o) => o.textContent)).toEqual([
       `${K}.groups.company`,
       `${K}.groups.person`,
       `${K}.groups.task`,
       `${K}.groups.project`,
       `${K}.groups.domain`,
     ]);
-    expect(tab(`${K}.page.allTab`).getAttribute('aria-selected')).toBe('true');
-    expect(lastListCall()).toEqual({ type: undefined, filter: 'following', sort: 'unread', search: '' });
+    await user.click(options[1]!);
+    expect(state.navigate).toHaveBeenLastCalledWith({ to: '/weldchat/records', search: { type: 'person' } });
   });
 
-  it('hides the tabs of types the caller has no permission for', () => {
+  it('leaves out the types the caller has no permission for', async () => {
+    const user = userEvent.setup();
     state.summary = [summaryRow('task'), summaryRow('project')];
     render(<RecordChatsPage />);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      `${K}.page.allTab`,
+    await user.click(desktopFilterButton());
+    await user.click(await screen.findByRole('button', { name: `${K}.page.typeHeader` }));
+    expect((await valueOptions(`${K}.groups.task`)).map((o) => o.textContent)).toEqual([
       `${K}.groups.task`,
       `${K}.groups.project`,
     ]);
   });
 
-  it('opens the tab the URL names (a sidebar "Show all" link)', () => {
+  it('shows the type the URL names as a pill (a sidebar "Show all" link)', () => {
     state.search = { type: 'task' };
     render(<RecordChatsPage />);
-    expect(tab(`${K}.groups.task`).getAttribute('aria-selected')).toBe('true');
+    expect(pillTexts()).toEqual([`${K}.page.typeHeader${OP}${K}.groups.task`]);
     expect(lastListCall()?.type).toBe('task');
   });
 
@@ -128,40 +155,60 @@ describe('RecordChatsPage tabs', () => {
     state.search = { type: 'company' };
     state.summary = [summaryRow('task')];
     render(<RecordChatsPage />);
-    expect(screen.queryByRole('tab', { name: `${K}.groups.company` })).toBeNull();
-    expect(tab(`${K}.page.allTab`).getAttribute('aria-selected')).toBe('true');
+    expect(pills()).toHaveLength(0);
     expect(lastListCall()?.type).toBeUndefined();
   });
 
-  it('keeps the asked-for tab while the summary loads', () => {
+  it('keeps the asked-for type while the summary loads', () => {
     state.search = { type: 'domain' };
     state.summary = undefined;
     render(<RecordChatsPage />);
-    expect(tab(`${K}.groups.domain`).getAttribute('aria-selected')).toBe('true');
+    expect(pillTexts()).toEqual([`${K}.page.typeHeader${OP}${K}.groups.domain`]);
     expect(lastListCall()?.type).toBe('domain');
   });
 
-  it('writes the chosen tab into the URL and keeps the filter and the Unread switch', () => {
-    state.search = { filter: 'mentions', unread: true };
+  it('changes the type from its pill and keeps the filter and Unread', async () => {
+    const user = userEvent.setup();
+    state.search = { type: 'task', filter: 'mentions', unread: true };
     render(<RecordChatsPage />);
-    fireEvent.click(tab(`${K}.groups.person`));
-    expect(state.navigate).toHaveBeenCalledWith({
+    await user.click(within(pills()[0]!).getByRole('button', { name: `${K}.groups.task` }));
+    const options = await valueOptions(`${K}.groups.person`);
+    await user.click(options.find((o) => o.textContent === `${K}.groups.person`)!);
+    expect(state.navigate).toHaveBeenLastCalledWith({
       to: '/weldchat/records',
       search: { type: 'person', filter: 'mentions', unread: true },
     });
   });
 
-  it('leaves the type out of the URL on the All tab', () => {
+  it('takes the type off with its pill', () => {
+    state.search = { type: 'person', filter: 'all' };
+    render(<RecordChatsPage />);
+    removePill(pills()[0]!);
+    expect(state.navigate).toHaveBeenLastCalledWith({ to: '/weldchat/records', search: { filter: 'all' } });
+  });
+
+  it('offers the types in the phone Filter menu too, All for no type', async () => {
+    const user = userEvent.setup();
     state.search = { type: 'person' };
     render(<RecordChatsPage />);
-    fireEvent.click(tab(`${K}.page.allTab`));
-    expect(state.navigate).toHaveBeenCalledWith({ to: '/weldchat/records', search: {} });
+    await user.click(filterButton());
+    const group = await screen.findByRole('group', { name: `${K}.page.typeHeader` });
+    const options = within(group).getAllByRole('menuitemradio');
+    expect(options.map((o) => o.textContent)).toEqual([
+      `${K}.page.allTab`,
+      `${K}.groups.company`,
+      `${K}.groups.person`,
+      `${K}.groups.task`,
+      `${K}.groups.project`,
+      `${K}.groups.domain`,
+    ]);
+    expect(options[2]!.getAttribute('aria-checked')).toBe('true');
+    await user.click(options[0]!);
+    expect(state.navigate).toHaveBeenLastCalledWith({ to: '/weldchat/records', search: {} });
   });
 });
 
 describe('RecordChatsPage filters', () => {
-  // Desktop's menu; phones get a second one on the right of the toolbar.
-  const filterButton = () => screen.getAllByRole('button', { name: /^common\.actions\.filter/ })[0]!;
   /** Opens the Filter menu and returns the option of one filter. */
   async function option(user: UserEvent, filter: string) {
     await user.click(filterButton());
@@ -172,13 +219,10 @@ describe('RecordChatsPage filters', () => {
     await user.click(filterButton());
     return screen.findByRole('menuitemcheckbox', { name: `${K}.page.filters.unread` });
   }
-  const pills = () => screen.queryAllByTestId('record-chats-filter-pill');
-  const pillTexts = () => pills().map((pill) => pill.textContent);
-
-  it('lists followed chats by default, the Filter button plain', async () => {
+  it('lists followed chats by default, the Filter buttons plain', async () => {
     const user = userEvent.setup();
     render(<RecordChatsPage />);
-    expect(filterButton().textContent).toBe('common.actions.filter');
+    expect(filterButtons().map((b) => b.textContent)).toEqual(['common.actions.filter', 'common.actions.filter']);
     expect(pills()).toHaveLength(0);
     expect((await option(user, 'following')).getAttribute('aria-checked')).toBe('true');
     expect(lastListCall()?.filter).toBe('following');
@@ -188,7 +232,7 @@ describe('RecordChatsPage filters', () => {
     const user = userEvent.setup();
     state.search = { filter };
     render(<RecordChatsPage />);
-    expect(pillTexts()).toEqual([`${K}.page.filterLabel${K}.page.filters.${filter}`]);
+    expect(pillTexts()).toEqual([`${K}.page.filterLabel${OP}${K}.page.filters.${filter}`]);
     expect((await option(user, filter)).getAttribute('aria-checked')).toBe('true');
     expect(lastListCall()?.filter).toBe(filter);
   });
@@ -196,25 +240,29 @@ describe('RecordChatsPage filters', () => {
   it('takes a filter off with its pill, back to Following', () => {
     state.search = { type: 'task', filter: 'mentions', unread: true };
     render(<RecordChatsPage />);
-    expect(pillTexts()).toEqual([`${K}.page.filterLabel${K}.page.filters.mentions`, `${K}.page.filters.unread`]);
-    fireEvent.click(within(pills()[0]!).getByRole('button', { name: `${K}.page.removeFilter` }));
+    expect(pillTexts()).toEqual([
+      `${K}.page.typeHeader${OP}${K}.groups.task`,
+      `${K}.page.filterLabel${OP}${K}.page.filters.mentions`,
+      `${K}.page.filters.unread${OP}common.dialogs.yes`,
+    ]);
+    removePill(pills()[1]!);
     expect(state.navigate).toHaveBeenLastCalledWith({ to: '/weldchat/records', search: { type: 'task', unread: true } });
-    fireEvent.click(within(pills()[1]!).getByRole('button', { name: `${K}.page.removeFilter` }));
+    removePill(pills()[2]!);
     expect(state.navigate).toHaveBeenLastCalledWith({ to: '/weldchat/records', search: { type: 'task', filter: 'mentions' } });
   });
 
-  it('counts the changed filters on the phone Filter button', () => {
-    state.search = { filter: 'all', unread: true };
+  it('counts the changed filters, the type among them, on the phone Filter button', () => {
+    state.search = { type: 'task', filter: 'all', unread: true };
     render(<RecordChatsPage />);
-    const [, phone] = screen.getAllByRole('button', { name: /^common\.actions\.filter/ });
-    expect(phone?.textContent).toBe('common.actions.filter2');
+    expect(filterButton().textContent).toBe('common.actions.filter3');
   });
 
   it('offers Following, Mentions and All I can see, with Unread as a switch of its own', async () => {
     const user = userEvent.setup();
     render(<RecordChatsPage />);
     expect((await unreadSwitch(user)).getAttribute('aria-checked')).toBe('false');
-    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+    const show = screen.getByRole('group', { name: `${K}.page.filterLabel` });
+    expect(within(show).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
       `${K}.page.filters.following`,
       `${K}.page.filters.mentions`,
       `${K}.page.filters.all`,
@@ -254,7 +302,7 @@ describe('RecordChatsPage filters', () => {
   ])('lists the unread chats under "%s" with Unread on', (filter, listed) => {
     state.search = { filter, unread: true };
     render(<RecordChatsPage />);
-    expect(pillTexts()).toContain(`${K}.page.filters.unread`);
+    expect(pillTexts()).toContain(`${K}.page.filters.unread${OP}common.dialogs.yes`);
     expect(lastListCall()?.filter).toBe(listed);
   });
 
@@ -345,7 +393,7 @@ describe('RecordChatsPage filters', () => {
 describe('RecordChatsPage "Show in sidebar"', () => {
   const toggle = () => screen.queryByTestId('record-chats-show-in-sidebar');
 
-  it('is not on the All tab', () => {
+  it('is not there without a type', () => {
     render(<RecordChatsPage />);
     expect(toggle()).toBeNull();
   });
@@ -377,11 +425,11 @@ describe('RecordChatsPage "Show in sidebar"', () => {
 describe('RecordChatsPage rows', () => {
   const row = () => screen.getByTestId('record-chat-row');
 
-  it('shows the record name, last message and time, and opens the chat', () => {
+  it('shows the record name and time, not the last message, and opens the chat', () => {
     state.rows = [chat()];
     render(<RecordChatsPage />);
     expect(within(row()).getByText('Acme')).toBeTruthy();
-    expect(within(row()).getByText('Invoice sent')).toBeTruthy();
+    expect(within(row()).queryByText('Invoice sent')).toBeNull();
     expect(within(row()).getByText('sweep.weldchat.relativeTime.minutesAgo')).toBeTruthy();
     fireEvent.click(within(row()).getByText('Acme'));
     expect(state.navigate).toHaveBeenCalledWith({ to: '/weldchat/$channelId', params: { channelId: 'ch_1' } });
@@ -403,7 +451,7 @@ describe('RecordChatsPage rows', () => {
     expect(screen.queryByRole('img', { name: `${K}.page.filters.unread` })).toBeNull();
   });
 
-  it('shows the type column on the All tab only', () => {
+  it('shows the type column without a type only', () => {
     state.rows = [chat()];
     const { unmount } = render(<RecordChatsPage />);
     expect(within(row()).getByText(`${K}.types.company`)).toBeTruthy();

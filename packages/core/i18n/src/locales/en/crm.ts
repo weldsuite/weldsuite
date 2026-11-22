@@ -1730,6 +1730,36 @@ export const crm = {
       integrations: 'Integrations',
       automation: 'Automation Rules',
 
+      autoAdd: {
+        tab: 'Auto-add',
+        title: 'Add people automatically',
+        description: 'Put the people your team works with into WeldCRM without anyone clicking "Add to CRM".',
+        enabledLabel: 'Add people to WeldCRM automatically',
+        enabledDescription:
+          'Only people your team has really been in touch with. Colleagues, your own domains and automated senders such as noreply@ are never added.',
+        sourcesLegend: 'Add people from',
+        sources: {
+          email: {
+            label: 'Email',
+            description: 'People you email, and people who reply to an email you sent.',
+          },
+          meetings: {
+            label: 'Meetings',
+            description: 'People outside your workspace you invite to a WeldMeet meeting.',
+          },
+          helpdesk: {
+            label: 'Helpdesk',
+            description: 'Customers an agent has replied to in WeldDesk.',
+          },
+        },
+        companiesLabel: 'Also add their company',
+        companiesDescription:
+          'Links each person to the company of their email domain: jan@acme.com goes to Acme, which is created if it is not in WeldCRM yet. Free email addresses such as gmail.com never become a company.',
+        saved: 'Auto-add settings saved',
+        saveFailed: 'Could not save the auto-add settings',
+        loadFailed: 'Could not load the auto-add settings',
+      },
+
       customerStatuses: {
         title: 'Customer statuses',
         subtitle: 'Built-in statuses are locked. Add custom statuses to fit your workflow.',

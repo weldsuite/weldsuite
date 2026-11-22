@@ -319,7 +319,7 @@ pub(crate) async fn list_versions(ctx: &Ctx, form_id: &str) -> FormsResult<Vec<V
     .fetch_all(&ctx.db)
     .await?;
     let refs = member_refs(
-        &ctx.db,
+        ctx,
         &versions
             .iter()
             .map(|v| text(v, "publishedByUserId").to_owned())

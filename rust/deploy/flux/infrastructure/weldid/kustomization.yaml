@@ -15,6 +15,7 @@ resources:
   - certificate.yaml
   - release.yaml
   - monitoring.yaml
+  - network-policy.yaml
 generatorOptions:
   disableNameSuffixHash: true
   # helm-controller upgrades a release as soon as its values ConfigMap

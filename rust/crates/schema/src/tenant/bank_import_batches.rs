@@ -1,0 +1,149 @@
+//! `bank_import_batches`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "bank_import_batches")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "bankAccountId")]
+    pub bank_account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "fileName")]
+    pub file_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "fileKey")]
+    pub file_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "format")]
+    pub format: Option<String>,
+    #[serde(rename = "totalTransactions")]
+    pub total_transactions: Option<i32>,
+    #[serde(rename = "importedCount")]
+    pub imported_count: Option<i32>,
+    #[serde(rename = "duplicateCount")]
+    pub duplicate_count: Option<i32>,
+    #[serde(rename = "autoReconciledCount")]
+    pub auto_reconciled_count: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "dateRange")]
+    pub date_range: Option<Json>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "openingBalance",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub opening_balance: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "closingBalance",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub closing_balance: Option<BigDecimal>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "errors")]
+    pub errors: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "importedBy")]
+    pub imported_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "bank_import_batches",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'processing'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_bank_import_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_import_bank_account_idx",
+            columns: &[IndexColumn {
+                expression: "bank_account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_import_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

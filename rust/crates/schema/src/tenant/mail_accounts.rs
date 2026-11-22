@@ -1,0 +1,311 @@
+//! `mail_accounts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "mail_accounts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "email")]
+    pub email: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "provider")]
+    pub provider: super::enums::MailProvider,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "providerConfig")]
+    pub provider_config: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "sendProvider")]
+    pub send_provider: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "receiveProvider")]
+    pub receive_provider: Option<String>,
+    #[serde(rename = "authType")]
+    pub auth_type: super::enums::MailAuthType,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "accessToken")]
+    pub access_token: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "apiKey")]
+    pub api_key: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "passwordHash")]
+    pub password_hash: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "imapHost")]
+    pub imap_host: Option<String>,
+    #[serde(rename = "imapPort")]
+    pub imap_port: Option<i32>,
+    #[serde(rename = "imapSecure")]
+    pub imap_secure: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "smtpHost")]
+    pub smtp_host: Option<String>,
+    #[serde(rename = "smtpPort")]
+    pub smtp_port: Option<i32>,
+    #[serde(rename = "smtpSecure")]
+    pub smtp_secure: Option<bool>,
+    #[serde(rename = "syncEnabled")]
+    pub sync_enabled: bool,
+    #[serde(rename = "syncFrequency")]
+    pub sync_frequency: Option<i32>,
+    #[serde(rename = "lastSyncAt", with = "crate::js::timestamp::option")]
+    pub last_sync_at: Option<TimeDateTime>,
+    #[serde(rename = "syncStatus")]
+    pub sync_status: Option<super::enums::MailSyncStatus>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "syncError")]
+    pub sync_error: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "signature")]
+    pub signature: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "autoReply")]
+    pub auto_reply: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "aiSettings")]
+    pub ai_settings: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "forwardingEmail")]
+    pub forwarding_email: Option<String>,
+    #[serde(rename = "dailySendLimit")]
+    pub daily_send_limit: Option<i32>,
+    #[serde(rename = "sentToday")]
+    pub sent_today: Option<i32>,
+    #[serde(rename = "storageUsed")]
+    pub storage_used: Option<i32>,
+    #[serde(rename = "storageLimit")]
+    pub storage_limit: Option<i32>,
+    #[serde(rename = "status")]
+    pub status: super::enums::MailAccountStatus,
+    #[serde(rename = "isDefault")]
+    pub is_default: Option<bool>,
+    #[serde(rename = "isShared")]
+    pub is_shared: Option<bool>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "assignedUserIds")]
+    pub assigned_user_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "externalAccountId")]
+    pub external_account_id: Option<String>,
+    #[serde(rename = "mailcowSyncedAt", with = "crate::js::timestamp::option")]
+    pub mailcow_synced_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "mail_accounts",
+    columns: &[
+        DdlColumn {
+            name: "provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'imap'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auth_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'password'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "imap_secure",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "smtp_secure",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sync_enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sync_frequency",
+            sql_type: None,
+            default: Some(DdlDefault::Number("5")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sync_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'idle'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "daily_send_limit",
+            sql_type: None,
+            default: Some(DdlDefault::Number("500")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sent_today",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "storage_used",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_default",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_shared",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "mail_accounts_email_idx",
+            columns: &[IndexColumn {
+                expression: "email",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_accounts_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_accounts_is_default_idx",
+            columns: &[IndexColumn {
+                expression: "is_default",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_accounts_external_account_id_idx",
+            columns: &[IndexColumn {
+                expression: "external_account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

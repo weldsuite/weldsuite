@@ -70,14 +70,14 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
     const client = new PGlite({ extensions: { vector, pg_trgm } });
     const db = drizzlePg.drizzle(client, { schema: schemaModule });
 
-    // Apply tenant migrations in order. The SQL files live in the
-    // @weldsuite/db package and are the same ones the migrate-databases
-    // app runs against Neon.
+    // Apply tenant migrations in order. The SQL files live in
+    // rust/migrations (generated from the Rust entities, ADR DATA-019) and
+    // are the same ones `weldsuite migrate` runs.
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(
       here,
-      // src/testing → packages/core/db
-      '../../../db/drizzle/tenant-migrations',
+      // src/testing → the repository root
+      '../../../../../rust/migrations/tenant',
     );
     // Apply exactly what the real runner (drizzle `migrate`) applies: the
     // journal entries, in journal order. Reading every .sql file instead once
@@ -199,7 +199,7 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
     clients.set(db, client);
 
     const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const migrationsDir = path.resolve(here, '../../../db/drizzle/master-migrations');
+    const migrationsDir = path.resolve(here, '../../../../../rust/migrations/master');
     const journal = JSON.parse(
       await fs.readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
     ) as { entries: Array<{ idx: number; tag: string }> };

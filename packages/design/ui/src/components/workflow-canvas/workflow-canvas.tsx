@@ -25,7 +25,7 @@ import { ConditionNode, ConditionBranchNode } from './condition-node';
 import { SubAgentNode } from './sub-agent-node';
 import { workflowToFlow, autoLayoutNodes, getNodeHeight, getNodeWidth, getTotalNodeHeight, toSlotPosition, NODE_HEIGHT, NODE_WIDTH, type FlowNodeData } from './flow-utils';
 import { type WorkflowStep, type TriggerConfig, type WorkflowCanvasLabels, type VariableItem, DEFAULT_CANVAS_LABELS } from './types';
-import { Plus, Minus, Maximize } from 'lucide-react';
+import { ZoomControls } from '@weldsuite/ui/components/zoom-controls';
 
 // Alignment threshold in pixels
 const ALIGNMENT_THRESHOLD = 8;
@@ -236,37 +236,15 @@ export function CanvasControls({ onResetLayout, labels }: Readonly<{ onResetLayo
 
   return (
     <Panel position="bottom-right" className="!m-4">
-      <div className="flex flex-col bg-white dark:bg-background border border-border rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => zoomIn({ duration: 150 })}
-          className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
-          title={labels.zoomIn}
-        >
-          <Plus className="w-4 h-4 text-foreground" />
-        </button>
-        <div className="border-t border-border" />
-        <button
-          type="button"
-          onClick={() => zoomOut({ duration: 150 })}
-          className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
-          title={labels.zoomOut}
-        >
-          <Minus className="w-4 h-4 text-foreground" />
-        </button>
-        <div className="border-t border-border" />
-        <button
-          type="button"
-          onClick={() => {
-            onResetLayout?.();
-            setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
-          }}
-          className="w-9 h-9 flex items-center justify-center hover:bg-muted transition-colors"
-          title={labels.resetLayout}
-        >
-          <Maximize className="w-4 h-4 text-foreground" />
-        </button>
-      </div>
+      <ZoomControls
+        onZoomIn={() => zoomIn({ duration: 150 })}
+        onZoomOut={() => zoomOut({ duration: 150 })}
+        onReset={() => {
+          onResetLayout?.();
+          setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+        }}
+        labels={{ zoomIn: labels.zoomIn, zoomOut: labels.zoomOut, reset: labels.resetLayout }}
+      />
     </Panel>
   );
 }

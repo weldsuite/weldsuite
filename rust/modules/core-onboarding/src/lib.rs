@@ -19,6 +19,11 @@
 //! when the state has no [`WorkspaceService`]: the conformance build, and a
 //! server without an identity provider or tenant shards.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod caller;
 mod onboard;
 mod provision;

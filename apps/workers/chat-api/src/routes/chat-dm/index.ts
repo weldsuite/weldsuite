@@ -35,6 +35,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures, withAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { leaveDm, setDmArchived, setDmPinned } from '../../services/chat/dm-membership';
 
 /** UTF-16 code-unit order (the default `sort()` order), so participant sets compare identically. */
@@ -142,9 +143,10 @@ app.get('/', requirePermission('messages:read'), async (c) => {
       )
       .orderBy(desc(chatChannels.lastMessageAt));
 
-    const result = await Promise.all(
-      channels.map(async (channel) => {
-        const members = await db
+    const perChannel = await Promise.all(
+      channels.map(async (channel) => ({
+        channel,
+        rows: await db
           .select({
             userId: chatChannelMembers.userId,
             role: chatChannelMembers.role,
@@ -152,25 +154,33 @@ app.get('/', requirePermission('messages:read'), async (c) => {
             lastReadMessageId: chatChannelMembers.lastReadMessageId,
             name: workspaceMembers.name,
             email: workspaceMembers.email,
-            picture: workspaceMembers.picture,
           })
           .from(chatChannelMembers)
           .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-          .where(eq(chatChannelMembers.channelId, channel.id));
-
-        const currentMember = members.find((m) => m.userId === userId);
-        const otherMembers = members.filter((m) => m.userId !== userId);
-
-        return {
-          ...channel,
-          members,
-          otherMembers,
-          isMuted: mutedByChannel.get(channel.id) ?? false,
-          lastReadAt: currentMember?.lastReadAt ?? null,
-          lastReadMessageId: currentMember?.lastReadMessageId ?? null,
-        };
-      }),
+          .where(eq(chatChannelMembers.channelId, channel.id)),
+      })),
     );
+
+    // Everyone's account picture, looked up once for the whole list.
+    const pictures = await loadAccountPictures(
+      c.env,
+      perChannel.flatMap(({ rows }) => rows.map((m) => m.userId)),
+    );
+
+    const result = perChannel.map(({ channel, rows }) => {
+      const members = rows.map((m) => ({ ...m, picture: accountPicture(pictures, m.userId) }));
+      const currentMember = members.find((m) => m.userId === userId);
+      const otherMembers = members.filter((m) => m.userId !== userId);
+
+      return {
+        ...channel,
+        members,
+        otherMembers,
+        isMuted: mutedByChannel.get(channel.id) ?? false,
+        lastReadAt: currentMember?.lastReadAt ?? null,
+        lastReadMessageId: currentMember?.lastReadMessageId ?? null,
+      };
+    });
 
     return success(c, result);
   } catch (err) {
@@ -237,16 +247,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
           memberUserIds.length === targetUserIds.length &&
           memberUserIds.every((id, i) => id === targetUserIds[i])
         ) {
-          const fullMembers = await db
-            .select({
-              userId: chatChannelMembers.userId,
-              name: workspaceMembers.name,
-              email: workspaceMembers.email,
-              picture: workspaceMembers.picture,
-            })
-            .from(chatChannelMembers)
-            .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-            .where(eq(chatChannelMembers.channelId, candidate.id));
+          const fullMembers = await withAccountPictures(
+            c.env,
+            await db
+              .select({
+                userId: chatChannelMembers.userId,
+                name: workspaceMembers.name,
+                email: workspaceMembers.email,
+              })
+              .from(chatChannelMembers)
+              .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+              .where(eq(chatChannelMembers.channelId, candidate.id)),
+          );
 
           const [channel] = await db
             .select()
@@ -296,16 +308,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
     );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
-    const fullMembers = await db
-      .select({
-        userId: chatChannelMembers.userId,
-        name: workspaceMembers.name,
-        email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
-      })
-      .from(chatChannelMembers)
-      .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-      .where(eq(chatChannelMembers.channelId, id));
+    const fullMembers = await withAccountPictures(
+      c.env,
+      await db
+        .select({
+          userId: chatChannelMembers.userId,
+          name: workspaceMembers.name,
+          email: workspaceMembers.email,
+        })
+        .from(chatChannelMembers)
+        .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+        .where(eq(chatChannelMembers.channelId, id)),
+    );
 
     const [sender] = await db
       .select({ name: workspaceMembers.name })
@@ -377,19 +391,21 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
             .where(eq(chatChannels.id, candidate.id))
             .limit(1);
 
-          const fullMembers = await db
-            .select({
-              userId: chatChannelMembers.userId,
-              role: chatChannelMembers.role,
-              lastReadAt: chatChannelMembers.lastReadAt,
-              lastReadMessageId: chatChannelMembers.lastReadMessageId,
-              name: workspaceMembers.name,
-              email: workspaceMembers.email,
-              picture: workspaceMembers.picture,
-            })
-            .from(chatChannelMembers)
-            .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-            .where(eq(chatChannelMembers.channelId, candidate.id));
+          const fullMembers = await withAccountPictures(
+            c.env,
+            await db
+              .select({
+                userId: chatChannelMembers.userId,
+                role: chatChannelMembers.role,
+                lastReadAt: chatChannelMembers.lastReadAt,
+                lastReadMessageId: chatChannelMembers.lastReadMessageId,
+                name: workspaceMembers.name,
+                email: workspaceMembers.email,
+              })
+              .from(chatChannelMembers)
+              .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+              .where(eq(chatChannelMembers.channelId, candidate.id)),
+          );
 
           const currentMember = fullMembers.find((m) => m.userId === userId);
           const otherMembers = fullMembers.filter((m) => m.userId !== userId);
@@ -444,19 +460,21 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
     );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
-    const fullMembers = await db
-      .select({
-        userId: chatChannelMembers.userId,
-        role: chatChannelMembers.role,
-        lastReadAt: chatChannelMembers.lastReadAt,
-        lastReadMessageId: chatChannelMembers.lastReadMessageId,
-        name: workspaceMembers.name,
-        email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
-      })
-      .from(chatChannelMembers)
-      .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-      .where(eq(chatChannelMembers.channelId, id));
+    const fullMembers = await withAccountPictures(
+      c.env,
+      await db
+        .select({
+          userId: chatChannelMembers.userId,
+          role: chatChannelMembers.role,
+          lastReadAt: chatChannelMembers.lastReadAt,
+          lastReadMessageId: chatChannelMembers.lastReadMessageId,
+          name: workspaceMembers.name,
+          email: workspaceMembers.email,
+        })
+        .from(chatChannelMembers)
+        .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+        .where(eq(chatChannelMembers.channelId, id)),
+    );
 
     const otherMembers = fullMembers.filter((m) => m.userId !== userId);
 

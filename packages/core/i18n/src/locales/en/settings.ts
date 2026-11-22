@@ -1701,6 +1701,7 @@ export const settings = {
           gstin: 'GSTIN',
           pan: 'PAN',
           eori: 'EORI',
+          oss: 'EU One-Stop Shop (OSS) number',
           nl_payroll_tax: 'Payroll tax number (loonheffingennummer)',
           us_state_withholding: 'US state withholding',
           us_state_unemployment: 'US state unemployment',

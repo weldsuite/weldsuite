@@ -162,7 +162,7 @@ fn status_derived(values: &mut Map<String, Value>, status: &str) {
 }
 
 /// `loadConversation`: the live row.
-async fn load(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn load(db: &PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
     CONV.find_live(db, id).await
 }
 
@@ -364,7 +364,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .await;
     let (rows, total) = match (rows, total) {
         (Ok(rows), Ok(total)) => (rows, total),
-        (Err(error), _) | (_, Err(error)) => return Refusal::Database(error).respond(MESSAGE),
+        (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows: Vec<Value> = rows
         .into_iter()
@@ -403,7 +403,7 @@ async fn folder_counts(caller: Caller) -> Response {
     .await;
     match counts {
         Ok(counts) => Data(counts).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch folder counts"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch folder counts"),
     }
 }
 
@@ -426,7 +426,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         ))
         .into_response(),
         Ok(None) => Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -497,7 +497,7 @@ async fn messages(caller: Caller, Path(id): Path<String>) -> Response {
     match exists(&caller.db, &id).await {
         Ok(true) => {}
         Ok(false) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
         "select to_jsonb(m) from helpdesk_conversation_messages m
@@ -513,7 +513,7 @@ async fn messages(caller: Caller, Path(id): Path<String>) -> Response {
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -587,7 +587,7 @@ async fn send_message(
     let conversation = match load(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let author_name = input
         .author_name
@@ -610,7 +610,7 @@ async fn send_message(
         .execute(&caller.db)
         .await;
         if let Err(error) = assigned {
-            return Refusal::Database(error).respond(MESSAGE);
+            return Refusal::from(error).respond(MESSAGE);
         }
         publish(
             &state,
@@ -699,7 +699,7 @@ async fn send_message(
     .execute(&caller.db)
     .await;
     if let Err(error) = rolled {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     let message = message_dto(&row);
     publish(
@@ -784,7 +784,7 @@ async fn respond(
     let message = match found {
         Ok(Some(row)) => HELPDESK_CONVERSATION_MESSAGES.js(row),
         Ok(None) => return Refusal::not_found("Message", &message_id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let blocks = message["blocks"].as_array().cloned().unwrap_or_default();
     let Some(block) = blocks
@@ -827,7 +827,7 @@ async fn respond(
     .execute(&caller.db)
     .await;
     if let Err(error) = stored {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     publish(
         &state,
@@ -873,7 +873,7 @@ async fn events(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuer
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch conversation events"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch conversation events"),
     }
 }
 
@@ -898,7 +898,7 @@ async fn review(caller: Caller, Path(id): Path<String>) -> Response {
             }))
             .into_response()
         }
-        Err(error) => Refusal::Database(error).respond("Failed to fetch review"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch review"),
     }
 }
 
@@ -917,7 +917,7 @@ async fn audit_logs(caller: Caller, Path(id): Path<String>) -> Response {
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch audit logs"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch audit logs"),
     }
 }
 
@@ -1044,7 +1044,7 @@ async fn update_conversation(
     let existing = match load(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let mut values = Map::new();
     CONV.set(&mut values, "updatedAt", json!(now()));
@@ -1113,7 +1113,7 @@ async fn remove(
     let existing = match load(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     if let Err(error) = soft_delete(&caller.db, CONV, &id).await {
         return write_failed(&error, MESSAGE);
@@ -1141,7 +1141,7 @@ async fn existing(caller: &Caller, id: &str, message: &str) -> Result<Value, Res
     match load(&caller.db, id).await {
         Ok(Some(row)) => Ok(row),
         Ok(None) => Err(Refusal::not_found("Conversation", id).respond(message)),
-        Err(error) => Err(Refusal::Database(error).respond(message)),
+        Err(error) => Err(Refusal::from(error).respond(message)),
     }
 }
 
@@ -1484,10 +1484,10 @@ async fn assign(
         Ok(None) => {
             return match load(&caller.db, &id).await {
                 Ok(row) => Data(assignment_answer(&id, row.as_ref())).into_response(),
-                Err(error) => Refusal::Database(error).respond(MESSAGE),
+                Err(error) => Refusal::from(error).respond(MESSAGE),
             };
         }
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let agent_name = name.clone().unwrap_or_else(|| "Agent".to_owned());
     assigned(
@@ -1605,7 +1605,7 @@ async fn assign_team(
     let auto = if explicit.is_none() {
         match crate::assignment::auto_assign(&caller.db, &department, &id).await {
             Ok(auto) => auto,
-            Err(error) => return Refusal::Database(error).respond(MESSAGE),
+            Err(error) => return Refusal::from(error).respond(MESSAGE),
         }
     } else {
         None
@@ -1613,7 +1613,7 @@ async fn assign_team(
     let conv = match load(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     publish(
         &state,
@@ -1690,7 +1690,7 @@ async fn convert_to_ticket(
     let (conv, contact_name, contact_email) = match row {
         Ok(Some((row, name, email))) => (CONV.js(row), name, email),
         Ok(None) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let ticket_id = generate_id("tkt");
     let ticket_number = format!("TKT-{}", base36_now());
@@ -2009,7 +2009,7 @@ async fn auto_link_contact(
     match exists(&caller.db, &id).await {
         Ok(true) => {}
         Ok(false) => return Refusal::not_found("Conversation", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     let found: Result<Option<String>, sqlx::Error> =
         sqlx::query_scalar("select id from people where email = $1 and deleted_at is null limit 1")
@@ -2059,7 +2059,7 @@ async fn auto_link_contact(
             }
             contact_id
         }
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let linked = sqlx::query("update helpdesk_conversations set contact_id = $2, updated_at = $3::timestamp where id = $1")
         .bind(&id)
@@ -2068,7 +2068,7 @@ async fn auto_link_contact(
         .execute(&caller.db)
         .await;
     if let Err(error) = linked {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     publish(
         &state,

@@ -13,6 +13,7 @@ import {
   Video,
   Phone,
   Share2,
+  ShoppingBag,
   FolderKanban,
   Bot,
   Database,
@@ -57,13 +58,15 @@ function makeLogo(appCode: string, opts?: { iconClassName?: string }): AppLogo {
   };
 }
 
+// `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn
+// mark needs a new URL or browsers keep the old three-door warehouse.
 const WELDSTASH_ASSETS: AppAssets = {
   lucideIcon: Warehouse,
   shortName: 'Warehouse',
-  icon: '/assets/images/weldstash/icon.svg',
+  icon: '/assets/images/weldstash/icon.svg?v=2',
   logo: {
-    iconLight: '/assets/images/weldstash/logo-light.svg',
-    iconDark: '/assets/images/weldstash/logo-dark.svg',
+    iconLight: '/assets/images/weldstash/logo-light.svg?v=2',
+    iconDark: '/assets/images/weldstash/logo-dark.svg?v=2',
   },
   sidebarIconClass: 'h-6 w-6 object-contain',
 };
@@ -331,6 +334,20 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
+  // WeldCommerce (rebuilt, EU edition only; ADR COM-009). Icon-only logo like
+  // WeldSheets: a shop awning and door inside a screen frame.
+  // `?v=2`: same immutable /assets/* caching as WeldBooks above, the old bag
+  // mark lived at these paths and browsers would keep it.
+  weldcommerce: {
+    lucideIcon: ShoppingBag,
+    shortName: 'Commerce',
+    icon: '/assets/images/weldcommerce/icon.svg?v=2',
+    logo: {
+      iconLight: '/assets/images/weldcommerce/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldcommerce/logo-dark.svg?v=2',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
   weldads: {
     lucideIcon: Megaphone,
     shortName: 'Ads',
@@ -350,9 +367,9 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  // WeldStash (platform + mobile). Icon-only warehouse mark like weldbooks/welddata —
-
-  // wordmark variants need the brand typeface and can be added later.
+  // WeldStash (platform + mobile). Icon-only two-tone mark: Lucide's warehouse
+  // filled, with a lighter three-slat shutter in the doorway — wordmark
+  // variants need the brand typeface and can be added later.
   // `wms` is the legacy catalog code; keep both keys so APP_REGISTRY[code]
   // lookups (settings, member details) resolve without going through aliases.
   weldstash: WELDSTASH_ASSETS,
@@ -410,6 +427,7 @@ const LEGACY_CODE_ALIASES: Record<string, string> = {
   host: 'weldhost',
   stash: 'weldstash',
   weldwms: 'weldstash',
+  commerce: 'weldcommerce',
   accounting: 'weldbooks',
   books: 'weldbooks',
   meet: 'weldmeet',

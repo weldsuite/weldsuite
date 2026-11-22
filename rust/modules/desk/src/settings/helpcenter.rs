@@ -166,7 +166,7 @@ async fn read(caller: Caller) -> Response {
             "customDomain": null,
         }))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch helpcenter settings"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch helpcenter settings"),
     }
 }
 
@@ -193,7 +193,7 @@ async fn save(
     };
     let existing = match settings_id(&caller.db).await {
         Ok(id) => id,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let mut values = HELPCENTER_SETTINGS.values(&data);
     HELPCENTER_SETTINGS.set(&mut values, "updatedAt", json!(now()));
@@ -238,7 +238,7 @@ async fn enable(State(state): State<DeskState>, caller: Caller) -> Response {
     };
     match enable_on(&state, &caller, &master).await {
         Ok(response) => response,
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -343,7 +343,7 @@ async fn domains(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list helpcenter domains"),
+        Err(error) => Refusal::from(error).respond("Failed to list helpcenter domains"),
     }
 }
 
@@ -368,6 +368,6 @@ async fn host_domains(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list WeldHost domains"),
+        Err(error) => Refusal::from(error).respond("Failed to list WeldHost domains"),
     }
 }

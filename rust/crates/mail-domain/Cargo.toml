@@ -13,14 +13,17 @@ weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-ports = { workspace = true }
+weldsuite-schema = { workspace = true }
 base64 = { workspace = true }
 lettre = { workspace = true }
 regex = { workspace = true, features = ["unicode"] }
+sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing", "macros"] }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]

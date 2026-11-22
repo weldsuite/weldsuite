@@ -29,12 +29,12 @@ import {
 } from './global-inventory';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const drizzleDir = path.resolve(here, '../../../../../packages/core/db/drizzle');
+const migrationsDir = path.resolve(here, '../../../../../rust/migrations');
 
 /** Applies a migration folder's journal the way the runner does, tolerating the historic re-creates. */
 async function migrated(folder: string): Promise<PGlite> {
   const db = new PGlite({ extensions: { vector, pg_trgm } });
-  const dir = path.join(drizzleDir, folder);
+  const dir = path.join(migrationsDir, folder);
   const journal = JSON.parse(await readFile(path.join(dir, 'meta/_journal.json'), 'utf8')) as {
     entries: Array<{ idx: number; tag: string }>;
   };
@@ -62,7 +62,7 @@ let master: PGlite;
 let tenant: PGlite;
 
 beforeAll(async () => {
-  [master, tenant] = await Promise.all([migrated('master-migrations'), migrated('tenant-migrations')]);
+  [master, tenant] = await Promise.all([migrated('master'), migrated('tenant')]);
 }, 600_000);
 
 describe('Global inventory SQL on the migrated schema', () => {

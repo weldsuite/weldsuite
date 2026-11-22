@@ -46,6 +46,7 @@ pub(crate) fn assignee_ids_of(row: &Value) -> Vec<String> {
 /// `fetchAssigneeMap`: the members the rows' assignee fields name.
 pub(crate) async fn assignee_map(
     db: &PgPool,
+    master: Option<&PgPool>,
     rows: &[Value],
 ) -> Result<HashMap<String, Value>, sqlx::Error> {
     let mut ids: Vec<String> = Vec::new();
@@ -64,25 +65,33 @@ pub(crate) async fn assignee_map(
             }
         }
     }
-    member_map(db, &ids).await
+    member_map(db, master, &ids).await
 }
 
 /// The members with these user ids, keyed by user id (the last row wins).
+/// `avatar` is the account picture (`master`), not the member row's copy.
 pub(crate) async fn member_map(
     db: &PgPool,
+    master: Option<&PgPool>,
     ids: &[String],
 ) -> Result<HashMap<String, Value>, sqlx::Error> {
     let mut map = HashMap::new();
     if ids.is_empty() {
         return Ok(map);
     }
-    let members: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email, picture from workspace_members where user_id = any($1)",
+    let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "select user_id, name, email from workspace_members where user_id = any($1)",
     )
     .bind(ids)
     .fetch_all(db)
     .await?;
-    for (user_id, name, email, avatar) in members {
+    let pictures = weldsuite_db::AccountPictures::load(
+        master,
+        members.iter().map(|(user_id, ..)| user_id.as_str()),
+    )
+    .await;
+    for (user_id, name, email) in members {
+        let avatar = pictures.value(Some(&user_id));
         map.insert(
             user_id.clone(),
             json!({ "id": user_id, "name": name, "email": email, "avatar": avatar }),
@@ -96,7 +105,8 @@ pub(crate) async fn assignee_names(
     db: &PgPool,
     ids: &[String],
 ) -> Result<HashMap<String, String>, sqlx::Error> {
-    let members = member_map(db, ids).await?;
+    // Names only: no account pictures needed.
+    let members = member_map(db, None, ids).await?;
     Ok(members
         .into_iter()
         .filter_map(|(id, member)| {
@@ -143,12 +153,13 @@ async fn linked_map(
 pub(crate) async fn enrich(
     state: &FlowState,
     db: &PgPool,
+    master: Option<&PgPool>,
     rows: Vec<Value>,
 ) -> Result<Vec<Value>, Refusal> {
     if rows.is_empty() {
         return Ok(rows);
     }
-    let members = assignee_map(db, &rows).await?;
+    let members = assignee_map(db, master, &rows).await?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
@@ -309,6 +320,7 @@ pub(crate) async fn attach_attachment_counts(
 pub(crate) async fn load_descendants(
     state: &FlowState,
     db: &PgPool,
+    master: Option<&PgPool>,
     project_id: Option<&str>,
     roots: &[Value],
 ) -> Result<Vec<Value>, Refusal> {
@@ -350,7 +362,7 @@ pub(crate) async fn load_descendants(
     if all.is_empty() {
         return Ok(all);
     }
-    let enriched = enrich(state, db, all).await?;
+    let enriched = enrich(state, db, master, all).await?;
     Ok(hydrate(db, enriched).await?)
 }
 
@@ -402,12 +414,13 @@ pub(crate) fn attach_subtask_tree(roots: &mut [Value], descendants: &[Value]) {
 pub(crate) async fn attach_tree_across_projects(
     state: &FlowState,
     db: &PgPool,
+    master: Option<&PgPool>,
     roots: &mut [Value],
 ) -> Result<(), Refusal> {
     if roots.is_empty() {
         return Ok(());
     }
-    let descendants = load_descendants(state, db, None, roots).await?;
+    let descendants = load_descendants(state, db, master, None, roots).await?;
     attach_subtask_tree(roots, &descendants);
     Ok(())
 }

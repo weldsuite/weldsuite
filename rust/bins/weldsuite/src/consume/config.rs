@@ -148,12 +148,58 @@ pub(crate) struct MailInboundConfig {
     /// `REACH_INBOUND_DOMAIN`: WeldReach's reply domain, whose
     /// `reply+<token>@` recipients go to WeldReach (when it is served).
     pub(crate) reach_domain: Option<String>,
+    /// `CLAMD_ADDRESS` (`host:port`, the chart's `clamav` Service): the
+    /// virus scanner for attachments (`weldsuite_mail_inbound::threats`).
+    /// Unset: nothing is scanned.
+    pub(crate) clamd: Option<ClamdConfig>,
+}
+
+/// Where clamd listens and how long one scan may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClamdConfig {
+    pub(crate) address: String,
+    /// `CLAMD_TIMEOUT_SECONDS`, default 120.
+    pub(crate) timeout: Duration,
+}
+
+impl ClamdConfig {
+    pub(crate) fn scanner(&self) -> std::sync::Arc<dyn weldsuite_ports::VirusScanner> {
+        std::sync::Arc::new(weldsuite_adapters_oss::ClamdScanner::new(
+            self.address.clone(),
+            self.timeout,
+        ))
+    }
+
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let address = lookup("CLAMD_ADDRESS").filter(|a| !a.trim().is_empty())?;
+        if !address.contains(':') {
+            problems.push("CLAMD_ADDRESS must be host:port".to_owned());
+        }
+        let timeout = match lookup("CLAMD_TIMEOUT_SECONDS") {
+            None => 120,
+            Some(raw) => match raw.parse::<u64>() {
+                Ok(value) if value > 0 => value,
+                _ => {
+                    problems
+                        .push("CLAMD_TIMEOUT_SECONDS must be a positive whole number".to_owned());
+                    120
+                }
+            },
+        };
+        Some(Self {
+            address: address.trim().to_owned(),
+            timeout: Duration::from_secs(timeout),
+        })
+    }
 }
 
 impl MailInboundConfig {
     /// `S3_BUCKET_MAIL` set, the subscriber's settings (the S3 ones then
-    /// required).
-    fn from_lookup(
+    /// required). The `mail-attachment-scan` cron reads the same.
+    pub(crate) fn from_lookup(
         lookup: &impl Fn(&str) -> Option<String>,
         problems: &mut Vec<String>,
     ) -> Option<Self> {
@@ -190,6 +236,7 @@ impl MailInboundConfig {
             dead_letter_stream: lookup("NATS_MAIL_INBOUND_DLQ_STREAM")
                 .unwrap_or_else(|| "MAIL_INBOUND_DLQ".to_owned()),
             reach_domain: lookup("REACH_INBOUND_DOMAIN").filter(|d| !d.trim().is_empty()),
+            clamd: ClamdConfig::from_lookup(lookup, problems),
             mail,
         })
     }

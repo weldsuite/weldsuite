@@ -14,7 +14,7 @@
 //! DELETE /rules/:id                remove one                                inventory:manage
 //! GET    /runs                     planning runs, newest first               inventory:read
 //! POST   /runs                     plan now                                  inventory:manage
-//! POST   /purchase-orders          draft purchase orders from plans          orders:create
+//! POST   /purchase-orders          draft purchase orders from plans          purchase_orders:create
 //! GET    /incoming                 stock on open purchase orders             inventory:read
 //! …      /imports                  CSV sales history ([`super::imports`])
 //! ```

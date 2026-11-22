@@ -75,6 +75,9 @@ pub struct MonitorState {
     /// Slack webhooks and the customers' stores: public addresses only.
     /// Conformance builds use the request's outbound bridge.
     pub http: Option<OutboundHttp>,
+    /// The push (Expo) of the mention notifications a WeldChat delivery
+    /// sends; `None` notifies in-app only. Conformance builds have none.
+    pub push_http: Option<OutboundHttp>,
     /// Who serves custom collector domains (cert-manager on Kubernetes when
     /// the chart turns it on); `None` answers 503 as Global without
     /// Cloudflare custom hostnames. Conformance builds use Cloudflare with
@@ -88,6 +91,7 @@ impl std::fmt::Debug for MonitorState {
             .field("panel", &self.panel)
             .field("mail", &self.mail.is_some())
             .field("http", &self.http.is_some())
+            .field("push_http", &self.push_http.is_some())
             .field("domains", &self.domains.is_some())
             .finish()
     }
@@ -151,6 +155,7 @@ fn delivery_for(caller: &Caller, state: &MonitorState, actor: &str) -> Delivery 
         } else {
             state.http.clone()
         },
+        push_http: state.push_http.clone(),
         realtime: state.panel.realtime.clone(),
         events: state.panel.events.clone(),
         senders: None,

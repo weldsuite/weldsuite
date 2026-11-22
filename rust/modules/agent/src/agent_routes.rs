@@ -834,6 +834,7 @@ mod edition_tests {
             default_model: String::new(),
             master: None,
             realtime: None,
+            push_http: None,
         }
     }
 

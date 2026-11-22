@@ -22,6 +22,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import {
   accessibleProjectIds,
   canAccessProject,
@@ -316,7 +317,6 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         hoursPerWeek: workspaceMembers.hoursPerWeek,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        avatar: workspaceMembers.picture,
       })
       .from(projectMembers)
       .leftJoin(workspaceMembers, eq(projectMembers.userId, workspaceMembers.userId))
@@ -392,6 +392,7 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
       tasksByAssignee.set(task.assigneeId, existing);
     }
 
+    const pictures = await loadAccountPictures(c.env, uniqueMembers.keys());
     const teamMembers = Array.from(uniqueMembers.values()).map((m) => {
       const memberTasks = tasksByAssignee.get(m.userId) ?? [];
       const hoursPerWeek = Number(m.hoursPerWeek) || 40;
@@ -401,7 +402,7 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         userId: m.userId,
         name: m.name ?? m.email ?? m.userId,
         email: m.email ?? '',
-        avatar: m.avatar ?? '',
+        avatar: accountPicture(pictures, m.userId) ?? '',
         initials,
         role: m.role,
         capacity,
@@ -646,7 +647,6 @@ app.get('/:id/workload', requirePermission('projects:read'), async (c) => {
         hoursPerWeek: workspaceMembers.hoursPerWeek,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        avatar: workspaceMembers.picture,
       })
       .from(projectMembers)
       .leftJoin(workspaceMembers, eq(projectMembers.userId, workspaceMembers.userId))
@@ -692,6 +692,7 @@ app.get('/:id/workload', requirePermission('projects:read'), async (c) => {
       tasksByAssignee.set(task.assigneeId, existing);
     }
 
+    const pictures = await loadAccountPictures(c.env, members.map((m) => m.userId));
     const teamMembers = members.map((m) => {
       const memberTasks = tasksByAssignee.get(m.userId) ?? [];
       const hoursPerWeek = Number(m.hoursPerWeek) || 40;
@@ -701,7 +702,7 @@ app.get('/:id/workload', requirePermission('projects:read'), async (c) => {
         userId: m.userId,
         name: m.name ?? m.email ?? m.userId,
         email: m.email ?? '',
-        avatar: m.avatar ?? '',
+        avatar: accountPicture(pictures, m.userId) ?? '',
         initials,
         role: m.role,
         capacity,

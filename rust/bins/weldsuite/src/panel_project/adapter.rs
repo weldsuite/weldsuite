@@ -23,7 +23,7 @@ use weldsuite_panel::{PanelProjectState, ProjectRef};
 use weldsuite_ports::{BoxFuture, PortError};
 
 use super::rows::RowSink;
-use super::rules::{LIVE_SESSIONS_RETURNED, iso};
+use super::rules::{LIVE_MINUTES, LIVE_SESSIONS_RETURNED, iso, live_counts};
 use super::tenant;
 use super::valkey::PanelValkey;
 use super::{Clock, TenantPools};
@@ -197,10 +197,13 @@ impl PanelProjectState for TenantProjectState {
             let Some(valkey) = &self.valkey else {
                 return Ok(Live {
                     visitors: 0,
+                    visitors_30m: 0,
+                    per_minute: vec![0; LIVE_MINUTES],
                     sessions: Vec::new(),
                 });
             };
-            let mut sessions = valkey.sessions(project.project_id, (self.clock)()).await?;
+            let now_ms = (self.clock)();
+            let mut sessions = valkey.sessions(project.project_id, now_ms).await?;
             if !sessions.is_empty() {
                 // An erasure drops its sessions at once; a touch that came
                 // while the collector couldn't know the id was erased is
@@ -216,14 +219,14 @@ impl PanelProjectState for TenantProjectState {
                         && !erased.contains(&session.touch.session_id)
                 });
             }
-            let visitors = sessions
-                .iter()
-                .map(|session| session.touch.distinct_id.as_str())
-                .collect::<HashSet<_>>()
-                .len();
+            // The counts cover every session in the window; only the latest
+            // are answered.
+            let counts = live_counts(&sessions, now_ms);
             sessions.truncate(LIVE_SESSIONS_RETURNED);
             Ok(Live {
-                visitors: u64::try_from(visitors).unwrap_or(u64::MAX),
+                visitors: counts.visitors,
+                visitors_30m: counts.visitors_30m,
+                per_minute: counts.per_minute,
                 sessions,
             })
         })

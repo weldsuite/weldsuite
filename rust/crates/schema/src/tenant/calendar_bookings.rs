@@ -1,0 +1,149 @@
+//! `calendar_bookings`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "calendar_bookings")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "bookingPageId")]
+    pub booking_page_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "calendarEventId")]
+    pub calendar_event_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "bookerName")]
+    pub booker_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "bookerEmail")]
+    pub booker_email: String,
+    #[serde(rename = "startTime", with = "crate::js::timestamp")]
+    pub start_time: TimeDateTime,
+    #[serde(rename = "endTime", with = "crate::js::timestamp")]
+    pub end_time: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "answers")]
+    pub answers: Option<Json>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "guests")]
+    pub guests: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "timezone")]
+    pub timezone: Option<String>,
+    #[serde(rename = "cancelledAt", with = "crate::js::timestamp::option")]
+    pub cancelled_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "cancelReason")]
+    pub cancel_reason: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "calendar_bookings",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'confirmed'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "calendar_bookings_page_idx",
+            columns: &[IndexColumn {
+                expression: "booking_page_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "calendar_bookings_email_idx",
+            columns: &[IndexColumn {
+                expression: "booker_email",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "calendar_bookings_start_time_idx",
+            columns: &[IndexColumn {
+                expression: "start_time",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "calendar_bookings_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

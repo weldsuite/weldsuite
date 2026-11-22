@@ -57,6 +57,16 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: privileged
 ---
+# The offsite copy of the object storage (../offsite-copy, opt-in). Here
+# rather than in its layer because the secrets layer, which runs first, puts
+# its keys in it; empty on a cluster without the layer.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: offsite-copy
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
 apiVersion: v1
 kind: Namespace
 metadata:

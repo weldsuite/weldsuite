@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Deletes all but the newest KEEP Drizzle snapshots in each migration folder.
+ * Deletes all but the newest KEEP Drizzle snapshots in each migration folder
+ * under drizzle/: since ADR DATA-019 only the personal migrations. The master
+ * and tenant ones moved to rust/migrations, and their generator
+ * (`pnpm db:generate`, rust/crates/schema) prunes those itself.
  *
- * drizzle-kit writes a full copy of the schema (`meta/<n>_snapshot.json`,
- * ~2 MB for the tenant schema) on every `db:generate`, and only ever reads the
- * newest one back: it is the "before" side of the next diff. The migration
- * runners (apps/tools/migrate-databases, workspace-worker, the Rust
- * migrations crate, the pglite test harness) read the SQL files and
- * `_journal.json`, never a snapshot, and the drift test compares the schema
- * with the newest. Kept, the old ones were half of every checkout and
- * worktree. Git history still has them all.
+ * drizzle-kit writes a full copy of the schema (`meta/<n>_snapshot.json`) on
+ * every `db:generate`, and only ever reads the newest one back: it is the
+ * "before" side of the next diff. The migration runners read the SQL files
+ * and `_journal.json`, never a snapshot. Kept, the old ones were half of every
+ * checkout and worktree. Git history still has them all.
  *
  * KEEP is more than one so `drizzle-kit drop` can still take back the last
  * few migrations: dropping one makes the snapshot before it the newest.

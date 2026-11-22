@@ -31,3 +31,32 @@ export const associateMailAttachmentsSchema = z.object({
 export type CreateMailAttachmentInput = z.infer<typeof createMailAttachmentSchema>;
 export type UpdateMailAttachmentInput = z.infer<typeof updateMailAttachmentSchema>;
 export type AssociateMailAttachmentsInput = z.infer<typeof associateMailAttachmentsSchema>;
+
+/**
+ * Virus-scan state of an inbound attachment (EU and self-hosted editions; the
+ * fields are absent on Global). `null` or absent: never scanned (older mail,
+ * outbound uploads), treated as normal. `error`: the scanner could not read the
+ * file; it still downloads. `pending`: the scanner was unreachable and a rescan
+ * job settles it; the download answers 409 until then.
+ */
+export const mailAttachmentScanStatusSchema = z.enum(['clean', 'infected', 'pending', 'error']);
+
+export type MailAttachmentScanStatus = z.infer<typeof mailAttachmentScanStatusSchema>;
+
+/** The scan fields an attachment object carries. */
+export const mailAttachmentScanSchema = z.object({
+  scanStatus: mailAttachmentScanStatusSchema.nullish(),
+  /** ClamAV signature name when infected, e.g. `Win.Test.EICAR_HDB-1`. */
+  scanSignature: z.string().nullish(),
+  scannedAt: z.string().nullish(),
+});
+
+export type MailAttachmentScan = z.infer<typeof mailAttachmentScanSchema>;
+
+/** Error codes `GET /api/mail-attachments/:id/download` answers for a scanned file. */
+export const MAIL_ATTACHMENT_DOWNLOAD_ERROR_CODES = {
+  /** 403: the file is infected and is never served. */
+  infected: 'ATTACHMENT_INFECTED',
+  /** 409: the scan has not finished (the scanner was unreachable). */
+  scanPending: 'ATTACHMENT_SCAN_PENDING',
+} as const;

@@ -112,7 +112,12 @@ pub(super) async fn changes_to_publish(
         };
         let key = who.unwrap_or_default().to_owned();
         if !authors.contains_key(&key) {
-            let loaded = inbox::load_author(&caller.db, who).await;
+            let loaded = inbox::load_author(
+                &caller.db,
+                caller.master.as_ref().map(|master| &master.0),
+                who,
+            )
+            .await;
             authors.insert(key.clone(), loaded);
         }
         realtime.extend(inbox::change_messages(
@@ -154,7 +159,7 @@ async fn read_links(ctx: Ctx, Path(id): Path<String>) -> Response {
     match links::links(&ctx.caller.db, &id).await {
         Ok(Some(links)) => Data(links).into_response(),
         Ok(None) => ApiError::not_found("Conversation", Some(&id)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load linked tickets"),
+        Err(error) => Refusal::from(error).respond("Failed to load linked tickets"),
     }
 }
 

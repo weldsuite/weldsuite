@@ -1,0 +1,238 @@
+//! `documents`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "documents")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: Option<String>,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "originalFileName")]
+    pub original_file_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "fileKey")]
+    pub file_key: String,
+    #[serde(rename = "fileSize")]
+    pub file_size: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "thumbnailKey")]
+    pub thumbnail_key: Option<String>,
+    #[serde(rename = "pageCount")]
+    pub page_count: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "source")]
+    pub source: String,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "ocrResult")]
+    pub ocr_result: Option<Json>,
+    #[serde(rename = "ocrProcessedAt", with = "crate::js::timestamp::option")]
+    pub ocr_processed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "ocrModel")]
+    pub ocr_model: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "matchedContactId")]
+    pub matched_contact_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "matchedCounterpartyId")]
+    pub matched_counterparty_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "linkedEntityType")]
+    pub linked_entity_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "linkedEntityId")]
+    pub linked_entity_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "emailMessageId")]
+    pub email_message_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "emailFrom")]
+    pub email_from: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "emailSubject")]
+    pub email_subject: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "documents",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'purchase_invoice'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "source",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'upload'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_documents_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_type_idx",
+            columns: &[IndexColumn {
+                expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_source_idx",
+            columns: &[IndexColumn {
+                expression: "source",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_linked_entity_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "linked_entity_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "linked_entity_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_matched_contact_idx",
+            columns: &[IndexColumn {
+                expression: "matched_contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_documents_matched_counterparty_idx",
+            columns: &[IndexColumn {
+                expression: "matched_counterparty_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

@@ -14,6 +14,11 @@
 //! run plans (and prunes) every plan, so the database tests take [`ONE`]
 //! and assert only on their own rows.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -40,8 +45,8 @@ const ALL: &[&str] = &[
     "inventory:read",
     "inventory:update",
     "inventory:manage",
-    "orders:read",
-    "orders:create",
+    "purchase_orders:read",
+    "purchase_orders:create",
 ];
 
 /// One database test at a time: they share the settings row and the plans.

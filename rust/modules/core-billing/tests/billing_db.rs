@@ -10,6 +10,11 @@
 //! Global without a payment method: warned once before its renewal, asked
 //! for one when the renewal is refused, and paying through the pay link.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};

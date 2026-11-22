@@ -11,10 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { FloatingDrawer } from '@/components/layout/floating-drawer';
+import { FloatingDrawer, FLOATING_DRAWER_WIDTH } from '@/components/layout/floating-drawer';
 import { AgentChatInput, AgentSuggestions, getDefaultAgentSuggestions } from './agent-chat-input';
+import { chatTitleFrom } from './chat-title';
+import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import { AssistantMessage, TypingIndicator, UserMessage } from './chat/chat-message';
 import { QuestionCard } from './chat/question-card';
+import { ChatVisualActionsProvider, usePrefillComposer } from './visuals/visual-actions-context';
 import { messagesToRemember, panelSessionAtom } from './panel-session';
 import { getTranslations } from '@/lib/i18n';
 import { usePathname } from '@/lib/router';
@@ -24,7 +27,6 @@ import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import type { EntityContext } from '@/lib/weldagent/tools/types';
-import { AssistantAiBadge } from '@/components/ai/assistant-ai-badge';
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
@@ -95,7 +97,7 @@ export function WeldAgentPanel({
   isOpen,
   onClose,
   entityContext,
-  width = 400,
+  width = FLOATING_DRAWER_WIDTH,
   disableAnimation = false,
   className,
   forceNewConversation = false,
@@ -143,12 +145,15 @@ export function WeldAgentPanel({
   );
 
   const [input, setInput] = useState('');
+  // "Ask about this" on a visual puts the follow-up in the composer.
+  const { ask: askAboutVisual, composerRef } = usePrefillComposer(setInput);
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen && forceNewConversation) {
       reset();
       setInput('');
+      setSession((prev) => ({ ...prev, title: '' }));
       onNewConversationCreated?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +181,7 @@ export function WeldAgentPanel({
   );
 
   const switchAgent = (id: string) => {
-    setSession({ agentId: id, messages: [] });
+    setSession({ agentId: id, messages: [], title: '' });
     reset();
     setInput('');
   };
@@ -189,6 +194,10 @@ export function WeldAgentPanel({
   const onHome = pathname === '/' || pathname === '';
   const showSuggestions = isEmpty && !input.trim() && !selectedAgent && !onHome;
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
+  const firstUserMessage = messages.find((m) => m.role === 'user');
+  // A name the user typed in the header wins; otherwise the first message names it.
+  const chatTitle =
+    session.title || (firstUserMessage && chatTitleFrom(firstUserMessage.content)) || t.untitledChat;
 
   return (
     <FloatingDrawer
@@ -199,17 +208,31 @@ export function WeldAgentPanel({
       data-testid="weldagent-panel"
     >
       <div className="flex h-[53px] flex-shrink-0 items-center justify-between gap-2 border-b px-3">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {/* The chat's name: its first message, or "Untitled chat" until one is
+              sent. Click to rename it, like other titles (Enter saves, Escape cancels).
+              It has all the room up to the buttons on the right, so it shows in
+              full and only cuts off with "…" when it reaches them. */}
+          <div className="min-w-0 flex-1 px-1.5" data-testid="weldagent-chat-title">
+            <InlineTextEditor
+              value={chatTitle}
+              onSave={(next) => setSession((prev) => ({ ...prev, title: chatTitleFrom(next) }))}
+              singleLine
+              label={t.chatTitleLabel}
+              className="text-sm font-semibold"
+            />
+          </div>
+          {/* With workspace agents, which one answers is picked here, after the name. */}
           {agents.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-sm font-semibold hover:bg-accent"
+                  className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                   aria-label={t.chooseAgent}
                 >
                   <span className="truncate">{selectedAgent?.name ?? t.generalAgent}</span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
@@ -238,11 +261,8 @@ export function WeldAgentPanel({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : (
-            <span className="truncate px-1.5 text-sm font-semibold">{t.generalAgent}</span>
-          )}
+          ) : null}
           {betaAppCodes?.has('weldagent') ? <BetaBadge variant="inline" /> : null}
-          <AssistantAiBadge className="ml-1" />
         </div>
         <div className="flex items-center gap-0.5">
           <Button
@@ -252,6 +272,7 @@ export function WeldAgentPanel({
             onClick={() => {
               reset();
               setInput('');
+              setSession((prev) => ({ ...prev, title: '' }));
             }}
             title={t.newChat}
             aria-label={t.newChat}
@@ -266,19 +287,21 @@ export function WeldAgentPanel({
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {!isEmpty && (
-          <div className="flex flex-col gap-5">
-            {messages.map((m, index) => (
-              <PanelMessage
-                key={m.id}
-                message={m}
-                answer={messages.slice(index + 1).find((later) => later.role === 'user')?.content ?? null}
-                isLast={m.id === lastAssistantId && index === messages.length - 1}
-                isSending={isSending}
-                onAnswer={submit}
-              />
-            ))}
-            <div ref={scrollEndRef} />
-          </div>
+          <ChatVisualActionsProvider ask={isSending ? undefined : askAboutVisual}>
+            <div className="flex flex-col gap-5">
+              {messages.map((m, index) => (
+                <PanelMessage
+                  key={m.id}
+                  message={m}
+                  answer={messages.slice(index + 1).find((later) => later.role === 'user')?.content ?? null}
+                  isLast={m.id === lastAssistantId && index === messages.length - 1}
+                  isSending={isSending}
+                  onAnswer={submit}
+                />
+              ))}
+              <div ref={scrollEndRef} />
+            </div>
+          </ChatVisualActionsProvider>
         )}
       </div>
 
@@ -299,7 +322,7 @@ export function WeldAgentPanel({
         </div>
       )}
 
-      <div className={cn('flex-shrink-0 px-3 pb-3', !isEmpty && 'pt-1')}>
+      <div ref={composerRef} className={cn('flex-shrink-0 px-3 pb-3', !isEmpty && 'pt-1')}>
         {openSheet && (
           <div className="flex min-w-0 items-center gap-1.5 px-1 pb-1.5 text-xs text-muted-foreground" data-testid="weldagent-open-sheet">
             <Sheet className="h-3.5 w-3.5 shrink-0" />

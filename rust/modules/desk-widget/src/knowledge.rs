@@ -76,7 +76,7 @@ async fn optional_principal(
     state: &WidgetState,
     widget: &Widget,
     headers: &HeaderMap,
-) -> Result<Option<Principal>, sqlx::Error> {
+) -> Result<Option<Principal>, sea_orm::DbErr> {
     let secret = ctx.token_secret(state).filter(|secret| !secret.is_empty());
     let header = headers
         .get(http::header::AUTHORIZATION)
@@ -111,7 +111,7 @@ async fn reader(
     state: &WidgetState,
     widget: &Widget,
     headers: &HeaderMap,
-) -> Result<Reader, sqlx::Error> {
+) -> Result<Reader, sea_orm::DbErr> {
     let principal = optional_principal(ctx, state, widget, headers).await?;
     let email = principal.and_then(|principal| principal.verified_email);
     reader_of(&widget.db, email.as_deref()).await

@@ -21,12 +21,15 @@ import type { BoardPanels } from './panels';
 /** A pin's thread id (a pin made before threads had their own id uses its own). */
 const threadOf = (pin: BoardElement) => pin.thread ?? pin.id;
 
-/** What a pin is on, in a few words: its element's text, else its type. */
-function pinLabel(c: BoardController, pin: BoardElement, fallback: string): string {
+/**
+ * What a pin is on, in a few words: its element's text or name. '' for a pin
+ * on the board itself (or on an element without text): the panel then says
+ * "On the board", and WeldChat shows the board's title.
+ */
+function pinPlace(c: BoardController, pin: BoardElement): string {
   const target = pin.target ? c.board.get(pin.target) : undefined;
   const text = target?.text?.text ?? target?.title ?? target?.name ?? target?.fileName ?? '';
-  const short = text.replace(/\s+/g, ' ').trim().slice(0, 60);
-  return short || fallback;
+  return text.replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
 /**
@@ -46,7 +49,8 @@ export function CommentsPanel({ controller: c, boardId, people, panels }: { cont
   const comments = useRecordComments('board', boardId, pins.map(threadOf));
   const names = useMemo(() => new Map(people.map((p) => [p.id, p.name])), [people]);
   const mayComment = !c.readOnly || c.canComment;
-  const labelOf = (pin: BoardElement) => pinLabel(c, pin, tc.onBoard);
+  // What the search matches a pin by: what it is on, or "On the board".
+  const labelOf = (pin: BoardElement) => pinPlace(c, pin) || tc.onBoard;
   // The pin just picked or placed always shows, whatever the filters say.
   const shown = pins.filter(
     (p) => p.id === state.activeComment || commentMatches(p, { label: labelOf(p), messages: comments.threads.get(threadOf(p))?.messages ?? [] }, filters, c.options.userId),
@@ -95,7 +99,7 @@ export function CommentsPanel({ controller: c, boardId, people, panels }: { cont
             key={pin.id}
             controller={c}
             pin={pin}
-            label={labelOf(pin)}
+            place={pinPlace(c, pin)}
             people={people}
             names={names}
             comments={comments}
@@ -231,7 +235,7 @@ function PanelSearch({ value, onChange, placeholder }: { value: string; onChange
 function ThreadCard({
   controller: c,
   pin,
-  label,
+  place,
   people,
   names,
   comments,
@@ -242,7 +246,8 @@ function ThreadCard({
 }: {
   controller: BoardController;
   pin: BoardElement;
-  label: string;
+  /** What the pin is on ('' for the board itself). */
+  place: string;
   people: Person[];
   names: ReadonlyMap<string, string>;
   comments: RecordCommentsState;
@@ -290,7 +295,7 @@ function ThreadCard({
     <div ref={ref} className={`flex flex-col gap-2 rounded-lg border bg-card p-3 ${active ? 'ring-2 ring-primary/50' : ''} ${pin.resolved ? 'opacity-70' : ''}`}>
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
         <button type="button" onClick={onPick} title={tc.goTo} className="min-w-0 flex-1 truncate text-left hover:text-foreground hover:underline">
-          {label}
+          {place || tc.onBoard}
         </button>
         {pin.resolved && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{tc.resolved}</span>}
         {mayComment && messages.length > 0 && (
@@ -332,7 +337,8 @@ function ThreadCard({
             autoFocus={fresh || active}
             onSubmit={async (body) => {
               try {
-                await comments.reply({ id: thread, label }, body);
+                // No label for the board itself: WeldChat names the board by its current title.
+                await comments.reply({ id: thread, label: place || undefined }, body);
               } catch (err) {
                 toast.error(tc.failed);
                 throw err;

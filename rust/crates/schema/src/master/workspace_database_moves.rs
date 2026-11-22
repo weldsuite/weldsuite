@@ -1,0 +1,214 @@
+//! `workspace_database_moves`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "workspace_database_moves")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(60))")]
+    #[serde(rename = "currentStep")]
+    pub current_step: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(40))")]
+    #[serde(rename = "requestedTarget")]
+    pub requested_target: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sourceNeonProjectId")]
+    pub source_neon_project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sourceNeonBranchId")]
+    pub source_neon_branch_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sourceDatabaseName")]
+    pub source_database_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sourceRoleName")]
+    pub source_role_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "sourceSharedProjectId")]
+    pub source_shared_project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "sourceRegion")]
+    pub source_region: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "targetNeonProjectId")]
+    pub target_neon_project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "targetNeonBranchId")]
+    pub target_neon_branch_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "targetDatabaseName")]
+    pub target_database_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "targetRoleName")]
+    pub target_role_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "targetSharedProjectId")]
+    pub target_shared_project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "targetRegion")]
+    pub target_region: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "targetPoolId")]
+    pub target_pool_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "targetDatabaseUrl")]
+    pub target_database_url: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "progress")]
+    pub progress: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "verification")]
+    pub verification: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "workflowInstanceId")]
+    pub workflow_instance_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "startedBy")]
+    pub started_by: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "startedByUserId")]
+    pub started_by_user_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "reason")]
+    pub reason: Option<String>,
+    #[serde(rename = "cancelRequestedAt", with = "crate::js::timestamptz::option")]
+    pub cancel_requested_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "error")]
+    pub error: Option<String>,
+    #[serde(rename = "startedAt", with = "crate::js::timestamptz::option")]
+    pub started_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "softLockedAt", with = "crate::js::timestamptz::option")]
+    pub soft_locked_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "lockedAt", with = "crate::js::timestamptz::option")]
+    pub locked_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "switchedAt", with = "crate::js::timestamptz::option")]
+    pub switched_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "completedAt", with = "crate::js::timestamptz::option")]
+    pub completed_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(
+        rename = "oldDatabaseRetainedUntil",
+        with = "crate::js::timestamptz::option"
+    )]
+    pub old_database_retained_until: Option<TimeDateTimeWithTimeZone>,
+    #[serde(
+        rename = "oldDatabaseDroppedAt",
+        with = "crate::js::timestamptz::option"
+    )]
+    pub old_database_dropped_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "oldDatabaseDropError")]
+    pub old_database_drop_error: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "workspace_database_moves",
+    columns: &[
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'queued'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "workspace_database_moves_workspace_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "workspace_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "created_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "workspace_database_moves_one_active_idx",
+            columns: &[IndexColumn {
+                expression: "workspace_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"workspace_database_moves\".\"status\" in ('queued', 'preparing', 'soft_locked', 'locked', 'copying', 'verifying', 'switching', 'cancelling')",
+            ),
+        },
+        Index {
+            name: "workspace_database_moves_retention_idx",
+            columns: &[IndexColumn {
+                expression: "old_database_retained_until",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: Some(
+                "\"workspace_database_moves\".\"old_database_dropped_at\" is null and \"workspace_database_moves\".\"old_database_retained_until\" is not null",
+            ),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

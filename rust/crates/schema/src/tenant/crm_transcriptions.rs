@@ -1,0 +1,134 @@
+//! `crm_transcriptions`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "crm_transcriptions")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "activityId")]
+    pub activity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "fullText")]
+    pub full_text: Option<String>,
+    #[sea_orm(column_name = "model", column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "model")]
+    pub model_: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "provider")]
+    pub provider: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "language")]
+    pub language: Option<String>,
+    #[serde(rename = "speakerCount")]
+    pub speaker_count: Option<i32>,
+    #[serde(rename = "wordCount")]
+    pub word_count: Option<i32>,
+    #[serde(rename = "confidence", with = "crate::js::real::option")]
+    pub confidence: Option<f32>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "errorMessage")]
+    pub error_message: Option<String>,
+    #[serde(rename = "processingStartedAt", with = "crate::js::timestamp::option")]
+    pub processing_started_at: Option<TimeDateTime>,
+    #[serde(
+        rename = "processingCompletedAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub processing_completed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "crm_transcriptions",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "language",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'en'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "crm_transcriptions_activity_idx",
+            columns: &[IndexColumn {
+                expression: "activity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_transcriptions_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

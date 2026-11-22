@@ -63,6 +63,8 @@ export async function startInstantMeeting(
     WORKSPACE_CACHE: RealtimeKvNamespace;
     STORAGE?: R2Bucket;
     R2_PUBLIC_URL?: string;
+    /** The organizer's avatar is their account picture (master database). */
+    DATABASE_URL_MASTER: string;
   },
   ctx: RealtimeExecutionCtx,
   params: StartInstantMeetingParams,

@@ -1,0 +1,307 @@
+//! `product_variants`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "product_variants")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sku")]
+    pub sku: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "barcode")]
+    pub barcode: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "optionValues")]
+    pub option_values: Option<Json>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "price",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub price: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "compareAtPrice",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub compare_at_price: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "costPrice",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub cost_price: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[serde(rename = "trackInventory")]
+    pub track_inventory: Option<bool>,
+    #[serde(rename = "inventoryQuantity")]
+    pub inventory_quantity: Option<i32>,
+    #[serde(rename = "lowStockThreshold")]
+    pub low_stock_threshold: Option<i32>,
+    #[serde(rename = "allowBackorder")]
+    pub allow_backorder: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "vatCategory")]
+    pub vat_category: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((10, 3)))")]
+    #[serde(
+        rename = "weight",
+        serialize_with = "crate::js::Numeric::<3>::serialize_option"
+    )]
+    pub weight: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "weightUnit")]
+    pub weight_unit: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "length",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub length: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "width",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub width: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "height",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub height: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "dimensionUnit")]
+    pub dimension_unit: Option<String>,
+    #[serde(rename = "requiresShipping")]
+    pub requires_shipping: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "imageUrl")]
+    pub image_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "position")]
+    pub position: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "attributes")]
+    pub attributes: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "product_variants",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'USD'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "track_inventory",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "inventory_quantity",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "low_stock_threshold",
+            sql_type: None,
+            default: Some(DdlDefault::Number("5")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_backorder",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "weight_unit",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'kg'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "dimension_unit",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'cm'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "requires_shipping",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "position",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "product_variants_product_idx",
+            columns: &[IndexColumn {
+                expression: "product_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "product_variants_sku_idx",
+            columns: &[IndexColumn {
+                expression: "sku",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "product_variants_barcode_idx",
+            columns: &[IndexColumn {
+                expression: "barcode",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "product_variants_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "product_variants_sku_uidx",
+            columns: &[IndexColumn {
+                expression: "sku",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"product_variants\".\"sku\" IS NOT NULL AND \"product_variants\".\"sku\" <> '' AND \"product_variants\".\"deleted_at\" IS NULL",
+            ),
+        },
+        Index {
+            name: "product_variants_barcode_uidx",
+            columns: &[IndexColumn {
+                expression: "barcode",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"product_variants\".\"barcode\" IS NOT NULL AND \"product_variants\".\"barcode\" <> '' AND \"product_variants\".\"deleted_at\" IS NULL",
+            ),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

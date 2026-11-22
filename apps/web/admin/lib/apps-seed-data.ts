@@ -398,6 +398,42 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
   },
   {
+    code: 'weldcommerce',
+    name: 'WeldCommerce',
+    description: 'One catalogue and one order book behind every way you sell.',
+    icon: 'ShoppingBag',
+    category: 'Sales & Marketing',
+    path: '/weldcommerce',
+    overview:
+      "WeldCommerce keeps your products and orders in one place, whether they come from your own shop, your B2B customers, your sales team or Shopify and WooCommerce. Build your shop on the storefront API, take payments through your own Mollie account, charge the right EU VAT, and let WeldStash pick and ship every order.",
+    features: [
+      'One catalogue with variants and categories',
+      'Orders from your shop, B2B customers, sales and Shopify / WooCommerce in one list',
+      'Headless storefront API with a TypeScript SDK and a starter shop',
+      'Checkout with Mollie on your own account',
+      'EU VAT by destination (OSS) and reverse charge for businesses',
+      'B2B buyers with approvals, pay on invoice and quick reorder',
+    ],
+    howItWorks: [
+      { title: 'Add your products', description: 'Create products and variants, or import them from Shopify or WooCommerce.' },
+      { title: 'Open a sales channel', description: 'Get keys for your shop, set its currency, countries and shipping rates.' },
+      { title: 'Take orders', description: 'Orders from every channel land in one list and go to WeldStash for picking.' },
+      { title: 'Get paid', description: 'Mollie payments and WeldBooks invoices, with the right VAT for each country.' },
+    ],
+    sortOrder: 110,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-11-20',
+    websiteUrl: 'https://weldsuite.com/weldcommerce',
+    documentationUrl: `${HELP_BASE}/weldcommerce`,
+    contactUrl: SUPPORT_EMAIL,
+    // Rebuilt for the EU edition (ADR COM-009). Not in the App Store until
+    // milestone 1 is usable (weldsuite-documentation/plans/weldcommerce-rebuild.md);
+    // staff publish the row then.
+    isPublished: false,
+  },
+  {
     code: 'weldads',
     name: 'WeldAds',
     description: 'Manage paid advertising campaigns across Facebook Ads and Google Ads.',

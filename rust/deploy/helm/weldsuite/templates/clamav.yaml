@@ -1,0 +1,155 @@
+{{- if include "weldsuite.clamav.enabled" . }}
+{{- with .Values.mailInbound.clamav }}
+# clamd for WeldMail's threat protection: `weldsuite consume` streams each
+# inbound attachment to it (INSTREAM on 3310) before storing the message,
+# and the mail-attachment-scan cron retries what it couldn't take. ClamAV's
+# official image runs freshclam next to clamd, which keeps the signatures
+# current from database.clamav.net (outbound HTTPS). No customer data is
+# kept here: files are scanned in memory.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.clamav.fullname" $ }}
+  labels:
+    {{- include "weldsuite.clamav.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "weldsuite.clamav.selectorLabels" $ | nindent 4 }}
+  ports:
+    - name: clamd
+      port: 3310
+      targetPort: clamd
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weldsuite.clamav.fullname" $ }}
+  labels:
+    {{- include "weldsuite.clamav.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ .replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # A new pod loads the signatures (a minute or more) before the old
+      # one goes; consume keeps files pending meanwhile anyway.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.clamav.selectorLabels" $ | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "weldsuite.clamav.labels" $ | nindent 8 }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      {{- with .podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: clamav
+          image: "{{ .image.repository }}:{{ .image.tag }}"
+          imagePullPolicy: {{ .image.pullPolicy }}
+          # The image's entrypoint for running as its clamav user (uid 100):
+          # no chown, no user switch, so it passes the restricted Pod
+          # Security level. It writes only the three volumes below.
+          command: ["/init-unprivileged"]
+          env:
+            - name: CLAMAV_NO_MILTERD
+              value: "true"
+            # freshclam's signature checks per day.
+            - name: FRESHCLAM_CHECKS
+              value: {{ .freshclamChecks | quote }}
+          ports:
+            - name: clamd
+              containerPort: 3310
+              protocol: TCP
+          {{- with .securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # clamd listens only once the signatures are loaded; the first
+          # start downloads them (about 300 MB) before that.
+          startupProbe:
+            tcpSocket: { port: clamd }
+            periodSeconds: 10
+            failureThreshold: {{ .startupFailureThreshold }}
+          readinessProbe:
+            tcpSocket: { port: clamd }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: { port: clamd }
+            periodSeconds: 30
+            failureThreshold: 4
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            - name: signatures
+              mountPath: /var/lib/clamav
+            # clamd's local socket and freshclam's first-run config.
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/log/clamav
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: signatures
+          {{- if .signatures.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .signatures.existingClaim | quote }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .signatures.sizeLimit | quote }}
+          {{- end }}
+      {{- with .nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if $.Values.networkPolicy.enabled }}
+---
+# Only consume and the cron jobs reach clamd.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weldsuite.clamav.fullname" $ }}
+  labels:
+    {{- include "weldsuite.clamav.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weldsuite.clamav.selectorLabels" $ | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: clamd
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.consume.selectorLabels" $ | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "weldsuite.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: cron
+{{- end }}
+{{- end }}
+{{- end }}

@@ -15,7 +15,7 @@
 //! | `/ws/support/:workspaceId` | `SupportRoom` | [`room`], members of the workspace only (see below) |
 //! | `/ws/conversation/:id` | `ConversationRoom` | [`room`], agents of the workspace, and widget visitors with the HS256 token the widget API minted for that conversation (`WIDGET_TOKEN_SECRET`) |
 //! | `/ws/document/:id` | `DocumentRoom` | not served yet (the collaborative document room is not ported) |
-//! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead |
+//! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead (presence through [`GatewayPresence`]) |
 //!
 //! Every pod subscribes to the Valkey channel of each hub and room it holds a
 //! socket of; the publisher (`weldsuite_adapters_oss::ValkeyRealtime`, behind
@@ -45,11 +45,17 @@
 //!   organization mismatch) and an admin console that knows each
 //!   deployment's gateway.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod config;
 mod directory;
 mod gateway;
 mod hub;
 mod outbox;
+mod presence;
 mod protocol;
 mod room;
 mod routes;
@@ -61,5 +67,6 @@ mod workspace;
 pub use config::GatewayConfig;
 pub use directory::{ChatAccess, DbDirectory, Directory, DirectoryError, Member};
 pub use gateway::{Authenticator, Gateway};
+pub use presence::GatewayPresence;
 pub use routes::router;
 pub use workspace::{WORKSPACE_PARAM, WorkspaceChooser};

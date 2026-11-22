@@ -97,6 +97,8 @@ export const styles = StyleSheet.create({
     gap: 8,
   },
   senderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  // Lines up with the sender name: header padding 12 + avatar 32 + gap 8.
+  unsubscribeRow: { paddingLeft: 52, marginTop: -6, paddingBottom: 10 },
   senderAvatar: {
     width: 32,
     height: 32,

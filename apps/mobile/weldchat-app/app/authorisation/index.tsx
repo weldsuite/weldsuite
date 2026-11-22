@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { useObserve } from 'expo-observe';
-import { LoginScreen } from '@weldsuite/mobile-ui/components/LoginScreen';
+// WeldChat signs in on the server's own page only (WeldID on WeldSuite EU):
+// the hosted screen, which, unlike LoginScreen, loads nothing of Clerk.
+import { HostedLoginScreen } from '@weldsuite/mobile-ui/components/HostedLoginScreen';
 
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';
@@ -16,13 +18,12 @@ export default function AuthScreen() {
   }, [markInteractive]);
 
   return (
-    <LoginScreen
+    <HostedLoginScreen
       logo={require('../../assets/images/icon.png')}
       logoSize={{ width: 40, height: 40 }}
       appName="WeldChat"
       subtitle={t.login.subtitle}
       language={language}
-      showEmailLogin={true}
       accentColor={BRAND}
     />
   );

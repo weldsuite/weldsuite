@@ -15,6 +15,10 @@
 //! starter data seeded on a workspace's first request ([`defaults`]), and
 //! the readable 400s of `hrJson` ([`validation`]).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The routes follow the TypeScript services function by function (long
 // handlers, many arguments, names like `row`/`rows`), and amounts and counts
 // are JavaScript numbers (`f64`), converted where a column is an integer.
@@ -253,6 +257,12 @@ impl Caller {
             Some(buckets) => buckets.public.clone(),
             None => state.files.as_ref().and_then(|files| files.public.clone()),
         }
+    }
+
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
     }
 
     /// The master database: the request's (conformance), else the app's.

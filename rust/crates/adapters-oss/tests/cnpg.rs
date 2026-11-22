@@ -7,6 +7,11 @@
 //! pooler. Every test makes its own master database, workspaces and roles,
 //! and drops them.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 

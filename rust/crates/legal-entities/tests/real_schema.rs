@@ -8,6 +8,11 @@
 //! has an `_lert_` id, is removed before and after, and the scenarios run in
 //! one test, one after another (the default entity is one per database).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -457,7 +462,7 @@ async fn middleware_scenario(db: &PgPool) {
     assert!(!second.created);
     assert_eq!(second.member.role_id.as_deref(), Some("role_lert_viewer"));
 
-    let list = service::get_entity_access_list(db, "ent_lert_secret")
+    let list = service::get_entity_access_list(db, None, "ent_lert_secret")
         .await
         .expect("list");
     assert_eq!(list.members.len(), 1);

@@ -1,0 +1,232 @@
+//! `hr_employees`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "hr_employees")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "employeeNumber")]
+    pub employee_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(120))")]
+    #[serde(rename = "firstName")]
+    pub first_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(120))")]
+    #[serde(rename = "lastName")]
+    pub last_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(120))")]
+    #[serde(rename = "preferredName")]
+    pub preferred_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "email")]
+    pub email: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "phone")]
+    pub phone: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "avatarUrl")]
+    pub avatar_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(40))")]
+    #[serde(rename = "pronouns")]
+    pub pronouns: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(160))")]
+    #[serde(rename = "jobTitle")]
+    pub job_title: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "departmentId")]
+    pub department_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "managerId")]
+    pub manager_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "userId")]
+    pub user_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "legalEntityId")]
+    pub legal_entity_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "employmentType")]
+    pub employment_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "startDate", with = "crate::js::date::option")]
+    pub start_date: Option<TimeDate>,
+    #[serde(rename = "endDate", with = "crate::js::date::option")]
+    pub end_date: Option<TimeDate>,
+    #[serde(rename = "probationEndDate", with = "crate::js::date::option")]
+    pub probation_end_date: Option<TimeDate>,
+    #[sea_orm(column_type = "String(StringLen::N(160))")]
+    #[serde(rename = "location")]
+    pub location: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(60))")]
+    #[serde(rename = "timezone")]
+    pub timezone: Option<String>,
+    #[serde(rename = "weeklyHours")]
+    pub weekly_hours: Option<f64>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "workLocationIds")]
+    pub work_location_ids: Option<Json>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "sensitiveEncrypted")]
+    pub sensitive_encrypted: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "hr_employees",
+    columns: &[
+        DdlColumn {
+            name: "employment_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'full_time'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'onboarding'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "hr_employees_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_department_idx",
+            columns: &[IndexColumn {
+                expression: "department_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_manager_idx",
+            columns: &[IndexColumn {
+                expression: "manager_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_email_idx",
+            columns: &[IndexColumn {
+                expression: "email",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_user_idx",
+            columns: &[IndexColumn {
+                expression: "user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_legal_entity_idx",
+            columns: &[IndexColumn {
+                expression: "legal_entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "hr_employees_created_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "created_at",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

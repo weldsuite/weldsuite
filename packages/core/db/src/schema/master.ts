@@ -1544,6 +1544,16 @@ export {
   type PanelScheduleRegistryRow,
   type NewPanelScheduleRegistryRow,
 } from './weldpanel-registry';
+// WeldCommerce: storefront keys and payment connection ids resolved to a workspace without a session.
+export {
+  storefrontKeyRegistry,
+  commerceConnectionRegistry,
+  type StorefrontKeyRegistryKind,
+  type StorefrontKeyRegistryRow,
+  type NewStorefrontKeyRegistryRow,
+  type CommerceConnectionRegistryRow,
+  type NewCommerceConnectionRegistryRow,
+} from './weldcommerce-registry';
 // WeldPanel on the Kubernetes editions: the Iceberg catalog and the erasures waiting for a rewrite.
 export {
   icebergTables,

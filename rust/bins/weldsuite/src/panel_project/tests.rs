@@ -15,7 +15,7 @@ use weldsuite_panel::{PanelProjectState, ProjectRef};
 use weldsuite_ports::{BoxFuture, DynEventBus, PortError, RecordingEventBus};
 
 use super::rows::RowSink;
-use super::rules::{iso, iso_millis};
+use super::rules::{LIVE_MINUTES, iso, iso_millis};
 use super::{Clock, PanelValkey, TenantPools, TenantProjectState};
 use crate::panel_test_support::{ScratchTenant, unique};
 
@@ -576,7 +576,7 @@ fn touch(session: &str, visitor: &str, path: &str, at_ms: i64) -> LiveTouch {
 }
 
 #[tokio::test]
-async fn the_live_view_keeps_five_minutes_and_drops_erased_visitors() {
+async fn the_live_view_keeps_thirty_minutes_counts_five_and_drops_erased_visitors() {
     let Some(valkey) = scratch_valkey().await else {
         return;
     };
@@ -603,12 +603,19 @@ async fn the_live_view_keeps_five_minutes_and_drops_erased_visitors() {
         touch("s-1", "v-1", "/pricing", t0 - 9_000),
         touch("s-2", "v-1", "/", t0 - 3_000),
         touch("s-3", "v-3", "/docs", t0 - 2_000),
+        // In the 30-minute window, not in the last five.
+        touch("s-mid", "v-mid", "/", t0 - 20 * 60_000),
         // Left the window already.
-        touch("s-old", "v-old", "/", t0 - 6 * 60_000),
+        touch("s-old", "v-old", "/", t0 - 31 * 60_000),
     ];
     state.touch_live(p, &touches).await.expect("touched");
     let live = state.live(p).await.expect("live");
-    assert_eq!(live.visitors, 2);
+    assert_eq!((live.visitors, live.visitors_30m), (2, 3));
+    // v-mid in the minute 20 minutes back, v-1 and v-3 in the last one.
+    let mut per_minute = vec![0; LIVE_MINUTES];
+    per_minute[10] = 1;
+    per_minute[29] = 2;
+    assert_eq!(live.per_minute, per_minute);
     let sessions: Vec<(&str, u64, &str)> = live
         .sessions
         .iter()
@@ -622,16 +629,33 @@ async fn the_live_view_keeps_five_minutes_and_drops_erased_visitors() {
         .collect();
     assert_eq!(
         sessions,
-        [("s-3", 1, "/docs"), ("s-2", 1, "/"), ("s-1", 2, "/pricing")]
+        [
+            ("s-3", 1, "/docs"),
+            ("s-2", 1, "/"),
+            ("s-1", 2, "/pricing"),
+            ("s-mid", 1, "/"),
+        ]
     );
     let s1 = &live.sessions[2];
     assert_eq!(s1.started_at, iso(t0 - 10_000));
     assert_eq!(s1.touch.ts, iso(t0 - 4_000));
 
-    // Five minutes on, nobody is live.
+    // Five minutes on, nobody counts as live now, but the sessions stay.
     now.fetch_add(5 * 60_000, Ordering::SeqCst);
-    assert_eq!(state.live(p).await.expect("live").visitors, 0);
-    now.fetch_sub(5 * 60_000, Ordering::SeqCst);
+    let later = state.live(p).await.expect("live");
+    assert_eq!(
+        (later.visitors, later.visitors_30m, later.sessions.len()),
+        (0, 3, 4)
+    );
+    // Half an hour on, they have all left the window.
+    now.fetch_add(25 * 60_000, Ordering::SeqCst);
+    let gone = state.live(p).await.expect("live");
+    assert_eq!(
+        (gone.visitors, gone.visitors_30m, gone.sessions.len()),
+        (0, 0, 0)
+    );
+    assert_eq!(gone.per_minute, vec![0; LIVE_MINUTES]);
+    now.fetch_sub(30 * 60_000, Ordering::SeqCst);
 
     // An erasure drops its sessions; once the collector's list is known, a
     // touch of an erased id is refused.

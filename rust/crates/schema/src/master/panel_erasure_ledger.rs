@@ -1,0 +1,80 @@
+//! `panel_erasure_ledger`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "panel_erasure_ledger")]
+pub struct Model {
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
+    #[serde(rename = "erasedId")]
+    pub erased_id: String,
+    #[serde(rename = "requestedAt", with = "crate::js::timestamptz")]
+    pub requested_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "appliedAt", with = "crate::js::timestamptz::option")]
+    pub applied_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "panel_erasure_ledger",
+    columns: &[DdlColumn {
+        name: "requested_at",
+        sql_type: None,
+        default: Some(DdlDefault::Sql("now()")),
+        generated: None,
+        default_fn: false,
+        on_update: false,
+    }],
+    primary_key: Some(DdlPrimaryKey {
+        name: "panel_erasure_ledger_project_id_erased_id_pk",
+        columns: &["project_id", "erased_id"],
+    }),
+    indexes: &[
+        Index {
+            name: "panel_erasure_ledger_pending_idx",
+            columns: &[IndexColumn {
+                expression: "requested_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: Some("\"panel_erasure_ledger\".\"applied_at\" IS NULL"),
+        },
+        Index {
+            name: "panel_erasure_ledger_workspace_idx",
+            columns: &[IndexColumn {
+                expression: "workspace_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

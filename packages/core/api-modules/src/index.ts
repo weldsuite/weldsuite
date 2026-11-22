@@ -25,6 +25,7 @@ export type ApiModuleId =
   | 'mail'
   | 'flow'
   | 'books'
+  | 'commerce'
   | 'stash'
   | 'host'
   | 'calendar'
@@ -83,6 +84,12 @@ export interface ApiModule {
    * `RUST_PORTED_MODULES` (playbook step 6), then run `pnpm rust:catalogs`.
    */
   rust: boolean;
+  /**
+   * Built only in the Rust backend, with no TypeScript worker
+   * (`RUST_ONLY_MODULES`). It has no conformance suite to pass; its own Rust
+   * tests carry the weight (ADR COM-009).
+   */
+  rustOnly: boolean;
 }
 
 /**
@@ -94,7 +101,16 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'commerce', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+
+/**
+ * Modules built only in the Rust backend (ADR COM-009): no TypeScript worker
+ * under `apps/workers/`, no app-api forward, nothing on Global. Each is also in
+ * `RUST_PORTED_MODULES` (so the Rust server mounts it) and its edition feature
+ * is in `GLOBAL_UNAVAILABLE_FEATURES` (so Global's platform hides it). The
+ * Rust catalogs test exempts these from needing a conformance suite.
+ */
+export const RUST_ONLY_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['commerce']);
 
 /**
  * Features built only in the Rust backend. Global is being retired (ADR
@@ -107,8 +123,14 @@ export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId
  * Deleted together with Global.
  */
 export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
+  // The rebuilt WeldCommerce, a Rust-only module (ADR COM-009).
+  'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
+  // Adding people and companies to WeldCRM automatically (`/api/crm-settings`).
+  'crm-auto-add',
+  // WeldMail attachment scanning and link protection, built only in Rust.
+  'mail-threat-protection',
 ];
 
 const mod = (
@@ -124,6 +146,7 @@ const mod = (
   prefixes,
   apps,
   rust: RUST_PORTED_MODULES.has(id),
+  rustOnly: RUST_ONLY_MODULES.has(id),
 });
 
 export const API_MODULES: readonly ApiModule[] = [
@@ -187,6 +210,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/companies',
     '/api/company-logos',
     '/api/crm-analytics',
+    // Rust-only (EU and self-hosted editions): auto-add to WeldCRM. Global's crm-api does not mount it.
+    '/api/crm-settings',
     '/api/customer-sequences',
     '/api/customer-statuses',
     '/api/leads',
@@ -349,7 +374,23 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/received-fiscal-documents',
     '/public/fiscal-webhooks',
   ]),
-  mod('stash', 8807, ['weldstash'], [
+  // WeldCommerce, rebuilt in Rust only (ADR COM-009): the overview, the
+  // categories, the orders, the discount codes and the settings. The Rust
+  // crate also serves `/api/products`, which stays
+  // stash's below while Global's stash-api serves it.
+  mod('commerce', 8806, ['weldcommerce'], [
+    '/api/categories',
+    '/api/commerce',
+    '/api/commerce-buyers',
+    '/api/commerce-channels',
+    '/api/commerce-company-settings',
+    '/api/commerce-payments',
+    '/api/commerce-settings',
+    '/api/discounts',
+    '/api/orders',
+  ]),
+  // WeldCommerce reads and writes the product catalogue too (STASH-006).
+  mod('stash', 8807, ['weldstash', 'weldcommerce'], [
     '/api/boxes',
     '/api/cycle-counts',
     '/api/inventory',
@@ -358,7 +399,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/pickers',
     // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
     '/api/product-suppliers',
-    // The product catalogue: WeldStash owns it while WeldCommerce is rebuilt.
+    // The product catalogue: stash-api serves it on Global; on the Rust
+    // backend the commerce crate does (WeldCommerce phase 1).
     '/api/products',
     '/api/purchase-orders',
     '/api/putaway',

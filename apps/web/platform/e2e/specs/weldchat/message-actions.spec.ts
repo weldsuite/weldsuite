@@ -133,13 +133,11 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
     await expect(indicator).toBeVisible({ timeout: 15_000 });
     await expect(indicator).toContainText('1');
 
-    // Clicking it routes to the thread view, which renders the reply.
+    // Clicking it opens the thread in the side panel beside the channel, which
+    // renders the reply; the channel stays open.
     await indicator.click();
-    await expect(page).toHaveURL(
-      new RegExp(`/weldchat/${channel.id}/thread/${parent.id}`),
-      { timeout: 10_000 },
-    );
     await expect(page.getByText(replyText)).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(new RegExp(`/weldchat/${channel.id}$`));
   });
 
   test('a private channel exposes an "Invite people" affordance for existing teammates', async ({ page, api }) => {
@@ -215,8 +213,10 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
       parentId: parent.id,
     });
 
+    // A thread link opens the channel with the thread in the side panel.
     await page.goto(`/weldchat/${channel.id}/thread/${parent.id}`);
     await expect(page.getByText('Only reply')).toBeVisible({ timeout: 15_000 });
+    await expect(page).toHaveURL(new RegExp(`/weldchat/${channel.id}$`));
 
     await page.getByText('Only reply').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete message' }).click();

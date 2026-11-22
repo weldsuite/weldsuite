@@ -184,7 +184,7 @@ pub(crate) fn conflict(message: impl Into<String>) -> ApiError {
 
 /// A database failure as the error handler answers it: a moved workspace
 /// database is a retryable 503, anything else the generic 500.
-pub(crate) fn database_error(error: &sqlx::Error) -> ApiError {
+pub(crate) fn database_error(error: &(dyn std::error::Error + 'static)) -> ApiError {
     if weldsuite_db::pg_errors::classify_moved_database_error(error).is_some() {
         return ApiError::workspace_moving();
     }

@@ -1,20 +1,35 @@
 /**
- * Pressure test for the public API (external-api, api-test.weldsuite.org),
- * authenticated with a workspace API key (`wsk_…`).
+ * Pressure test for the public API, authenticated with a workspace API key
+ * (`wsk_…`): external-api on Global (api-test.weldsuite.org), `/v1` on the
+ * Rust server's own host on EU (api.test.weldsuite.eu/v1,
+ * rust/modules/external-api).
  *
  * The public API is rate-limited per workspace by plan tier (60 / 300 / 1000
- * / 5000 requests per minute, apps/workers/external-api/src/middleware/
- * rate-limit.ts). A 429 is therefore counted separately and not as a failure:
- * past the limit, this test checks that the limiter holds and the API stays
- * healthy behind it. Use a workspace on the enterprise tier to push the
- * workers themselves.
+ * / 5000 requests per minute; apps/workers/external-api/src/middleware/
+ * rate-limit.ts, and the same tiers in rust/modules/external-api/src/gates.rs).
+ * A 429 is therefore counted separately and not as a failure: past the limit,
+ * this test checks that the limiter holds and the API stays healthy behind
+ * it. Use a workspace on the enterprise tier to push the server itself.
  *
- * Key needs scopes people:*, companies:*, tasks:*, tickets:read, products:read.
+ * Key needs scopes people:*, companies:*, tasks:*, tickets:read.
+ * (`/v1/products` left with WeldCommerce: neither backend serves it now.)
  */
 
 import http from 'k6/http';
 import { sleep } from 'k6';
-import { assertSafeTarget, baseOptions, isWriteIteration, MARKER, pickWeighted, publicApiHost, thinkTime, uniqueSuffix } from '../lib/config.js';
+import {
+  assertSafeTarget,
+  baseOptions,
+  forThisVu,
+  isWriteIteration,
+  listOf,
+  MARKER,
+  pickWeighted,
+  publicApiHost,
+  TARGET_LABEL,
+  thinkTime,
+  uniqueSuffix,
+} from '../lib/config.js';
 import { createClient, endpointMetrics, jsonField } from '../lib/http.js';
 import { summaryOutputs } from '../lib/summary.js';
 
@@ -27,36 +42,44 @@ const metrics = endpointMetrics([
   'whoami', 'people_list', 'people_get', 'people_create', 'people_update', 'people_delete',
   'companies_list', 'companies_create', 'companies_update', 'companies_delete',
   'tasks_list', 'tasks_create', 'tasks_update', 'tasks_delete',
-  'tickets_list', 'products_list',
+  'tickets_list',
 ]);
 
 export const options = baseOptions(API, 'run');
+
+// One key per test workspace, comma separated: the VUs spread over them, and
+// with them over the per-workspace rate limits.
+const API_KEYS = listOf(__ENV.WELD_API_KEY);
+const bearer = (key) => ({ Authorization: `Bearer ${key}` });
 
 const api = createClient({
   api: API,
   metrics,
   hostFor: publicApiHost,
-  headers: () => ({ Authorization: `Bearer ${__ENV.WELD_API_KEY}` }),
+  headers: () => bearer(forThisVu(API_KEYS)),
 });
 
 export function setup() {
   assertSafeTarget();
-  if (!__ENV.WELD_API_KEY) throw new Error('Set WELD_API_KEY (a wsk_… key for the test workspace) in scripts/load-test/.env');
-  const res = api.get('whoami', '', '/v1/');
-  if (res.status !== 200) {
-    throw new Error(`Pre-flight GET /v1/ returned ${res.status}: ${String(res.body).slice(0, 300)}`);
+  console.log(`Target: ${TARGET_LABEL}, public API ${publicApiHost()}/v1`);
+  if (API_KEYS.length === 0) throw new Error('Set WELD_API_KEY (a wsk_… key for the test workspace) in scripts/load-test/.env');
+  for (const key of API_KEYS) {
+    const res = api.get('whoami', '', '/v1/', { headers: bearer(key) });
+    if (res.status !== 200) {
+      throw new Error(`Pre-flight GET /v1/ returned ${res.status}: ${String(res.body).slice(0, 300)}`);
+    }
+    const workspace = jsonField(res, 'data.workspace.id');
+    const tier = jsonField(res, 'data.workspace.tier');
+    console.log(`Public API: workspace ${workspace}, tier "${tier}", rate limit ${res.headers['X-Ratelimit-Limit'] || '?'} requests/min`);
   }
-  const tier = jsonField(res, 'data.workspace.tier');
-  console.log(`Public API: workspace tier "${tier}", rate limit ${res.headers['X-Ratelimit-Limit'] || '?'} requests/min`);
   return {};
 }
 
 const READS = [
-  { weight: 25, run: () => api.get('people_list', '', '/v1/people?limit=25') },
-  { weight: 15, run: () => api.get('companies_list', '', '/v1/companies?limit=25') },
-  { weight: 20, run: () => api.get('tasks_list', '', '/v1/tasks?limit=50') },
+  { weight: 30, run: () => api.get('people_list', '', '/v1/people?limit=25') },
+  { weight: 20, run: () => api.get('companies_list', '', '/v1/companies?limit=25') },
+  { weight: 25, run: () => api.get('tasks_list', '', '/v1/tasks?limit=50') },
   { weight: 20, run: () => api.get('tickets_list', '', '/v1/tickets?limit=25') },
-  { weight: 15, run: () => api.get('products_list', '', '/v1/products?limit=25') },
   { weight: 5, run: () => api.get('whoami', '', '/v1/') },
 ];
 

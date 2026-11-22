@@ -22,6 +22,7 @@ const RECORD_NOUN: Record<SearchEntityType, string> = {
   article: 'help center article',
   knowledge_page: 'knowledge page',
   product: 'product',
+  order: 'order',
   invoice: 'invoice',
   bill: 'bill',
   project: 'project',
@@ -52,7 +53,10 @@ export interface TaggedRecord {
   label: string | null;
 }
 
-const TOKEN = /<@([^>]+)>/g;
+// `type:id` never holds `<` or `|`; the label may (a ticket "Price < 100"), so
+// it is only bounded. Both bounds keep a long run of unclosed `<@` linear
+// instead of rescanning to the end of the text from each one.
+const TOKEN = /<@([^<>|]{1,256}(?:\|[^>]{0,256})?)>/g;
 
 /** The record a token body (`type:id|Label`) names, or null for a person, an agent or a file. */
 function recordOf(body: string): TaggedRecord | null {

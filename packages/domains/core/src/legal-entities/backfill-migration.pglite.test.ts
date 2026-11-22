@@ -18,7 +18,7 @@ import { vector } from '@electric-sql/pglite/vector';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const migrationsDir = path.resolve(here, '../../../../core/db/drizzle/tenant-migrations');
+const migrationsDir = path.resolve(here, '../../../../../rust/migrations/tenant');
 
 const SCHEMA_TAG_PREFIX = '0248_';
 const BACKFILL_TAG = '0249_legal_entities_backfill';

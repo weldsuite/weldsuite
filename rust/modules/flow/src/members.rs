@@ -74,14 +74,30 @@ where
 }
 
 /// The member's workspace profile, `null` without a workspace member row
-/// (Drizzle nullifies a left-joined object whose fields are all null).
+/// (Drizzle nullifies a left-joined object whose fields are all null). The
+/// `avatar` is filled in afterwards from the account ([`with_user_avatars`]).
 macro_rules! member_user {
     () => {
-        "case when wm.user_id is null and wm.name is null and wm.email is null and wm.picture is null
+        "case when wm.user_id is null and wm.name is null and wm.email is null
               then null
               else jsonb_build_object('id', wm.user_id, 'name', wm.name, 'email', wm.email,
-                                      'avatar', wm.picture) end"
+                                      'avatar', null) end"
     };
+}
+
+/// Each row's `user.avatar`: the account picture of `user.id`, not the
+/// member row's copy.
+async fn with_user_avatars(master: Option<&PgPool>, rows: &mut [Value]) {
+    let ids: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row["user"]["id"].as_str())
+        .collect();
+    let pictures = weldsuite_db::AccountPictures::load(master, ids).await;
+    for row in rows {
+        if let Some(user) = row.get_mut("user").filter(|user| user.is_object()) {
+            pictures.apply(user, "id", "avatar");
+        }
+    }
 }
 
 /// The members' user ids, active and live (`getActiveMemberIds`).
@@ -167,12 +183,14 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     .fetch_all(&caller.db)
     .await;
     match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
+        Ok(rows) => {
+            let mut rows: Vec<Value> = rows
+                .into_iter()
                 .map(|row| redact(js_row(row), &caller.user_id, access.is_admin))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+                .collect();
+            with_user_avatars(caller.request_master(), &mut rows).await;
+            Data(rows).into_response()
+        }
         Err(error) => Refusal::from(error).respond("Failed to list project members"),
     }
 }
@@ -196,8 +214,8 @@ async fn available(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     reply(
         async {
             let existing = active_member_ids(&caller.db, &project_id).await?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', user_id, 'name', name, 'email', email, 'image', picture)
+            let mut rows: Vec<Value> = sqlx::query_scalar(
+                "select jsonb_build_object('id', user_id, 'name', name, 'email', email, 'image', null)
                  from workspace_members
                  where deleted_at is null and status = 'ACTIVE'
                    and (cardinality($1::text[]) = 0 or user_id <> all($1))",
@@ -205,6 +223,9 @@ async fn available(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .bind(&existing)
             .fetch_all(&caller.db)
             .await?;
+            // Avatars are account pictures, not the member row's copy.
+            weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "id", "image")
+                .await;
             Ok(Data(rows).into_response())
         }
         .await,
@@ -242,7 +263,10 @@ async fn by_user(caller: Caller, Path((project_id, user_id)): Path<(String, Stri
     .await;
     match row {
         Ok(Some(row)) => {
-            Data(redact(js_row(row), &caller.user_id, access.is_admin)).into_response()
+            let mut rows = [redact(js_row(row), &caller.user_id, access.is_admin)];
+            with_user_avatars(caller.request_master(), &mut rows).await;
+            let [row] = rows;
+            Data(row).into_response()
         }
         Ok(None) => ApiError::not_found("Project member", Some(&format!("{project_id}/{user_id}")))
             .into_response(),

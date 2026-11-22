@@ -1,0 +1,131 @@
+//! `panel_subscriptions`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "panel_subscriptions")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "targetType")]
+    pub target_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "schedule")]
+    pub schedule: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "channels")]
+    pub channels: Json,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "slackWebhookCiphertext")]
+    pub slack_webhook_ciphertext: Option<String>,
+    #[serde(rename = "enabled")]
+    pub enabled: bool,
+    #[serde(rename = "nextRunAt", with = "crate::js::timestamptz::option")]
+    pub next_run_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "lastRunAt", with = "crate::js::timestamptz::option")]
+    pub last_run_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastError")]
+    pub last_error: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "ownerUserId")]
+    pub owner_user_id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "panel_subscriptions",
+    columns: &[
+        DdlColumn {
+            name: "enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "panel_subscriptions_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "panel_subscriptions_target_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "target_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "target_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

@@ -182,6 +182,12 @@ spec:
             - name: MTA_WARMUP_SCHEDULE
               value: {{ . | toString | quote }}
             {{- end }}
+            - name: MTA_WARMUP_ADVANCE_PERCENT
+              value: {{ .warmupAdvancePercent | toString | quote }}
+            {{- with .warmupSoftPools }}
+            - name: MTA_WARMUP_SOFT_POOLS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- end }}
             {{- range list "MTA_DATABASE_URL" "MTA_KEY" "MTA_API_SECRET" }}
             - name: {{ . }}

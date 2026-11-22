@@ -1224,6 +1224,552 @@ Of open deze link: https://meet.weldsuite.org/r/abc-defg-hij
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'commerce.approval-decided' / 'approved' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 was approved
+
+Acme Wholesale
+
+Order approved
+
+Order ORD-10043
+
+Your order ORD-10043 at Acme Wholesale for EUR 1250.00 was approved.
+
+Decided by Sanne Jansen.
+
+Comment
+
+Fine for this project.
+Please order the rest next week.
+
+Pay now https://shop.acme.example/pay/ORD-10043
+
+Or open this link: https://shop.acme.example/pay/ORD-10043
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'approved' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 is goedgekeurd
+
+Acme Wholesale
+
+Bestelling goedgekeurd
+
+Bestelling ORD-10043
+
+Je bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00 is goedgekeurd.
+
+Beslist door Sanne Jansen.
+
+Opmerking
+
+Fine for this project.
+Please order the rest next week.
+
+Nu betalen https://shop.acme.example/pay/ORD-10043
+
+Of open deze link: https://shop.acme.example/pay/ORD-10043
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'approvedMinimal' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 was approved
+
+Acme Wholesale
+
+Order approved
+
+Order ORD-10043
+
+Your order ORD-10043 at Acme Wholesale for EUR 1250.00 was approved.
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'approvedMinimal' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 is goedgekeurd
+
+Acme Wholesale
+
+Bestelling goedgekeurd
+
+Bestelling ORD-10043
+
+Je bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00 is goedgekeurd.
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'rejected' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 was rejected
+
+Acme Wholesale
+
+Order rejected
+
+Order ORD-10043
+
+Your order ORD-10043 at Acme Wholesale for EUR 1250.00 was rejected. It will not be processed.
+
+Decided by Sanne Jansen.
+
+Comment
+
+This is over budget. Order the smaller set.
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'rejected' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 is afgewezen
+
+Acme Wholesale
+
+Bestelling afgewezen
+
+Bestelling ORD-10043
+
+Je bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00 is afgewezen. Hij wordt niet verwerkt.
+
+Beslist door Sanne Jansen.
+
+Opmerking
+
+This is over budget. Order the smaller set.
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'rejectedMinimal' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 was rejected
+
+Acme Wholesale
+
+Order rejected
+
+Order ORD-10043
+
+Your order ORD-10043 at Acme Wholesale for EUR 1250.00 was rejected. It will not be processed.
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-decided' / 'rejectedMinimal' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 is afgewezen
+
+Acme Wholesale
+
+Bestelling afgewezen
+
+Bestelling ORD-10043
+
+Je bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00 is afgewezen. Hij wordt niet verwerkt.
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-requested' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 needs your approval
+
+Acme Wholesale
+
+Approval needed
+
+Order ORD-10043
+
+Femke de Vries from Jansen Bouw BV placed order ORD-10043 at Acme Wholesale for EUR 1250.00. It needs your approval.
+
+The total is above this buyer's order limit.
+
+Review the order https://shop.acme.example/approvals/ORD-10043
+
+Or open this link: https://shop.acme.example/approvals/ORD-10043
+
+You get this because you can approve orders at Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-requested' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 wacht op je goedkeuring
+
+Acme Wholesale
+
+Goedkeuring nodig
+
+Bestelling ORD-10043
+
+Femke de Vries van Jansen Bouw BV plaatste bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00. Deze moet door jou worden goedgekeurd.
+
+Het totaal is hoger dan de bestellimiet van deze inkoper.
+
+Bekijk de bestelling https://shop.acme.example/approvals/ORD-10043
+
+Of open deze link: https://shop.acme.example/approvals/ORD-10043
+
+Je krijgt dit omdat je bestellingen bij Acme Wholesale kunt goedkeuren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-requested' / 'minimal' / 'en' > matches the text snapshot 1`] = `
+"Order ORD-10043 needs your approval
+
+Acme Wholesale
+
+Approval needed
+
+Order ORD-10043
+
+Femke de Vries placed order ORD-10043 at Acme Wholesale for EUR 1250.00. It needs your approval.
+
+The total is above your company's approval threshold.
+
+You get this because you can approve orders at Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.approval-requested' / 'minimal' / 'nl' > matches the text snapshot 1`] = `
+"Bestelling ORD-10043 wacht op je goedkeuring
+
+Acme Wholesale
+
+Goedkeuring nodig
+
+Bestelling ORD-10043
+
+Femke de Vries plaatste bestelling ORD-10043 bij Acme Wholesale van EUR 1250.00. Deze moet door jou worden goedgekeurd.
+
+Het totaal is hoger dan de goedkeuringsgrens van je bedrijf.
+
+Je krijgt dit omdat je bestellingen bij Acme Wholesale kunt goedkeuren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'admin' / 'en' > matches the text snapshot 1`] = `
+"Jansen Bouw BV gave you access to order at Acme Wholesale
+
+Acme Wholesale
+
+Sanne Jansen gave you access
+
+Acme Wholesale
+
+Jansen Bouw BV has given you access to order for it at Acme Wholesale as an admin.
+
+This message was sent on behalf of Acme Wholesale. If you didn't expect it, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'admin' / 'nl' > matches the text snapshot 1`] = `
+"Jansen Bouw BV geeft je toegang om te bestellen bij Acme Wholesale
+
+Acme Wholesale
+
+Sanne Jansen gaf je toegang
+
+Acme Wholesale
+
+Jansen Bouw BV heeft je toegang gegeven om namens het bedrijf te bestellen bij Acme Wholesale, als beheerder.
+
+Dit bericht is verstuurd namens Acme Wholesale. Verwachtte je het niet? Dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'approver' / 'en' > matches the text snapshot 1`] = `
+"Jansen Bouw BV gave you access to order at Acme Wholesale
+
+Acme Wholesale
+
+You were given access
+
+Acme Wholesale
+
+Jansen Bouw BV has given you access to order for it at Acme Wholesale as an approver.
+
+You sign in with your email address. We send you a code each time, so you do not need a password.
+
+Open the shop https://shop.acme.example/
+
+Or open this link: https://shop.acme.example/
+
+This message was sent on behalf of Acme Wholesale. If you didn't expect it, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'approver' / 'nl' > matches the text snapshot 1`] = `
+"Jansen Bouw BV geeft je toegang om te bestellen bij Acme Wholesale
+
+Acme Wholesale
+
+Je hebt toegang gekregen
+
+Acme Wholesale
+
+Jansen Bouw BV heeft je toegang gegeven om namens het bedrijf te bestellen bij Acme Wholesale, als fiatteur.
+
+Je logt in met je e-mailadres. We sturen je elke keer een code, dus je hebt geen wachtwoord nodig.
+
+Open de shop https://shop.acme.example/
+
+Of open deze link: https://shop.acme.example/
+
+Dit bericht is verstuurd namens Acme Wholesale. Verwachtte je het niet? Dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Jansen Bouw BV gave you access to order at Acme Wholesale
+
+Acme Wholesale
+
+Sanne Jansen gave you access
+
+Acme Wholesale
+
+Jansen Bouw BV has given you access to order for it at Acme Wholesale as a buyer.
+
+You sign in with your email address. We send you a code each time, so you do not need a password.
+
+Open the shop https://shop.acme.example/
+
+Or open this link: https://shop.acme.example/
+
+This message was sent on behalf of Acme Wholesale. If you didn't expect it, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.buyer-invitation' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Jansen Bouw BV geeft je toegang om te bestellen bij Acme Wholesale
+
+Acme Wholesale
+
+Sanne Jansen gaf je toegang
+
+Acme Wholesale
+
+Jansen Bouw BV heeft je toegang gegeven om namens het bedrijf te bestellen bij Acme Wholesale, als inkoper.
+
+Je logt in met je e-mailadres. We sturen je elke keer een code, dus je hebt geen wachtwoord nodig.
+
+Open de shop https://shop.acme.example/
+
+Of open deze link: https://shop.acme.example/
+
+Dit bericht is verstuurd namens Acme Wholesale. Verwachtte je het niet? Dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'awaitingApproval' / 'en' > matches the text snapshot 1`] = `
+"Your order ORD-10043 at Acme Wholesale
+
+Acme Wholesale
+
+Order confirmation
+
+Order ORD-10043
+
+We received your order at Acme Wholesale. This is what you ordered.
+
+This order waits for approval from a colleague at your company. We process it once it is approved.
+
+1 × Safety helmet: EUR 14.99
+
+Subtotal: EUR 14.99
+
+Shipping: EUR 0.00
+
+Tax: EUR 3.15
+
+Total: EUR 18.14
+
+View your order https://shop.acme.example/orders/ORD-10043
+
+Or open this link: https://shop.acme.example/orders/ORD-10043
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'awaitingApproval' / 'nl' > matches the text snapshot 1`] = `
+"Je bestelling ORD-10043 bij Acme Wholesale
+
+Acme Wholesale
+
+Orderbevestiging
+
+Bestelling ORD-10043
+
+We hebben je bestelling bij Acme Wholesale ontvangen. Dit heb je besteld.
+
+Deze bestelling wacht op goedkeuring van een collega binnen je bedrijf. We verwerken hem zodra hij is goedgekeurd.
+
+1 × Safety helmet: EUR 14.99
+
+Subtotaal: EUR 14.99
+
+Verzending: EUR 0.00
+
+BTW: EUR 3.15
+
+Totaal: EUR 18.14
+
+Bekijk je bestelling https://shop.acme.example/orders/ORD-10043
+
+Of open deze link: https://shop.acme.example/orders/ORD-10043
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Your order ORD-10042 at Acme Wholesale
+
+Acme Wholesale
+
+Order confirmation
+
+Order ORD-10042
+
+We received your order at Acme Wholesale. This is what you ordered.
+
+You will receive an invoice for this order.
+
+10 × Safety helmet: EUR 149.90
+
+24 × Work gloves, size L: EUR 119.76
+
+Subtotal: EUR 269.66
+
+Shipping: EUR 9.95
+
+Tax: EUR 58.88
+
+Total: EUR 338.49
+
+View your order https://shop.acme.example/orders/ORD-10042
+
+Or open this link: https://shop.acme.example/orders/ORD-10042
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Je bestelling ORD-10042 bij Acme Wholesale
+
+Acme Wholesale
+
+Orderbevestiging
+
+Bestelling ORD-10042
+
+We hebben je bestelling bij Acme Wholesale ontvangen. Dit heb je besteld.
+
+Je ontvangt een factuur voor deze bestelling.
+
+10 × Safety helmet: EUR 149.90
+
+24 × Work gloves, size L: EUR 119.76
+
+Subtotaal: EUR 269.66
+
+Verzending: EUR 9.95
+
+BTW: EUR 58.88
+
+Totaal: EUR 338.49
+
+Bekijk je bestelling https://shop.acme.example/orders/ORD-10042
+
+Of open deze link: https://shop.acme.example/orders/ORD-10042
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'minimal' / 'en' > matches the text snapshot 1`] = `
+"Your order ORD-10044 at Acme Wholesale
+
+Acme Wholesale
+
+Order confirmation
+
+Order ORD-10044
+
+We received your order at Acme Wholesale. This is what you ordered.
+
+1 × Safety helmet: EUR 14.99
+
+Subtotal: EUR 14.99
+
+Shipping: EUR 0.00
+
+Tax: EUR 3.15
+
+Total: EUR 18.14
+
+This message was sent on behalf of Acme Wholesale.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'commerce.order-confirmation' / 'minimal' / 'nl' > matches the text snapshot 1`] = `
+"Je bestelling ORD-10044 bij Acme Wholesale
+
+Acme Wholesale
+
+Orderbevestiging
+
+Bestelling ORD-10044
+
+We hebben je bestelling bij Acme Wholesale ontvangen. Dit heb je besteld.
+
+1 × Safety helmet: EUR 14.99
+
+Subtotaal: EUR 14.99
+
+Verzending: EUR 0.00
+
+BTW: EUR 3.15
+
+Totaal: EUR 18.14
+
+Dit bericht is verstuurd namens Acme Wholesale.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
 exports[`'desk.report' / 'overview' / 'en' > matches the text snapshot 1`] = `
 "WeldDesk report: Overview (Mar 9 to Mar 15, 2026)
 

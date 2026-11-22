@@ -5,12 +5,31 @@ use axum::body::Bytes;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
-use serde_json::{Value, json};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
+use serde_json::json;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{knowledge_favorites as favorites, knowledge_pages as pages};
 
 use crate::pages::load_page;
-use crate::{Caller, KnowError, access, all, now, validate};
+use crate::{Caller, KnowError, access, all, now, row, validate};
+
+/// A favorite with its page's title, icon and space.
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Favorite {
+    id: String,
+    page_id: String,
+    position: i32,
+    title: String,
+    icon: Option<String>,
+    space_id: String,
+}
 
 /// Favorites in spaces the caller can still read: leaving a teamspace hides
 /// its pages here too.
@@ -20,20 +39,28 @@ pub(crate) async fn list(caller: Caller) -> Response {
         if space_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object(
-                      'id', f.id, 'pageId', f.page_id, 'position', f.position, 'title', p.title,
-                      'icon', p.icon, 'spaceId', p.space_id)
-             from knowledge_favorites f
-             join knowledge_pages p on f.page_id = p.id
-             where f.user_id = $1 and p.deleted_at is null and p.space_id = any($2)
-             order by f.position asc, f.created_at asc",
-        )
-        .bind(&caller.user_id)
-        .bind(&space_ids)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, KnowError>(rows)
+        let page = favorites::Entity::belongs_to(pages::Entity)
+            .from(favorites::Column::PageId)
+            .to(pages::Column::Id)
+            .into();
+        let rows: Vec<Favorite> = favorites::Entity::find()
+            .select_only()
+            .column(favorites::Column::Id)
+            .column(favorites::Column::PageId)
+            .column(favorites::Column::Position)
+            .column_as(pages::Column::Title, "title")
+            .column_as(pages::Column::Icon, "icon")
+            .column_as(pages::Column::SpaceId, "space_id")
+            .join(JoinType::InnerJoin, page)
+            .filter(favorites::Column::UserId.eq(&caller.user_id))
+            .filter(pages::Column::DeletedAt.is_null())
+            .filter(pages::Column::SpaceId.is_in(space_ids))
+            .order_by_asc(favorites::Column::Position)
+            .order_by_asc(favorites::Column::CreatedAt)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, KnowError>(rows.into_iter().map(row).collect())
     }
     .await;
     match result {
@@ -52,33 +79,34 @@ pub(crate) async fn add(caller: Caller, headers: HeaderMap, body: Bytes) -> Resp
     let result = async {
         let db = &caller.db;
         load_page(db, &page_id, &caller.user_id).await?;
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from knowledge_favorites where page_id = $1 and user_id = $2 limit 1",
-        )
-        .bind(&page_id)
-        .bind(&caller.user_id)
-        .fetch_optional(db)
-        .await?;
+        let orm_db = orm(db);
+        let existing: Option<String> = favorites::Entity::find()
+            .select_only()
+            .column(favorites::Column::Id)
+            .filter(favorites::Column::PageId.eq(&page_id))
+            .filter(favorites::Column::UserId.eq(&caller.user_id))
+            .into_tuple()
+            .one(&orm_db)
+            .await?;
         if let Some(id) = existing {
             return Ok((false, id));
         }
-        let max: i64 = sqlx::query_scalar(
-            "select coalesce(max(position), -1)::bigint from knowledge_favorites where user_id = $1",
-        )
-        .bind(&caller.user_id)
-        .fetch_one(db)
-        .await?;
+        let max: Option<Option<i32>> = favorites::Entity::find()
+            .select_only()
+            .column_as(favorites::Column::Position.max(), "max")
+            .filter(favorites::Column::UserId.eq(&caller.user_id))
+            .into_tuple()
+            .one(&orm_db)
+            .await?;
         let id = generate_id("kfav");
-        sqlx::query(
-            "insert into knowledge_favorites (id, page_id, user_id, position, created_at)
-             values ($1, $2, $3, $4::int, $5::timestamp)",
-        )
-        .bind(&id)
-        .bind(&page_id)
-        .bind(&caller.user_id)
-        .bind(max + 1)
-        .bind(now())
-        .execute(db)
+        favorites::Entity::insert(favorites::ActiveModel {
+            id: Set(id.clone()),
+            page_id: Set(page_id.clone()),
+            user_id: Set(caller.user_id.clone()),
+            position: Set(max.flatten().unwrap_or(-1).saturating_add(1)),
+            created_at: Set(now()),
+        })
+        .exec_without_returning(&orm_db)
         .await?;
         Ok::<_, KnowError>((true, id))
     }
@@ -91,12 +119,11 @@ pub(crate) async fn add(caller: Caller, headers: HeaderMap, body: Bytes) -> Resp
 }
 
 pub(crate) async fn remove(caller: Caller, Path(page_id): Path<String>) -> Response {
-    let removed =
-        sqlx::query("delete from knowledge_favorites where page_id = $1 and user_id = $2")
-            .bind(&page_id)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
-            .await;
+    let removed = favorites::Entity::delete_many()
+        .filter(favorites::Column::PageId.eq(&page_id))
+        .filter(favorites::Column::UserId.eq(&caller.user_id))
+        .exec(&orm(&caller.db))
+        .await;
     match removed {
         Ok(_) => NoContent.into_response(),
         Err(error) => {

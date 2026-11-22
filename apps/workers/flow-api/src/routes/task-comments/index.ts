@@ -4,8 +4,9 @@
  * Comments on WeldFlow project tasks. `authorId` is set from the Clerk
  * session; only the author can edit their own comment, and the author or a
  * manager of the task's project can delete it. The list
- * response includes `authorName` and `authorAvatar` joined from
- * `workspaceMembers` so the UI doesn't need a second round trip.
+ * response includes `authorName` (joined from `workspaceMembers`) and
+ * `authorAvatar` (the author's account picture) so the UI doesn't need a
+ * second round trip.
  *
  * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
  *
@@ -24,6 +25,7 @@ import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import {
   accessibleProjectIds,
   canAccessTaskProject,
@@ -121,21 +123,20 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listFiltersSch
     const authorIds = [...new Set(rows.map((r) => r.authorId).filter(Boolean) as string[])];
     let enriched: any[] = rows;
     if (authorIds.length > 0) {
-      const authors = await db
-        .select({
-          userId: workspaceMembers.userId,
-          name: workspaceMembers.name,
-          avatar: workspaceMembers.picture,
-        })
-        .from(workspaceMembers)
-        .where(inArray(workspaceMembers.userId, authorIds));
+      const [authors, pictures] = await Promise.all([
+        db
+          .select({ userId: workspaceMembers.userId, name: workspaceMembers.name })
+          .from(workspaceMembers)
+          .where(inArray(workspaceMembers.userId, authorIds)),
+        loadAccountPictures(c.env, authorIds),
+      ]);
       const map = new Map(authors.map((a) => [a.userId, a]));
       enriched = rows.map((r) => {
         const author = r.authorId ? map.get(r.authorId) : null;
         return {
           ...r,
           authorName: author?.name ?? r.authorId,
-          authorAvatar: author?.avatar ?? null,
+          authorAvatar: accountPicture(pictures, r.authorId),
         };
       });
     }

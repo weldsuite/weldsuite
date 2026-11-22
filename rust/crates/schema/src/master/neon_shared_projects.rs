@@ -1,0 +1,165 @@
+//! `neon_shared_projects`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "neon_shared_projects")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "neonProjectId")]
+    pub neon_project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "neonProjectName")]
+    pub neon_project_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "region")]
+    pub region: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "mainBranchId")]
+    pub main_branch_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "connectionHost")]
+    pub connection_host: Option<String>,
+    #[serde(rename = "connectionPort")]
+    pub connection_port: Option<i16>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "adminRole")]
+    pub admin_role: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "adminPasswordEncrypted")]
+    pub admin_password_encrypted: Option<String>,
+    #[serde(rename = "databaseCount")]
+    pub database_count: i16,
+    #[serde(rename = "maxDatabases")]
+    pub max_databases: i16,
+    #[serde(rename = "status")]
+    pub status: super::enums::NeonSharedProjectStatus,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "neon_shared_projects",
+    columns: &[
+        DdlColumn {
+            name: "region",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'aws-eu-central-1'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "connection_port",
+            sql_type: None,
+            default: Some(DdlDefault::Number("5432")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "database_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_databases",
+            sql_type: None,
+            default: Some(DdlDefault::Number("500")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "neon_shared_projects_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "neon_shared_projects_region_idx",
+            columns: &[IndexColumn {
+                expression: "region",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "neon_shared_projects_database_count_idx",
+            columns: &[IndexColumn {
+                expression: "database_count",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[Unique {
+        name: "neon_shared_projects_neon_project_id_unique",
+        columns: &["neon_project_id"],
+        nulls_not_distinct: false,
+    }],
+    checks: &[],
+};

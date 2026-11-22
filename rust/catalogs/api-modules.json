@@ -59,6 +59,7 @@
       "/public/user-apps"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "app-api"
   },
   {
@@ -81,6 +82,7 @@
       "/api/companies",
       "/api/company-logos",
       "/api/crm-analytics",
+      "/api/crm-settings",
       "/api/customer-sequences",
       "/api/customer-statuses",
       "/api/leads",
@@ -94,6 +96,7 @@
       "/api/sequences"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "crm-api"
   },
   {
@@ -141,6 +144,7 @@
       "/public/helpcenter"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "desk-api"
   },
   {
@@ -173,6 +177,7 @@
       "/api/mailboxes"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "mail-api"
   },
   {
@@ -230,6 +235,7 @@
       "/public/project-portal"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "flow-api"
   },
   {
@@ -286,11 +292,35 @@
       "/public/fiscal-webhooks"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "books-api"
   },
   {
     "apps": [
-      "weldstash"
+      "weldcommerce"
+    ],
+    "binding": "COMMERCE_API",
+    "devPort": 8806,
+    "id": "commerce",
+    "prefixes": [
+      "/api/categories",
+      "/api/commerce",
+      "/api/commerce-buyers",
+      "/api/commerce-channels",
+      "/api/commerce-company-settings",
+      "/api/commerce-payments",
+      "/api/commerce-settings",
+      "/api/discounts",
+      "/api/orders"
+    ],
+    "rust": true,
+    "rustOnly": true,
+    "worker": "commerce-api"
+  },
+  {
+    "apps": [
+      "weldstash",
+      "weldcommerce"
     ],
     "binding": "STASH_API",
     "devPort": 8807,
@@ -315,6 +345,7 @@
       "/api/wms-suppliers"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "stash-api"
   },
   {
@@ -333,6 +364,7 @@
       "/public/webhooks/realtime-register"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "host-api"
   },
   {
@@ -352,6 +384,7 @@
       "/api/working-hours"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "calendar-api"
   },
   {
@@ -372,6 +405,7 @@
       "/public/meeting-recordings"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "meet-api"
   },
   {
@@ -401,6 +435,7 @@
       "/public/chat-calls"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "chat-api"
   },
   {
@@ -422,6 +457,7 @@
       "/public/webhooks/telnyx"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "call-api"
   },
   {
@@ -460,6 +496,7 @@
       "/webhooks/woocommerce"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "connect-api"
   },
   {
@@ -474,6 +511,7 @@
       "/api/weldagent"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "agent-api"
   },
   {
@@ -489,6 +527,7 @@
       "/api/welddata"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "data-api"
   },
   {
@@ -502,6 +541,7 @@
       "/api/knowledge"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "know-api"
   },
   {
@@ -515,6 +555,7 @@
       "/api/weldhr"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "hr-api"
   },
   {
@@ -536,6 +577,7 @@
       "/public/social/postpeer"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "social-api"
   },
   {
@@ -551,6 +593,7 @@
       "/api/ad-connections"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "ads-api"
   },
   {
@@ -564,6 +607,7 @@
       "/api/weldpass"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "pass-api"
   },
   {
@@ -578,6 +622,7 @@
       "/public/reach"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "reach-api"
   },
   {
@@ -591,6 +636,7 @@
       "/api/sheets"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "sheets-api"
   },
   {
@@ -604,6 +650,7 @@
       "/api/sign"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "sign-api"
   },
   {
@@ -617,6 +664,7 @@
       "/api/docs"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "docs-api"
   },
   {
@@ -631,6 +679,7 @@
       "/public/panel"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "panel-api"
   },
   {
@@ -645,6 +694,7 @@
       "/api/boards"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "board-api"
   },
   {
@@ -659,6 +709,7 @@
       "/public/merge"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "merge-api"
   },
   {
@@ -673,6 +724,7 @@
       "/public/forms"
     ],
     "rust": true,
+    "rustOnly": false,
     "worker": "forms-api"
   }
 ]

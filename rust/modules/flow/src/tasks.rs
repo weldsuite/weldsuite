@@ -758,7 +758,7 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
             (rows, has_more, next)
         };
         let data = if q.enrich {
-            enrich(state, db, data).await?
+            enrich(state, db, caller.request_master(), data).await?
         } else {
             data
         };
@@ -767,7 +767,9 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
             if q.include_subtasks
                 && let Some(project_id) = &params.project_id
             {
-                let mut descendants = load_descendants(state, db, Some(project_id), &data).await?;
+                let mut descendants =
+                    load_descendants(state, db, caller.request_master(), Some(project_id), &data)
+                        .await?;
                 attach_attachment_counts(db, &mut descendants).await?;
                 attach_attachment_counts(db, &mut data).await?;
                 attach_subtask_tree(&mut data, &descendants);
@@ -809,7 +811,7 @@ async fn detail(
         {
             return Err(Refusal::forbidden(TASK_PROJECT_DENIED));
         }
-        let enriched = enrich(&state, db, vec![row]).await?;
+        let enriched = enrich(&state, db, caller.request_master(), vec![row]).await?;
         let mut task = hydrate(db, enriched).await?.pop().unwrap_or(Value::Null);
         let counts = subtask_counts(db, std::slice::from_ref(&id)).await?;
         let (total, done) = counts.get(&id).copied().unwrap_or((0, 0));
@@ -860,7 +862,13 @@ async fn subtasks(
         .bind(&id)
         .fetch_all(db)
         .await?;
-        let rows = enrich(&state, db, rows.into_iter().map(js_row).collect()).await?;
+        let rows = enrich(
+            &state,
+            db,
+            caller.request_master(),
+            rows.into_iter().map(js_row).collect(),
+        )
+        .await?;
         let mut rows = hydrate(db, rows).await?;
         if !rows.is_empty() {
             attach_subtask_counts(db, &mut rows).await?;

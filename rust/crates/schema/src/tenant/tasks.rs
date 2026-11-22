@@ -1,0 +1,407 @@
+//! `tasks`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "tasks")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(255))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "sprintId")]
+    pub sprint_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "milestoneId")]
+    pub milestone_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "parentTaskId")]
+    pub parent_task_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "stageId")]
+    pub stage_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "contactId")]
+    pub contact_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "counterpartyId")]
+    pub counterparty_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "personId")]
+    pub person_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "key")]
+    pub key: Option<String>,
+    #[serde(rename = "number")]
+    pub number: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "priority")]
+    pub priority: String,
+    #[sea_orm(column_type = "Decimal(Some((5, 2)))")]
+    #[serde(
+        rename = "progress",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub progress: BigDecimal,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "type")]
+    pub type_: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "category")]
+    pub category: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "labels")]
+    pub labels: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "assigneeId")]
+    pub assignee_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "assigneeIds")]
+    pub assignee_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "reporterId")]
+    pub reporter_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "watchers")]
+    pub watchers: Option<Json>,
+    #[serde(rename = "startDate", with = "crate::js::timestamp::option")]
+    pub start_date: Option<TimeDateTime>,
+    #[serde(rename = "dueDate", with = "crate::js::timestamp::option")]
+    pub due_date: Option<TimeDateTime>,
+    #[serde(rename = "completedDate", with = "crate::js::timestamp::option")]
+    pub completed_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "estimatedHours",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub estimated_hours: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "actualHours",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub actual_hours: Option<BigDecimal>,
+    #[serde(rename = "duration")]
+    pub duration: Option<i32>,
+    #[serde(rename = "storyPoints")]
+    pub story_points: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "dependsOn")]
+    pub depends_on: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "blocks")]
+    pub blocks: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "deliverableId")]
+    pub deliverable_id: Option<String>,
+    #[serde(rename = "position")]
+    pub position: i32,
+    #[serde(rename = "boardPosition")]
+    pub board_position: Option<i32>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "acceptanceCriteria")]
+    pub acceptance_criteria: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "resolution")]
+    pub resolution: Option<String>,
+    #[serde(rename = "isBillable")]
+    pub is_billable: bool,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "repeat")]
+    pub repeat: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "calendarEventId")]
+    pub calendar_event_id: Option<String>,
+    #[serde(rename = "githubIssueNumber")]
+    pub github_issue_number: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "githubRepoLinkId")]
+    pub github_repo_link_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "sourceType")]
+    pub source_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "sourceId")]
+    pub source_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "tasks",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'todo'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "priority",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'medium'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "progress",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'task'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "position",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_billable",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "tasks_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_assignee_idx",
+            columns: &[IndexColumn {
+                expression: "assignee_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_sprint_idx",
+            columns: &[IndexColumn {
+                expression: "sprint_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_milestone_idx",
+            columns: &[IndexColumn {
+                expression: "milestone_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_deliverable_idx",
+            columns: &[IndexColumn {
+                expression: "deliverable_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_parent_idx",
+            columns: &[IndexColumn {
+                expression: "parent_task_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_customer_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_contact_idx",
+            columns: &[IndexColumn {
+                expression: "contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_counterparty_idx",
+            columns: &[IndexColumn {
+                expression: "counterparty_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_person_idx",
+            columns: &[IndexColumn {
+                expression: "person_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_github_repo_link_idx",
+            columns: &[IndexColumn {
+                expression: "github_repo_link_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_source_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "source_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "source_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_number_unique",
+            columns: &[IndexColumn {
+                expression: "number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

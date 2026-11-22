@@ -40,11 +40,18 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     ],
   },
   {
+    // The rebuilt WeldCommerce (ADR COM-009); `products` and `orders` are
+    // objects of WeldStash too, which fulfils the orders.
+    code: 'weldcommerce',
+    label: 'WeldCommerce',
+    objects: ['products', 'categories', 'orders', 'discounts', 'commerce_settings', 'commerce_channels', 'companies', 'people'],
+  },
+  {
     code: 'weldstash',
     label: 'WeldStash',
     objects: [
       'products', 'inventory', 'warehouses', 'picklists', 'locations', 'suppliers',
-      'orders', 'parcels', 'carriers', 'boxes', 'returns', 'pickups', 'integrations',
+      'orders', 'purchase_orders', 'parcels', 'carriers', 'boxes', 'returns', 'pickups', 'integrations',
     ],
   },
   {
@@ -195,6 +202,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
  */
 export const APP_CODE_ALIASES: Readonly<Record<string, string>> = {
   crm: 'weldcrm',
+  commerce: 'weldcommerce',
   wms: 'weldstash',
   stash: 'weldstash',
   weldwms: 'weldstash',

@@ -7,7 +7,8 @@ use axum::response::{IntoResponse, Response};
 use http::header::CACHE_CONTROL;
 use serde_json::json;
 use weldsuite_catalogs::flags::{
-    UPGRADE_BUTTON, WELDFLOW_MOVE_TASK, WELDHR_PAYROLL, WELDHR_PAYROLL_DIGIPOORT,
+    CHAT_VISUALS_GALLERY, UPGRADE_BUTTON, WELDFLOW_MOVE_TASK, WELDHR_PAYROLL,
+    WELDHR_PAYROLL_DIGIPOORT,
 };
 use weldsuite_kit::Data;
 use weldsuite_pipeline::Flags;
@@ -18,6 +19,7 @@ pub(crate) async fn list(flags: Flags) -> Response {
         "weldflow-move-task": flags.is_on(WELDFLOW_MOVE_TASK).await,
         "weldhr-payroll": flags.is_on(WELDHR_PAYROLL).await,
         "weldhr-payroll-digipoort": flags.is_on(WELDHR_PAYROLL_DIGIPOORT).await,
+        "chat-visuals-gallery": flags.is_on(CHAT_VISUALS_GALLERY).await,
     });
     // Never cached: a flag flip must take effect at once.
     ([(CACHE_CONTROL, "no-store")], Data(body)).into_response()

@@ -1,0 +1,26 @@
+# The offsite copy of the object storage (infrastructure/offsite-copy),
+# OPT-IN: applied only when kustomization.yaml here lists this file. Before
+# listing it: the OFFSITE_* settings in cluster-settings.yaml, the store's
+# weldsuite/offsite-copy (secrets/store.example.yaml), and `offsite-copy` in
+# the secrets layer's components in layers.yaml, which writes its Secret
+# (rust/deploy/hetzner/README.md, "Offsite copy"). After the secrets layer.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: offsite-copy
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: secrets
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/offsite-copy
+  prune: true
+  wait: true
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

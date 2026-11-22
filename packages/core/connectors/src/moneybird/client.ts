@@ -538,6 +538,39 @@ export class MoneybirdClient implements ConnectorProviderClient {
   }
 
   /** Contacts matching a free-text query (Moneybird searches name, email, customer id, …). */
+  /** One record by path; null when Moneybird has no such record (404). */
+  private async getRecord(path: string): Promise<Record<string, unknown> | null> {
+    try {
+      const { data } = await this.request<Record<string, unknown>>(path);
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+    } catch (err) {
+      if (err instanceof ConnectorApiError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  getSalesInvoice(id: string): Promise<Record<string, unknown> | null> {
+    return this.getRecord(`sales_invoices/${id}`);
+  }
+
+  getPurchaseInvoice(id: string): Promise<Record<string, unknown> | null> {
+    return this.getRecord(`documents/purchase_invoices/${id}`);
+  }
+
+  getReceipt(id: string): Promise<Record<string, unknown> | null> {
+    return this.getRecord(`documents/receipts/${id}`);
+  }
+
+  /** Financial mutations by id, through the synchronisation API (the plain list can't read one). */
+  async getFinancialMutations(ids: string[]): Promise<Array<Record<string, unknown>>> {
+    if (ids.length === 0) return [];
+    const { data } = await this.request<Array<Record<string, unknown>>>('financial_mutations/synchronization', {
+      method: 'POST',
+      body: { ids },
+    });
+    return Array.isArray(data) ? data : [];
+  }
+
   async searchContacts(query: string): Promise<Array<Record<string, unknown>>> {
     const { data } = await this.request<Array<Record<string, unknown>>>('contacts', {
       search: { query, per_page: '10' },

@@ -11,6 +11,7 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import type {
   MemberProfile,
   UpdateMemberProfileInput,
@@ -24,6 +25,7 @@ export interface ProfileViewer {
 
 export async function getMemberProfile(
   db: Database,
+  env: AccountPictureEnv,
   subjectUserId: string,
   viewer: ProfileViewer,
 ): Promise<MemberProfile | null> {
@@ -37,14 +39,18 @@ export async function getMemberProfile(
 
   if (!member) return null;
 
-  const [prefs] = await db
-    .select({
-      timezone: userPreferences.timezone,
-      workingHours: userPreferences.workingHours,
-    })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, subjectUserId))
-    .limit(1);
+  const [[prefs], picture] = await Promise.all([
+    db
+      .select({
+        timezone: userPreferences.timezone,
+        workingHours: userPreferences.workingHours,
+      })
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, subjectUserId))
+      .limit(1),
+    // The avatar is the person's account picture, never the member row's copy.
+    loadAccountPicture(env, member.userId),
+  ]);
 
   const canEdit = viewer.userId === subjectUserId || viewer.isAdmin;
 
@@ -53,7 +59,7 @@ export async function getMemberProfile(
     userId: member.userId,
     name: member.name,
     email: member.email,
-    picture: member.picture,
+    picture,
     role: member.role,
     status: member.status,
 
@@ -129,6 +135,7 @@ async function savePrefsPatch(
 
 export async function updateMemberProfile(
   db: Database,
+  env: AccountPictureEnv,
   subjectUserId: string,
   viewer: ProfileViewer,
   patch: UpdateMemberProfileInput,
@@ -159,5 +166,5 @@ export async function updateMemberProfile(
     await savePrefsPatch(db, subjectUserId, prefsPatch);
   }
 
-  return getMemberProfile(db, subjectUserId, viewer);
+  return getMemberProfile(db, env, subjectUserId, viewer);
 }

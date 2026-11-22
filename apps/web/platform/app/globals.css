@@ -612,6 +612,18 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
   }
 }
 
+/* Incoming WeldChat call (incoming-call-toast.tsx): the green halo behind
+   Accept breathes while it rings. Opacity only; with reduced motion it stays
+   still (the class is motion-safe). */
+@keyframes weldchat-call-breathe {
+  0%, 100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 320ms;
@@ -709,6 +721,49 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
 .block-editor-wrapper .bn-editor {
   background-color: transparent;
   padding-inline: 0;
+}
+
+/* Emoji picker (the slash menu's Emoji, or ":"): slightly bigger emoji in
+   square cells. BlockNote sets 18px on a 28px line with 8px side and 6px
+   top/bottom padding (a 34x40 cell). The emoji grows 3px and the side
+   padding gives up 1.5px a side, so the cell stays 34px wide; 3px top and
+   bottom make it 34px high, a square. The hover highlight is 10px round
+   (BlockNote's rounded-sm is 6px). */
+.bn-grid-suggestion-menu .bn-grid-suggestion-menu-item {
+  font-size: 21px !important;
+  line-height: 28px !important;
+  padding: 3px 6.5px;
+  justify-content: center;
+  border-radius: calc(var(--radius-sm) + 4px);
+}
+
+/* Category name above each group of emoji (components/block-editor/
+   emoji-menu.tsx): a full-width row that stays at the top of the list while
+   its emoji scroll under it. `top` cancels the menu's 4px padding. */
+.bn-grid-suggestion-menu .bn-grid-suggestion-menu-category {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: -0.25rem;
+  z-index: 1;
+  padding: 8px 6.5px 4px;
+  background-color: var(--popover);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+/* WeldKnow pages: headings in the body stay below the page title (36px, 30px
+   on phones). BlockNote's own sizes are 3em / 2em / 1.3em, which made a
+   Heading 1 (48px) bigger than the title above it. */
+.weldknow-editor [data-content-type="heading"] {
+  --level: 1.75em;
+}
+.weldknow-editor [data-content-type="heading"][data-level="2"] {
+  --level: 1.5em;
+}
+.weldknow-editor [data-content-type="heading"][data-level="3"] {
+  --level: 1.25em;
 }
 
 /* BlockNote side menu (the hover + / drag controls next to each block)
@@ -871,8 +926,32 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
 .bn-container .bn-extend-button-add-remove-rows {
   height: 24px !important;
 }
+/* Tables span exactly the text's width: BlockNote pads the wrapper 9px left
+   and 22px right for its row handle and "add column" button, which pushed
+   the table in from both edges. Those controls float outside the wrapper,
+   so they now hang just past the table edge, in the page margin; the "add
+   column" button is 24px wide (default 46px), like the 24px "add row" bar,
+   so it fits in the margin. */
 .bn-container .bn-editor [data-content-type="table"] .tableWrapper {
+  padding-left: 0;
+  padding-right: 0;
   padding-bottom: 28px;
+}
+.bn-container .bn-extend-button-add-remove-columns {
+  width: 24px !important;
+}
+/* And the table itself fills that width. BlockNote sizes a table to its
+   columns (`width: auto` plus an inline min-width of their sum), so it
+   stopped short of the right edge. Here the table is full width and its
+   last column takes whatever the other columns leave; dragging a column
+   wider takes room from the last one (components/block-editor/
+   use-table-resize-clamp.ts stops it at the minimum cell width). */
+.bn-container .bn-editor [data-content-type="table"] table {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.bn-container .bn-editor [data-content-type="table"] table col:last-child {
+  width: auto !important;
 }
 
 /* BlockNote table row/column drag handles. The shadcn variant renders them

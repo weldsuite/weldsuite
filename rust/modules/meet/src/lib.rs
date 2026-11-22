@@ -18,6 +18,11 @@
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `meet`
 //! conformance suite (`rust/conformance/suites.json`).
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // Route handlers follow the worker's handlers step by step, row tuples are
 // sqlx's, names follow the worker's, and a PATCH field can be absent or null.
 #![allow(
@@ -30,6 +35,7 @@
 mod attendees;
 mod billing;
 mod chat_calls;
+mod crm;
 mod invitations;
 mod js;
 mod lifecycle;
@@ -306,6 +312,12 @@ impl RequestParts {
         self.cache.clone().or_else(|| state.cache.clone())
     }
 
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
+    }
+
     pub(crate) fn master(&self, state: &MeetState) -> Option<PgPool> {
         if self.conformance() {
             return self.master.clone();
@@ -391,6 +403,11 @@ impl RequestParts {
 }
 
 impl Caller {
+    /// The request's master database (account pictures).
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.parts.request_master()
+    }
+
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
     pub(crate) fn publish(&self, state: &MeetState, event: EventName, id: &str, data: &Value) {
         publish_entity_event(&state.events, &self.events, event, id, data);

@@ -1,19 +1,36 @@
 /**
  * /api/legal-entities against a real tenant schema (pglite): per-entity
  * access (restricted entities, member roles, my-access), the default entity
- * rules and the registration / bank account sub-resources.
+ * rules and the registration / bank account sub-resources. The access list
+ * shows each person's account picture (master `users.image_url`).
  */
 
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
 import { legalEntitiesRoutes } from './index';
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+
+const MEMBER2_PICTURE = 'https://img.clerk.test/member2.png';
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.delete(users);
+  await master.insert(users).values({ id: 'user_member2', email: 'user_member2@example.com', imageUrl: MEMBER2_PICTURE });
 }, 120_000);
 
 const READ = 'legal_entities:read';
@@ -55,6 +72,8 @@ async function seed(): Promise<void> {
     userId,
     email: `${userId}@example.com`,
     name: userId,
+    // A stale per-workspace copy: never shown.
+    picture: `https://stale.test/${userId}.png`,
     role,
     status: 'ACTIVE',
     ...(memberType && { memberType }),
@@ -74,7 +93,7 @@ beforeEach(seed);
 
 function app(userId: string, keys: string[]) {
   return createTestApp('/api/legal-entities', legalEntitiesRoutes, {
-    context: { userId, tenantDb: db, permissions: permissions(...keys) },
+    context: { userId, tenantDb: db, masterDb: master, permissions: permissions(...keys) },
     env: { DATABASE_ENCRYPTION_KEY: '07'.repeat(32) },
   });
 }
@@ -136,9 +155,13 @@ describe('per-entity access', () => {
     expect(grant.status).toBe(201);
     const accessList = await asAdmin().request(`/api/legal-entities/${secret.id}/access`);
     expect(accessList.status).toBe(200);
-    const listed = ((await accessList.json()) as { data: { restricted: boolean; members: { userId: string }[] } }).data;
+    const listed = ((await accessList.json()) as {
+      data: { restricted: boolean; members: { userId: string; picture: string | null }[] };
+    }).data;
     expect(listed.restricted).toBe(true);
     expect(listed.members.map((m) => m.userId)).toEqual(['user_member2']);
+    // The account picture, not the member row's copy.
+    expect(listed.members[0]!.picture).toBe(MEMBER2_PICTURE);
     const withRow = await listAs(asMember('user_member2'));
     expect(withRow.map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
     expect(withRow.find((e) => e.id === secret.id)?.myAccess?.source).toBe('member');

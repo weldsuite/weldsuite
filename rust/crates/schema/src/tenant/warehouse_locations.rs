@@ -1,0 +1,273 @@
+//! `warehouse_locations`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "warehouse_locations")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "warehouseId")]
+    pub warehouse_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "zoneId")]
+    pub zone_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "code")]
+    pub code: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "barcode")]
+    pub barcode: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "aisle")]
+    pub aisle: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "rack")]
+    pub rack: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "shelf")]
+    pub shelf: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "bin")]
+    pub bin: Option<String>,
+    #[serde(rename = "level")]
+    pub level: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "locationType")]
+    pub location_type: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "length",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub length: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "width",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub width: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "height",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub height: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "dimensionUnit")]
+    pub dimension_unit: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "maxWeight",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub max_weight: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "weightUnit")]
+    pub weight_unit: Option<String>,
+    #[serde(rename = "maxItems")]
+    pub max_items: Option<i32>,
+    #[serde(rename = "currentItems")]
+    pub current_items: Option<i32>,
+    #[serde(rename = "isActive")]
+    pub is_active: Option<bool>,
+    #[serde(rename = "isEmpty")]
+    pub is_empty: Option<bool>,
+    #[serde(rename = "isBlocked")]
+    pub is_blocked: Option<bool>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "blockReason")]
+    pub block_reason: Option<String>,
+    #[serde(rename = "pickingSequence")]
+    pub picking_sequence: Option<i32>,
+    #[serde(rename = "isPrimaryPick")]
+    pub is_primary_pick: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(1))")]
+    #[serde(rename = "abcClass")]
+    pub abc_class: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "warehouse_locations",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "location_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'storage'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "dimension_unit",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'cm'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "weight_unit",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'kg'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "current_items",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_active",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_empty",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_blocked",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "picking_sequence",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_primary_pick",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "warehouse_locations_warehouse_idx",
+            columns: &[IndexColumn {
+                expression: "warehouse_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "warehouse_locations_zone_idx",
+            columns: &[IndexColumn {
+                expression: "zone_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "warehouse_locations_code_idx",
+            columns: &[IndexColumn {
+                expression: "code",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "warehouse_locations_barcode_idx",
+            columns: &[IndexColumn {
+                expression: "barcode",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "warehouse_locations_type_idx",
+            columns: &[IndexColumn {
+                expression: "location_type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

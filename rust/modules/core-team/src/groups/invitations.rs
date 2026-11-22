@@ -52,18 +52,26 @@ fn tenant_role(role: &str) -> Option<&'static str> {
 
 /// A workspace's tenant database, from its master row (`getTenantDbForWorkspace`).
 /// `None` when it has no database configured or can't be opened.
+///
+/// "Configured" is a stored `database_url`, which is what
+/// [`weldsuite_db::Workspaces::tenant`] opens. TypeScript checks the Neon
+/// columns instead (`neon_project_id`, `neon_branch_id`, `neon_role_name`)
+/// because it may ask Neon for the URL; the CloudNativePG shards of the
+/// Kubernetes editions record no `neon_branch_id`, and that check skipped
+/// every workspace there: an accepted invitation left the member row
+/// PENDING, so the new member's every request was refused.
 async fn tenant_db(state: &CoreTeamState, master: &PgPool, org: &str) -> Option<PgPool> {
-    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select neon_project_id, neon_branch_id, neon_role_name from workspaces
+    let configured: Option<bool> = sqlx::query_scalar(
+        "select coalesce(database_url, '') <> '' from workspaces
          where id = $1 or clerk_org_id = $1 limit 1",
     )
     .bind(org)
     .fetch_optional(master)
     .await
     .ok()?;
-    let (Some(_), Some(_), Some(_)) = row? else {
+    if configured != Some(true) {
         return None;
-    };
+    }
     match state.workspaces.tenant(org).await {
         Ok(tenant) => Some(tenant.db),
         Err(error) => {
@@ -483,9 +491,9 @@ async fn activate_pending_member(
     let stamp = now();
     let updated: Option<String> = sqlx::query_scalar(
         "update workspace_members
-         set user_id = $3, name = coalesce($4, name), picture = coalesce($5, picture),
-             role = $6, status = 'ACTIVE', clerk_membership_id = $7,
-             accepted_at = coalesce(accepted_at, $8::timestamptz), updated_at = $8::timestamptz
+         set user_id = $3, name = coalesce($4, name),
+             role = $5, status = 'ACTIVE', clerk_membership_id = $6,
+             accepted_at = coalesce(accepted_at, $7::timestamptz), updated_at = $7::timestamptz
          where id = $1 and user_id = $2
          returning id",
     )
@@ -493,7 +501,7 @@ async fn activate_pending_member(
     .bind(pending["userId"].as_str())
     .bind(user_id)
     .bind(name)
-    .bind(membership.user.image_url.as_deref())
+    // No picture: avatars are the account's (master `users.image_url`).
     .bind(role)
     .bind(&membership.id)
     .bind(stamp)
@@ -767,12 +775,17 @@ mod tests {
         }
     }
 
+    /// The tests on the tenant database run one at a time: linking joins the
+    /// public channels, which they share.
+    static TENANT_DB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn links_a_pending_member_and_joins_their_channels() {
         let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
             eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
             return;
         };
+        let _serial = TENANT_DB.lock().await;
         let db = weldsuite_db::master_pool(&url, 2).expect("tenant pool");
         seed_invited_member(&db).await;
         let realtime = Arc::new(weldsuite_ports::RecordingRealtime::new());
@@ -1006,6 +1019,118 @@ mod tests {
         let (status, body) = accept_as(&state, "user_new", "inv_late").await;
         assert_eq!(status, 410, "{body}");
         assert_eq!(body["error"]["code"], "INVITATION_EXPIRED");
+    }
+
+    /// Membership mode on a CloudNativePG shard (the EU edition): the
+    /// workspace's placement has no `neon_branch_id`, and accepting must
+    /// still link the invited row to the user, or every request they make
+    /// in the workspace is refused. Runs when `WELDSUITE_TEST_MASTER_URL` and
+    /// `WELDSUITE_TEST_TENANT_URL` are set.
+    #[tokio::test]
+    async fn accepting_links_the_invited_row_on_a_shard_without_a_neon_branch() {
+        let (Ok(master_url), Ok(tenant_url)) = (
+            std::env::var("WELDSUITE_TEST_MASTER_URL"),
+            std::env::var("WELDSUITE_TEST_TENANT_URL"),
+        ) else {
+            eprintln!("WELDSUITE_TEST_MASTER_URL or WELDSUITE_TEST_TENANT_URL not set; skipping");
+            return;
+        };
+        let _serial = TENANT_DB.lock().await;
+        let master = weldsuite_db::master_pool(&master_url, 2).expect("master pool");
+        let tenant = weldsuite_db::master_pool(&tenant_url, 2).expect("tenant pool");
+        clean_shard_case(&master, &tenant).await;
+        // Placed as `CnpgProvisioner` places a workspace (the URL in the
+        // clear here; sealed in a deployment, which the resolver opens).
+        sqlx::query(
+            "insert into workspaces (id, clerk_org_id, name, slug, neon_project_id, neon_branch_id,
+                                     neon_database_name, neon_role_name, database_url)
+             values ('ws_inv_cnpg', 'org_inv_cnpg', 'Shard Co', 'inv-cnpg', 'cnpg:tenants-1', null,
+                     'ws_ws_inv_cnpg', 'role_ws_inv_cnpg', $1)",
+        )
+        .bind(&tenant_url)
+        .execute(&master)
+        .await
+        .expect("workspace");
+        sqlx::query(
+            "insert into workspace_members (id, user_id, email, role, status, member_type, clerk_invitation_id)
+             values ('wm_cnpg_1', 'invited_cnpg@example.com', 'cnpg@example.com', 'ADMIN', 'PENDING', 'INTERNAL', 'inv_cnpg')",
+        )
+        .execute(&tenant)
+        .await
+        .expect("invited row");
+
+        let identity = Arc::new(
+            MemoryIdentity::new()
+                .keeping_invitations()
+                .with_organization(Organization {
+                    id: "org_inv_cnpg".to_owned(),
+                    name: "Shard Co".to_owned(),
+                    slug: Some("inv-cnpg".to_owned()),
+                    ..Organization::default()
+                })
+                .with_invitation(
+                    "org_inv_cnpg",
+                    Invitation {
+                        id: "inv_cnpg".to_owned(),
+                        email_address: "cnpg@example.com".to_owned(),
+                        role: "org:admin".to_owned(),
+                        status: "pending".to_owned(),
+                        expires_at: Some(now_millis() + 86_400_000),
+                        ..Invitation::default()
+                    },
+                )
+                .with_user("cnpg@example.com", "user_cnpg"),
+        );
+        let tracker = weldsuite_events::TaskTracker::new();
+        let mut state = test_state(
+            &master,
+            Arc::new(weldsuite_ports::RecordingRealtime::new()),
+            &tracker,
+        );
+        state.identity = Some(identity as Arc<dyn weldsuite_ports::Identity>);
+
+        let (status, body) = accept_as(&state, "user_cnpg", "inv_cnpg").await;
+        tracker.close();
+        tracker.wait().await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["data"]["workspaceId"], "org_inv_cnpg");
+        assert_eq!(body["data"]["role"], "ADMIN");
+        let (user, member_status, role): (String, String, String) = sqlx::query_as(
+            "select user_id, status, role from workspace_members where id = 'wm_cnpg_1'",
+        )
+        .fetch_one(&tenant)
+        .await
+        .expect("row");
+        assert_eq!(
+            (user.as_str(), member_status.as_str(), role.as_str()),
+            ("user_cnpg", "ACTIVE", "ADMIN")
+        );
+
+        // Not configured: skipped, as before.
+        sqlx::query("update workspaces set database_url = null where id = 'ws_inv_cnpg'")
+            .execute(&master)
+            .await
+            .expect("no database");
+        assert!(tenant_db(&state, &master, "org_inv_cnpg").await.is_none());
+        clean_shard_case(&master, &tenant).await;
+    }
+
+    /// The rows the shard test writes, which it removes before and after.
+    async fn clean_shard_case(master: &PgPool, tenant: &PgPool) {
+        sqlx::query("delete from workspaces where id = 'ws_inv_cnpg'")
+            .execute(master)
+            .await
+            .expect("clean master");
+        // Linking joined the public channels: leave them as they were.
+        sqlx::raw_sql(
+            r"update chat_channels set member_count = greatest(member_count - 1, 0)
+               where id in (select channel_id from chat_channel_members where user_id = 'user_cnpg');
+              delete from chat_channel_members where user_id = 'user_cnpg';
+              delete from workspace_members where id = 'wm_cnpg_1' or user_id = 'user_cnpg';",
+        )
+        .execute(tenant)
+        .await
+        .expect("clean tenant");
     }
 
     #[tokio::test]

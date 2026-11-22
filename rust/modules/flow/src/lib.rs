@@ -11,6 +11,11 @@
 //! TypeScript worker's; its tests run against this crate in the `flow`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 #[macro_use]
 mod rows;
 pub mod github_outbound;
@@ -467,6 +472,12 @@ impl Caller {
     }
 
     /// The request's master database (conformance), else the app's.
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
+    }
+
     pub(crate) fn master(&self, state: &FlowState) -> Option<PgPool> {
         self.master.clone().or_else(|| state.master.clone())
     }

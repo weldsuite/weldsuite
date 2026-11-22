@@ -1,0 +1,273 @@
+//! `helpdesk_agents`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "helpdesk_agents")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "email")]
+    pub email: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "avatar")]
+    pub avatar: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "role")]
+    pub role: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "departmentId")]
+    pub department_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "teamIds")]
+    pub team_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "availability")]
+    pub availability: Option<String>,
+    #[serde(rename = "isOnline")]
+    pub is_online: Option<bool>,
+    #[serde(rename = "lastSeenAt", with = "crate::js::timestamp::option")]
+    pub last_seen_at: Option<TimeDateTime>,
+    #[serde(rename = "maxActiveTickets")]
+    pub max_active_tickets: Option<i32>,
+    #[serde(rename = "currentActiveTickets")]
+    pub current_active_tickets: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "skills")]
+    pub skills: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "languages")]
+    pub languages: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "expertise")]
+    pub expertise: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "permissions")]
+    pub permissions: Option<Json>,
+    #[serde(rename = "canAccessAllTickets")]
+    pub can_access_all_tickets: Option<bool>,
+    #[serde(rename = "canManageKnowledge")]
+    pub can_manage_knowledge: Option<bool>,
+    #[serde(rename = "averageResponseTime")]
+    pub average_response_time: Option<i32>,
+    #[serde(rename = "averageResolutionTime")]
+    pub average_resolution_time: Option<i32>,
+    #[sea_orm(column_type = "Decimal(Some((3, 2)))")]
+    #[serde(
+        rename = "satisfactionScore",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub satisfaction_score: Option<BigDecimal>,
+    #[serde(rename = "ticketsResolved")]
+    pub tickets_resolved: Option<i32>,
+    #[serde(rename = "ticketsAssigned")]
+    pub tickets_assigned: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "workingHours")]
+    pub working_hours: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "timezone")]
+    pub timezone: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "signature")]
+    pub signature: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "notificationPreferences")]
+    pub notification_preferences: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "helpdesk_agents",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "role",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'agent'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "availability",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'offline'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_online",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_active_tickets",
+            sql_type: None,
+            default: Some(DdlDefault::Number("10")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "current_active_tickets",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "can_access_all_tickets",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "can_manage_knowledge",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tickets_resolved",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tickets_assigned",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "helpdesk_agents_user_idx",
+            columns: &[IndexColumn {
+                expression: "user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "helpdesk_agents_department_idx",
+            columns: &[IndexColumn {
+                expression: "department_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "helpdesk_agents_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "helpdesk_agents_availability_idx",
+            columns: &[IndexColumn {
+                expression: "availability",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "helpdesk_agents_email_idx",
+            columns: &[IndexColumn {
+                expression: "email",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

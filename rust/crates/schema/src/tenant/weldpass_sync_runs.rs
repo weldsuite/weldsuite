@@ -1,0 +1,146 @@
+//! `weldpass_sync_runs`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "weldpass_sync_runs")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "environmentId")]
+    pub environment_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "trigger")]
+    pub trigger: String,
+    #[serde(rename = "pushed")]
+    pub pushed: i32,
+    #[serde(rename = "removed")]
+    pub removed: i32,
+    #[serde(rename = "failed")]
+    pub failed: i32,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "error")]
+    pub error: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "details")]
+    pub details: Json,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "triggeredBy")]
+    pub triggered_by: Option<String>,
+    #[serde(rename = "startedAt", with = "crate::js::timestamptz")]
+    pub started_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "finishedAt", with = "crate::js::timestamptz::option")]
+    pub finished_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "weldpass_sync_runs",
+    columns: &[
+        DdlColumn {
+            name: "pushed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "removed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "failed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "details",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "started_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "weldpass_sync_runs_target_idx",
+            columns: &[IndexColumn {
+                expression: "target_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "weldpass_sync_runs_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "weldpass_sync_runs_started_at_idx",
+            columns: &[IndexColumn {
+                expression: "started_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

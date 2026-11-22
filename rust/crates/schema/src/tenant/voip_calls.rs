@@ -1,0 +1,375 @@
+//! `voip_calls`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "voip_calls")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "provider")]
+    pub provider: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "providerCallId")]
+    pub provider_call_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "providerSessionId")]
+    pub provider_session_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "providerLegId")]
+    pub provider_leg_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "direction")]
+    pub direction: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "fromNumber")]
+    pub from_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "toNumber")]
+    pub to_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "fromNumberFormatted")]
+    pub from_number_formatted: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "toNumberFormatted")]
+    pub to_number_formatted: Option<String>,
+    #[serde(rename = "initiatedAt", with = "crate::js::timestamp")]
+    pub initiated_at: TimeDateTime,
+    #[serde(rename = "answeredAt", with = "crate::js::timestamp::option")]
+    pub answered_at: Option<TimeDateTime>,
+    #[serde(rename = "endedAt", with = "crate::js::timestamp::option")]
+    pub ended_at: Option<TimeDateTime>,
+    #[serde(rename = "duration")]
+    pub duration: Option<i32>,
+    #[serde(rename = "queueEnteredAt", with = "crate::js::timestamp::option")]
+    pub queue_entered_at: Option<TimeDateTime>,
+    #[serde(rename = "agentAnsweredAt", with = "crate::js::timestamp::option")]
+    pub agent_answered_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "answeredByUserId")]
+    pub answered_by_user_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "outcome")]
+    pub outcome: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "departmentId")]
+    pub department_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "sipTrunkId")]
+    pub sip_trunk_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "translation")]
+    pub translation: Option<Json>,
+    #[serde(rename = "isRecorded")]
+    pub is_recorded: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "recordingStorageKey")]
+    pub recording_storage_key: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "recordingStorageUrl")]
+    pub recording_storage_url: Option<String>,
+    #[serde(rename = "recordingFileSize")]
+    pub recording_file_size: Option<i32>,
+    #[serde(rename = "recordingDuration")]
+    pub recording_duration: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "recordingSid")]
+    pub recording_sid: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "transcriptionId")]
+    pub transcription_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "transcriptionStatus")]
+    pub transcription_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "contactId")]
+    pub contact_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "opportunityId")]
+    pub opportunity_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "activityId")]
+    pub activity_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "deskConversationId")]
+    pub desk_conversation_id: Option<String>,
+    #[serde(rename = "creditsConsumed")]
+    pub credits_consumed: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "creditTransactionId")]
+    pub credit_transaction_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "aiSummary")]
+    pub ai_summary: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "aiSentiment")]
+    pub ai_sentiment: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "aiKeyTopics")]
+    pub ai_key_topics: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "aiActionItems")]
+    pub ai_action_items: Option<Json>,
+    #[serde(rename = "aiAnalyzedAt", with = "crate::js::timestamp::option")]
+    pub ai_analyzed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "hangupCause")]
+    pub hangup_cause: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "hangupSource")]
+    pub hangup_source: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "errorMessage")]
+    pub error_message: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((3, 2)))")]
+    #[serde(
+        rename = "callQualityScore",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub call_quality_score: Option<BigDecimal>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "voip_calls",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'telnyx'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'initiated'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "initiated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_recorded",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "credits_consumed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "voip_calls_user_idx",
+            columns: &[IndexColumn {
+                expression: "user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_direction_idx",
+            columns: &[IndexColumn {
+                expression: "direction",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_from_number_idx",
+            columns: &[IndexColumn {
+                expression: "from_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_to_number_idx",
+            columns: &[IndexColumn {
+                expression: "to_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_customer_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_contact_idx",
+            columns: &[IndexColumn {
+                expression: "contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_opportunity_idx",
+            columns: &[IndexColumn {
+                expression: "opportunity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_provider_call_idx",
+            columns: &[IndexColumn {
+                expression: "provider_call_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_initiated_at_idx",
+            columns: &[IndexColumn {
+                expression: "initiated_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_provider_idx",
+            columns: &[IndexColumn {
+                expression: "provider",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_desk_conversation_idx",
+            columns: &[IndexColumn {
+                expression: "desk_conversation_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_calls_queue_entered_at_idx",
+            columns: &[IndexColumn {
+                expression: "queue_entered_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

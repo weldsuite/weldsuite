@@ -467,15 +467,8 @@ export async function recordCheckpoint(
   return getLiveBoard(db, boardId);
 }
 
-/** Display name and picture of a workspace member, for the room's peer list. */
-export async function memberProfile(db: Database, userId: string): Promise<{ name: string | null; picture: string | null }> {
-  const [row] = await db
-    .select({ name: schema.workspaceMembers.name, email: schema.workspaceMembers.email, picture: schema.workspaceMembers.picture })
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
-    .limit(1);
-  return { name: row?.name || row?.email || null, picture: row?.picture ?? null };
-}
+/** Display name and account picture of a workspace member, for the room's peer list. */
+export { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 
 /** Whether a project exists and is not deleted. */
 export async function projectExists(db: Database, projectId: string): Promise<boolean> {

@@ -131,7 +131,7 @@ export async function discardChanges(ctx: WorkspaceCtx, form: FormRow): Promise<
 // Versions
 // ---------------------------------------------------------------------------
 
-export async function listVersions(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<FormVersionSummary[]> {
+export async function listVersions(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, formId: string): Promise<FormVersionSummary[]> {
   const [versions, counts] = await Promise.all([
     ctx.db.select().from(formVersions).where(eq(formVersions.formId, formId)).orderBy(desc(formVersions.number)),
     ctx.db
@@ -141,7 +141,7 @@ export async function listVersions(ctx: Pick<WorkspaceCtx, 'db'>, formId: string
       .groupBy(formResponses.versionId),
   ]);
   const byVersion = new Map(counts.map((c) => [c.versionId, Number(c.n)]));
-  const refs = await memberRefs(ctx.db, versions.map((v) => v.publishedByUserId));
+  const refs = await memberRefs(ctx, versions.map((v) => v.publishedByUserId));
   return versions.map((v) => ({
     id: v.id,
     number: v.number,
@@ -151,7 +151,7 @@ export async function listVersions(ctx: Pick<WorkspaceCtx, 'db'>, formId: string
   }));
 }
 
-export async function getVersion(ctx: Pick<WorkspaceCtx, 'db'>, formId: string, versionId: string): Promise<FormVersionDetail> {
+export async function getVersion(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, formId: string, versionId: string): Promise<FormVersionDetail> {
   const summaries = await listVersions(ctx, formId);
   const summary = summaries.find((v) => v.id === versionId);
   if (!summary) throw notFound('Version');

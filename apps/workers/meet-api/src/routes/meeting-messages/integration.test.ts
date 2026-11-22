@@ -1,21 +1,34 @@
 /**
  * /api/meeting-messages against a real schema (pglite): the in-meeting chat
- * (list, pinned, send, pin/unpin, delete-own) and the generic CRUD rows.
+ * (list, pinned, send, pin/unpin, delete-own) and the generic CRUD rows. A
+ * sent message carries the author's account picture (master `users`), never
+ * the stale copy on their workspace member row.
  */
 
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
 import { meetingMessagesRoutes } from './index';
 import { fakeRealtime } from '../../test/fakes';
 import type { Env, Variables } from '../../types';
 
 const ME = 'user_test_default';
 const OTHER = 'user_other_author';
+const ACCOUNT_PICTURE = 'https://img.clerk.test/mia.png';
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 let realtime = fakeRealtime();
 let events: Array<{ entityType: string; action: string; entityId: string; data: Record<string, unknown> }> = [];
 
@@ -30,12 +43,19 @@ const eventsBinding = {
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master
+    .insert(users)
+    .values({ id: ME, email: 'me@example.com', imageUrl: ACCOUNT_PICTURE })
+    .onConflictDoNothing();
   await db.insert(schema.workspaceMembers).values({
     id: 'wm_msg_me',
     userId: ME,
     email: 'me@example.com',
     name: 'Mia Messenger',
-    picture: 'https://cdn.example.com/mia.png',
+    // A stale per-workspace copy: never what a message shows.
+    picture: 'https://stale.test/mia.png',
   });
   await db.insert(schema.meetings).values([
     { id: 'mtg_chat_a', title: 'Chat A', organizerId: ME, status: 'in_progress' },
@@ -76,7 +96,7 @@ beforeEach(() => {
 
 function app(perms: string[] = ['meetings:read', 'meetings:update', 'meetings:delete', 'sessions:create']) {
   return createTestApp<Env, Variables>('/api/meeting-messages', meetingMessagesRoutes, {
-    context: { permissions: permissions(...perms), userId: ME, tenantDb: db },
+    context: { permissions: permissions(...perms), userId: ME, tenantDb: db, masterDb: master },
     env: { REALTIME: realtime.binding, ENTITY_EVENTS: eventsBinding } as unknown as Partial<Env>,
   });
 }
@@ -161,7 +181,7 @@ describe('pinned messages', () => {
 });
 
 describe('POST /api/meeting-messages', () => {
-  it('sends a message as the member, announces it and publishes an event', async () => {
+  it('sends a message as the member with their account picture, announces it and publishes an event', async () => {
     const { request } = app();
     const res = await request('/api/meeting-messages', {
       method: 'POST',
@@ -174,7 +194,7 @@ describe('POST /api/meeting-messages', () => {
       meetingId: 'mtg_chat_b',
       authorId: ME,
       authorName: 'Mia Messenger',
-      authorAvatar: 'https://cdn.example.com/mia.png',
+      authorAvatar: ACCOUNT_PICTURE,
       content: 'hello',
       htmlContent: '<b>hello</b>',
       type: 'message',
@@ -186,7 +206,7 @@ describe('POST /api/meeting-messages', () => {
     expect(data.id).toMatch(/^mmsg_/);
 
     const [row] = await db.select().from(schema.meetingMessages).where(eq(schema.meetingMessages.id, data.id as string));
-    expect(row).toMatchObject({ content: 'hello', authorName: 'Mia Messenger' });
+    expect(row).toMatchObject({ content: 'hello', authorName: 'Mia Messenger', authorAvatar: ACCOUNT_PICTURE });
     // Announced in the meeting's room.
     expect(realtime.published).toHaveLength(1);
     expect(realtime.published[0]).toMatchObject({ type: 'message', id: data.id, content: 'hello' });
@@ -195,7 +215,7 @@ describe('POST /api/meeting-messages', () => {
 
   it('sends attachments without text, as Unknown when the user is not a member', async () => {
     const { request } = createTestApp<Env, Variables>('/api/meeting-messages', meetingMessagesRoutes, {
-      context: { permissions: permissions('sessions:create'), userId: 'user_not_a_member', tenantDb: db },
+      context: { permissions: permissions('sessions:create'), userId: 'user_not_a_member', tenantDb: db, masterDb: master },
       env: { REALTIME: realtime.binding, ENTITY_EVENTS: eventsBinding } as unknown as Partial<Env>,
     });
     const attachment = { id: 'att_1', fileName: 'a.pdf', fileSize: 12, mimeType: 'application/pdf', url: 'https://cdn.example.com/a.pdf' };

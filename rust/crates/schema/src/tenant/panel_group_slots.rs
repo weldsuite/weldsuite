@@ -1,0 +1,79 @@
+//! `panel_group_slots`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "panel_group_slots")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(32))")]
+    #[serde(rename = "groupType")]
+    pub group_type: String,
+    #[serde(rename = "position")]
+    pub position: i32,
+    #[serde(rename = "takenAt", with = "crate::js::timestamptz")]
+    pub taken_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "panel_group_slots",
+    columns: &[DdlColumn {
+        name: "taken_at",
+        sql_type: Some("timestamp (3) with time zone"),
+        default: None,
+        generated: None,
+        default_fn: false,
+        on_update: false,
+    }],
+    primary_key: None,
+    indexes: &[Index {
+        name: "panel_group_slots_type_idx",
+        columns: &[
+            IndexColumn {
+                expression: "workspace_id",
+                is_expression: false,
+                asc: true,
+            },
+            IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            },
+            IndexColumn {
+                expression: "group_type",
+                is_expression: false,
+                asc: true,
+            },
+        ],
+        unique: true,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

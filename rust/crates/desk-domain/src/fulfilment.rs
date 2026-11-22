@@ -21,6 +21,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
@@ -28,6 +29,7 @@ use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::tasks::create_task_once;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::catalog;
 use crate::realtime::now_ms;
@@ -107,11 +109,13 @@ async fn notify_assignee(
     if assignee == assigned_by {
         return Ok(());
     }
-    let name: Result<Option<Option<String>>, sqlx::Error> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(assigned_by)
-            .fetch_optional(ctx.db)
-            .await;
+    let name: Result<Option<Option<String>>, sea_orm::DbErr> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(assigned_by))
+        .into_tuple()
+        .one(&weldsuite_db::orm(ctx.db))
+        .await;
     let by = match name {
         Ok(name) => name.flatten().filter(|name| !name.is_empty()),
         Err(error) => {

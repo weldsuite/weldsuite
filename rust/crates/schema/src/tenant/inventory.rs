@@ -1,0 +1,300 @@
+//! `inventory`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "inventory")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "warehouseId")]
+    pub warehouse_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "locationId")]
+    pub location_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "variantId")]
+    pub variant_id: Option<String>,
+    #[serde(rename = "quantityOnHand")]
+    pub quantity_on_hand: i32,
+    #[serde(rename = "quantityAllocated")]
+    pub quantity_allocated: Option<i32>,
+    #[serde(rename = "quantityAvailable")]
+    pub quantity_available: Option<i32>,
+    #[serde(rename = "quantityIncoming")]
+    pub quantity_incoming: Option<i32>,
+    #[serde(rename = "quantityOutgoing")]
+    pub quantity_outgoing: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "lotNumber")]
+    pub lot_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "batchNumber")]
+    pub batch_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "serialNumber")]
+    pub serial_number: Option<String>,
+    #[serde(rename = "expiryDate", with = "crate::js::timestamp::option")]
+    pub expiry_date: Option<TimeDateTime>,
+    #[serde(rename = "manufactureDate", with = "crate::js::timestamp::option")]
+    pub manufacture_date: Option<TimeDateTime>,
+    #[serde(rename = "receivedDate", with = "crate::js::timestamp::option")]
+    pub received_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "unitCost",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub unit_cost: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "totalValue",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub total_value: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[serde(rename = "isQuarantined")]
+    pub is_quarantined: Option<bool>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "quarantineReason")]
+    pub quarantine_reason: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "qualityStatus")]
+    pub quality_status: Option<String>,
+    #[serde(rename = "lastInspectionDate", with = "crate::js::timestamp::option")]
+    pub last_inspection_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "inventory",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_on_hand",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_allocated",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_available",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_incoming",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_outgoing",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'USD'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'available'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_quarantined",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quality_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'passed'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "inventory_warehouse_idx",
+            columns: &[IndexColumn {
+                expression: "warehouse_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_location_idx",
+            columns: &[IndexColumn {
+                expression: "location_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_product_idx",
+            columns: &[IndexColumn {
+                expression: "product_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_lot_idx",
+            columns: &[IndexColumn {
+                expression: "lot_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_expiry_idx",
+            columns: &[IndexColumn {
+                expression: "expiry_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "inventory_bucket_unique",
+            columns: &[
+                IndexColumn {
+                    expression: "product_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "warehouse_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "variant_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "location_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "lot_number",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some("deleted_at IS NULL"),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+# The port WeldCommerce's payments reach WeldBooks through (commerce.rs).
+weldsuite-commerce-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }

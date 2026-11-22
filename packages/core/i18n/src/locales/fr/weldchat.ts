@@ -25,7 +25,7 @@ export const weldchat = {
   "joinChannel": "[TRANSLATE] Join",
   "openChannel": "[TRANSLATE] Open",
   "activityEmpty": "[TRANSLATE] No activity yet",
-  "activityEmptyHint": "[TRANSLATE] Mentions, thread replies, and DMs will show up here.",
+  "activityEmptyHint": "[TRANSLATE] Mentions, replies in your threads and missed calls show up here.",
   "draftsEmpty": "[TRANSLATE] You have no drafts",
   "draftsEmptyHint": "[TRANSLATE] Start typing a message and we'll save it here.",
   "directoriesPeopleEmpty": "[TRANSLATE] No people found.",
@@ -34,7 +34,7 @@ export const weldchat = {
     "all": "[TRANSLATE] All",
     "mentions": "[TRANSLATE] Mentions",
     "replies": "[TRANSLATE] Replies",
-    "dms": "[TRANSLATE] DMs"
+    "missedCalls": "[TRANSLATE] Missed calls"
   },
   "tabs": {
     "people": "[TRANSLATE] People",

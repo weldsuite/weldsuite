@@ -84,6 +84,7 @@ function checkDestination(c: FilesContext, access: DriveAccessIndex, folderId: s
 function fileSharing(c: FilesContext, { row, access, role }: OpenedFile) {
   return describeSharing(
     c.get('tenantDb'),
+    c.env,
     access,
     { kind: 'file', id: row.id, ownerId: row.uploadedById, generalAccess: row.generalAccess, parentId: row.folderId },
     role,

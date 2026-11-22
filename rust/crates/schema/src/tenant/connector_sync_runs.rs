@@ -1,0 +1,201 @@
+//! `connector_sync_runs`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "connector_sync_runs")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "syncName")]
+    pub sync_name: String,
+    #[sea_orm(column_name = "model", column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "model")]
+    pub model_: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "trigger")]
+    pub trigger: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "syncType")]
+    pub sync_type: Option<String>,
+    #[serde(rename = "recordsAdded")]
+    pub records_added: i32,
+    #[serde(rename = "recordsUpdated")]
+    pub records_updated: i32,
+    #[serde(rename = "recordsDeleted")]
+    pub records_deleted: i32,
+    #[serde(rename = "recordsCreated")]
+    pub records_created: i32,
+    #[serde(rename = "recordsModified")]
+    pub records_modified: i32,
+    #[serde(rename = "recordsSkipped")]
+    pub records_skipped: i32,
+    #[serde(rename = "recordsFailed")]
+    pub records_failed: i32,
+    #[serde(rename = "startedAt", with = "crate::js::timestamp")]
+    pub started_at: TimeDateTime,
+    #[serde(rename = "finishedAt", with = "crate::js::timestamp::option")]
+    pub finished_at: Option<TimeDateTime>,
+    #[serde(rename = "durationMs")]
+    pub duration_ms: Option<i32>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "error")]
+    pub error: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "errorSamples")]
+    pub error_samples: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "connector_sync_runs",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'running'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_added",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_updated",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_deleted",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_created",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_modified",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_skipped",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "records_failed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "started_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "connector_sync_runs_connection_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "connection_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "created_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "connector_sync_runs_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "connector_sync_runs_connection_id_connector_connections_id_fk",
+        columns: &["connection_id"],
+        references: "connector_connections",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

@@ -226,12 +226,13 @@ COPY rust/catalogs catalogs
 COPY rust/crates crates
 COPY rust/modules modules
 COPY rust/bins bins
-# The journaled migrations (packages/core/db/drizzle/{master,tenant,personal}-migrations:
-# the SQL and each meta/_journal.json, not the snapshots), embedded in the
-# binary, so the image needs no files and no Node to migrate
-# (crates/migrations/build.rs).
-COPY packages/core/db/drizzle drizzle
-ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
+# The journaled migrations (rust/migrations/{master,tenant}, and personal-api's
+# packages/core/db/drizzle/personal-migrations: the SQL and each
+# meta/_journal.json, not the snapshots), embedded in the binary, so the image
+# needs no files and no Node to migrate (crates/migrations/build.rs).
+COPY rust/migrations migrations
+COPY packages/core/db/drizzle/personal-migrations personal-migrations
+ENV WELDSUITE_PERSONAL_MIGRATIONS_DIR=/src/personal-migrations
 # `release` ships. CI builds a pull request's image with `ci-image`
 # (rust/Cargo.toml), which skips the slow release settings. Any profile but
 # `dev`, whose output folder isn't named after it.

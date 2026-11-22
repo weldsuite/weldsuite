@@ -85,6 +85,20 @@ runs:
             echo "::error::unknown mobile app '$APP' (add it to deploy-mobile and deploy-plan.mjs)"
             exit 1 ;;
         esac
+        # Apps that have left Global (ADR MOB-007) start on the EU server
+        # their build names and ship no Clerk: they read only the EU address
+        # and the picker switch, which is on in every environment (a
+        # self-hosted server through "Change server"). Without the EU address
+        # they refuse to start, so production gets it too.
+        case "$APP" in
+          weldchat)
+            if [ "$TARGET" = "production" ]; then EU_SERVER_URL=https://app.weldsuite.eu; fi
+            {
+              echo "EXPO_PUBLIC_EU_SERVER_URL=$EU_SERVER_URL"
+              echo "EXPO_PUBLIC_SERVER_PICKER=on"
+            } >> "$GITHUB_ENV"
+            exit 0 ;;
+        esac
         {
           echo "EXPO_PUBLIC_APP_API_URL=$APP_API_URL"
           echo "EXPO_PUBLIC_API_MODULES=all"
@@ -93,7 +107,6 @@ runs:
           case "$APP" in
             weldmail)
               echo "EXPO_PUBLIC_PERSONAL_API_URL=$PERSONAL_API_URL" ;;
-            weldchat) ;;
             weldbooks | weldflow | weldhr)
               echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_KEY" ;;
             weldagent)

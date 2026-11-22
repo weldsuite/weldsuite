@@ -1,0 +1,166 @@
+//! `task_dependencies`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "task_dependencies")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "predecessorId")]
+    pub predecessor_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "successorId")]
+    pub successor_id: String,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(2))")]
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(rename = "lagDays")]
+    pub lag_days: i32,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "task_dependencies",
+    columns: &[
+        DdlColumn {
+            name: "type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'fs'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "lag_days",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "task_dependencies_pair_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "predecessor_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "successor_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "task_dependencies_successor_idx",
+            columns: &[IndexColumn {
+                expression: "successor_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "task_dependencies_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[
+        ForeignKey {
+            name: "task_dependencies_project_id_projects_id_fk",
+            columns: &["project_id"],
+            references: "projects",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+        ForeignKey {
+            name: "task_dependencies_predecessor_id_tasks_id_fk",
+            columns: &["predecessor_id"],
+            references: "tasks",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+        ForeignKey {
+            name: "task_dependencies_successor_id_tasks_id_fk",
+            columns: &["successor_id"],
+            references: "tasks",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+    ],
+    uniques: &[],
+    checks: &[
+        Check {
+            name: "task_dependencies_type_check",
+            expression: "\"task_dependencies\".\"type\" in ('fs', 'ss', 'ff', 'sf')",
+        },
+        Check {
+            name: "task_dependencies_self_check",
+            expression: "\"task_dependencies\".\"predecessor_id\" <> \"task_dependencies\".\"successor_id\"",
+        },
+    ],
+};

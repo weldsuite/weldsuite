@@ -1,0 +1,124 @@
+//! `panel_export_runs`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "panel_export_runs")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "exportId")]
+    pub export_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "table")]
+    pub table_name: String,
+    #[serde(rename = "windowFrom", with = "crate::js::timestamptz")]
+    pub window_from: TimeDateTimeWithTimeZone,
+    #[serde(rename = "windowTo", with = "crate::js::timestamptz")]
+    pub window_to: TimeDateTimeWithTimeZone,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "rows")]
+    pub rows: i32,
+    #[serde(rename = "bytes")]
+    pub bytes: i64,
+    #[serde(rename = "files")]
+    pub files: i32,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "error")]
+    pub error: Option<String>,
+    #[serde(rename = "startedAt", with = "crate::js::timestamptz")]
+    pub started_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "finishedAt", with = "crate::js::timestamptz::option")]
+    pub finished_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "panel_export_runs",
+    columns: &[
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'running'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "rows",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "bytes",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "files",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "started_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "panel_export_runs_export_idx",
+        columns: &[
+            IndexColumn {
+                expression: "export_id",
+                is_expression: false,
+                asc: true,
+            },
+            IndexColumn {
+                expression: "started_at",
+                is_expression: false,
+                asc: true,
+            },
+        ],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

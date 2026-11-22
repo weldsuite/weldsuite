@@ -10,15 +10,23 @@ import type { Env, Variables } from '../../types';
 import { readSnapshot } from '../../room/snapshot';
 import { FakeBucket, fakeRoomNamespace, liveRoomNamespace } from '../../test-support/fakes';
 import { boardEngineNamespace } from '../../engine-ops';
-import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
+import { conformanceMasterDb, conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
+import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
 import boardRoutes from './index';
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   // The rooms' database: in conformance mode, the TypeScript run's copy while it runs.
   getTenantDbForWorkspace: async () => conformanceTenantDb(db),
+  // A peer's picture is their account picture (master `users`).
+  getMasterDb: () => conformanceMasterDb(master),
 }));
+
+const ALICE_PICTURE = 'https://img.clerk.test/alice.png';
 
 /** The board engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */
 const engineBinding = { BOARD_ENGINE: boardEngineNamespace() };
@@ -39,7 +47,12 @@ function env(): Env {
 
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/boards', boardRoutes, {
-    context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
+    context: {
+      tenantDb: db,
+      masterDb: master,
+      permissions: permissions(...(options.keys ?? ALL)),
+      userId: options.userId ?? ALICE,
+    },
     env: env() as unknown as Record<string, unknown>,
   });
 }
@@ -80,6 +93,8 @@ async function seedProject(id: string, members: Record<string, string>): Promise
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  await master.insert(users).values({ id: ALICE, email: 'alice@example.com', imageUrl: ALICE_PICTURE }).onConflictDoNothing();
 }, 60_000);
 
 beforeEach(async () => {
@@ -185,15 +200,19 @@ describe('/api/boards', () => {
     expect(file!.deletedAt).not.toBeNull();
   });
 
-  it('opens a session with the member profile, as edit, comment or view', async () => {
+  it('opens a session with the member name and account picture, as edit, comment or view', async () => {
     useLiveRooms = false;
-    await db.insert(workspaceMembers).values({ id: 'wm_alice', userId: ALICE, name: 'Alice Jansen', picture: 'https://img/alice.png' });
+    // The member row's picture is a stale copy: the room gets the account picture.
+    await db.insert(workspaceMembers).values({ id: 'wm_alice', userId: ALICE, name: 'Alice Jansen', picture: 'https://stale.test/alice.png' });
     const board = await create({ name: 'Shared' });
     await db.update(files).set({ generalAccess: 'workspace_view' }).where(eq(files.id, board.fileId!));
     const res = await app().request(`/api/boards/${board.id}/session`, { method: 'POST' });
     const session = ((await res.json()) as { data: BoardSession }).data;
     expect(session).toMatchObject({ canEdit: true, mode: 'edit', ticket: `${'f'.repeat(64)}.ticket-for-${ALICE}` });
-    expect(sessions.admissions.at(-1)).toMatchObject({ name: `${ORG}:${board.id}`, admission: { boardId: board.id, name: 'Alice Jansen', canEdit: true } });
+    expect(sessions.admissions.at(-1)).toMatchObject({
+      name: `${ORG}:${board.id}`,
+      admission: { boardId: board.id, name: 'Alice Jansen', picture: ALICE_PICTURE, canEdit: true },
+    });
 
     const commenter = ((await (await app({ userId: BOB }).request(`/api/boards/${board.id}/session`, { method: 'POST' })).json()) as { data: BoardSession }).data;
     expect(commenter).toMatchObject({ canEdit: false, mode: 'comment' });

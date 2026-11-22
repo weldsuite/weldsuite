@@ -51,6 +51,62 @@ export interface PanelLiveSession extends PanelLiveTouch {
   pageviews: number;
 }
 
+/** The live view keeps and answers the sessions with activity in the last 30 minutes. */
+export const LIVE_WINDOW_MS = 30 * 60 * 1000;
+/** `visitors` counts the visitors with activity in the last five minutes. */
+export const LIVE_RECENT_MS = 5 * 60 * 1000;
+/** `perMinute` has one bucket per minute of the window. */
+export const LIVE_MINUTES = 30;
+const MINUTE_MS = 60 * 1000;
+
+/** The live view's counts, over every session kept in the window (not only the ones answered). */
+export interface PanelLiveCounts {
+  /** Distinct visitors with activity in the last five minutes. */
+  visitors: number;
+  /** Distinct visitors with activity in the last 30 minutes. */
+  visitors30m: number;
+  /**
+   * Distinct visitors in each of the last 30 minutes, oldest first: bucket `i`
+   * covers `[now - (30 - i) min, now - (29 - i) min)`, and a session counts in
+   * every bucket from its start to its last activity.
+   */
+  perMinute: number[];
+}
+
+/** `live()`'s answer: the counts and the sessions of the last 30 minutes, latest first (at most 500). */
+export interface PanelLive extends PanelLiveCounts {
+  sessions: PanelLiveSession[];
+}
+
+/**
+ * The live view's counts at `nowMs`. A row whose `ts` is before the window
+ * (or not a time) counts nowhere; one whose `startedAt` is not a time counts
+ * in `visitors` and `visitors30m` but in no minute. The Rust backend mirrors
+ * this (`live_counts` in `rust/bins/weldsuite/src/panel_project/rules.rs`).
+ */
+export function liveCounts(rows: readonly Pick<PanelLiveSession, 'distinctId' | 'startedAt' | 'ts'>[], nowMs: number): PanelLiveCounts {
+  const windowStart = nowMs - LIVE_WINDOW_MS;
+  const recentStart = nowMs - LIVE_RECENT_MS;
+  const recent = new Set<string>();
+  const inWindow = new Set<string>();
+  const minutes = Array.from({ length: LIVE_MINUTES }, () => new Set<string>());
+
+  for (const row of rows) {
+    const ts = Date.parse(row.ts);
+    if (Number.isNaN(ts) || ts < windowStart) continue;
+    inWindow.add(row.distinctId);
+    if (ts >= recentStart) recent.add(row.distinctId);
+    const startedAt = Date.parse(row.startedAt);
+    minutes.forEach((visitors, i) => {
+      const bucketStart = nowMs - (LIVE_MINUTES - i) * MINUTE_MS;
+      const bucketEnd = bucketStart + MINUTE_MS;
+      if (startedAt < bucketEnd && ts >= bucketStart) visitors.add(row.distinctId);
+    });
+  }
+
+  return { visitors: recent.size, visitors30m: inWindow.size, perMinute: minutes.map((visitors) => visitors.size) };
+}
+
 export interface PanelPeoplePage {
   people: PanelPerson[];
   cursor: string | null;
@@ -103,7 +159,7 @@ export interface PanelProjectObjectApi {
   /** Link `anonId` to `userId` (an anonymous id links to at most one user; the first link wins). */
   identify(input: { workspaceId: string; projectId: string; anonId: string; userId: string; ts: string }): Promise<{ linked: boolean }>;
   applyPeopleOps(input: { workspaceId: string; projectId: string; ops: PanelPeopleOp[] }): Promise<void>;
-  /** Keeps sessions seen in the last five minutes. */
+  /** Keeps sessions seen in the last 30 minutes ({@link LIVE_WINDOW_MS}), the newest 2000. */
   touchLive(touches: PanelLiveTouch[]): Promise<void>;
 
   // --- panel-api side ----------------------------------------------------
@@ -111,7 +167,12 @@ export interface PanelProjectObjectApi {
   listPeople(input: { search?: string; cursor?: string | null; limit: number }): Promise<PanelPeoplePage>;
   /** Profiles whose `$email` matches (case-insensitive), for the WeldCRM person card. */
   findByEmail(email: string): Promise<PanelPerson[]>;
-  live(): Promise<{ visitors: number; sessions: PanelLiveSession[] }>;
+  /**
+   * The live view: visitors in the last five and 30 minutes, visitors per
+   * minute over the last 30 ({@link liveCounts}, over every kept session) and
+   * the sessions with activity in the last 30 minutes, latest first (at most 500).
+   */
+  live(): Promise<PanelLive>;
   /** Removes the profile and links at once and adds the ids to the erased list every query excludes (GDPR). */
   erase(input: { workspaceId: string; projectId: string; userIdOrAnonId: string }): Promise<PanelErasure>;
   erasedIds(): Promise<string[]>;

@@ -352,12 +352,15 @@ async fn send_message(
     if meeting.is_none() {
         return Ok(ApiError::not_found("Meeting", Some(&body.meeting_id)).into_response());
     }
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(&caller.user_id)
             .fetch_optional(db)
             .await?;
-    let (name, picture) = author.unwrap_or((None, None));
+    let name = name.flatten();
+    // The avatar is the account picture, not the member row's copy.
+    let picture =
+        weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id).await;
     let author_name = name.unwrap_or_else(|| "Unknown".to_owned());
     let id = generate_id("mmsg");
     let now = now();

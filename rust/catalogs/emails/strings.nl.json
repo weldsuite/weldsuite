@@ -225,6 +225,69 @@
     "when": "Wanneer",
     "where": "Waar"
   },
+  "commerce": {
+    "approvalDecided": {
+      "bodyApproved": "Je bestelling {order} bij {shop} van {currency} {total} is goedgekeurd.",
+      "bodyRejected": "Je bestelling {order} bij {shop} van {currency} {total} is afgewezen. Hij wordt niet verwerkt.",
+      "comment": "Opmerking",
+      "decidedBy": "Beslist door {name}.",
+      "footer": "Dit bericht is verstuurd namens {shop}.",
+      "heading": "Bestelling {order}",
+      "kickerApproved": "Bestelling goedgekeurd",
+      "kickerRejected": "Bestelling afgewezen",
+      "pay": "Nu betalen",
+      "previewApproved": "Je bestelling {order} van {currency} {total} is goedgekeurd.",
+      "previewRejected": "Je bestelling {order} van {currency} {total} is afgewezen.",
+      "subjectApproved": "Bestelling {order} is goedgekeurd",
+      "subjectRejected": "Bestelling {order} is afgewezen"
+    },
+    "approvalRequested": {
+      "body": "{requester} plaatste bestelling {order} bij {shop} van {currency} {total}. Deze moet door jou worden goedgekeurd.",
+      "bodyCompany": "{requester} van {company} plaatste bestelling {order} bij {shop} van {currency} {total}. Deze moet door jou worden goedgekeurd.",
+      "footer": "Je krijgt dit omdat je bestellingen bij {shop} kunt goedkeuren.",
+      "heading": "Bestelling {order}",
+      "kicker": "Goedkeuring nodig",
+      "open": "Bekijk de bestelling",
+      "preview": "{requester} plaatste bestelling {order} van {currency} {total}.",
+      "reasons": {
+        "buyer_limit": "Het totaal is hoger dan de bestellimiet van deze inkoper.",
+        "company_threshold": "Het totaal is hoger dan de goedkeuringsgrens van je bedrijf."
+      },
+      "subject": "Bestelling {order} wacht op je goedkeuring"
+    },
+    "buyerInvitation": {
+      "body": "{company} heeft je toegang gegeven om namens het bedrijf te bestellen bij {shop}, als {role}.",
+      "footer": "Dit bericht is verstuurd namens {shop}. Verwachtte je het niet? Dan kun je deze e-mail negeren.",
+      "kicker": "{inviter} gaf je toegang",
+      "kickerNoInviter": "Je hebt toegang gekregen",
+      "open": "Open de shop",
+      "preview": "{company} geeft je toegang om te bestellen bij {shop}.",
+      "roles": {
+        "admin": "beheerder",
+        "approver": "fiatteur",
+        "buyer": "inkoper"
+      },
+      "signIn": "Je logt in met je e-mailadres. We sturen je elke keer een code, dus je hebt geen wachtwoord nodig.",
+      "subject": "{company} geeft je toegang om te bestellen bij {shop}"
+    },
+    "orderConfirmation": {
+      "amount": "{currency} {amount}",
+      "awaitingApproval": "Deze bestelling wacht op goedkeuring van een collega binnen je bedrijf. We verwerken hem zodra hij is goedgekeurd.",
+      "body": "We hebben je bestelling bij {shop} ontvangen. Dit heb je besteld.",
+      "footer": "Dit bericht is verstuurd namens {shop}.",
+      "heading": "Bestelling {order}",
+      "kicker": "Orderbevestiging",
+      "line": "{quantity} × {name}",
+      "onInvoice": "Je ontvangt een factuur voor deze bestelling.",
+      "preview": "We hebben je bestelling {order} ontvangen.",
+      "shipping": "Verzending",
+      "subject": "Je bestelling {order} bij {shop}",
+      "subtotal": "Subtotaal",
+      "tax": "BTW",
+      "total": "Totaal",
+      "view": "Bekijk je bestelling"
+    }
+  },
   "dates": {
     "allDay": "{date} (hele dag)"
   },

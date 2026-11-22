@@ -6,12 +6,14 @@
  * answering by URL. What each import wrote is read back: products with their
  * variants and sales channels, orders with their items, people, WMS rows,
  * WeldBooks parties, invoices, bank accounts and statement lines, the sync
- * runs and the watermarks; a second pass finds nothing changed.
+ * runs and the watermarks; a second pass finds nothing changed, and a changed
+ * order keeps its items and gets the buyer's party as counterparty.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { asc, eq } from 'drizzle-orm';
+import { getDefaultConnectorFieldMappings } from '@weldsuite/connectors';
 import { conformanceTenantDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -125,6 +127,15 @@ function woo(url: URL): Response {
   return json({ code: 'rest_no_route' }, {}, 404);
 }
 
+// A second WooCommerce store whose orders a test changes between passes.
+const STORE_ORDERS: Array<Record<string, unknown>> = [];
+
+function wooOrders(url: URL): Response {
+  const resource = url.pathname.replace('/wp-json/wc/v3/', '');
+  if (resource === 'orders') return json(STORE_ORDERS, { 'X-WP-Total': String(STORE_ORDERS.length), 'X-WP-TotalPages': '1' });
+  return json([], { 'X-WP-Total': '0', 'X-WP-TotalPages': '1' });
+}
+
 // ── Shopify ──────────────────────────────────────────────────────────────
 
 function shopify(url: URL): Response {
@@ -211,16 +222,42 @@ function moneybird(url: URL, method: string): Response {
         due_date: '2026-03-15',
         paid_at: '2026-03-05',
         currency: 'EUR',
+        prices_are_incl_tax: false,
         total_price_excl_tax: '100.0',
         total_price_incl_tax: '121.0',
+        total_paid: '121.0',
+        total_unpaid: '0.0',
         reference: 'PO-77',
+        // Moneybird names a line's VAT by id only; the percentage comes from tax_totals.
         details: [
-          { description: 'Consulting', amount: '2 uur', price: '50.0', total_price_excl_tax_with_discount: '100.0', total_price_incl_tax_with_discount: '121.0', product_id: null },
+          { description: 'Consulting', amount: '2 uur', price: '50.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '100.0', product_id: null },
         ],
+        tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '100.0', taxable_amount_base: '100.0', tax_amount: '21.0', tax_amount_base: '21.0' }],
         attachments: [],
         updated_at: '2026-03-05T10:00:00.000Z',
       },
       { id: 'si2', invoice_id: '2026-002', contact_id: 'c-unknown', state: 'open', invoice_date: '2026-03-02', updated_at: '2026-03-06T10:00:00.000Z' },
+      {
+        // Reminded, with part of it paid: Moneybird's own state is not a WeldBooks status.
+        id: 'si3',
+        invoice_id: '2026-003',
+        contact_id: 'c1',
+        state: 'reminded',
+        invoice_date: '2026-02-01',
+        due_date: '2026-02-15',
+        currency: 'EUR',
+        prices_are_incl_tax: true,
+        total_price_excl_tax: '200.0',
+        total_price_incl_tax: '242.0',
+        total_paid: '100.0',
+        total_unpaid: '142.0',
+        details: [
+          { description: 'Support', amount: '1', price: '242.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '200.0', product_id: null },
+        ],
+        tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '200.0', taxable_amount_base: '200.0', tax_amount: '42.0', tax_amount_base: '42.0' }],
+        attachments: [],
+        updated_at: '2026-03-04T10:00:00.000Z',
+      },
     ]);
   }
   if (path === 'financial_accounts') {
@@ -298,6 +335,7 @@ beforeEach(() => {
       const url = new URL(href);
       const method = (init?.method ?? 'GET').toUpperCase();
       if (url.hostname === 'shop.example') return woo(url);
+      if (url.hostname === 'orders.example') return wooOrders(url);
       if (url.hostname === 'acme.myshopify.com') return shopify(url);
       if (url.hostname === 'acme.picqer.com') return picqer(url);
       if (url.hostname === 'moneybird.com') return moneybird(url, method);
@@ -330,6 +368,22 @@ beforeAll(async () => {
     connection({ id: 'ccn_syncpaused001', provider: 'woocommerce', status: 'paused', credentials: { storeUrl: 'https://shop.example', consumerKey: 'ck_1', consumerSecret: 'cs_1' } }),
     connection({ id: 'ccn_syncout000001', provider: 'shopify', credentials: { shopDomain: 'acme', accessToken: 'shpat_1' }, direction: 'outbound', enabledSyncs: ['products'] }),
   ]);
+  // A Moneybird connection is seeded with the default invoice field mappings,
+  // `state → status` as-is among them.
+  await db.insert(schema.integrationFieldMappings).values(
+    getDefaultConnectorFieldMappings('invoice', 'moneybird').map((m, i) => ({
+      id: `ifm_syncmb000000${i}`,
+      connectionId: 'ccn_syncmb0000001',
+      entityType: 'invoice',
+      externalFieldPath: m.externalFieldPath,
+      internalFieldPath: m.internalFieldPath,
+      direction: m.direction,
+      transformType: m.transformType,
+      isRequired: m.isRequired ?? false,
+      isDefault: true,
+      position: i,
+    })),
+  );
 }, 60_000);
 
 function app(...granted: string[]) {
@@ -546,10 +600,16 @@ describe('POST /connections/:id/sync', () => {
     const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, party!.companyId!));
     expect(company).toMatchObject({ name: 'Acme BV', email: 'info@acme.example', vatNumber: 'NL123456789B01', registrationNumber: '12345678', source: 'moneybird' });
     const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-001'));
-    expect(invoice).toMatchObject({ status: 'paid', entityId: 'ent_books0000001', contactId: party!.id, counterpartyId: party!.id, subtotal: '100.00', total: '121.00', amountPaid: '121.00', balanceDue: '0.00', reference: 'PO-77', contactName: 'Acme BV', contactEmail: 'info@acme.example' });
+    expect(invoice).toMatchObject({ status: 'paid', entityId: 'ent_books0000001', contactId: party!.id, counterpartyId: party!.id, subtotal: '100.00', taxTotal: '21.00', total: '121.00', amountPaid: '121.00', balanceDue: '0.00', reference: 'PO-77', contactName: 'Acme BV', contactEmail: 'info@acme.example' });
     expect(invoice!.issueDate.toISOString()).toBe('2026-03-01T00:00:00.000Z');
     const lines = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, invoice!.id));
-    expect(lines.map((l) => [l.description, l.quantity, l.unitPrice, l.lineTotal, l.lineTotalWithTax])).toEqual([['Consulting', '2.0000', '50.0000', '100.00', '121.00']]);
+    expect(lines.map((l) => [l.description, l.quantity, l.unitPrice, l.taxRate, l.taxAmount, l.lineTotal, l.lineTotalWithTax])).toEqual([['Consulting', '2.0000', '50.0000', '21.0000', '21.00', '100.00', '121.00']]);
+    // The seeded `state → status` mapping would write `reminded`; the part payment makes it partial.
+    const [reminded] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-003'));
+    expect(reminded).toMatchObject({ status: 'partial', subtotal: '200.00', taxTotal: '42.00', total: '242.00', amountPaid: '100.00', balanceDue: '142.00' });
+    const remindedLines = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, reminded!.id));
+    // An incl-VAT price comes in without the VAT.
+    expect(remindedLines.map((l) => [l.unitPrice, l.taxRate, l.taxAmount, l.lineTotal, l.lineTotalWithTax])).toEqual([['200.0000', '21.0000', '42.00', '200.00', '242.00']]);
     const accounts = await db.select().from(schema.bankAccounts).orderBy(asc(schema.bankAccounts.name));
     expect(accounts.map((a) => [a.name, a.iban, a.isActive, a.metadata])).toEqual([
       ['Moneybird account fa_archived', null, false, { stubFromMutation: true, moneybirdFinancialAccountId: 'fa_archived' }],
@@ -565,7 +625,7 @@ describe('POST /connections/:id/sync', () => {
       ['moneybird-contacts', 'success', 1, 0, null],
       ['moneybird-financial-accounts', 'success', 1, 0, null],
       ['moneybird-financial-mutations', 'success', 2, 0, null],
-      ['moneybird-sales-invoices', 'partial', 1, 1, '1 record(s) failed to import'],
+      ['moneybird-sales-invoices', 'partial', 2, 1, '1 record(s) failed to import'],
     ]);
     expect(mbRuns.find((r) => r.syncName === 'moneybird-sales-invoices')!.errorSamples).toEqual([
       { externalId: 'si2', message: 'Invoice/bill contact is not mapped — sync contacts first' },
@@ -631,5 +691,152 @@ describe('POST /api/integrations/connections/:id/catch-up', () => {
     expect((await internalApp()('/api/integrations/connections/ccn_missing000001/catch-up', internalPost())).status).toBe(404);
     const wrong = await internalApp()('/api/integrations/connections/ccn_syncshop00001/catch-up', { method: 'POST', headers: { 'X-Internal-Secret': 'nope', 'X-Workspace-Id': 'org_test_default' } });
     expect(wrong.status).toBe(401);
+  });
+});
+
+/**
+ * Re-importing an order keeps its items (WeldStash pick lists point at them
+ * and WeldStash owns `fulfilledQuantity`) and gives the order the buyer's
+ * party as counterparty for WeldBooks.
+ */
+describe('re-importing a store order', () => {
+  const CONN = 'ccn_syncorders01';
+  let passes = 0;
+
+  const line = (id: number, name: string, sku: string, quantity: number, price: number) => ({
+    id,
+    product_id: 0,
+    name,
+    sku,
+    quantity,
+    price,
+    total: (quantity * price).toFixed(2),
+  });
+
+  const order = (id: number, modified: string, lines: Array<Record<string, unknown>>) => ({
+    id,
+    number: String(id),
+    status: 'processing',
+    currency: 'EUR',
+    total: '100.00',
+    customer_id: 41,
+    date_modified_gmt: modified,
+    billing: { first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
+    line_items: lines,
+  });
+
+  async function syncOrders() {
+    const res = await app()(`/api/connectors/connections/${CONN}/sync`, post({ syncs: ['orders'] }));
+    expect(res.status).toBe(200);
+    passes += 1;
+    await settled(CONN, passes);
+  }
+
+  async function orderByNumber(number: string) {
+    const [row] = await db.select().from(schema.orders).where(eq(schema.orders.orderNumber, number));
+    return row!;
+  }
+
+  async function itemsOf(orderId: string) {
+    return db
+      .select()
+      .from(schema.orderItems)
+      .where(eq(schema.orderItems.orderId, orderId))
+      .orderBy(asc(schema.orderItems.createdAt), asc(schema.orderItems.id));
+  }
+
+  /** Items inserted in one pass can share a creation time, so compare them by name. */
+  function byName<T extends { name: string }>(rows: T[]): T[] {
+    return [...rows].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  beforeAll(async () => {
+    await db.insert(schema.connectorConnections).values(
+      connection({ id: CONN, provider: 'woocommerce', displayName: 'Orders shop', credentials: { storeUrl: 'https://orders.example', consumerKey: 'ck_2', consumerSecret: 'cs_2' }, externalAccountId: 'https://orders.example', enabledSyncs: ['orders'] }),
+    );
+    // The buyer, imported earlier by the customers sync.
+    await db.insert(schema.people).values({ id: 'pers_buyer000001', displayName: 'Grace Hopper', firstName: 'Grace', lastName: 'Hopper', email: 'grace@example.com', primaryAddress: { line1: 'Navy Yard 1', city: 'Arlington', country: 'US' }, createdAt: at, updatedAt: at });
+    await db.insert(schema.integrationEntityMappings).values({ id: 'iem_buyer0000001', connectionId: CONN, externalEntityType: 'woocommerce_customer', externalEntityId: '41', internalEntityType: 'person', internalEntityId: 'pers_buyer000001', syncChecksum: 'seen', lastSyncedAt: at });
+  });
+
+  it('updates items in place, keeps fulfilled and picked lines, and links the buyer once', async () => {
+    STORE_ORDERS.splice(0, STORE_ORDERS.length, order(601, '2026-04-01T10:00:00', [
+      line(7001, 'Kettle', 'KET-1', 2, 30),
+      line(7002, 'Cup', 'CUP-1', 4, 5),
+      line(7003, 'Saucer', 'SAU-1', 1, 3),
+    ]));
+    await syncOrders();
+
+    const first = await orderByNumber('601');
+    expect(first).toMatchObject({ personId: 'pers_buyer000001', itemCount: 3, totalQuantity: 7 });
+    const [party] = await db.select().from(schema.parties).where(eq(schema.parties.personId, 'pers_buyer000001'));
+    expect(party).toMatchObject({ kind: 'person', role: 'customer', displayName: 'Grace Hopper', billingAddress: { line1: 'Navy Yard 1', city: 'Arlington', country: 'US' }, deletedAt: null });
+    expect(first.counterpartyId).toBe(party!.id);
+
+    const before = byName(await itemsOf(first.id));
+    expect(before.map((i) => [i.name, i.quantity, i.properties])).toEqual([
+      ['Cup', 4, { externalLineId: '7002' }],
+      ['Kettle', 2, { externalLineId: '7001' }],
+      ['Saucer', 1, { externalLineId: '7003' }],
+    ]);
+    const [cup, kettle, saucer] = before;
+
+    // WeldStash ships one kettle and puts the cups on a pick list; someone
+    // then picks another invoice contact for the order.
+    await db.update(schema.orderItems).set({ fulfilledQuantity: 2 }).where(eq(schema.orderItems.id, kettle!.id));
+    await db.insert(schema.pickLists).values({ id: 'pl_reimport00001', pickListNumber: 'PL-REIMPORT', warehouseId: 'wh_reimport00001' });
+    await db.insert(schema.pickListItems).values({ id: 'pli_reimport0001', pickListId: 'pl_reimport00001', orderId: first.id, orderItemId: cup!.id, productId: 'prd_reimport0001', sku: 'CUP-1', name: 'Cup', quantityRequired: 4 });
+    await db.insert(schema.parties).values({ id: 'party_chosen0001', kind: 'company', displayName: 'Hopper Holdings', createdAt: at, updatedAt: at });
+    await db.update(schema.orders).set({ counterpartyId: 'party_chosen0001' }).where(eq(schema.orders.id, first.id));
+
+    // The store raises the kettles to three, drops the cups and the saucer and adds a lid.
+    STORE_ORDERS.splice(0, STORE_ORDERS.length, order(601, '2026-04-02T10:00:00', [
+      line(7001, 'Kettle', 'KET-1', 3, 30),
+      line(7004, 'Lid', 'LID-1', 1, 2),
+    ]));
+    await syncOrders();
+
+    const after = byName(await itemsOf(first.id));
+    expect(after.map((i) => [i.id, i.name, i.quantity, i.total, i.fulfilledQuantity, i.properties])).toEqual([
+      [cup!.id, 'Cup', 4, '20.00', 0, { externalLineId: '7002' }],
+      [kettle!.id, 'Kettle', 3, '90.00', 2, { externalLineId: '7001' }],
+      [after[2]!.id, 'Lid', 1, '2.00', 0, { externalLineId: '7004' }],
+    ]);
+    expect([kettle!.id, cup!.id, saucer!.id]).not.toContain(after[2]!.id);
+    const [pickItem] = await db.select().from(schema.pickListItems).where(eq(schema.pickListItems.id, 'pli_reimport0001'));
+    expect(after.map((i) => i.id)).toContain(pickItem!.orderItemId);
+
+    const second = await orderByNumber('601');
+    expect(second).toMatchObject({ id: first.id, itemCount: 3, totalQuantity: 8, counterpartyId: 'party_chosen0001' });
+    expect(await db.select().from(schema.parties).where(eq(schema.parties.personId, 'pers_buyer000001'))).toHaveLength(1);
+  });
+
+  it('matches items imported before line ids were kept and stamps them', async () => {
+    // As the import left it before: no line ids on the items.
+    await db.insert(schema.orders).values({ id: 'ord_legacy000001', orderNumber: '602', externalOrderId: '602', source: 'woocommerce', status: 'processing', subtotal: '0', total: '0', itemCount: 3, totalQuantity: 3, createdAt: at, updatedAt: at });
+    await db.insert(schema.integrationEntityMappings).values({ id: 'iem_legacy000001', connectionId: CONN, externalEntityType: 'woocommerce_order', externalEntityId: '602', internalEntityType: 'order', internalEntityId: 'ord_legacy000001', syncChecksum: 'before-line-ids', lastSyncedAt: at });
+    await db.insert(schema.orderItems).values([
+      { id: 'oitm_legacy00001', orderId: 'ord_legacy000001', sku: 'MAT-1', name: 'Mat', quantity: 1, unitPrice: '10', total: '10', fulfilledQuantity: 1, createdAt: new Date('2026-04-01T10:00:00.000Z') },
+      { id: 'oitm_legacy00002', orderId: 'ord_legacy000001', sku: 'MAT-1', name: 'Mat', quantity: 1, unitPrice: '10', total: '10', createdAt: new Date('2026-04-01T10:00:01.000Z') },
+      { id: 'oitm_legacy00003', orderId: 'ord_legacy000001', sku: 'RUG-1', name: 'Rug', quantity: 1, unitPrice: '40', total: '40', createdAt: new Date('2026-04-01T10:00:02.000Z') },
+    ]);
+
+    STORE_ORDERS.push(order(602, '2026-04-03T10:00:00', [
+      line(8001, 'Mat', 'MAT-1', 1, 10),
+      line(8002, 'Mat', 'MAT-1', 2, 10),
+      line(8003, 'Rug', 'RUG-1', 1, 40),
+    ]));
+    await syncOrders();
+
+    const items = await itemsOf('ord_legacy000001');
+    expect(items.map((i) => [i.id, i.quantity, i.fulfilledQuantity, i.properties])).toEqual([
+      ['oitm_legacy00001', 1, 1, { externalLineId: '8001' }],
+      ['oitm_legacy00002', 2, 0, { externalLineId: '8002' }],
+      ['oitm_legacy00003', 1, 0, { externalLineId: '8003' }],
+    ]);
+    const legacy = await orderByNumber('602');
+    expect(legacy).toMatchObject({ itemCount: 3, totalQuantity: 4, personId: 'pers_buyer000001' });
+    const [party] = await db.select().from(schema.parties).where(eq(schema.parties.personId, 'pers_buyer000001'));
+    expect(legacy.counterpartyId).toBe(party!.id);
   });
 });

@@ -9,11 +9,16 @@
 //! Mail AI (`/api/mail-ai`, `services/mail/ai.ts`) and the outbound abuse
 //! review ([`review`]) run on `weldsuite-ai` (ADR AI-012).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 #![allow(clippy::result_large_err)] // the handlers return the response a check ends with
 
 mod ai;
 mod caller;
 pub mod consumers;
+mod crm;
 pub mod cron;
 mod read_push;
 pub mod review;
@@ -150,6 +155,7 @@ where
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
         .merge(routes::mail_ai::routes(state.clone(), gate))
+        .merge(routes::mail_link_check::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

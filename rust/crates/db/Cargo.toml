@@ -12,13 +12,18 @@ publish.workspace = true
 weldsuite-auth = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-permissions = { workspace = true }
+async-trait = { workspace = true }
 aws-lc-rs = { workspace = true }
 axum = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
+sea-orm = { workspace = true }
+sea-query-sqlx = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros", "parsing"] }
+tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -27,6 +27,8 @@ import {
   parseAgentQuestion,
   type AgentQuestion,
 } from '@weldsuite/app-api-client/schemas/weldagent-questions';
+import { splitReplyParts, type ReplyPart } from '@weldsuite/app-api-client/schemas/chat-visuals';
+import { ChatVisual } from '@/components/visuals/ChatVisual';
 
 const POLL_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 1200;
@@ -184,18 +186,35 @@ export default function ChatThreadScreen() {
             const mine = msg.role === 'user';
             const questions = questionsOf(msg);
             const answerable = index === messages.length - 1 && !sending;
+            // A reply's charts, figures, tables and record cards sit between its text, where the agent showed them.
+            const parts: ReplyPart[] = mine ? [{ kind: 'text', text: msg.content }] : splitReplyParts(msg.content).parts;
             return (
               <View key={msg.id} style={styles.turn}>
-                {msg.content.trim() ? (
-                  <View
-                    style={[
-                      styles.bubble,
-                      mine ? [styles.mine, { backgroundColor: BRAND }] : [styles.theirs, { backgroundColor: colors.secondary }],
-                    ]}
-                  >
-                    <Text style={[styles.bubbleText, { color: mine ? '#fff' : colors.text }]}>{msg.content}</Text>
-                  </View>
-                ) : null}
+                {parts.map((part, p) => {
+                  if (part.kind === 'visual') {
+                    return (
+                      <ChatVisual
+                        key={`${msg.id}-visual-${p}`}
+                        visual={part.visual}
+                        onAsk={sending || outOfCredits ? undefined : setDraft}
+                      />
+                    );
+                  }
+                  if (part.kind !== 'text' || !part.text.trim()) return null;
+                  return (
+                    <View
+                      key={`${msg.id}-text-${p}`}
+                      style={[
+                        styles.bubble,
+                        mine
+                          ? [styles.mine, { backgroundColor: BRAND }]
+                          : [styles.theirs, { backgroundColor: colors.secondary }],
+                      ]}
+                    >
+                      <Text style={[styles.bubbleText, { color: mine ? '#fff' : colors.text }]}>{part.text}</Text>
+                    </View>
+                  );
+                })}
                 {questions.map((q) => (
                   <View key={q.question} style={[styles.question, { borderColor: colors.border }]}>
                     <Text style={[styles.questionText, { color: colors.text }]}>{q.question}</Text>

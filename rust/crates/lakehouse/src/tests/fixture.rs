@@ -44,7 +44,7 @@ macro_rules! test_lake {
 pub(crate) use test_lake;
 
 /// The catalog's tables as the master migration makes them
-/// (`packages/core/db/drizzle/master-migrations/0072_weldpanel_lakehouse.sql`),
+/// (`rust/migrations/master/0072_weldpanel_lakehouse.sql`),
 /// for a scratch database that hasn't run the migrations.
 const CATALOG_DDL: [&str; 2] = [
     "CREATE TABLE IF NOT EXISTS iceberg_tables (

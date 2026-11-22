@@ -22,6 +22,8 @@ commands:
   domains add <domain> [--pool P]…  register a domain (idempotent), print its DKIM record
   domains remove <domain>           stop signing for a domain
   queue                             recipients by pool and status
+  warmup                            each sending IP's warm-up: step, today's cap, sent today,
+                                    what it takes to advance (MTA_WARMUP_* as for run)
 
 Settings are MTA_* environment variables (crates/mta/src/config.rs; the Helm chart's
 values.yaml lists them).";
@@ -44,7 +46,7 @@ fn runtime() -> Option<tokio::runtime::Runtime> {
 pub(crate) fn run(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         None | Some("run") => serve(),
-        Some("migrate" | "domains" | "queue") => tool(args),
+        Some("migrate" | "domains" | "queue" | "warmup") => tool(args),
         Some("help" | "--help" | "-h") => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -179,6 +181,32 @@ async fn tool_command(
         ("queue", []) => {
             store.migrate().await?;
             println!("{}", serde_json::to_string_pretty(&store.stats().await?)?);
+        }
+        ("warmup", []) => {
+            let warmup = weldsuite_mta::config::warmup(&|name| std::env::var(name).ok())?;
+            if warmup.is_off() {
+                println!("warm-up is off (MTA_WARMUP_SCHEDULE=off): no IP has a cap");
+                return Ok(ExitCode::SUCCESS);
+            }
+            store.migrate().await?;
+            println!(
+                "schedule {} a day; a UTC day that sends {}% of its step's cap moves the IP up one step\n",
+                warmup
+                    .schedule
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                warmup.advance_percent
+            );
+            let ips = store.warmup_ips().await?;
+            if ips.is_empty() {
+                println!("no IP has sent yet");
+            }
+            for (ip, first_day) in ips {
+                let (_, history) = store.ip_history(&ip).await?;
+                println!("{}", warmup.report(&ip, first_day.as_deref(), &history));
+            }
         }
         ("domains", ["list"]) => {
             for row in store.domains().await? {

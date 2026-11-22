@@ -178,7 +178,7 @@ export async function listForms(
     ctx.db.select().from(forms).where(where).orderBy(...order).limit(limit).offset(offset),
     ctx.db.select({ n: sql<number>`count(*)::int` }).from(forms).where(where),
   ]);
-  const owners = await memberRefs(ctx.db, rows.map((r) => r.ownerUserId));
+  const owners = await memberRefs(ctx, rows.map((r) => r.ownerUserId));
   const total = Number(count?.n ?? 0);
   const next = offset + rows.length;
   return {
@@ -374,14 +374,14 @@ export async function deleteForm(ctx: WorkspaceCtx, form: FormRow): Promise<stri
 // Access list
 // ---------------------------------------------------------------------------
 
-export async function listAccess(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): Promise<FormAccessEntry[]> {
+export async function listAccess(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, formId: string): Promise<FormAccessEntry[]> {
   const rows = await ctx.db.select().from(formAccess).where(eq(formAccess.formId, formId)).orderBy(asc(formAccess.createdAt));
-  const refs = await memberRefs(ctx.db, rows.map((r) => r.userId));
+  const refs = await memberRefs(ctx, rows.map((r) => r.userId));
   return rows.map((r) => ({ user: refs.get(r.userId) ?? { userId: r.userId, name: null, email: null, imageUrl: null }, role: r.role }));
 }
 
 /** Replaces the access list. The owner never needs an entry. */
-export async function setAccess(ctx: Pick<WorkspaceCtx, 'db'>, form: FormRow, input: SetFormAccessInput): Promise<FormAccessEntry[]> {
+export async function setAccess(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, form: FormRow, input: SetFormAccessInput): Promise<FormAccessEntry[]> {
   const entries = new Map<string, SetFormAccessInput['entries'][number]>();
   for (const entry of input.entries) if (entry.userId !== form.ownerUserId) entries.set(entry.userId, entry);
   await atomically(ctx.db, (db) => [

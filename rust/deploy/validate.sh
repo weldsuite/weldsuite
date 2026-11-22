@@ -19,7 +19,8 @@
 #      values file and schema-checked, after checking the pin in the
 #      HelmRelease matches the one here, and again with the weldid-switch
 #      layer's values over them where it has some; WeldID's chart too when
-#      WELDID_CHART names it (below);
+#      WELDID_CHART names it (below); then every image the layers' own
+#      manifests run (chart values aside) is one pinned here, at its version;
 #   6. with an eu cluster: the weldsuite version production pins
 #      (WELDSUITE_VERSION) is a release X.Y.Z or a main build X.Y.Z-main.N
 #      (ADR OPS-020), and a drill cluster pins the same one; a cluster whose
@@ -122,6 +123,8 @@ for dir in \
   flux/infrastructure/monitoring \
   flux/infrastructure/monitoring-config \
   flux/infrastructure/logging \
+  flux/infrastructure/offsite-copy \
+  flux/infrastructure/network-policy \
   flux/infrastructure/weldid/namespace \
   flux/infrastructure/weldid \
   flux/apps/eu \
@@ -133,7 +136,8 @@ done
 # The example cluster's opt-in layers, which its kustomization.yaml leaves
 # out (so step 3 doesn't build them).
 echo "-- opt-in layers (flux/clusters/example)"
-kc flux/clusters/example/weldid.yaml flux/clusters/example/weldid-switch.yaml
+kc flux/clusters/example/weldid.yaml flux/clusters/example/weldid-switch.yaml \
+  flux/clusters/example/offsite-copy.yaml flux/clusters/example/network-policy.yaml
 # The secrets layer, and each component a cluster can add to it. Its one
 # setting is SECRET_STORE_URL, which a cluster still on SOPS leaves empty (an
 # empty server fails the schema), so the example cluster's settings; a
@@ -292,6 +296,40 @@ if [ -n "$weldid_chart" ]; then
 else
   echo "(no WELDID_CHART: WeldID's chart not rendered)"
 fi
+
+echo "== Images (the layers' own manifests)"
+# image  the manifests that run it. Every image: and imageName: in a
+# manifest under flux/infrastructure and flux/apps must be one of these, at
+# this version; chart values (values/ folders) are pinned with their charts
+# above.
+images=(
+  "docker.io/rclone/rclone:1.75.2 flux/infrastructure/offsite-copy/cronjob.yaml"
+  "docker.io/cloudnativelabs/kube-router:v2.11.2 flux/infrastructure/network-policy/kube-router.yaml"
+  "ghcr.io/alex1989hu/kubelet-serving-cert-approver:0.12.1 flux/infrastructure/controllers/kubelet-serving-cert-approver.yaml"
+  "ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie flux/infrastructure/configs/base/postgres.yaml flux/infrastructure/weldid/database.yaml"
+)
+# The image references a manifest names, one per line.
+image_refs() { tr -d '\r' <"$1" | sed -nE 's/^[ -]*(image|imageName): *"?([^" ]+)"?[[:space:]]*$/\2/p'; }
+pinned=""
+for entry in "${images[@]}"; do
+  read -r image files <<<"$entry"
+  echo "-- $image"
+  pinned="$pinned$image"$'\n'
+  for file in $files; do
+    if ! image_refs "$file" | grep -Fx "$image" >/dev/null; then
+      echo "FAIL $file does not run $image" >&2
+      exit 1
+    fi
+  done
+done
+while IFS= read -r file; do
+  while IFS= read -r ref; do
+    if ! printf '%s' "$pinned" | grep -Fx "$ref" >/dev/null; then
+      echo "FAIL $file runs $ref, which is not pinned here" >&2
+      exit 1
+    fi
+  done < <(image_refs "$file")
+done < <(grep -rlE --include='*.yaml' --exclude-dir=values '^[ -]*(image|imageName): ' flux/infrastructure flux/apps)
 
 echo "== weldsuite version"
 # A release from the "Rust release" workflow (.github/workflows/rust-release.yml),

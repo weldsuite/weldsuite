@@ -1,0 +1,208 @@
+//! `helpdesk_analytics_charts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "helpdesk_analytics_charts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reportId")]
+    pub report_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "chartType")]
+    pub chart_type: String,
+    #[sea_orm(column_name = "entity", column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "entity")]
+    pub entity_: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "metric")]
+    pub metric: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "color")]
+    pub color: String,
+    #[serde(rename = "smoothCurve")]
+    pub smooth_curve: bool,
+    #[serde(rename = "fillArea")]
+    pub fill_area: bool,
+    #[serde(rename = "showDataLabels")]
+    pub show_data_labels: bool,
+    #[serde(rename = "showLegend")]
+    pub show_legend: bool,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "timeRange")]
+    pub time_range: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "groupBy")]
+    pub group_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "aggregation")]
+    pub aggregation: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "sortOrder")]
+    pub sort_order: Option<String>,
+    #[serde(rename = "limit")]
+    pub limit: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "compareWith")]
+    pub compare_with: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "layout")]
+    pub layout: Json,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: i32,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "helpdesk_analytics_charts",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "color",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'#3b82f6'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "smooth_curve",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "fill_area",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "show_data_labels",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "show_legend",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "time_range",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'last_30_days'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "group_by",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'day'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "aggregation",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'sum'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sort_order",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'asc'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sort_index",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "helpdesk_analytics_charts_report_idx",
+        columns: &[IndexColumn {
+            expression: "report_id",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[ForeignKey {
+        name: "helpdesk_analytics_charts_report_id_helpdesk_analytics_reports_id_fk",
+        columns: &["report_id"],
+        references: "helpdesk_analytics_reports",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

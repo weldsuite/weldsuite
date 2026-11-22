@@ -12,8 +12,24 @@ const TONE_CLASS: Record<KpiTone, string | undefined> = {
   success: 'text-emerald-600 dark:text-emerald-400',
 };
 
-/** The row of KPI tiles at the top of a dashboard: 1, 2 or 4 columns by width. */
-export function KpiGrid({ children, className }: Readonly<{ children: ReactNode; className?: string }>) {
+/**
+ * The row of KPI tiles at the top of a dashboard: 1, 2 or 4 columns by width.
+ * `fit="viewport"` (default) follows the window; `fit="container"` follows the
+ * space the grid itself gets, for tiles in a narrow side panel on a wide
+ * screen (an AI reply in the WeldAgent panel), with a tighter gap.
+ */
+export function KpiGrid({
+  children,
+  className,
+  fit = 'viewport',
+}: Readonly<{ children: ReactNode; className?: string; fit?: 'viewport' | 'container' }>) {
+  if (fit === 'container') {
+    return (
+      <div className="@container">
+        <div className={cn('grid grid-cols-1 gap-3 @[20rem]:grid-cols-2 @[40rem]:grid-cols-4', className)}>{children}</div>
+      </div>
+    );
+  }
   return <div className={cn('grid gap-4 sm:grid-cols-2 lg:grid-cols-4', className)}>{children}</div>;
 }
 

@@ -82,6 +82,15 @@ pub(crate) async fn forward_message(
             .bind(source_channel_id)
             .fetch_optional(db)
             .await?;
+    // The forwarder's account picture, and the original author's when this
+    // forward snapshots a person's message (an agent's avatar is its icon, kept).
+    let snapshots_person = source["forwarded_from"].is_null() && source["author_type"] != "agent";
+    let source_author = source["author_id"].as_str().filter(|_| snapshots_person);
+    let pictures = weldsuite_db::AccountPictures::load(
+        caller.master(),
+        std::iter::once(user_id).chain(source_author),
+    )
+    .await;
     let forwarded_from = if source["forwarded_from"].is_null() {
         let mut snapshot = Map::new();
         let text = |key: &str| source[key].clone();
@@ -97,8 +106,17 @@ pub(crate) async fn forward_message(
         );
         snapshot.insert("authorId".to_owned(), text("author_id"));
         snapshot.insert("authorName".to_owned(), text("author_name"));
-        if !source["author_avatar"].is_null() {
-            snapshot.insert("authorAvatar".to_owned(), text("author_avatar"));
+        // A person's account picture; the message's stored avatar when the
+        // lookup finds none (failed, or an account that is gone) and for an
+        // agent's icon.
+        match source_author.and_then(|author| pictures.get(author)) {
+            Some(picture) => {
+                snapshot.insert("authorAvatar".to_owned(), Value::from(picture));
+            }
+            None if !source["author_avatar"].is_null() => {
+                snapshot.insert("authorAvatar".to_owned(), text("author_avatar"));
+            }
+            None => {}
         }
         snapshot.insert("content".to_owned(), text("content"));
         if !source["html_content"].is_null() {
@@ -118,13 +136,16 @@ pub(crate) async fn forward_message(
         source["forwarded_from"].clone()
     };
 
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let author_name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
             .fetch_optional(db)
             .await?;
-    let (author_name, author_avatar) = author.unwrap_or((None, None));
-    let author_name = author_name.unwrap_or_else(|| "Unknown".to_owned());
+    let author_name = author_name
+        .flatten()
+        .unwrap_or_else(|| "Unknown".to_owned());
+    // The stamped avatar is the account picture, not the member row's copy.
+    let author_avatar = pictures.get(user_id).map(str::to_owned);
 
     let mut unique: Vec<String> = Vec::new();
     for target in targets {

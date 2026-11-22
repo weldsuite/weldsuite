@@ -30,6 +30,10 @@
 //! The Picqer push (`publish-picqer.ts`) is connect-api's own and lives in
 //! `weldsuite-connect` on [`clients::Picqer::send`].
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The sync engine and mappers mirror long TypeScript functions one for one,
 // and read JSON numbers as JavaScript does.
 #![allow(
@@ -56,6 +60,7 @@ pub mod lists;
 pub mod mappers;
 pub mod moneybird;
 pub mod moneybird_push;
+pub mod moneybird_webhooks;
 pub mod odoo;
 pub mod provider;
 pub mod stripe;

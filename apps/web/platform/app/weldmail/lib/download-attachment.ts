@@ -1,13 +1,30 @@
 import { mailApi } from './api-client';
 
 /**
+ * A refused or failed attachment download. `code` is the server's error code:
+ * `ATTACHMENT_INFECTED` (403) or `ATTACHMENT_SCAN_PENDING` (409) for a file
+ * the virus scan holds back.
+ */
+export class MailAttachmentDownloadError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = 'MailAttachmentDownloadError';
+  }
+}
+
+/**
  * Mail attachments are read through mail-api (`/mail-attachments/:id/download`),
  * which checks that the member may read the mailbox. The object's storage URL
  * has no session, signature or expiry, so nothing in the app links to it.
  */
 export async function fetchMailAttachment(attachmentId: string): Promise<Blob> {
   const result = await mailApi.attachments.download(attachmentId);
-  if (!result.success || !result.data) throw new Error(result.error ?? 'Download failed');
+  if (!result.success || !result.data) {
+    throw new MailAttachmentDownloadError(result.error ?? 'Download failed', result.errorCode);
+  }
   return result.data;
 }
 

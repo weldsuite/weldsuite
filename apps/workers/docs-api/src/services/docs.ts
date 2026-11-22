@@ -212,15 +212,8 @@ export async function recordCheckpoint(
   return getDoc(db, docId);
 }
 
-/** Display name and picture of a workspace member, for the room's peer list. */
-export async function memberProfile(db: Database, userId: string): Promise<{ name: string | null; picture: string | null }> {
-  const [row] = await db
-    .select({ name: schema.workspaceMembers.name, email: schema.workspaceMembers.email, picture: schema.workspaceMembers.picture })
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
-    .limit(1);
-  return { name: row?.name || row?.email || null, picture: row?.picture ?? null };
-}
+/** Display name and account picture of a workspace member, for the room's peer list. */
+export { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);

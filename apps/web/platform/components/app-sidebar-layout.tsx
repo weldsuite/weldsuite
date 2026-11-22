@@ -155,6 +155,12 @@ export interface MenuGroupProps {
   items: MenuItemProps[];
   customContent?: React.ReactNode;
   onAdd?: () => void;
+  /**
+   * Hide the hover "+" in the group header while `onAdd` stays set, e.g. when
+   * the group's custom content already shows an add button for an empty
+   * section. The mobile menu still uses `onAdd` for its own add button.
+   */
+  hideHeaderAdd?: boolean;
   customAddButton?: React.ReactNode;
   /** Enable drag-and-drop reordering for items in this group */
   draggable?: boolean;
@@ -582,7 +588,7 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
   let addButton: React.ReactNode = null;
   if (group.customAddButton) {
     addButton = group.customAddButton;
-  } else if (group.onAdd) {
+  } else if (group.onAdd && !group.hideHeaderAdd) {
     addButton = (
       <Button
         variant="ghost"
@@ -592,7 +598,7 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
         style={{ marginLeft: '-12px' }}
       >
         <Plus className="w-4 h-4" />
-        <span className="sr-only">{format(t.common.sidebarItemMenu.addToGroup, { group: group.group })}</span>
+        <span className="sr-only">{group.addLabel ?? format(t.common.sidebarItemMenu.addToGroup, { group: group.group })}</span>
       </Button>
     );
   }
@@ -1434,9 +1440,11 @@ export function AppSidebarLayout({
     >
       <SidebarHeader className="pb-2.5">
         <div className="flex flex-col gap-1 px-2 pt-2 pb-0">
+          {/* No padding of its own: the header's 8px and this column's 8px
+              put the logo 16px in, in line with the menu icons below. */}
           <div className={cn(
             "flex items-center gap-2",
-            state === "collapsed" ? "justify-center px-0" : "px-2"
+            state === "collapsed" && "justify-center"
           )}>
             <SidebarBrand
               showBackButton={showBackButton}
@@ -1485,7 +1493,15 @@ export function AppSidebarLayout({
         })}
         </DndContext>
       </SidebarContent>
-      <SidebarFooter suppressHydrationWarning className="border-t border-border">
+      {/* No padding: the user button fills the footer edge to edge, with
+          square corners on its hover and open highlight. Its side padding is
+          16px, the sidebar content's 8px group padding plus 8px item
+          padding, so the avatar lines up with the menu icons above and the
+          chevron with their right edge; 12px top and bottom. */}
+      <SidebarFooter
+        suppressHydrationWarning
+        className="border-t border-border p-0 [&_[data-slot=dropdown-menu-trigger]]:rounded-none [&_[data-slot=dropdown-menu-trigger]]:px-4 [&_[data-slot=dropdown-menu-trigger]]:py-3"
+      >
         {billingAvailable && <ResourceUsage collapsed={state === "collapsed"} />}
         <PartnerPortalLink collapsed={state === "collapsed"} />
         {user && (

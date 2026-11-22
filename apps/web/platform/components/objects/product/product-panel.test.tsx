@@ -9,7 +9,7 @@ interface StubTab {
 }
 
 const env = vi.hoisted(() => ({
-  permissions: null as { can: (permission: string) => boolean } | null,
+  permissions: null as { can: (permission: string) => boolean; app?: string | null } | null,
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({
@@ -29,10 +29,34 @@ vi.mock('@/app/weldstash/product-suppliers/components/product-suppliers-section'
     <div data-testid="suppliers-section">{`${side}:${productId}`}</div>
   ),
 }));
+vi.mock('@/app/weldcommerce/products/components/product-variants-section', () => ({
+  ProductVariantsSection: ({ productId, canEdit }: { productId: string; canEdit: boolean }) => (
+    <div data-testid="variants-section">{`${productId}:${canEdit ? 'edit' : 'read'}`}</div>
+  ),
+}));
+vi.mock('@/app/weldcommerce/products/components/product-prices-section', () => ({
+  ProductPricesSection: ({ productId, canEdit }: { productId: string; canEdit: boolean }) => (
+    <div data-testid="prices-section">{`${productId}:${canEdit ? 'edit' : 'read'}`}</div>
+  ),
+}));
+vi.mock('@/app/weldcommerce/products/components/product-categories-section', () => ({
+  ProductCategoriesSection: ({ productId }: { productId: string }) => <div data-testid="categories-section">{productId}</div>,
+}));
 vi.mock('@/components/objects/_shared/simple-object-panel', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/objects/_shared/simple-object-panel')>()),
-  SimpleObjectPanel: ({ tabs, renderTab }: { tabs: StubTab[]; renderTab?: (tabId: string) => ReactNode }) => (
+  SimpleObjectPanel: ({
+    tabs,
+    renderTab,
+    openHref,
+  }: {
+    tabs: StubTab[];
+    renderTab?: (tabId: string) => ReactNode;
+    openHref?: string;
+  }) => (
     <div>
+      <a data-testid="open-href" href={openHref}>
+        open
+      </a>
       {tabs.map((tab) => (
         <section key={tab.id} data-testid={`tab-${tab.id}`}>
           <h2>{tab.label}</h2>
@@ -83,5 +107,47 @@ describe('ProductPanel Suppliers tab', () => {
     env.permissions = null;
     render(<ProductPanel {...props} />);
     expect(screen.queryByTestId('tab-suppliers')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProductPanel in WeldCommerce', () => {
+  function offerCommerce() {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash', 'commerce'], unavailableFeatures: [] } as never);
+  }
+
+  it('adds the Variants, Prices and Categories tabs and links to the WeldCommerce list', () => {
+    offerCommerce();
+    env.permissions = { app: 'weldcommerce', can: (permission) => permission !== 'weldstash:suppliers:read' };
+    render(<ProductPanel {...props} />);
+    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['Details', 'Variants', 'Prices', 'Stock', 'Categories', 'Movements']);
+    expect(screen.getByTestId('variants-section')).toHaveTextContent('prod_1:edit');
+    expect(screen.getByTestId('prices-section')).toHaveTextContent('prod_1:edit');
+    expect(screen.getByTestId('categories-section')).toHaveTextContent('prod_1');
+    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldcommerce/products?stack=product:prod_1');
+  });
+
+  it('shows variants read-only without products:update, and no categories without categories:read', () => {
+    offerCommerce();
+    env.permissions = { app: 'weldcommerce', can: (permission) => permission === 'products:read' };
+    render(<ProductPanel {...props} />);
+    expect(screen.getByTestId('variants-section')).toHaveTextContent('prod_1:read');
+    expect(screen.getByTestId('prices-section')).toHaveTextContent('prod_1:read');
+    expect(screen.queryByTestId('tab-categories')).not.toBeInTheDocument();
+  });
+
+  it('keeps WeldStash’s panel as it is in WeldStash', () => {
+    offerCommerce();
+    env.permissions = { app: 'weldstash', can: () => true };
+    render(<ProductPanel {...props} />);
+    expect(screen.queryByTestId('tab-variants')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-prices')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-categories')).not.toBeInTheDocument();
+    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldstash/products?stack=product:prod_1');
+  });
+
+  it('has neither tab where WeldCommerce is not offered (Global)', () => {
+    env.permissions = { app: 'weldcommerce', can: () => true };
+    render(<ProductPanel {...props} />);
+    expect(screen.queryByTestId('tab-variants')).not.toBeInTheDocument();
   });
 });

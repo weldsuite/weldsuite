@@ -110,18 +110,32 @@ fn format_forward_date(millis: i64, time_zone: Option<&str>) -> String {
     format!("{weekday}, {month} {}, {}, {time}", date.day(), date.year())
 }
 
-/// A stored attachment: id, file name, content type, inline, storage path.
-type StoredAttachment = (String, String, Option<String>, Option<bool>, Option<String>);
+/// A stored attachment: id, file name, content type, inline, storage path,
+/// scan status.
+type StoredAttachment = (
+    String,
+    String,
+    Option<String>,
+    Option<bool>,
+    Option<String>,
+    Option<String>,
+);
 
-/// The original's own files minus the removed ones (`loadOriginalAttachments`).
+/// The original's own files minus the removed ones (`loadOriginalAttachments`),
+/// and minus what the virus scan locked (`scan_status` `infected` or
+/// `pending`, EU and self-hosted only): a forward never carries those on.
 async fn original_files(
     caller: &Caller,
     state: &MailState,
     message_id: &str,
     exclude: &[String],
 ) -> Result<Vec<ExtraAttachment>, SendError> {
+    // `scan_status` through `to_jsonb`: the conformance suite's database
+    // has the frozen Drizzle schema, without the column.
     let rows: Vec<StoredAttachment> = sqlx::query_as(
-        "select id, file_name, content_type, is_inline, storage_path from mail_attachments
+        "select id, file_name, content_type, is_inline, storage_path,
+                to_jsonb(a) ->> 'scan_status'
+         from mail_attachments a
          where message_id = $1 and deleted_at is null",
     )
     .bind(message_id)
@@ -129,11 +143,13 @@ async fn original_files(
     .await?;
     let wanted: Vec<_> = rows
         .into_iter()
-        .filter(|(id, _, _, inline, path)| {
+        .filter(|(id, _, _, inline, path, scan)| {
             !inline.unwrap_or(false)
                 && path.as_deref().is_some_and(|p| !p.is_empty())
                 && !exclude.contains(id)
+                && !matches!(scan.as_deref(), Some("infected" | "pending"))
         })
+        .map(|(id, name, content_type, inline, path, _)| (id, name, content_type, inline, path))
         .collect();
     if wanted.is_empty() {
         return Ok(Vec::new());

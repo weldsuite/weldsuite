@@ -6,6 +6,8 @@ use axum::Extension;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Response;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_desk_domain::realtime::now_ms;
@@ -15,27 +17,49 @@ use weldsuite_kit::validation::js_trim;
 use crate::auth::Widget;
 use crate::{Ctx, WidgetState, office_hours, success};
 
-/// A member's `name` and `picture`.
-type Face = (Option<String>, Option<String>);
+/// A member's user id and `name`.
+type Face = (String, Option<String>);
 
-/// `loadTeam(c)`: up to three active internal teammates with a picture, by
-/// first name. A failure is logged and leaves the team empty.
-async fn team(db: &PgPool) -> Vec<Value> {
-    let rows: Result<Vec<Face>, sqlx::Error> = sqlx::query_as(
-        "select name, picture from workspace_members
-         where picture is not null and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-         limit 3",
-    )
-    .fetch_all(db)
-    .await;
+/// Members looked at for the header (`TEAM_CANDIDATES`); the first three with
+/// an account picture are shown.
+const TEAM_CANDIDATES: i64 = 50;
+
+/// `loadTeam(c)`: up to three active internal teammates, oldest first, whose
+/// account has a picture (`master`), by first name. A failure is logged and
+/// leaves the team empty.
+async fn team(db: &PgPool, master: Option<&PgPool>) -> Vec<Value> {
+    use weldsuite_schema::tenant::workspace_members::{Column, Entity};
+    let upper_is = |column: Column, value: &str| {
+        sea_orm::ExprTrait::eq(Expr::from(Func::upper(Expr::col(column))), value)
+    };
+    let rows: Result<Vec<Face>, sea_orm::DbErr> = Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Name])
+        .filter(upper_is(Column::Status, "ACTIVE"))
+        .filter(upper_is(Column::MemberType, "INTERNAL"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(TEAM_CANDIDATES).unwrap_or(0))
+        .into_tuple()
+        .all(&weldsuite_db::orm(db))
+        .await;
     match rows {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|(name, picture)| {
-                let author = author_from_member(name.as_deref(), picture.as_deref());
-                json!({ "name": author.name, "avatar": author.avatar })
-            })
-            .collect(),
+        Ok(rows) => {
+            let pictures = weldsuite_db::AccountPictures::load(
+                master,
+                rows.iter().map(|(user_id, _)| user_id),
+            )
+            .await;
+            rows.into_iter()
+                .filter_map(|(user_id, name)| {
+                    let picture = pictures.get(&user_id)?;
+                    let author = author_from_member(name.as_deref(), Some(picture));
+                    Some(json!({ "name": author.name, "avatar": author.avatar }))
+                })
+                .take(3)
+                .collect()
+        }
         Err(error) => {
             tracing::error!(%error, "[widget-api] team lookup failed");
             Vec::new()
@@ -60,16 +84,16 @@ pub(crate) async fn get_config(
 ) -> Response {
     let config = &widget.config;
     let branding = &config["branding"];
-    let team = team(&widget.db).await;
-    let away = config["away_message"]
+    let team = team(&widget.db, ctx.master(&state).as_ref()).await;
+    let away = config["awayMessage"]
         .as_str()
         .map(js_trim)
         .filter(|message| !message.is_empty());
     success(
         StatusCode::OK,
         json!({
-            "widgetId": config["widget_id"],
-            "name": config["widget_name"],
+            "widgetId": config["widgetId"],
+            "name": config["widgetName"],
             "enabled": config["enabled"],
             "greeting": or(&config["greeting"], "Hi — how can we help?"),
             "branding": {
@@ -81,12 +105,12 @@ pub(crate) async fn get_config(
             "realtimeUrl": ctx.realtime_url(&state),
             "team": team,
             "availability": office_hours::availability(
-                &config["office_hours"],
+                &config["officeHours"],
                 config["timezone"].as_str(),
                 now_ms(),
             ),
             "awayMessage": away,
-            "expectedReplyTime": config["expected_reply_time"],
+            "expectedReplyTime": config["expectedReplyTime"],
         }),
     )
 }

@@ -1,0 +1,399 @@
+//! `parties`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "parties")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[serde(rename = "version")]
+    pub version: i32,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "partyCode")]
+    pub party_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "kind")]
+    pub kind: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "companyId")]
+    pub company_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "personId")]
+    pub person_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "accountManagerId")]
+    pub account_manager_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "parentPartyId")]
+    pub parent_party_id: Option<String>,
+    #[serde(rename = "isKeyAccount")]
+    pub is_key_account: Option<bool>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "billingAddress")]
+    pub billing_address: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "shippingAddress")]
+    pub shipping_address: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "creditLimit")]
+    pub credit_limit: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "paymentTerms")]
+    pub payment_terms: Option<String>,
+    #[serde(rename = "taxExempt")]
+    pub tax_exempt: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(34))")]
+    #[serde(rename = "iban")]
+    pub iban: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(11))")]
+    #[serde(rename = "bic")]
+    pub bic: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "defaultRevenueAccountId")]
+    pub default_revenue_account_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "defaultExpenseAccountId")]
+    pub default_expense_account_id: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "outstandingBalance",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub outstanding_balance: Option<BigDecimal>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "sepaMandate")]
+    pub sepa_mandate: Option<Json>,
+    #[serde(rename = "relationshipSince", with = "crate::js::timestamp::option")]
+    pub relationship_since: Option<TimeDateTime>,
+    #[serde(rename = "churnedAt", with = "crate::js::timestamp::option")]
+    pub churned_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "churnReason")]
+    pub churn_reason: Option<String>,
+    #[serde(rename = "contractRenewalDate", with = "crate::js::timestamp::option")]
+    pub contract_renewal_date: Option<TimeDateTime>,
+    #[serde(rename = "totalOpportunities")]
+    pub total_opportunities: Option<i32>,
+    #[serde(rename = "wonOpportunities")]
+    pub won_opportunities: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "totalRevenue")]
+    pub total_revenue: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "lifetimeValue")]
+    pub lifetime_value: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "averageDealSize")]
+    pub average_deal_size: Option<Json>,
+    #[serde(rename = "totalOrders")]
+    pub total_orders: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "totalSpent")]
+    pub total_spent: Option<Json>,
+    #[serde(rename = "archivedAt", with = "crate::js::timestamp::option")]
+    pub archived_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "role")]
+    pub role: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "taxUse")]
+    pub tax_use: Option<String>,
+    #[serde(rename = "is1099Vendor")]
+    pub is_1099_vendor: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "default1099Form")]
+    pub default_1099_form: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "default1099Box")]
+    pub default_1099_box: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "tinType")]
+    pub tin_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(4))")]
+    #[serde(rename = "tinLast4")]
+    pub tin_last4: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "sensitiveEncrypted")]
+    pub sensitive_encrypted: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "w9")]
+    pub w9: Option<Json>,
+    #[serde(rename = "backupWithholding")]
+    pub backup_withholding: Option<bool>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "brFiscal")]
+    pub br_fiscal: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "tinMatchStatus")]
+    pub tin_match_status: Option<String>,
+    #[serde(rename = "tinMatchedAt", with = "crate::js::timestamp::option")]
+    pub tin_matched_at: Option<TimeDateTime>,
+    #[serde(
+        rename = "form1099EDeliveryConsentAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub form_1099_e_delivery_consent_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(9))")]
+    #[serde(rename = "achRoutingNumber")]
+    pub ach_routing_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(4))")]
+    #[serde(rename = "achAccountLast4")]
+    pub ach_account_last4: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "achAccountType")]
+    pub ach_account_type: Option<String>,
+    #[serde(rename = "bankDetailsChangedAt", with = "crate::js::timestamp::option")]
+    pub bank_details_changed_at: Option<TimeDateTime>,
+    #[serde(
+        rename = "bankDetailsVerifiedAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub bank_details_verified_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "bankDetailsVerifiedBy")]
+    pub bank_details_verified_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "parties",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "version",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_key_account",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tax_exempt",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "outstanding_balance",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_opportunities",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "won_opportunities",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_orders",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "role",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'customer'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_1099_vendor",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "backup_withholding",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "parties_party_code_idx",
+            columns: &[IndexColumn {
+                expression: "party_code",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_kind_idx",
+            columns: &[IndexColumn {
+                expression: "kind",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_company_id_idx",
+            columns: &[IndexColumn {
+                expression: "company_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_person_id_idx",
+            columns: &[IndexColumn {
+                expression: "person_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_display_name_idx",
+            columns: &[IndexColumn {
+                expression: "display_name",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_owner_idx",
+            columns: &[IndexColumn {
+                expression: "owner_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parties_role_idx",
+            columns: &[IndexColumn {
+                expression: "role",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[Unique {
+        name: "parties_party_code_unique",
+        columns: &["party_code"],
+        nulls_not_distinct: false,
+    }],
+    checks: &[],
+};

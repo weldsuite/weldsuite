@@ -18,6 +18,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 import { ACTIVE_CALLS_KEY, withChannelCall, type ActiveCallEntry } from '../lib/active-calls';
 import { getRecordChatTypeInfo, openRecordPanel } from '../lib/record-chat-types';
+import { APP_LOGO_IN_COLOUR } from '../lib/app-logo-icon';
 import { isFeatureAvailable } from '@/lib/edition';
 import { RecordChatFollowButton } from './record-chat-follow-button';
 
@@ -67,8 +68,8 @@ interface ChannelHeaderProps {
 
 /**
  * Name of a record chat (a company's, a task's, …): the record type's icon and
- * the record's name instead of `#channel`, the type underneath, and buttons to
- * open the record next to the chat and to follow / unfollow it.
+ * the record's name instead of `#channel`, and buttons to open the record next
+ * to the chat and to follow / unfollow it.
  */
 function RecordChatTitle({
   channel,
@@ -76,17 +77,13 @@ function RecordChatTitle({
   onClick,
 }: Readonly<{ channel: ChannelHeaderChannel; className: string; onClick: () => void }>) {
   const { t } = useI18n();
-  const st = useTranslations();
-  const info = getRecordChatTypeInfo(channel.entityType);
-  const Icon = info?.icon ?? Hash;
+  const Icon = getRecordChatTypeInfo(channel.entityType)?.icon ?? Hash;
   return (
     <button type="button" className={className} onClick={onClick} title={t.weldchat.channelHeader.showMembers}>
-      <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      <span className="flex min-w-0 flex-col leading-tight">
-        <span data-testid="chat-channel-name" className="text-[15px] font-semibold truncate">
-          {channel.entityDisplayName || channel.name}
-        </span>
-        {info && <span className="text-xs text-muted-foreground truncate">{st(info.labelKey)}</span>}
+      {/* The open chat is the selected one: its logo is in colour. */}
+      <Icon className={`h-4 w-4 text-muted-foreground flex-shrink-0 ${APP_LOGO_IN_COLOUR}`} />
+      <span data-testid="chat-channel-name" className="text-[15px] font-semibold truncate">
+        {channel.entityDisplayName || channel.name}
       </span>
     </button>
   );
@@ -102,19 +99,20 @@ function RecordChatActions({ channel }: Readonly<{ channel: ChannelHeaderChannel
   const entityId = channel.entityId;
   return (
     <>
-      <RecordChatFollowButton entityType={info.type} entityId={entityId} channelId={channel.id} />
+      <RecordChatFollowButton entityType={info.type} entityId={entityId} channelId={channel.id} iconOnly />
       <Button
         variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+        size="icon"
+        className="h-8 w-8"
         data-testid="chat-open-record"
+        aria-label={st(info.openLabelKey)}
+        title={st(info.openLabelKey)}
         onClick={() => {
           if (isEntitySheetOpen) closeEntitySheet();
           openRecordPanel(openObjectPanel, info.type, entityId, push);
         }}
       >
-        <info.icon className="h-4 w-4" />
-        <span className="max-md:sr-only">{st(info.openLabelKey)}</span>
+        <info.icon className="!h-[18px] !w-[18px]" />
       </Button>
     </>
   );

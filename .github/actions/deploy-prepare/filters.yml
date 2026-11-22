@@ -6,10 +6,6 @@
 # A new core worker (apps/workers/<name>, not a <module>-api) needs a key here
 # and an entry in CORE_WORKERS in deploy-plan.mjs. Module API workers and
 # Vercel apps are picked by module-workers.mjs and vercel-apps.mjs instead.
-migrations:
-  - 'packages/core/db/drizzle/**'
-  - 'packages/core/db/src/schema/**'
-  - 'apps/tools/migrate-databases/**'
 # First-party WeldApps (deploy-hosted-apps action).
 hosted_apps:
   - 'apps/hosted-apps/**'
@@ -220,12 +216,6 @@ personal-api:
 realtime-worker:
   - 'apps/workers/realtime-worker/**'
   - 'packages/core/realtime/**'
-workspace-worker:
-  - 'apps/workers/workspace-worker/**'
-  - 'packages/core/cloudflare-zones/**'
-  - 'packages/core/email/**'
-  - 'packages/core/neon-provisioning/**'
-  - 'packages/core/transactional-email/**'
 workflow-worker:
   - 'apps/workers/workflow-worker/**'
   - 'packages/core/ai/**'

@@ -15,7 +15,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 const BACKFILL = readFileSync(
   path.resolve(
     __dirname,
-    '../../../../../../packages/core/db/drizzle/tenant-migrations/0239_task_dependencies_backfill.sql',
+    '../../../../../../rust/migrations/tenant/0239_task_dependencies_backfill.sql',
   ),
   'utf8',
 );

@@ -605,7 +605,7 @@ pub async fn execute_decided_approval_with(
             if let (Origin::Channel(id), Some(agent)) = (origin, agent_known) {
                 if let Err(error) = crate::rooms::post_agent_text(
                     db,
-                    ctx.realtime.clone(),
+                    &ctx.notifier(),
                     &ctx.workspace_id,
                     id,
                     agent,
@@ -902,6 +902,7 @@ pub(crate) async fn decide(
         max_agent_hops: 2,
         master: state.master.clone(),
         realtime: state.realtime.clone(),
+        push_http: state.push_http.clone(),
         ai: caller.ai(&state),
     };
     let execution = execute_decided_approval_with(&ctx, state.sandboxes.as_ref(), &approval).await;

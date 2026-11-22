@@ -225,6 +225,69 @@
     "when": "When",
     "where": "Where"
   },
+  "commerce": {
+    "approvalDecided": {
+      "bodyApproved": "Your order {order} at {shop} for {currency} {total} was approved.",
+      "bodyRejected": "Your order {order} at {shop} for {currency} {total} was rejected. It will not be processed.",
+      "comment": "Comment",
+      "decidedBy": "Decided by {name}.",
+      "footer": "This message was sent on behalf of {shop}.",
+      "heading": "Order {order}",
+      "kickerApproved": "Order approved",
+      "kickerRejected": "Order rejected",
+      "pay": "Pay now",
+      "previewApproved": "Your order {order} for {currency} {total} was approved.",
+      "previewRejected": "Your order {order} for {currency} {total} was rejected.",
+      "subjectApproved": "Order {order} was approved",
+      "subjectRejected": "Order {order} was rejected"
+    },
+    "approvalRequested": {
+      "body": "{requester} placed order {order} at {shop} for {currency} {total}. It needs your approval.",
+      "bodyCompany": "{requester} from {company} placed order {order} at {shop} for {currency} {total}. It needs your approval.",
+      "footer": "You get this because you can approve orders at {shop}.",
+      "heading": "Order {order}",
+      "kicker": "Approval needed",
+      "open": "Review the order",
+      "preview": "{requester} placed order {order} for {currency} {total}.",
+      "reasons": {
+        "buyer_limit": "The total is above this buyer's order limit.",
+        "company_threshold": "The total is above your company's approval threshold."
+      },
+      "subject": "Order {order} needs your approval"
+    },
+    "buyerInvitation": {
+      "body": "{company} has given you access to order for it at {shop} as {role}.",
+      "footer": "This message was sent on behalf of {shop}. If you didn't expect it, you can ignore this email.",
+      "kicker": "{inviter} gave you access",
+      "kickerNoInviter": "You were given access",
+      "open": "Open the shop",
+      "preview": "{company} gave you access to order at {shop}.",
+      "roles": {
+        "admin": "an admin",
+        "approver": "an approver",
+        "buyer": "a buyer"
+      },
+      "signIn": "You sign in with your email address. We send you a code each time, so you do not need a password.",
+      "subject": "{company} gave you access to order at {shop}"
+    },
+    "orderConfirmation": {
+      "amount": "{currency} {amount}",
+      "awaitingApproval": "This order waits for approval from a colleague at your company. We process it once it is approved.",
+      "body": "We received your order at {shop}. This is what you ordered.",
+      "footer": "This message was sent on behalf of {shop}.",
+      "heading": "Order {order}",
+      "kicker": "Order confirmation",
+      "line": "{quantity} × {name}",
+      "onInvoice": "You will receive an invoice for this order.",
+      "preview": "We received your order {order}.",
+      "shipping": "Shipping",
+      "subject": "Your order {order} at {shop}",
+      "subtotal": "Subtotal",
+      "tax": "Tax",
+      "total": "Total",
+      "view": "View your order"
+    }
+  },
   "dates": {
     "allDay": "{date} (all day)"
   },

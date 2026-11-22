@@ -18,6 +18,10 @@
 //!
 //! Paths, bodies, status codes and messages are the TypeScript worker's.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The `Err` of the helpers below is the response a handler returns as it is.
 #![allow(clippy::result_large_err)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::assert_is_empty))]
@@ -99,6 +103,10 @@ pub struct AgentState {
     pub master: Option<PgPool>,
     /// The realtime publisher, for room replies.
     pub realtime: Option<Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// Outbound HTTP for push notifications (Expo): room replies' "replied
+    /// to you" and mentions, the ticket tools' notices. Without it they go
+    /// out in-app only. Conformance builds have none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
 }
 
 impl std::fmt::Debug for AgentState {
@@ -118,6 +126,7 @@ impl AgentState {
             realtime: self.realtime.clone(),
             sandbox: self.sandbox,
             sandboxes: self.sandboxes.clone(),
+            push_http: self.push_http.clone(),
         }
     }
 }

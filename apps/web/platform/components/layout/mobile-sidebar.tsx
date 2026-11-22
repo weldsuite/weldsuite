@@ -365,16 +365,19 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
                     >
                       <Plus className="h-4 w-4" />
                       <span>
-                        {st('sweep.shared.addItem', {
-                          item: group.group?.toLowerCase().replace(/s$/, '') ?? '',
-                        })}
+                        {group.addLabel ??
+                          st('sweep.shared.addItem', {
+                            item: group.group?.toLowerCase().replace(/s$/, '') ?? '',
+                          })}
                       </span>
                     </Button>
                   )}
                   <nav className="space-y-1">
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = isMenuItemActive(item.href);
+                      // An item's own `isActive` wins, as on desktop (e.g. a
+                      // favorite that duplicates a page further down).
+                      const isActive = item.isActive ?? isMenuItemActive(item.href);
                       const hasSubItems = item.subItems && item.subItems.length > 0;
 
                       if (hasSubItems) {

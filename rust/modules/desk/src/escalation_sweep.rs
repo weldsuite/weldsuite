@@ -174,7 +174,7 @@ pub(crate) async fn sweep_workspace(
     org_id: &str,
     workspace_id: &str,
     now: i64,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, sea_orm::DbErr> {
     let mut escalated = 0;
     let retry_at = now + CONVERSATION_RETRY_MS;
     // The workspace's AssignmentRouter (a rotation per team), keyed by `workspaces.id`.

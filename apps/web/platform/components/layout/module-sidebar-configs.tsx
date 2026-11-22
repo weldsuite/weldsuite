@@ -45,6 +45,7 @@ import {
   RefreshCw,
   ArrowLeftRight,
   LayoutDashboard,
+  ShoppingBag,
   Wand2,
   Truck,
   Sparkles,
@@ -54,6 +55,7 @@ import {
   Link2,
   CircleCheck,
   Package,
+  FolderTree,
   Warehouse,
   Boxes,
   ClipboardList,
@@ -163,6 +165,25 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  // The rebuilt WeldCommerce (ADR COM-009): an overview in phase 0; products,
+  // categories and orders join as their phases land.
+  weldcommerce: {
+    appName: 'WeldCommerce',
+    appIcon: ShoppingBag,
+    appLogo: getAppLogoConfig('weldcommerce'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ClipboardList, permission: 'orders:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.discounts, href: '/weldcommerce/discounts', icon: Percent, permission: 'discounts:read' },
+        ],
+      },
+    ],
+  },
   weldstash: {
     appName: 'WeldStash',
     appIcon: Warehouse,
@@ -176,7 +197,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
           { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },
           { title: t.navigation.moduleSidebar.weldstash.stock, href: '/weldstash/stock', icon: Boxes, permission: 'inventory:read' },
-          { title: t.navigation.moduleSidebar.weldstash.purchaseOrders, href: '/weldstash/purchase-orders', icon: ClipboardCheck, permission: 'orders:read' },
+          { title: t.navigation.moduleSidebar.weldstash.purchaseOrders, href: '/weldstash/purchase-orders', icon: ClipboardCheck, permission: 'purchase_orders:read' },
           // Replenishment is served by the Rust backend only (Kubernetes editions).
           ...(isFeatureAvailable('stash-replenishment')
             ? [{ title: t.navigation.moduleSidebar.weldstash.replenishment, href: '/weldstash/replenishment', icon: TrendingUp, permission: 'inventory:read' }]

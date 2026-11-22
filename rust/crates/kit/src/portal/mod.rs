@@ -11,5 +11,7 @@
 //!   counters (Valkey `INCRBY`).
 
 pub mod rate_limit;
+pub mod signin;
 pub mod slug;
 pub mod tokens;
+pub mod workspace;

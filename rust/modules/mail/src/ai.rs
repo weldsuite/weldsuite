@@ -276,7 +276,7 @@ pub(crate) async fn load_account_context(
 /// `loadMessage(db, messageId)`: a live message row, camelCased.
 async fn load_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from mail_messages m
+        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
          where m.id = $1 and m.deleted_at is null limit 1",
     )
     .bind(message_id)

@@ -1,7 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
-import { User } from 'lucide-react';
+import { Copy, EllipsisVertical, MessageSquare, User } from 'lucide-react';
+import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { usePresence } from '@/contexts/presence-context';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useNavigate } from '@tanstack/react-router';
@@ -15,8 +24,22 @@ import {
   EntityList,
   EmptyStateIllustration,
   type ActiveFilter,
+  type FilterConfig,
   type HeaderColumn,
 } from '@/components/entity-list';
+
+/** The Status filter: whether someone has joined the workspace or is still invited. */
+type DirectoryStatus = 'active' | 'invited';
+const STATUS_FIELD = 'status';
+
+/** Whether `item` passes every complete filter pill (`is` / `is not` a status). */
+function matchesFilters(item: { isInvited: boolean }, filters: ActiveFilter[]): boolean {
+  const status: DirectoryStatus = item.isInvited ? 'invited' : 'active';
+  return filters.every((f) => {
+    if (f.field !== STATUS_FIELD || !f.operator || !f.value) return true;
+    return (f.operator === 'is') === (status === f.value);
+  });
+}
 
 function formatRelative(
   date: Date | null | undefined,
@@ -92,94 +115,114 @@ export default function DirectoriesPage() {
       isInvited: isPendingInvitee(m),
     }));
 
-    // People are loaded as a single list with no server-side search support,
-    // so narrow them client-side as the user types.
+    // People are loaded as a single list with no server-side search or
+    // filtering, so narrow them client-side.
     const q = debouncedSearch.trim().toLowerCase();
-    return q
-      ? allPeople.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.email ?? '').toLowerCase().includes(q),
-        )
-      : allPeople;
-  }, [rawMembers, lastDmMessageAt, debouncedSearch, st]);
+    return allPeople.filter(
+      (p) =>
+        matchesFilters(p, activeFilters) &&
+        (!q || p.name.toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q)),
+    );
+  }, [rawMembers, lastDmMessageAt, debouncedSearch, activeFilters, st]);
 
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'name', header: t.directoriesPage?.nameHeader ?? 'Name', width: 'flex-1 min-w-0' },
-    { id: 'last', header: t.directoriesPage?.lastActivityHeader ?? 'Last activity', width: 'w-[120px] flex-shrink-0' },
+    { id: 'name', header: t.directoriesPage.nameHeader, width: 'flex-1 min-w-0' },
+    { id: 'email', header: t.directoriesPage.emailHeader, width: 'hidden lg:block w-[260px]' },
+    { id: 'last', header: t.directoriesPage.lastActivityHeader, width: 'w-[120px] flex-shrink-0' },
   ], [t]);
 
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      field: STATUS_FIELD,
+      label: st('common.labels.status'),
+      options: [
+        { value: 'active', label: t.directoriesPage.statusActive },
+        { value: 'invited', label: t.dmCreate.invited },
+      ],
+    },
+  ], [t, st]);
+
+  const copyEmail = useCallback((email: string) => {
+    navigator.clipboard.writeText(email).then(
+      () => toast.success(st('sweep.shared.emailCopiedToClipboard')),
+      () => toast.error(st('sweep.shared.failedToCopy')),
+    );
+  }, [st]);
+
+  // The list's standard row: the whole row opens the DM, one line per cell
+  // under its header, and a ⋯ menu in the last 40px the header keeps free.
   const renderRow = useCallback((item: DirectoryItem) => {
-    const rowClassName = 'w-full text-left flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group';
-    const content = (
-      <>
-        <span className="flex-1 min-w-0 flex items-center gap-3">
-          <span className="relative flex-shrink-0">
+    const openDm = () =>
+      navigate({ to: '/weldchat/dm/$userId', params: { userId: item.userId ?? item.id } });
+    return (
+      <div
+        key={item.id}
+        data-testid="directory-row"
+        // An invitee can't be messaged until they accept, so their row opens nothing.
+        title={item.isInvited ? t.dmCreate.invitedHint : undefined}
+        className={cn(
+          'group relative flex items-center gap-4 border-b border-gray-200/70 px-4 py-3 dark:border-border',
+          item.isInvited ? 'opacity-60' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50',
+        )}
+      >
+        {!item.isInvited && <RowOverlayButton label={item.name} onClick={openDm} />}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="pointer-events-none relative flex-shrink-0">
             <Avatar className="h-6 w-6">
-              {item.picture && (
-                <AvatarImage src={item.picture} />
-              )}
+              {item.picture && <AvatarImage src={item.picture} />}
               <AvatarFallback className="text-[10px]">
                 {(item.name || item.email || '?')[0]?.toUpperCase()}
               </AvatarFallback>
             </Avatar>
             <StatusDot
               status={presenceMap[item.userId ?? '']?.status}
-              showTooltip
               className="absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] border-2"
             />
           </span>
-          <span className="min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
-              {item.name}
-            </span>
-            {/* Two people can share a name; the address tells them apart. */}
-            {item.email && item.email !== item.name && (
-              <span className="text-xs text-muted-foreground block truncate">{item.email}</span>
-            )}
-          </span>
-        </span>
-
-        <span className="w-[120px] flex-shrink-0">
-          {item.isInvited ? (
-            <span className="text-sm text-gray-400">{t.dmCreate.invited}</span>
-          ) : (
-            <span className={cn(
-              'text-sm',
-              item.lastMessageAt ? 'tabular-nums' : 'text-gray-400',
-            )}>
-              {formatRelative(item.lastMessageAt, st)}
-            </span>
-          )}
-        </span>
-      </>
-    );
-
-    // An invitee can't be messaged until they accept, so their row opens nothing.
-    if (item.isInvited) {
-      return (
-        <div key={item.id} title={t.dmCreate.invitedHint} className={cn(rowClassName, 'opacity-60')}>
-          {content}
+          <span className="truncate text-sm font-medium text-gray-900 dark:text-foreground">{item.name}</span>
         </div>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        key={item.id}
-        onClick={() =>
-          navigate({
-            to: '/weldchat/dm/$userId',
-            params: { userId: item.userId ?? item.id },
-          })
-        }
-        className={cn(rowClassName, 'hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer')}
-      >
-        {content}
-      </button>
+        <div className="hidden w-[260px] min-w-0 lg:block">
+          <span className="block truncate text-sm text-gray-600 dark:text-muted-foreground">{item.email}</span>
+        </div>
+        <div className="w-[120px] flex-shrink-0">
+          <span className={cn('text-sm', !item.isInvited && item.lastMessageAt ? undefined : 'text-muted-foreground')}>
+            {item.isInvited ? t.dmCreate.invited : formatRelative(item.lastMessageAt, st)}
+          </span>
+        </div>
+        {/* h-7 holds the row's 53px height on rows without a menu too. */}
+        <div className="relative z-[1] flex h-7 w-[40px] items-center justify-end">
+          {(!item.isInvited || item.email) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`${st('common.actions.openMenu')}: ${item.name}`}
+                  className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                >
+                  <EllipsisVertical className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {!item.isInvited && (
+                  <DropdownMenuItem onSelect={openDm}>
+                    <MessageSquare className="mr-0.5 h-4 w-4" />
+                    {t.messageInput.sendMessage}
+                  </DropdownMenuItem>
+                )}
+                {item.email && (
+                  <DropdownMenuItem onSelect={() => copyEmail(item.email!)}>
+                    <Copy className="mr-0.5 h-4 w-4" />
+                    {st('sweep.shared.copyEmail')}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      </div>
     );
-  }, [navigate, presenceMap, st, t]);
+  }, [navigate, presenceMap, st, t, copyEmail]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -188,8 +231,7 @@ export default function DirectoriesPage() {
       isLoading={membersLoading}
       error={null}
       headerColumns={headerColumns}
-      filters={[]}
-      hideFilter
+      filters={filterConfigs}
       renderRow={renderRow}
       searchPlaceholder={t.directoriesPage?.searchPlaceholder ?? 'Search directories...'}
       searchFields={['name', 'email']}

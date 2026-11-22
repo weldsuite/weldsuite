@@ -332,13 +332,16 @@ pub(crate) async fn post_chat_message(
     let realtime = Caller::realtime(state);
     assert_channel_allows_send(db, channel_id, author_id, &input).await?;
 
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let author_name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(author_id)
             .fetch_optional(db)
             .await?;
-    let (author_name, author_picture) = author.unwrap_or((None, None));
-    let author_name = author_name.unwrap_or_else(|| "Unknown".to_owned());
+    let author_name = author_name
+        .flatten()
+        .unwrap_or_else(|| "Unknown".to_owned());
+    // The stamped avatar is the account picture, not the member row's copy.
+    let author_picture = weldsuite_db::load_account_picture(caller.master(), author_id).await;
 
     // Inline reply: the quoted message's snapshot; a forged one is dropped.
     let mut metadata = input.metadata.clone();

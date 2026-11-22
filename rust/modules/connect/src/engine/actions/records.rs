@@ -164,6 +164,7 @@ async fn call(action: Action, body: Value, label: &str, ctx: &ActionCtx<'_>) -> 
         db: ctx.db,
         events: &ctx.deps.events,
         realtime: ctx.deps.realtime.clone(),
+        push_http: ctx.deps.push_http.clone(),
         master: ctx.deps.master.as_ref(),
         app_enforce: ctx
             .deps

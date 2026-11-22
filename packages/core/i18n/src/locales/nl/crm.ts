@@ -1731,6 +1731,36 @@ export const crm = {
       integrations: 'Integraties',
       automation: 'Automatisering Regels',
 
+      autoAdd: {
+        tab: 'Automatisch toevoegen',
+        title: 'Personen automatisch toevoegen',
+        description: 'Zet de mensen met wie uw team werkt in WeldCRM, zonder dat iemand op "Toevoegen aan CRM" hoeft te klikken.',
+        enabledLabel: 'Personen automatisch aan WeldCRM toevoegen',
+        enabledDescription:
+          'Alleen mensen met wie uw team echt contact heeft gehad. Collega\'s, uw eigen domeinen en automatische afzenders zoals noreply@ worden nooit toegevoegd.',
+        sourcesLegend: 'Personen toevoegen uit',
+        sources: {
+          email: {
+            label: 'E-mail',
+            description: 'Mensen die u mailt, en mensen die antwoorden op een e-mail die u stuurde.',
+          },
+          meetings: {
+            label: 'Vergaderingen',
+            description: 'Mensen buiten uw werkruimte die u uitnodigt voor een WeldMeet-vergadering.',
+          },
+          helpdesk: {
+            label: 'Helpdesk',
+            description: 'Klanten aan wie een medewerker in WeldDesk heeft geantwoord.',
+          },
+        },
+        companiesLabel: 'Ook hun bedrijf toevoegen',
+        companiesDescription:
+          'Koppelt elke persoon aan het bedrijf van het e-maildomein: jan@acme.com komt bij Acme, dat wordt aangemaakt als het nog niet in WeldCRM staat. Gratis e-mailadressen zoals gmail.com worden nooit een bedrijf.',
+        saved: 'Instellingen voor automatisch toevoegen opgeslagen',
+        saveFailed: 'De instellingen voor automatisch toevoegen konden niet worden opgeslagen',
+        loadFailed: 'De instellingen voor automatisch toevoegen konden niet worden geladen',
+      },
+
       customerStatuses: {
         title: 'Klantstatussen',
         subtitle: 'Ingebouwde statussen zijn vergrendeld. Voeg aangepaste statussen toe die passen bij uw workflow.',
