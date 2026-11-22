@@ -527,7 +527,10 @@ pub(crate) async fn generate_nacha_file(
     let at = timestamp_of_millis(now).unwrap_or_else(utc_now);
     let row = payment_runs::Entity::update_many()
         .col_expr(payment_runs::Column::Status, Expr::value("exported"))
-        .col_expr(payment_runs::Column::FileName, Expr::value(file_name.as_str()))
+        .col_expr(
+            payment_runs::Column::FileName,
+            Expr::value(file_name.as_str()),
+        )
         .col_expr(payment_runs::Column::FileGeneratedAt, Expr::value(at))
         .col_expr(payment_runs::Column::UpdatedAt, Expr::value(at))
         .filter(payment_runs::Column::Id.eq(s(&run, "id")))

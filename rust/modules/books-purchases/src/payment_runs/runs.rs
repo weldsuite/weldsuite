@@ -625,7 +625,10 @@ pub(crate) async fn update_run(
         )
         .col_expr(payment_runs::Column::Notes, Expr::value(notes))
         .col_expr(payment_runs::Column::Items, Expr::value(items_json(&items)))
-        .col_expr(payment_runs::Column::Holds, Expr::value(encode_holds(&holds)))
+        .col_expr(
+            payment_runs::Column::Holds,
+            Expr::value(encode_holds(&holds)),
+        )
         .col_expr(
             payment_runs::Column::TotalAmount,
             Expr::value(decimal_of(&totals.total_amount)?),
@@ -678,7 +681,10 @@ pub(crate) async fn refresh_holds(
 /// `set({ holds, totalAmount, paymentCount })`.
 fn held(holds: &[RunHold], totals: &Totals) -> Result<UpdateMany<payment_runs::Entity>, DbErr> {
     Ok(payment_runs::Entity::update_many()
-        .col_expr(payment_runs::Column::Holds, Expr::value(encode_holds(holds)))
+        .col_expr(
+            payment_runs::Column::Holds,
+            Expr::value(encode_holds(holds)),
+        )
         .col_expr(
             payment_runs::Column::TotalAmount,
             Expr::value(decimal_of(&totals.total_amount)?),
@@ -716,7 +722,10 @@ pub(crate) async fn submit_run(
     resolve_items(db, entity_id, &input_items(&items)).await?;
     refresh_holds(db, &run, None).await?;
     let update = payment_runs::Entity::update_many()
-        .col_expr(payment_runs::Column::Status, Expr::value("pending_approval"))
+        .col_expr(
+            payment_runs::Column::Status,
+            Expr::value("pending_approval"),
+        )
         .col_expr(payment_runs::Column::Approvals, Expr::value(json!([])))
         .filter(payment_runs::Column::Id.eq(s(&run, "id")))
         .filter(payment_runs::Column::Status.eq("draft"));

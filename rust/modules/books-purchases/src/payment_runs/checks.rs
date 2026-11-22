@@ -9,11 +9,11 @@
 //! the payment less any backup withholding.
 
 use base64::Engine;
-use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
 use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationDef,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
 };
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bank_accounts::reveal_account_number;
@@ -120,7 +120,10 @@ impl BillAllocation {
     /// The allocations joined to their bills, to filter before `into_model`.
     pub(crate) fn query() -> sea_orm::Select<bills::Entity> {
         bills::Entity::find()
-            .column_as(payment_allocations::Column::PaymentId, "allocation_payment_id")
+            .column_as(
+                payment_allocations::Column::PaymentId,
+                "allocation_payment_id",
+            )
             .column_as(payment_allocations::Column::Amount, "allocation_amount")
             .join(JoinType::InnerJoin, allocated_bills())
     }
@@ -172,7 +175,13 @@ pub(crate) async fn build_check_print_data(
             .all(&orm(db))
             .await?
             .into_iter()
-            .map(|row| Ok((row.allocation_payment_id, money_text(&row.allocation_amount), js!(row.bill)?)))
+            .map(|row| {
+                Ok((
+                    row.allocation_payment_id,
+                    money_text(&row.allocation_amount),
+                    js!(row.bill)?,
+                ))
+            })
             .collect::<Result<_, DbErr>>()?
     };
     let parties = super::holds::load_parties(db, &party_ids).await?;

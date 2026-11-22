@@ -29,8 +29,8 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::{HeaderMap, StatusCode};
-use serde_json::{Map, Value, json};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
+use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::format_postal_address_lines;
 use weldsuite_books_domain::bank_accounts::{BankAccountError, NO_KEY_MESSAGE};
 use weldsuite_books_domain::dates::is_iso_date;
@@ -42,11 +42,11 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::js::math_round;
 use weldsuite_books_domain::positive_pay::positive_pay_formats_json;
 use weldsuite_books_domain::vendor_tax::VendorTaxError;
-use weldsuite_db::{PgPool, orm};
 use weldsuite_catalogs::entity_events::{
     BANK_ACCOUNT_UPDATED, PAYMENT_CREATED, PAYMENT_DELETED, PAYMENT_RUN_APPROVED,
     PAYMENT_RUN_CREATED, PAYMENT_RUN_DELETED, PAYMENT_RUN_EXPORTED, PAYMENT_RUN_UPDATED,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};

@@ -44,13 +44,13 @@ use weldsuite_catalogs::entity_events::{
     ACCOUNTING_CONTACT_ARCHIVED, ACCOUNTING_CONTACT_CREATED, ACCOUNTING_CONTACT_DELETED,
     ACCOUNTING_CONTACT_UPDATED,
 };
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_legal_entities::{
     EntityScopeCondition, entity_scope_condition, request_entity_scope,
 };
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     bills, companies, documents, entities, form_1099_filing_lines, invoices, journal_lines,
@@ -423,9 +423,7 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
         .map_err(refused)?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = js_rows!(rows).map_err(refused)?;
-    let identities = load_identities(&caller.db, &rows)
-        .await
-        .map_err(refused)?;
+    let identities = load_identities(&caller.db, &rows).await.map_err(refused)?;
     let data = rows.iter().map(|row| view_with(row, &identities)).collect();
     Ok(paged(data, total, page * size < total, None))
 }
@@ -461,9 +459,7 @@ async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Err
 fn in_scope(scope: &EntityScopeCondition, column: impl ColumnTrait) -> Condition {
     match scope {
         EntityScopeCondition::All => Condition::all(),
-        EntityScopeCondition::Nothing => {
-            Condition::all().add(column.is_in(Vec::<String>::new()))
-        }
+        EntityScopeCondition::Nothing => Condition::all().add(column.is_in(Vec::<String>::new())),
         EntityScopeCondition::In {
             ids,
             include_unassigned,
@@ -522,7 +518,11 @@ async fn balance_sums<E: EntityTrait>(
 ) -> Result<(String, String), DbErr> {
     use sea_orm::ExprTrait as _;
     let total = |amount: Expr| {
-        Expr::from(Func::coalesce([Expr::from(Func::sum(amount)), Expr::val(0)])).cast_as("text")
+        Expr::from(Func::coalesce([
+            Expr::from(Func::sum(amount)),
+            Expr::val(0),
+        ]))
+        .cast_as("text")
     };
     let overdue = Expr::case(
         Condition::all()
@@ -1605,7 +1605,9 @@ async fn verify_bank_details(
         };
         let filled = |key: &str| text(&party, key).is_some_and(|v| !v.is_empty());
         if !filled("achRoutingNumber") || !filled("achAccountLast4") {
-            return Err(Refusal::bad_request("This contact has no bank details to verify"));
+            return Err(Refusal::bad_request(
+                "This contact has no bank details to verify",
+            ));
         }
         let at = utc_now();
         let user = if caller.user_id.is_empty() {

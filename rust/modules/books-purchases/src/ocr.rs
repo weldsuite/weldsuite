@@ -18,8 +18,8 @@ use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, Document, JsonSchema, Served};
 use weldsuite_books_domain::js::{math_round, number_text, number_value};
 use weldsuite_books_domain::jurisdictions::js_trim;
-use weldsuite_kit::ApiError;
 use weldsuite_db::{PgPool, orm};
+use weldsuite_kit::ApiError;
 use weldsuite_ports::StorageBuckets;
 use weldsuite_schema::tenant::{companies, parties};
 

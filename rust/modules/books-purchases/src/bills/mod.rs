@@ -60,7 +60,9 @@ use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{bill_items, bills, documents, parties, payment_allocations, payments};
+use weldsuite_schema::tenant::{
+    bill_items, bills, documents, parties, payment_allocations, payments,
+};
 
 use body::{BillBody, BillLine, read_bill, read_bill_payment};
 
@@ -511,7 +513,13 @@ async fn attachment(
         let Some(keys) = keys else {
             return Err(Refusal::not_found("Bill", &id));
         };
-        weldsuite_books_domain::attachments::stream_document_attachment(&caller, &state, keys.as_ref(), &index).await
+        weldsuite_books_domain::attachments::stream_document_attachment(
+            &caller,
+            &state,
+            keys.as_ref(),
+            &index,
+        )
+        .await
     }
     .await;
     reply(result, "Failed to download attachment")
@@ -894,7 +902,10 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
         documents::Entity::update_many()
             .col_expr(documents::Column::Status, Expr::value("linked"))
             .col_expr(documents::Column::LinkedEntityType, Expr::value("bill"))
-            .col_expr(documents::Column::LinkedEntityId, Expr::value(bill_id.as_str()))
+            .col_expr(
+                documents::Column::LinkedEntityId,
+                Expr::value(bill_id.as_str()),
+            )
             .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(documents::Column::Id.eq(document_id))
             .exec(&orm(db))

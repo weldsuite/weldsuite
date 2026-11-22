@@ -239,9 +239,8 @@ pub(crate) async fn create_run_payment(
         .one(&orm(db))
         .await?;
     // `amount::text`, `backup_withholding_amount::text`.
-    let stored = stored.map(|(amount, withheld)| {
-        (money_text(&amount), withheld.as_ref().map(money_text))
-    });
+    let stored =
+        stored.map(|(amount, withheld)| (money_text(&amount), withheld.as_ref().map(money_text)));
     let (amount, backup, net) = match stored {
         Some((stored_amount, stored_withheld)) => {
             let row =
@@ -303,10 +302,7 @@ async fn find_run_payments(
     if let Some(party_ids) = party_ids {
         found = found.add(payments::Column::ContactId.is_in(party_ids));
     }
-    let rows = payments::Entity::find()
-        .filter(found)
-        .all(&orm(db))
-        .await?;
+    let rows = payments::Entity::find().filter(found).all(&orm(db)).await?;
     js_rows!(rows)
 }
 
@@ -505,7 +501,8 @@ pub(crate) async fn approve_run(
                 .add(payment_runs::Column::Approvals.is_null())
                 .add(payment_runs::Column::Approvals.eq(json!([])))
         } else {
-            Condition::all().add(payment_runs::Column::Approvals.eq(Value::Array(approvals.clone())))
+            Condition::all()
+                .add(payment_runs::Column::Approvals.eq(Value::Array(approvals.clone())))
         };
         let recorded = payment_runs::Entity::update_many()
             .col_expr(
@@ -556,12 +553,18 @@ pub(crate) async fn approve_run(
             payment_runs::Column::Approvals,
             Expr::value(Value::Array(current.clone())),
         )
-        .col_expr(payment_runs::Column::Holds, Expr::value(encode_holds(&holds)))
+        .col_expr(
+            payment_runs::Column::Holds,
+            Expr::value(encode_holds(&holds)),
+        )
         .col_expr(
             payment_runs::Column::TotalAmount,
             Expr::value(decimal_of(&to_fixed(total, 2))?),
         )
-        .col_expr(payment_runs::Column::PaymentCount, Expr::value(int4(count)?))
+        .col_expr(
+            payment_runs::Column::PaymentCount,
+            Expr::value(int4(count)?),
+        )
         .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
         .filter(payment_runs::Column::Id.eq(s(&run, "id")))
         .filter(payment_runs::Column::Status.eq("pending_approval"))

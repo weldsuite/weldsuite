@@ -58,8 +58,11 @@ pub(crate) fn timestamp_of_iso(iso: &str) -> Option<PrimitiveDateTime> {
 
 /// [`timestamp_of_iso`], or the failed cast's error (the route's 500).
 pub(crate) fn timestamp_or_err(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
-    timestamp_of_iso(iso)
-        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type timestamp: \"{iso}\"")))
+    timestamp_of_iso(iso).ok_or_else(|| {
+        DbErr::Type(format!(
+            "invalid input syntax for type timestamp: \"{iso}\""
+        ))
+    })
 }
 
 /// `$n::date` of a `YYYY-MM-DD` day, or the failed cast's error.

@@ -20,8 +20,8 @@ use weldsuite_books_domain::positive_pay::{
 };
 use weldsuite_books_domain::tables::BANK_ACCOUNTS;
 use weldsuite_db::{PgPool, orm};
-use weldsuite_schema::tenant::{bank_accounts, entities, payments};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, js_trim};
+use weldsuite_schema::tenant::{bank_accounts, entities, payments};
 
 use super::{RunError, load_bank_account, not_found, run_error};
 use crate::rows::js;
@@ -989,10 +989,10 @@ pub(crate) async fn highest_check_number(
             "highest",
         )
         .filter(payments::Column::BankAccountId.eq(bank_account_id))
-        .filter(Expr::col(payments::Column::CheckNumber).binary(
-            BinOper::PgOperator(PgBinOper::Regex),
-            "^[0-9]{1,15}$",
-        ))
+        .filter(
+            Expr::col(payments::Column::CheckNumber)
+                .binary(BinOper::PgOperator(PgBinOper::Regex), "^[0-9]{1,15}$"),
+        )
         .into_tuple()
         .one(&orm(db))
         .await?;
@@ -1000,10 +1000,7 @@ pub(crate) async fn highest_check_number(
 }
 
 /// The entity row.
-pub(crate) async fn load_entity(
-    db: &PgPool,
-    entity_id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn load_entity(db: &PgPool, entity_id: &str) -> Result<Option<Value>, DbErr> {
     entities::Entity::find_by_id(entity_id)
         .one(&orm(db))
         .await?
@@ -1022,15 +1019,13 @@ pub(crate) async fn settings_view(db: &PgPool, bank: &Value) -> Result<Value, Ru
     let effective = effective_originator(bank, &entity, &ach);
     let bank_id = text(bank, "id").unwrap_or_default();
     let offset = match ach.offset_bank_account_id.as_deref() {
-        Some(offset_id) if ach.balanced && offset_id != bank_id => {
-            bank_accounts::Entity::find()
-                .filter(bank_accounts::Column::Id.eq(offset_id))
-                .filter(bank_accounts::Column::DeletedAt.is_null())
-                .one(&orm(db))
-                .await?
-                .map(|row| js!(row))
-                .transpose()?
-        }
+        Some(offset_id) if ach.balanced && offset_id != bank_id => bank_accounts::Entity::find()
+            .filter(bank_accounts::Column::Id.eq(offset_id))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await?
+            .map(|row| js!(row))
+            .transpose()?,
         _ => Some(bank.clone()),
     };
     let highest = highest_check_number(db, bank_id).await?;

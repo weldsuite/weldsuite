@@ -32,10 +32,10 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
 use weldsuite_books_domain::tables::DOCUMENTS;
-use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_DOCUMENT_CREATED, ACCOUNTING_DOCUMENT_DELETED, ACCOUNTING_DOCUMENT_UPDATED,
 };
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Number, Presence};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
@@ -418,9 +418,15 @@ async fn read_and_store(
     let at = utc_now();
     documents::Entity::update_many()
         .col_expr(documents::Column::Status, Expr::value("processed"))
-        .col_expr(documents::Column::OcrResult, Expr::value(ocr_result.clone()))
+        .col_expr(
+            documents::Column::OcrResult,
+            Expr::value(ocr_result.clone()),
+        )
         .col_expr(documents::Column::OcrProcessedAt, Expr::value(at))
-        .col_expr(documents::Column::OcrModel, Expr::value(served.model.clone()))
+        .col_expr(
+            documents::Column::OcrModel,
+            Expr::value(served.model.clone()),
+        )
         .col_expr(
             documents::Column::MatchedContactId,
             Expr::value(matched.clone()),
@@ -632,7 +638,12 @@ async fn remove(
             .await
             .map_err(refused)?;
         write_accounting_audit(&caller, db, audit(&doc, &id, "deleted", None)).await;
-        caller.publish(&state, ACCOUNTING_DOCUMENT_DELETED, &id, json!({ "id": id }));
+        caller.publish(
+            &state,
+            ACCOUNTING_DOCUMENT_DELETED,
+            &id,
+            json!({ "id": id }),
+        );
         Ok(no_content())
     }
     .await;
