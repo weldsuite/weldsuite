@@ -100,7 +100,7 @@ const READS: ReadCase[] = [
   ['install info', `/panel/projects/${APP}/install`, dataParses(panelInstallInfoSchema)],
   ['keys', `/panel/projects/${WEBSITE}/keys`, (answer) => expect(listOf(answer).length).toBeGreaterThan(0)],
   ['usage', '/panel/usage', (answer) => expect(dataOf(answer)).toHaveProperty('events.used')],
-  ['live visitors of the website', `/panel/live?projectId=${WEBSITE}`, (answer) => expect(dataOf(answer)).toHaveProperty('visitors')],
+  ['live visitors of the website', `/panel/live?projectId=${WEBSITE}`, (answer) => expect(dataOf(answer)).toMatchObject({ visitors: expect.any(Number), visitors30m: expect.any(Number), perMinute: expect.any(Array) })],
   ['live visitors of the app', `/panel/live?projectId=${APP}`, (answer) => expect(dataOf(answer)).toHaveProperty('sessions')],
   ['lexicon of the website', `/panel/lexicon?projectId=${WEBSITE}`, (answer) => expect(dataOf(answer)).toHaveProperty('events')],
   ['lexicon of the app', `/panel/lexicon?projectId=${APP}`, (answer) => expect(dataOf(answer)).toHaveProperty('properties')],

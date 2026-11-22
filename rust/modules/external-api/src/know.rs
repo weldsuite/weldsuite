@@ -150,7 +150,8 @@ async fn create_space(State(state): S, caller: Caller, headers: HeaderMap, body:
         return Err(bad_request("An API key can only create open teamspaces.").into());
     }
     let id = generate_id("kspc");
-    let stamp = now();
+    let at = time::OffsetDateTime::now_utc();
+    let stamp = weldsuite_events::iso_timestamp(at);
     let sort_order = if let Some(order) = body.get("sortOrder") {
         order.clone()
     } else {
@@ -182,9 +183,16 @@ async fn create_space(State(state): S, caller: Caller, headers: HeaderMap, body:
         .await?;
     // The creator is the teamspace's first owner.
     if let Some(user_id) = user(&caller) {
-        access::add_space_member(&caller.db, &id, user_id, "owner", user_id, &stamp)
-            .await
-            .map_err(thrown)?;
+        access::add_space_member(
+            &caller.db,
+            &id,
+            user_id,
+            "owner",
+            user_id,
+            weldsuite_db::utc_timestamp(at),
+        )
+        .await
+        .map_err(thrown)?;
     }
     caller.publish(
         &state.events,

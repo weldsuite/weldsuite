@@ -6,9 +6,10 @@
 //!   a sorted set of session ids scored by their last time (ms), and
 //!   `panel:{<project>}:live-sessions`, each session's row as JSON. A touch
 //!   counts a new path as a page view, keeps the later time, drops what left
-//!   the five-minute window and keeps the newest 2000 sessions, in one
+//!   the 30-minute window and keeps the newest 2000 sessions, in one
 //!   script; touches of erased ids are refused while the erased set is
-//!   known.
+//!   known. Both keys expire a minute after the window, so an idle
+//!   project's live view goes without a sweep.
 //! - **The erased ids** the collector checks (`panel:{<project>}:erased`):
 //!   a set holding a NUL member while it is known, so a missing key means
 //!   "unknown", never "none erased".

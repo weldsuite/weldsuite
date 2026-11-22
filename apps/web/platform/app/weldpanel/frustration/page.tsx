@@ -3,20 +3,26 @@
  * errors over time, the pages and elements with the most of the chosen
  * signal, and a link from each to the recordings that show it. All numbers
  * come from the trends query; nothing here needs a recording.
+ *
+ * The page opens with the standard toolbar row: Filter (device, page) narrows
+ * every number on it, search narrows the pages and elements tables, and the
+ * freshness and period sit on the right.
  */
 
 import { useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeftRight, MousePointerClick, MousePointerBan, ScrollText } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
-import type { PanelDateRange, PanelTrendsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import { PANEL_DEVICE_CLASSES, type PanelDateRange, type PanelFilter, type PanelTrendsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { Button } from '@weldsuite/ui/components/button';
 import { KpiCard, KpiGrid } from '@weldsuite/ui/components/kpi-card';
+import { ListToolbar } from '@weldsuite/ui/components/list-toolbar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { useWeldPanelTrends } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ChartCard } from '../components/chart-card';
 import { TimeSeriesChart, type ChartDatum, type ChartSeries } from '../components/charts/time-series-chart';
 import { DateRangePicker } from '../components/date-range-picker';
@@ -45,9 +51,9 @@ export default function FrustrationPage() {
   const { t } = useI18n();
   const tf = t.weldpanel.observe.frustration;
   return (
-    <AnalyticsPage title={tf.title} description={tf.description}>
+    <AnalyticsListPage title={tf.title}>
       {(project) => <Frustration key={project.id} project={project} />}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }
 
@@ -56,7 +62,21 @@ function kindTone(kind: string, total: number): 'danger' | 'warning' | 'default'
   return kind === 'errors' ? 'danger' : 'warning';
 }
 
-function trendsSpec(projectId: string, range: PanelDateRange, events: string[], breakdown?: 'path' | 'el_selector'): PanelTrendsSpec {
+/** The toolbar's pills as query filters: Device is / is not, Page contains / does not contain. Unfinished pills are left out. */
+export function frustrationFilters(active: readonly ActiveFilter[]): PanelFilter[] {
+  return active.flatMap((filter): PanelFilter[] => {
+    if (!filter.value) return [];
+    if (filter.field === 'device') {
+      return [{ source: 'column', field: 'device_type', operator: filter.operator === 'is not' ? 'neq' : 'eq', value: filter.value }];
+    }
+    if (filter.field === 'page') {
+      return [{ source: 'column', field: 'path', operator: filter.operator === 'not contains' ? 'not_contains' : 'contains', value: filter.value }];
+    }
+    return [];
+  });
+}
+
+function trendsSpec(projectId: string, range: PanelDateRange, events: string[], filters: PanelFilter[], breakdown?: 'path' | 'el_selector'): PanelTrendsSpec {
   return {
     kind: 'trends',
     projectId,
@@ -66,7 +86,7 @@ function trendsSpec(projectId: string, range: PanelDateRange, events: string[], 
     series: events.map((event) => ({ event, math: 'total' as const, filters: [] })),
     breakdown: breakdown ? { source: 'column', field: breakdown, limit: 10 } : undefined,
     compare: false,
-    filters: [],
+    filters,
   };
 }
 
@@ -76,10 +96,17 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
   const canWatch = useCan('panel_recordings:read');
   const [range, setRange] = useDateRange();
   const [selected, setSelected] = useState<FrustrationKind>('rage');
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [search, setSearch] = useState('');
+  const filters = useMemo(() => frustrationFilters(activeFilters), [activeFilters]);
+  const filterConfigs: FilterConfig[] = [
+    { field: 'device', label: tf.device, options: PANEL_DEVICE_CLASSES.map((value) => ({ value, label: t.weldpanel.observe.common.devices[value] })) },
+    { field: 'page', label: tf.page, filterType: 'text', operators: ['contains', 'not contains'], options: [] },
+  ];
 
-  const overviewSpec = useMemo(() => trendsSpec(project.id, range, FRUSTRATION_TYPES.map((k) => FRUSTRATION_EVENTS[k])), [project.id, range]);
-  const pagesSpec = useMemo(() => trendsSpec(project.id, range, [FRUSTRATION_EVENTS[selected]], 'path'), [project.id, range, selected]);
-  const elementsSpec = useMemo(() => trendsSpec(project.id, range, [FRUSTRATION_EVENTS[selected]], 'el_selector'), [project.id, range, selected]);
+  const overviewSpec = useMemo(() => trendsSpec(project.id, range, FRUSTRATION_TYPES.map((k) => FRUSTRATION_EVENTS[k]), filters), [project.id, range, filters]);
+  const pagesSpec = useMemo(() => trendsSpec(project.id, range, [FRUSTRATION_EVENTS[selected]], filters, 'path'), [project.id, range, selected, filters]);
+  const elementsSpec = useMemo(() => trendsSpec(project.id, range, [FRUSTRATION_EVENTS[selected]], filters, 'el_selector'), [project.id, range, selected, filters]);
 
   const overview = useWeldPanelTrends(overviewSpec);
   const pages = useWeldPanelTrends(pagesSpec);
@@ -105,20 +132,32 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
     return { chartData: [...byBucket.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, row]) => row), chartSeries: series };
   }, [overview.data, interval, language, tf.types]);
 
+  const query = search.trim().toLowerCase();
   const rows = (data: typeof pages.data) =>
     (data?.result.series ?? [])
-      .filter((s) => s.breakdownValue && s.total > 0)
+      .filter((s) => s.breakdownValue && s.total > 0 && (query === '' || s.breakdownValue.toLowerCase().includes(query)))
       .sort((a, b) => b.total - a.total)
       .map((s) => ({ value: s.breakdownValue as string, count: s.total }));
   const pageRows = rows(pages.data);
   const elementRows = rows(elements.data);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FreshnessBadge dataAsOf={overview.data?.dataAsOf} cached={overview.data?.cached} fetching={overview.isFetching} onRefresh={() => void overview.refetch()} />
-        <DateRangePicker value={range} onChange={setRange} />
-      </div>
+    <div className="flex h-full flex-col">
+      <h1 className="sr-only">{tf.title}</h1>
+      <ListToolbar
+        filterSlot={<FilterPills filters={activeFilters} filterConfigs={filterConfigs} onFiltersChange={setActiveFilters} labels={{ filter: t.common.actions.filter }} />}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={tf.search}
+        actionButtons={
+          <>
+            <FreshnessBadge dataAsOf={overview.data?.dataAsOf} cached={overview.data?.cached} fetching={overview.isFetching} onRefresh={() => void overview.refetch()} />
+            <DateRangePicker value={range} onChange={setRange} />
+          </>
+        }
+      />
+      <div className="flex-1 overflow-y-auto">
+        <div className="container mx-auto grid max-w-[1600px] gap-4 p-6">
 
       <KpiGrid className="sm:grid-cols-2 lg:grid-cols-5">
         {FRUSTRATION_TYPES.map((kind) => (
@@ -174,6 +213,8 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
         >
           <SignalTable heading={tf.element} rows={elementRows} canWatch={false} watchLabel={() => ''} hrefFor={() => ''} mono />
         </ChartCard>
+      </div>
+        </div>
       </div>
     </div>
   );

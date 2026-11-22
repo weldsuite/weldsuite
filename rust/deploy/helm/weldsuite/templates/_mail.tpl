@@ -24,7 +24,70 @@ app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
 {{/* The consumer's settings for the inbound subscriber. */}}
+{{/* clamd for WeldMail's attachment scan: component clamav, so no other
+Service, PDB or NetworkPolicy selects its pods. */}}
+{{- define "weldsuite.clamav.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: clamav
+{{- end }}
+
+{{- define "weldsuite.clamav.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.clamav.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.mailInbound.clamav.image.tag | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- define "weldsuite.clamav.fullname" -}}
+{{- printf "%s-clamav" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* Whether the chart runs clamd: inbound mail on and its scanner too. */}}
+{{- define "weldsuite.clamav.enabled" -}}
+{{- if and .Values.mailInbound.enabled .Values.mailInbound.clamav.enabled }}true{{- end }}
+{{- end }}
+
+{{/* What consume and the mail-attachment-scan cron need to scan: clamd's
+address and how long one scan may take. Nothing when clamd is off. */}}
+{{- define "weldsuite.clamav.clientEnv" -}}
+{{- if include "weldsuite.clamav.enabled" . }}
+- name: CLAMD_ADDRESS
+  value: {{ printf "%s.%s.svc:3310" (include "weldsuite.clamav.fullname" .) .Release.Namespace | quote }}
+- name: CLAMD_TIMEOUT_SECONDS
+  value: {{ .Values.mailInbound.clamav.scanTimeoutSeconds | quote }}
+{{- end }}
+{{- end }}
+
+{{/* The threat feeds for WeldMail's link checks, from mailInbound.threatFeeds.
+Empty: none set here, so MAIL_THREAT_FEEDS can come from the Secret (a feed
+URL that carries a key belongs there). */}}
+{{- define "weldsuite.mailInbound.threatFeedsEnv" -}}
+{{- with .Values.mailInbound.threatFeeds }}
+- name: MAIL_THREAT_FEEDS
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- end }}
+
+{{/* The mail-attachment-scan cron's environment: the mail bucket, where
+pending files wait, and clamd. */}}
+{{- define "weldsuite.mailInbound.rescanEnv" -}}
+{{- if .Values.mailInbound.enabled }}
+- name: S3_BUCKET_MAIL
+  value: {{ .Values.mailInbound.bucket | quote }}
+{{- with .Values.mailInbound.publicUrl }}
+{{- if not (include "weldsuite.files.publicUrl" $) }}
+- name: R2_PUBLIC_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- include "weldsuite.clamav.clientEnv" . }}
+{{- end }}
+{{- end }}
+
 {{- define "weldsuite.mailInbound.consumeEnv" -}}
+{{- include "weldsuite.clamav.clientEnv" . }}
 {{- with .Values.mailInbound }}
 - name: S3_BUCKET_MAIL
   value: {{ .bucket | quote }}

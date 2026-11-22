@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { toast } from 'sonner';
-import { Lock } from 'lucide-react';
+import { FileX, Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useCan } from '@weldsuite/permissions/react';
@@ -82,7 +82,6 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState('');
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   const titleSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,16 +134,18 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A rename made elsewhere (the sidebar's Rename, another tab) changes the
-  // stored title: show it, unless this field holds an edit of its own that is
-  // being typed or still saving. Our own saves echo back equal and change nothing.
+  // A rename made elsewhere (the sidebar's Rename, another tab or person)
+  // changes the stored title: show it, unless this field holds an edit of its
+  // own that is being typed or still saving. Our own saves echo back equal and
+  // change nothing. Focus alone is not an edit: a new page opens with the caret
+  // in its empty title, and a teammate naming it meanwhile must still show.
   const storedTitle = page?.title;
   useEffect(() => {
     if (storedTitle === undefined) return;
     const loaded = editableTitle(storedTitle);
     if (loaded.trim() === savedTitleRef.current.trim()) return;
     if (titleSaveTimeout.current || updateMeta.isPending) return;
-    if (document.activeElement === titleRef.current) return;
+    if (document.activeElement === titleRef.current && title.trim() !== savedTitleRef.current.trim()) return;
     savedTitleRef.current = loaded;
     setTitle(loaded);
   }, [storedTitle]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -244,6 +245,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   // first block when it is an empty paragraph, else in a new one above it.
   const handleTitleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.currentTarget.readOnly) return;
       if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
       e.preventDefault();
       flushTitleSave(title);
@@ -266,7 +268,6 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const handleContentChange = useCallback(
     (blocks: Block[]) => {
       currentBlocksRef.current = blocks;
-      setSaveState('saving');
       if (contentSaveTimeout.current) clearTimeout(contentSaveTimeout.current);
       contentSaveTimeout.current = setTimeout(() => {
         contentSaveTimeout.current = null;
@@ -277,13 +278,8 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
         ];
         saveContent.mutate(
           { id: pageId, data: { contentJson, contentText: extractText(contentJson) } },
-          {
-            onSuccess: () => setSaveState('saved'),
-            onError: () => {
-              setSaveState('idle');
-              toast.error(t.page.saveContentError);
-            },
-          },
+          // Saving is silent; only a failure says something.
+          { onError: () => toast.error(t.page.saveContentError) },
         );
       }, AUTOSAVE_DELAY_MS);
     },
@@ -316,6 +312,12 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     blockEditorRef.current?.replaceContent(
       (page.contentJson ?? []) as unknown as Parameters<BlockEditorHandle['replaceContent']>[0],
     );
+    // The editor now shows someone else's content, so what this editor saved
+    // before is no longer on screen. If one of those saves lands on the server
+    // after theirs, its echo is the page's real state and has to load too;
+    // remembering it as "ours" would leave this editor showing a version the
+    // server no longer has, and its next save would overwrite the page with it.
+    sentContentRef.current = [];
   }, [page?.id, page?.contentJson]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Flush any pending saves when navigating away from this page.
@@ -348,10 +350,14 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   if (isError || !page) {
+    // Same layout as WeldKnow's other empty screens: icon, title, description.
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-1 text-center px-6">
-        <p className="text-sm font-medium">{t.page.notFound}</p>
-        <p className="text-sm text-muted-foreground">{t.page.notFoundDescription}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
+        <FileX className="h-10 w-10 text-muted-foreground/40" />
+        <div>
+          <p className="text-sm font-medium">{t.page.notFound}</p>
+          <p className="text-sm text-muted-foreground">{t.page.notFoundDescription}</p>
+        </div>
       </div>
     );
   }
@@ -370,18 +376,15 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page status — breadcrumbs live in the shared AppHeader */}
-      <div className="flex h-9 shrink-0 items-center justify-end gap-2 px-6">
+      {/* Page status (the Locked badge) — breadcrumbs live in the shared
+          AppHeader. Autosave shows no "Saving…/Saved" text; a failed save
+          still raises a toast. */}
+      <div className="flex h-9 shrink-0 items-center justify-end gap-2 px-5 sm:px-6">
         {page.isLocked && (
           <Badge variant="secondary" className="gap-1">
             <Lock className="h-3 w-3" />
             {t.page.locked}
           </Badge>
-        )}
-        {saveState !== 'idle' && (
-          <span className="text-xs text-muted-foreground">
-            {saveState === 'saving' ? t.page.saving : t.page.saved}
-          </span>
         )}
       </div>
 
@@ -394,16 +397,21 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
             className="absolute left-5 z-20 hidden -translate-y-1/2 lg:flex"
           />
         ) : null}
-      <div ref={scrollRef} className="h-full overflow-y-auto">
+      {/* No sideways scroll: a table's "add column" button hangs into the
+          page margin, which is only 20px on phones. */}
+      <div ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden">
         {page.coverImage && (
           <div className="h-40 w-full overflow-hidden">
             <img src={page.coverImage} alt="" className="h-full w-full object-cover" />
           </div>
         )}
 
-        <div className="mx-auto max-w-[820px] px-12 pt-10 pb-24">
+        {/* Phones get a 20px gutter instead of 48px, and less room above the title. */}
+        <div className="mx-auto max-w-[820px] px-5 pt-4 pb-24 sm:px-12 sm:pt-10">
           <div className="mb-2 flex items-start gap-3">
             {icon && <span className="text-4xl leading-tight">{icon}</span>}
+            {/* Read-only, not disabled: a page you can only read shows its
+                title as text, without the "not allowed" cursor. */}
             <textarea
               ref={titleRef}
               rows={1}
@@ -412,8 +420,8 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
               onKeyDown={handleTitleKeyDown}
               onBlur={() => flushTitleSave(title)}
               placeholder={t.page.titlePlaceholder}
-              disabled={readOnly}
-              className="w-full flex-1 resize-none overflow-hidden break-words bg-transparent text-4xl font-bold leading-tight outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed"
+              readOnly={readOnly}
+              className="w-full flex-1 resize-none overflow-hidden break-words bg-transparent text-3xl font-bold leading-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl"
             />
           </div>
 
@@ -436,6 +444,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
           <BlockEditor
             ref={blockEditorRef}
             key={page.id}
+            className="weldknow-editor"
             initialContent={initialContent}
             editable={!readOnly}
             entityId={page.id}

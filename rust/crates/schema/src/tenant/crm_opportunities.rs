@@ -1,0 +1,362 @@
+//! `crm_opportunities`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "crm_opportunities")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerName")]
+    pub customer_name: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "contactIds")]
+    pub contact_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "primaryContactId")]
+    pub primary_contact_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "counterpartyId")]
+    pub counterparty_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "personIds")]
+    pub person_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "primaryPersonId")]
+    pub primary_person_id: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "amount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub amount: BigDecimal,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "expectedRevenue",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub expected_revenue: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "recurringRevenue",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub recurring_revenue: Option<BigDecimal>,
+    #[serde(rename = "contractLength")]
+    pub contract_length: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "stageId")]
+    pub stage_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "stage")]
+    pub stage: String,
+    #[serde(rename = "probability")]
+    pub probability: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "pipeline")]
+    pub pipeline: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "salesProcess")]
+    pub sales_process: Option<String>,
+    #[serde(rename = "closeDate", with = "crate::js::timestamp::option")]
+    pub close_date: Option<TimeDateTime>,
+    #[serde(rename = "actualCloseDate", with = "crate::js::timestamp::option")]
+    pub actual_close_date: Option<TimeDateTime>,
+    #[serde(rename = "startDate", with = "crate::js::timestamp::option")]
+    pub start_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "competitors")]
+    pub competitors: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "competitionStatus")]
+    pub competition_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "winLossReason")]
+    pub win_loss_reason: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "lineItems")]
+    pub line_items: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "ownerId")]
+    pub owner_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "teamMembers")]
+    pub team_members: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "leadSource")]
+    pub lead_source: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "campaign")]
+    pub campaign: Option<String>,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "type")]
+    pub type_: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "category")]
+    pub category: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "forecastCategory")]
+    pub forecast_category: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "nextStep")]
+    pub next_step: Option<String>,
+    #[serde(rename = "nextStepDate", with = "crate::js::timestamp::option")]
+    pub next_step_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "riskLevel")]
+    pub risk_level: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "riskReason")]
+    pub risk_reason: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "proposalUrl")]
+    pub proposal_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "contractUrl")]
+    pub contract_url: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "attachments")]
+    pub attachments: Option<Json>,
+    #[serde(rename = "lastActivityDate", with = "crate::js::timestamp::option")]
+    pub last_activity_date: Option<TimeDateTime>,
+    #[serde(rename = "daysInCurrentStage")]
+    pub days_in_current_stage: Option<i32>,
+    #[serde(rename = "totalActivities")]
+    pub total_activities: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "crm_opportunities",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "amount",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'EUR'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "stage",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'prospecting'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "probability",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "pipeline",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'default'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'open'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "days_in_current_stage",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_activities",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "crm_opportunities_customer_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_counterparty_idx",
+            columns: &[IndexColumn {
+                expression: "counterparty_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_primary_person_idx",
+            columns: &[IndexColumn {
+                expression: "primary_person_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_stage_idx",
+            columns: &[IndexColumn {
+                expression: "stage",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_stage_id_idx",
+            columns: &[IndexColumn {
+                expression: "stage_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_owner_idx",
+            columns: &[IndexColumn {
+                expression: "owner_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_close_date_idx",
+            columns: &[IndexColumn {
+                expression: "close_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_opportunities_pipeline_idx",
+            columns: &[IndexColumn {
+                expression: "pipeline",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

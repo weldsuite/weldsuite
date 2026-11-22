@@ -99,7 +99,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
     }
     match catalog::list_items(&caller.db, !all).await {
         Ok(items) => Data(items).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load the service catalogue"),
+        Err(error) => Refusal::from(error).respond("Failed to load the service catalogue"),
     }
 }
 
@@ -148,7 +148,7 @@ async fn approvals(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
     let approver = (!everyone).then_some(caller.user_id.as_str());
     match catalog::pending_approvals(&caller.db, approver, limit).await {
         Ok(pending) => Data(pending).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load the approvals"),
+        Err(error) => Refusal::from(error).respond("Failed to load the approvals"),
     }
 }
 
@@ -158,7 +158,7 @@ async fn detail(ctx: Ctx, Path(id): Path<String>) -> Response {
     match catalog::get_item(&ctx.caller.db, &id).await {
         Ok(Some(item)) => Data(item).into_response(),
         Ok(None) => not_found(&id),
-        Err(error) => Refusal::Database(error).respond("Failed to load the catalogue item"),
+        Err(error) => Refusal::from(error).respond("Failed to load the catalogue item"),
     }
 }
 

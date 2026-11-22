@@ -34,10 +34,18 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number_of;
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_messages, desk_sla_clocks as clocks, helpdesk_settings, helpdesk_slas,
+};
+
+use crate::{at_ms, epoch_ms, json_text, row};
 
 use crate::sla_calendar::{SlaCalendar, add_business_ms, business_ms_between, iso, to_calendar};
 use crate::table::WriteError;
@@ -104,8 +112,8 @@ pub enum SlaError {
     Write(WriteError),
 }
 
-impl From<sqlx::Error> for SlaError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SlaError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -952,54 +960,73 @@ pub enum ConversationRef<'a> {
     Id(&'a str),
 }
 
-async fn load_policies(db: &PgPool) -> Result<Vec<Policy>, sqlx::Error> {
-    // Times as JavaScript time values: `floor(extract(epoch from t) * 1000)`.
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-            'id', id, 'createdAt', floor(extract(epoch from created_at) * 1000)::int8,
-            'priority', priority, 'isDefault', is_default,
-            'isActive', is_active, 'deletedAt', deleted_at, 'conditions', conditions,
-            'firstResponseTime', first_response_time, 'resolutionTime', resolution_time,
-            'updateTime', update_time, 'operationalHours', operational_hours,
-            'businessHours', business_hours, 'reminders', reminders)
-         from helpdesk_slas where is_active = true and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows.iter().map(Policy::from_js).collect())
-}
-
-async fn load_timeline(
-    db: &PgPool,
-    conversation_id: &str,
-) -> Result<Vec<TimelineEntry>, sqlx::Error> {
-    let rows: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
-        "select floor(extract(epoch from created_at) * 1000)::int8, kind, author_type,
-                metadata->>'eventType'
-         from desk_messages where conversation_id = $1 and kind in ('message', 'event')
-         order by created_at asc, id asc",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await?;
+async fn load_policies(db: &PgPool) -> Result<Vec<Policy>, DbErr> {
+    let rows = helpdesk_slas::Entity::find()
+        .filter(helpdesk_slas::Column::IsActive.eq(true))
+        .filter(helpdesk_slas::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    // The row as `Policy::from_js` reads it, times as JavaScript time values.
     Ok(rows
         .into_iter()
-        .map(|(at, kind, author_type, event_type)| TimelineEntry {
-            at,
+        .map(|policy| {
+            Policy::from_js(&json!({
+                "id": policy.id,
+                "createdAt": epoch_ms(policy.created_at),
+                "priority": policy.priority,
+                "isDefault": policy.is_default,
+                "isActive": policy.is_active,
+                "deletedAt": Value::Null,
+                "conditions": policy.conditions,
+                "firstResponseTime": policy.first_response_time,
+                "resolutionTime": policy.resolution_time,
+                "updateTime": policy.update_time,
+                "operationalHours": policy.operational_hours,
+                "businessHours": policy.business_hours,
+                "reminders": policy.reminders,
+            }))
+        })
+        .collect())
+}
+
+async fn load_timeline(db: &PgPool, conversation_id: &str) -> Result<Vec<TimelineEntry>, DbErr> {
+    use desk_messages::Column;
+    let rows: Vec<(PrimitiveDateTime, String, String, Option<Value>)> =
+        desk_messages::Entity::find()
+            .select_only()
+            .columns([
+                Column::CreatedAt,
+                Column::Kind,
+                Column::AuthorType,
+                Column::Metadata,
+            ])
+            .filter(Column::ConversationId.eq(conversation_id))
+            .filter(Column::Kind.is_in(["message", "event"]))
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(created_at, kind, author_type, metadata)| TimelineEntry {
+            at: epoch_ms(created_at),
             kind,
             author_type,
-            event_type,
+            event_type: json_text(metadata.as_ref().and_then(|m| m.get("eventType"))),
         })
         .collect())
 }
 
 /// `loadWorkspaceHours(db)`: `helpdesk_settings.general.businessHours`.
-async fn load_workspace_hours(db: &PgPool) -> Result<Value, sqlx::Error> {
-    let general: Option<Option<Value>> = sqlx::query_scalar(
-        "select general from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+async fn load_workspace_hours(db: &PgPool) -> Result<Value, DbErr> {
+    let general: Option<Option<Value>> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(helpdesk_settings::Column::General)
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(general
         .flatten()
         .and_then(|g| g.get("businessHours").cloned())
@@ -1016,31 +1043,33 @@ struct StoredClock {
     breach_notified_at: Option<i64>,
 }
 
-async fn load_clocks(db: &PgPool, conversation_id: &str) -> Result<Vec<StoredClock>, sqlx::Error> {
-    #[allow(clippy::type_complexity)]
-    let rows: Vec<(String, i64, String, i64, Option<i64>, Option<i64>)> = sqlx::query_as(
-        "select id, floor(extract(epoch from created_at) * 1000)::int8, metric,
-                floor(extract(epoch from started_at) * 1000)::int8,
-                floor(extract(epoch from warned_at) * 1000)::int8,
-                floor(extract(epoch from breach_notified_at) * 1000)::int8
-         from desk_sla_clocks where conversation_id = $1",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await?;
+async fn load_clocks(db: &PgPool, conversation_id: &str) -> Result<Vec<StoredClock>, DbErr> {
+    let rows = clocks::Entity::find()
+        .filter(clocks::Column::ConversationId.eq(conversation_id))
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(
-            |(id, created_at, metric, started_at, warned_at, breach_notified_at)| StoredClock {
-                id,
-                created_at,
-                metric,
-                started_at,
-                warned_at,
-                breach_notified_at,
-            },
-        )
+        .map(|clock| StoredClock {
+            id: clock.id,
+            created_at: epoch_ms(clock.created_at),
+            metric: clock.metric,
+            started_at: epoch_ms(clock.started_at),
+            warned_at: clock.warned_at.map(epoch_ms),
+            breach_notified_at: clock.breach_notified_at.map(epoch_ms),
+        })
         .collect())
+}
+
+/// Delete a conversation's clocks, `keep` excepted.
+async fn delete_clocks(db: &PgPool, conversation_id: &str, keep: &[&str]) -> Result<(), DbErr> {
+    let mut delete =
+        clocks::Entity::delete_many().filter(clocks::Column::ConversationId.eq(conversation_id));
+    if !keep.is_empty() {
+        delete = delete.filter(clocks::Column::Metric.is_not_in(keep.iter().copied()));
+    }
+    delete.exec(&orm(db)).await?;
+    Ok(())
 }
 
 /// `sameSummary(conversation, summary, policyId)`.
@@ -1086,10 +1115,7 @@ async fn write_summary(
 /// `clearDeskSla(db, conversation)`.
 async fn clear(db: &PgPool, conversation: Value) -> Result<Refreshed, SlaError> {
     if truthy(conversation.get("slaPolicyId")) || truthy(conversation.get("slaStatus")) {
-        sqlx::query("delete from desk_sla_clocks where conversation_id = $1")
-            .bind(conversation["id"].as_str().unwrap_or_default())
-            .execute(db)
-            .await?;
+        delete_clocks(db, conversation["id"].as_str().unwrap_or_default(), &[]).await?;
     }
     let empty = Summary {
         status: None,
@@ -1134,6 +1160,21 @@ const UPSERT: &str = "insert into desk_sla_clocks as t
             else excluded.breach_notified_at end,
         next_check_at = excluded.next_check_at";
 
+/// Write the clocks ([`UPSERT`]).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a bulk upsert that merges each row with what a concurrent refresh recorded; the values go through jsonb_populate_recordset, so Postgres converts them as the TypeScript writer's driver did"
+)]
+async fn upsert_clocks(db: &PgPool, rows: &[ClockRow]) -> Result<(), DbErr> {
+    let values = Value::Array(rows.iter().map(ClockRow::columns).collect());
+    sqlx::query(UPSERT)
+        .bind(values)
+        .execute(db)
+        .await
+        .map_err(orm_error)?;
+    Ok(())
+}
+
 /// `refreshDeskSla(db, conversationOrId, { now, acknowledge })`: re-derive
 /// a conversation's SLA clocks from its timeline and the policy that
 /// matches it now, and store them with the inbox summary; then when its
@@ -1173,20 +1214,14 @@ async fn refresh_clocks(
     let conversation = match conversation {
         ConversationRef::Row(row) => row,
         ConversationRef::Id(id) => {
-            let row: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-            let Some(row) = row else {
-                sqlx::query("delete from desk_sla_clocks where conversation_id = $1")
-                    .bind(id)
-                    .execute(db)
-                    .await?;
+            let found = desk_conversations::Entity::find_by_id(id)
+                .one(&orm(db))
+                .await?;
+            let Some(found) = found else {
+                delete_clocks(db, id, &[]).await?;
                 return Ok(Refreshed::default());
             };
-            DESK_CONVERSATIONS.js(row)
+            row(found)
         }
     };
     let conversation_id = conversation["id"].as_str().unwrap_or_default().to_owned();
@@ -1271,18 +1306,13 @@ async fn refresh_clocks(
         rows.push(row);
     }
 
-    let values = Value::Array(rows.iter().map(ClockRow::columns).collect());
-    sqlx::query(UPSERT).bind(values).execute(db).await?;
+    upsert_clocks(db, &rows).await?;
     let metrics: Vec<&str> = rows.iter().map(|r| r.metric.as_str()).collect();
     if existing
         .iter()
         .any(|c| !metrics.contains(&c.metric.as_str()))
     {
-        sqlx::query("delete from desk_sla_clocks where conversation_id = $1 and metric <> all($2)")
-            .bind(&conversation_id)
-            .bind(&metrics)
-            .execute(db)
-            .await?;
+        delete_clocks(db, &conversation_id, &metrics).await?;
     }
 
     let times: Vec<ClockTimes> = rows.iter().map(ClockTimes::from).collect();
@@ -1299,75 +1329,81 @@ async fn refresh_clocks(
 
 /// `listDueDeskSlaConversations(db, now, limit)`: conversations with a clock
 /// to look at by `now`, the most overdue first.
-pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select conversation_id from desk_sla_clocks
-         where next_check_at <= $1::timestamp
-         group by conversation_id order by min(next_check_at) asc limit $2",
-    )
-    .bind(iso(now))
-    .bind(limit)
-    .fetch_all(db)
-    .await
+pub async fn list_due(db: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, DbErr> {
+    clocks::Entity::find()
+        .select_only()
+        .column(clocks::Column::ConversationId)
+        .filter(clocks::Column::NextCheckAt.lte(at_ms(now)))
+        .group_by(clocks::Column::ConversationId)
+        .order_by_asc(Expr::from(Func::min(Expr::col(
+            clocks::Column::NextCheckAt,
+        ))))
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `nextDeskSlaCheckAt(db)`: when this workspace next has an SLA clock or an
 /// escalation rule to look at; `None` when none.
-pub async fn workspace_next_check_at(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
-    let clocks: Option<i64> = sqlx::query_scalar(
-        "select floor(extract(epoch from next_check_at) * 1000)::int8 from desk_sla_clocks
-         where next_check_at is not null order by next_check_at asc limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    let escalations: Option<i64> = sqlx::query_scalar(
-        "select floor(extract(epoch from escalation_check_at) * 1000)::int8 from desk_conversations
-         where escalation_check_at is not null order by escalation_check_at asc limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok([clocks, escalations].into_iter().flatten().min())
+pub async fn workspace_next_check_at(db: &PgPool) -> Result<Option<i64>, DbErr> {
+    let orm_db = orm(db);
+    let clock: Option<PrimitiveDateTime> = clocks::Entity::find()
+        .select_only()
+        .column(clocks::Column::NextCheckAt)
+        .filter(clocks::Column::NextCheckAt.is_not_null())
+        .order_by_asc(clocks::Column::NextCheckAt)
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
+    let escalation: Option<PrimitiveDateTime> = desk_conversations::Entity::find()
+        .select_only()
+        .column(desk_conversations::Column::EscalationCheckAt)
+        .filter(desk_conversations::Column::EscalationCheckAt.is_not_null())
+        .order_by_asc(desk_conversations::Column::EscalationCheckAt)
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
+    Ok([clock, escalation]
+        .into_iter()
+        .flatten()
+        .map(epoch_ms)
+        .min())
 }
 
 /// `releaseDeskSlaAlert(db, alert, retryAt)`: undo an `acknowledge` whose
 /// announcement failed. The clock's warning or breach mark for this cycle
 /// is cleared and it is looked at again at `retry_at`, or sooner when it
 /// has something due before then.
-pub async fn release_alert(db: &PgPool, alert: &Alert, retry_at: i64) -> Result<(), sqlx::Error> {
+pub async fn release_alert(db: &PgPool, alert: &Alert, retry_at: i64) -> Result<(), DbErr> {
     let next = match alert.clock.next_check_at {
         Some(due) if due < retry_at => due,
         _ => retry_at,
     };
-    sqlx::query(
-        "update desk_sla_clocks set
-             warned_at = case when $4 then null else warned_at end,
-             breach_notified_at = case when $4 then breach_notified_at else null end,
-             next_check_at = $3::timestamp
-         where id = $1 and started_at = $2::timestamp",
-    )
-    .bind(&alert.clock.id)
-    .bind(iso(alert.clock.started_at))
-    .bind(iso(next))
-    .bind(alert.kind == "warning")
-    .execute(db)
-    .await?;
+    // A warning clears `warned_at`, a breach `breach_notified_at`.
+    let mark = if alert.kind == "warning" {
+        clocks::Column::WarnedAt
+    } else {
+        clocks::Column::BreachNotifiedAt
+    };
+    clocks::Entity::update_many()
+        .col_expr(mark, Expr::value(Option::<PrimitiveDateTime>::None))
+        .col_expr(clocks::Column::NextCheckAt, Expr::value(at_ms(next)))
+        .filter(clocks::Column::Id.eq(alert.clock.id.as_str()))
+        .filter(clocks::Column::StartedAt.eq(at_ms(alert.clock.started_at)))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
 /// The conversation's clocks to look at again after `retry_at` (the sweep's
 /// back-off for a conversation whose refresh failed).
-pub async fn back_off(
-    db: &PgPool,
-    conversation_id: &str,
-    retry_at: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update desk_sla_clocks set next_check_at = $2::timestamp where conversation_id = $1",
-    )
-    .bind(conversation_id)
-    .bind(iso(retry_at))
-    .execute(db)
-    .await?;
+pub async fn back_off(db: &PgPool, conversation_id: &str, retry_at: i64) -> Result<(), DbErr> {
+    clocks::Entity::update_many()
+        .col_expr(clocks::Column::NextCheckAt, Expr::value(at_ms(retry_at)))
+        .filter(clocks::Column::ConversationId.eq(conversation_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 

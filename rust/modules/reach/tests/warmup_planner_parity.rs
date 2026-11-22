@@ -11,6 +11,11 @@
 //! are truncated and the rows inserted in the fixture's order, as pglite has
 //! them.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use serde_json::{Value, json};

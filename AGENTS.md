@@ -75,7 +75,7 @@ Screens live in `apps/web/platform/app/<app code>/`.
 | WeldSheets | Spreadsheets with live co-editing | `sheets-api` |
 | WeldForms | Forms and surveys | `forms-api` |
 | WeldSign | Electronic signatures | `sign-api` |
-| WeldCommerce | Being rebuilt from scratch (see below); no API today | none |
+| WeldCommerce | Being rebuilt from scratch (see below), EU edition only; phase 0 serves the overview | `rust/modules/commerce` (Rust only, no TypeScript worker) |
 | WeldStash | Warehouse management, and the product catalogue (`/api/products`) until WeldCommerce is back | `stash-api` |
 | WeldBooks | Double-entry accounting, per-country tax | `books-api` |
 | WeldHR | HR and payroll (NL, US) | `hr-api` |
@@ -111,7 +111,10 @@ TypeScript worker.
   Node build for Kubernetes), `helpcenter` (3008), `sign-portal` (3023),
   `project-portal` (3024), `forms-portal` (3025).
 - Next.js: `sites` (3007, customer websites), `api-docs` (3009), `docs` (3010,
-  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020).
+  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
+  `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on
+  `@weldsuite/commerce-sdk`: a template to fork, never deployed, no internal
+  imports).
 - Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
   reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
   Weld account, served by `personal-api`), `helpdesk-widget` (3100).
@@ -135,17 +138,20 @@ TypeScript worker.
 
 **`apps/mobile/`**: one Expo app per module, plus `_template` and `_shared`.
 **`apps/desktop/`**: Electron shell around the platform.
-**`apps/tools/`**: `migrate-databases` (tenant migration runner),
+**`apps/tools/`**: `migrate-databases` (Global's tenant migration runner,
+no longer run by its deploy since ADR DATA-019),
 `storybook`, `test-dashboard`, `collab-rooms` (the Docs/Sheets/Board rooms on
 Node for Kubernetes), `outbound-audit`, `discord-bot`.
 **`apps/hosted-apps/`**: first-party WeldApps, deployed with `weld app deploy`,
 never compiled into the platform (see its README).
-**`rust/`**: the Rust backend (EU and self-hosted).
+**`rust/`**: the Rust backend (EU and self-hosted), the schema
+(`rust/crates/schema`) and the master and tenant migrations (`rust/migrations`).
 
 **`packages/`**, all scoped `@weldsuite/*` and always imported by package name,
 never by path:
 - `config/`: eslint and TypeScript configs.
-- `core/`: platform primitives: `db` (Drizzle schema and migrations),
+- `core/`: platform primitives: `db` (the Drizzle schema, frozen since the
+  schema moved to Rust, and the personal database's migrations),
   `worker-kit` (what every API worker is built on), `api-modules`,
   `permissions`, `entity-events`, `feature-flags`, `i18n`, `ai`, `credits`,
   `notifications`, `emails` (system email templates), `realtime`, `collab` and
@@ -160,7 +166,8 @@ never by path:
 - `design/`: `ui` (the shared component library), `mobile-ui`,
   `site-components`, `weldmeet-ui`, `forms-renderer`.
 - `sdk/`: published, permissively licensed SDKs: `app-sdk`, `cli`,
-  `helpdesk-widget-sdk`, `forms-embed`, `panel-sdk`, `cursor-plugin`.
+  `helpdesk-widget-sdk`, `forms-embed`, `panel-sdk`, `cursor-plugin`,
+  `commerce-sdk`.
 
 ## Commands
 
@@ -185,14 +192,14 @@ pnpm --filter <module>-api dev         # one module on its own port; set VITE_AP
 NODE_OPTIONS=--max-old-space-size=12288 pnpm --filter platform type-check   # runs out of memory on the default heap
 ```
 
-Database (schema and generation in `packages/core/db`, tenant runner in
-`apps/tools/migrate-databases`):
+Database (schema in `rust/crates/schema`, migrations in `rust/migrations`,
+applied by `weldsuite migrate`; ADR DATA-019):
 
 ```bash
-pnpm --filter @weldsuite/db db:generate            # tenant migration
-pnpm --filter @weldsuite/db db:generate:master     # master migration
-pnpm --filter @weldsuite/db db:generate:personal   # personal-account migration
-pnpm --filter migrate-databases migrate:dry-run    # preview tenant migrations
+pnpm db:generate --name <slug>                     # tenant migration from the entities
+pnpm db:generate:master --name <slug>              # master migration
+pnpm db:generate --name <slug> --custom            # empty migration for hand-written SQL
+pnpm --filter @weldsuite/db db:generate:personal   # personal-account migration (still Drizzle)
 ```
 
 Workers: `wrangler.toml` has an `[env.test]` and an `[env.production]`; the
@@ -237,7 +244,12 @@ Rust: `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:catalogs`,
 
 - **Three kinds of database**: a master DB (workspaces, users, billing,
   registries), one tenant DB per workspace (its business data) and a shared
-  personal DB for consumer accounts. Schema: `packages/core/db/src/schema/`.
+  personal DB for consumer accounts. The master and tenant schemas are the
+  SeaORM entities in `rust/crates/schema/src/{master,tenant}/`, one per table
+  with its DDL (ADR DATA-019). The Drizzle schema in
+  `packages/core/db/src/schema/` is frozen: the TypeScript workers still read
+  it, but schema changes go into the entities. The personal schema is still
+  Drizzle's.
 - **Scope every tenant query by `workspaceId`.**
 - `workspaces.id` (`ws_…`) identifies a workspace everywhere; the Clerk org id
   (`org_…`) is only for Clerk calls and stores still keyed by it. Store
@@ -246,14 +258,17 @@ Rust: `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:catalogs`,
   (ADR SEC-011).
 - Ids are `varchar(30)` from `generateId('<prefix>')`; JSONB columns are typed
   with `.$type<T>()`.
-- **Changing schema files is fine. Creating a migration is not, until the user
-  approves it.** Then generate it with `db:generate` (or `:master`,
-  `:personal`) and commit the SQL, its `meta/<n>_snapshot.json`, the
-  `_journal.json` entry and the pruned old snapshots together. Never hand-write
-  a migration or a journal entry. CI fails when schema and snapshot disagree
-  (`apps/workers/app-api/src/test/tenant-schema-drift.test.ts`).
+- **Changing the entities is fine. Creating a migration is not, until the user
+  approves it.** Then generate it with `pnpm db:generate --name <slug>` (or
+  `db:generate:master`; `db:generate:personal` for the personal schema) and
+  commit the SQL, its `meta/<n>_snapshot.json`, the `_journal.json` entry and
+  the pruned old snapshots together. Never hand-write a migration or a journal
+  entry. CI fails when the entities and the newest snapshot disagree, or a
+  `.sql` file isn't journaled (`rust/crates/schema/tests/snapshot.rs`).
 - **Keep migrations additive.** EU production deploys every green `main` build
-  automatically, so code and schema must work one version apart.
+  automatically, so code and schema must work one version apart. The generator
+  refuses a drop, a type change or `SET NOT NULL` without `--allow-drop`, and
+  never guesses a rename.
 
 ### Never wake tenant databases on a timer
 

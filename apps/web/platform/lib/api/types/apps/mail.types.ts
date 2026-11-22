@@ -4,6 +4,7 @@
  */
 
 import { BaseEntity, Attachment } from '../common.types';
+import type { MailThreat } from '@weldsuite/app-api-client/schemas/mail-messages';
 
 // The `Mail.X` dot-access pattern below is consumed across many files
 // outside this module's scope (app/weldmail, lib/integrations); converting
@@ -122,6 +123,9 @@ export namespace Mail {
     // Attachments
     hasAttachments: boolean;
     attachments?: EmailAttachment[];
+
+    /** Viruses and dangerous links the server found (EU and self-hosted editions). */
+    threats?: MailThreat[] | null;
 
     // UI Display
     folder?: string; // Folder name for display

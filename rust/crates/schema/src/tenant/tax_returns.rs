@@ -1,0 +1,195 @@
+//! `tax_returns`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "tax_returns")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "jurisdictionCode")]
+    pub jurisdiction_code: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "agencyId")]
+    pub agency_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "stateCode")]
+    pub state_code: Option<String>,
+    #[serde(rename = "periodStart", with = "crate::js::date")]
+    pub period_start: TimeDate,
+    #[serde(rename = "periodEnd", with = "crate::js::date")]
+    pub period_end: TimeDate,
+    #[serde(rename = "dueDate", with = "crate::js::date::option")]
+    pub due_date: Option<TimeDate>,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "reportingBasis")]
+    pub reporting_basis: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "summary")]
+    pub summary: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "lines")]
+    pub lines: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "adjustments")]
+    pub adjustments: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "exceptions")]
+    pub exceptions: Option<Json>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "totalDue",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub total_due: Option<BigDecimal>,
+    #[serde(rename = "filedAt", with = "crate::js::timestamp::option")]
+    pub filed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "filedBy")]
+    pub filed_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "confirmationNumber")]
+    pub confirmation_number: Option<String>,
+    #[serde(rename = "paidAt", with = "crate::js::timestamp::option")]
+    pub paid_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "paymentAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub payment_amount: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "paymentBankAccountId")]
+    pub payment_bank_account_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "paymentJournalEntryId")]
+    pub payment_journal_entry_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "amendsReturnId")]
+    pub amends_return_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "tax_returns",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'open'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "reporting_basis",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'accrual'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_due",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_tax_returns_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_tax_returns_agency_period_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "agency_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "period_start",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_tax_returns_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

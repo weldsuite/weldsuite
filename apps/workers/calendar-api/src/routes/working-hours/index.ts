@@ -26,6 +26,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const { userPreferences, workspaceMembers } = schema;
@@ -143,13 +144,12 @@ app.get('/team', requirePermission('team:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
 
-    const members = await db
+    const rows = await db
       .select({
         id: workspaceMembers.id,
         userId: workspaceMembers.userId,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
         workingHours: userPreferences.workingHours,
       })
       .from(workspaceMembers)
@@ -163,6 +163,13 @@ app.get('/team', requirePermission('team:read'), async (c) => {
       .where(and(eq(workspaceMembers.status, 'ACTIVE'), isNull(workspaceMembers.deletedAt)))
       .orderBy(workspaceMembers.name);
 
+    // The avatar is each member's account picture.
+    const pictures = await loadAccountPictures(c.env, rows.map((m) => m.userId));
+    const members = rows.map(({ workingHours, ...m }) => ({
+      ...m,
+      picture: accountPicture(pictures, m.userId),
+      workingHours,
+    }));
     return success(c, members);
   } catch (err) {
     console.error('[app-api/working-hours] Failed to fetch team working hours:', err);

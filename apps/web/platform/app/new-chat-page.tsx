@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
-import { AssistantAiBadge } from '@/components/ai/assistant-ai-badge';
 import { ModuleContent } from '@/components/layout/module-content';
 import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
 import { AssistantMessage, TypingIndicator, UserMessage } from '@/components/weldagent/chat/chat-message';
-import { tagsAsText } from '@/components/weldagent/record-tags';
+import {
+  ChatVisualActionsProvider,
+  usePrefillComposer,
+} from '@/components/weldagent/visuals/visual-actions-context';
+import { chatTitleFrom } from '@/components/weldagent/chat-title';
 import { getTranslations } from '@/lib/i18n';
 import { useWeldAgentChat, type ChatMessage } from '@/hooks/queries/use-ai-chat';
 import {
@@ -36,8 +39,7 @@ const routeApi = getRouteApi('/new-chat');
 
 /** Derive a short sidebar-friendly title from the first user message. */
 function deriveTitle(firstMessage: string): string {
-  const clean = tagsAsText(firstMessage).replace(/\s+/g, ' ').trim();
-  return clean.slice(0, 60) || getTranslations('weldsuiteHome').page.breadcrumbNewChat;
+  return chatTitleFrom(firstMessage) || getTranslations('weldsuiteHome').page.breadcrumbNewChat;
 }
 
 export default function ChatPage() {
@@ -132,6 +134,8 @@ function ChatSession() {
   );
 
   const [input, setInput] = useState('');
+  // "Ask about this" on a visual puts the follow-up in the composer.
+  const { ask: askAboutVisual, composerRef } = usePrefillComposer(setInput);
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-send the prompt handed off from the home page (or carried through the
@@ -191,7 +195,6 @@ function ChatSession() {
           { label: 'WeldSuite', href: '/' },
           { label: tHome.breadcrumbNewChat, href: '/new-chat' },
         ]}
-        actions={<AssistantAiBadge />}
       />
       <ModuleContent className="flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -219,11 +222,13 @@ function ChatSession() {
                       {isCreating && <TypingIndicator />}
                     </>
                   ) : (
-                    messages.map((m) => {
-                      if (m.role === 'user') return <UserMessage key={m.id}>{m.content}</UserMessage>;
-                      if (m.content) return <AssistantMessage key={m.id} content={m.content} />;
-                      return isSending && m === lastMessage ? <TypingIndicator key={m.id} /> : null;
-                    })
+                    <ChatVisualActionsProvider ask={isBusy ? undefined : askAboutVisual}>
+                      {messages.map((m) => {
+                        if (m.role === 'user') return <UserMessage key={m.id}>{m.content}</UserMessage>;
+                        if (m.content) return <AssistantMessage key={m.id} content={m.content} />;
+                        return isSending && m === lastMessage ? <TypingIndicator key={m.id} /> : null;
+                      })}
+                    </ChatVisualActionsProvider>
                   )}
                   <div ref={scrollEndRef} />
                 </div>
@@ -248,8 +253,9 @@ function ChatSession() {
                   )}
                 </div>
               )}
-              <div className="weldagent-composer-vt">
-                <AgentChatInput value={input} onChange={setInput} onSubmit={submit} isSending={isBusy} autoFocus />
+              <div ref={composerRef} className="weldagent-composer-vt">
+                {/* Stacked, like the home page composer it continues from (and the panel). */}
+                <AgentChatInput value={input} onChange={setInput} onSubmit={submit} isSending={isBusy} autoFocus variant="stacked" />
               </div>
             </div>
           </div>

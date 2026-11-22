@@ -36,7 +36,7 @@ use axum::routing::post;
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_UPDATED;
-use weldsuite_catalogs::permission_keys::ORDERS_UPDATE;
+use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_UPDATE;
 use weldsuite_connect_domain::clients::{ConnectorError, Kind, decrypt_credentials};
 use weldsuite_connect_domain::odoo::{Odoo, mapping_types};
 use weldsuite_db::{Keyring, PgPool};
@@ -58,7 +58,7 @@ where
 {
     Router::new().route(
         "/{id}/send-to-odoo",
-        post(send).route_layer(gate.require([ORDERS_UPDATE])),
+        post(send).route_layer(gate.require([PURCHASE_ORDERS_UPDATE])),
     )
 }
 

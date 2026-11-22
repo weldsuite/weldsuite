@@ -111,6 +111,13 @@ const OBJECT_TO_CATEGORY: Record<string, Category> = {
   products: 'Inventory',
   inventory: 'Inventory',
   picklists: 'Inventory',
+  purchase_orders: 'Inventory',
+  // WeldCommerce
+  orders: 'Inventory',
+  discounts: 'Inventory',
+  categories: 'Inventory',
+  commerce_settings: 'Inventory',
+  commerce_channels: 'Inventory',
   locations: 'Inventory',
   warehouses: 'Inventory',
   suppliers: 'Inventory',

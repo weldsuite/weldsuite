@@ -12,6 +12,8 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::table::Table;
+use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
+use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
 use weldsuite_kit::generate_id;
@@ -21,8 +23,8 @@ use crate::catalog::{get_connector, syncs};
 use crate::clients::as_text;
 use crate::js::{now_iso, number_text};
 use crate::mappers::{
-    DocumentLine, FieldMapping, INVALID_DATE, Links, Mapped, ProductVariant, external_id_of,
-    is_deleted_record, map_connector_record, map_with_field_mappings,
+    DocumentLine, FieldMapping, INVALID_DATE, Links, Mapped, OrderLine, ProductVariant,
+    external_id_of, is_deleted_record, map_connector_record, map_with_field_mappings,
 };
 use crate::moneybird::{AttachmentKind, Moneybird};
 use crate::stripe::Stripe;
@@ -131,6 +133,12 @@ impl From<sqlx::Error> for Failure {
             sqlx::Error::Database(db) => db.message().to_owned(),
             other => other.to_string(),
         })
+    }
+}
+
+impl From<weldsuite_commerce_domain::DbErr> for Failure {
+    fn from(error: weldsuite_commerce_domain::DbErr) -> Self {
+        Self(weldsuite_commerce_domain::db::message_of(&error))
     }
 }
 
@@ -571,39 +579,141 @@ fn catalog_target(
     }
 }
 
-async fn replace_order_items(
+/// An order from a store, written through `orders::write::import`
+/// (ADR COM-010: the only way an order and its items change): the header as
+/// mapped, the items brought in line with the store's lines without
+/// replacing them, the buyer's party as counterparty once. The order, its
+/// items and the mapping commit together.
+async fn ingest_order(
     args: &IngestArgs<'_>,
-    order_id: &str,
-    lines: &[crate::mappers::OrderLine],
-) -> Outcome<()> {
-    sqlx::query("delete from order_items where order_id = $1")
-        .bind(order_id)
-        .execute(args.db)
+    line_items: &[OrderLine],
+    values: &Map<String, Value>,
+    record: &Value,
+    external_id: &str,
+) -> Outcome<Upserted> {
+    let checksum = record_checksum(record);
+    let mapping = find_mapping(
+        args.db,
+        args.connection_id,
+        args.external_type(),
+        external_id,
+    )
+    .await?;
+    if let Some(mapping) = &mapping
+        && mapping.checksum.as_deref() == Some(checksum.as_str())
+    {
+        return Ok(Upserted {
+            action: Action::Skipped,
+            internal_id: mapping.internal_id.clone(),
+        });
+    }
+    check_dates(values)?;
+    // The order this store order is: its mapping, else an order already
+    // there with the same external id that no other connection imported
+    // (two stores of one provider may both have an order 1001), else a new one.
+    let mut found = mapping.as_ref().map(|m| m.internal_id.clone());
+    if found.is_none()
+        && let Some(external) = dedup_value(values, "externalOrderId")
+    {
+        found = sqlx::query_scalar(
+            "select o.id from orders o
+              where o.external_order_id = $1::text and o.deleted_at is null
+                and not exists (select 1 from integration_entity_mappings m
+                                 where m.internal_entity_id = o.id and m.connection_id <> $2)
+              order by o.created_at asc, o.id asc limit 1",
+        )
+        .bind(
+            external
+                .as_str()
+                .map_or_else(|| external.to_string(), str::to_owned),
+        )
+        .bind(args.connection_id)
+        .fetch_optional(args.db)
         .await?;
+    }
     let product_type = format!("{}_product", args.provider);
-    for item in lines {
-        let product_id = match &item.external_product_id {
+    let mut lines = Vec::with_capacity(line_items.len());
+    for line in line_items {
+        let product_id = match &line.external_product_id {
             Some(id) => find_mapping(args.db, args.connection_id, &product_type, id)
                 .await?
                 .map(|m| m.internal_id),
             None => None,
         };
-        let mut values = Map::new();
-        values.insert("id".to_owned(), json!(generate_id("oitm")));
-        values.insert("orderId".to_owned(), json!(order_id));
-        values.insert("productId".to_owned(), json!(product_id));
-        values.insert("sku".to_owned(), json!(item.sku));
-        values.insert("name".to_owned(), json!(item.name));
-        values.insert("imageUrl".to_owned(), json!(item.image_url));
-        values.insert(
-            "quantity".to_owned(),
-            crate::js::number_value(item.quantity),
-        );
-        values.insert("unitPrice".to_owned(), json!(item.unit_price));
-        values.insert("total".to_owned(), json!(item.total));
-        insert(args.db, &tables::ORDER_ITEMS, &values).await?;
+        lines.push(ImportLine {
+            external_line_id: line.external_line_id.clone(),
+            product_id,
+            sku: line.sku.clone(),
+            name: line.name.clone(),
+            quantity: line.quantity,
+            unit_price: line.unit_price.clone(),
+            total: line.total.clone(),
+            image_url: line.image_url.clone(),
+        });
     }
-    Ok(())
+    let existing = found.is_some();
+    let order_id = found.unwrap_or_else(|| generate_id("ord"));
+    let mut tx = args.db.begin().await?;
+    // The order belongs to its store connection's sales channel (ADR COM-011).
+    let store_name = args
+        .display_name
+        .or(args.store_url)
+        .map_or_else(|| provider_label(args.provider), str::to_owned);
+    let channel = ensure_connector(
+        &mut tx,
+        &Connector {
+            connection_id: args.connection_id,
+            provider: args.provider,
+            name: &store_name,
+            currency: values
+                .get("currency")
+                .and_then(Value::as_str)
+                .unwrap_or("EUR"),
+        },
+    )
+    .await?;
+    let mut header = values.clone();
+    header.insert("channelId".to_owned(), json!(channel.id));
+    import(
+        &mut tx,
+        &Import {
+            id: &order_id,
+            existing,
+            header,
+            lines: &lines,
+            person_id: values.get("personId").and_then(Value::as_str),
+            owner_id: args.owner_id,
+        },
+    )
+    .await?;
+    match &mapping {
+        Some(mapping) => touch_mapping(&mut *tx, &mapping.id, Some(checksum.as_str())).await?,
+        None => {
+            insert_mapping(
+                &mut *tx,
+                args.connection_id,
+                args.external_type(),
+                external_id,
+                "order",
+                &order_id,
+                &checksum,
+            )
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    // A store's channel, made here with its first order, publishes no
+    // `commerce_channel` event: a sync answers with the same events as the
+    // TypeScript ingest, which has no channels (the "connect: integrations"
+    // conformance suite). The channels list reads it fresh when opened.
+    Ok(Upserted {
+        action: if existing {
+            Action::Updated
+        } else {
+            Action::Created
+        },
+        internal_id: order_id,
+    })
 }
 
 fn variant_fields(variant: &ProductVariant) -> Map<String, Value> {
@@ -883,6 +993,12 @@ async fn ingest_catalog_record(
     {
         values.insert("personId".to_owned(), json!(found.internal_id));
     }
+    if let Mapped::Order { line_items, .. } = &mapped {
+        let outcome = ingest_order(args, line_items, &values, record, external_id).await?;
+        tally(result, outcome.action);
+        publish_upsert(args, entity_type, &outcome).await;
+        return Ok(());
+    }
     let checksum = record_checksum(record);
     let outcome = upsert_by_mapping(
         args.db,
@@ -899,11 +1015,6 @@ async fn ingest_catalog_record(
         &checksum,
     )
     .await?;
-    if let Mapped::Order { line_items, .. } = &mapped
-        && outcome.action != Action::Skipped
-    {
-        replace_order_items(args, &outcome.internal_id, line_items).await?;
-    }
     if let Mapped::Product {
         external_url,
         values: product_values,
@@ -2397,6 +2508,9 @@ pub async fn ingest_records(args: &IngestArgs<'_>) -> Result<IngestResult, sqlx:
     }
     Ok(result)
 }
+
+#[cfg(test)]
+mod db_tests;
 
 #[cfg(test)]
 mod tests {

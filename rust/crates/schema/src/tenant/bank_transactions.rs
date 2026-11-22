@@ -1,0 +1,314 @@
+//! `bank_transactions`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "bank_transactions")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "bankAccountId")]
+    pub bank_account_id: String,
+    #[serde(rename = "date", with = "crate::js::timestamp")]
+    pub date: TimeDateTime,
+    #[serde(rename = "valueDate", with = "crate::js::timestamp::option")]
+    pub value_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "amount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub amount: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "runningBalance",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub running_balance: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "counterpartyName")]
+    pub counterparty_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(34))")]
+    #[serde(rename = "counterpartyIban")]
+    pub counterparty_iban: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(11))")]
+    #[serde(rename = "counterpartyBic")]
+    pub counterparty_bic: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "reference")]
+    pub reference: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "transactionCode")]
+    pub transaction_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "endToEndId")]
+    pub end_to_end_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "mandateId")]
+    pub mandate_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "importBatchId")]
+    pub import_batch_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "reconciliationType")]
+    pub reconciliation_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reconciledInvoiceId")]
+    pub reconciled_invoice_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reconciledBillId")]
+    pub reconciled_bill_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reconciledPaymentId")]
+    pub reconciled_payment_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "journalEntryId")]
+    pub journal_entry_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "categoryAccountId")]
+    pub category_account_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "taxRateId")]
+    pub tax_rate_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "contactId")]
+    pub contact_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "rawData")]
+    pub raw_data: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "source")]
+    pub source: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "feedProvider")]
+    pub feed_provider: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "providerTransactionId")]
+    pub provider_transaction_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "checkNumber")]
+    pub check_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "merchantName")]
+    pub merchant_name: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "feedCategory")]
+    pub feed_category: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "possibleDuplicateOfId")]
+    pub possible_duplicate_of_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "depositId")]
+    pub deposit_id: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "bank_transactions",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'unreconciled'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_bank_txn_provider_uidx",
+            columns: &[
+                IndexColumn {
+                    expression: "bank_account_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "feed_provider",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "provider_transaction_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some("\"bank_transactions\".\"provider_transaction_id\" is not null"),
+        },
+        Index {
+            name: "acct_bank_txn_fingerprint_idx",
+            columns: &[IndexColumn {
+                expression: "fingerprint",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_bank_account_idx",
+            columns: &[IndexColumn {
+                expression: "bank_account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_date_idx",
+            columns: &[IndexColumn {
+                expression: "date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_external_id_idx",
+            columns: &[IndexColumn {
+                expression: "external_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_counterparty_iban_idx",
+            columns: &[IndexColumn {
+                expression: "counterparty_iban",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_import_batch_idx",
+            columns: &[IndexColumn {
+                expression: "import_batch_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_reconciled_invoice_idx",
+            columns: &[IndexColumn {
+                expression: "reconciled_invoice_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_bank_txn_reconciled_bill_idx",
+            columns: &[IndexColumn {
+                expression: "reconciled_bill_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

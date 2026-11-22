@@ -14,6 +14,11 @@
 //! `f64`) so an unparseable working-hours string behaves as an Invalid Date
 //! does: the window it touches yields no slot.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod js_dates;
 mod time_math;
 

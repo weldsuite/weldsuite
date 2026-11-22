@@ -15,6 +15,11 @@ import { and, desc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-o
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { wasAnswered } from '@weldsuite/chat-domain/call-lifecycle';
+import {
+  accountPicture,
+  loadAccountPictures,
+  type AccountPictureEnv,
+} from '@weldsuite/worker-kit/account-pictures';
 
 export type CallDirection = 'incoming' | 'outgoing';
 
@@ -146,9 +151,13 @@ function visibleTo(viewerId: string): SQL {
   ) as SQL;
 }
 
-/** Group a page's DM members by channel, plus a name/avatar lookup by user. */
+/**
+ * Group a page's DM members by channel, plus a name/avatar lookup by user.
+ * Names come from the workspace, avatars from each person's account.
+ */
 async function loadDmPeople(
   db: Database,
+  env: AccountPictureEnv,
   viewerId: string,
   dmChannelIds: string[],
   initiatorIds: string[],
@@ -163,32 +172,38 @@ async function loadDmPeople(
       channelId: chatChannelMembers.channelId,
       userId: chatChannelMembers.userId,
       name: workspaceMembers.name,
-      picture: workspaceMembers.picture,
     })
     .from(chatChannelMembers)
     .leftJoin(workspaceMembers, eq(workspaceMembers.userId, chatChannelMembers.userId))
     .where(and(inArray(chatChannelMembers.channelId, dmChannelIds), ne(chatChannelMembers.userId, viewerId)));
 
+  // A caller who has since left the DM still gets their own name and avatar.
+  const inDms = new Set(rows.map((row) => row.userId));
+  const missing = [...new Set(initiatorIds)].filter((id) => id !== viewerId && !inDms.has(id));
+  const extra =
+    missing.length > 0
+      ? await db
+          .select({ userId: workspaceMembers.userId, name: workspaceMembers.name })
+          .from(workspaceMembers)
+          .where(inArray(workspaceMembers.userId, missing))
+      : [];
+
+  const pictures = await loadAccountPictures(env, [...inDms, ...extra.map((row) => row.userId)]);
+
   for (const row of rows) {
-    people.set(row.userId, { name: row.name ?? null, picture: row.picture ?? null });
+    const picture = accountPicture(pictures, row.userId);
+    people.set(row.userId, { name: row.name ?? null, picture });
     const list = membersByChannel.get(row.channelId) ?? [];
     if (!list.some((m) => m.userId === row.userId)) {
-      list.push({ userId: row.userId, name: row.name ?? null, avatar: row.picture ?? null });
+      list.push({ userId: row.userId, name: row.name ?? null, avatar: picture });
     }
     membersByChannel.set(row.channelId, list);
   }
   for (const list of membersByChannel.values()) {
     list.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || a.userId.localeCompare(b.userId));
   }
-
-  // A caller who has since left the DM still gets their own name and avatar.
-  const missing = [...new Set(initiatorIds)].filter((id) => id !== viewerId && !people.has(id));
-  if (missing.length > 0) {
-    const extra = await db
-      .select({ userId: workspaceMembers.userId, name: workspaceMembers.name, picture: workspaceMembers.picture })
-      .from(workspaceMembers)
-      .where(inArray(workspaceMembers.userId, missing));
-    for (const row of extra) people.set(row.userId, { name: row.name ?? null, picture: row.picture ?? null });
+  for (const row of extra) {
+    people.set(row.userId, { name: row.name ?? null, picture: accountPicture(pictures, row.userId) });
   }
 
   return { membersByChannel, people };
@@ -200,6 +215,7 @@ async function loadDmPeople(
  */
 export async function listCallHistory(
   db: Database,
+  env: AccountPictureEnv,
   viewerId: string,
   opts: { limit?: number; cursor?: string | null } = {},
 ): Promise<CallHistoryPage> {
@@ -251,6 +267,7 @@ export async function listCallHistory(
   const dmRows = page.filter((r) => r.channelType === 'dm');
   const { membersByChannel, people } = await loadDmPeople(
     db,
+    env,
     viewerId,
     [...new Set(dmRows.map((r) => r.channelId))],
     dmRows.map((r) => r.initiatorId),

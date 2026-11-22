@@ -1,0 +1,184 @@
+//! `credit_transactions`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "credit_transactions")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(rename = "amount")]
+    pub amount: i32,
+    #[serde(rename = "balanceAfter")]
+    pub balance_after: i32,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "serviceType")]
+    pub service_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "referenceId")]
+    pub reference_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "referenceType")]
+    pub reference_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "idempotencyKey")]
+    pub idempotency_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "stripePaymentIntentId")]
+    pub stripe_payment_intent_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "stripeCheckoutSessionId")]
+    pub stripe_checkout_session_id: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((10, 2)))")]
+    #[serde(
+        rename = "amountPaid",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub amount_paid: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "userId")]
+    pub user_id: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "credit_transactions",
+    columns: &[DdlColumn {
+        name: "created_at",
+        sql_type: None,
+        default: Some(DdlDefault::Sql("now()")),
+        generated: None,
+        default_fn: false,
+        on_update: false,
+    }],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "credit_transactions_workspace_id_idx",
+            columns: &[IndexColumn {
+                expression: "workspace_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_type_idx",
+            columns: &[IndexColumn {
+                expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_service_type_idx",
+            columns: &[IndexColumn {
+                expression: "service_type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_reference_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "reference_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "reference_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_stripe_payment_idx",
+            columns: &[IndexColumn {
+                expression: "stripe_payment_intent_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "credit_transactions_idempotency_key_idx",
+            columns: &[IndexColumn {
+                expression: "idempotency_key",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "credit_transactions_workspace_id_workspaces_id_fk",
+        columns: &["workspace_id"],
+        references: "workspaces",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

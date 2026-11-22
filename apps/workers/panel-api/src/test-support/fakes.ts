@@ -15,16 +15,20 @@ import { expect, vi } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
-import type {
-  PanelErasure,
-  PanelLiveSession,
-  PanelPeoplePage,
-  PanelPerson,
+import {
+  liveCounts,
+  type PanelErasure,
+  type PanelLive,
+  type PanelLiveSession,
+  type PanelPeoplePage,
+  type PanelPerson,
 } from '@weldsuite/panel-domain/project-object';
 import type { PanelMaintenanceMessage } from '../types';
 
 export const WORKSPACE = 'ws_alpha';
 export const PROJECT = 'pnp_a';
+/** The fake project object's "now" for the live view's counts: a minute after the test data's times. */
+export const LIVE_NOW = Date.parse('2026-11-14T10:01:00.000Z');
 
 /** Order in which the fakes were called, for the tests that care. */
 export const callLog: string[] = [];
@@ -211,7 +215,7 @@ export class FakeProjectState {
         return { people: page, cursor: next < all.length ? String(next) : null, totalCount: all.length };
       },
       findByEmail: async (email: string) => state.people.filter((p) => p.email === email.toLowerCase()),
-      live: async () => ({ visitors: state.liveSessions.length, sessions: state.liveSessions }),
+      live: async (): Promise<PanelLive> => ({ ...liveCounts(state.liveSessions, LIVE_NOW), sessions: state.liveSessions }),
       erase: async (input: { userIdOrAnonId: string }): Promise<PanelErasure> => {
         if (log) callLog.push('object.erase');
         state.eraseCalls.push({ userIdOrAnonId: input.userIdOrAnonId });

@@ -6,6 +6,11 @@
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::accounting_entity::{
     EntityLockDates, load_accounting_entities, load_accounting_entity, load_entity_lock_dates,

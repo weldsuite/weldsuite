@@ -22,6 +22,7 @@ import {
 } from './complete-turn';
 import { BACKGROUND_RUN_TIMEOUT_MS } from './executor';
 import { executeAgentRun } from './run';
+import { replyToPlainText } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 export type WeldAgentJob =
   | ({ kind: 'chat-turn' } & AcceptedTurnRef)
@@ -117,7 +118,7 @@ async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Pr
     if (job.routineRunId) {
       await completeRoutineRun(tenantDb, job.routineRunId, {
         status: result.success ? 'succeeded' : 'failed',
-        summary: result.text,
+        summary: replyToPlainText(result.text),
         error: result.error,
         agentRunId: result.runId,
       });

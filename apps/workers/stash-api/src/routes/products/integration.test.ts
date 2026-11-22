@@ -146,6 +146,29 @@ describe('/api/products · pglite integration', () => {
     expect(row?.taxClass).toBeNull();
   });
 
+  it('stores the EU VAT category (standard by default) and refuses an unknown one', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create'), tenantDb: db },
+    });
+    const post = (body: Record<string, unknown>) =>
+      request('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const reduced = await post({ name: 'Book', slug: 'vat-book-1', vatCategory: 'reduced' });
+    expect(reduced.status).toBe(201);
+    const { data: book } = (await reduced.json()) as { data: { id: string } };
+    const [row] = await db.select().from(schema.products).where(eq(schema.products.id, book.id)).limit(1);
+    expect(row?.vatCategory).toBe('reduced');
+    const plain = await post({ name: 'Plain', slug: 'vat-plain-1' });
+    const { data: other } = (await plain.json()) as { data: { id: string } };
+    const [stored] = await db.select().from(schema.products).where(eq(schema.products.id, other.id)).limit(1);
+    expect(stored?.vatCategory).toBe('standard');
+    const refused = await post({ name: 'Bad', slug: 'vat-bad-1', vatCategory: 'cheap' });
+    expect(refused.status).toBe(400);
+  });
+
   it('accepts a Stripe and an Avalara provider code', async () => {
     const { request } = createTestApp('/api/products', productsRoutes, {
       context: { permissions: permissions('products:create'), tenantDb: db },
@@ -215,4 +238,26 @@ describe('/api/products · pglite integration', () => {
     expect((await load())?.taxClass).toBe('saas');
   });
 
+  it('DELETE /:id needs products:delete, soft-deletes, then answers 404', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read', 'products:delete'), tenantDb: db },
+    });
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Short-lived', slug: 'short-lived-1' }),
+    });
+    const { data: product } = (await created.json()) as { data: { id: string } };
+
+    const { request: readOnly } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read'), tenantDb: db },
+    });
+    expect((await readOnly(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(403);
+
+    expect((await request(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(204);
+    const [row] = await db.select().from(schema.products).where(eq(schema.products.id, product.id)).limit(1);
+    expect(row?.deletedAt).not.toBeNull();
+    expect((await request(`/api/products/${product.id}`)).status).toBe(404);
+    expect((await request(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
 });

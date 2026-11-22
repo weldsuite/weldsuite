@@ -313,31 +313,74 @@ describe('PanelProject', () => {
 
       const live = await project.live();
       expect(live.visitors).toBe(2);
+      expect(live.visitors30m).toBe(2);
       expect(live.sessions).toHaveLength(3);
     });
 
-    it('shows only the last five minutes and drops older sessions on the alarm', async () => {
+    it('counts a visitor once per minute, from the start of a session to its last activity', async () => {
+      const { project } = create();
+      const at = (ms: number) => new Date(NOW - ms).toISOString();
+      await project.touchLive([
+        touch({ ts: at(10 * MINUTE) }),
+        touch({ ts: at(7.5 * MINUTE) }),
+        // The same visitor in another session, in a minute it already counts in.
+        touch({ sessionId: 's-2', ts: at(9 * MINUTE) }),
+        touch({ sessionId: 's-3', distinctId: 'a-2', ts: at(30 * 1000) }),
+      ]);
+
+      const live = await project.live();
+      const perMinute = Array<number>(30).fill(0);
+      perMinute[20] = 1;
+      perMinute[21] = 1;
+      perMinute[22] = 1;
+      perMinute[29] = 1;
+      expect(live).toMatchObject({ visitors: 1, visitors30m: 2, perMinute });
+      expect(live.sessions.map((s) => s.sessionId)).toEqual(['s-3', 's-1', 's-2']);
+    });
+
+    it('counts every session in the window but answers the 500 latest', async () => {
+      const { project } = create();
+      await project.touchLive(
+        Array.from({ length: 600 }, (_, n) => touch({ sessionId: `s-${n}`, distinctId: `a-${n}`, ts: new Date(NOW - n * 1000).toISOString() })),
+      );
+
+      const live = await project.live();
+      expect(live.sessions).toHaveLength(500);
+      expect(live.sessions[0]?.sessionId).toBe('s-0');
+      // Five minutes back reaches s-300.
+      expect(live.visitors).toBe(301);
+      expect(live.visitors30m).toBe(600);
+    });
+
+    it('counts five minutes in visitors, keeps 30 minutes of sessions and drops older ones on the alarm', async () => {
       const { project, alarm, db } = create();
       await project.touchLive([touch()]);
-      expect(alarm()).not.toBeNull();
+      expect(alarm()).toBe(NOW + 5 * MINUTE + 1000);
 
       vi.setSystemTime(NOW + 6 * MINUTE);
-      expect((await project.live()).sessions).toEqual([]);
+      const later = await project.live();
+      expect(later).toMatchObject({ visitors: 0, visitors30m: 1 });
+      expect(later.sessions.map((s) => s.sessionId)).toEqual(['s-1']);
+      await project.alarm();
+      expect(db.prepare('SELECT COUNT(*) AS n FROM live').all()).toEqual([{ n: 1 }]);
+
+      vi.setSystemTime(NOW + 31 * MINUTE);
+      expect(await project.live()).toEqual({ visitors: 0, visitors30m: 0, perMinute: Array(30).fill(0), sessions: [] });
       await project.alarm();
       expect(db.prepare('SELECT COUNT(*) AS n FROM live').all()).toEqual([{ n: 0 }]);
     });
 
-    it('keeps the alarm going while sessions are left', async () => {
+    it('keeps the alarm going every five minutes while sessions are left', async () => {
       const { project, alarm } = create();
       await project.touchLive([touch()]);
-      vi.setSystemTime(NOW + 3 * MINUTE);
-      await project.touchLive([touch({ sessionId: 's-2', ts: new Date(NOW + 3 * MINUTE).toISOString() })]);
+      vi.setSystemTime(NOW + 20 * MINUTE);
+      await project.touchLive([touch({ sessionId: 's-2', ts: new Date(NOW + 20 * MINUTE).toISOString() })]);
 
-      vi.setSystemTime(NOW + 6 * MINUTE);
+      vi.setSystemTime(NOW + 31 * MINUTE);
       await project.alarm();
 
       expect((await project.live()).sessions.map((s) => s.sessionId)).toEqual(['s-2']);
-      expect(alarm()).toBe(NOW + 6 * MINUTE + 5 * MINUTE);
+      expect(alarm()).toBe(NOW + 31 * MINUTE + 5 * MINUTE);
     });
 
     it('leaves erased visitors out', async () => {

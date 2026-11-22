@@ -1,7 +1,7 @@
 /**
  * Which tenant migrations a database has applied, read from its
  * `__drizzle_migrations` rows, against the tenant journal
- * (`drizzle/tenant-migrations/meta/_journal.json`). Pure: callers read the rows
+ * (`rust/migrations/tenant/meta/_journal.json`). Pure: callers read the rows
  * and build the journal entries themselves (the worker from its bundle, the
  * migration tool from disk).
  *

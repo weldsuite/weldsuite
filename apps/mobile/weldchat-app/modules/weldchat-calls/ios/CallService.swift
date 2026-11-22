@@ -229,6 +229,26 @@ final class CallService: NSObject {
     }
   }
 
+  /// A ring from a server this app doesn't run on. WeldChat 2.0 runs only on
+  /// servers that name themselves in `server` (EU, self-hosted; ADR MOB-007):
+  /// a ring without one is WeldSuite cloud's, sent to the token a 1.x install
+  /// registered there, for a call this app can't join. iOS insists every VoIP
+  /// push shows a call, so it is reported and ended at once.
+  private func reportForeign(completion: @escaping () -> Void) {
+    guard Self.isCallKitAllowed else {
+      completion()
+      return
+    }
+    let uuid = UUID()
+    provider.reportNewIncomingCall(with: uuid, update: Self.update(name: "WeldChat", video: false)) { [weak self] error in
+      DispatchQueue.main.async {
+        defer { completion() }
+        guard let self, error == nil else { return }
+        self.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+      }
+    }
+  }
+
   /// JS is done with the call (declined in-app, hung up, or it ended): take it
   /// out of CallKit without reporting anything back to JS.
   func endFromApp(_ callId: String) {
@@ -321,6 +341,8 @@ extension CallService: PKPushRegistryDelegate {
     let data = raw.compactMapValues { $0 as? String }
     if data["notificationType"] == "chat_call_cancel" {
       cancel(data, completion: completion)
+    } else if (data["server"] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+      reportForeign(completion: completion)
     } else {
       reportIncoming(data, completion: completion)
     }

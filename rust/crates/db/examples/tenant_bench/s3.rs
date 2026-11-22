@@ -8,6 +8,11 @@
 //! result is checked, so a statement bound on the wrong backend shows up as
 //! a wrong answer, not only as an error.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the benchmark measures hand-written SQL"
+)]
+
 use std::error::Error;
 use std::str::FromStr;
 use std::time::Instant;
@@ -16,6 +21,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{AssertSqlSafe, PgPool};
 
 use crate::args::Args;
+use crate::orm;
 use crate::stats::Errors;
 
 const TENANT_DB: &str = "s3_tenant";
@@ -67,6 +73,8 @@ pub(crate) async fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     let cache: usize = args.get("cache", 100)?;
     let persistent: bool = args.get("persistent", true)?;
     let distinct: u32 = args.get("distinct", 250)?;
+    // S8 of the ORM plan: the same rounds through SeaORM (`orm::client_loop`).
+    let use_orm: bool = args.get("orm", false)?;
 
     // Setup straight on Postgres, not through the pooler.
     let admin = PgPoolOptions::new()
@@ -105,9 +113,13 @@ pub(crate) async fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     let mut tasks = tokio::task::JoinSet::new();
     for client in 0..clients {
         let pool = pool.clone();
-        tasks.spawn(
-            async move { client_loop(&pool, client, iterations, persistent, distinct).await },
-        );
+        tasks.spawn(async move {
+            if use_orm {
+                orm::client_loop(&pool, client, iterations, distinct).await
+            } else {
+                client_loop(&pool, client, iterations, persistent, distinct).await
+            }
+        });
     }
     let mut errors = Errors::default();
     let mut ok = 0u64;
@@ -119,7 +131,7 @@ pub(crate) async fn run(args: &Args) -> Result<(), Box<dyn Error>> {
         errors.merge(client_errors);
     }
     println!(
-        "s3 cache={cache} persistent={persistent} clients={clients} iterations={iterations} distinct={distinct}: \
+        "s3 orm={use_orm} cache={cache} persistent={persistent} clients={clients} iterations={iterations} distinct={distinct}: \
          ok={ok} wrong={wrong} errors={} in {:.1}s",
         errors.total(),
         started.elapsed().as_secs_f64()

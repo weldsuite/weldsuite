@@ -105,6 +105,9 @@ pub struct InboundContext {
     /// The install's AI, for the auto-labels ([`crate::auto_label`]); `None`
     /// labels nothing, as the worker without Workers AI.
     pub ai: Option<weldsuite_ai::Ai>,
+    /// The virus scanner (clamd, `CLAMD_ADDRESS`), for [`crate::threats`];
+    /// `None` scans nothing and stores attachments as before.
+    pub scanner: Option<Arc<dyn weldsuite_ports::VirusScanner>>,
 }
 
 impl std::fmt::Debug for InboundContext {
@@ -118,6 +121,7 @@ impl std::fmt::Debug for InboundContext {
             .field("fan_out", &self.fan_out)
             .field("assignment_router", &self.assignment_router.is_some())
             .field("ai", &self.ai.is_some())
+            .field("scanner", &self.scanner.is_some())
             .finish_non_exhaustive()
     }
 }

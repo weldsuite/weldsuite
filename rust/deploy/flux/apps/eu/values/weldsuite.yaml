@@ -168,7 +168,8 @@ config:
 # WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
 # MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY + ANTHROPIC_API_KEY (config.ai),
-# SANDBOX_TOKEN_SECRET (once the sandbox is on again), and optionally MOLLIE_API_KEY:
+# SANDBOX_TOKEN_SECRET (once the sandbox is on again), and optionally MOLLIE_API_KEY
+# and MOLLIE_CONNECT_CLIENT_ID + MOLLIE_CONNECT_CLIENT_SECRET (WeldCommerce's Mollie Connect app):
 # secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
 # The MTA's keys are in weldsuite-mta (mta below).
 secret:

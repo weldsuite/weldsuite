@@ -5,10 +5,14 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, DynJobs, JobRequest};
+use weldsuite_schema::tenant::helpdesk_workflow_executions as executions;
 
 use super::job::{
     CONVERSATION_WORKFLOW_JOB, CUSTOMER_MESSAGE, CUSTOMER_RESPONSE, ConversationWorkflowParams,
@@ -51,17 +55,21 @@ async fn leave_on_execution(
     execution_id: &str,
     key: &str,
     payload: &Value,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update helpdesk_workflow_executions
-         set execution_context = coalesce(execution_context, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb)
-         where id = $1",
-    )
-    .bind(execution_id)
-    .bind(key)
-    .bind(payload)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    use executions::Column;
+    // `coalesce(execution_context, '{}') || { key: payload }`, in one statement.
+    let context = pg::PgExpr::concat(
+        Expr::from(Func::coalesce([
+            Expr::col(Column::ExecutionContext),
+            Expr::val(json!({})),
+        ])),
+        Expr::val(json!({ key: payload })),
+    );
+    executions::Entity::update_many()
+        .col_expr(Column::ExecutionContext, context)
+        .filter(Column::Id.eq(execution_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -79,14 +87,23 @@ impl InProcessEngine {
             Ok(db) => db,
             Err(error) => return internal(error),
         };
-        let active: Result<Option<(String, String, Option<Value>)>, sqlx::Error> = sqlx::query_as(
-            "select id, status, execution_context from helpdesk_workflow_executions
-             where conversation_id = $1 and status in ('running', 'waiting_for_input', 'ai_active')
-             limit 1",
-        )
-        .bind(&conversation_id)
-        .fetch_optional(&db)
-        .await;
+        let active: Result<Option<(String, String, Option<Value>)>, DbErr> =
+            executions::Entity::find()
+                .select_only()
+                .columns([
+                    executions::Column::Id,
+                    executions::Column::Status,
+                    executions::Column::ExecutionContext,
+                ])
+                .filter(executions::Column::ConversationId.eq(conversation_id.as_str()))
+                .filter(executions::Column::Status.is_in([
+                    "running",
+                    "waiting_for_input",
+                    "ai_active",
+                ]))
+                .into_tuple()
+                .one(&orm(&db))
+                .await;
         let active = match active {
             Ok(active) => active,
             Err(error) => return internal(error),
@@ -194,13 +211,14 @@ impl InProcessEngine {
             Ok(db) => db,
             Err(error) => return internal(error),
         };
-        let execution: Result<Option<(String, Option<Value>)>, sqlx::Error> = sqlx::query_as(
-            "select id, execution_context from helpdesk_workflow_executions
-             where conversation_id = $1 and status = 'waiting_for_input' limit 1",
-        )
-        .bind(text(body, "conversationId"))
-        .fetch_optional(&db)
-        .await;
+        let execution: Result<Option<(String, Option<Value>)>, DbErr> = executions::Entity::find()
+            .select_only()
+            .columns([executions::Column::Id, executions::Column::ExecutionContext])
+            .filter(executions::Column::ConversationId.eq(text(body, "conversationId")))
+            .filter(executions::Column::Status.eq("waiting_for_input"))
+            .into_tuple()
+            .one(&orm(&db))
+            .await;
         let (execution_id, context) = match execution {
             Ok(Some(execution)) => execution,
             Ok(None) => {

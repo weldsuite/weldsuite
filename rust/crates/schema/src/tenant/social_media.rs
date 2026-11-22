@@ -1,0 +1,215 @@
+//! `social_media`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "social_media")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "originalName")]
+    pub original_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "fileSize")]
+    pub file_size: i64,
+    #[serde(rename = "mediaType")]
+    pub media_type: super::enums::SocialMediaType,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "storagePath")]
+    pub storage_path: String,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "fileKey")]
+    pub file_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "bucket")]
+    pub bucket: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "url")]
+    pub url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "storageProvider")]
+    pub storage_provider: String,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "thumbnailUrl")]
+    pub thumbnail_url: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "thumbnails")]
+    pub thumbnails: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "dimensions")]
+    pub dimensions: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "videoMetadata")]
+    pub video_metadata: Option<Json>,
+    #[serde(rename = "status")]
+    pub status: super::enums::SocialMediaStatus,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "processingError")]
+    pub processing_error: Option<String>,
+    #[serde(rename = "processedAt", with = "crate::js::timestamp::option")]
+    pub processed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "uploadedByUserId")]
+    pub uploaded_by_user_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "folderId")]
+    pub folder_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "altText")]
+    pub alt_text: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[serde(rename = "usageCount")]
+    pub usage_count: Option<i32>,
+    #[serde(rename = "lastUsedAt", with = "crate::js::timestamp::option")]
+    pub last_used_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "platformCompatibility")]
+    pub platform_compatibility: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "checksum")]
+    pub checksum: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "social_media",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "storage_provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'r2'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'uploading'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "usage_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "social_media_type_idx",
+            columns: &[IndexColumn {
+                expression: "media_type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_media_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_media_folder_idx",
+            columns: &[IndexColumn {
+                expression: "folder_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_media_uploaded_by_idx",
+            columns: &[IndexColumn {
+                expression: "uploaded_by_user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_media_checksum_idx",
+            columns: &[IndexColumn {
+                expression: "checksum",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

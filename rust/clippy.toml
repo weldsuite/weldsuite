@@ -7,5 +7,20 @@ doc-valid-idents = [
   "WeldCommerce", "WeldForms", "WeldID", "WooCommerce", "WhatsApp",
   "WeldAds", "WeldSocial", "WeldPanel", "WeldMerge", "PostPeer", "WeldCall", "WebRTC",
   "CloudNativePG", "WebCrypto", "PostgreSQL", "MinIO", "RustFS", "SigV4", "DataFusion",
-  "RustSec", "WinAnsi", "XObject", "..",
+  "RustSec", "SeaORM", "SeaQuery", "PgBouncer", "WinAnsi", "XObject", "..",
+]
+
+# Queries go through the SeaORM entities (ADR DATA-019, plan phase 4):
+# `weldsuite_db::orm(&pool)`, or `weldsuite_db::OrmConn` inside a transaction.
+# A crate that still writes SQL says so at its root, and is listed in
+# crates/schema/tests/raw_sql.rs; removing that line marks it converted.
+# SQL that stays on purpose (reports, bulk statements, the migration runner)
+# takes `#[allow(clippy::disallowed_methods, reason = "…")]` on its function.
+disallowed-methods = [
+  { path = "sqlx::query", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
+  { path = "sqlx::query_as", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
+  { path = "sqlx::query_scalar", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
+  { path = "sqlx::query_with", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
+  { path = "sqlx::query_as_with", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
+  { path = "sqlx::query_scalar_with", reason = "query through the SeaORM entities (ADR DATA-019); SQL that stays needs #[allow(clippy::disallowed_methods, reason = \"…\")]" },
 ]

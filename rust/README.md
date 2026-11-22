@@ -61,10 +61,17 @@ modules, each with conformance suites that reach every route:
   service catalogue, `/api/desk/catalog` with requests, approval steps and
   the WeldFlow tasks of an approved request through `flow-domain`,
   `catalog.rs` and `fulfilment.rs`; the help center's catalogue pages are
-  part of `/api/portal`, which is not served here) and **stash** (the WMS, and
-  the product catalogue at `/api/products`, which moved here from commerce-api
-  when WeldCommerce was removed to be rebuilt; the pick-list ship action records
-  the shipment and calls no carrier)
+  part of `/api/portal`, which is not served here) and **stash** (the WMS; the
+  pick-list ship action records the shipment and calls no carrier)
+- **commerce** (WeldCommerce, rebuilt in Rust only, ADR COM-009: no
+  TypeScript worker and no conformance suite, its own tests in
+  `modules/commerce/tests`): the overview, and the catalogue. `/api/products`
+  moved here from the stash crate with stash-api's behaviour, so the
+  "stash: products" suite still runs against it (the prefix stays stash's in
+  `@weldsuite/api-modules` while Global's stash-api serves it); its variants
+  (`/api/products/:id/variants`, SKUs and barcodes unique among live products
+  and variants) and `/api/categories` (the tree, manual members, automated
+  members evaluated on read) are Rust only
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
   code is `crates/ads-domain`, for connect-api's integration endpoints
@@ -542,9 +549,19 @@ rust/
   crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer
   crates/db/            master DB, workspace → tenant pool, database_url sealing and opening, Postgres errors,
-                        atomically, Drizzle-shaped rows, permission lookups
-  crates/migrations/    the journaled Drizzle migrations, embedded at build time, and the runner behind
-                        `weldsuite migrate` (the TypeScript runners' twin; see "Migrations" below)
+                        atomically, Drizzle-shaped rows, permission lookups, SeaORM on the pools (orm.rs:
+                        `orm(&pool)`, and `OrmConn` for ORM statements inside `atomically_with`)
+  crates/migrations/    the journaled migrations (../migrations, and personal-api's Drizzle ones), embedded
+                        at build time, and the runner behind `weldsuite migrate` (see "Migrations" below)
+  crates/schema/        the schema: the master and tenant tables as SeaORM entities, each serializing to
+                        the row Drizzle returned, with what the entity can't say (defaults, indexes,
+                        constraints) as DDL data; `<kind>::schema()` builds drizzle-kit's snapshot from
+                        them, which must equal the newest migration's (tests/snapshot.rs); the differ
+                        (diff.rs, drizzle-kit's SQL for every migration in history, tests/differ.rs)
+                        and the generator behind `pnpm db:generate` (generate.rs, `weldsuite-schema`)
+                        (ADR DATA-019)
+  migrations/           the master and tenant migrations, generated from crates/schema in drizzle-kit's
+                        layout: NNNN_<name>.sql, meta/_journal.json, the newest five snapshots
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
   crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity, database provisioning, IMAP),
                         their test doubles, in-process jobs
@@ -559,6 +576,11 @@ rust/
                         ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
                         `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
                         `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
+  crates/mta/           WeldSuite's own MTA (MAIL-011, `weldsuite mta`): submission, the queue in its own database,
+                        direct delivery with DKIM, shaping, the bounce MX, MTA-STS and TLS-RPT; the per-IP warm-up
+                        (warmup.rs: a daily cap that rises one step only after a UTC day that sent half of it,
+                        `MTA_WARMUP_*`; `weldsuite mta warmup` shows each IP's step). Running it:
+                        deploy/hetzner/README.md, "Mail"
   crates/sandbox/       WeldAgent's sandbox on Kubernetes: gVisor pods through the Kubernetes API, the client of the agent
                         in them, SearXNG search, the sandbox and web tools, the isolation check (see "AI")
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
@@ -611,6 +633,8 @@ rust/
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
                         helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS),
+                        modules/commerce (WeldCommerce, Rust only: the catalogue, `/api/products`
+                        included; tools/tables.mts writes its table descriptors),
                         modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
@@ -767,10 +791,108 @@ its id goes into `RUST_PORTED_MODULES` (`@weldsuite/api-modules`), the server
 mounts it, and its suite becomes part of the parity gate: CI runs it on every
 PR that touches the module, so a feature lands in both backends.
 
+## Queries
+
+New queries go through the SeaORM entities of `crates/schema` (ADR DATA-019),
+on the pools `weldsuite-db` already hands out:
+
+```rust
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::people;
+
+let person = people::Entity::find_by_id(id.to_owned())
+    .filter(people::Column::DeletedAt.is_null())
+    .one(&orm(&tenant.pool))
+    .await?;
+// The row as the API returns it: Drizzle's JSON shape, decided by the entity.
+let json = person.map(serde_json::to_value).transpose()?;
+```
+
+Inside a transaction `atomically_with` opened, `OrmConn::new(tx)` makes its
+connection a SeaORM one, so ORM statements commit or roll back with the SQL
+around them (`crates/db/src/orm.rs`).
+
+`clippy.toml` disallows `sqlx::query`, `query_as`, `query_scalar` and their
+`_with` forms. The crates written before the entities allow them at their root
+(`#![allow(clippy::disallowed_methods, reason = "not converted to the ORM
+yet …")]`) and are listed in `crates/schema/tests/raw_sql.rs`:
+
+- a new crate never gets that line, and the test fails if one does;
+- converting a crate means dropping the line and its entry in the list, one
+  module per PR;
+- SQL that stays SQL (reports with CTEs and window functions, bulk `INSERT …
+  SELECT` / `UPDATE … FROM`, the WeldPanel compiler) takes
+  `#[allow(clippy::disallowed_methods, reason = "…")]` on its function, and
+  the test requires the reason;
+- tests, examples and benches may write SQL for their fixtures.
+
+Until a crate is converted, a query a change touches anyway moves to the ORM
+when that is easy; a new route in an old crate uses the ORM.
+
+Converting a crate (one module per PR, `modules/know` with `crates/know-domain`
+was the first):
+
+| SQL | SeaORM |
+|---|---|
+| `select to_jsonb(t) …` + `js_row` | `Entity::find…().one/all`, then `serde_json::to_value(model)`: the entity serializes as Drizzle did |
+| `jsonb_build_object(…)` of some columns | a `#[derive(FromQueryResult, Serialize)]` struct with `#[serde(rename_all = "camelCase")]` and `weldsuite_schema::js::*` on its timestamps, `.select_only().columns([…]).into_model()` |
+| `insert …` | `Entity::insert(ActiveModel { …, ..Default::default() })`; `.exec_with_returning` for `returning`, `.exec_without_returning` otherwise |
+| `on conflict do nothing` | `.on_conflict(OnConflict::new().do_nothing().to_owned())`: no target, so any unique index refuses the row (`on_conflict_do_nothing()` targets the primary key only) |
+| `update … set col = case when $set then $v else col end` | `update_many()` with a `col_expr` only for the fields the body sent |
+| `coalesce(max(x), -1)` | `.select_only().column_as(Column::X.max(), "max").into_tuple::<Option<i32>>()` |
+| `x = any($1)` | `Column::X.is_in(list)`, with the list checked non-empty as before |
+| `not exists (select …)` on a not-null column | `Column::X.not_in_subquery(Query::select()…)` |
+| a join | `Entity::belongs_to(Other).from(…).to(…).into()` with `.join(JoinType::…, relation)` |
+| `$1::timestamp` bound as text | a `PrimitiveDateTime` from `weldsuite_db::utc_now()` (UTC, milliseconds, as Drizzle wrote it) |
+| a request body written whole (`insert … select … from jsonb_populate_record(…)`, generated per table) | `weldsuite_db::record::JsonTable::of::<Entity>()`: the statements come from the entity's columns, Postgres still converts the values (desk's `Table`) |
+| `select … filter (where …)`, `extract(epoch …)` | the columns themselves, worked out in Rust (`CASE` inside `Func::min` for a filtered aggregate) |
+| `metadata->>'key'`, `jsonb || jsonb`, `ILIKE`, `@>` | `PgExpr::cast_json_field`, `PgExpr::concat`, `PgExpr::ilike`, `PgExpr::contains`, called by path |
+| a statement that has to stay one (a claim with its children, a read-and-clear, a bulk upsert that merges) | SQL, with `#[allow(clippy::disallowed_methods, reason = "…")]` on its function and its error through `weldsuite_db::orm_error` |
+
+A domain error that held `sqlx::Error` holds `sea_orm::DbErr`; callers that
+turned it into their own 500 keep the same response. SQL that stays in a
+converted crate, or a call into a crate not converted yet, reports through
+`weldsuite_db::orm_error`, so the crate has the one error type, and
+`weldsuite_db::is_unique_violation` and `pg_constraint` see through it. The
+module's conformance suites are the check that nothing changed.
+
+Don't import `sea_orm::ExprTrait` or `PgExpr` at the top of a module: they are
+implemented for everything that converts into a value, so
+`serde_json::Value::is_null`, `str::eq` and `Vec::contains` resolve to them
+instead. Call them by path (`sea_orm::ExprTrait::eq(expr, value)`) or import
+them inside the one function that needs them.
+
 ## Migrations
 
-`weldsuite migrate` applies the journaled Drizzle SQL
-(`packages/core/db/drizzle/{master,tenant,personal}-migrations`) to the master database,
+The schema is the entities in `crates/schema` (ADR DATA-019). To change it,
+edit them and, once a person has approved the migration, generate it:
+
+```bash
+pnpm db:generate --name add_ticket_priority          # tenant
+pnpm db:generate:master --name add_workspace_region  # master
+pnpm db:generate --name backfill_x --custom          # empty file for hand-written SQL
+```
+
+The generator (`weldsuite-schema generate`, `crates/schema/src/generate.rs`)
+diffs the newest snapshot in `migrations/<database>/meta` against the one the
+entities build, and writes `NNNN_<name>.sql`, its snapshot and the journal
+entry, keeping the newest five snapshots. Its differ (`diff.rs`) writes what
+drizzle-kit 0.30 wrote, statement for statement: `tests/differ.rs` replays
+drizzle-kit's output for all 252 migrations whose snapshots git still has
+(`scripts/rust-differ-fixtures.ts` recorded them). It refuses a drop, a type
+change (a varchar getting longer aside), a dropped enum value or `SET NOT
+NULL` without `--allow-drop`, anything `CONCURRENTLY`, a table, column, enum
+or view that disappears while another appears (it never guesses a rename),
+and what the schema doesn't use (schemas, sequences, row-level security,
+identity columns, changing a generated column): write those as `--custom`.
+`tests/snapshot.rs` fails while the entities and the newest snapshot
+disagree, or a `.sql` file isn't journaled. The personal database's schema
+and migrations are still Drizzle's (`pnpm --filter @weldsuite/db
+db:generate:personal`).
+
+`weldsuite migrate` applies the journaled SQL (`migrations/{master,tenant}`
+and `packages/core/db/drizzle/personal-migrations`) to the master database,
 to every active workspace's tenant database, and to personal-api's shared
 personal database when `DATABASE_URL_PERSONAL` is set (`--personal`;
 `pnpm db:migrate:personal`'s twin, `drizzle.__drizzle_migrations`; skipped
@@ -778,7 +900,9 @@ without the URL). `crates/migrations/build.rs`
 embeds the SQL in the binary, so an image carries exactly the migrations its
 code was built for and needs no Node (the image build copies their SQL and
 journals from the repo root, its context; `rust/Dockerfile.dockerignore`
-leaves the snapshots out). It is the TypeScript runners' twin: the master as
+leaves the snapshots out). Global's deploy no longer migrates its databases:
+they stay at the last migration drizzle-kit generated and get the rest from
+`weldsuite migrate` when they move into the EU install. It is the TypeScript runners' twin: the master as
 `pnpm db:migrate:master` does it (`drizzle.__drizzle_migrations`), each tenant
 as `apps/tools/migrate-databases` does it (`public.__drizzle_migrations`), with
 the same rows, the same one-transaction run, the same tenant selection and
@@ -954,6 +1078,7 @@ log none.
 | `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Invitations are accepted there too, on `/invite` at `PUBLIC_APP_URL` (`/api/sign-in/invitation/accept`). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; seal and open WeldAds' Meta tokens (`encryptField`); seal and open WeldConnect's store connection credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
 | `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_REDIRECT_URL`, `MOLLIE_API_URL` | Buying credits (the `credit-top-up` feature; unset key: unavailable, and `POST /api/credits/checkout` answers as without billing-worker): Mollie's API key, where Mollie posts payment changes (default `<PUBLIC_API_URL>/api/webhooks/mollie`, else `APP_API_PUBLIC_URL`, `PUBLIC_URL`), where a checkout returns when the client names no address (default `<PUBLIC_APP_URL>/settings/billing?credits=success`, else `PUBLIC_URL`), and the API's base URL (tests). A key without a webhook or return address stops the start. Packages are master `credit_packages` rows priced in EUR; pending checkouts are kept a week in Valkey (or this process) for the return page |
+| `MOLLIE_CONNECT_CLIENT_ID`, `MOLLIE_CONNECT_CLIENT_SECRET`, `CLERK_SECRET_KEY` or `INTERNAL_API_SECRET` | WeldCommerce taking payments into each workspace's own Mollie account (ADR COM-013): the Mollie Connect app (both or neither; without it a workspace connects with its own API key and `oauthAvailable` is false), and the key that signs the OAuth `state` (the first of the two that is set). The OAuth callback is `<CONNECTOR_WEBHOOK_BASE_URL, else WEBHOOK_BASE_URL, else PUBLIC_URL>/api/commerce-payments/connection/mollie/callback`, Mollie's webhook `<same>/webhooks/commerce/mollie/<connection id>`, and the merchant returns to `PUBLIC_APP_URL` (else the same). Stored tokens and keys are sealed with `DATABASE_ENCRYPTION_KEY` |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
 | `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`/`_ENV`/`_APPLICATION_ID`, `PONTO_MTLS_CERT`/`_KEY`, `PONTO_SIGNATURE_CERT_ID`, `PONTO_SIGNATURE_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM, `PONTO_ENV=sandbox` for a sandbox application, whose people authorize on the sandbox's own page, `PONTO_APPLICATION_ID` (the application's id in Isabel's developer portal) to turn on Ponto's webhooks, which then poll each connection once a day instead of every six hours, and optionally the signature certificate's id from Isabel's developer portal and its unencrypted private key as PEM, which then sign every Ponto request; Ponto requires signatures for payments only; Ponto's "sync now" sends the member's address, the `X-Forwarded-For` entry `TRUSTED_PROXIES` from the right, as Ponto API v2 requires, and waits up to 15 seconds for Ponto's synchronizations, while `bank-feed-due` only reads what Ponto's own four daily syncs fetched), and the field-encryption AAD switch the workers share. Starting a bank link asks for a second factor verified in the last 10 minutes only with Clerk sign-in; with `AUTH_PROVIDER=oidc` that step-up is off for now, as Zitadel's access tokens carry no `auth_time` or `amr` and the platform has no OIDC step-up yet. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
@@ -984,6 +1109,8 @@ log none.
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
 | `DISCORD_BOT_TOKEN` | WeldDesk: the bot a helpdesk workflow posts its messages to a Discord conversation with (optional; unset: nothing is posted, as on Global without it). Slack conversations use the bot token of the workspace's Slack integration |
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
+| `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` | WeldChat's call ring on iPhones: an APNs auth key (its id, the Apple team's id and the `.p8` PEM; `\n` escapes are accepted) of the team that owns the WeldChat app, which sends Apple's `VoIP` push to the topic `com.weldsuite.weldchat.voip` (production first, the sandbox when production refuses the token), so CallKit rings the phone on the lock screen. Only used with all three set (optional; unset: an iPhone gets the ordinary "Incoming call" notification over Expo and no CallKit ring; Android's ring is an Expo data message and needs none of them) |
+| `CALL_RING_SECRET` | WeldChat: the HMAC-SHA256 key of the ring token each incoming-call push carries (`declineToken`, valid two minutes), which lets the phone's lock-screen or CallKit Decline end the ring at `/public/chat-calls/decline` without a session, while the app is not running. A random value (`openssl rand -hex 32`) (optional; unset: no `declineToken` is minted and `/public/chat-calls/decline` answers 401, so the phone can only decline through the app with its session, and a Decline the app does not get to send leaves the caller ringing until the ring times out) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
 | `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE`, `PANEL_RECORDER_FILE`, `PANEL_VITALS_FILE` | WeldPanel: the collector origin the install snippets and the server SDK point at (default: the request's own origin, which serves the collector too, `/v1/track` and `/v1/import` included), and the bundles served as `/s.js`, `/rec.js` and `/v.js` (default `/srv/panel/panel.global.js`, `panel-recorder.global.js` and `panel-vitals.global.js`, which the image carries; a missing one answers 404). The day's salt, the daily event and recording counts and the per-IP rate limits need `VALKEY_URL` across pods. Recording chunks and heatmap snapshots go to the panel bucket (`S3_BUCKET_PANEL`; unset: `POST /r` and `/snap` answer 204 and store nothing), their index rows to `PANEL_STATE` (`panel.replays.v1.<workspace>`) |
@@ -1431,6 +1558,29 @@ On Global, Cloudflare Email Routing hands each message to
    (`reach/<org>/_failed/<sha256>.eml`), never retried, as on Global.
    Parity: `modules/reach/tests/inbound_parity.rs` against fixtures
    reach-api wrote (`pnpm rust:reach-inbound-fixtures`, checked in CI).
+
+**Threat protection** (Kubernetes only; Global never had it). Before any
+mailbox stores a message, `consume` streams each attachment to clamd
+(`CLAMD_ADDRESS`, the chart's `mailInbound.clamav`: ClamAV's official image,
+freshclam inside) and checks each link (`crates/mail-domain/src/threats.rs`):
+against master `mail_threat_indicators`, which `weldsuite cron
+mail-threat-feeds` fills from the feeds in `MAIL_THREAT_FEEDS` (none by
+default: which lists may be used commercially is the operator's call), and
+against heuristics (an IP address for a host, credentials before the host, a
+homograph punycode domain). An infected file is never written to a bucket;
+its row keeps the name and `scan_signature`, and the message goes to Spam
+with a `threats` entry, as it does for a link a feed lists. When clamd can't
+be reached the message is still stored: its files wait in the mail bucket
+under `mail/<ws>/<mailbox>/<msg>/quarantine/`, `scan_status` `pending`, and
+the workspace is marked due (`mail_attachment_scan`) for `weldsuite cron
+mail-attachment-scan`, which moves cleared files to `STORAGE` and sends a
+message with an infected one to Spam. The download route answers 403
+`ATTACHMENT_INFECTED` or 409 `ATTACHMENT_SCAN_PENDING`, forwards leave such
+files out, the helpdesk and accounting fan-out gets nothing from a dangerous
+message and no pending file, and the platform opens every link of a received
+message through `/weldmail/link`, which asks `POST
+/api/mail-messages/{id}/link-check` first. Without `CLAMD_ADDRESS` nothing is
+scanned and attachments are stored as before.
 
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per

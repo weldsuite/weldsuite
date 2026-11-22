@@ -288,29 +288,57 @@ function usage(): PanelUsageDto {
   };
 }
 
+/**
+ * The last 30 minutes of visits: each minute's arrivals come from a seed of
+ * that minute, so a refresh keeps the past and only adds the present. A
+ * visit lasts 20 seconds to 15 minutes; one still going was active just now.
+ */
 function live(projectId: string): PanelLiveDto {
-  const bucket = Math.floor(Date.now() / 15_000);
-  const random = rng(`live|${projectId}|${bucket}`);
+  const now = Date.now();
+  const nowMinute = Math.floor(now / 60_000);
   const app = projectId === APP_PROJECT_ID;
   const pool = app ? APP_SCREENS : PAGES;
-  const count = between(random, 11, 19);
-  const sessions: PanelLiveSessionDto[] = Array.from({ length: count }, (_, i) => {
-    const person = random() < 0.45 ? PEOPLE[Math.floor(random() * PEOPLE.length)]! : null;
-    const page = pick(random, pool, pool.map((p) => p.weight));
-    const startedSecondsAgo = between(random, 20, 1100);
-    return {
-      sessionId: `ses_live_${projectId.slice(-4)}_${i}_${Math.floor(bucket / 40)}`,
-      distinctId: person?.distinctId ?? `anon_${Math.floor(random() * 1e8).toString(36)}`,
-      path: page.path,
-      title: page.title,
-      country: person?.country ?? pick(random, ['NL', 'DE', 'US', 'BE', 'GB', 'FR', 'ES'], [30, 14, 14, 8, 8, 5, 3]),
-      deviceType: person ? (person.device as PanelLiveSessionDto['deviceType']) : pick(random, ['desktop', 'mobile', 'tablet'] as const, [66, 29, 5]),
-      ts: new Date(Date.now() - between(random, 1, 80) * 1000).toISOString(),
-      startedAt: new Date(Date.now() - startedSecondsAgo * 1000).toISOString(),
-      pageviews: Math.max(1, Math.round(startedSecondsAgo / 90) + between(random, 0, 2)),
-    };
-  }).sort((a, b) => b.ts.localeCompare(a.ts));
-  return { projectId, visitors: sessions.length, sessions };
+  const sessions: PanelLiveSessionDto[] = [];
+  for (let minute = nowMinute - 45; minute <= nowMinute; minute++) {
+    const random = rng(`live|${projectId}|${minute}`);
+    const arrivals = between(random, 0, 3);
+    for (let i = 0; i < arrivals; i++) {
+      const person = random() < 0.45 ? PEOPLE[Math.floor(random() * PEOPLE.length)]! : null;
+      const page = pick(random, pool, pool.map((p) => p.weight));
+      const country = person?.country ?? pick(random, ['NL', 'DE', 'US', 'BE', 'GB', 'FR', 'ES', 'IN', 'BR', 'AU'], [30, 14, 14, 8, 8, 5, 3, 3, 2, 2]);
+      const device = person ? (person.device as PanelLiveSessionDto['deviceType']) : pick(random, ['desktop', 'mobile', 'tablet'] as const, [66, 29, 5]);
+      const anon = `anon_${Math.floor(random() * 1e8).toString(36)}`;
+      const started = minute * 60_000 + Math.floor(random() * 60_000);
+      const length = between(random, 20, 900) * 1000;
+      const extraViews = between(random, 0, 2);
+      const ts = Math.max(started, Math.min(started + length, now));
+      if (started > now || ts < now - 30 * 60_000) continue;
+      sessions.push({
+        sessionId: `ses_live_${projectId.slice(-4)}_${minute}_${i}`,
+        distinctId: person?.distinctId ?? anon,
+        path: page.path,
+        title: page.title,
+        country,
+        deviceType: device,
+        ts: new Date(ts).toISOString(),
+        startedAt: new Date(started).toISOString(),
+        pageviews: Math.max(1, Math.round((ts - started) / 90_000) + extraViews),
+      });
+    }
+  }
+  sessions.sort((a, b) => b.ts.localeCompare(a.ts));
+  const visitors = (list: PanelLiveSessionDto[]) => new Set(list.map((session) => session.distinctId)).size;
+  const perMinute = Array.from({ length: 30 }, (_, i) => {
+    const from = now - (30 - i) * 60_000;
+    return visitors(sessions.filter((session) => Date.parse(session.startedAt) < from + 60_000 && Date.parse(session.ts) >= from));
+  });
+  return {
+    projectId,
+    visitors: visitors(sessions.filter((session) => Date.parse(session.ts) >= now - 5 * 60_000)),
+    visitors30m: visitors(sessions),
+    perMinute,
+    sessions,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -619,6 +619,7 @@ export const mail = {
       noLabelsAvailable: 'No hay etiquetas disponibles',
       notSpam: 'No es spam',
       markAsSpamAction: 'Marcar como spam',
+      reportSpamAndUnsubscribe: 'Marcar como spam y cancelar suscripción',
       blockSender: 'Bloquear remitente',
       senderBlocked: '{email} bloqueado. Su correo ahora va a Spam.',
       failedToBlockSender: 'No se pudo bloquear al remitente',

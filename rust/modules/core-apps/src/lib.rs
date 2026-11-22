@@ -24,6 +24,11 @@
 //! Billing (Stripe subscriptions, Connect payouts) is Global-only: these
 //! routes only read the columns Stripe's webhooks write, as app-api does.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 /// A `user_apps` row as JSON, with `price_monthly` as Drizzle reads
 /// `numeric` (a string). `a` is the table's alias.
 macro_rules! app_json {

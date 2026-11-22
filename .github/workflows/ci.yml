@@ -332,7 +332,7 @@ jobs:
             # What rust/Dockerfile's `build` stage copies, and the file itself.
             inputs=(rust/Dockerfile rust/Dockerfile.dockerignore rust/rust-toolchain.toml rust/Cargo.toml
               rust/Cargo.lock rust/clippy.toml rust/.cargo rust/catalogs rust/crates rust/modules rust/bins
-              packages/core/db/drizzle)
+              rust/migrations packages/core/db/drizzle/personal-migrations)
             sha="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
               --jq '.workflow_runs[0].head_sha // empty' || true)"
             if [ -n "$sha" ] && git fetch --quiet --depth=1 origin "$sha" && git diff --quiet "$sha" HEAD -- "${inputs[@]}"; then

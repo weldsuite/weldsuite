@@ -1,0 +1,164 @@
+//! `weldagent_routines`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "weldagent_routines")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "agentId")]
+    pub agent_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "instructions")]
+    pub instructions: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "skillId")]
+    pub skill_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "scheduleKind")]
+    pub schedule_kind: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "cronExpr")]
+    pub cron_expr: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "timezone")]
+    pub timezone: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "eventKey")]
+    pub event_key: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "connectorConfig")]
+    pub connector_config: Option<Json>,
+    #[serde(rename = "enabled")]
+    pub enabled: bool,
+    #[serde(rename = "requireApproval")]
+    pub require_approval: bool,
+    #[serde(rename = "lastRunAt", with = "crate::js::timestamptz::option")]
+    pub last_run_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "nextRunAt", with = "crate::js::timestamptz::option")]
+    pub next_run_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "weldagent_routines",
+    columns: &[
+        DdlColumn {
+            name: "schedule_kind",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'cron'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "timezone",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'UTC'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "require_approval",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "weldagent_routines_agent_idx",
+            columns: &[IndexColumn {
+                expression: "agent_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "weldagent_routines_next_run_idx",
+            columns: &[IndexColumn {
+                expression: "next_run_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "weldagent_routines_enabled_idx",
+            columns: &[IndexColumn {
+                expression: "enabled",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

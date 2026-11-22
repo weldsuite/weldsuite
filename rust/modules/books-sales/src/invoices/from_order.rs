@@ -2,6 +2,11 @@
 //! entity's engine taxes the order's lines (`services/sales-tax/order-invoice`);
 //! elsewhere each line's rate is rebuilt from the order's amounts and linked
 //! to the entity's own matching sales rate.
+//!
+//! An order WeldCommerce priced with the EU VAT engine (`vat_treatment` set,
+//! ADR COM-014) is invoiced from its own lines, rates and treatment, not
+//! calculated again: the invoice cannot disagree with the order. A
+//! reverse-charge order carries the reverse-charge tax category.
 
 use axum::extract::{Path, State};
 use axum::response::Response;
@@ -21,8 +26,12 @@ use weldsuite_books_domain::sales_tax::document_tax::{
 };
 use weldsuite_books_domain::sales_tax::{allocate_cents, from_cents, to_cents};
 use weldsuite_books_domain::tables::{INVOICE_ITEMS, INVOICES, ORDER_ITEMS, ORDERS};
+use weldsuite_books_domain::tax::eu_vat::{
+    EuTreatment, EuVatLine, EuVatResult, VatCategory, rates::is_eu_member,
+};
 use weldsuite_books_domain::tax::{
-    DocumentTaxItem, SupplyArgs, TaxArgs, calculate_document_tax, resolve_gst_supply,
+    CalculatedDocumentTax, DocumentTaxItem, SupplyArgs, TaxArgs, calculate_document_tax,
+    resolve_gst_supply,
 };
 use weldsuite_catalogs::entity_events::INVOICE_CREATED;
 use weldsuite_kit::generate_id;
@@ -289,6 +298,162 @@ fn rebuilt_lines(order: &Value, items: &[Value]) -> Vec<OrderLine> {
     lines
 }
 
+/// An order's own VAT as an invoice: its lines (net, so the invoice's tax
+/// is the order's) and the tax the order stored.
+struct StoredEuInvoice {
+    lines: Vec<OrderLine>,
+    calc: CalculatedDocumentTax,
+}
+
+/// `"21.00"` as 2100.
+fn rate_bps(text: Option<&str>) -> u32 {
+    let percent = js::parse_float(text.filter(|t| !t.is_empty()).unwrap_or("0"));
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let bps = js::math_round(percent * 100.0).max(0.0) as u32;
+    bps
+}
+
+/// A line of the invoice for `net_cents` over `quantity` units: the unit
+/// price when it is exact in cents, else one line of the total.
+fn net_line(
+    description: String,
+    quantity: i64,
+    shown_unit: &str,
+    net_cents: i64,
+    product_id: Option<String>,
+) -> OrderLine {
+    #[allow(clippy::cast_precision_loss)]
+    let unit = js::math_round(from_cents(net_cents) / quantity as f64 * 10_000.0) / 10_000.0;
+    #[allow(clippy::cast_precision_loss)]
+    let exact = to_cents(unit * quantity as f64) == net_cents;
+    if exact {
+        OrderLine {
+            description,
+            quantity: quantity.to_string(),
+            unit_price: js::to_fixed(unit, 4),
+            discount_percent: "0".into(),
+            product_id,
+            tax_code: None,
+            tax_rate: None,
+        }
+    } else {
+        OrderLine {
+            description: format!("{description} ({quantity} x {shown_unit})"),
+            quantity: "1".into(),
+            unit_price: js::to_fixed(from_cents(net_cents), 2),
+            discount_percent: "0".into(),
+            product_id,
+            tax_code: None,
+            tax_rate: None,
+        }
+    }
+}
+
+/// The order's stored VAT (`vat_treatment`, per item `tax_rate`,
+/// `tax_amount` and `total`, shipping's in `metadata.shippingVat`) as invoice
+/// lines and tax. `None` for an order without an EU treatment (an imported
+/// one, or one from before VAT was calculated): the caller calculates as it
+/// always did. `seller_country` is the invoicing entity's.
+fn stored_eu_invoice(
+    order: &Value,
+    items: &[Value],
+    seller_country: &str,
+) -> Option<StoredEuInvoice> {
+    let treatment = EuTreatment::parse(text(order, "vatTreatment")?)?;
+    if !is_eu_member(seller_country) {
+        return None;
+    }
+    let seller = seller_country.trim().to_ascii_uppercase();
+    let buyer = text(order, "destinationCountry")
+        .filter(|c| !c.is_empty())
+        .map_or_else(|| seller.clone(), str::to_ascii_uppercase);
+    let rate_country = match treatment {
+        EuTreatment::Domestic | EuTreatment::SellerRateCrossBorder => Some(seller.clone()),
+        EuTreatment::Oss => Some(buyer.clone()),
+        EuTreatment::ReverseCharge | EuTreatment::OutsideEu => None,
+    };
+    let mut lines: Vec<OrderLine> = Vec::new();
+    let mut vat_lines: Vec<EuVatLine> = Vec::new();
+    for item in items {
+        let quantity = item["quantity"].as_i64().filter(|q| *q > 0).unwrap_or(1);
+        let tax = to_cents(money(text(item, "taxAmount")));
+        let gross = to_cents(money(text(item, "total")));
+        let net = gross - tax;
+        let shown = text(item, "unitPrice")
+            .filter(|p| !p.is_empty())
+            .unwrap_or("0");
+        let description = text(item, "description").filter(|d| !d.is_empty());
+        let name = format!(
+            "{}{}",
+            text(item, "name").unwrap_or_default(),
+            description.map(|d| format!(" - {d}")).unwrap_or_default()
+        );
+        lines.push(net_line(
+            name,
+            quantity,
+            &js::to_fixed(money(Some(shown)), 2),
+            net,
+            text(item, "productId")
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned),
+        ));
+        vat_lines.push(EuVatLine {
+            category: text(item, "vatCategory")
+                .and_then(VatCategory::parse)
+                .unwrap_or(VatCategory::Standard),
+            rate_bps: rate_bps(text(item, "taxRate")),
+            net_minor: net,
+            tax_minor: tax,
+            gross_minor: gross,
+        });
+    }
+    if let Some(shipping) = order.pointer("/metadata/shippingVat") {
+        let cents = |key: &str| to_cents(money(shipping.get(key).and_then(Value::as_str)));
+        let (net, tax, gross) = (cents("net"), cents("tax"), cents("gross"));
+        lines.push(OrderLine {
+            description: "Shipping".into(),
+            quantity: "1".into(),
+            unit_price: js::to_fixed(from_cents(net), 2),
+            discount_percent: "0".into(),
+            product_id: None,
+            tax_code: None,
+            tax_rate: None,
+        });
+        vat_lines.push(EuVatLine {
+            category: VatCategory::Standard,
+            rate_bps: rate_bps(shipping.get("rate").and_then(Value::as_str)),
+            net_minor: net,
+            tax_minor: tax,
+            gross_minor: gross,
+        });
+    }
+    let sum = |pick: fn(&EuVatLine) -> i64| vat_lines.iter().map(pick).sum::<i64>();
+    let result = EuVatResult {
+        treatment,
+        seller_country: seller.clone(),
+        buyer_country: buyer,
+        rate_country,
+        vies_unavailable: order
+            .pointer("/metadata/viesUnavailable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        prices_include_vat: order["pricesIncludeTax"].as_bool().unwrap_or(false),
+        net_total_minor: sum(|l| l.net_minor),
+        tax_total_minor: sum(|l| l.tax_minor),
+        gross_total_minor: sum(|l| l.gross_minor),
+        lines: vat_lines,
+        reverse_charge_category: (treatment == EuTreatment::ReverseCharge)
+            .then_some("eu_b2b_goods"),
+        invoice_notice: (treatment == EuTreatment::ReverseCharge && seller == "NL")
+            .then(|| weldsuite_books_domain::compliance::notice("NL_NOTICE_ICL")),
+    };
+    let discount = to_cents(money(text(order, "discountTotal")));
+    Some(StoredEuInvoice {
+        lines,
+        calc: result.to_calculated(discount),
+    })
+}
+
 pub(crate) async fn create(
     caller: Caller,
     State(state): State<BooksState>,
@@ -297,6 +462,7 @@ pub(crate) async fn create(
     reply(
         from_order(&caller, &state, &order_id)
             .await
+            .map(created)
             .map_err(Refusal::from),
         "Failed to create invoice from order",
     )
@@ -306,11 +472,12 @@ pub(crate) async fn create(
     clippy::too_many_lines,
     reason = "both of the route's branches, US and rate-table, in its order"
 )]
-async fn from_order(
+/// The draft invoice of a commerce order: `{ invoiceId, invoiceNumber, … }`.
+pub(crate) async fn from_order(
     caller: &Caller,
     state: &BooksState,
     order_id: &str,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let order: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
@@ -436,6 +603,40 @@ async fn from_order(
         .await;
     }
 
+    // An order the EU VAT engine priced: invoice exactly what it says.
+    let seller_country: Option<String> = sqlx::query_scalar(
+        "select jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(&entity_id)
+    .fetch_optional(db)
+    .await?;
+    if let Some(stored) = stored_eu_invoice(&order, &items, seller_country.as_deref().unwrap_or(""))
+    {
+        let number = next_entity_number(db, &entity_id, SequenceType::Invoice)
+            .await?
+            .formatted;
+        let order_currency = match text(&order, "currency").filter(|c| !c.is_empty()) {
+            Some(c) => c.to_owned(),
+            None => resolve_entity_base_currency(db, &entity_id).await?,
+        };
+        return finish(
+            caller,
+            state,
+            &order,
+            order_id,
+            &entity_id,
+            &contact_id,
+            (&generate_id("inv"), &number, &order_currency),
+            &stored.lines,
+            None,
+            &stored.calc,
+            None,
+            Value::Null,
+            false,
+        )
+        .await;
+    }
+
     lines = rebuilt_lines(&order, &items);
     // Link each derived percentage to the entity's own matching sales rate.
     let rates: Vec<(String, String, String)> = sqlx::query_as(
@@ -517,6 +718,36 @@ async fn from_order(
     .await
 }
 
+/// The days of the payment terms of the order's counterparty (`30`, `net 30`,
+/// `30 days`); `None` without terms or in a form that is not one of those.
+async fn party_terms_days(db: &weldsuite_db::PgPool, order: &Value) -> Option<i64> {
+    let party = text(order, "counterpartyId")?;
+    let terms: Option<String> = sqlx::query_scalar(
+        "select payment_terms from parties where id = $1 and deleted_at is null",
+    )
+    .bind(party)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+    parse_terms_days(terms.as_deref()?)
+}
+
+fn parse_terms_days(terms: &str) -> Option<i64> {
+    let lower = terms.trim().to_lowercase();
+    let rest = lower.strip_prefix("net").unwrap_or(&lower).trim_start();
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let tail = rest[digits.len()..].trim();
+    if digits.is_empty()
+        || digits.len() > 4
+        || !(tail.is_empty() || tail == "day" || tail == "days")
+    {
+        return None;
+    }
+    digits.parse().ok().filter(|days| *days > 0)
+}
+
 /// The invoice row, its lines, the audit row and the event of either branch.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn finish(
@@ -533,11 +764,14 @@ async fn finish(
     failure: Option<&str>,
     place_of_supply: Value,
     us: bool,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let at = now();
     let at_ms = js::millis_of(&at).unwrap_or(0);
-    let due = js::iso_from_millis(at_ms + 30 * DAY_MS).unwrap_or_else(|| at.clone());
+    // Due by the buyer's payment terms (a B2B party's `30`, `net 14`,
+    // `30 days`), else in 30 days.
+    let days = party_terms_days(db, order).await.unwrap_or(30);
+    let due = js::iso_from_millis(at_ms + days * DAY_MS).unwrap_or_else(|| at.clone());
     let base = resolve_entity_base_currency(db, entity_id).await?;
     let http = caller.http(state);
     let rate = draft_rate(
@@ -691,15 +925,117 @@ async fn finish(
             .get("taxWarnings")
             .cloned()
             .unwrap_or_else(|| json!([]));
-        return Ok(created(json!({
+        return Ok(json!({
             "invoiceId": invoice_id,
             "invoiceNumber": invoice_number,
             "taxTotal": calc.tax_total,
             "total": calc.total,
             "taxWarnings": warnings,
-        })));
+        }));
     }
-    Ok(created(
-        json!({ "invoiceId": invoice_id, "invoiceNumber": invoice_number }),
-    ))
+    Ok(json!({ "invoiceId": invoice_id, "invoiceNumber": invoice_number }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A WeldCommerce order of one 2 x 12.10 line and 6.05 shipping, VAT
+    /// inclusive, as the engine stores it.
+    fn order(treatment: &str, destination: &str, rate: &str, tax: &str, total: &str) -> Value {
+        json!({
+            "vatTreatment": treatment,
+            "destinationCountry": destination,
+            "pricesIncludeTax": true,
+            "discountTotal": "0.00",
+            "metadata": { "shippingVat": { "rate": rate, "net": "5.00", "tax": "1.05", "gross": "6.05" } },
+            "total": total, "taxTotal": tax,
+        })
+    }
+
+    fn items(rate: &str, tax: &str, total: &str) -> Vec<Value> {
+        vec![json!({
+            "id": "oitm_1", "name": "Widget", "quantity": 2, "unitPrice": "12.10",
+            "vatCategory": "standard", "taxRate": rate, "taxAmount": tax, "total": total,
+            "productId": "prod_1",
+        })]
+    }
+
+    #[test]
+    fn a_domestic_order_keeps_its_rates_and_totals() {
+        let order = order("domestic", "NL", "21.00", "5.25", "30.25");
+        let invoice =
+            stored_eu_invoice(&order, &items("21.00", "4.20", "24.20"), "NL").expect("an EU order");
+        assert_eq!(invoice.lines.len(), 2);
+        assert_eq!(invoice.lines[0].quantity, "2");
+        assert_eq!(invoice.lines[0].unit_price, "10.0000");
+        assert_eq!(invoice.lines[1].description, "Shipping");
+        let calc = &invoice.calc;
+        assert_eq!(
+            (
+                calc.subtotal.as_str(),
+                calc.tax_total.as_str(),
+                calc.total.as_str()
+            ),
+            ("25.00", "5.25", "30.25")
+        );
+        assert_eq!(calc.tax_breakdown.len(), 1);
+        assert_eq!(calc.tax_breakdown[0]["taxRate"], 21.0);
+        assert_eq!(calc.tax_breakdown[0]["taxRateName"], "VAT 21% NL");
+        assert_eq!(calc.tax_breakdown[0].get("taxCategoryCode"), None);
+        assert_eq!(calc.processed_items[0].tax_amount, "4.20");
+        assert_eq!(calc.processed_items[0].line_total_with_tax, "24.20");
+    }
+
+    #[test]
+    fn an_oss_order_is_invoiced_at_the_destination_rate() {
+        // 12.10 + 6.05 gross at Germany's 19%.
+        let mut order = order("oss", "DE", "19.00", "2.90", "30.25");
+        order["metadata"]["shippingVat"] =
+            json!({ "rate": "19.00", "net": "5.08", "tax": "0.97", "gross": "6.05" });
+        let invoice =
+            stored_eu_invoice(&order, &items("19.00", "3.86", "24.20"), "NL").expect("oss");
+        let calc = &invoice.calc;
+        assert_eq!(calc.tax_breakdown[0]["taxRateName"], "VAT 19% DE");
+        assert_eq!(calc.tax_total, "4.83");
+        assert_eq!(calc.total, "30.25");
+    }
+
+    #[test]
+    fn a_reverse_charge_order_carries_the_category_and_no_vat() {
+        let mut order = order("reverse_charge", "DE", "0.00", "0.00", "15.00");
+        order["metadata"]["shippingVat"] =
+            json!({ "rate": "0.00", "net": "5.00", "tax": "0.00", "gross": "5.00" });
+        let invoice =
+            stored_eu_invoice(&order, &items("0.00", "0.00", "20.00"), "NL").expect("reverse");
+        let calc = &invoice.calc;
+        assert_eq!(
+            (calc.tax_total.as_str(), calc.total.as_str()),
+            ("0.00", "25.00")
+        );
+        assert_eq!(calc.tax_breakdown[0]["taxCategoryCode"], "eu_b2b_goods");
+        assert_eq!(
+            calc.processed_items[0].tax_code.as_deref(),
+            Some("eu_b2b_goods")
+        );
+    }
+
+    #[test]
+    fn imported_orders_and_foreign_sellers_are_calculated_as_before() {
+        let mut imported = order("domestic", "NL", "21.00", "0", "0");
+        imported["vatTreatment"] = Value::Null;
+        assert!(stored_eu_invoice(&imported, &items("0", "0", "0"), "NL").is_none());
+        let eu = order("domestic", "NL", "21.00", "5.25", "30.25");
+        assert!(stored_eu_invoice(&eu, &items("21.00", "4.20", "24.20"), "US").is_none());
+    }
+
+    #[test]
+    fn payment_terms_read_as_days() {
+        assert_eq!(parse_terms_days("30"), Some(30));
+        assert_eq!(parse_terms_days(" Net 14 "), Some(14));
+        assert_eq!(parse_terms_days("45 days"), Some(45));
+        assert_eq!(parse_terms_days("on receipt"), None);
+        assert_eq!(parse_terms_days("0"), None);
+        assert_eq!(parse_terms_days(""), None);
+    }
 }

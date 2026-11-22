@@ -17,15 +17,27 @@
 #[path = "problems_tables.rs"]
 mod tables;
 
+use std::collections::HashMap;
+
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, js_trim};
+use weldsuite_schema::tenant::{
+    desk_conversations as conversations, desk_problems as problems, helpdesk_departments,
+    workspace_members,
+};
 
 use crate::links::{self, MAX_CHILDREN};
-use crate::list::{conversation_number, js_parse_int, like_pattern};
+use crate::list::{conversation_number, ilike, js_parse_int, like_pattern};
 use crate::table::WriteError;
-use crate::webchat::{self, Append, AppendError, Appended, DESK_CONVERSATIONS};
+use crate::webchat::{self, Append, AppendError, Appended};
+use crate::{row, upper_is};
 pub use tables::DESK_PROBLEMS;
 
 /// `DESK_PROBLEM_STATUSES`.
@@ -52,8 +64,8 @@ pub enum ProblemError {
     Write(WriteError),
 }
 
-impl From<sqlx::Error> for ProblemError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for ProblemError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -161,14 +173,15 @@ fn assert_open_for_incidents(status: &str, incidents: usize) -> Result<(), Probl
 
 /// `assertTeam(db, departmentId)`: the team exists, is active and not deleted.
 async fn assert_team(db: &PgPool, department_id: &str) -> Result<(), ProblemError> {
-    let usable: Option<bool> = sqlx::query_scalar(
-        "select (is_active is distinct from false) and deleted_at is null
-           from helpdesk_departments where id = $1 limit 1",
-    )
-    .bind(department_id)
-    .fetch_optional(db)
-    .await?;
-    if usable == Some(true) {
+    use helpdesk_departments::Column;
+    let found: Option<(bool, Option<time::PrimitiveDateTime>)> =
+        helpdesk_departments::Entity::find_by_id(department_id)
+            .select_only()
+            .columns([Column::IsActive, Column::DeletedAt])
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    if let Some((true, None)) = found {
         return Ok(());
     }
     Err(ProblemError::Field {
@@ -179,13 +192,16 @@ async fn assert_team(db: &PgPool, department_id: &str) -> Result<(), ProblemErro
 
 /// `assertMember(db, userId)`: an active member of the workspace.
 async fn assert_member(db: &PgPool, user_id: &str) -> Result<(), ProblemError> {
-    let member: Option<String> = sqlx::query_scalar(
-        "select id from workspace_members
-          where user_id = $1 and deleted_at is null and upper(status) = 'ACTIVE' limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    use workspace_members::Column;
+    let member: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(upper_is(Column::Status, "ACTIVE"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if member.is_some() {
         return Ok(());
     }
@@ -213,42 +229,100 @@ async fn assert_owner_and_team(
 
 // ── reading ───────────────────────────────────────────────────────────────────
 
-/// `incidentCount` and `openIncidentCount` of the problem `t`: every
+/// `incidentCount` and `openIncidentCount` of each problem in `ids`: every
 /// conversation linked to it, and the ones that are open and not merged away.
-macro_rules! counts {
-    () => {
-        "(SELECT count(*)::int FROM desk_conversations ic WHERE ic.problem_id = t.id), \
-         (SELECT count(*)::int FROM desk_conversations ic WHERE ic.problem_id = t.id \
-           AND ic.state = 'open' AND ic.merged_into_id IS NULL)"
-    };
-}
-
-/// `problemFilters(query)`: `$1` the statuses, `$2` known errors only, `$3`
-/// the owner, `$4` the team, `$5` the search pattern and `$6` the number it
-/// may name.
-macro_rules! filters {
-    () => {
-        "($1::text[] is null or t.status = any($1)) \
-         and (not $2::boolean or t.known_error_at IS NOT NULL) \
-         and ($3::text is null or t.assignee_id = $3) \
-         and ($4::text is null or t.department_id = $4) \
-         and ($5::text is null or (t.title ILIKE $5 or t.description ILIKE $5 \
-              or t.root_cause ILIKE $5 or t.workaround ILIKE $5 \
-              or ($6::integer is not null and t.problem_number = $6)))"
-    };
-}
-
-/// A problem row with its counts, as `counted(row)` returns it.
-fn counted((row, incidents, open): (Value, i32, i32)) -> Value {
-    let mut problem = DESK_PROBLEMS.js(row);
-    if let Some(fields) = problem.as_object_mut() {
-        fields.insert("incidentCount".to_owned(), json!(incidents));
-        fields.insert("openIncidentCount".to_owned(), json!(open));
+async fn incident_counts(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<HashMap<String, (i64, i64)>, DbErr> {
+    use conversations::Column;
+    let mut counts: HashMap<String, (i64, i64)> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(counts);
     }
-    problem
+    let orm_db = orm(db);
+    for open_only in [false, true] {
+        let mut linked = conversations::Entity::find()
+            .select_only()
+            .column(Column::ProblemId)
+            .column_as(Expr::from(Func::count(Expr::col(Column::Id))), "count")
+            .filter(Column::ProblemId.is_in(ids.iter().map(String::as_str)));
+        if open_only {
+            linked = linked
+                .filter(Column::State.eq("open"))
+                .filter(Column::MergedIntoId.is_null());
+        }
+        let rows: Vec<(Option<String>, i64)> = linked
+            .group_by(Column::ProblemId)
+            .into_tuple()
+            .all(&orm_db)
+            .await?;
+        for (problem_id, count) in rows {
+            let Some(problem_id) = problem_id else {
+                continue;
+            };
+            let entry = counts.entry(problem_id).or_default();
+            if open_only {
+                entry.1 = count;
+            } else {
+                entry.0 = count;
+            }
+        }
+    }
+    Ok(counts)
 }
 
-async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+/// Problem rows with their counts, as `counted(row)` returns them.
+async fn counted(db: &PgPool, rows: Vec<problems::Model>) -> Result<Vec<Value>, DbErr> {
+    let ids: Vec<String> = rows.iter().map(|problem| problem.id.clone()).collect();
+    let counts = incident_counts(db, &ids).await?;
+    Ok(rows
+        .into_iter()
+        .map(|problem| {
+            let (incidents, open) = counts.get(&problem.id).copied().unwrap_or_default();
+            let mut problem = row(problem);
+            if let Some(fields) = problem.as_object_mut() {
+                fields.insert("incidentCount".to_owned(), json!(incidents));
+                fields.insert("openIncidentCount".to_owned(), json!(open));
+            }
+            problem
+        })
+        .collect())
+}
+
+/// `problemFilters(query)`.
+fn filters(query: &ListQuery) -> Condition {
+    use problems::Column;
+    let truthy = |value: &Option<String>| value.clone().filter(|value| !value.is_empty());
+    let mut filters = Condition::all();
+    if !query.statuses.is_empty() {
+        filters = filters.add(Column::Status.is_in(query.statuses.iter().map(String::as_str)));
+    }
+    if query.known_errors {
+        filters = filters.add(Column::KnownErrorAt.is_not_null());
+    }
+    if let Some(assignee) = truthy(&query.assignee_id) {
+        filters = filters.add(Column::AssigneeId.eq(assignee));
+    }
+    if let Some(team) = truthy(&query.department_id) {
+        filters = filters.add(Column::DepartmentId.eq(team));
+    }
+    if let Some(term) = query.q.as_deref().map(js_trim).filter(|t| !t.is_empty()) {
+        let pattern = like_pattern(term);
+        let mut any = Condition::any()
+            .add(ilike(Column::Title, &pattern))
+            .add(ilike(Column::Description, &pattern))
+            .add(ilike(Column::RootCause, &pattern))
+            .add(ilike(Column::Workaround, &pattern));
+        if let Some(number) = conversation_number(term) {
+            any = any.add(Column::ProblemNumber.eq(i32::try_from(number).unwrap_or(i32::MAX)));
+        }
+        filters = filters.add(any);
+    }
+    filters
+}
+
+async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     DESK_PROBLEMS.find_live(db, id).await
 }
 
@@ -258,7 +332,7 @@ async fn load(db: &PgPool, id: &str) -> Result<Value, ProblemError> {
         .ok_or_else(|| ProblemError::NotFound(id.to_owned()))
 }
 
-async fn find_conversation(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find_conversation(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     Ok(webchat::get(db, id, false).await?.map(|(row, _)| row))
 }
 
@@ -268,16 +342,11 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 
 /// `getDeskProblem(db, id)`: one problem with its incident counts; `None`
 /// when it doesn't exist.
-pub async fn get(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Value, i32, i32)> = sqlx::query_as(concat!(
-        "select to_jsonb(t), ",
-        counts!(),
-        " from desk_problems t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(counted))
+pub async fn get(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let Some(problem) = problems::Entity::find_by_id(id).one(&orm(db)).await? else {
+        return Ok(None);
+    };
+    Ok(counted(db, vec![problem]).await?.into_iter().next())
 }
 
 /// [`get`] of a problem that was just read or written.
@@ -309,17 +378,11 @@ pub struct ListQuery {
 pub async fn list(
     db: &PgPool,
     query: &ListQuery,
-) -> Result<(Vec<Value>, i64, bool, Option<String>), sqlx::Error> {
+) -> Result<(Vec<Value>, i64, bool, Option<String>), DbErr> {
+    use problems::Column;
     let limit = query.limit.unwrap_or(30.0).min(100.0);
     #[allow(clippy::cast_possible_truncation)]
     let page = limit as i64;
-    let statuses = (!query.statuses.is_empty()).then(|| query.statuses.clone());
-    let truthy = |value: &Option<String>| value.clone().filter(|value| !value.is_empty());
-    let term = query.q.as_deref().map(js_trim).filter(|t| !t.is_empty());
-    let pattern = term.map(like_pattern);
-    let number = term
-        .and_then(conversation_number)
-        .map(|n| i32::try_from(n).unwrap_or(i32::MAX));
     let offset = query
         .cursor
         .as_deref()
@@ -330,38 +393,26 @@ pub async fn list(
     #[allow(clippy::cast_possible_truncation)]
     let offset = offset as i64;
 
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from desk_problems t where ",
-        filters!()
-    ))
-    .bind(statuses.clone())
-    .bind(query.known_errors)
-    .bind(truthy(&query.assignee_id))
-    .bind(truthy(&query.department_id))
-    .bind(pattern.clone())
-    .bind(number)
-    .fetch_one(db)
-    .await?;
-    let rows: Vec<(Value, i32, i32)> = sqlx::query_as(concat!(
-        "select to_jsonb(t), ",
-        counts!(),
-        " from desk_problems t where ",
-        filters!(),
-        " order by CASE WHEN t.status IN ('open', 'investigating', 'known_error') THEN 0 ELSE 1 END, \
-          t.updated_at DESC, t.id DESC limit $7 offset $8"
-    ))
-    .bind(statuses)
-    .bind(query.known_errors)
-    .bind(truthy(&query.assignee_id))
-    .bind(truthy(&query.department_id))
-    .bind(pattern)
-    .bind(number)
-    .bind(page + 1)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
+    let orm_db = orm(db);
+    let filtered = problems::Entity::find().filter(filters(query));
+    let total = filtered.clone().count(&orm_db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    // Problems that still need work first.
+    let needs_work = Expr::case(
+        Column::Status.is_in(["open", "investigating", "known_error"]),
+        0,
+    )
+    .finally(1);
+    let rows = filtered
+        .order_by_asc(Expr::Case(Box::new(needs_work)))
+        .order_by_desc(Column::UpdatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(page + 1).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&orm_db)
+        .await?;
 
-    let mut data: Vec<Value> = rows.into_iter().map(counted).collect();
+    let mut data: Vec<Value> = counted(db, rows).await?;
     let has_more = i64::try_from(data.len()).unwrap_or(i64::MAX) > page;
     if has_more {
         data.truncate(usize::try_from(page).unwrap_or(0));
@@ -377,20 +428,19 @@ pub async fn conversations(
     db: &PgPool,
     problem_id: &str,
     limit: Option<f64>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit.unwrap_or(100.0).min(500.0) as i64;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t where t.problem_id = $1
-          order by t.conversation_number asc, t.id asc limit $2",
-    )
-    .bind(problem_id)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
+    let rows = conversations::Entity::find()
+        .filter(conversations::Column::ProblemId.eq(problem_id))
+        .order_by_asc(conversations::Column::ConversationNumber)
+        .order_by_asc(conversations::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|row| links::summary(&DESK_CONVERSATIONS.js(row)))
+        .map(|conversation| links::summary(&row(conversation)))
         .collect())
 }
 
@@ -412,16 +462,21 @@ pub fn summary(row: &Value) -> Value {
 pub async fn conversation_problem(
     db: &PgPool,
     conversation_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from desk_conversations c
-          inner join desk_problems p on p.id = c.problem_id
-          where c.id = $1 limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| summary(&DESK_PROBLEMS.js(row))))
+) -> Result<Option<Value>, DbErr> {
+    let orm_db = orm(db);
+    let problem_id: Option<Option<String>> = conversations::Entity::find_by_id(conversation_id)
+        .select_only()
+        .column(conversations::Column::ProblemId)
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
+    let Some(problem_id) = problem_id.flatten() else {
+        return Ok(None);
+    };
+    let problem = problems::Entity::find_by_id(problem_id)
+        .one(&orm_db)
+        .await?;
+    Ok(problem.map(|problem| summary(&row(problem))))
 }
 
 // ── linking incidents ─────────────────────────────────────────────────────────
@@ -532,14 +587,19 @@ pub async fn set_conversation_problem(
         assert_linkable(&conversation, next)?;
     }
 
-    sqlx::query(
-        "update desk_conversations set problem_id = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(next.as_ref().and_then(|next| next["id"].as_str()))
-    .bind(webchat::now())
-    .execute(db)
-    .await?;
+    conversations::Entity::update_many()
+        .col_expr(
+            conversations::Column::ProblemId,
+            Expr::value(
+                next.as_ref()
+                    .and_then(|next| next["id"].as_str())
+                    .map(str::to_owned),
+            ),
+        )
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(id.as_str()))
+        .exec(&orm(db))
+        .await?;
 
     let mut changes = Vec::new();
     if let Some(previous_id) = previous_id.as_deref().filter(|id| !id.is_empty()) {
@@ -673,11 +733,13 @@ pub async fn create(
     };
 
     for attempt in 0.. {
-        let number: i64 = sqlx::query_scalar(
-            "select (coalesce(max(problem_number), 0) + 1)::bigint from desk_problems",
-        )
-        .fetch_one(db)
-        .await?;
+        let max: Option<Option<i32>> = problems::Entity::find()
+            .select_only()
+            .column_as(problems::Column::ProblemNumber.max(), "max")
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        let number = i64::from(max.flatten().unwrap_or(0)) + 1;
         let mut values = Map::new();
         for (prop, value) in [
             ("id", json!(id)),
@@ -842,14 +904,15 @@ pub async fn set_article(
     article_id: Option<&str>,
 ) -> Result<Value, ProblemError> {
     load(db, id).await?;
-    sqlx::query(
-        "update desk_problems set article_id = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(article_id)
-    .bind(webchat::now())
-    .execute(db)
-    .await?;
+    problems::Entity::update_many()
+        .col_expr(
+            problems::Column::ArticleId,
+            Expr::value(article_id.map(str::to_owned)),
+        )
+        .col_expr(problems::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(problems::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     reload(db, id).await
 }
 
@@ -857,17 +920,23 @@ pub async fn set_article(
 /// quietly. The deleted row and how many incidents were unlinked.
 pub async fn delete(db: &PgPool, id: &str) -> Result<(Value, usize), ProblemError> {
     let problem = load(db, id).await?;
-    let unlinked: Vec<String> = sqlx::query_scalar(
-        "update desk_conversations set problem_id = null where problem_id = $1 returning id",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    sqlx::query("delete from desk_problems where id = $1")
-        .bind(id)
-        .execute(db)
+    let orm_db = orm(db);
+    let unlinked = conversations::Entity::update_many()
+        .col_expr(
+            conversations::Column::ProblemId,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(conversations::Column::ProblemId.eq(id))
+        .exec(&orm_db)
         .await?;
-    Ok((problem, unlinked.len()))
+    problems::Entity::delete_many()
+        .filter(problems::Column::Id.eq(id))
+        .exec(&orm_db)
+        .await?;
+    Ok((
+        problem,
+        usize::try_from(unlinked.rows_affected).unwrap_or(usize::MAX),
+    ))
 }
 
 // ── sharing the workaround ────────────────────────────────────────────────────
@@ -902,22 +971,23 @@ pub async fn share_workaround(
         ));
     };
     let id = problem["id"].as_str().unwrap_or(problem_id).to_owned();
-    let targets: Vec<String> = sqlx::query_scalar(
-        "select t.id from desk_conversations t
-          where t.problem_id = $1 and t.state = 'open' and t.merged_into_id is null
-          order by t.conversation_number asc, t.id asc limit $2",
-    )
-    .bind(&id)
-    .bind(MAX_CHILDREN)
-    .fetch_all(db)
-    .await?;
-    let total: i32 = sqlx::query_scalar(
-        "select count(*)::int from desk_conversations t
-          where t.problem_id = $1 and t.state = 'open' and t.merged_into_id is null",
-    )
-    .bind(&id)
-    .fetch_one(db)
-    .await?;
+    let orm_db = orm(db);
+    let open_incidents = conversations::Entity::find()
+        .filter(conversations::Column::ProblemId.eq(id.as_str()))
+        .filter(conversations::Column::State.eq("open"))
+        .filter(conversations::Column::MergedIntoId.is_null());
+    let targets: Vec<String> = open_incidents
+        .clone()
+        .select_only()
+        .column(conversations::Column::Id)
+        .order_by_asc(conversations::Column::ConversationNumber)
+        .order_by_asc(conversations::Column::Id)
+        .limit(u64::try_from(MAX_CHILDREN).unwrap_or(0))
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
+    let total = open_incidents.count(&orm_db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
 
     let mut changes = Vec::new();
     for target in &targets {
@@ -944,7 +1014,7 @@ pub async fn share_workaround(
     Ok(Shared {
         problem,
         changes,
-        skipped: (i64::from(total) - posted).max(0),
+        skipped: (total - posted).max(0),
     })
 }
 

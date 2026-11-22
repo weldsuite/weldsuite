@@ -20,6 +20,8 @@ resources:
   - rules/nodes.yaml
   - rules/certificates.yaml
   - rules/secret-store.yaml
+  # Quiet unless the opt-in offsite-copy layer runs.
+  - rules/offsite-copy.yaml
 generatorOptions:
   disableNameSuffixHash: true
   labels:

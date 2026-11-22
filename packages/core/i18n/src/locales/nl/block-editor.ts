@@ -29,6 +29,17 @@ export const blockEditor = {
     untitled: 'Naamloos',
     createError: 'Pagina aanmaken mislukt',
   },
+  // Emoji picker headings, by emoji-mart category id.
+  emojiCategories: {
+    people: 'Smileys en mensen',
+    nature: 'Dieren en natuur',
+    foods: 'Eten en drinken',
+    activity: 'Activiteiten',
+    places: 'Reizen en plaatsen',
+    objects: 'Objecten',
+    symbols: 'Symbolen',
+    flags: 'Vlaggen',
+  },
   callout: {
     changeIcon: 'Pictogram wijzigen',
   },

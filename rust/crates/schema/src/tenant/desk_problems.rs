@@ -1,0 +1,166 @@
+//! `desk_problems`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "desk_problems")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "problemNumber")]
+    pub problem_number: i32,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "priority")]
+    pub priority: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "rootCause")]
+    pub root_cause: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "workaround")]
+    pub workaround: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "resolution")]
+    pub resolution: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "assigneeId")]
+    pub assignee_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "departmentId")]
+    pub department_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "articleId")]
+    pub article_id: Option<String>,
+    #[serde(rename = "knownErrorAt", with = "crate::js::timestamp::option")]
+    pub known_error_at: Option<TimeDateTime>,
+    #[serde(rename = "resolvedAt", with = "crate::js::timestamp::option")]
+    pub resolved_at: Option<TimeDateTime>,
+    #[serde(rename = "closedAt", with = "crate::js::timestamp::option")]
+    pub closed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdById")]
+    pub created_by_id: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "desk_problems",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'open'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "desk_problems_number_uidx",
+            columns: &[IndexColumn {
+                expression: "problem_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "desk_problems_status_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "status",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "updated_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "desk_problems_assignee_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "assignee_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "status",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "desk_problems_known_error_idx",
+            columns: &[IndexColumn {
+                expression: "known_error_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: Some("\"desk_problems\".\"known_error_at\" IS NOT NULL"),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

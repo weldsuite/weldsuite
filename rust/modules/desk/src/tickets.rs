@@ -114,7 +114,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
             ),
         )
         .into_response(),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -123,11 +123,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let row = match HELPDESK_TICKETS.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Ticket", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     match hydrate_tickets(&caller.db, vec![row]).await {
         Ok(mut rows) => Data(rows.remove(0)).into_response(),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -375,7 +375,7 @@ async fn create(
     let definitions =
         match definitions_for_ticket(&caller.db, text(&as_value, "ticketTypeId")).await {
             Ok(definitions) => definitions,
-            Err(error) => return Refusal::Database(error).respond(MESSAGE),
+            Err(error) => return Refusal::from(error).respond(MESSAGE),
         };
     sync_ticket(
         &caller.db,
@@ -473,7 +473,7 @@ async fn update(
     let existing = match HELPDESK_TICKETS.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Ticket", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let now = now();
     let table = &HELPDESK_TICKETS;
@@ -489,7 +489,7 @@ async fn update(
     let type_id = or_existing(&data, &existing, "ticketTypeId");
     let definitions = match definitions_for_ticket(&caller.db, type_id.as_str()).await {
         Ok(definitions) => definitions,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     sync_ticket(
         &caller.db,
@@ -536,7 +536,7 @@ async fn remove(
     let existing = match HELPDESK_TICKETS.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Ticket", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     if let Err(error) = soft_delete(&caller.db, &HELPDESK_TICKETS, &id).await {
         return write_failed(&error, MESSAGE);
@@ -583,7 +583,7 @@ async fn add_tags(
     .await
     {
         Ok(row) => row,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let Some(existing) = existing else {
         return Refusal::not_found("Ticket", &id).respond(MESSAGE);
@@ -611,7 +611,7 @@ async fn add_tags(
     .execute(&caller.db)
     .await;
     if let Err(error) = result {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     caller.publish(&state, ev::TICKET_UPDATED, &id, &json!({ "id": id }));
     Data(json!({ "id": id, "tags": merged })).into_response()
@@ -675,7 +675,7 @@ async fn reply(
     match found {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Ticket", &ticket_id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     let (author_name, author_email) = agent_identity(&caller.db, &caller.user_id).await;
     let id = generate_id("tkm");
@@ -715,7 +715,7 @@ async fn reply(
             .execute(&caller.db)
             .await;
     if let Err(error) = touched {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     let event = json!({
         "id": id,

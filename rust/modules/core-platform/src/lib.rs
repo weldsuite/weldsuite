@@ -33,6 +33,11 @@
 //! provider (Clerk in the Global edition) is the [`weldsuite_ports::Identity`]
 //! port.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod access;
 mod groups;
 pub mod topup;

@@ -142,7 +142,8 @@ async function activatePendingMember(
 ): Promise<boolean> {
   const name = [membership.public_user_data.first_name, membership.public_user_data.last_name]
     .filter(Boolean).join(' ') || null;
-  const picture = membership.public_user_data.image_url;
+  // No picture here: the avatar is the account's (master users.image_url),
+  // read by @weldsuite/worker-kit/account-pictures, never a member-row copy.
 
   // Guests and EMPLOYEE members stay on VIEWER regardless of Clerk role —
   // guests are gated by per-channel membership and EMPLOYEE members by their
@@ -159,9 +160,8 @@ async function activatePendingMember(
     .update(schema.workspaceMembers)
     .set({
       userId,
-      // Keep the name/avatar entered at invite time when Clerk has none yet.
+      // Keep the name entered at invite time when Clerk has none yet.
       name: name ?? pending.name,
-      picture: picture ?? pending.picture,
       role: resolvedRole as WorkspaceMemberRow['role'],
       status: 'ACTIVE',
       clerkMembershipId: membership.id,

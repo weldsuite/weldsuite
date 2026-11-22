@@ -14,9 +14,16 @@
 //! - [`domains`]: the `MailDomains` port for custom domains on Kubernetes
 //!   (MAIL-010), in place of the Cloudflare Email Routing API; [`mta_domains`]
 //!   is its client for the EU edition's own MTA (MAIL-011).
+//! - [`threats`], [`threat_feeds`]: the link checks behind WeldMail's threat
+//!   protection (EU and self-hosted only) and the feeds they read.
 //!
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 
 pub mod access;
 pub mod ai_usage;
@@ -32,3 +39,5 @@ pub mod send;
 pub mod store;
 pub mod text;
 pub mod threads;
+pub mod threat_feeds;
+pub mod threats;

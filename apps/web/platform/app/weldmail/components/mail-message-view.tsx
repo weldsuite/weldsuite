@@ -64,6 +64,7 @@ function mapMessage(msg: Record<string, unknown>, labelSlug: string, noSubject: 
     isSpam: (msg.isSpam as boolean) ?? false,
     isDeleted: (msg.isTrash as boolean) ?? false,
     hasAttachments: (msg.hasAttachments as boolean) ?? false,
+    threats: (msg.threats as Mail.Email['threats']) ?? null,
     size: 1024,
     labels: (msg.labels as string[]) || [],
     folder: getLabelDisplayName(labelSlug),

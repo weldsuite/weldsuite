@@ -6,14 +6,22 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::KNOWLEDGE_PAGE_UPDATED;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Created, Data, generate_id};
+use weldsuite_schema::tenant::{knowledge_page_versions as versions, knowledge_pages as pages};
 
 use crate::pages::{load_page, load_writable_page, page_row};
-use crate::{Caller, KnowError, KnowState, Refusal, all, minutes_ago, now, validate};
+use crate::{Caller, KnowError, KnowState, Refusal, all, minutes_ago, now, row, validate};
 
 /// The shortest gap between two automatic snapshots of a page.
 const AUTO_SNAPSHOT_MINUTES: i64 = 10;
@@ -24,21 +32,18 @@ async fn create_version(
     content: &Value,
     created_by: &str,
     label: Option<&str>,
-) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(
-        "insert into knowledge_page_versions (id, page_id, content, label, created_by_id, created_at)
-         values ($1, $2, $3, $4, $5, $6::timestamp)
-         returning to_jsonb(knowledge_page_versions)",
-    )
-    .bind(generate_id("kver"))
-    .bind(page_id)
-    .bind(content)
-    .bind(label)
-    .bind(created_by)
-    .bind(now())
-    .fetch_one(db)
+) -> Result<Value, sea_orm::DbErr> {
+    let version = versions::Entity::insert(versions::ActiveModel {
+        id: Set(generate_id("kver")),
+        page_id: Set(page_id.to_owned()),
+        content: Set(content.clone()),
+        label: Set(label.map(str::to_owned)),
+        created_by_id: Set(Some(created_by.to_owned())),
+        created_at: Set(now()),
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    Ok(row(version))
 }
 
 /// An automatic snapshot, unless the page has one from the last ten minutes.
@@ -47,15 +52,15 @@ pub(crate) async fn maybe_auto_snapshot(
     page_id: &str,
     content: &Value,
     created_by: &str,
-) -> Result<(), sqlx::Error> {
-    let recent: Option<String> = sqlx::query_scalar(
-        "select id from knowledge_page_versions
-         where page_id = $1 and created_at > $2::timestamp limit 1",
-    )
-    .bind(page_id)
-    .bind(minutes_ago(AUTO_SNAPSHOT_MINUTES))
-    .fetch_optional(db)
-    .await?;
+) -> Result<(), sea_orm::DbErr> {
+    let recent: Option<String> = versions::Entity::find()
+        .select_only()
+        .column(versions::Column::Id)
+        .filter(versions::Column::PageId.eq(page_id))
+        .filter(versions::Column::CreatedAt.gt(minutes_ago(AUTO_SNAPSHOT_MINUTES)))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if recent.is_none() {
         create_version(db, page_id, content, created_by, None).await?;
     }
@@ -66,15 +71,24 @@ async fn version_row(
     db: &PgPool,
     page_id: &str,
     version_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from knowledge_page_versions v where id = $1 and page_id = $2 limit 1",
-    )
-    .bind(version_id)
-    .bind(page_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, sea_orm::DbErr> {
+    let version = versions::Entity::find_by_id(version_id.to_owned())
+        .filter(versions::Column::PageId.eq(page_id))
+        .one(&orm(db))
+        .await?;
+    Ok(version.map(row))
+}
+
+/// A version in the page's history: no content.
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionSummary {
+    id: String,
+    page_id: String,
+    label: Option<String>,
+    created_by_id: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
 }
 
 /// A page's content, `[]` when it has none (`page.contentJson ?? []`).
@@ -90,18 +104,21 @@ fn content_of(page: &Value) -> Value {
 pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         load_page(&caller.db, &id, &caller.user_id).await?;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object(
-                      'id', id, 'pageId', page_id, 'label', label, 'createdById', created_by_id,
-                      'createdAt', created_at)
-             from knowledge_page_versions
-             where page_id = $1
-             order by created_at desc",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, KnowError>(rows.into_iter().map(js_row).collect())
+        let rows: Vec<VersionSummary> = versions::Entity::find()
+            .select_only()
+            .columns([
+                versions::Column::Id,
+                versions::Column::PageId,
+                versions::Column::Label,
+                versions::Column::CreatedById,
+                versions::Column::CreatedAt,
+            ])
+            .filter(versions::Column::PageId.eq(&id))
+            .order_by_desc(versions::Column::CreatedAt)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, KnowError>(rows.into_iter().map(row).collect())
     }
     .await;
     match result {
@@ -189,17 +206,16 @@ pub(crate) async fn restore(
             Some("Before restore"),
         )
         .await?;
-        sqlx::query(
-            "update knowledge_pages
-             set content_json = $2, last_edited_by = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&version["content"])
-        .bind(&caller.user_id)
-        .bind(now())
-        .execute(db)
-        .await?;
+        pages::Entity::update_many()
+            .col_expr(
+                pages::Column::ContentJson,
+                Expr::value(version["content"].clone()),
+            )
+            .col_expr(pages::Column::LastEditedBy, Expr::value(&caller.user_id))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now()))
+            .filter(pages::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
         caller.publish(
             &state,
             KNOWLEDGE_PAGE_UPDATED,

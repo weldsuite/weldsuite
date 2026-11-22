@@ -77,7 +77,7 @@ async fn identity_of(ctx: &Ctx, entry: &PublicCacheEntry, user_id: &str) -> Form
             ..Identity::default()
         });
     }
-    let profile = member_ref(&ctx.db, user_id).await?;
+    let profile = member_ref(ctx, user_id).await?;
     Ok(Identity {
         email: profile["email"].as_str().map(str::to_lowercase),
         user_id: Some(user_id.to_owned()),

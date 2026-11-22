@@ -1,0 +1,136 @@
+//! `partner_statement_lines`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "partner_statement_lines")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "statementId")]
+    pub statement_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceName")]
+    pub workspace_name: String,
+    #[serde(rename = "daysActive")]
+    pub days_active: i32,
+    #[serde(rename = "daysInPeriod")]
+    pub days_in_period: i32,
+    #[serde(rename = "seatsBilled")]
+    pub seats_billed: i32,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "resale",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub resale: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "shareAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub share_amount: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "floorAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub floor_amount: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "creditFloorAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub credit_floor_amount: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "extraCreditsAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub extra_credits_amount: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(rename = "due", serialize_with = "crate::js::Numeric::<2>::serialize")]
+    pub due: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((12, 2)))")]
+    #[serde(
+        rename = "margin",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub margin: BigDecimal,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "breakdown")]
+    pub breakdown: Json,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "partner_statement_lines",
+    columns: &[
+        DdlColumn {
+            name: "seats_billed",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "extra_credits_amount",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "breakdown",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "partner_statement_lines_statement_idx",
+        columns: &[IndexColumn {
+            expression: "statement_id",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[ForeignKey {
+        name: "partner_statement_lines_statement_id_partner_statements_id_fk",
+        columns: &["statement_id"],
+        references: "partner_statements",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

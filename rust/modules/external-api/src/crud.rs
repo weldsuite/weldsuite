@@ -38,6 +38,12 @@ impl From<sqlx::Error> for Fail {
     }
 }
 
+impl From<sea_orm::DbErr> for Fail {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self(database_error(&error).into_response())
+    }
+}
+
 impl From<WriteError> for Fail {
     fn from(error: WriteError) -> Self {
         match error {

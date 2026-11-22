@@ -4,14 +4,7 @@ import { Bell, BellOff, Check, EllipsisVertical, ExternalLink, MessagesSquare, P
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  FilterAddButton,
-  FilterButton,
-  FilterPill,
-  FilterPillDivider,
-  FilterPillLabel,
-  FilterPillRemove,
-} from '@weldsuite/ui/components/filter-button';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -23,12 +16,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useObjectPanel } from '@/components/object-panel';
-import { EntityList, EmptyStateIllustration, type HeaderColumn } from '@/components/entity-list';
+import {
+  EntityList,
+  EmptyStateIllustration,
+  FilterPills,
+  type ActiveFilter,
+  type FilterConfig,
+  type HeaderColumn,
+} from '@/components/entity-list';
 import { useDebounce } from '@/hooks/use-debounce';
 import { cn } from '@/lib/utils';
 import {
@@ -37,11 +36,9 @@ import {
   useRecordChats,
   useRecordChatSummary,
   useUnfollowRecordChat,
-  useWorkspaceMembers,
   type RecordChatListItem,
 } from '@/hooks/queries/use-weldchat-queries';
 import { useGroupHidden } from '../hooks/use-group-hidden';
-import { messagePreviewText } from '../lib/render-message-content';
 import { isUnreadRecordChat, uniqueRows } from '../lib/record-chat-groups';
 import {
   getRecordChatTypeInfo,
@@ -65,7 +62,17 @@ import {
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 const P = 'sweep.weldchat.recordChats.page';
-const ALL_TAB = 'all';
+/** The phone menu's "All" type option: no type in the URL. */
+const ALL_TYPES = 'all';
+
+/** The fields of the toolbar's filter pills; each maps to a search param. */
+const TYPE_FIELD = 'type';
+const SHOW_FIELD = 'show';
+const UNREAD_FIELD = 'unread';
+const IS = 'is';
+
+/** A row's app logos turn to colour the moment the row (its `group`) is hovered, not only its button. */
+const ROW_HOVER_COLOUR = 'group-hover:grayscale-0 group-hover:opacity-100';
 
 function formatRelative(dateStr: string | null | undefined, st: Translate): string {
   if (!dateStr) return '—';
@@ -95,45 +102,24 @@ function RecordChatAvatar({ chat }: Readonly<{ chat: RecordChatListItem }>) {
       <Avatar className="h-6 w-6 flex-shrink-0">
         <AvatarImage src={picture} />
         <AvatarFallback>
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          <Icon className={`h-3.5 w-3.5 text-muted-foreground ${ROW_HOVER_COLOUR}`} />
         </AvatarFallback>
       </Avatar>
     );
   }
+  // Just the app's logo, in the same 24px slot as a picture so names line up.
   return (
-    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[8px] bg-muted">
-      <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+    <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center">
+      <Icon className={`h-5 w-5 text-muted-foreground ${ROW_HOVER_COLOUR}`} aria-hidden="true" />
     </span>
-  );
-}
-
-/** A filter changed from its default, styled as the list's filter pills, with a button to take it off. */
-function RecordFilterPill({
-  label,
-  value,
-  removeLabel,
-  onRemove,
-}: Readonly<{ label?: string; value: string; removeLabel: string; onRemove: () => void }>) {
-  return (
-    <FilterPill data-testid="record-chats-filter-pill">
-      {label && (
-        <>
-          <FilterPillLabel>{label}</FilterPillLabel>
-          <FilterPillDivider />
-        </>
-      )}
-      <span className="whitespace-nowrap px-2 text-foreground">{value}</span>
-      <FilterPillDivider />
-      <FilterPillRemove onClick={onRemove} aria-label={removeLabel} />
-    </FilterPill>
   );
 }
 
 /**
  * Every record chat the caller follows or may read, beyond the five per type
- * the sidebar shows: a tab per record type, the Following / Mentions / All I
- * can see filters with an Unread switch on top, search by name, unread chats
- * first and then newest activity first.
+ * the sidebar shows. One Filter menu holds the record type, the Following /
+ * Mentions / All I can see filters and an Unread switch; search by name,
+ * unread chats first and then newest activity first.
  */
 export default function RecordChatsPage() {
   const st = useTranslations();
@@ -170,15 +156,6 @@ export default function RecordChatsPage() {
     );
   }, [list.data, unreadOnly, filter]);
 
-  const { data: membersData } = useWorkspaceMembers();
-  const memberNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of membersData?.data ?? []) {
-      if (m.userId && m.name) map.set(m.userId, m.name);
-    }
-    return map;
-  }, [membersData]);
-
   const { mutate: follow } = useFollowRecordChat();
   const { mutate: unfollow } = useUnfollowRecordChat();
   const { mutate: muteChannel } = useMuteChannel();
@@ -187,7 +164,7 @@ export default function RecordChatsPage() {
   const push = useCallback((href: string) => void navigate({ to: href }), [navigate]);
   const { isGroupHidden, setGroupHidden } = useGroupHidden();
 
-  /** Changes the type tab, filter or Unread switch in the URL; the defaults are left out. */
+  /** Changes the type, filter or Unread switch in the URL; the defaults are left out. */
   const go = useCallback(
     (patch: { type?: string; filter?: string; unread?: boolean }) => {
       void navigate({
@@ -219,21 +196,18 @@ export default function RecordChatsPage() {
     [navigate],
   );
 
-  const tabs: PageTab[] = useMemo(() => {
-    // Until the summary says which types the caller may list, show the asked-for one.
+  const typeOptions = useMemo(() => {
+    // Until the summary says which types the caller may list, offer the asked-for one.
     const types = permittedTypes ?? (activeType ? [activeType] : []);
-    return [
-      { id: ALL_TAB, label: st(`${P}.allTab`) },
-      ...types.flatMap((type) => {
-        const info = getRecordChatTypeInfo(type);
-        return info ? [{ id: type, label: st(info.groupLabelKey), icon: info.icon }] : [];
-      }),
-    ];
-  }, [permittedTypes, activeType, st]);
+    return types.flatMap((type) => {
+      const info = getRecordChatTypeInfo(type);
+      return info ? [info] : [];
+    });
+  }, [permittedTypes, activeType]);
 
   const groupKey = activeType ? recordGroupKey(activeType) : null;
   const sidebarToggle = groupKey ? (
-    <label className="ml-auto flex flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap pb-2 pl-3 text-sm text-muted-foreground">
+    <label className="flex flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
       <Switch
         checked={!isGroupHidden(groupKey)}
         onCheckedChange={(shown) => setGroupHidden(groupKey, !shown)}
@@ -246,13 +220,71 @@ export default function RecordChatsPage() {
   const filterLabel = (value: RecordChatFilter) => st(RECORD_CHAT_FILTER_LABEL_KEYS[value]);
 
   const scopeChanged = scope !== DEFAULT_RECORD_CHAT_FILTER;
-  const changedFilterCount = Number(scopeChanged) + Number(unreadOnly);
+  const changedFilterCount = Number(!!activeInfo) + Number(scopeChanged) + Number(unreadOnly);
 
-  /** The Filter menu, opened from `trigger`. */
+  // The toolbar's filter, built like every list's: Filter → a field → its
+  // value, shown as `Field | is | value | ×` pills. The pills mirror the URL;
+  // a pill whose value is not picked yet lives here until it is.
+  const filterConfigs: FilterConfig[] = useMemo(
+    () => [
+      {
+        field: TYPE_FIELD,
+        label: st(`${P}.typeHeader`),
+        operators: [IS],
+        options: typeOptions.map((info) => ({ value: info.type, label: st(info.groupLabelKey) })),
+      },
+      {
+        field: SHOW_FIELD,
+        label: st(`${P}.filterLabel`),
+        operators: [IS],
+        options: RECORD_CHAT_SCOPES.map((value) => ({ value, label: st(RECORD_CHAT_FILTER_LABEL_KEYS[value]) })),
+      },
+      {
+        field: UNREAD_FIELD,
+        label: st(RECORD_CHAT_FILTER_LABEL_KEYS.unread),
+        operators: [IS],
+        options: [{ value: 'true', label: st('common.dialogs.yes') }],
+      },
+    ],
+    [typeOptions, st],
+  );
+  const [pendingFilter, setPendingFilter] = useState<ActiveFilter | null>(null);
+  const activeFilters: ActiveFilter[] = [
+    ...(activeType ? [{ id: TYPE_FIELD, field: TYPE_FIELD, operator: IS, value: activeType }] : []),
+    ...(scopeChanged ? [{ id: SHOW_FIELD, field: SHOW_FIELD, operator: IS, value: scope }] : []),
+    ...(unreadOnly ? [{ id: UNREAD_FIELD, field: UNREAD_FIELD, operator: IS, value: 'true' }] : []),
+    ...(pendingFilter ? [pendingFilter] : []),
+  ];
+  const changeFilters = (next: ActiveFilter[]) => {
+    setPendingFilter(next.find((f) => !f.value) ?? null);
+    // The last pill with a value wins, so picking a field twice changes it.
+    const valueOf = (field: string) => next.filter((f) => f.field === field && f.value).at(-1)?.value;
+    const type = valueOf(TYPE_FIELD);
+    const show = valueOf(SHOW_FIELD) ?? DEFAULT_RECORD_CHAT_FILTER;
+    const unread = valueOf(UNREAD_FIELD) === 'true';
+    if (type !== activeType || show !== scope || unread !== unreadOnly) go({ type, filter: show, unread });
+  };
+
+  /** The phone Filter menu, opened from `trigger`. */
   const filterMenu = (trigger: ReactNode) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
+        <DropdownMenuLabel>{st(`${P}.typeHeader`)}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={activeType ?? ALL_TYPES}
+          onValueChange={(value) => go({ type: value === ALL_TYPES ? undefined : value })}
+          aria-label={st(`${P}.typeHeader`)}
+        >
+          <DropdownMenuRadioItem value={ALL_TYPES}>{st(`${P}.allTab`)}</DropdownMenuRadioItem>
+          {typeOptions.map((info) => (
+            <DropdownMenuRadioItem key={info.type} value={info.type}>
+              <info.icon className="h-4 w-4" />
+              {st(info.groupLabelKey)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>{st(`${P}.filterLabel`)}</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={scope}
@@ -273,31 +305,16 @@ export default function RecordChatsPage() {
     </DropdownMenu>
   );
 
-  // Like the list's own Filter button: plain while every filter is at its
-  // default, then a pill per changed filter and a "+" to change them again.
-  const filterBar =
-    changedFilterCount === 0 ? (
-      filterMenu(<FilterButton>{st('common.actions.filter')}</FilterButton>)
-    ) : (
-      <div className="flex items-center gap-2">
-        {scopeChanged && (
-          <RecordFilterPill
-            label={st(`${P}.filterLabel`)}
-            value={filterLabel(scope)}
-            removeLabel={st(`${P}.removeFilter`, { name: filterLabel(scope) })}
-            onRemove={() => go({ filter: DEFAULT_RECORD_CHAT_FILTER })}
-          />
-        )}
-        {unreadOnly && (
-          <RecordFilterPill
-            value={filterLabel('unread')}
-            removeLabel={st(`${P}.removeFilter`, { name: filterLabel('unread') })}
-            onRemove={() => go({ unread: false })}
-          />
-        )}
-        {filterMenu(<FilterAddButton aria-label={st('common.actions.filter')} />)}
-      </div>
-    );
+  const filterBar = (
+    <FilterPills
+      filters={activeFilters}
+      filterConfigs={filterConfigs}
+      maxFilters={filterConfigs.length}
+      onFiltersChange={changeFilters}
+      operatorLabels={{ is: st('sweep.entities.operatorIs') }}
+      labels={{ filter: st('common.actions.filter'), selectCondition: st('sweep.entities.selectCondition') }}
+    />
+  );
 
   // The toolbar's left side is desktop only; phones get the menu on the right,
   // its button counting the changed filters.
@@ -327,7 +344,6 @@ export default function RecordChatsPage() {
       const name = recordChatName(chat);
       const unread = chat.isFollowing && isUnreadRecordChat(chat);
       const mentions = chat.unreadMentionCount ?? 0;
-      const preview = chat.lastMessagePreview ? messagePreviewText(chat.lastMessagePreview, memberNames) : '';
 
       return (
         <div
@@ -356,9 +372,6 @@ export default function RecordChatsPage() {
                     <BellOff className="h-3 w-3 flex-shrink-0 text-muted-foreground" aria-label={st(`${P}.muted`)} />
                   )}
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {preview || st(`${P}.noMessages`)}
-                </span>
               </span>
               {mentions > 0 && (
                 <span
@@ -379,12 +392,12 @@ export default function RecordChatsPage() {
 
             {showType && (
               <span className="hidden w-[120px] min-w-0 flex-shrink-0 items-center gap-1.5 text-sm text-gray-600 md:flex dark:text-muted-foreground">
-                <TypeIcon className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                <TypeIcon className={`h-3.5 w-3.5 flex-shrink-0 ${ROW_HOVER_COLOUR}`} aria-hidden="true" />
                 <span className="truncate">{info ? st(info.labelKey) : chat.entityType}</span>
               </span>
             )}
 
-            <span className="w-[110px] flex-shrink-0 text-sm tabular-nums text-gray-600 dark:text-muted-foreground">
+            <span className="w-[110px] flex-shrink-0 text-sm text-gray-600 dark:text-muted-foreground">
               {formatRelative(chat.lastMessageAt, st)}
             </span>
           </button>
@@ -452,23 +465,13 @@ export default function RecordChatsPage() {
         </div>
       );
     },
-    [memberNames, showType, showFollow, openChat, setFollowing, muteChannel, openObjectPanel, push, st],
+    [showType, showFollow, openChat, setFollowing, muteChannel, openObjectPanel, push, st],
   );
 
   const emptyKeys = recordChatsEmptyKeys(filter);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PageTabs
-        tabs={tabs}
-        activeTab={activeType ?? ALL_TAB}
-        onTabChange={(id) => go({ type: id === ALL_TAB ? undefined : id })}
-        overflow="dropdown"
-        className="flex-shrink-0 pt-3"
-        innerClassName="px-4"
-      >
-        {sidebarToggle}
-      </PageTabs>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <EntityList<RecordChatListItem>
           items={rows}
@@ -479,12 +482,17 @@ export default function RecordChatsPage() {
           hideFilter
           renderRow={renderRow}
           leftActionButtons={filterBar}
-          actionButtons={mobileFilter}
+          actionButtons={
+            <>
+              {sidebarToggle}
+              {mobileFilter}
+            </>
+          }
           searchPlaceholder={st(`${P}.searchPlaceholder`)}
           searchFields={['entityDisplayName'] as (keyof RecordChatListItem)[]}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          // Rows of the previous tab, filter or search fade until the new ones arrive.
+          // Rows of the previous type, filter or search fade until the new ones arrive.
           itemsClassName={cn('transition-opacity', list.isPlaceholderData && 'opacity-60')}
           hasMore={!!list.hasNextPage && !list.isPlaceholderData}
           isLoadingMore={list.isFetchingNextPage}

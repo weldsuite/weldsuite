@@ -11,6 +11,11 @@
 //! TypeScript worker's; its tests run against this crate in the `desk`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 /// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
 macro_rules! cursor {
     ($a:literal, $b:literal, $c:literal) => {
@@ -73,6 +78,7 @@ mod announcements;
 mod assignment;
 mod channels;
 mod conversations;
+mod crm;
 mod crud;
 mod custom_fields;
 mod departments;
@@ -406,11 +412,17 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 #[allow(dead_code)] // filled in route group by route group
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
+        Self::Database(weldsuite_db::orm_error(error))
+    }
+}
+
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }

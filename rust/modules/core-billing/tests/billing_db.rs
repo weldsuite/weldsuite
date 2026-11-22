@@ -8,6 +8,11 @@
 //! and every invoice emailed to the billing owners exactly once (a send
 //! nobody took retried by the renewal job).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};

@@ -245,6 +245,29 @@ async fn associate(
     answer(result, "Failed to associate attachments")
 }
 
+/// The answer for a file the virus scan locked (`scanStatus`, set on the EU
+/// and self-hosted editions by `weldsuite-mail-inbound`'s threat checks):
+/// 403 `ATTACHMENT_INFECTED`, or 409 `ATTACHMENT_SCAN_PENDING` while the
+/// scanner hasn't seen it yet. `None` serves it (clean, unscannable or never
+/// scanned). Global's rows have no such column, so its answers are unchanged.
+fn scan_block(row: &Value) -> Option<Response> {
+    let (status, code, message) = match row["scanStatus"].as_str() {
+        Some("infected") => (
+            StatusCode::FORBIDDEN,
+            "ATTACHMENT_INFECTED",
+            "This attachment contains a virus and can't be downloaded",
+        ),
+        Some("pending") => (
+            StatusCode::CONFLICT,
+            "ATTACHMENT_SCAN_PENDING",
+            "This attachment is still being scanned for viruses",
+        ),
+        _ => return None,
+    };
+    let body = json!({ "error": { "code": code, "message": message } });
+    Some((status, axum::Json(body)).into_response())
+}
+
 /// `GET /:id/download`: the file, from the workspace's storage only.
 async fn download(
     State(state): State<MailState>,
@@ -256,6 +279,9 @@ async fn download(
         let Some((_, row)) = locate_attachment(&caller.db, &id, &accessible).await? else {
             return Err(MailError::not_found("Attachment", Some(&id)));
         };
+        if let Some(blocked) = scan_block(&row) {
+            return Ok(blocked);
+        }
         let buckets = caller.bindings.buckets(&state);
         if buckets.private.is_none() && buckets.public.is_none() {
             let body = json!({ "error": { "code": "STORAGE_BINDING_MISSING", "message": "Storage binding not configured" } });

@@ -44,6 +44,7 @@ import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
 import { useMail } from '@/contexts/MailContext';
 import SnoozePickerModal from '@/components/SnoozePickerModal';
 import LabelPickerModal from '@/components/LabelPickerModal';
+import UnsubscribeSenderChip from '@/components/UnsubscribeSenderChip';
 import {
   getSenderName,
   getSenderEmail,
@@ -451,6 +452,12 @@ function EmailHeaderBlock({ email, senderName, senderEmail, threadCount, hasThre
         showDetails={showDetails}
         onToggleDetails={onToggleDetails}
         colors={colors}
+      />
+
+      <UnsubscribeSenderChip
+        accountId={email?.emailAccountId || email?.accountId}
+        senderEmail={senderEmail}
+        style={styles.unsubscribeRow}
       />
 
       {/* Email Details */}
@@ -923,6 +930,8 @@ const styles = StyleSheet.create({
   threadActionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderRadius: 8 },
   threadActionText: { fontSize: 13, fontWeight: '500' },
   senderSection: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
+  // Lines up with the sender name: avatar 36 + margin 10.
+  unsubscribeRow: { paddingLeft: 46, marginTop: 8 },
   senderAvatar: { width: 36, height: 36, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   senderAvatarText: { fontSize: 15, fontWeight: '600' },
   senderInfo: { flex: 1 },

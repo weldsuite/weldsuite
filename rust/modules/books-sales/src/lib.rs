@@ -7,7 +7,13 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! sales` conformance suite (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod body;
+mod commerce;
 mod credit_notes;
 mod errors;
 mod finalize;
@@ -22,6 +28,7 @@ mod templates;
 use std::sync::Arc;
 
 use axum::Router;
+pub use commerce::CommerceInvoicing;
 pub use invoices::pdf::render_invoice_html_as_system;
 pub use recurring::{SystemGenerateError, SystemGenerated, generate_recurring_invoice_as_system};
 pub use weldsuite_books_domain::http::BooksState;

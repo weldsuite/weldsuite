@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { AppState } from 'react-native';
 import { RealtimeProvider as BaseProvider, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { useWorkspaceForRequests } from '@weldsuite/mobile-platform/auth';
 import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 import { createAsyncStorageCursorStore } from '@/lib/realtime/cursor-store';
 
@@ -26,8 +27,14 @@ function ForegroundReconnect() {
   return null;
 }
 
+/**
+ * The workspace hub socket (`<server>/ws`). On WeldID (membership mode) the
+ * token names no workspace, so the socket names the active one
+ * (`?workspace=`); a workspace switch reconnects.
+ */
 export function RealtimeProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken, organizationId, user } = useAuthSession();
+  const workspace = useWorkspaceForRequests();
 
   // Persist the last-seen eventId per workspace so reconnects replay missed
   // events (`since:` cursor) instead of dropping them. Scoped by org so an org
@@ -50,6 +57,7 @@ export function RealtimeProvider({ children }: Readonly<{ children: React.ReactN
       key={clientKey}
       url={`${realtimeUrl()}/ws`}
       getToken={async () => (await getToken()) || ''}
+      workspace={workspace}
       cursorStore={cursorStore}
     >
       <ForegroundReconnect />

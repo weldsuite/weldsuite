@@ -55,6 +55,7 @@ impl Inbox {
             },
             notifier: Notifier {
                 realtime: ctx.deps.realtime.clone(),
+                http: ctx.deps.push_http.clone(),
                 ..Notifier::default()
             },
             workspace_id,

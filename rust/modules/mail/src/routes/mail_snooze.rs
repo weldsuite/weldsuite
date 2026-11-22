@@ -63,7 +63,7 @@ async fn list_snoozed(caller: &Caller, account_ids: &[String]) -> Result<Vec<Val
         return Ok(Vec::new());
     }
     let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from mail_messages m
+        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
          where m.account_id = any($1::text[]) and m.deleted_at is null
            and m.labels @> '[\"SNOOZED\"]'::jsonb",
     )

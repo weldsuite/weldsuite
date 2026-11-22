@@ -113,18 +113,20 @@ pub(crate) async fn unpin_message(
 /// its id.
 pub(crate) async fn post_pin_notice(
     db: &PgPool,
+    master: Option<&PgPool>,
     realtime: &Realtime,
     channel_id: &str,
     pinned_message_id: &str,
     user_id: &str,
 ) -> Result<String, sqlx::Error> {
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
             .fetch_optional(db)
             .await?;
-    let (name, picture) = author.unwrap_or((None, None));
-    let author_name = name.unwrap_or_else(|| "Unknown".to_owned());
+    let author_name = name.flatten().unwrap_or_else(|| "Unknown".to_owned());
+    // The stamped avatar is the account picture, not the member row's copy.
+    let picture = weldsuite_db::load_account_picture(master, user_id).await;
     let id = generate_id("msg");
     let at = now();
     let content = format!("[system:{pinned_message_id}] pinned a message");

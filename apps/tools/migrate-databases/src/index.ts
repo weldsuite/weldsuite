@@ -431,7 +431,7 @@ async function main(): Promise<void> {
   }
 
   // Resolve migrations folder path
-  const migrationsFolder = path.resolve(__dirname, '../../../../packages/core/db/drizzle/tenant-migrations');
+  const migrationsFolder = path.resolve(__dirname, '../../../../rust/migrations/tenant');
   console.log(`Migrations folder: ${migrationsFolder}`);
 
   const journal = loadTenantJournal(migrationsFolder);

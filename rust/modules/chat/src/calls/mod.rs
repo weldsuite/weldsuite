@@ -253,17 +253,19 @@ async fn presets_ready(video: &Arc<dyn DynVideoRooms>, cache: Option<&Arc<dyn Dy
     }
 }
 
-/// The member's name and picture (`workspace_members`).
+/// The member's name (`workspace_members`) and their account picture
+/// (master `users.image_url`, ADR SEC-020; the member row keeps no copy).
 async fn member(
-    db: &PgPool,
+    caller: &crate::access::Caller,
     user_id: &str,
 ) -> Result<(Option<String>, Option<String>), sqlx::Error> {
-    let row: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
-            .fetch_optional(db)
+            .fetch_optional(&caller.db)
             .await?;
-    Ok(row.unwrap_or((None, None)))
+    let picture = weldsuite_db::load_account_picture(caller.master(), user_id).await;
+    Ok((name.flatten(), picture))
 }
 
 /// `startCallSchema`: `{ channelId: string.min(1), callType: 'voice' | 'video' = 'voice' }`.
@@ -512,7 +514,7 @@ async fn start_inner(
             ));
         }
     }
-    let (name, picture) = member(db, user).await?;
+    let (name, picture) = member(caller, user).await?;
     let initiator_name = name.unwrap_or_else(|| "Unknown".to_owned());
     let call_id = generate_id("call");
     let now = iso_of_ms(now_ms());
@@ -635,7 +637,7 @@ async fn start_and_join_inner(
     let membership = is_member(db, channel_id, user).await?;
     let channel = channel_settings(db, channel_id).await?;
     let existing = live_call_in(db, channel_id).await?;
-    let author = member(db, user).await?;
+    let author = member(caller, user).await?;
     // Read for every channel; only a DM uses it.
     let dm_room = get_dm_call_room(ports.cache.as_ref(), org, channel_id).await;
     presets_ready(&ports.video, ports.cache.as_ref()).await;
@@ -1219,7 +1221,7 @@ async fn prepare_inner(
 ) -> ChatResult<Response> {
     let caller = &request.caller;
     let ports = request.ports(state);
-    let author = member(&caller.db, &caller.user_id).await?;
+    let author = member(caller, &caller.user_id).await?;
     let prepared = read_prepared_join(ports.cache.as_ref(), call_id, &caller.user_id).await;
     presets_ready(&ports.video, ports.cache.as_ref()).await;
     let (call, room) = joinable_call(caller, call_id).await?;
@@ -1299,7 +1301,7 @@ async fn join_inner(
     let requested_at = now_ms();
     let caller = &request.caller;
     let ports = request.ports(state);
-    let author = member(&caller.db, &caller.user_id).await?;
+    let author = member(caller, &caller.user_id).await?;
     let prepared = read_prepared_join(ports.cache.as_ref(), call_id, &caller.user_id).await;
     presets_ready(&ports.video, ports.cache.as_ref()).await;
     let (call, room) = joinable_call(caller, call_id).await?;

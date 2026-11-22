@@ -1,0 +1,224 @@
+//! `project_stakeholders`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "project_stakeholders")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "memberId")]
+    pub member_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "crmContactId")]
+    pub crm_contact_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "organisation")]
+    pub organisation: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "role")]
+    pub role: Option<String>,
+    #[serde(rename = "influence")]
+    pub influence: i16,
+    #[serde(rename = "interest")]
+    pub interest: i16,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "attitude")]
+    pub attitude: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "engagement")]
+    pub engagement: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[serde(rename = "lastContactAt", with = "crate::js::timestamptz::option")]
+    pub last_contact_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "portalAccess")]
+    pub portal_access: bool,
+    #[serde(rename = "portalInvitedAt", with = "crate::js::timestamptz::option")]
+    pub portal_invited_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "project_stakeholders",
+    columns: &[
+        DdlColumn {
+            name: "influence",
+            sql_type: None,
+            default: Some(DdlDefault::Number("3")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "interest",
+            sql_type: None,
+            default: Some(DdlDefault::Number("3")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "attitude",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'neutral'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "engagement",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'neutral'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "portal_access",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "project_stakeholders_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_stakeholders_contact_idx",
+            columns: &[IndexColumn {
+                expression: "crm_contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_stakeholders_member_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "member_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"project_stakeholders\".\"deleted_at\" is null and \"project_stakeholders\".\"member_id\" is not null",
+            ),
+        },
+        Index {
+            name: "project_stakeholders_contact_unique_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "crm_contact_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"project_stakeholders\".\"deleted_at\" is null and \"project_stakeholders\".\"crm_contact_id\" is not null",
+            ),
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "project_stakeholders_project_id_projects_id_fk",
+        columns: &["project_id"],
+        references: "projects",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[
+        Check {
+            name: "project_stakeholders_identity_check",
+            expression: "(\"project_stakeholders\".\"member_id\" is null) <> (\"project_stakeholders\".\"crm_contact_id\" is null)",
+        },
+        Check {
+            name: "project_stakeholders_scale_check",
+            expression: "\"project_stakeholders\".\"influence\" between 1 and 5 and \"project_stakeholders\".\"interest\" between 1 and 5",
+        },
+        Check {
+            name: "project_stakeholders_attitude_check",
+            expression: "\"project_stakeholders\".\"attitude\" in ('supportive', 'neutral', 'resistant')",
+        },
+        Check {
+            name: "project_stakeholders_engagement_check",
+            expression: "\"project_stakeholders\".\"engagement\" in ('unaware', 'resistant', 'neutral', 'supportive', 'leading')",
+        },
+    ],
+};

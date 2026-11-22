@@ -16,14 +16,20 @@ mod tables;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{js_date_parse, js_trim};
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_messages, desk_visitors, workspace_members,
+};
 
 use crate::table::WriteError;
+use crate::{epoch_ms, row};
 pub use tables::{DESK_CONVERSATIONS, DESK_MESSAGES, DESK_VISITORS};
 
 /// `new Date()` as Drizzle writes it: UTC with milliseconds.
@@ -38,8 +44,8 @@ pub enum AppendError {
     Write(WriteError),
 }
 
-impl From<sqlx::Error> for AppendError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for AppendError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -193,28 +199,31 @@ pub fn seconds_between(from_ms: f64, to_ms: f64) -> i64 {
     seconds
 }
 
-/// A `timestamp` column of a `to_jsonb` row as a time value.
-fn row_ms(value: &Value) -> Option<f64> {
-    value
-        .as_str()
-        .and_then(|text| js_date_parse(&crate::table::js_date(text)))
-}
-
 /// `firstResponseOf(db, conversationId)`: the first agent reply as the
 /// timeline has it, and its seconds from the visitor's first message (none
 /// when the team spoke first).
 async fn first_response_of(
     db: &PgPool,
     conversation_id: &str,
-) -> Result<Map<String, Value>, sqlx::Error> {
-    let (first_visitor, first_agent): (Option<i64>, Option<i64>) = sqlx::query_as(
-        "select floor(extract(epoch from min(created_at) filter (where author_type = 'visitor')) * 1000)::int8,
-                floor(extract(epoch from min(created_at) filter (where author_type = 'agent')) * 1000)::int8
-         from desk_messages where conversation_id = $1 and kind = 'message'",
-    )
-    .bind(conversation_id)
-    .fetch_one(db)
-    .await?;
+) -> Result<Map<String, Value>, DbErr> {
+    let first = |author: &'static str| {
+        Expr::from(Func::min(Expr::case(
+            desk_messages::Column::AuthorType.eq(author),
+            Expr::col(desk_messages::Column::CreatedAt),
+        )))
+    };
+    let firsts: Option<(Option<PrimitiveDateTime>, Option<PrimitiveDateTime>)> =
+        desk_messages::Entity::find()
+            .select_only()
+            .column_as(first("visitor"), "first_visitor")
+            .column_as(first("agent"), "first_agent")
+            .filter(desk_messages::Column::ConversationId.eq(conversation_id))
+            .filter(desk_messages::Column::Kind.eq("message"))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    let (first_visitor, first_agent) = firsts.unwrap_or_default();
+    let (first_visitor, first_agent) = (first_visitor.map(epoch_ms), first_agent.map(epoch_ms));
     let mut times = Map::new();
     let Some(first_agent) = first_agent else {
         return Ok(times);
@@ -238,23 +247,24 @@ async fn first_response_of(
 /// first response; a close sets the resolution, a reopen clears it.
 async fn reporting_times(
     db: &PgPool,
-    current: &Value,
-    prior_state: &Value,
-    next_state: &Value,
+    current: &desk_conversations::Model,
+    prior_state: &str,
+    next_state: &str,
     (kind, author_type): (&str, &str),
     now: &str,
-) -> Result<Map<String, Value>, sqlx::Error> {
+) -> Result<Map<String, Value>, DbErr> {
     let mut times = Map::new();
-    if kind == "message" && author_type == "agent" && current["first_response_at"].is_null() {
-        let id = current["id"].as_str().unwrap_or_default();
-        times.extend(first_response_of(db, id).await?);
+    if kind == "message" && author_type == "agent" && current.first_response_at.is_none() {
+        times.extend(first_response_of(db, &current.id).await?);
     }
-    let was_closed = *prior_state == "closed";
-    let is_closed = *next_state == "closed";
+    let was_closed = prior_state == "closed";
+    let is_closed = next_state == "closed";
     if !was_closed && is_closed {
-        let seconds = match (row_ms(&current["created_at"]), js_date_parse(now)) {
-            (Some(created), Some(now_ms)) => json!(seconds_between(created, now_ms)),
-            _ => Value::Null,
+        #[allow(clippy::cast_precision_loss)] // time values are exact in f64
+        let created = epoch_ms(current.created_at) as f64;
+        let seconds = match js_date_parse(now) {
+            Some(now_ms) => json!(seconds_between(created, now_ms)),
+            None => Value::Null,
         };
         times.insert("resolved_at".to_owned(), json!(now));
         times.insert("resolution_seconds".to_owned(), seconds);
@@ -293,11 +303,9 @@ async fn append_as(
     input: Append<'_>,
     fixed_id: Option<&str>,
 ) -> Result<Option<Appended>, AppendError> {
-    let current: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
-            .bind(input.conversation_id)
-            .fetch_optional(db)
-            .await?;
+    let current = desk_conversations::Entity::find_by_id(input.conversation_id)
+        .one(&orm(db))
+        .await?;
     let Some(current) = current else {
         return Err(AppendError::NotFound);
     };
@@ -305,22 +313,20 @@ async fn append_as(
     // was merged into (reopening it like any customer message would), when that
     // customer can see the kept one; otherwise it stays on the duplicate.
     let customer_message = input.kind == "message" && input.author_type == "visitor";
-    let current = if customer_message && current["merged_into_id"].is_string() {
+    let current = if customer_message && current.merged_into_id.is_some() {
         crate::links::merge_follow_up_target(db, current).await?
     } else {
         current
     };
-    let conversation_id = current["id"]
-        .as_str()
-        .unwrap_or(input.conversation_id)
-        .to_owned();
+    let conversation_id = current.id.clone();
     let now = now();
-    let prior_state = current["state"].clone();
-    let mut state = current["state"].clone();
-    let mut waiting_since = current["waiting_since"].clone();
-    let mut assignee = current["assignee_id"].clone();
-    let mut last_message_at = current["last_message_at"].clone();
-    let mut last_preview = current["last_message_preview"].clone();
+    // What the message moves; `None` leaves the column as it is.
+    let prior_state = current.state.clone();
+    let mut state = current.state.clone();
+    let mut waiting_since: Option<Value> = None;
+    let mut assignee = Value::Null;
+    let mut last_message_at: Option<Value> = None;
+    let mut last_preview: Option<Value> = None;
     let event_type = input
         .metadata
         .as_ref()
@@ -329,29 +335,29 @@ async fn append_as(
         .map(str::to_owned);
     match input.kind {
         "message" => {
-            last_message_at = json!(now);
+            last_message_at = Some(json!(now));
             if let Some(preview) = preview_of(input.body.as_deref())
                 .or_else(|| attachment_preview_of(input.attachments.as_ref()))
             {
-                last_preview = json!(preview);
+                last_preview = Some(json!(preview));
             }
             match input.author_type {
                 "visitor" => {
-                    waiting_since = json!(now);
+                    waiting_since = Some(json!(now));
                     if state == "closed" {
-                        state = json!("open");
+                        "open".clone_into(&mut state);
                     }
                 }
-                "agent" | "bot" => waiting_since = Value::Null,
+                "agent" | "bot" => waiting_since = Some(Value::Null),
                 _ => {}
             }
         }
         "event" => match event_type.as_deref() {
             Some("closed") => {
-                state = json!("closed");
-                waiting_since = Value::Null;
+                "closed".clone_into(&mut state);
+                waiting_since = Some(Value::Null);
             }
-            Some("reopened") => state = json!("open"),
+            Some("reopened") => "open".clone_into(&mut state),
             Some("assigned") => {
                 assignee = match &input.assignee_id {
                     Some(Some(id)) => json!(id),
@@ -413,9 +419,7 @@ async fn append_as(
     let message = match DESK_MESSAGES.insert(db, message, &["createdAt"]).await {
         Ok(message) => message,
         // `on conflict (id) do nothing`: the entry is on the timeline already.
-        Err(WriteError::Database(sqlx::Error::Database(error)))
-            if fixed_id.is_some() && error.is_unique_violation() =>
-        {
+        Err(error) if fixed_id.is_some() && error.is_unique_violation(None) => {
             return Ok(None);
         }
         Err(error) => return Err(error.into()),
@@ -433,13 +437,19 @@ async fn append_as(
 
     let mut changes = Map::new();
     changes.insert("updated_at".to_owned(), json!(now));
-    changes.insert("state".to_owned(), state);
-    changes.insert("waiting_since".to_owned(), waiting_since);
+    changes.insert("state".to_owned(), json!(state));
+    if let Some(waiting_since) = waiting_since {
+        changes.insert("waiting_since".to_owned(), waiting_since);
+    }
     if owner_changes {
         changes.insert("assignee_id".to_owned(), assignee);
     }
-    changes.insert("last_message_at".to_owned(), last_message_at);
-    changes.insert("last_message_preview".to_owned(), last_preview);
+    if let Some(last_message_at) = last_message_at {
+        changes.insert("last_message_at".to_owned(), last_message_at);
+    }
+    if let Some(last_preview) = last_preview {
+        changes.insert("last_message_preview".to_owned(), last_preview);
+    }
     changes.extend(times);
     let trusted = [
         "updatedAt",
@@ -476,16 +486,14 @@ pub async fn get(
     db: &PgPool,
     id: &str,
     include_messages: bool,
-) -> Result<Option<(Value, Vec<Value>)>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    let Some(row) = row else {
+) -> Result<Option<(Value, Vec<Value>)>, DbErr> {
+    let conversation = desk_conversations::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?;
+    let Some(conversation) = conversation else {
         return Ok(None);
     };
-    let conversation = DESK_CONVERSATIONS.js(row);
+    let conversation = row(conversation);
     if !include_messages {
         return Ok(Some((conversation, Vec::new())));
     }
@@ -493,14 +501,13 @@ pub async fn get(
 }
 
 /// `listDeskMessages`: the timeline, by `created_at` only.
-pub async fn messages(db: &PgPool, id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_messages t where t.conversation_id = $1 order by t.created_at",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(|row| DESK_MESSAGES.js(row)).collect())
+pub async fn messages(db: &PgPool, id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = desk_messages::Entity::find()
+        .filter(desk_messages::Column::ConversationId.eq(id))
+        .order_by_asc(desk_messages::Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 // ── visitors and their conversations (the widget API) ───────────────────────
@@ -569,10 +576,7 @@ pub struct NewConversation<'a> {
 
 /// A Postgres unique violation (`23505`).
 pub(crate) fn unique_violation(error: &WriteError) -> bool {
-    matches!(
-        error,
-        WriteError::Database(sqlx::Error::Database(db)) if db.code().as_deref() == Some("23505")
-    )
+    error.is_unique_violation(None)
 }
 
 /// `createDeskConversation(db, input)`: the new conversation and its first
@@ -632,11 +636,13 @@ pub async fn create_on_channel_for(
     let now = now();
     let preview = preview_of(Some(&input.body)).map_or(Value::Null, Value::String);
     for attempt in 0.. {
-        let number: i64 = sqlx::query_scalar(
-            "select (coalesce(max(conversation_number), 0) + 1)::bigint from desk_conversations",
-        )
-        .fetch_one(db)
-        .await?;
+        let max: Option<Option<i32>> = desk_conversations::Entity::find()
+            .select_only()
+            .column_as(desk_conversations::Column::ConversationNumber.max(), "max")
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        let number = i64::from(max.flatten().unwrap_or(0)) + 1;
         let mut values = Map::new();
         values.insert("id".to_owned(), json!(id));
         values.insert("created_at".to_owned(), json!(now));
@@ -723,7 +729,7 @@ pub async fn can_access(
     db: &PgPool,
     conversation: &Value,
     principal: &Principal,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let visitor_id = conversation["visitorId"].as_str();
     if visitor_id == Some(principal.visitor_id.as_str()) {
         return Ok(true);
@@ -741,11 +747,12 @@ pub async fn can_access(
     let Some(visitor_id) = visitor_id.filter(|id| !id.is_empty()) else {
         return Ok(false);
     };
-    let owner: Option<Option<String>> =
-        sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
-            .bind(visitor_id)
-            .fetch_optional(db)
-            .await?;
+    let owner: Option<Option<String>> = desk_visitors::Entity::find_by_id(visitor_id)
+        .select_only()
+        .column(desk_visitors::Column::VerifiedEmail)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(owner
         .flatten()
         .is_some_and(|owner| !owner.is_empty() && normalize_email(&owner) == *email))
@@ -758,29 +765,45 @@ pub async fn list_for_principal(
     db: &PgPool,
     principal: &Principal,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t
-         where t.visitor_id = $1
-            or ($2::text is not null and (
-                 t.visitor_id in (select v.id from desk_visitors v where v.verified_email = $2)
-                 or (t.channel = 'email' and lower(t.email) = $2)))
-         order by coalesce(t.last_message_at, t.created_at) desc, t.id desc
-         limit $3",
-    )
-    .bind(&principal.visitor_id)
-    .bind(principal.verified_email.as_deref())
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| DESK_CONVERSATIONS.js(row))
-        .collect())
+) -> Result<Vec<Value>, DbErr> {
+    use desk_conversations::Column;
+    let mut owned = Condition::any().add(Column::VisitorId.eq(&principal.visitor_id));
+    if let Some(email) = &principal.verified_email {
+        owned = owned
+            .add(
+                Column::VisitorId.in_subquery(
+                    Query::select()
+                        .column(desk_visitors::Column::Id)
+                        .from(desk_visitors::Entity)
+                        .and_where(desk_visitors::Column::VerifiedEmail.eq(email))
+                        .to_owned(),
+                ),
+            )
+            .add(
+                Condition::all()
+                    .add(Column::Channel.eq("email"))
+                    // `ExprTrait` stays unimported: it would shadow `serde_json::Value::is_null`.
+                    .add(sea_orm::ExprTrait::eq(
+                        Expr::from(Func::lower(Expr::col(Column::Email))),
+                        email,
+                    )),
+            );
+    }
+    let rows = desk_conversations::Entity::find()
+        .filter(owned)
+        .order_by_desc(Expr::from(Func::coalesce([
+            Expr::col(Column::LastMessageAt),
+            Expr::col(Column::CreatedAt),
+        ])))
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 /// A visitor row by id, as Drizzle's `select()` returns it.
-pub async fn find_visitor(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn find_visitor(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     DESK_VISITORS.find_live(db, id).await
 }
 
@@ -817,15 +840,13 @@ async fn identified_visitor(
     db: &PgPool,
     widget_id: &str,
     external_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_visitors t where t.widget_id = $1 and t.external_id = $2 limit 1",
-    )
-    .bind(widget_id)
-    .bind(external_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_VISITORS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    let visitor = desk_visitors::Entity::find()
+        .filter(desk_visitors::Column::WidgetId.eq(widget_id))
+        .filter(desk_visitors::Column::ExternalId.eq(external_id))
+        .one(&orm(db))
+        .await?;
+    Ok(visitor.map(row))
 }
 
 /// `upsertIdentifiedDeskVisitor(db, generateId, input)`: one row per
@@ -922,21 +943,20 @@ pub async fn attach_visitor_contact(
     if email.is_none() && name.is_none() {
         return Ok(updated);
     }
-    let rows: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.visitor_id = $1")
-            .bind(visitor_id)
-            .fetch_all(db)
-            .await?;
-    let empty = |value: &Value| value.as_str().is_none_or(str::is_empty);
-    for row in rows {
+    let rows = desk_conversations::Entity::find()
+        .filter(desk_conversations::Column::VisitorId.eq(visitor_id))
+        .all(&orm(db))
+        .await?;
+    let empty = |value: Option<&str>| value.is_none_or(str::is_empty);
+    for conversation in rows {
         let mut changes = Map::new();
         if let Some(email) = &email
-            && empty(&row["email"])
+            && empty(conversation.email.as_deref())
         {
             changes.insert("email".to_owned(), json!(email));
         }
         if let Some(name) = name
-            && empty(&row["name"])
+            && empty(conversation.name.as_deref())
         {
             changes.insert("name".to_owned(), json!(name));
         }
@@ -944,9 +964,8 @@ pub async fn attach_visitor_contact(
             continue;
         }
         changes.insert("updated_at".to_owned(), json!(now()));
-        let id = row["id"].as_str().unwrap_or_default();
         if let Some(next) = DESK_CONVERSATIONS
-            .patch(db, id, changes, false, &["updatedAt"])
+            .patch(db, &conversation.id, changes, false, &["updatedAt"])
             .await?
         {
             updated.push(next);
@@ -978,8 +997,8 @@ impl From<AppendError> for RateError {
     }
 }
 
-impl From<sqlx::Error> for RateError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RateError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -997,12 +1016,16 @@ pub async fn rate(
     rating: i64,
     comment: Option<&str>,
 ) -> Result<(Value, Value), RateError> {
-    let current: Option<(String, Option<String>)> = sqlx::query_as(
-        "select state, rated_at::text from desk_conversations where id = $1 limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
+    use desk_conversations::Column;
+    let orm_db = orm(db);
+    let current: Option<(String, Option<PrimitiveDateTime>)> =
+        desk_conversations::Entity::find_by_id(conversation_id)
+            .select_only()
+            .column(Column::State)
+            .column(Column::RatedAt)
+            .into_tuple()
+            .one(&orm_db)
+            .await?;
     let Some((state, rated_at)) = current else {
         return Err(RateError::NotFound);
     };
@@ -1013,19 +1036,23 @@ pub async fn rate(
         return Err(RateError::Rejected(ALREADY_RATED));
     }
     let comment = comment.map(js_trim).filter(|c| !c.is_empty());
-    let now = now();
-    let rated: Option<String> = sqlx::query_scalar(
-        "update desk_conversations set rating = $2, rating_comment = $3,
-         rated_at = $4::timestamp, updated_at = $4::timestamp
-         where id = $1 and rated_at is null returning id",
-    )
-    .bind(conversation_id)
-    .bind(i32::try_from(rating).unwrap_or(i32::MAX))
-    .bind(comment)
-    .bind(&now)
-    .fetch_optional(db)
-    .await?;
-    if rated.is_none() {
+    let now = utc_now();
+    let rated = desk_conversations::Entity::update_many()
+        .col_expr(
+            Column::Rating,
+            Expr::value(i32::try_from(rating).unwrap_or(i32::MAX)),
+        )
+        .col_expr(
+            Column::RatingComment,
+            Expr::value(comment.map(str::to_owned)),
+        )
+        .col_expr(Column::RatedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(conversation_id))
+        .filter(Column::RatedAt.is_null())
+        .exec(&orm_db)
+        .await?;
+    if rated.rows_affected == 0 {
         return Err(RateError::Rejected(ALREADY_RATED));
     }
     let mut metadata = Map::new();
@@ -1070,11 +1097,13 @@ pub fn author_from_member(name: Option<&str>, picture: Option<&str>) -> Author {
 }
 
 /// `resolveAuthors(db, userIds)`: the display name and avatar of each
-/// teammate among `user_ids`, by user id.
+/// teammate among `user_ids`, by user id. The avatar is the account picture
+/// (`master`), not the member row's copy.
 pub async fn resolve_authors(
     db: &PgPool,
+    master: Option<&PgPool>,
     user_ids: &[Option<&str>],
-) -> Result<HashMap<String, Author>, sqlx::Error> {
+) -> Result<HashMap<String, Author>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for id in user_ids.iter().flatten() {
         if !id.is_empty() && !ids.iter().any(|known| known == id) {
@@ -1085,17 +1114,19 @@ pub async fn resolve_authors(
     if ids.is_empty() {
         return Ok(authors);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, picture from workspace_members where user_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    for (user_id, name, picture) in rows {
-        authors.insert(
-            user_id,
-            author_from_member(name.as_deref(), picture.as_deref()),
-        );
+    let rows: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let pictures =
+        weldsuite_db::AccountPictures::load(master, rows.iter().map(|(user_id, _)| user_id)).await;
+    for (user_id, name) in rows {
+        let author = author_from_member(name.as_deref(), pictures.get(&user_id));
+        authors.insert(user_id, author);
     }
     Ok(authors)
 }

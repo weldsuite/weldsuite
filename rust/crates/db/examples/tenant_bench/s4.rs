@@ -9,6 +9,11 @@
 //! second it samples `PgBouncer` (`SHOW LISTS`) and Postgres
 //! (`pg_stat_activity`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the benchmark measures hand-written SQL"
+)]
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, PoisonError};

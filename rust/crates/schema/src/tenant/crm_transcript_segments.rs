@@ -1,0 +1,97 @@
+//! `crm_transcript_segments`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "crm_transcript_segments")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "transcriptionId")]
+    pub transcription_id: String,
+    #[serde(rename = "speakerId")]
+    pub speaker_id: i32,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "speakerLabel")]
+    pub speaker_label: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "speakerName")]
+    pub speaker_name: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "startTime", with = "crate::js::real")]
+    pub start_time: f32,
+    #[serde(rename = "endTime", with = "crate::js::real")]
+    pub end_time: f32,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "timestamp")]
+    pub timestamp: Option<String>,
+    #[serde(rename = "confidence", with = "crate::js::real::option")]
+    pub confidence: Option<f32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "words")]
+    pub words: Option<Json>,
+    #[serde(rename = "sequenceNumber")]
+    pub sequence_number: i32,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "crm_transcript_segments",
+    columns: &[DdlColumn {
+        name: "created_at",
+        sql_type: None,
+        default: Some(DdlDefault::Sql("now()")),
+        generated: None,
+        default_fn: false,
+        on_update: false,
+    }],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "crm_transcript_segments_transcription_idx",
+            columns: &[IndexColumn {
+                expression: "transcription_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "crm_transcript_segments_speaker_idx",
+            columns: &[IndexColumn {
+                expression: "speaker_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

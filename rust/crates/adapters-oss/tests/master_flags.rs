@@ -7,6 +7,11 @@
 //! also reads the one master migration 0062 creates, when
 //! `WELDSUITE_TEST_MASTER_URL` points at a database built from the migrations.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::time::Duration;
 
 use serde_json::json;

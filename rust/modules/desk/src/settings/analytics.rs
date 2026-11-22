@@ -286,7 +286,7 @@ fn read_chart(issues: &mut Issues, body: &Map<String, Value>, update: bool) -> M
 
 // ── reports ─────────────────────────────────────────────────────────────────
 
-async fn live_report(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn live_report(db: &PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
     REPORTS.find_live(db, id).await
 }
 
@@ -302,7 +302,7 @@ async fn list_reports(caller: Caller) -> Response {
             rows.into_iter().map(|row| REPORTS.js(row)).collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch analytics reports"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch analytics reports"),
     }
 }
 
@@ -311,7 +311,7 @@ async fn report_detail(caller: Caller, Path(report_id): Path<String>) -> Respons
     match live_report(&caller.db, &report_id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Report", &report_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -374,7 +374,7 @@ async fn update_report(
     match live_report(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Report", &id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     let mut values = Map::new();
     REPORTS.set(&mut values, "updatedAt", json!(now()));
@@ -404,7 +404,7 @@ async fn delete_report(
     match live_report(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Report", &id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     // Every chart of the report, those deleted before included.
     let charts = sqlx::query(
@@ -415,7 +415,7 @@ async fn delete_report(
     .execute(&caller.db)
     .await;
     if let Err(error) = charts {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     let report = sqlx::query(
         "update helpdesk_analytics_reports set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
@@ -425,7 +425,7 @@ async fn delete_report(
     .execute(&caller.db)
     .await;
     if let Err(error) = report {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     caller.publish(
         &state,
@@ -441,11 +441,11 @@ async fn duplicate_report(caller: Caller, Path(report_id): Path<String>) -> Resp
     let original = match live_report(&caller.db, &report_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Report", &report_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     match duplicate(&caller, &report_id, &original).await {
         Ok(id) => Created(json!({ "id": id })).into_response(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -523,7 +523,7 @@ async fn list_charts(caller: Caller, Path(report_id): Path<String>) -> Response 
             rows.into_iter().map(|row| CHARTS.js(row)).collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch charts"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch charts"),
     }
 }
 
@@ -545,7 +545,7 @@ async fn create_chart(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
     .await;
     let next = match max {
         Ok(max) => max + 1,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let id = generate_id("cht");
     let now = now();
@@ -596,7 +596,7 @@ async fn create_chart(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
     .execute(&caller.db)
     .await;
     if let Err(error) = counted {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     Created(json!({ "id": id })).into_response()
 }
@@ -606,7 +606,7 @@ async fn chart_detail(caller: Caller, Path(chart_id): Path<String>) -> Response 
     match CHARTS.find_live(&caller.db, &chart_id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Chart", &chart_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -665,7 +665,7 @@ async fn update_layouts(caller: Caller, Path(report_id): Path<String>, body: Byt
         .execute(&caller.db)
         .await;
         if let Err(error) = changed {
-            return Refusal::Database(error).respond(message);
+            return Refusal::from(error).respond(message);
         }
     }
     Data(json!({ "updated": layouts.len() })).into_response()
@@ -676,7 +676,7 @@ async fn delete_chart(caller: Caller, Path(chart_id): Path<String>) -> Response 
     let chart = match CHARTS.find_live(&caller.db, &chart_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Chart", &chart_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let now = now();
     let deleted = sqlx::query(
@@ -687,7 +687,7 @@ async fn delete_chart(caller: Caller, Path(chart_id): Path<String>) -> Response 
     .execute(&caller.db)
     .await;
     if let Err(error) = deleted {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     let counted = sqlx::query(
         "update helpdesk_analytics_reports set chart_count = greatest(chart_count - 1, 0), updated_at = $2::timestamp
@@ -698,7 +698,7 @@ async fn delete_chart(caller: Caller, Path(chart_id): Path<String>) -> Response 
     .execute(&caller.db)
     .await;
     if let Err(error) = counted {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     Data(json!({ "id": chart_id })).into_response()
 }
@@ -710,7 +710,7 @@ async fn overview(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let range = query_param(query.as_deref(), "range");
     match reports::overview(&caller.db, range.as_deref(), reports::clock_ms(&caller)).await {
         Ok(data) => Data(data).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch the reports overview"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch the reports overview"),
     }
 }
 
@@ -730,7 +730,7 @@ async fn chart_data(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
     };
     match reports::chart_data(&caller.db, &query, reports::clock_ms(&caller)).await {
         Ok(points) => Data(Value::Array(points)).into_response(),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -773,7 +773,7 @@ async fn batch_data(caller: Caller, body: Bytes) -> Response {
             Ok(points) => {
                 data.insert(js_key(chart_id), Value::Array(points));
             }
-            Err(error) => return Refusal::Database(error).respond(message),
+            Err(error) => return Refusal::from(error).respond(message),
         }
     }
     Data(Value::Object(data)).into_response()

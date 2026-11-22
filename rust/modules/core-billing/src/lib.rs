@@ -32,6 +32,11 @@
 //! - **One webhook** (`/api/webhooks/mollie`, shared with BILL-013's top-up):
 //!   [`settle::settle_payment`] reads the payment back and applies it once.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod access;
 mod account;
 pub mod addons;

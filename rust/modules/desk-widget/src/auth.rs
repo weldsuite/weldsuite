@@ -6,8 +6,11 @@ use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::{plans, widget_registry, workspaces};
+use weldsuite_schema::tenant::desk_widget_settings;
 
 use crate::{Ctx, WidgetState, failure};
 
@@ -86,13 +89,18 @@ async fn authenticate(
     origin: Option<&str>,
 ) -> Result<Result<Widget, Response>, String> {
     let master = ctx.master(state).ok_or("no master database")?;
-    let registry: Option<(String, bool)> = sqlx::query_as(
-        "select workspace_id, is_active from widget_registry where widget_id = $1 limit 1",
-    )
-    .bind(&widget_id)
-    .fetch_optional(&master)
-    .await
-    .map_err(|error| error.to_string())?;
+    let master = orm(&master);
+    let registry: Option<(String, bool)> = widget_registry::Entity::find()
+        .select_only()
+        .columns([
+            widget_registry::Column::WorkspaceId,
+            widget_registry::Column::IsActive,
+        ])
+        .filter(widget_registry::Column::WidgetId.eq(widget_id.as_str()))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(|error| error.to_string())?;
     let Some((workspace_id, active)) = registry else {
         return Ok(Err(unauthorized("Invalid widget ID")));
     };
@@ -100,9 +108,11 @@ async fn authenticate(
         return Ok(Err(unauthorized("Widget is inactive")));
     }
     let workspace: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select clerk_org_id, plan_id from workspaces where id = $1 limit 1")
-            .bind(&workspace_id)
-            .fetch_optional(&master)
+        workspaces::Entity::find_by_id(workspace_id.as_str())
+            .select_only()
+            .columns([workspaces::Column::ClerkOrgId, workspaces::Column::PlanId])
+            .into_tuple()
+            .one(&master)
             .await
             .map_err(|error| error.to_string())?;
     let Some((Some(clerk_org_id), plan_id)) =
@@ -111,25 +121,23 @@ async fn authenticate(
         return Ok(Err(unauthorized("Workspace configuration not found")));
     };
     let remove_branding = match plan_id {
-        Some(plan_id) => sqlx::query_scalar::<_, Option<bool>>(
-            "select remove_branding from plans where id = $1 limit 1",
-        )
-        .bind(&plan_id)
-        .fetch_optional(&master)
-        .await
-        .map_err(|error| error.to_string())?
-        .flatten()
-        .unwrap_or(false),
+        Some(plan_id) => plans::Entity::find_by_id(plan_id)
+            .select_only()
+            .column(plans::Column::RemoveBranding)
+            .into_tuple::<bool>()
+            .one(&master)
+            .await
+            .map_err(|error| error.to_string())?
+            .unwrap_or(false),
         None => false,
     };
     let db = ctx.tenant_db(state, &clerk_org_id).await?;
-    let config: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_widget_settings t where t.widget_id = $1 limit 1",
-    )
-    .bind(&widget_id)
-    .fetch_optional(&db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let config: Option<Value> = desk_widget_settings::Entity::find()
+        .filter(desk_widget_settings::Column::WidgetId.eq(widget_id.as_str()))
+        .one(&orm(&db))
+        .await
+        .map_err(|error| error.to_string())?
+        .and_then(|settings| serde_json::to_value(settings).ok());
     let Some(config) = config else {
         return Ok(Err(unauthorized("Widget configuration not found")));
     };
@@ -139,11 +147,11 @@ async fn authenticate(
     // Once a workspace has an allowlist, a request without `Origin` is a
     // non-browser client and is refused too: every legitimate caller is the
     // widget's cross-origin fetch, which always sends it.
-    let allowed: Vec<&str> = config["allowed_domains"]
+    let allowed: Vec<&str> = config["allowedDomains"]
         .as_array()
         .map(|domains| domains.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let listed = config["allowed_domains"]
+    let listed = config["allowedDomains"]
         .as_array()
         .is_some_and(|domains| !domains.is_empty());
     if listed {

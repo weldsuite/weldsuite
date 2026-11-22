@@ -95,6 +95,11 @@ pub(crate) fn monitor_state(
         panel,
         mail: state.infra.mail.clone(),
         http: (!conformance).then(public_http).flatten(),
+        // Expo push for the mentions in a WeldChat delivery; none in
+        // conformance builds.
+        push_http: (!conformance)
+            .then(crate::routes::shared_outbound)
+            .flatten(),
         domains: collector_domains(),
     }
 }
@@ -170,6 +175,11 @@ pub(crate) async fn panel_schedule(config: Config) -> Result<(), Box<dyn std::er
         events: infra.events.clone(),
         mail: infra.mail.clone(),
         http: public_http(),
+        // Expo push for the mentions in a WeldChat delivery; none in
+        // conformance builds.
+        push_http: (!cfg!(feature = "conformance"))
+            .then(crate::routes::shared_outbound)
+            .flatten(),
         realtime: infra.realtime.clone(),
         cache: infra.cache.clone(),
         sql,

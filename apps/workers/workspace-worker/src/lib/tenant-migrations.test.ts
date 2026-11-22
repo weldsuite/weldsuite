@@ -202,7 +202,7 @@ describe('findNonTransactionalStatement', () => {
 describe('the tenant journal', () => {
   const dir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../../../../../packages/core/db/drizzle/tenant-migrations',
+    '../../../../../rust/migrations/tenant',
   );
   const journal = JSON.parse(readFileSync(path.join(dir, 'meta/_journal.json'), 'utf8')) as {
     entries: Array<{ tag: string }>;

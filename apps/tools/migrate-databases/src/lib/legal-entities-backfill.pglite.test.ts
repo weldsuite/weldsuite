@@ -26,7 +26,7 @@ import {
 } from './legal-entities-backfill';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const migrationsDir = path.resolve(here, '../../../../../packages/core/db/drizzle/tenant-migrations');
+const migrationsDir = path.resolve(here, '../../../../../rust/migrations/tenant');
 
 const keyring: EncryptionKeyring = { v1: randomBytes(32).toString('hex'), v2: randomBytes(32).toString('hex') };
 const otherKeyring: EncryptionKeyring = { v2: randomBytes(32).toString('hex') };

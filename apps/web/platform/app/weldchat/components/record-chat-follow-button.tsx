@@ -1,4 +1,4 @@
-import { Check, Plus } from 'lucide-react';
+import { Bell, BellPlus, Check, Plus } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -17,6 +17,8 @@ interface RecordChatFollowButtonProps {
   entityId: string;
   channelId: string;
   className?: string;
+  /** A bell icon button with the label as its tooltip, for beside the call buttons. */
+  iconOnly?: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ interface RecordChatFollowButtonProps {
  * Whether the user follows comes from the chat's member list (following is
  * membership), which the open chat has loaded already.
  */
-export function RecordChatFollowButton({ entityType, entityId, channelId, className }: Readonly<RecordChatFollowButtonProps>) {
+export function RecordChatFollowButton({ entityType, entityId, channelId, className, iconOnly }: Readonly<RecordChatFollowButtonProps>) {
   const st = useTranslations();
   const { userId } = useAuth();
   const { data } = useChannel(channelId);
@@ -47,6 +49,28 @@ export function RecordChatFollowButton({ entityType, entityId, channelId, classN
     }
   };
   const Icon = isFollowing ? Check : Plus;
+  const busy = follow.isPending || unfollow.isPending;
+  const hint = isFollowing ? st('sweep.weldchat.recordChats.unfollow') : st('sweep.weldchat.recordChats.followHint');
+
+  if (iconOnly) {
+    // A toggle: the label stays "Follow" and aria-pressed says whether it is on.
+    const BellIcon = isFollowing ? Bell : BellPlus;
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn('h-8 w-8', className)}
+        data-testid="record-chat-follow"
+        aria-label={st('sweep.weldchat.recordChats.follow')}
+        aria-pressed={isFollowing}
+        disabled={busy}
+        title={hint}
+        onClick={toggle}
+      >
+        <BellIcon className={cn('!h-[18px] !w-[18px]', isFollowing && 'fill-current')} />
+      </Button>
+    );
+  }
 
   return (
     <Button
@@ -55,8 +79,8 @@ export function RecordChatFollowButton({ entityType, entityId, channelId, classN
       className={cn('h-8 gap-1.5 px-2', isFollowing && 'text-muted-foreground hover:text-foreground', className)}
       data-testid="record-chat-follow"
       aria-pressed={isFollowing}
-      disabled={follow.isPending || unfollow.isPending}
-      title={isFollowing ? st('sweep.weldchat.recordChats.unfollow') : st('sweep.weldchat.recordChats.followHint')}
+      disabled={busy}
+      title={hint}
       onClick={toggle}
     >
       <Icon className="h-4 w-4" />

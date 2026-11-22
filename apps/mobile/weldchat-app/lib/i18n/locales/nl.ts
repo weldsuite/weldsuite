@@ -20,6 +20,13 @@ export const nl: Translations = {
     subtitle: 'Teamcommunicatie voor je werkruimte',
   },
 
+  noWorkspace: {
+    title: 'Geen werkruimte gevonden',
+    description: 'Je hebt een WeldSuite-werkruimte nodig om WeldChat te gebruiken. Maak er een aan op het web om te beginnen.',
+    create: 'Werkruimte aanmaken',
+    otherAccount: 'Inloggen met een ander account',
+  },
+
   tabs: {
     home: 'Home',
     directMessages: 'Directe berichten',
@@ -124,6 +131,9 @@ export const nl: Translations = {
     unarchive: 'Dearchiveren',
     scrollToLatest: 'Naar de nieuwste berichten',
     edited: '(bewerkt)',
+    // Een grafiek, kerncijfers, tabel of recordkaarten van een agent: getekend op het web en in de WeldAgent-app.
+    visualShown: '{kind} “{title}”: open het op het web om het te zien',
+    visualKinds: { chart: 'Grafiek', stats: 'Kerncijfers', table: 'Tabel', records: 'Records' },
     replyCount: { one: '{count} antwoord', other: '{count} antwoorden' },
     joinCall: 'Deelnemen',
     missedCall: 'Gemiste oproep',

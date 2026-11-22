@@ -28,6 +28,7 @@ describe('GET /feature-flags', () => {
         'weldflow-move-task': false,
         'weldhr-payroll': false,
         'weldhr-payroll-digipoort': false,
+        'chat-visuals-gallery': false,
       },
     });
   });

@@ -33,6 +33,7 @@ import {
 import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
 import { routeAndAssignDeskConversation, type DeskRoutingStep } from '@weldsuite/db/lib/desk-routing';
 import { generateId } from './id';
+import { accountPicture, loadAccountPictures } from './account-pictures';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
 export type { PublicDeskMessage, PublicDeskConversation } from '@weldsuite/db/lib/desk';
@@ -43,8 +44,12 @@ export {
 
 export type DeskAuthor = DeskAuthorInfo;
 
-/** Resolve agent display info (name + avatar) for a set of Clerk user ids. */
+/**
+ * Resolve agent display info for a set of Clerk user ids: the first name from
+ * the member row, the avatar from their account.
+ */
 export async function resolveAuthors(
+  env: Env,
   db: Database,
   userIds: Array<string | null | undefined>,
 ): Promise<Map<string, DeskAuthor>> {
@@ -52,15 +57,16 @@ export async function resolveAuthors(
   const out = new Map<string, DeskAuthor>();
   if (ids.length === 0) return out;
   const { workspaceMembers } = schema;
-  const rows = await db
-    .select({
-      userId: workspaceMembers.userId,
-      name: workspaceMembers.name,
-      picture: workspaceMembers.picture,
-    })
-    .from(workspaceMembers)
-    .where(inArray(workspaceMembers.userId, ids));
-  for (const row of rows) out.set(row.userId, deskAuthorFromMember(row));
+  const [rows, pictures] = await Promise.all([
+    db
+      .select({ userId: workspaceMembers.userId, name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(inArray(workspaceMembers.userId, ids)),
+    loadAccountPictures(env, ids),
+  ]);
+  for (const row of rows) {
+    out.set(row.userId, deskAuthorFromMember({ name: row.name, picture: accountPicture(pictures, row.userId) }));
+  }
   return out;
 }
 
@@ -302,7 +308,7 @@ export async function autoAssignConversation(
     if (slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', orgId, slaCheckAt);
     for (const step of steps) {
       if (step.action === 'assigned') {
-        const authors = await resolveAuthors(db, [step.conversation.assigneeId]);
+        const authors = await resolveAuthors(env, db, [step.conversation.assigneeId]);
         await publishVisitorEvent(env, orgId, step.conversation, step.message, authors, 'assigned');
       } else {
         await publishInternalEvent(env, orgId, step.conversation, step.message);

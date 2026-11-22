@@ -6,6 +6,11 @@
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use weldsuite_calendar_domain::{
     EventUpdate, TaskEvent, TaskSchedulingApp, create_calendar_event_for_task,
     fetch_task_scheduled_slots, is_task_auto_schedule_enabled, next_auto_scheduled_replan_at,

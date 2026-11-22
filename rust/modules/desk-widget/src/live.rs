@@ -303,12 +303,18 @@ pub(crate) async fn auto_assign(
         return conversation;
     }
     // The owner and the team can change which SLA policy applies.
-    if let (Some(master), Some(at)) = (master, sla_check_at.and_then(sla::instant)) {
-        weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
+    if let (Some(master), Some(at)) = (master.as_ref(), sla_check_at.and_then(sla::instant)) {
+        weldsuite_db::due_index::mark_due(master, sla::DUE_KIND, workspace_id, at).await;
     }
     for step in &steps {
         if step.action == "assigned" {
-            match resolve_authors(db, &[step.conversation["assigneeId"].as_str()]).await {
+            match resolve_authors(
+                db,
+                master.as_ref(),
+                &[step.conversation["assigneeId"].as_str()],
+            )
+            .await
+            {
                 Ok(authors) => {
                     publish_visitor_event(
                         state,
@@ -336,21 +342,30 @@ pub(crate) async fn auto_assign(
 
 /// `notificationRecipients(db, conversation)`: the assignee, else every
 /// active internal teammate who can work the inbox.
-async fn recipients(db: &PgPool, conversation: &Value) -> Result<Vec<String>, sqlx::Error> {
+async fn recipients(db: &PgPool, conversation: &Value) -> Result<Vec<String>, sea_orm::DbErr> {
+    use sea_orm::sea_query::{Expr, Func};
+    use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
+    use weldsuite_schema::tenant::workspace_members::{Column, Entity};
     if let Some(assignee) = conversation["assigneeId"]
         .as_str()
         .filter(|assignee| !assignee.is_empty())
     {
         return Ok(vec![assignee.to_owned()]);
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL' and upper(role) <> 'VIEWER'
-         limit $1",
-    )
-    .bind(MAX_RECIPIENTS)
-    .fetch_all(db)
-    .await?;
+    let upper = |column: Column| Expr::from(Func::upper(Expr::col(column)));
+    let rows: Vec<String> = Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(sea_orm::ExprTrait::eq(upper(Column::Status), "ACTIVE"))
+        .filter(sea_orm::ExprTrait::eq(
+            upper(Column::MemberType),
+            "INTERNAL",
+        ))
+        .filter(sea_orm::ExprTrait::ne(upper(Column::Role), "VIEWER"))
+        .limit(u64::try_from(MAX_RECIPIENTS).unwrap_or(0))
+        .into_tuple()
+        .all(&weldsuite_db::orm(db))
+        .await?;
     let mut out: Vec<String> = Vec::new();
     for user_id in rows {
         if !out.contains(&user_id) {
@@ -443,11 +458,16 @@ pub(crate) async fn visitor_display_name(
             return value.to_owned();
         }
     }
-    let row: Result<Option<NameAndEmail>, sqlx::Error> =
-        sqlx::query_as("select name, email from desk_visitors where id = $1 limit 1")
-            .bind(visitor_id)
-            .fetch_optional(db)
-            .await;
+    let row: Result<Option<NameAndEmail>, sea_orm::DbErr> = {
+        use sea_orm::{EntityTrait, QuerySelect};
+        use weldsuite_schema::tenant::desk_visitors::{Column, Entity};
+        Entity::find_by_id(visitor_id)
+            .select_only()
+            .columns([Column::Name, Column::Email])
+            .into_tuple()
+            .one(&weldsuite_db::orm(db))
+            .await
+    };
     let (name, email) = match row {
         Ok(Some(row)) => row,
         Ok(None) => (None, None),

@@ -256,6 +256,8 @@ fn partial_reversals_and_other_currencies_are_not_full() {
         details: MethodDetails::default(),
         paid_at: None,
         failure_reason: None,
+        expires_at: None,
+        raw: Value::Null,
     };
     assert!(!payment(None).fully_reversed());
     assert!(!payment(Some(("EUR", "9.99"))).fully_reversed());
@@ -374,4 +376,221 @@ fn masks_ibans_and_maps_locales() {
         .as_deref(),
         Some("https://app.weldsuite.eu/settings/billing?x=1&checkout=bpy_1")
     );
+}
+
+// ── Mollie Connect and the profile and test mode of an OAuth token ──────────
+
+#[tokio::test]
+async fn an_oauth_client_sends_its_profile_and_test_mode() {
+    let (recorded, http) = http(vec![
+        Ok(answer(
+            201,
+            &json!({ "id": "tr_a", "status": "open", "amount": { "currency": "EUR", "value": "5.00" } }),
+        )),
+        Ok(answer(200, &json!({ "id": "tr_a", "status": "paid" }))),
+        Ok(answer(
+            201,
+            &json!({ "id": "re_1", "status": "queued", "amount": { "currency": "EUR", "value": "1.00" } }),
+        )),
+    ]);
+    let mollie = Mollie::new(DEFAULT_API_URL, "access_token_1")
+        .with_profile("pfl_abc")
+        .with_testmode(true);
+    let amount = Money::from_cents("EUR", 500);
+    let payment = NewPayment {
+        amount: &amount,
+        description: "Order WC-1",
+        redirect_url: Some("https://shop.example/return"),
+        cancel_url: None,
+        webhook_url: "https://app.example/webhooks/commerce/mollie/cpc_1",
+        metadata: json!({ "orderId": "ord_1" }),
+        sequence: Sequence::OneOff,
+        methods: Vec::new(),
+        locale: None,
+    };
+    mollie
+        .create(&http, &payment, "ord_1-1")
+        .await
+        .expect("create");
+    mollie.payment(&http, "tr_a").await.expect("read");
+    mollie
+        .refund(&http, "tr_a", &Money::from_cents("EUR", 100), "Refund", "k")
+        .await
+        .expect("refund");
+    let requests = recorded.requests.lock().expect("lock");
+    let create = body_of(&requests[0]);
+    assert_eq!(create["profileId"], "pfl_abc");
+    assert_eq!(create["testmode"], true);
+    assert_eq!(
+        requests[1].url,
+        "https://api.mollie.com/v2/payments/tr_a?testmode=true"
+    );
+    let refund = body_of(&requests[2]);
+    assert_eq!(refund["testmode"], true);
+    assert!(refund.get("profileId").is_none(), "a refund has no profile");
+    assert_eq!(
+        header(&requests[0], "authorization"),
+        Some("Bearer access_token_1")
+    );
+}
+
+#[tokio::test]
+async fn an_api_key_client_sends_neither_profile_nor_test_mode() {
+    let (recorded, http) = http(vec![Ok(answer(
+        200,
+        &json!({ "id": "tr_a", "status": "paid" }),
+    ))]);
+    Mollie::new(DEFAULT_API_URL, "test_key")
+        .payment(&http, "tr_a")
+        .await
+        .expect("read");
+    assert_eq!(
+        recorded.requests.lock().expect("lock")[0].url,
+        "https://api.mollie.com/v2/payments/tr_a"
+    );
+}
+
+#[tokio::test]
+async fn lists_refunds_profiles_and_the_organisation() {
+    let (recorded, http) = http(vec![
+        Ok(answer(
+            200,
+            &json!({ "_embedded": { "refunds": [
+                { "id": "re_1", "status": "refunded", "amount": { "currency": "EUR", "value": "2.50" } },
+                { "id": "re_2", "status": "queued", "amount": { "currency": "EUR", "value": "1.00" }, "description": "x" },
+            ] } }),
+        )),
+        Ok(answer(
+            200,
+            &json!({ "_embedded": { "profiles": [
+                { "id": "pfl_1", "name": "Shop", "website": "https://shop.example", "mode": "live" },
+            ] } }),
+        )),
+        Ok(answer(200, &json!({ "id": "org_1", "name": "Shop BV" }))),
+        Ok(answer(
+            200,
+            &json!({ "id": "pfl_9", "name": "Key profile", "mode": "test" }),
+        )),
+    ]);
+    let mollie = Mollie::new(DEFAULT_API_URL, "k").with_testmode(true);
+    let refunds = mollie.refunds(&http, "tr_a").await.expect("refunds");
+    assert_eq!(refunds.len(), 2);
+    assert_eq!(refunds[0].status, "refunded");
+    assert_eq!(
+        refunds[0].amount.as_ref().map(Money::value).as_deref(),
+        Some("2.50")
+    );
+    assert_eq!(refunds[1].description.as_deref(), Some("x"));
+    let profiles = mollie.profiles(&http).await.expect("profiles");
+    assert_eq!(profiles[0].id, "pfl_1");
+    assert_eq!(profiles[0].mode.as_deref(), Some("live"));
+    let organization = mollie.organization(&http).await.expect("organization");
+    assert_eq!(organization.name.as_deref(), Some("Shop BV"));
+    let profile = mollie.current_profile(&http).await.expect("profile");
+    assert_eq!(profile.id, "pfl_9");
+    let requests = recorded.requests.lock().expect("lock");
+    assert_eq!(
+        requests[0].url,
+        "https://api.mollie.com/v2/payments/tr_a/refunds?limit=250&testmode=true"
+    );
+}
+
+#[test]
+fn the_authorize_url_carries_the_app_state_and_scopes() {
+    let app = connect::ConnectApp::new("app_123", "secret");
+    let url = app
+        .authorize_url(
+            "https://app.example/api/commerce-payments/connection/mollie/callback",
+            "state.jwt",
+            connect::COMMERCE_SCOPES,
+        )
+        .expect("an authorize url");
+    let parsed = url::Url::parse(&url).expect("url");
+    assert_eq!(parsed.host_str(), Some("my.mollie.com"));
+    let query: std::collections::HashMap<_, _> = parsed.query_pairs().into_owned().collect();
+    assert_eq!(query["client_id"], "app_123");
+    assert_eq!(query["state"], "state.jwt");
+    assert_eq!(query["response_type"], "code");
+    assert!(query["scope"].contains("payments.write"));
+    assert!(query["scope"].contains("refunds.write"));
+    assert!(!url.contains("secret"));
+    assert!(!format!("{app:?}").contains("secret"));
+}
+
+#[tokio::test]
+async fn exchanges_a_code_and_refreshes_a_token_with_the_apps_credentials() {
+    let (recorded, http) = http(vec![
+        Ok(answer(
+            200,
+            &json!({ "access_token": "access_a", "refresh_token": "refresh_a", "expires_in": 3600, "scope": "payments.read payments.write" }),
+        )),
+        Ok(answer(
+            200,
+            &json!({ "access_token": "access_b", "expires_in": 1800 }),
+        )),
+        Ok(answer(400, &json!({ "detail": "invalid_grant" }))),
+    ]);
+    let app = connect::ConnectApp::new("app_123", "s3cret");
+    let tokens = app
+        .exchange_code(&http, "code_1", "https://app.example/cb")
+        .await
+        .expect("exchange");
+    assert_eq!(tokens.access_token, "access_a");
+    assert_eq!(tokens.refresh_token.as_deref(), Some("refresh_a"));
+    assert_eq!(tokens.expires_in, 3600);
+    let refreshed = app.refresh(&http, "refresh_a").await.expect("refresh");
+    assert_eq!(refreshed.access_token, "access_b");
+    assert_eq!(refreshed.refresh_token, None);
+    assert_eq!(refreshed.expires_in, 1800);
+    let refused = app.refresh(&http, "refresh_a").await.expect_err("refused");
+    assert!(refused.is_refusal());
+    let requests = recorded.requests.lock().expect("lock");
+    assert_eq!(requests[0].url, connect::DEFAULT_TOKEN_URL);
+    assert_eq!(
+        header(&requests[0], "content-type"),
+        Some("application/x-www-form-urlencoded")
+    );
+    let basic = header(&requests[0], "authorization").expect("basic auth");
+    assert!(basic.starts_with("Basic "));
+    let form = String::from_utf8(requests[0].body.clone().expect("body")).expect("utf8");
+    assert!(form.contains("grant_type=authorization_code"));
+    assert!(form.contains("code=code_1"));
+    assert!(
+        !form.contains("s3cret"),
+        "the secret goes in the header only"
+    );
+    let refresh = String::from_utf8(requests[1].body.clone().expect("body")).expect("utf8");
+    assert!(refresh.contains("grant_type=refresh_token"));
+}
+
+#[tokio::test]
+async fn revoking_a_token_mollie_forgot_is_fine() {
+    let (recorded, http) = http(vec![
+        Ok(answer(204, &Value::Null)),
+        Ok(answer(404, &json!({ "detail": "gone" }))),
+        Ok(answer(401, &json!({ "detail": "bad" }))),
+        Ok(answer(500, &json!({ "detail": "down" }))),
+    ]);
+    let app = connect::ConnectApp::new("a", "b");
+    for _ in 0..3 {
+        app.revoke(&http, "tok", "access_token")
+            .await
+            .expect("revoked");
+    }
+    assert!(app.revoke(&http, "tok", "refresh_token").await.is_err());
+    let requests = recorded.requests.lock().expect("lock");
+    assert_eq!(requests[0].method, "DELETE");
+    let form = String::from_utf8(requests[0].body.clone().expect("body")).expect("utf8");
+    assert!(form.contains("token_type_hint=access_token"));
+}
+
+#[test]
+fn a_401_is_unauthorized() {
+    let refused = |status| MollieError::Refused {
+        status,
+        detail: String::new(),
+    };
+    assert!(refused(401).is_unauthorized());
+    assert!(!refused(403).is_unauthorized());
+    assert!(!refused(500).is_unauthorized());
 }

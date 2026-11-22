@@ -1,0 +1,482 @@
+//! `orders`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "orders")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "orderNumber")]
+    pub order_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "externalOrderId")]
+    pub external_order_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerEmail")]
+    pub customer_email: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerName")]
+    pub customer_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "customerPhone")]
+    pub customer_phone: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "counterpartyId")]
+    pub counterparty_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "personId")]
+    pub person_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "paymentStatus")]
+    pub payment_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "fulfillmentStatus")]
+    pub fulfillment_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "subtotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub subtotal: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "discountTotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub discount_total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "shippingTotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub shipping_total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "taxTotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub tax_total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "total",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub total: BigDecimal,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "taxLines")]
+    pub tax_lines: Option<Json>,
+    #[serde(rename = "taxExempt")]
+    pub tax_exempt: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "billingAddress")]
+    pub billing_address: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "shippingAddress")]
+    pub shipping_address: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "shippingMethod")]
+    pub shipping_method: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "shippingCarrier")]
+    pub shipping_carrier: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "trackingNumber")]
+    pub tracking_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "trackingUrl")]
+    pub tracking_url: Option<String>,
+    #[serde(rename = "shippedAt", with = "crate::js::timestamp::option")]
+    pub shipped_at: Option<TimeDateTime>,
+    #[serde(rename = "deliveredAt", with = "crate::js::timestamp::option")]
+    pub delivered_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "paymentMethod")]
+    pub payment_method: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "paymentReference")]
+    pub payment_reference: Option<String>,
+    #[serde(rename = "paidAt", with = "crate::js::timestamp::option")]
+    pub paid_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "discountCode")]
+    pub discount_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "discountId")]
+    pub discount_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "customerNote")]
+    pub customer_note: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "internalNote")]
+    pub internal_note: Option<String>,
+    #[serde(rename = "itemCount")]
+    pub item_count: Option<i32>,
+    #[serde(rename = "totalQuantity")]
+    pub total_quantity: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "source")]
+    pub source: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sourceOrderId")]
+    pub source_order_id: Option<String>,
+    #[serde(rename = "cancelledAt", with = "crate::js::timestamp::option")]
+    pub cancelled_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "cancelReason")]
+    pub cancel_reason: Option<String>,
+    #[serde(rename = "completedAt", with = "crate::js::timestamp::option")]
+    pub completed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "channelId")]
+    pub channel_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: Option<String>,
+    #[serde(rename = "pricesIncludeTax")]
+    pub prices_include_tax: bool,
+    #[sea_orm(column_type = "String(StringLen::N(2))")]
+    #[serde(rename = "destinationCountry")]
+    pub destination_country: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "buyerVatNumber")]
+    pub buyer_vat_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "vatTreatment")]
+    pub vat_treatment: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "customerReference")]
+    pub customer_reference: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "approvalStatus")]
+    pub approval_status: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "placedByPersonId")]
+    pub placed_by_person_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "idempotencyKey")]
+    pub idempotency_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "guestAccessTokenHash")]
+    pub guest_access_token_hash: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "orders",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "payment_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "fulfillment_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'unfulfilled'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'USD'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "subtotal",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "discount_total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "shipping_total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tax_total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tax_exempt",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "item_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_quantity",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "source",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'web'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "prices_include_tax",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "approval_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'not_required'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "orders_order_number_idx",
+            columns: &[IndexColumn {
+                expression: "order_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_customer_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_counterparty_idx",
+            columns: &[IndexColumn {
+                expression: "counterparty_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_person_idx",
+            columns: &[IndexColumn {
+                expression: "person_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_payment_status_idx",
+            columns: &[IndexColumn {
+                expression: "payment_status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_channel_idx",
+            columns: &[IndexColumn {
+                expression: "channel_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "orders_guest_access_token_uidx",
+            columns: &[IndexColumn {
+                expression: "guest_access_token_hash",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some("\"orders\".\"guest_access_token_hash\" IS NOT NULL"),
+        },
+        Index {
+            name: "orders_idempotency_key_uidx",
+            columns: &[IndexColumn {
+                expression: "idempotency_key",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some("\"orders\".\"idempotency_key\" IS NOT NULL"),
+        },
+        Index {
+            name: "orders_native_order_number_uidx",
+            columns: &[
+                IndexColumn {
+                    expression: "source",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "order_number",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"orders\".\"deleted_at\" IS NULL AND \"orders\".\"source\" IN ('manual', 'storefront')",
+            ),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

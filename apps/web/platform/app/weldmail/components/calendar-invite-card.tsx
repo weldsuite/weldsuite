@@ -11,7 +11,8 @@ import {
   type CalendarEvent,
 } from '@/hooks/queries/use-calendar-queries';
 import { parseIcs, type ParsedIcsEvent } from '../lib/parse-ics';
-import { fetchMailAttachment, saveMailAttachment } from '../lib/download-attachment';
+import { fetchMailAttachment } from '../lib/download-attachment';
+import { useSaveMailAttachment } from './use-save-mail-attachment';
 
 interface CalendarInviteCardProps {
   /** Attachment id — the .ics is fetched through mail-api with the member's session. */
@@ -55,6 +56,7 @@ function formatEventWhen(event: ParsedIcsEvent): string {
  */
 export function CalendarInviteCard({ attachmentId, fileName, size }: Readonly<CalendarInviteCardProps>) {
   const { t } = useI18n();
+  const saveAttachment = useSaveMailAttachment();
   const [event, setEvent] = useState<ParsedIcsEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
@@ -98,9 +100,7 @@ export function CalendarInviteCard({ attachmentId, fileName, size }: Readonly<Ca
       <button
         type="button"
         onClick={() => {
-          saveMailAttachment(attachmentId, fileName).catch(() =>
-            toast.error(t.mail.messageDetail.failedToDownloadAttachment),
-          );
+          saveAttachment(attachmentId, fileName);
         }}
         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
       >

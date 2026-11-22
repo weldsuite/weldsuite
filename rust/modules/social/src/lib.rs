@@ -12,6 +12,11 @@
 //! TypeScript worker's; its tests run against this crate in the `social`
 //! conformance suite (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 /// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
 macro_rules! cursor {
     ($a:literal, $b:literal, $c:literal) => {

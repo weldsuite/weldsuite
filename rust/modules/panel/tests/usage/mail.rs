@@ -3,6 +3,11 @@
 //! address doesn't stop the others; the owners come from the workspace's
 //! tenant database, its admins when no owner has an address.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use weldsuite_db::master_pool;

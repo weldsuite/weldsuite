@@ -124,7 +124,7 @@ describe('POST /:id/rating', () => {
       message: { id: 'dmsg_1', kind: 'event', metadata: { eventType: 'rated', rating: 5 } },
     });
     expect((await rate({ rating: 5 })).status).toBe(201);
-    expect(mocks.resolveAuthors).toHaveBeenCalledWith(expect.anything(), ['user_1']);
+    expect(mocks.resolveAuthors).toHaveBeenCalledWith(expect.anything(), expect.anything(), ['user_1']);
     const call = mocks.publishVisitorEvent.mock.calls[0] as unknown[];
     expect(call[4]).toBe(assignee);
   });

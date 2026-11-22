@@ -59,6 +59,7 @@ import { PostingError } from '../../services/accounting-document-posting';
 import { writeOffInvoice } from '../../services/accounting-bad-debt';
 import { assertDimensionsBelongToEntity } from '../../services/accounting-posting';
 import { draftRate } from '../../services/accounting-fx';
+import { orderInvoiceDueDate } from '../../services/payment-terms';
 import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
 import { finalizeInvoice, InvoiceComplianceError } from '../../services/accounting-invoice-finalize';
 import { isGstEntity, resolveGstSupply } from '../../services/accounting-gst';
@@ -1788,6 +1789,8 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       const invoiceId = generateId('inv');
       const itemIds = lines.map(() => generateId('ili'));
       const now = new Date();
+      // Due by the counterparty's payment terms, else in 30 days (as Rust).
+      const dueDate = await orderInvoiceDueDate(db, order.counterpartyId, now);
 
       const drafted = await calculateDraftTax(db, {
         entityId,
@@ -1817,7 +1820,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
         contactName: order.customerName || null,
         contactEmail: order.customerEmail || null,
         issueDate: now,
-        dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        dueDate,
         currency,
         exchangeRate: await draftRate(db, { baseCurrency: await resolveEntityBaseCurrency(db, entityId), currency, date: now }),
         ...invoiceTaxColumns(calc),
@@ -1934,6 +1937,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
 
     const invoiceId = generateId('inv');
     const now = new Date();
+    const dueDate = await orderInvoiceDueDate(db, order.counterpartyId, now);
 
     const newInvoice = {
       id: invoiceId,
@@ -1945,7 +1949,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       contactName: order.customerName || null,
       contactEmail: order.customerEmail || null,
       issueDate: now,
-      dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      dueDate,
       currency,
       exchangeRate: await draftRate(db, { baseCurrency: await resolveEntityBaseCurrency(db, entityId), currency, date: now }),
       subtotal: totals.subtotal,

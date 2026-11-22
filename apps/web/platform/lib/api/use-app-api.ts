@@ -62,6 +62,7 @@ import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createAiSettingsApi } from '@weldsuite/app-api-client/domains/ai-settings';
 import { createOutsideEuServicesApi } from '@weldsuite/app-api-client/domains/outside-eu-services';
+import { createCrmSettingsApi } from '@weldsuite/app-api-client/domains/crm-settings';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
 import { createProductSuppliersApi } from '@weldsuite/app-api-client/domains/product-suppliers';
 import { createPurchaseOrdersApi } from '@weldsuite/app-api-client/domains/purchase-orders';
@@ -259,6 +260,8 @@ export function useAppApi() {
       aiSettings: createAiSettingsApi(lazyClient),
       // Services outside the EU (EU edition, ADR OPS-026): the workspace's opt-ins.
       outsideEuServices: createOutsideEuServicesApi(lazyClient),
+      // WeldCRM settings (Kubernetes editions): auto-add people and companies.
+      crmSettings: createCrmSettingsApi(lazyClient),
       // Reseller licensing: workspace-facing calls (managed billing, territory
       // requests, `/partner/me`). The portal itself is its own app
       // (apps/web/partner).

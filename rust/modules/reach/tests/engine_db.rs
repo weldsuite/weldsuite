@@ -3,6 +3,11 @@
 //! `scripts/rust-test-db.ts`; skipped without them). The tick itself is
 //! compared with TypeScript by `reach-domain`'s `send_engine_parity.rs`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};

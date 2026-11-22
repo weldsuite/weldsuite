@@ -37,3 +37,13 @@ export function useFeatureFlag(key: keyof FeatureFlagsResponse): boolean {
   const { data } = useFeatureFlags();
   return data?.[key] ?? false;
 }
+
+/**
+ * A flag with its loading state, for a page that must not flash its "off"
+ * state while the flags load: `undefined` until they answer.
+ */
+export function useFeatureFlagStatus(key: keyof FeatureFlagsResponse): boolean | undefined {
+  const { data, isError } = useFeatureFlags();
+  if (isError) return false;
+  return data ? (data[key] ?? false) : undefined;
+}

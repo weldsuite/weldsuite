@@ -1,0 +1,179 @@
+//! `mail_drafts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "mail_drafts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "accountId")]
+    pub account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(998))")]
+    #[serde(rename = "subject")]
+    pub subject: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "to")]
+    pub to: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "cc")]
+    pub cc: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "bcc")]
+    pub bcc: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "replyTo")]
+    pub reply_to: Option<Json>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "body")]
+    pub body: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "htmlBody")]
+    pub html_body: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "importance")]
+    pub importance: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "labels")]
+    pub labels: Option<Json>,
+    #[serde(rename = "hasAttachments")]
+    pub has_attachments: Option<bool>,
+    #[serde(rename = "attachmentCount")]
+    pub attachment_count: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "attachmentIds")]
+    pub attachment_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "inReplyTo")]
+    pub in_reply_to: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "originalMessageId")]
+    pub original_message_id: Option<String>,
+    #[serde(rename = "isReply")]
+    pub is_reply: Option<bool>,
+    #[serde(rename = "isForward")]
+    pub is_forward: Option<bool>,
+    #[serde(rename = "lastAutoSavedAt", with = "crate::js::timestamp::option")]
+    pub last_auto_saved_at: Option<TimeDateTime>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "mail_drafts",
+    columns: &[
+        DdlColumn {
+            name: "importance",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'normal'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "has_attachments",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "attachment_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_reply",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_forward",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "mail_drafts_account_id_idx",
+            columns: &[IndexColumn {
+                expression: "account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_drafts_updated_at_idx",
+            columns: &[IndexColumn {
+                expression: "updated_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "mail_drafts_account_id_mail_accounts_id_fk",
+        columns: &["account_id"],
+        references: "mail_accounts",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

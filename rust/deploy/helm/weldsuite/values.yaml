@@ -516,6 +516,22 @@ config:
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
 #                                (config.credits.mollie; optional, unset: no top-up) and
 #                                plan billing (config.billing, required with it)
+#   MOLLIE_CONNECT_CLIENT_ID     WeldCommerce's Mollie Connect app (ADR COM-013), with
+#   MOLLIE_CONNECT_CLIENT_SECRET its secret (both or neither; optional): lets a workspace
+#                                connect its own Mollie account by OAuth. Its redirect URI is
+#                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
+#                                Unset: a workspace connects with its own API key instead
+#   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
+#                                key of the Apple team that owns the WeldChat app (its key id, the
+#                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
+#                                ring on the lock screen; all three or none (optional; unset: an
+#                                iPhone gets the ordinary "Incoming call" notification, no CallKit
+#                                ring. Android's ring needs none of them)
+#   CALL_RING_SECRET             WeldChat: signs the ring token an incoming-call push carries, with
+#                                which the lock-screen or CallKit Decline ends the ring at
+#                                /public/chat-calls/decline without a session; any random value
+#                                (`openssl rand -hex 32`) (optional; unset: no token is sent and that
+#                                route answers 401, so a Decline needs the app and its session)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -1138,6 +1154,67 @@ mailInbound:
         memory: 128Mi
       limits:
         memory: 512Mi
+  # WeldMail's threat protection: clamd scans every inbound attachment before
+  # `weldsuite consume` stores the message. An infected file is never stored
+  # (its row keeps the name and the signature) and its message goes to Spam;
+  # while clamd can't be reached, files wait in the mail bucket's quarantine
+  # and the mail-attachment-scan cron settles them. Off: nothing is scanned.
+  clamav:
+    enabled: true
+    image:
+      # ClamAV's official image: clamd plus freshclam, which keeps the
+      # signatures current from database.clamav.net (outbound HTTPS).
+      repository: clamav/clamav
+      # The 1.4 feature release (LTS); pin a patch tag or a digest in production.
+      tag: "1.4"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    # How long one attachment's scan may take.
+    scanTimeoutSeconds: 120
+    # The image's clamav user (uid 100, gid 101), started through its
+    # unprivileged entrypoint: the restricted Pod Security level.
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 100
+      runAsGroup: 101
+      fsGroup: 101
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+    # freshclam's signature checks per day.
+    freshclamChecks: 12
+    # Starts are allowed this many 10-second probes: the first start downloads
+    # the signatures (about 300 MB) and every start loads them.
+    startupFailureThreshold: 60
+    # clamd holds the signatures in memory (about 1.2 GB), twice that while it
+    # reloads them after an update.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 1536Mi
+      limits:
+        memory: 3Gi
+    # Where the signatures live: an emptyDir (downloaded again on each start)
+    # or a PersistentVolumeClaim you made.
+    signatures:
+      existingClaim: ""
+      sizeLimit: 1Gi
+    nodeSelector: {}
+    tolerations: []
+  # Threat feeds for WeldMail's link checks, synced into the master database
+  # by the mail-threat-feeds cron. None by default: which lists may be used
+  # commercially is yours to decide (abuse.ch's URLhaus and ThreatFox ask for a
+  # paid subscription for commercial use). Each feed:
+  #   { name, url (https), format: urls | hosts, threat: malware | phishing }
+  # A URL with a key in it belongs in the Secret instead: put the whole
+  # MAIL_THREAT_FEEDS JSON there and leave this empty. Without feeds, links are
+  # still checked for IP-address hosts, credentials before the host and
+  # look-alike (homograph) domains.
+  threatFeeds: []
 
 # The MTA (weldsuite-documentation/plans/eu-mail-service.md, ADR MAIL-011), off by default:
 # `weldsuite mta` from the server's image, sending the platform's and the
@@ -1200,10 +1277,19 @@ mta:
   maxQueueAge: 5d
   # Parallel outbound connections per node.
   concurrency: 32
-  # Per-IP daily caps on warm-up day 1, 2, … (comma separated), unlimited
+  # The warm-up's per-IP daily caps, one per step (comma separated), no cap
   # after the last; "off" for an address with a history. Empty: the MTA's
-  # schedule (50 on day one up to 50,000 on day eleven).
+  # schedule (50 up to 50,000 in eleven steps).
   warmupSchedule: ""
+  # An IP moves up one step only after a UTC day on which it sent at least
+  # this share (percent) of its cap; quieter days don't move it. Hetzner
+  # runbook, "Mail", step 4.
+  warmupAdvancePercent: 50
+  # Pools whose mail goes out over the cap (logged once a day and counted in
+  # weldsuite_mta_warmup_capped_total) instead of waiting for the next UTC
+  # day, e.g. [system] while its sign-in codes can pass the system address's
+  # cap. Empty: every pool is held at the cap.
+  warmupSoftPools: []
   # A hard-bounced recipient is refused at submission for this many days.
   suppressDays: 30
   # Point the server, consume and the cron jobs at the MTA: SMTP_URL (pool
@@ -1382,6 +1468,19 @@ cron:
       enabled: true
       schedule: "20 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldMail: the attachments clamd couldn't take at delivery, for the
+    # workspaces the mail_attachment_scan due index lists. Nothing without
+    # mailInbound and its clamav.
+    mail-attachment-scan:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 290
+    # WeldMail: mailInbound.threatFeeds (or MAIL_THREAT_FEEDS in the Secret)
+    # into the master database for the link checks. Calls each feed's URL.
+    mail-threat-feeds:
+      enabled: true
+      schedule: "35 * * * *"
+      activeDeadlineSeconds: 840
     # WeldAgent: the due cron routines of the workspaces the weldagent_routine
     # due index lists. Does nothing without AI (config.ai) or while the agent
     # module is not served.

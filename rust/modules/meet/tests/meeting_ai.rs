@@ -9,6 +9,11 @@
 //! set (databases built from the journaled migrations by
 //! `scripts/rust-test-db.ts`); otherwise every test returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

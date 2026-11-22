@@ -9,6 +9,11 @@
 //! chat-api (`weldsuite-chat`) is built on all of it; meet, connect, agent
 //! and app-api read the access rules and the publishers when they are ported.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod access;
 pub mod agents;
 pub mod calls;

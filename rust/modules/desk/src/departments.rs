@@ -161,7 +161,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let (rows, total, agents) = match (rows, total, agents) {
         (Ok(rows), Ok(total), Ok(agents)) => (rows, total, agents),
         (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
-            return Refusal::Database(error).respond(message);
+            return Refusal::from(error).respond(message);
         }
     };
     let by_department: HashMap<Option<String>, i32> = agents.into_iter().collect();
@@ -202,6 +202,6 @@ async fn inbox_counts(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch inbox counts"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch inbox counts"),
     }
 }

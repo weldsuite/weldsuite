@@ -1,6 +1,13 @@
 import { useEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { ArrowUp, CornerDownRight, Loader2, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  ComposerActions,
+  ComposerFrame,
+  ComposerSendButton,
+  composerFieldClass,
+  composerIconButtonClass,
+} from '@weldsuite/ui/components/composer';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { useRecordTags } from './record-tags';
@@ -44,8 +51,7 @@ interface AgentChatInputProps {
 }
 
 /** The look of the stacked composer's icon buttons, for buttons passed in through its action slots. */
-export const AGENT_INPUT_ICON_BUTTON =
-  'size-8 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground';
+export const AGENT_INPUT_ICON_BUTTON = composerIconButtonClass;
 
 /**
  * The WeldAgent composer: grows with its text, Enter sends, Shift+Enter breaks
@@ -137,7 +143,7 @@ export function AgentChatInput({
       rows={1}
       className={
         stacked
-          ? 'max-h-[200px] min-h-[40px] w-full flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words bg-transparent pb-3 pl-[10px] pt-[7px] text-[15px] text-gray-900 outline-none [scrollbar-color:rgba(200,200,200,0.3)_transparent] [scrollbar-width:thin] placeholder:text-gray-500 dark:text-foreground dark:placeholder:text-muted-foreground'
+          ? composerFieldClass
           : 'max-h-[200px] min-h-[36px] flex-1 resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70'
       }
     />
@@ -152,18 +158,10 @@ export function AgentChatInput({
       className={cn('w-full', className)}
     >
       {stacked ? (
-        <div
-          role="presentation"
-          className={cn(
-            'relative flex w-full cursor-text flex-col rounded-[20px] border border-gray-200 bg-white p-[10px]',
-            'shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] dark:border-border dark:bg-background',
-            disabled && 'opacity-60',
-          )}
-          onClick={focusField}
-        >
+        <ComposerFrame disabled={disabled} onClick={focusField}>
           {recordTags && tags.menu}
           {field}
-          <div className="mt-auto flex items-center justify-between">
+          <ComposerActions>
             <div className="flex min-w-0 items-center gap-0.5">
               {startActions ?? (
                 <Button
@@ -182,37 +180,10 @@ export function AgentChatInput({
             </div>
             <div className="flex items-center gap-0.5">
               {endActions}
-              <button
-                type="submit"
-                disabled={!canSubmit}
-                aria-label={t.send}
-                title={t.send}
-                className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-[12px] transition-all',
-                  canSubmit
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-muted dark:text-muted-foreground',
-                )}
-              >
-                {isSending ? (
-                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
-                ) : (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth="2.5"
-                    stroke="currentColor"
-                    className="h-[15px] w-[15px]"
-                    aria-hidden="true"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                  </svg>
-                )}
-              </button>
+              <ComposerSendButton label={t.send} canSend={canSubmit} isSending={isSending} />
             </div>
-          </div>
-        </div>
+          </ComposerActions>
+        </ComposerFrame>
       ) : (
         <div
           role="presentation"

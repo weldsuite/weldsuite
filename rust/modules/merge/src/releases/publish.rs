@@ -263,7 +263,7 @@ fn send_failure(error: SendError) -> Refusal {
 /// `SpaceAccessError`).
 fn know_failure(error: KnowError) -> Refusal {
     match error {
-        KnowError::Database(error) => MergeError::Db(error).into(),
+        KnowError::Database(error) => MergeError::Unexpected(error.to_string()).into(),
         other => Refusal::Response(Box::new(other.respond("Failed to publish the release"))),
     }
 }
@@ -364,6 +364,8 @@ pub(crate) async fn publish_release(
             files: None,
             mx: &mx,
             public_url: None,
+            // Release notes to subscribers are no conversation: nobody joins the CRM.
+            after_send: None,
         };
         let subject = email
             .subject

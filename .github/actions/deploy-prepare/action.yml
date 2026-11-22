@@ -42,7 +42,10 @@ inputs:
 
 outputs:
   run_migrations:
-    description: '"true" when the database migrations run.'
+    description: >-
+      Always "false": Global's Postgres migrations are switched off since the
+      master and tenant migrations moved to rust/migrations (ADR DATA-019,
+      deploy-plan.mjs).
     value: ${{ steps.plan.outputs.migrations }}
   run_d1_connector_migrations:
     description: '"true" when the connector sync index D1 migrations changed.'

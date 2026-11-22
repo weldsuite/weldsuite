@@ -82,7 +82,7 @@ pub(crate) async fn detail_of(
     relation: Relation,
     grants: &Grants,
 ) -> FormsResult<Value> {
-    let owner = member_ref(&ctx.db, text(row, "ownerUserId")).await?;
+    let owner = member_ref(ctx, text(row, "ownerUserId")).await?;
     let moderation = moderation_of(ctx, row).await?;
     let version = match opt_text(row, "publishedVersionId") {
         Some(id) => {
@@ -242,7 +242,7 @@ pub(crate) async fn list_forms(
         .await?;
 
     let owners = member_refs(
-        &ctx.db,
+        ctx,
         &rows
             .iter()
             .map(|row| text(row, "ownerUserId").to_owned())
@@ -622,7 +622,7 @@ pub(crate) async fn list_access(ctx: &Ctx, form_id: &str) -> FormsResult<Vec<Val
     )
     .await?;
     let refs = member_refs(
-        &ctx.db,
+        ctx,
         &rows
             .iter()
             .map(|r| text(r, "userId").to_owned())

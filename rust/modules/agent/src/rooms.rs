@@ -23,6 +23,7 @@ use weldsuite_chat_domain::publish::Realtime;
 use weldsuite_chat_domain::system_message::extract_chat_mentions;
 use weldsuite_chat_domain::text::{build_reply_reference, format_message_preview};
 use weldsuite_kit::generate_id;
+use weldsuite_notifications::{Notifier, chat as notify, create_and_deliver};
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, Job, JobContext, JobError};
 use weldsuite_subscribers::Tenants;
 
@@ -33,7 +34,7 @@ use crate::agents::get_agent;
 use crate::approvals::approval_label;
 use crate::run::{RunEnv, tool_context, turn_sandbox};
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
-use crate::tools::EventSink;
+use crate::tools::{EventSink, extract_visuals, visual_to_plain_text};
 
 /// How many earlier messages an agent reads before the one it answers.
 const ROOM_CONTEXT_LIMIT: i64 = 12;
@@ -102,6 +103,8 @@ pub fn room_reply_tools(enabled_tools: &[String], known_tool_ids: &[&str]) -> Ve
 pub struct RoomCtx {
     pub db: PgPool,
     pub ai: Option<Ai>,
+    /// Realtime and push ([`RunEnv::notifier`]): the replies' live fan-out
+    /// and the notifications of the people they answer or mention.
     pub env: RunEnv,
     pub org_id: String,
     /// The user whose message started the chain (credits, audit).
@@ -318,8 +321,8 @@ async fn load_room_context(
     exclude_message_id: &str,
     thread_id: Option<&str>,
 ) -> Result<Vec<ChatMsg>, sqlx::Error> {
-    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
-        "select id, author_name, author_type, content from chat_messages
+    let rows: Vec<(String, String, String, String, Option<Value>)> = sqlx::query_as(
+        "select id, author_name, author_type, content, metadata from chat_messages
          where channel_id = $1 and deleted_at is null
            and (case when $2::text is null then parent_id is null else (id = $2 or parent_id = $2) end)
          order by created_at desc limit $3",
@@ -333,13 +336,22 @@ async fn load_room_context(
         .into_iter()
         .rev()
         .filter(|(id, ..)| id != exclude_message_id)
-        .map(|(_, name, author_type, content)| ChatMsg {
-            role: if author_type == "agent" {
-                weldsuite_ai::Role::Assistant
-            } else {
-                weldsuite_ai::Role::User
-            },
-            content: format!("[{name}]: {content}"),
+        .map(|(_, name, author_type, content, metadata)| {
+            // Visuals an agent showed, with their numbers, so "what about
+            // March?" can be answered.
+            let mut parts = vec![content];
+            if let Some(visuals) = metadata.as_ref().and_then(|m| m["visuals"].as_array()) {
+                parts.extend(visuals.iter().map(|v| visual_to_plain_text(v, true)));
+            }
+            parts.retain(|part| !part.is_empty());
+            ChatMsg {
+                role: if author_type == "agent" {
+                    weldsuite_ai::Role::Assistant
+                } else {
+                    weldsuite_ai::Role::User
+                },
+                content: format!("[{name}]: {}", parts.join("\n\n")),
+            }
         })
         .collect())
 }
@@ -353,12 +365,12 @@ struct RoomAgent<'a> {
 
 /// `postAgentChatMessage`: insert a WeldChat message authored by an agent, move
 /// the channel's last-message fields, publish it live and bump the humans'
-/// unread counters; people it mentions (and whoever asked) are pinged.
-/// Returns the message id.
+/// unread counters; people it mentions (and whoever asked) are pinged and
+/// notified ([`notify_mentioned_people`]). Returns the message id.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)] // the steps of one post, in TypeScript's order
 async fn post_agent_message(
     db: &PgPool,
-    realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    notifier: &Notifier,
     org_id: &str,
     channel_id: &str,
     agent: &RoomAgent<'_>,
@@ -423,8 +435,11 @@ async fn post_agent_message(
     .bind(channel_id)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
-    let rt = Realtime::new(realtime);
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "[chat-domain] agent message roster lookup failed");
+        Vec::new()
+    });
+    let rt = Realtime::new(notifier.realtime.clone());
     if rt.is_on() {
         let mut payload = serde_json::Map::new();
         payload.insert("id".into(), json!(id));
@@ -443,7 +458,7 @@ async fn post_agent_message(
         }
         let extra_meta: serde_json::Map<String, Value> = metadata
             .iter()
-            .filter(|(k, _)| k.as_str() == "approvals")
+            .filter(|(k, _)| matches!(k.as_str(), "approvals" | "visuals"))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         if !extra_meta.is_empty() {
@@ -456,38 +471,135 @@ async fn post_agent_message(
             }
         }
     }
-    // Room members only: an agent cannot ping someone about a room they are not in.
+    // Asked, but not named: these hear "replied to you", not "mentioned you".
+    let reply_to_people: Vec<&str> = notify_user_ids
+        .iter()
+        .filter(|user_id| !named.contains(user_id))
+        .map(String::as_str)
+        .collect();
+    notify_mentioned_people(
+        db,
+        &rt,
+        notifier,
+        &RoomPost {
+            org_id,
+            channel_id,
+            agent,
+            message_id: &id,
+            preview: &preview,
+        },
+        &members,
+        &all,
+        &reply_to_people,
+    )
+    .await;
+    Ok(id)
+}
+
+/// The room a reply was posted in, for [`notify_mentioned_people`].
+struct RoomPost<'a> {
+    org_id: &'a str,
+    channel_id: &'a str,
+    agent: &'a RoomAgent<'a>,
+    message_id: &'a str,
+    preview: &'a str,
+}
+
+/// `isPersonMention`: a mention id that points at a person (not an agent,
+/// `everyone` or a record).
+fn is_person_mention(id: &str) -> bool {
+    id != "everyone" && !id.starts_with("agt_") && !id.starts_with("entity:")
+}
+
+/// `notifyMentionedPeople`: the unread-mention counter, realtime ping and
+/// notification for each person the reply mentions or is for. Room members
+/// only: an agent cannot ping someone about a room they are not in. People
+/// the reply is only for (`reply_to`: they asked, nobody wrote their name)
+/// hear "<agent> replied to you"; people it names hear "mentioned you".
+/// Failures are logged, never returned.
+async fn notify_mentioned_people(
+    db: &PgPool,
+    rt: &Realtime,
+    notifier: &Notifier,
+    post: &RoomPost<'_>,
+    members: &[(String, Option<String>)],
+    mentions: &[String],
+    reply_to: &[&str],
+) {
     let people: Vec<&str> = members
         .iter()
         .filter(|(_, t)| t.as_deref() != Some("agent"))
         .map(|(u, _)| u.as_str())
         .collect();
-    for user_id in all.iter().filter(|m| {
-        m.as_str() != "everyone"
-            && !m.starts_with("agt_")
-            && !m.starts_with("entity:")
-            && people.contains(&m.as_str())
-    }) {
-        let _ = sqlx::query(
+    let recipients: Vec<&str> = mentions
+        .iter()
+        .map(String::as_str)
+        .filter(|m| is_person_mention(m) && people.contains(m))
+        .collect();
+    for user_id in &recipients {
+        if let Err(error) = sqlx::query(
             "update chat_channel_members set unread_mention_count = unread_mention_count + 1
              where channel_id = $1 and user_id = $2",
         )
-        .bind(channel_id)
+        .bind(post.channel_id)
         .bind(user_id)
         .execute(db)
-        .await;
+        .await
+        {
+            tracing::error!(%error, "[chat-domain] agent mention count increment failed");
+        }
+    }
+    for user_id in recipients {
         if rt.is_on() {
             rt.chat_user(
-                org_id,
+                post.org_id,
                 user_id,
                 "mention",
-                json!({ "channelId": channel_id, "messageId": id, "authorName": agent.name, "preview": preview }),
+                json!({
+                    "channelId": post.channel_id,
+                    "messageId": post.message_id,
+                    "authorName": post.agent.name,
+                    "preview": post.preview,
+                }),
             )
             .await;
         }
-        let _ = named.contains(user_id);
+        let params = agent_post_notification(post, user_id, reply_to.contains(&user_id));
+        if let Err(error) = create_and_deliver(db, notifier, &params).await {
+            tracing::error!(%error, "[chat-domain] agent mention notification failed");
+        }
     }
-    Ok(id)
+}
+
+/// The notification one person gets for an agent's post:
+/// `sendChatAgentReplyNotification` when it only answers them,
+/// `sendChatMentionNotification` (by the agent) when it names them.
+fn agent_post_notification(
+    post: &RoomPost<'_>,
+    user_id: &str,
+    only_answers_them: bool,
+) -> weldsuite_notifications::NewNotification {
+    if only_answers_them {
+        notify::agent_reply(
+            post.org_id,
+            user_id,
+            post.agent.id,
+            post.agent.name,
+            post.channel_id,
+            post.message_id,
+            post.preview,
+        )
+    } else {
+        notify::mention(
+            post.org_id,
+            user_id,
+            post.agent.id,
+            post.agent.name,
+            post.channel_id,
+            post.message_id,
+            post.preview,
+        )
+    }
 }
 
 /// Show "<agent> is working…" in the room while a background turn runs. It
@@ -581,15 +693,16 @@ async fn reply_as_agent(
     } else {
         Vec::new()
     };
+    let notifier = ctx.env.notifier();
     let post = |content: String, extra: Value| {
-        let (who, run_id) = (&who, &run_id);
+        let (who, run_id, notifier) = (&who, &run_id, &notifier);
         async move {
             let mut metadata = extra.as_object().cloned().unwrap_or_default();
             metadata.insert("replyToMessageId".into(), json!(input.message_id));
             metadata.insert("runId".into(), json!(run_id));
             post_agent_message(
                 db,
-                ctx.env.realtime.clone(),
+                notifier,
                 &ctx.org_id,
                 &input.channel_id,
                 who,
@@ -712,20 +825,33 @@ async fn reply_as_agent(
     };
     // Actions the agent parked for approval ride on its reply, so the room can
     // show Approve / Reject under it; with nothing else to say, it says that.
+    // Visuals it showed ride on the reply too (`metadata.visuals`): the room
+    // draws them under the text, and `content` stays plain text for the
+    // mobile app, notifications and search (`roomReplyMessage`).
     let approvals = pending_approvals_of(&done.invocations);
+    let (shown_text, visuals) = extract_visuals(&done.text);
     let text = {
-        let t = done.text.trim();
-        if t.is_empty() && !approvals.is_empty() {
+        let t = shown_text.trim();
+        if !t.is_empty() {
+            t.to_owned()
+        } else if !approvals.is_empty() {
             approvals_notice(&approvals)
         } else {
-            t.to_owned()
+            visuals
+                .iter()
+                .map(|v| visual_to_plain_text(v, false))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     };
-    let extra = if approvals.is_empty() {
-        json!({})
-    } else {
-        json!({ "approvals": approvals })
-    };
+    let mut extra = serde_json::Map::new();
+    if !approvals.is_empty() {
+        extra.insert("approvals".into(), json!(approvals));
+    }
+    if !visuals.is_empty() {
+        extra.insert("visuals".into(), Value::Array(visuals));
+    }
+    let extra = Value::Object(extra);
     let posted = if text.is_empty() {
         None
     } else {
@@ -800,14 +926,15 @@ async fn dispatch_next_hop(
 }
 
 /// `postAgentChatMessage` for the tools and approval outcomes: a plain
-/// message from the agent in a room.
+/// message from the agent in a room. People it names are notified through
+/// `notifier` (in-app over its realtime, push over its HTTP).
 ///
 /// # Errors
 ///
 /// The tenant database fails.
 pub async fn post_agent_text(
     db: &PgPool,
-    realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    notifier: &Notifier,
     org_id: &str,
     channel_id: &str,
     agent: &Value,
@@ -822,7 +949,7 @@ pub async fn post_agent_text(
     };
     post_agent_message(
         db,
-        realtime,
+        notifier,
         org_id,
         channel_id,
         &who,
@@ -976,6 +1103,37 @@ mod tests {
         );
         let with = room_reply_tools(&s(&["people.list"]), &known);
         assert!(with.contains(&"chat.message_agent".to_owned()));
+    }
+
+    #[test]
+    fn whoever_asked_hears_replied_and_whoever_is_named_hears_mentioned() {
+        let agent = RoomAgent {
+            id: "agt_1",
+            name: "Scout",
+            icon: None,
+        };
+        let post = RoomPost {
+            org_id: "org_1",
+            channel_id: "ch_1",
+            agent: &agent,
+            message_id: "msg_1",
+            preview: "On it",
+        };
+        let reply = agent_post_notification(&post, "user_ann", true);
+        assert_eq!(reply.title, "Scout replied to you");
+        assert_eq!(reply.notification_type, "chat_thread_reply");
+        assert_eq!(reply.actor_id.as_deref(), Some("agt_1"));
+        let mention = agent_post_notification(&post, "user_bob", false);
+        assert_eq!(mention.title, "Scout mentioned you");
+        assert_eq!(mention.notification_type, "chat_mention");
+        assert_eq!(mention.actor_id.as_deref(), Some("agt_1"));
+        assert_eq!(mention.action_url, "/weldchat/ch_1?messageId=msg_1");
+        assert!(reply.exclude_email && mention.exclude_email);
+
+        assert!(is_person_mention("user_ann"));
+        for not_a_person in ["everyone", "agt_2", "entity:ticket:t_1"] {
+            assert!(!is_person_mention(not_a_person), "{not_a_person}");
+        }
     }
 
     #[test]

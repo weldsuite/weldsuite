@@ -1,0 +1,211 @@
+//! `voip_porting_orders`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "voip_porting_orders")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdByUserId")]
+    pub created_by_user_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "phoneNumber")]
+    pub phone_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "formattedNumber")]
+    pub formatted_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "countryCode")]
+    pub country_code: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "numberType")]
+    pub number_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "telnyxPortingOrderId")]
+    pub telnyx_porting_order_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "substatus")]
+    pub substatus: Option<String>,
+    #[serde(rename = "requestedFocAt", with = "crate::js::timestamp::option")]
+    pub requested_foc_at: Option<TimeDateTime>,
+    #[serde(rename = "actualFocAt", with = "crate::js::timestamp::option")]
+    pub actual_foc_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(200))")]
+    #[serde(rename = "authorizedName")]
+    pub authorized_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(200))")]
+    #[serde(rename = "businessName")]
+    pub business_name: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "serviceAddress")]
+    pub service_address: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "currentCarrier")]
+    pub current_carrier: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "currentAccountNumber")]
+    pub current_account_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "currentPin")]
+    pub current_pin: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "loaStorageKey")]
+    pub loa_storage_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "billCopyStorageKey")]
+    pub bill_copy_storage_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "stripePriceId")]
+    pub stripe_price_id: Option<String>,
+    #[serde(rename = "billingActivated")]
+    pub billing_activated: bool,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "billingError")]
+    pub billing_error: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(80))")]
+    #[serde(rename = "lastErrorCode")]
+    pub last_error_code: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastErrorMessage")]
+    pub last_error_message: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "voipPhoneNumberId")]
+    pub voip_phone_number_id: Option<String>,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "voip_porting_orders",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "number_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'local'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'draft'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "billing_activated",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "voip_porting_orders_telnyx_id_idx",
+            columns: &[IndexColumn {
+                expression: "telnyx_porting_order_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some("\"voip_porting_orders\".\"telnyx_porting_order_id\" IS NOT NULL"),
+        },
+        Index {
+            name: "voip_porting_orders_active_phone_idx",
+            columns: &[IndexColumn {
+                expression: "phone_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"voip_porting_orders\".\"deleted_at\" IS NULL AND \"voip_porting_orders\".\"status\" NOT IN ('cancelled','exception','preflight_failed','completed')",
+            ),
+        },
+        Index {
+            name: "voip_porting_orders_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_porting_orders_phone_idx",
+            columns: &[IndexColumn {
+                expression: "phone_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "voip_porting_orders_created_by_idx",
+            columns: &[IndexColumn {
+                expression: "created_by_user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

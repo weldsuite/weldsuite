@@ -222,6 +222,10 @@ pub(crate) fn router(state: AppState) -> Router {
     // embedded on customers' sites), so it goes in outside `api_cors()`.
     let widget =
         crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
+    // So does the WeldCommerce storefront API (`/storefront/v1`): a shop's
+    // browsers call it with a channel key, from the channel's own origins.
+    let storefront = crate::routes::commerce_storefront(&state)
+        .layer(axum::middleware::from_fn(bundle_host_guard));
     // The public API (`/v1`) has its own authentication and answers CORS for
     // any origin, as external-api does.
     let public_api =
@@ -257,6 +261,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         .merge(widget)
+        .merge(storefront)
         .merge(public_api)
         .merge(collector)
         .merge(personal)

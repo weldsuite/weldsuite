@@ -5,6 +5,11 @@
 //! Needs `WELDSUITE_TEST_MASTER_URL` and `WELDSUITE_TEST_TENANT_URL`
 //! (`scripts/rust-test-db.ts`); skipped without them.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};

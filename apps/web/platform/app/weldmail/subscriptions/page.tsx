@@ -26,52 +26,16 @@ import {
   useScanMailSubscriptions,
   useUnsubscribeMailSubscription,
 } from '@/hooks/queries/use-mail-queries';
+import {
+  canUnsubscribe,
+  confirmDescriptionFor,
+  isLinkOnly,
+  notifyUnsubscribed,
+  openInNewTab,
+  senderLabel,
+} from '../lib/unsubscribe';
 
 type StatusFilter = 'active' | 'unsubscribed';
-
-function senderLabel(sub: MailSubscription): string {
-  return sub.senderName || sub.senderEmail;
-}
-
-/** Only a plain https link, so the browser has to open the sender's page. */
-function isLinkOnly(sub: MailSubscription): boolean {
-  return !!sub.unsubscribeUrl && !sub.oneClick && !sub.unsubscribeMailto;
-}
-
-type SubscriptionsStrings = ReturnType<typeof useI18n>['t']['mail']['subscriptions'];
-
-function openInNewTab(url: string): void {
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
-function confirmDescriptionFor(ts: SubscriptionsStrings, sub: MailSubscription): string {
-  let template = ts.confirmLink;
-  if (sub.oneClick && sub.unsubscribeUrl) template = ts.confirmOneClick;
-  else if (sub.unsubscribeMailto) template = ts.confirmMailto;
-  return interpolate(template, { sender: senderLabel(sub) });
-}
-
-function notifyUnsubscribed(
-  ts: SubscriptionsStrings,
-  sub: MailSubscription,
-  result: { method: string; url?: string | null },
-): void {
-  const sender = senderLabel(sub);
-  const { method, url } = result;
-  if (method === 'one_click') {
-    toast.success(interpolate(ts.successOneClick, { sender }));
-  } else if (method === 'mailto') {
-    toast.success(interpolate(ts.successMailto, { sender }));
-  } else if (!isLinkOnly(sub) && url) {
-    // One-click failed and there was no mailto: fall back to the page.
-    toast.info(interpolate(ts.successLink, { sender }), {
-      action: { label: ts.openPage, onClick: () => openInNewTab(url) },
-      duration: 15_000,
-    });
-  } else {
-    toast.info(interpolate(ts.successLink, { sender }));
-  }
-}
 
 function EmptyState({
   query,
@@ -125,7 +89,7 @@ function SubscriptionAction({
       </Badge>
     );
   }
-  if (sub.unsubscribeUrl || sub.unsubscribeMailto) {
+  if (canUnsubscribe(sub)) {
     return (
       <Button variant="outline" size="sm" onClick={() => onUnsubscribe(sub)} disabled={busy}>
         {ts.unsubscribe}

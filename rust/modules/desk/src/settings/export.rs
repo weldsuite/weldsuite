@@ -351,7 +351,7 @@ pub(super) async fn overview_export(caller: Caller, RawQuery(query): RawQuery) -
             let range = overview["range"]["key"].as_str().unwrap_or_default();
             csv_response(overview_csv(&overview), &overview_csv_filename(range, now))
         }
-        Err(error) => Refusal::Database(error).respond("Failed to export the reports overview"),
+        Err(error) => Refusal::from(error).respond("Failed to export the reports overview"),
     }
 }
 
@@ -365,7 +365,7 @@ pub(super) async fn report_export(caller: Caller, Path(report_id): Path<String>)
             &report_csv_filename(&report, now),
         ),
         Ok(None) => Refusal::not_found("Report", &report_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 

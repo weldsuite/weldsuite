@@ -91,15 +91,40 @@ export interface SettingRowProps {
   /** The control on the right (Switch, Select…). */
   children: ReactNode;
   className?: string;
+  /**
+   * The control's id: the label becomes its `<label>`, so the control needs
+   * no `aria-label`. Point the control's `aria-describedby` at
+   * `descriptionId` to have the description read with it.
+   */
+  htmlFor?: string;
+  /** The description's id, for the control's `aria-describedby`. */
+  descriptionId?: string;
 }
 
 /** A labelled row with its control on the right. */
-export function SettingRow({ label, description, children, className }: Readonly<SettingRowProps>) {
+export function SettingRow({
+  label,
+  description,
+  children,
+  className,
+  htmlFor,
+  descriptionId,
+}: Readonly<SettingRowProps>) {
   return (
     <div className={cn('flex items-center justify-between gap-6', className)}>
       <div className="space-y-1">
-        <p className="text-sm font-medium">{label}</p>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="block text-sm font-medium">
+            {label}
+          </label>
+        ) : (
+          <p className="text-sm font-medium">{label}</p>
+        )}
+        {description && (
+          <p id={descriptionId} className="text-sm text-muted-foreground">
+            {description}
+          </p>
+        )}
       </div>
       <div className="shrink-0">{children}</div>
     </div>

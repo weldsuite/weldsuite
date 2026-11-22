@@ -22,6 +22,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.perms.has(key) }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   Link: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (

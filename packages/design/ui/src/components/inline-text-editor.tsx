@@ -129,8 +129,16 @@ export function InlineTextEditor({ value, onSave, className, singleLine = false,
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
+            // The Enter that confirms an IME conversion (Japanese, Chinese,
+            // Korean) is not a save. keyCode 229 covers Safari, which reports
+            // `isComposing` false on that keydown.
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             finish(true, true);
           } else if (e.key === 'Escape') {
+            // Escape cancels this edit only: it must not also close the panel
+            // or drawer the title sits in.
+            e.preventDefault();
+            e.stopPropagation();
             finish(false, true);
           }
         }}

@@ -1,0 +1,211 @@
+//! `order_items`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "order_items")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "orderId")]
+    pub order_id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "productId")]
+    pub product_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "variantId")]
+    pub variant_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sku")]
+    pub sku: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "imageUrl")]
+    pub image_url: Option<String>,
+    #[serde(rename = "quantity")]
+    pub quantity: i32,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "unitPrice",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub unit_price: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "discountAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub discount_amount: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "taxAmount",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub tax_amount: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "vatCategory")]
+    pub vat_category: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((7, 4)))")]
+    #[serde(
+        rename = "taxRate",
+        serialize_with = "crate::js::Numeric::<4>::serialize_option"
+    )]
+    pub tax_rate: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "total",
+        serialize_with = "crate::js::Numeric::<2>::serialize"
+    )]
+    pub total: BigDecimal,
+    #[sea_orm(column_type = "Decimal(Some((10, 3)))")]
+    #[serde(
+        rename = "weight",
+        serialize_with = "crate::js::Numeric::<3>::serialize_option"
+    )]
+    pub weight: Option<BigDecimal>,
+    #[serde(rename = "fulfilledQuantity")]
+    pub fulfilled_quantity: Option<i32>,
+    #[serde(rename = "requiresShipping")]
+    pub requires_shipping: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "properties")]
+    pub properties: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "externalLineId")]
+    pub external_line_id: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "order_items",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "discount_amount",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tax_amount",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "fulfilled_quantity",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "requires_shipping",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "order_items_order_idx",
+            columns: &[IndexColumn {
+                expression: "order_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "order_items_order_external_line_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "order_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "external_line_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "order_items_product_idx",
+            columns: &[IndexColumn {
+                expression: "product_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

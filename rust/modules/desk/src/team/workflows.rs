@@ -17,6 +17,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::TransactionTrait;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_kit::validation::Presence;
@@ -70,7 +71,7 @@ async fn stats(caller: Caller) -> Response {
     .await;
     let rows = match rows {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond("Failed to fetch workflow stats"),
+        Err(error) => return Refusal::from(error).respond("Failed to fetch workflow stats"),
     };
     let (mut total, mut active, mut draft, mut paused) = (0_i64, 0_i64, 0_i64, 0_i64);
     for (status, count) in rows {
@@ -111,7 +112,7 @@ async fn for_chaining(caller: Caller, RawQuery(query): RawQuery) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch workflows"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch workflows"),
     }
 }
 
@@ -146,7 +147,7 @@ async fn set_status(
     match found {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Workflow", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     let updated = sqlx::query(
         "update helpdesk_workflows set status = $2, updated_at = $3::timestamp
@@ -158,7 +159,7 @@ async fn set_status(
     .execute(&caller.db)
     .await;
     if let Err(error) = updated {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     caller.publish(
         &state,
@@ -189,7 +190,7 @@ async fn duplicate(
     let original = match table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Workflow", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     // `name || \`${original.name} (Copy)\``.
     let name = name.filter(|n| !n.is_empty()).unwrap_or_else(|| {
@@ -333,10 +334,10 @@ async fn insert_defaults(
     rows: &[Map<String, Value>],
 ) -> Result<(), crate::table::WriteError> {
     let table = &HELPDESK_WORKFLOWS;
-    let mut tx = caller.db.begin().await?;
+    let tx = weldsuite_db::orm(&caller.db).begin().await?;
     for row in rows {
         table
-            .insert(&mut *tx, table.values(row), &["createdAt", "updatedAt"])
+            .insert_on(&tx, table.values(row), &["createdAt", "updatedAt"])
             .await?;
     }
     tx.commit().await?;
@@ -367,7 +368,7 @@ async fn seed_defaults(State(state): State<DeskState>, caller: Caller) -> Respon
     .await;
     let existing = match existing {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let missing: Vec<&str> = TEMPLATE_IDS
         .into_iter()
@@ -401,7 +402,7 @@ async fn reset_defaults(State(state): State<DeskState>, caller: Caller) -> Respo
     .await;
     let deleted = match deleted {
         Ok(ids) => ids,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows = default_workflows();
     if let Err(error) = insert_defaults(&caller, &rows).await {
@@ -468,7 +469,7 @@ async fn resume(
     {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Execution", &execution_id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let status = &execution["status"];
     if status.as_str() != Some("waiting_for_input") {
@@ -550,7 +551,7 @@ async fn resume(
         .execute(&caller.db)
         .await;
         if let Err(error) = updated {
-            return Refusal::Database(error).respond(MESSAGE);
+            return Refusal::from(error).respond(MESSAGE);
         }
     }
     Data(json!({ "resumed": true, "executionId": execution_id, "forwarded": forwarded }))

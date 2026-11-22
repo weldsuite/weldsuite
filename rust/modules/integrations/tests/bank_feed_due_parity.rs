@@ -8,6 +8,11 @@
 //! each scenario on its own copy of `bank_feed_connection_index` in a
 //! throwaway schema, so other tests' rows never meet the sweep.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 

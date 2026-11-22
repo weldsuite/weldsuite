@@ -164,7 +164,7 @@ async fn list_comments(caller: &Caller, f: Filters) -> Reply {
         .await?;
         let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
         let returned = i64::try_from(rows.len()).unwrap_or(i64::MAX);
-        let rows = with_authors(db, rows).await?;
+        let rows = with_authors(db, caller.request_master(), rows).await?;
         let total = i64::from(total);
         Ok(weldsuite_kit::List::new(
             rows,
@@ -180,9 +180,11 @@ async fn list_comments(caller: &Caller, f: Filters) -> Reply {
     Ok(reply(result, "Failed to list task comments"))
 }
 
-/// The author's `authorName` and `authorAvatar` from `workspace_members`.
+/// The author's `authorName` from `workspace_members` and `authorAvatar`, the
+/// account picture.
 async fn with_authors(
     db: &weldsuite_db::PgPool,
+    master: Option<&weldsuite_db::PgPool>,
     rows: Vec<Value>,
 ) -> Result<Vec<Value>, sqlx::Error> {
     let mut author_ids: Vec<String> = Vec::new();
@@ -196,31 +198,25 @@ async fn with_authors(
     if author_ids.is_empty() {
         return Ok(rows);
     }
-    let authors: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, picture from workspace_members where user_id = any($1)",
-    )
-    .bind(&author_ids)
-    .fetch_all(db)
-    .await?;
+    let authors: Vec<(String, Option<String>)> =
+        sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
+            .bind(&author_ids)
+            .fetch_all(db)
+            .await?;
     // `new Map(authors.map(...))`: a later row for the same user wins.
-    let map: HashMap<String, (Option<String>, Option<String>)> = authors
-        .into_iter()
-        .map(|(user, name, avatar)| (user, (name, avatar)))
-        .collect();
+    let names: HashMap<String, Option<String>> = authors.into_iter().collect();
+    // Avatars are account pictures, not the member row's copy.
+    let pictures = weldsuite_db::AccountPictures::load(master, &author_ids).await;
     Ok(rows
         .into_iter()
         .map(|mut row| {
             let author_id = row["authorId"].clone();
-            let author = author_id
-                .as_str()
-                .filter(|a| !a.is_empty())
-                .and_then(|a| map.get(a));
+            let author = author_id.as_str().filter(|a| !a.is_empty());
+            let avatar = pictures.value(author);
             let name = author
-                .and_then(|(name, _)| name.clone())
+                .and_then(|a| names.get(a))
+                .and_then(Clone::clone)
                 .map_or(author_id, Value::String);
-            let avatar = author
-                .and_then(|(_, avatar)| avatar.clone())
-                .map_or(Value::Null, Value::String);
             if let Value::Object(fields) = &mut row {
                 fields.insert("authorName".to_owned(), name);
                 fields.insert("authorAvatar".to_owned(), avatar);

@@ -1,0 +1,201 @@
+//! `project_status_reports`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "project_status_reports")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "period")]
+    pub period: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "overall")]
+    pub overall: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "areas")]
+    pub areas: Json,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "summary")]
+    pub summary: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "done")]
+    pub done: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "next")]
+    pub next: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "snapshot")]
+    pub snapshot: Option<Json>,
+    #[serde(rename = "clientVisible")]
+    pub client_visible: bool,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "supersedesId")]
+    pub supersedes_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "publishedBy")]
+    pub published_by: Option<String>,
+    #[serde(rename = "publishedAt", with = "crate::js::timestamptz::option")]
+    pub published_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "recipients")]
+    pub recipients: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "project_status_reports",
+    columns: &[
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'draft'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "areas",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "done",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "next",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "client_visible",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "project_status_reports_project_period_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "period",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_status_reports_project_published_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "status",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "published_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "project_status_reports_project_id_projects_id_fk",
+        columns: &["project_id"],
+        references: "projects",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[
+        Check {
+            name: "project_status_reports_status_check",
+            expression: "\"project_status_reports\".\"status\" in ('draft', 'published')",
+        },
+        Check {
+            name: "project_status_reports_period_check",
+            expression: "\"project_status_reports\".\"period\" ~ '^[0-9]{4}-(W(0[1-9]|[1-4][0-9]|5[0-3])|(0[1-9]|1[0-2]))$'",
+        },
+    ],
+};

@@ -18,10 +18,12 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use weldsuite_adapters_oss::{ValkeyRealtime, connect_valkey};
 use weldsuite_auth::{AuthContext, TokenError};
-use weldsuite_ports::{BoxFuture, RealtimeMessage, RealtimePublisher, Room};
+use weldsuite_ports::{
+    BoxFuture, DynRealtimePublisher, PresenceReader, RealtimeMessage, RealtimePublisher, Room,
+};
 use weldsuite_realtime::{
-    Authenticator, ChatAccess, Directory, DirectoryError, Gateway, GatewayConfig, Member,
-    WorkspaceChooser,
+    Authenticator, ChatAccess, Directory, DirectoryError, Gateway, GatewayConfig, GatewayPresence,
+    Member, WorkspaceChooser,
 };
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -705,6 +707,74 @@ async fn a_dead_pod_s_members_go_offline() {
     let left = next_of(&mut watcher, "event").await;
     assert_eq!(left["data"], json!({ "userId": "member_1", "live": null }));
     drop(member);
+}
+
+/// What the presence port reads for `workspace`, once it is `expected`
+/// (a socket writes its presence just after `connected`).
+async fn presence_settles(
+    presence: &PresenceReader,
+    workspace: &str,
+    expected: &[(&str, &str)],
+) -> Vec<(String, String)> {
+    let expected: Vec<(String, String)> = expected
+        .iter()
+        .map(|(user, live)| ((*user).to_owned(), (*live).to_owned()))
+        .collect();
+    let mut live = Vec::new();
+    for _ in 0..60 {
+        live = presence.0.presence(workspace, &[]).await.expect("presence");
+        if live == expected {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    live
+}
+
+/// The API's presence reader (`/api/chat-status`, the notification email
+/// gate) on a pod with no socket of its own: a socket on another pod reads
+/// as online, by either id of the workspace.
+#[tokio::test]
+async fn the_presence_port_sees_sockets_on_other_pods() {
+    let Some(url) = valkey_url() else { return };
+    let prefix = prefix();
+    let one = pod(&url, &prefix, config()).await;
+    let api: Arc<dyn DynRealtimePublisher> = Arc::new(publisher(&url, &prefix).await);
+    let presence = GatewayPresence::new(api, Arc::new(People)).reader();
+    let nobody: Vec<(String, String)> = Vec::new();
+    assert_eq!(
+        presence.0.presence("ws_a", &[]).await.expect("presence"),
+        nobody
+    );
+
+    let mut member = connect(&one, "/ws", "member_1@org_a").await;
+    next_of(&mut member, "connected").await;
+    let online = [("member_1", "online")];
+    assert_eq!(
+        presence_settles(&presence, "ws_a", &online).await,
+        [("member_1".to_owned(), "online".to_owned())]
+    );
+    assert_eq!(
+        presence_settles(&presence, "org_a", &online).await,
+        [("member_1".to_owned(), "online".to_owned())]
+    );
+    let asked = presence
+        .0
+        .presence("ws_a", &["member_2".to_owned()])
+        .await
+        .expect("presence");
+    assert_eq!(asked, nobody, "only the members asked for");
+
+    send(
+        &mut member,
+        &json!({ "type": "presence", "idle": true, "inCall": false }),
+    )
+    .await;
+    assert_eq!(
+        presence_settles(&presence, "ws_a", &[("member_1", "away")]).await,
+        [("member_1".to_owned(), "away".to_owned())]
+    );
+    member.close(None).await.expect("close");
 }
 
 #[tokio::test]

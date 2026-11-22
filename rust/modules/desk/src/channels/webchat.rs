@@ -27,7 +27,7 @@ pub(crate) struct EmailThread {
 pub(crate) async fn email_thread(
     db: &PgPool,
     id: &str,
-) -> Result<Option<EmailThread>, sqlx::Error> {
+) -> Result<Option<EmailThread>, sea_orm::DbErr> {
     let Some((conversation, messages)) = get(db, id, true).await? else {
         return Ok(None);
     };

@@ -12,6 +12,11 @@
 //! - [`QueryEngine`]: DataFusion over the tables, and [`json_rows`]: its
 //!   rows as the JSON Basin SQL answers on Global.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the lakehouse catalog is SQL by nature (ADR DATA-019)"
+)]
+
 mod catalog;
 mod error;
 mod in_subquery;

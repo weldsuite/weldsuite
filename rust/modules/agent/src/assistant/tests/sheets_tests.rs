@@ -47,9 +47,10 @@ async fn the_persona_reads_the_open_and_tagged_sheets_and_no_others() {
     let calls = fake.calls();
     assert_eq!(calls.len(), 3);
     // Reading only: the person may not update sheets.
-    let mut offered = tool_names(&calls[0]);
-    offered.sort();
-    assert_eq!(offered, ["list_spreadsheet_tabs", "read_spreadsheet_range"]);
+    assert_eq!(
+        lookup_tool_names(&calls[0]),
+        ["list_spreadsheet_tabs", "read_spreadsheet_range"]
+    );
     let system = system_of(&calls[0]);
     assert!(system.contains("spreadsheetId sht_open"), "{system}");
     assert!(
@@ -96,10 +97,8 @@ async fn the_persona_writes_only_with_the_update_permission_and_takes_ten_steps(
     let calls = fake.calls();
     // Ten model requests, not six.
     assert_eq!(calls.len(), 10);
-    let mut offered = tool_names(&calls[0]);
-    offered.sort();
     assert_eq!(
-        offered,
+        lookup_tool_names(&calls[0]),
         [
             "list_spreadsheet_tabs",
             "read_spreadsheet_range",
@@ -117,7 +116,7 @@ async fn without_a_sheet_or_the_permission_the_persona_has_no_sheet_tools() {
     let router = app(tenant.clone(), Some(Ai::fake(config(), fake.clone())), &USE);
     let (status, _, _) = post(&router, "/ai/chat", &sheet_chat()).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(tool_names(&fake.calls()[0]).is_empty());
+    assert!(lookup_tool_names(&fake.calls()[0]).is_empty());
     assert!(!system_of(&fake.calls()[0]).contains("SPREADSHEETS"));
     // They may, but point at none.
     let fake = FakeProvider::new().reply_text("No");
@@ -128,7 +127,7 @@ async fn without_a_sheet_or_the_permission_the_persona_has_no_sheet_tools() {
     );
     let (status, _, _) = post(&router, "/ai/chat", &hello()).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(tool_names(&fake.calls()[0]).is_empty());
+    assert!(lookup_tool_names(&fake.calls()[0]).is_empty());
 }
 
 #[test]

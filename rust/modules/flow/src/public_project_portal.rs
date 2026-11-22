@@ -41,9 +41,7 @@ use axum::body::Bytes;
 use axum::extract::{FromRequestParts, Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use http::header::{
-    AUTHORIZATION, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, HeaderName,
-};
+use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, HeaderName};
 use http::request::Parts;
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
@@ -54,23 +52,21 @@ use weldsuite_emails::EmailLocale;
 use weldsuite_events::{EntityEvent, EventContext};
 use weldsuite_flow_domain::js::parse_int;
 use weldsuite_flow_domain::project_portal::{
-    PORTAL_CODE_LENGTH, PORTAL_CODE_TTL_SECONDS, PORTAL_DECISIONS, PORTAL_LOCALES,
-    PORTAL_MAX_VERIFY_ATTEMPTS, PORTAL_REQUEST_LIMIT_EMAIL, PORTAL_REQUEST_LIMIT_WORKSPACE,
-    PORTAL_REQUEST_WINDOW_SECONDS, PORTAL_SESSION_TTL_SECONDS, PORTAL_SLUG_TTL_SECONDS,
-    PORTAL_VERIFY_LIMIT_EMAIL, PORTAL_VERIFY_LIMIT_WORKSPACE, PortalChallenge, PortalSessionRecord,
-    PortalSlugEntry, attachment_disposition, is_portal_approval_subject,
-    messages as portal_messages, normalize_portal_email, portal_code_input, portal_code_key,
-    portal_message_metadata, portal_session_key, portal_slug_key, present_message,
-    session_expires_at, session_needs_refresh,
+    ContactSubject, NAMESPACE, PORTAL_CODE_LENGTH, PORTAL_DECISIONS, PORTAL_LOCALES,
+    PortalSessionRecord, attachment_disposition, is_portal_approval_subject,
+    messages as portal_messages, normalize_portal_email, portal_message_metadata, present_message,
+    session_expires_at,
 };
-use weldsuite_kit::portal::rate_limit::{
-    RateLimitCounters, RateLimitOutcome, RequestRateLimiter, consume_rate_limit, release_rate_limit,
+use weldsuite_kit::portal::rate_limit::{RateLimitCounters, RateLimitOutcome, RequestRateLimiter};
+use weldsuite_kit::portal::signin::{
+    SessionRecord, SignIn, Verdict, consume_email_request, consume_workspace_request,
+    create_session, end_session, read_bearer, read_session, refreshed_session, store_challenge,
+    store_session, verify_code,
 };
 use weldsuite_kit::portal::slug::normalize_portal_slug;
-use weldsuite_kit::portal::tokens::{
-    PortalKv, kv_delete, kv_get_json, kv_put_json, random_otp, random_token, sha256_hex,
-};
-use weldsuite_kit::validation::{Format, Issues, Presence, Text, js_trim};
+use weldsuite_kit::portal::tokens::PortalKv;
+use weldsuite_kit::portal::workspace::{PortalSlugEntry, resolve_slug};
+use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_ports::{
     DynCache, DynSystemMail, FileStore, FileStores, RequestCache, StorageBuckets, is_safe_key,
@@ -236,16 +232,6 @@ fn internal(message: &str, error: &dyn std::fmt::Display) -> Response {
     ApiError::internal().with_message(message).into_response()
 }
 
-/// The session token: `Authorization: Bearer <token>`.
-fn read_bearer(headers: &HeaderMap) -> Option<String> {
-    let header = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    if !header.to_lowercase().starts_with("bearer ") {
-        return None;
-    }
-    let token = js_trim(header.get(7..)?).to_owned();
-    (!token.is_empty()).then_some(token)
-}
-
 /// A signed-in contact: the session middleware's work (`portalSession`). A
 /// request needs a live session token; the workspace is the session's own; and
 /// at least one of the session's contacts must still hold portal access on a
@@ -269,12 +255,10 @@ impl FromRequestParts<App> for Session {
         let Some(token) = read_bearer(&parts.headers) else {
             return Err(unauthorized(portal_messages::SIGN_IN_REQUIRED));
         };
-        let token_hash = sha256_hex(&token);
-        let record: Option<PortalSessionRecord> =
-            kv_get_json(&req.kv, &portal_session_key(&token_hash))
-                .await
-                .map_err(|e| internal("Internal server error", &e))?;
-        let Some(record) = record else {
+        let found = read_session::<ContactSubject>(&req.kv, NAMESPACE, &token)
+            .await
+            .map_err(|e| internal("Internal server error", &e))?;
+        let Some((token_hash, record)) = found else {
             return Err(unauthorized(portal_messages::SESSION_EXPIRED));
         };
 
@@ -314,24 +298,18 @@ impl FromRequestParts<App> for Session {
         };
 
         // Revocation: the access is read from the tenant database on every request.
-        let rows = portal_project_rows(&db, &record.contact_ids, &record.email)
+        let rows = portal_project_rows(&db, &record.subject.contact_ids, &record.email)
             .await
             .map_err(|e| internal("Internal server error", &e))?;
         if rows.is_empty() {
             return Err(unauthorized(portal_messages::ACCESS_REVOKED));
         }
 
-        if session_needs_refresh(&record.last_seen_at, now_ms()) {
-            let refreshed = PortalSessionRecord {
-                last_seen_at: now(),
-                ..record.clone()
-            };
+        if let Some(refreshed) = refreshed_session(&record, &now(), now_ms()) {
             let kv = req.kv.clone();
-            let key = portal_session_key(&token_hash);
+            let hash = token_hash.clone();
             tokio::spawn(async move {
-                if let Err(error) =
-                    kv_put_json(&kv, &key, &refreshed, PORTAL_SESSION_TTL_SECONDS).await
-                {
+                if let Err(error) = store_session(&kv, NAMESPACE, &hash, &refreshed).await {
                     tracing::error!(%error, "[flow-api/public-project-portal] could not refresh the session");
                 }
             });
@@ -350,7 +328,7 @@ impl FromRequestParts<App> for Session {
 impl Session {
     /// The contact ids of the session.
     fn contact_ids(&self) -> &[String] {
-        &self.record.contact_ids
+        &self.record.subject.contact_ids
     }
 
     /// One of the contact's projects, or a 404 (the same for a project that
@@ -572,12 +550,9 @@ async fn open_workspace(app: &App, req: &Req, raw_slug: &str) -> Result<Option<O
             slug,
         }));
     }
-    let key = portal_slug_key(&slug);
-    let mut entry: Option<PortalSlugEntry> = kv_get_json(&req.kv, &key)
-        .await
-        .map_err(|e| e.to_string())?;
-    if entry.is_none() {
-        let master = req.master.clone().ok_or("no master database")?;
+    let master = req.master.clone();
+    let found = resolve_slug(&req.kv, NAMESPACE, &slug, |slug| async move {
+        let master = master.ok_or("no master database")?;
         let row: Option<(String, Option<String>, String, Option<bool>)> = sqlx::query_as(
             "select id, clerk_org_id, name, is_active from workspaces where slug = $1 limit 1",
         )
@@ -585,23 +560,19 @@ async fn open_workspace(app: &App, req: &Req, raw_slug: &str) -> Result<Option<O
         .fetch_optional(&master)
         .await
         .map_err(|e| e.to_string())?;
-        let Some((id, Some(clerk_org_id), name, Some(true))) = row else {
-            return Ok(None);
-        };
-        if clerk_org_id.is_empty() {
-            return Ok(None);
-        }
-        let found = PortalSlugEntry {
-            workspace_id: id,
-            clerk_org_id,
-            name,
-        };
-        kv_put_json(&req.kv, &key, &found, PORTAL_SLUG_TTL_SECONDS)
-            .await
-            .map_err(|e| e.to_string())?;
-        entry = Some(found);
-    }
-    let entry = entry.ok_or("no workspace")?;
+        Ok(match row {
+            Some((id, Some(clerk_org_id), name, Some(true))) => Some(PortalSlugEntry {
+                workspace_id: id,
+                clerk_org_id,
+                name,
+            }),
+            _ => None,
+        })
+    })
+    .await?;
+    let Some((_, entry)) = found else {
+        return Ok(None);
+    };
     let workspaces = app
         .portal
         .workspaces
@@ -653,19 +624,16 @@ async fn run_request_code(
     let Some(workspace) = open_workspace(app, req, &body.workspace).await? else {
         return Ok(NoContent.into_response());
     };
-    let ws = workspace.workspace_id.as_str();
+    let env = SignIn {
+        kv: &req.kv,
+        limiter: req.limiter.as_ref(),
+        ns: NAMESPACE,
+        workspace_id: &workspace.workspace_id,
+    };
 
     // Per address first, so one bombarded address cannot drain the workspace's
     // budget. Over a limit looks exactly like "no access": the same 204.
-    match consume_rate_limit(
-        req.limiter.as_ref(),
-        ws,
-        &format!("e:{email}"),
-        PORTAL_REQUEST_LIMIT_EMAIL,
-        PORTAL_REQUEST_WINDOW_SECONDS,
-    )
-    .await
-    {
+    match consume_email_request(&env, email).await {
         RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
         RateLimitOutcome::Limited => return Ok(NoContent.into_response()),
         RateLimitOutcome::Allowed => {}
@@ -679,39 +647,17 @@ async fn run_request_code(
     }
 
     // The per-workspace budget (mail cost, spraying) is charged only for an
-    // address that has access, i.e. when a mail would really be sent. Charged
-    // earlier, anonymous calls with made-up addresses could use it up and keep
-    // every real client of the workspace from getting a code.
-    match consume_rate_limit(
-        req.limiter.as_ref(),
-        ws,
-        "request-ws",
-        PORTAL_REQUEST_LIMIT_WORKSPACE,
-        PORTAL_REQUEST_WINDOW_SECONDS,
-    )
-    .await
-    {
+    // address that has access, i.e. when a mail would really be sent.
+    match consume_workspace_request(&env).await {
         RateLimitOutcome::Unavailable => return Ok(sign_in_unavailable()),
         RateLimitOutcome::Limited => return Ok(NoContent.into_response()),
         RateLimitOutcome::Allowed => {}
     }
 
-    let code = random_otp();
-    let challenge = PortalChallenge {
-        code_hash: sha256_hex(&portal_code_input(ws, email, &code)),
-        email: email.to_owned(),
-        workspace_id: ws.to_owned(),
+    let subject = ContactSubject {
         contact_ids: contacts.iter().map(|c| c.id.clone()).collect(),
-        attempts: 0,
     };
-    kv_put_json(
-        &req.kv,
-        &portal_code_key(ws, email),
-        &challenge,
-        PORTAL_CODE_TTL_SECONDS,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let code = store_challenge(&env, email, subject).await?;
     let locale = if body.locale.as_deref() == Some("nl") {
         EmailLocale::Nl
     } else {
@@ -719,61 +665,6 @@ async fn run_request_code(
     };
     send_portal_code_email(&req.mail, email, &code, &workspace.name, locale).await;
     Ok(NoContent.into_response())
-}
-
-/// The verify budgets reserved up front (failed attempts only: given back once
-/// the sign-in succeeds, so a successful sign-in uses up nothing).
-#[derive(Default)]
-struct Reservation {
-    keys: Vec<String>,
-}
-
-impl Reservation {
-    async fn release(&self, limiter: Option<&Arc<dyn RateLimitCounters>>, workspace_id: &str) {
-        for key in &self.keys {
-            release_rate_limit(limiter, workspace_id, key).await;
-        }
-    }
-}
-
-/// `reserveVerifyBudget`: reserves one budget into `reservation`, atomically,
-/// so parallel guesses cannot all slip past a check-then-count. The per-address
-/// budget is reserved first, before any lookup; the per-workspace one only once
-/// a challenge exists, so calls with nothing pending (anonymous, made-up
-/// addresses) cannot use it up and lock every real client out. The refusal to
-/// send (holding no slot: what was reserved is given back), or `None`.
-async fn reserve_verify_budget(
-    limiter: Option<&Arc<dyn RateLimitCounters>>,
-    workspace_id: &str,
-    reservation: &mut Reservation,
-    key: String,
-    max: u32,
-) -> Option<Response> {
-    let outcome = consume_rate_limit(
-        limiter,
-        workspace_id,
-        &key,
-        max,
-        PORTAL_REQUEST_WINDOW_SECONDS,
-    )
-    .await;
-    if outcome == RateLimitOutcome::Allowed {
-        reservation.keys.push(key);
-        return None;
-    }
-    reservation.release(limiter, workspace_id).await;
-    if outcome == RateLimitOutcome::Unavailable {
-        return Some(sign_in_unavailable());
-    }
-    Some(
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            axum::Json(json!({
-                "error": { "code": "RATE_LIMITED", "message": portal_messages::TOO_MANY_ATTEMPTS }
-            })),
-        )
-            .into_response(),
-    )
 }
 
 async fn verify(State(app): State<App>, req: Req, body: Bytes) -> Response {
@@ -791,104 +682,30 @@ fn failed_code() -> Response {
     unauthorized(portal_messages::INVALID_CODE)
 }
 
-/// A wrong code: counts the attempt on the challenge (deleting it at the
-/// limit) and answers the failure.
-async fn count_wrong_code(
-    req: &Req,
-    key: &str,
-    challenge: PortalChallenge,
-) -> Result<Response, String> {
-    let attempts = challenge.attempts + 1;
-    if attempts >= PORTAL_MAX_VERIFY_ATTEMPTS {
-        kv_delete(&req.kv, key).await.map_err(|e| e.to_string())?;
-    } else {
-        let counted = PortalChallenge {
-            attempts,
-            ..challenge
-        };
-        kv_put_json(&req.kv, key, &counted, PORTAL_CODE_TTL_SECONDS)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(failed_code())
-}
-
 async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response, String> {
     let email = normalize_portal_email(&body.email);
     let Some(workspace) = open_workspace(app, req, &body.workspace).await? else {
         return Ok(failed_code());
     };
     let ws = workspace.workspace_id.as_str();
-
-    let limiter = req.limiter.as_ref();
-    let mut reservation = Reservation::default();
-    if let Some(refusal) = reserve_verify_budget(
-        limiter,
-        ws,
-        &mut reservation,
-        format!("verify-e:{email}"),
-        PORTAL_VERIFY_LIMIT_EMAIL,
-    )
-    .await
-    {
-        return Ok(refusal);
-    }
-
-    // No pending code: the same 401 as a wrong code, and the workspace budget
-    // is left alone (see reserve_verify_budget).
-    let key = portal_code_key(ws, &email);
-    let challenge: Option<PortalChallenge> = kv_get_json(&req.kv, &key)
-        .await
-        .map_err(|e| e.to_string())?;
-    let Some(challenge) = challenge else {
-        return Ok(failed_code());
+    let env = SignIn {
+        kv: &req.kv,
+        limiter: req.limiter.as_ref(),
+        ns: NAMESPACE,
+        workspace_id: ws,
     };
-    if let Some(refusal) = reserve_verify_budget(
-        limiter,
-        ws,
-        &mut reservation,
-        "verify-ws".to_owned(),
-        PORTAL_VERIFY_LIMIT_WORKSPACE,
-    )
-    .await
-    {
-        return Ok(refusal);
-    }
-    if challenge.attempts >= PORTAL_MAX_VERIFY_ATTEMPTS {
-        kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
-        return Ok(failed_code());
-    }
-
-    // `attempts` is a KV read-modify-write, so guesses sent in parallel all read
-    // the same value and all get checked. This per-challenge counter is atomic
-    // and is what really caps the guesses at PORTAL_MAX_VERIFY_ATTEMPTS.
-    let budget = consume_rate_limit(
-        req.limiter.as_ref(),
-        ws,
-        &format!("verify-ch:{}", challenge.code_hash),
-        PORTAL_MAX_VERIFY_ATTEMPTS,
-        PORTAL_CODE_TTL_SECONDS,
-    )
-    .await;
-    match budget {
-        RateLimitOutcome::Unavailable => {
-            reservation.release(limiter, ws).await;
-            return Ok(sign_in_unavailable());
+    match verify_code::<ContactSubject>(&env, &email, &body.code).await? {
+        Verdict::Verified(_) => {}
+        Verdict::Invalid => return Ok(failed_code()),
+        Verdict::Unavailable => return Ok(sign_in_unavailable()),
+        Verdict::Limited => {
+            return Ok((
+                StatusCode::TOO_MANY_REQUESTS,
+                axum::Json(weldsuite_kit::portal::signin::rate_limited_body()),
+            )
+                .into_response());
         }
-        RateLimitOutcome::Limited => {
-            kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
-            return Ok(failed_code());
-        }
-        RateLimitOutcome::Allowed => {}
     }
-
-    if sha256_hex(&portal_code_input(ws, &email, &body.code)) != challenge.code_hash {
-        return count_wrong_code(req, &key, challenge).await;
-    }
-
-    // The code was right: it is spent, and this attempt is not a failure.
-    kv_delete(&req.kv, &key).await.map_err(|e| e.to_string())?;
-    reservation.release(limiter, ws).await;
 
     // Access is read again: it may have been switched off since the code was sent.
     let contacts = contacts_with_access(&workspace.db, &email)
@@ -899,25 +716,19 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
     };
 
     let created = now();
-    let record = PortalSessionRecord {
+    let record: PortalSessionRecord = SessionRecord {
         workspace_id: ws.to_owned(),
         clerk_org_id: workspace.clerk_org_id.clone(),
         workspace_slug: workspace.slug.clone(),
         workspace_name: workspace.name.clone(),
         email: email.clone(),
-        contact_ids: contacts.iter().map(|c| c.id.clone()).collect(),
+        subject: ContactSubject {
+            contact_ids: contacts.iter().map(|c| c.id.clone()).collect(),
+        },
         created_at: created.clone(),
         last_seen_at: created.clone(),
     };
-    let token = random_token(32);
-    kv_put_json(
-        &req.kv,
-        &portal_session_key(&sha256_hex(&token)),
-        &record,
-        PORTAL_SESSION_TTL_SECONDS,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let token = create_session(&env, &record).await?;
     Ok(Data(json!({
         "token": token,
         "expiresAt": session_expires_at(&created, now_ms()),
@@ -928,10 +739,8 @@ async fn run_verify(app: &App, req: &Req, body: &VerifyCode) -> Result<Response,
 }
 
 async fn sign_out(req: Req, headers: HeaderMap) -> Response {
-    if let Some(token) = read_bearer(&headers)
-        && let Err(error) = kv_delete(&req.kv, &portal_session_key(&sha256_hex(&token))).await
-    {
-        tracing::error!(%error, "[flow-api/public-project-portal] sign-out failed");
+    if let Some(token) = read_bearer(&headers) {
+        end_session(&req.kv, NAMESPACE, &token).await;
     }
     NoContent.into_response()
 }
@@ -948,7 +757,12 @@ async fn me_of(session: &Session) -> Reply {
     let (id, name) = match contacts.first() {
         Some(contact) => (contact.id.clone(), contact.name.clone()),
         None => (
-            record.contact_ids.first().cloned().unwrap_or_default(),
+            record
+                .subject
+                .contact_ids
+                .first()
+                .cloned()
+                .unwrap_or_default(),
             record.email.clone(),
         ),
     };
@@ -1384,6 +1198,8 @@ async fn answer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http::header::AUTHORIZATION;
+    use weldsuite_flow_domain::project_portal::PortalChallenge;
     use weldsuite_kit::portal::rate_limit::RateLimitVerdict;
 
     fn bytes(value: &Value) -> Bytes {
@@ -1568,22 +1384,23 @@ mod tests {
 
     #[tokio::test]
     async fn a_verify_budget_is_reserved_one_key_at_a_time() {
-        // run_verify reserves `verify-e:` first and `verify-ws` only once a
+        // verify reserves `verify-e:` first and `verify-ws` only once a
         // challenge exists, so a call with nothing pending never touches the
         // workspace counter.
         let counters = Arc::new(Recording::default());
         let limiter: Arc<dyn RateLimitCounters> = counters.clone();
-        let mut reservation = Reservation::default();
-        let refusal = reserve_verify_budget(
-            Some(&limiter),
-            "ws_1",
-            &mut reservation,
-            "verify-e:a@b.test".to_owned(),
-            PORTAL_VERIFY_LIMIT_EMAIL,
-        )
-        .await;
-        assert!(refusal.is_none());
-        assert_eq!(reservation.keys, ["verify-e:a@b.test"]);
+        let cache: Arc<dyn DynCache> = Arc::new(weldsuite_ports::MemoryCache::new());
+        let kv: PortalKv = Some(cache);
+        let env = SignIn {
+            kv: &kv,
+            limiter: Some(&limiter),
+            ns: NAMESPACE,
+            workspace_id: "ws_1",
+        };
+        let verdict = verify_code::<ContactSubject>(&env, "a@b.test", "123456")
+            .await
+            .expect("verified");
+        assert_eq!(verdict, Verdict::Invalid);
         let hits = counters.hits.lock().expect("lock").clone();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].ends_with(":verify-e:a@b.test"));
@@ -1592,17 +1409,20 @@ mod tests {
 
     #[tokio::test]
     async fn a_verify_without_a_limiter_is_refused_as_unavailable() {
-        let mut reservation = Reservation::default();
-        let refusal = reserve_verify_budget(
-            None,
-            "ws_1",
-            &mut reservation,
-            "verify-ws".to_owned(),
-            PORTAL_VERIFY_LIMIT_WORKSPACE,
-        )
-        .await
-        .expect("refused");
-        assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(reservation.keys.len(), 0);
+        let kv: PortalKv = None;
+        let env = SignIn {
+            kv: &kv,
+            limiter: None,
+            ns: NAMESPACE,
+            workspace_id: "ws_1",
+        };
+        let verdict = verify_code::<ContactSubject>(&env, "a@b.test", "123456")
+            .await
+            .expect("verified");
+        assert_eq!(verdict, Verdict::Unavailable);
+        assert_eq!(
+            sign_in_unavailable().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }

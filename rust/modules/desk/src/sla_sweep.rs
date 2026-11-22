@@ -216,7 +216,7 @@ pub async fn sweep_workspace(
     db: &PgPool,
     org_id: &str,
     now: i64,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, sea_orm::DbErr> {
     let mut announced = 0;
     let retry_at = now + CONVERSATION_RETRY_MS;
     let ids = sla::list_due(db, now, CONVERSATIONS_PER_TICK).await?;

@@ -1,0 +1,264 @@
+//! `helpdesk_widget_settings`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "helpdesk_widget_settings")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "widgetId")]
+    pub widget_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "widgetName")]
+    pub widget_name: Option<String>,
+    #[serde(rename = "pageHome")]
+    pub page_home: Option<bool>,
+    #[serde(rename = "pageChat")]
+    pub page_chat: Option<bool>,
+    #[serde(rename = "pageHelp")]
+    pub page_help: Option<bool>,
+    #[serde(rename = "pageParcelTracking")]
+    pub page_parcel_tracking: Option<bool>,
+    #[serde(rename = "pageChangelog")]
+    pub page_changelog: Option<bool>,
+    #[serde(rename = "pageNews")]
+    pub page_news: Option<bool>,
+    #[serde(rename = "pageFeedback")]
+    pub page_feedback: Option<bool>,
+    #[serde(rename = "pageAnnouncements")]
+    pub page_announcements: Option<bool>,
+    #[serde(rename = "pageEventSignUp")]
+    pub page_event_sign_up: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorPrimary")]
+    pub color_primary: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorButton")]
+    pub color_button: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorButtonText")]
+    pub color_button_text: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorLauncher")]
+    pub color_launcher: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorHeader")]
+    pub color_header: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "colorAccent")]
+    pub color_accent: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "borderRadius")]
+    pub border_radius: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "fontSize")]
+    pub font_size: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "typographyText")]
+    pub typography_text: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "typographyBackground")]
+    pub typography_background: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "startingPage")]
+    pub starting_page: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "position")]
+    pub position: Option<String>,
+    #[serde(rename = "autoOpen")]
+    pub auto_open: Option<bool>,
+    #[serde(rename = "showWelcomeMessage")]
+    pub show_welcome_message: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "welcomeMessage")]
+    pub welcome_message: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "companyLogoUrl")]
+    pub company_logo_url: Option<String>,
+    #[serde(rename = "showBranding")]
+    pub show_branding: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "emailCollection")]
+    pub email_collection: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "chatBackgroundColor")]
+    pub chat_background_color: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "userBubbleColor")]
+    pub user_bubble_color: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "userBubbleTextColor")]
+    pub user_bubble_text_color: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "agentBubbleColor")]
+    pub agent_bubble_color: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "agentBubbleTextColor")]
+    pub agent_bubble_text_color: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "helpdesk_widget_settings",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_home",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_chat",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_help",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_parcel_tracking",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_changelog",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_news",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_feedback",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_announcements",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "page_event_sign_up",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_open",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "show_welcome_message",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "show_branding",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "email_collection",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'none'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "helpdesk_widget_settings_widget_id_idx",
+        columns: &[IndexColumn {
+            expression: "widget_id",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

@@ -22,6 +22,7 @@ import {
 } from '@weldsuite/notifications';
 import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 import type { CompleteTurnResult, WeldAgentMessageRow } from '@weldsuite/app-api-client/schemas/weldagent';
+import { isShowVisualTool, replyToPlainText } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import type { WeldAgentEnv as Env } from './env';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -35,7 +36,7 @@ import { findAccessibleAgentRow, type AgentViewer } from './access';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
 import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
-import { buildPersonaCall, holdsPermissions, personaReplyText } from './persona';
+import { buildPersonaCall, holdsPermissions, personaReplyFromSteps } from './persona';
 import { describeUserTags, taggedSheetsIn } from './record-tokens';
 
 export class ConversationNotFoundError extends Error {
@@ -158,6 +159,8 @@ function summarizeToolInvocations(raw: unknown): string {
   const lines: string[] = [];
   for (const inv of raw as Array<Record<string, unknown>>) {
     if (!inv || (inv.state !== 'result' && inv.state !== 'error')) continue;
+    // A shown visual is already in the text, with its data (toModelHistory).
+    if (inv.state === 'result' && typeof inv.toolName === 'string' && isShowVisualTool(inv.toolName)) continue;
     let result = '';
     try {
       result = JSON.stringify(inv.result ?? null);
@@ -185,8 +188,11 @@ export function toModelHistory(
     )
     .map((m) => {
       if (m.role !== 'assistant') return { role: m.role, content: m.content };
+      // Visuals the reply showed come back as text with their numbers, so a
+      // follow-up about them can be answered.
+      const text = replyToPlainText(m.content, { detail: 'data' });
       const tools = summarizeToolInvocations(m.toolInvocations);
-      return { role: m.role, content: tools ? `${m.content}\n\n${tools}` : m.content };
+      return { role: m.role, content: tools ? `${text}\n\n${tools}` : text };
     });
 }
 
@@ -273,7 +279,7 @@ async function generatePersonalReply(params: {
     coveredByServiceCredit: served?.covered,
   });
 
-  return { text: personaReplyText(result.text), creditsUsed, success: true };
+  return { text: personaReplyFromSteps(result.steps), creditsUsed, success: true };
 }
 
 /** Tells the agent the user's clock, so "7:00" means their 7:00. */
@@ -693,7 +699,7 @@ export async function finishAcceptedTurn(params: {
           userId: accepted.userId,
           conversationId: accepted.conversationId,
           agentName,
-          previewText: assistantMessage.content,
+          previewText: replyToPlainText(assistantMessage.content),
         });
       } catch (err) {
         console.error('[weldagent/complete-turn] notify failed:', err);
