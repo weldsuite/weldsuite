@@ -886,16 +886,10 @@ async fn revoke(ctx: &FeedContext, row: &Value) -> Result<(), ServiceError> {
     let Ok(provider) = ctx.provider(text(row, "provider").unwrap_or_default()) else {
         return Ok(());
     };
-    // A provider outside the EU the workspace has switched off is not
-    // called, not even to revoke (ADR OPS-026): the connection still stops
-    // syncing here.
-    if ctx.outside_eu(provider.id).await.is_err() {
-        tracing::info!(
-            provider = provider.id,
-            "[bank-feeds] outside the EU and switched off: not revoked at the provider"
-        );
-        return Ok(());
-    }
+    // Revoking goes through even for a provider outside the EU the workspace
+    // has switched off (ADR OPS-026: disconnects and deletes stay open):
+    // it is what stops the provider reading the bank data, and the caller
+    // drops the credentials after it, so this is the only chance to revoke.
     let ids: Vec<String> = stored_feed_accounts(row)
         .iter()
         .filter_map(|a| text(a, "providerAccountId").map(str::to_owned))

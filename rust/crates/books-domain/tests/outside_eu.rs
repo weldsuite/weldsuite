@@ -2,17 +2,26 @@
 //! with the switches enforced a workspace that hasn't switched it on is
 //! never called for. A new link is refused with the typed error, a sync (the
 //! sweeps' and webhooks' path) is skipped without a single call to Plaid,
-//! and once the workspace switches Plaid on the same sync reaches it.
+//! and once the workspace switches Plaid on the same sync reaches it. A
+//! disconnect revokes the item at Plaid whatever the switch: revoking is
+//! what stops the data leaving the EU.
 //!
 //! Its own test binary: it installs the process-wide enforcement, which no
 //! other test of the crate expects. Runs on the real tenant schema when
 //! `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early. Only the
 //! `plaid` switch is touched (other test binaries share the database).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use weldsuite_books_domain::bank_feeds::connections::{LinkSessionArgs, create_link_session};
+use weldsuite_books_domain::bank_feeds::connections::{
+    LinkSessionArgs, create_link_session, disconnect,
+};
 use weldsuite_books_domain::bank_feeds::sync::sync_connection;
 use weldsuite_books_domain::bank_feeds::{FeedConfig, FeedContext, ServiceError};
 use weldsuite_db::{Keyring, master_pool};
@@ -42,6 +51,7 @@ impl DynOutboundHttp for FakePlaid {
                     "added": [], "modified": [], "removed": [],
                     "next_cursor": "cur-oeu", "has_more": false,
                 }),
+                "/item/remove" => json!({ "request_id": "req_oeu" }),
                 "/accounts/get" => json!({
                     "item": { "item_id": "item_oeu" },
                     "accounts": [{ "account_id": "chk", "type": "depository", "balances": { "current": 10, "iso_currency_code": "USD" } }],
@@ -202,4 +212,14 @@ async fn plaid_follows_the_switch(db: weldsuite_db::PgPool) {
         .expect("sync");
     assert_eq!(stopped.skipped, Some("outside_eu"));
     assert!(plaid.calls.lock().expect("calls").is_empty());
+
+    // Off, a disconnect still revokes the item at Plaid: revoking is what
+    // stops the bank data leaving the EU, and the credentials go after it.
+    disconnect(&ctx, &connection, None)
+        .await
+        .expect("disconnect while off");
+    assert_eq!(
+        *plaid.calls.lock().expect("calls"),
+        vec!["/item/remove".to_owned()]
+    );
 }
