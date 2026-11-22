@@ -49,6 +49,21 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "externalAttachmentId")]
     pub external_attachment_id: Option<String>,
+    /// The virus scan of an inbound attachment (`crates/mail-inbound`'s
+    /// `threats`): `clean`, `infected`, `pending` (the scanner was
+    /// unreachable; the `mail-attachment-scan` cron settles it) or `error`
+    /// (the scanner could not read it). Null: never scanned (older mail,
+    /// outbound uploads, scanning off). Infected and pending files are not
+    /// served.
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "scanStatus")]
+    pub scan_status: Option<String>,
+    /// The scanner's signature name for an infected file.
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "scanSignature")]
+    pub scan_signature: Option<String>,
+    #[serde(rename = "scannedAt", with = "crate::js::timestamp::option")]
+    pub scanned_at: Option<TimeDateTime>,
     #[serde(rename = "createdAt", with = "crate::js::timestamp")]
     pub created_at: TimeDateTime,
     #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
@@ -133,6 +148,18 @@ pub const DDL: Table = Table {
             unique: false,
             method: "btree",
             filter: None,
+        },
+        // The rescan cron's work list: the few attachments still waiting.
+        Index {
+            name: "mail_attachments_scan_pending_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: Some("\"mail_attachments\".\"scan_status\" = 'pending'"),
         },
     ],
     foreign_keys: &[ForeignKey {

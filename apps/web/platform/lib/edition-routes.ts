@@ -53,6 +53,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/apps/phone-numbers', { modules: ['call'] }],
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
+  // The click-time link check (`POST /api/mail-messages/:id/link-check`), Rust only.
+  ['/weldmail/link', { modules: ['mail'], feature: 'mail-threat-protection' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
   // MCP servers are WeldAgent's tools.
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],

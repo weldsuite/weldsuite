@@ -25,6 +25,11 @@
 //! - [`auto_label`]: `mail-auto-label.ts`, Global's Jev auto-labels as one
 //!   structured `classify` call on `weldsuite-ai` (ADR AI-012), when the
 //!   install has AI.
+//! - [`threats`], [`rescan`]: threat protection, which Global never had:
+//!   each attachment through clamd and each link through the threat checks
+//!   before a message is stored; infected files are never stored, and files
+//!   the scanner couldn't take wait in quarantine for the
+//!   `mail-attachment-scan` cron.
 //!
 //! Not ported, on purpose: consumer WeldMail's personal mailboxes
 //! (MAIL-008 is not part of the Kubernetes editions), and the mailbox
@@ -47,10 +52,12 @@ pub mod promotion;
 pub mod push;
 pub mod rcpt;
 pub mod recipients;
+pub mod rescan;
 pub mod rules;
 pub mod spam;
 pub mod store;
 pub mod thread_match;
+pub mod threats;
 pub mod unsubscribe;
 
 pub use consumer::{InboundEnvelope, MailInboundSubscriber};

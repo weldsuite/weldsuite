@@ -19,6 +19,7 @@ use crate::fanout::{process_accounting_inbox, process_helpdesk_inbox};
 use crate::parsed::parse_inbound;
 use crate::recipients::collect_recipient_emails;
 use crate::spam::{SpamInput, SpamOptions, score_inbound_spam};
+use crate::threats::inspect;
 
 /// What Haraka publishes on `mail.inbound`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -99,7 +100,10 @@ impl MailInboundSubscriber {
                 return Disposition::Ack;
             }
         };
-        let processed = match process_inbound_email(&self.ctx, &email, &attachments).await {
+        // Once per message, before any mailbox stores it (`crate::threats`).
+        let threats = inspect(&self.ctx, &email, &attachments).await;
+        let processed = match process_inbound_email(&self.ctx, &email, &attachments, &threats).await
+        {
             Ok(processed) => processed,
             Err(error) => {
                 tracing::error!(%error, key = %envelope.key, "[Email] Storage pipeline failed");
@@ -152,6 +156,16 @@ impl MailInboundSubscriber {
             );
             return Disposition::Ack;
         }
+        if threats.is_dangerous() {
+            tracing::info!(
+                reasons = %threats.reasons().join(", "),
+                "[Email] Skipping helpdesk/accounting fan-out (threats)"
+            );
+            return Disposition::Ack;
+        }
+        // Files still waiting for the scanner stay out of the helpdesk and
+        // accounting inboxes: nothing rescans them there.
+        let attachments = threats.servable(&attachments);
         let (accounting, helpdesk) = tokio::join!(
             process_accounting_inbox(&self.ctx, &email, &attachments),
             process_helpdesk_inbox(&self.ctx, &email, &attachments),

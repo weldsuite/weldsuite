@@ -131,6 +131,7 @@ async fn a_spooled_message_is_stored_once() {
         },
         assignment_router: None,
         ai: None,
+        scanner: None,
     };
     let subscriber = MailInboundSubscriber::new(ctx, spool.clone());
     let raw = "From: Partner <p@partner-e2e.test>\r\nTo: random@mailin-e2e.test\r\nSubject: Catch me\r\nMessage-ID: <e2e-1@partner-e2e.test>\r\nDate: Mon, 26 Oct 2026 09:00:00 +0000\r\n\r\nHello!\r\n";

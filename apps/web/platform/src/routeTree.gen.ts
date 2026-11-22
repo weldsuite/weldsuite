@@ -81,6 +81,7 @@ import { Route as InviteIndexRouteImport } from './routes/invite/index'
 import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
 import { Route as WeldsocialSplatRouteImport } from './routes/weldsocial/$'
+import { Route as WeldmailLinkRouteImport } from './routes/weldmail_.link'
 import { Route as WelddeskSplatRouteImport } from './routes/welddesk/$'
 import { Route as WeldchatDraftsRouteImport } from './routes/weldchat/drafts'
 import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/directories'
@@ -1001,6 +1002,11 @@ const AgentsIndexRoute = AgentsIndexRouteImport.update({
 const WeldsocialSplatRoute = WeldsocialSplatRouteImport.update({
   id: '/weldsocial/$',
   path: '/weldsocial/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldmailLinkRoute = WeldmailLinkRouteImport.update({
+  id: '/weldmail_/link',
+  path: '/weldmail/link',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WelddeskSplatRoute = WelddeskSplatRouteImport.update({
@@ -4188,6 +4194,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldmail/link': typeof WeldmailLinkRoute
   '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
@@ -4776,6 +4783,7 @@ export interface FileRoutesByTo {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldmail/link': typeof WeldmailLinkRoute
   '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents': typeof AgentsIndexRoute
   '/appstore': typeof AppstoreIndexRoute
@@ -5399,6 +5407,7 @@ export interface FileRoutesById {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldmail_/link': typeof WeldmailLinkRoute
   '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
@@ -6036,6 +6045,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldmail/link'
     | '/weldsocial/$'
     | '/agents/'
     | '/appstore/'
@@ -6624,6 +6634,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldmail/link'
     | '/weldsocial/$'
     | '/agents'
     | '/appstore'
@@ -7246,6 +7257,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldmail_/link'
     | '/weldsocial/$'
     | '/agents/'
     | '/appstore/'
@@ -7870,6 +7882,7 @@ export interface RootRouteChildren {
   PreviewWeldsheetsRouteRoute: typeof PreviewWeldsheetsRouteRouteWithChildren
   DocumentsFileIdRoute: typeof DocumentsFileIdRoute
   W9TokenRoute: typeof W9TokenRoute
+  WeldmailLinkRoute: typeof WeldmailLinkRoute
   WeldsocialSplatRoute: typeof WeldsocialSplatRoute
   InviteIndexRoute: typeof InviteIndexRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
@@ -8387,6 +8400,13 @@ declare module '@tanstack/react-router' {
       path: '/weldsocial/$'
       fullPath: '/weldsocial/$'
       preLoaderRoute: typeof WeldsocialSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldmail_/link': {
+      id: '/weldmail_/link'
+      path: '/weldmail/link'
+      fullPath: '/weldmail/link'
+      preLoaderRoute: typeof WeldmailLinkRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/welddesk/$': {
@@ -14342,6 +14362,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewWeldsheetsRouteRoute: PreviewWeldsheetsRouteRouteWithChildren,
   DocumentsFileIdRoute: DocumentsFileIdRoute,
   W9TokenRoute: W9TokenRoute,
+  WeldmailLinkRoute: WeldmailLinkRoute,
   WeldsocialSplatRoute: WeldsocialSplatRoute,
   InviteIndexRoute: InviteIndexRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,

@@ -7,6 +7,7 @@ import type {
   CreateMailAttachmentInput,
   UpdateMailAttachmentInput,
   AssociateMailAttachmentsInput,
+  MailAttachmentScanStatus,
 } from '../schemas/mail-attachments';
 
 /**
@@ -27,6 +28,11 @@ export interface MailAttachmentRow {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** Virus-scan state; absent on Global, `null` when never scanned. */
+  scanStatus?: MailAttachmentScanStatus | null;
+  /** ClamAV signature name when `scanStatus` is `infected`. */
+  scanSignature?: string | null;
+  scannedAt?: string | null;
 }
 
 export function createMailAttachmentsApi(api: ClientApi) {

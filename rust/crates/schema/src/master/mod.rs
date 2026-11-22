@@ -30,6 +30,7 @@ pub mod helpcenter_domain_registry;
 pub mod iceberg_namespace_properties;
 pub mod iceberg_tables;
 pub mod mail_account_registry;
+pub mod mail_threat_indicators;
 pub mod merge_provider_index;
 pub mod neon_shared_projects;
 pub mod outbound_mail_cases;
@@ -128,6 +129,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         ),
         crate::snapshot::table::<iceberg_tables::Entity>(&iceberg_tables::DDL),
         crate::snapshot::table::<mail_account_registry::Entity>(&mail_account_registry::DDL),
+        crate::snapshot::table::<mail_threat_indicators::Entity>(&mail_threat_indicators::DDL),
         crate::snapshot::table::<merge_provider_index::Entity>(&merge_provider_index::DDL),
         crate::snapshot::table::<neon_shared_projects::Entity>(&neon_shared_projects::DDL),
         crate::snapshot::table::<outbound_mail_cases::Entity>(&outbound_mail_cases::DDL),
@@ -268,6 +270,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "iceberg_tables" => json(Box::pin(iceberg_tables::Entity::find().all(db)).await?),
         "mail_account_registry" => {
             json(Box::pin(mail_account_registry::Entity::find().all(db)).await?)
+        }
+        "mail_threat_indicators" => {
+            json(Box::pin(mail_threat_indicators::Entity::find().all(db)).await?)
         }
         "merge_provider_index" => {
             json(Box::pin(merge_provider_index::Entity::find().all(db)).await?)

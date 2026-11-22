@@ -56,7 +56,6 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { formatLocalized } from '@/lib/i18n/date-locale';
 import { format, isThisYear, isToday } from 'date-fns';
-import { attachmentIcon } from '@/app/weldmail/lib/attachment-icon';
 import { useUser } from '@/lib/auth';
 import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
@@ -113,7 +112,10 @@ import {
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { useComposeSignature } from './compose-signature';
-import { saveMailAttachment } from '../lib/download-attachment';
+import { isAttachmentForwardable } from '../lib/attachment-scan';
+import { AttachmentChip, type AttachmentChipData } from './attachment-chip';
+import { MailThreatBanner } from './mail-threat-banner';
+import { useSaveMailAttachment } from './use-save-mail-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
@@ -261,7 +263,11 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
 
   let mainContent: React.ReactNode;
   if (main) {
-    mainContent = isHtml ? <IsolatedHtmlContent html={main} /> : <div className="whitespace-pre-wrap">{main}</div>;
+    mainContent = isHtml ? (
+      <IsolatedHtmlContent html={main} linkProtection={{ messageId: threadMsg.id }} />
+    ) : (
+      <div className="whitespace-pre-wrap">{main}</div>
+    );
   } else if (threadMsg.bodyText) {
     mainContent = <div className="whitespace-pre-wrap">{threadMsg.bodyText}</div>;
   } else {
@@ -270,6 +276,7 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
 
   return (
     <div className="px-3 md:px-4 pb-5 pt-0 overflow-x-auto group/email">
+      <MailThreatBanner threats={threadMsg.threats} className="mb-3" />
       <div className="text-sm text-foreground leading-relaxed">
         {mainContent}
         {quoted && (
@@ -286,7 +293,7 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
             {showQuoted && (
               <div className="mt-2">
                 {isHtml ? (
-                  <IsolatedHtmlContent html={quoted} />
+                  <IsolatedHtmlContent html={quoted} linkProtection={{ messageId: threadMsg.id }} />
                 ) : (
                   <div className="whitespace-pre-wrap">{quoted}</div>
                 )}
@@ -437,12 +444,6 @@ function getSenderAvatarUrl(m: { from?: unknown }): string | undefined {
     return url ?? undefined;
   }
   return undefined;
-}
-
-function formatAttachmentSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1048576) return `${Math.round(size / 1024)} KB`;
-  return `${(size / 1048576).toFixed(1)} MB`;
 }
 
 // `name` is the label as stored on the message (system labels are upper-case).
@@ -774,7 +775,8 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
   );
 }
 
-function MessageBodyContent({ mainContent, isHtml, bodyHtml, bodyText }: Readonly<{
+function MessageBodyContent({ messageId, mainContent, isHtml, bodyHtml, bodyText }: Readonly<{
+  messageId: string;
   mainContent: string;
   isHtml: boolean;
   bodyHtml?: string;
@@ -783,17 +785,18 @@ function MessageBodyContent({ mainContent, isHtml, bodyHtml, bodyText }: Readonl
   const { t } = useI18n();
   if (mainContent) {
     return isHtml ? (
-      <IsolatedHtmlContent html={mainContent} />
+      <IsolatedHtmlContent html={mainContent} linkProtection={{ messageId }} />
     ) : (
       <div className="whitespace-pre-wrap">{mainContent}</div>
     );
   }
-  if (bodyHtml) return <IsolatedHtmlContent html={bodyHtml} />;
+  if (bodyHtml) return <IsolatedHtmlContent html={bodyHtml} linkProtection={{ messageId }} />;
   if (bodyText) return <div className="whitespace-pre-wrap">{bodyText}</div>;
   return <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>;
 }
 
-function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly<{
+function QuotedContent({ messageId, quotedContent, isHtml, showQuoted, onToggle }: Readonly<{
+  messageId: string;
   quotedContent: string;
   isHtml: boolean;
   showQuoted: boolean;
@@ -814,7 +817,7 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
       {showQuoted && (
         <div className="mt-2">
           {isHtml ? (
-            <IsolatedHtmlContent html={quotedContent} />
+            <IsolatedHtmlContent html={quotedContent} linkProtection={{ messageId }} />
           ) : (
             <div className="whitespace-pre-wrap">{quotedContent}</div>
           )}
@@ -826,39 +829,20 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
 
 function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
   hasLoadedAttachments: boolean;
-  otherAttachments: { id: string; fileName: string; size: number; contentType?: string | null }[];
+  otherAttachments: AttachmentChipData[];
 }>) {
   const { t } = useI18n();
-  const download = (att: { id: string; fileName: string }) => {
-    saveMailAttachment(att.id, att.fileName).catch(() =>
-      toast.error(t.mail.messageDetail.failedToDownloadAttachment),
-    );
-  };
+  const saveAttachment = useSaveMailAttachment();
+  const download = (att: { id: string; fileName: string }) => saveAttachment(att.id, att.fileName);
   return (
     <div className="mt-4 md:mt-6 space-y-2">
       {hasLoadedAttachments ? (
         otherAttachments.length > 0 && (
-          <>
-            <div className="flex flex-wrap gap-2">
-              {otherAttachments.map((att) => {
-                const TypeIcon = attachmentIcon(att.fileName, att.contentType);
-                return (
-                  <Button
-                    key={att.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => download(att)}
-                    title={att.fileName}
-                  >
-                    <TypeIcon />
-                    <span className="truncate max-w-[200px]">{att.fileName}</span>
-                    <span className="text-xs text-muted-foreground">{formatAttachmentSize(att.size)}</span>
-                  </Button>
-                );
-              })}
-            </div>
-          </>
+          <div className="flex flex-wrap gap-2">
+            {otherAttachments.map((att) => (
+              <AttachmentChip key={att.id} att={att} onDownload={download} />
+            ))}
+          </div>
         )
       ) : (
         <div className="text-sm text-gray-400">{t.mail.messageDetail.loadingAttachments}</div>
@@ -1373,7 +1357,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     isForwarding && !!message.hasAttachments,
   );
   const forwardedAttachments = (forwardAttachmentsData?.data ?? []).filter(
-    (att) => !att.isInline && !excludedForwardAttachmentIds.includes(att.id),
+    (att) => !att.isInline && isAttachmentForwardable(att) && !excludedForwardAttachmentIds.includes(att.id),
   );
 
   // Calendar invites (.ics) get a dedicated "Add to Weld Calendar" card; the
@@ -2677,8 +2661,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           data-action-bar={showActionBar}
           className="pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 group/email pb-6 data-[action-bar=true]:pb-1 md:data-[action-bar=true]:pb-3"
         >
+          <MailThreatBanner threats={newestMessage.threats} className="mb-3" />
           <div className="text-gray-700 dark:text-foreground text-sm leading-relaxed overflow-x-auto">
             <MessageBodyContent
+              messageId={newestMessage.id}
               mainContent={mainContent}
               isHtml={isHtml}
               bodyHtml={newestMessage.bodyHtml}
@@ -2686,6 +2672,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             />
             {quotedContent && (
               <QuotedContent
+                messageId={newestMessage.id}
                 quotedContent={quotedContent}
                 isHtml={isHtml}
                 showQuoted={showQuoted}
