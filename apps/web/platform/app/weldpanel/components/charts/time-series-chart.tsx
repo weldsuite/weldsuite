@@ -41,6 +41,13 @@ interface TimeSeriesChartProps {
   guides?: { value: number; label: string }[];
 }
 
+/** The tooltip's value cell: the number in the chart's locale. */
+function numberCell(locale: string) {
+  return function formatValue(value: unknown) {
+    return <span className="font-mono font-medium tabular-nums">{formatNumber(Number(value), locale)}</span>;
+  };
+}
+
 export function seriesColor(index: number): string {
   return `var(--chart-${(index % 5) + 1})`;
 }
@@ -56,7 +63,7 @@ function ChartBody({ data, series, type = 'line', locale, className, legend, gui
       <YAxis tickLine={false} axisLine={false} width={44} allowDecimals={false} tickFormatter={(v: number) => formatCompact(v, locale)} />
       <ChartTooltip
         active={annotationTooltipActive(annotations)}
-        content={<ChartTooltipContent formatter={(value) => <span className="font-mono font-medium tabular-nums">{formatNumber(Number(value), locale)}</span>} />}
+        content={<ChartTooltipContent formatter={numberCell(locale)} />}
       />
       {showLegend && <ChartLegend content={<ChartLegendContent />} />}
       {guides.map((guide) => (

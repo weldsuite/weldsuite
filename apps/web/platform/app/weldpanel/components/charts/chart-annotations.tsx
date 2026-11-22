@@ -131,7 +131,7 @@ export function annotationMarkLines(api: ChartAnnotationsApi): ReactNode[] {
       stroke={api.hoveredMark === mark ? 'var(--muted-foreground)' : 'transparent'}
       strokeDasharray="3 3"
       ifOverflow="extendDomain"
-      label={(props: { viewBox?: MarkBadgeProps['viewBox'] }) => (
+      label={(props: Pick<MarkBadgeProps, 'viewBox'>) => (
         <MarkBadge viewBox={props.viewBox} mark={mark} active={api.hoveredMark === mark} onHover={api.setHovered} onPick={api.onPickMark} />
       )}
     />
@@ -199,7 +199,7 @@ function AnnotatedFrame({ scope, rows, children }: Readonly<ChartAnnotationsProp
   const reportId = scope.reportId === undefined ? params.get('report') || null : scope.reportId;
   const buckets = useMemo(() => rows.map((row) => (typeof row.bucket === 'string' ? row.bucket : '')), [rows]);
   const range = useMemo(() => bucketRange(buckets), [buckets]);
-  const query = useMemo(() => ({ projectId, ...(range ?? {}), ...(reportId ? { reportId } : {}) }), [projectId, range, reportId]);
+  const query = useMemo(() => ({ projectId, from: range?.from, to: range?.to, reportId: reportId ?? undefined }), [projectId, range, reportId]);
   const { data: annotations } = useWeldPanelAnnotations(query, range !== null);
   const [creatingAt, setCreatingAt] = useState<string | null>(null);
   const [listing, setListing] = useState(false);

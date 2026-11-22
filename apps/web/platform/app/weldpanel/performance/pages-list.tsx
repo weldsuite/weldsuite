@@ -76,7 +76,7 @@ const RATING_DOT: Record<PanelVitalsRating, string> = { good: 'bg-emerald-500', 
 
 function VitalCell({ row, metric }: Readonly<{ row: PanelVitalsRow | null; metric: ListMetric }>) {
   const { t, language } = useI18n();
-  if (!row || row.metric === null) return <span className="text-muted-foreground">–</span>;
+  if (row?.metric === undefined || row.metric === null) return <span className="text-muted-foreground">–</span>;
   return (
     <span className="inline-flex items-center gap-2 tabular-nums">
       {row.rating && <span aria-hidden className={cn('size-2 shrink-0 rounded-full', RATING_DOT[row.rating])} />}

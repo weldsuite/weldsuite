@@ -114,7 +114,7 @@ function DetailsTab({ alert }: Readonly<{ alert: PanelAlertDto }>) {
         <PanelRow icon={Send} label={td.channels} value="channels" renderValue={() => <ChannelsSummary channels={alert.channels} />} />
       </div>
       {alert.lastError && (
-        <p className="text-sm text-destructive" role="status">
+        <p className="text-sm text-destructive">
           {td.lastError}: {alert.lastError}
         </p>
       )}

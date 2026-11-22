@@ -93,35 +93,40 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
               </LabeledField>
             </div>
 
-            <div className="grid gap-4 rounded-lg border p-3" role="group" aria-label={tx.metric}>
-              <p className="text-sm font-medium">{tx.metric}</p>
-              <LabeledField label={tx.metricEvent} htmlFor="weldpanel-impact-metric-event">
-                <EventPicker id="weldpanel-impact-metric-event" projectId={projectId} value={draft.metric.event} onChange={(event) => setMetric({ event })} ariaLabel={tx.metricEvent} />
-              </LabeledField>
-              <LabeledField label={tx.math} htmlFor="weldpanel-impact-math">
-                <Select value={math} onValueChange={(next) => setMetric({ math: next as ImpactMath, property: next === 'sum' || next === 'avg' ? draft.metric.property : undefined })}>
-                  <SelectTrigger id="weldpanel-impact-math">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PANEL_IMPACT_MATHS.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {tx.maths[m]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </LabeledField>
-              {(math === 'sum' || math === 'avg') && (
-                <LabeledField label={tx.property} htmlFor="weldpanel-impact-property">
-                  <PropertyPicker id="weldpanel-impact-property" projectId={projectId} value={draft.metric.property ?? ''} onChange={(property) => setMetric({ property })} ariaLabel={tx.property} includeComputed />
+            <fieldset className="min-w-0">
+              <legend className="sr-only">{tx.metric}</legend>
+              <div className="grid gap-4 rounded-lg border p-3">
+                <p aria-hidden className="text-sm font-medium">
+                  {tx.metric}
+                </p>
+                <LabeledField label={tx.metricEvent} htmlFor="weldpanel-impact-metric-event">
+                  <EventPicker id="weldpanel-impact-metric-event" projectId={projectId} value={draft.metric.event} onChange={(event) => setMetric({ event })} ariaLabel={tx.metricEvent} />
                 </LabeledField>
-              )}
-              <div className="grid gap-1.5">
-                <p className="text-sm font-medium">{t.weldpanel.analytics.insights.seriesFilters}</p>
-                <FilterBuilder compact projectId={projectId} filters={draft.metric.filters ?? []} onChange={(filters) => setMetric({ filters })} />
+                <LabeledField label={tx.math} htmlFor="weldpanel-impact-math">
+                  <Select value={math} onValueChange={(next) => setMetric({ math: next as ImpactMath, property: next === 'sum' || next === 'avg' ? draft.metric.property : undefined })}>
+                    <SelectTrigger id="weldpanel-impact-math">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PANEL_IMPACT_MATHS.map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {tx.maths[m]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </LabeledField>
+                {(math === 'sum' || math === 'avg') && (
+                  <LabeledField label={tx.property} htmlFor="weldpanel-impact-property">
+                    <PropertyPicker id="weldpanel-impact-property" projectId={projectId} value={draft.metric.property ?? ''} onChange={(property) => setMetric({ property })} ariaLabel={tx.property} includeComputed />
+                  </LabeledField>
+                )}
+                <div className="grid gap-1.5">
+                  <p className="text-sm font-medium">{t.weldpanel.analytics.insights.seriesFilters}</p>
+                  <FilterBuilder compact projectId={projectId} filters={draft.metric.filters ?? []} onChange={(filters) => setMetric({ filters })} />
+                </div>
               </div>
-            </div>
+            </fieldset>
 
             <div className="grid gap-1.5">
               <p className="text-sm font-medium">{t.weldpanel.analytics.retention.globalFilters}</p>

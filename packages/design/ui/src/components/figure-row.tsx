@@ -55,7 +55,8 @@ function FigureContent({ item, loading }: Readonly<{ item: FigureRowItem; loadin
 export function FigureRow({ items, columns = 4, loading = false, onSelect, selected, label, className }: Readonly<FigureRowProps>) {
   if (onSelect) {
     return (
-      <div role="group" aria-label={label} className={cn('grid gap-x-8', COLUMNS[columns], className)}>
+      <fieldset className={cn('grid min-w-0 gap-x-8', COLUMNS[columns], className)}>
+        {label && <legend className="sr-only">{label}</legend>}
         {items.map((item) => (
           <button
             key={item.key}
@@ -71,7 +72,7 @@ export function FigureRow({ items, columns = 4, loading = false, onSelect, selec
             <FigureContent item={item} loading={loading} />
           </button>
         ))}
-      </div>
+      </fieldset>
     );
   }
   return (
