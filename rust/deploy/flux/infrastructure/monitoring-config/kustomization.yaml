@@ -22,6 +22,8 @@ resources:
   - rules/secret-store.yaml
   # Quiet unless the opt-in offsite-copy layer runs.
   - rules/offsite-copy.yaml
+  # Quiet unless the opt-in network-policy layer runs.
+  - rules/network-policy.yaml
 generatorOptions:
   disableNameSuffixHash: true
   labels:

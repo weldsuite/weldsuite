@@ -12,7 +12,9 @@
 # allowed peers as ipsets, everything else REJECTed. Replies to allowed
 # connections, and traffic from the pod's own node (the kubelet's probes),
 # always pass. hostNetwork pods are never selected: NetworkPolicy can't
-# restrict them. Rules are iptables through the nf_tables backend (the
+# restrict them. A new pod's chain comes about a second after it starts, and
+# until then nothing holds it: metadata-guard.yaml closes that window for the
+# metadata service. Rules are iptables through the nf_tables backend (the
 # image's iptables-wrapper picks it on Talos, which runs kube-proxy and
 # Flannel on nftables); the Talos kernel has every match it uses built in.
 #
