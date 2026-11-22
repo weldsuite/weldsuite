@@ -149,6 +149,65 @@ impl FileStore for HttpFileStore {
         }
         Ok(())
     }
+
+    /// Every key under `prefix`, the bridge's pages followed (sizes are not
+    /// listed: `head` an object for them).
+    async fn list(&self, prefix: &str) -> Result<Vec<weldsuite_ports::ListedObject>, PortError> {
+        let mut listed = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self.list_page(prefix, cursor.as_deref()).await?;
+            listed.extend(
+                page.keys
+                    .into_iter()
+                    .map(|key| weldsuite_ports::ListedObject {
+                        key,
+                        size: 0,
+                        last_modified_ms: None,
+                    }),
+            );
+            match page.cursor {
+                Some(next) => cursor = Some(next),
+                None => return Ok(listed),
+            }
+        }
+    }
+}
+
+impl HttpFileStore {
+    /// `GET /list?prefix=…&cursor=…`: one page of keys.
+    async fn list_page(
+        &self,
+        prefix: &str,
+        cursor: Option<&str>,
+    ) -> Result<weldsuite_meet::Listed, PortError> {
+        let encode =
+            |value: &str| form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>();
+        let mut url = format!("{}/list?prefix={}", self.base, encode(prefix));
+        if let Some(cursor) = cursor {
+            url.push_str("&cursor=");
+            url.push_str(&encode(cursor));
+        }
+        let response = self.send(self.client.get(url)).await?;
+        if !response.status().is_success() {
+            return Err(status_error(response.status()));
+        }
+        let bytes = response.bytes().await.map_err(PortError::backend)?;
+        let body: serde_json::Value = serde_json::from_slice(&bytes).map_err(PortError::backend)?;
+        let keys = body["keys"]
+            .as_array()
+            .map(|keys| {
+                keys.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let cursor = (body["truncated"] == serde_json::Value::Bool(true))
+            .then(|| body["cursor"].as_str().map(str::to_owned))
+            .flatten();
+        Ok(weldsuite_meet::Listed { keys, cursor })
+    }
 }
 
 /// WeldMeet's `MEETING_RECORDINGS` over the bridge: objects through
@@ -190,35 +249,7 @@ impl weldsuite_meet::RecordingsBucket for HttpRecordings {
         prefix: &'a str,
         cursor: Option<&'a str>,
     ) -> weldsuite_ports::BoxFuture<'a, Result<weldsuite_meet::Listed, PortError>> {
-        Box::pin(async move {
-            let encode =
-                |value: &str| form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>();
-            let mut url = format!("{}/list?prefix={}", self.0.base, encode(prefix));
-            if let Some(cursor) = cursor {
-                url.push_str("&cursor=");
-                url.push_str(&encode(cursor));
-            }
-            let response = self.0.send(self.0.client.get(url)).await?;
-            if !response.status().is_success() {
-                return Err(status_error(response.status()));
-            }
-            let bytes = response.bytes().await.map_err(PortError::backend)?;
-            let body: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(PortError::backend)?;
-            let keys = body["keys"]
-                .as_array()
-                .map(|keys| {
-                    keys.iter()
-                        .filter_map(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let cursor = (body["truncated"] == serde_json::Value::Bool(true))
-                .then(|| body["cursor"].as_str().map(str::to_owned))
-                .flatten();
-            Ok(weldsuite_meet::Listed { keys, cursor })
-        })
+        Box::pin(self.0.list_page(prefix, cursor))
     }
 
     fn delete_many<'a>(

@@ -34,8 +34,11 @@ import type { HonoEnv } from '../types';
 type MessageRow = typeof schema.mailMessages.$inferSelect;
 type AttachmentRow = typeof schema.mailAttachments.$inferSelect;
 
-/** Either backend's row shape for one message, plus the store's `threadKey`. */
-type AnyMessageRow = (MessageRow | MailMessageRecord) & { threadKey?: string };
+/**
+ * Either backend's row shape for one message, plus the store's `threadKey` and
+ * the raw attachment rows `getMessage` puts on it in `postgres` mode.
+ */
+type AnyMessageRow = (MessageRow | MailMessageRecord) & { threadKey?: string; attachments?: unknown };
 
 /** `obj` without `keys` — an explicit drop instead of destructuring into unused `_name` bindings. */
 function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
@@ -52,11 +55,14 @@ export function mailPrincipal(c: Context<HonoEnv>): MailPrincipal {
 
 /**
  * A message as the API returns it. Drops the raw RFC 822 source (large, and it
- * is the unsanitized original), the provider bookkeeping columns, and (when
- * the row came from the mailbox store) its internal `threadKey`.
+ * is the unsanitized original), the provider bookkeeping columns, (when the
+ * row came from the mailbox store) its internal `threadKey`, and the raw
+ * attachment rows, which carry storage paths: a route that answers with a
+ * message's files adds them through {@link publicAttachment}.
  */
 export function publicMessage(row: MessageRow | MailMessageRecord) {
   return omit(row as AnyMessageRow, [
+    'attachments',
     'rawMessage',
     'headers',
     'triggerRunId',

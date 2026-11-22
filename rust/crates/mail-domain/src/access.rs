@@ -3,8 +3,10 @@
 //! an assigned one to its assignees; an unassigned private one to workspace
 //! admins and owners.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_schema::tenant::mail_accounts;
 
 /// The access fields of a `mail_accounts` row.
 #[derive(Debug, Clone, Default)]
@@ -97,6 +99,120 @@ pub async fn accessible_account_ids(
     .bind(admin)
     .fetch_all(db)
     .await
+}
+
+// ---------------------------------------------------------------------------
+// Principals: who is asking, when it is not always a person
+// ---------------------------------------------------------------------------
+
+/// `MailPrincipal`: the caller behind a mail request. The platform and the
+/// MCP server always act for a person; the public API also takes workspace
+/// keys and app tokens, which belong to no one: they act as the workspace and
+/// open **shared mailboxes only**, so a key any admin can mint is no way
+/// around a private mailbox's assignee list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MailPrincipal {
+    User(String),
+    Workspace,
+}
+
+impl MailPrincipal {
+    /// `principalFromSession(session)`: only a session that carries a user
+    /// acts as one.
+    pub fn from_session(user_id: Option<&str>) -> Self {
+        match user_id.filter(|user| !user.is_empty()) {
+            Some(user) => Self::User(user.to_owned()),
+            None => Self::Workspace,
+        }
+    }
+}
+
+/// `principalHasAccess(account, principal, isAdmin)`.
+pub fn principal_has_access(
+    account: &AccountAccess,
+    principal: &MailPrincipal,
+    is_admin: bool,
+) -> bool {
+    match principal {
+        MailPrincipal::Workspace => account.is_shared,
+        MailPrincipal::User(user) => has_access_to_account(account, user, is_admin),
+    }
+}
+
+/// `principalIsAdmin(db, principal)`: always false for the workspace.
+pub async fn principal_is_admin(
+    db: &PgPool,
+    principal: &MailPrincipal,
+) -> Result<bool, sqlx::Error> {
+    match principal {
+        MailPrincipal::User(user) => is_admin_or_owner(db, user).await,
+        MailPrincipal::Workspace => Ok(false),
+    }
+}
+
+/// `canOpenAccount(db, accountId, caller)`: `false` both for no such
+/// account and for one closed to the principal, so callers answer 404
+/// without saying which.
+pub async fn can_open_account(
+    db: &PgPool,
+    account_id: &str,
+    principal: &MailPrincipal,
+) -> Result<bool, sqlx::Error> {
+    let Some(account) = load_access_fields(db, account_id).await? else {
+        return Ok(false);
+    };
+    let admin = principal_is_admin(db, principal).await?;
+    Ok(principal_has_access(&account, principal, admin))
+}
+
+/// `accessibleAccountIds(db, caller)`: every live mailbox the principal may
+/// open, in the database's row order. The workspace opens the shared ones.
+pub async fn principal_account_ids(
+    db: &PgPool,
+    principal: &MailPrincipal,
+) -> Result<Vec<String>, DbErr> {
+    match principal {
+        MailPrincipal::User(user) => accessible_account_ids(db, user).await.map_err(orm_error),
+        MailPrincipal::Workspace => {
+            mail_accounts::Entity::find()
+                .select_only()
+                .column(mail_accounts::Column::Id)
+                .filter(mail_accounts::Column::DeletedAt.is_null())
+                .filter(mail_accounts::Column::IsShared.eq(true))
+                .into_tuple::<String>()
+                .all(&orm(db))
+                .await
+        }
+    }
+}
+
+/// `emailEventData(db, data)`: an `email` (or draft) event's payload, with
+/// its subject, sender and recipients cleared unless the mailbox is shared.
+/// Entity events reach every member (realtime, the audit log, webhooks), so
+/// only a mailbox every member may open anyway may put content on one. Never
+/// fails: an account that cannot be resolved counts as private.
+pub async fn email_event_data(db: &PgPool, mut data: Value) -> Value {
+    let account = data
+        .get("accountId")
+        .and_then(Value::as_str)
+        .filter(|account| !account.is_empty())
+        .map(str::to_owned);
+    let shared = match account {
+        Some(account) => match load_access_fields(db, &account).await {
+            Ok(found) => found.is_some_and(|access| access.is_shared),
+            Err(error) => {
+                tracing::error!(%error, "[mail/access] Could not resolve account for email event, dropping content");
+                false
+            }
+        },
+        None => false,
+    };
+    if !shared && let Some(object) = data.as_object_mut() {
+        for key in ["subject", "from", "to"] {
+            object.insert(key.to_owned(), Value::Null);
+        }
+    }
+    data
 }
 
 /// `canManageAccount(account, userId, isAdmin)`.

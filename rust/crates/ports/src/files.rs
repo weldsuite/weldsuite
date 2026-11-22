@@ -585,6 +585,24 @@ pub struct StorageBuckets {
     pub public: Option<Arc<dyn DynFileStore>>,
 }
 
+impl StorageBuckets {
+    /// Both buckets as `getStoredObject` reads them: the private one first
+    /// when there is one, else the public one alone; `None` with neither.
+    pub fn file_stores(&self) -> Option<FileStores> {
+        match (&self.private, &self.public) {
+            (Some(private), public) => Some(FileStores {
+                private: Arc::clone(private),
+                public: public.clone(),
+            }),
+            (None, Some(public)) => Some(FileStores {
+                private: Arc::clone(public),
+                public: None,
+            }),
+            (None, None) => None,
+        }
+    }
+}
+
 impl From<FileStores> for StorageBuckets {
     fn from(stores: FileStores) -> Self {
         Self {
