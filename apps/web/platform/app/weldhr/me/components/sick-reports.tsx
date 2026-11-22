@@ -13,7 +13,7 @@ import {
   type GroupConfig,
 } from '@/components/panel-entity-list';
 import { useObjectPanel } from '@/components/object-panel';
-import { MY_SICK_REPORT_PANEL_TYPE } from '@/components/objects/hr-my-time-off/types';
+import { MY_SICK_REPORT_PANEL_TYPE } from '@/components/objects/hr-my-hr/types';
 import { useMyHrAbsences } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { AbsenceDialog } from '../../absenteeism/components/absence-dialog';

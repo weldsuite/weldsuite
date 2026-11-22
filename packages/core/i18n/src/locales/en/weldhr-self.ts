@@ -182,25 +182,30 @@ export const weldhrSelf = {
       loadFailed: 'Could not load your declarations.',
       newDeclaration: 'New declaration',
       submitOff: 'Expense declarations are turned off in your workspace. Ask your HR team to file an expense for you.',
-      open: {
-        title: 'Outstanding',
+      groups: {
         pending: 'Awaiting a decision',
         approved: 'Approved, to be paid out',
-        none: 'Nothing outstanding.',
       },
       list: {
-        title: 'My declarations',
         empty: 'You have not submitted any declarations yet.',
+        emptyHint: 'Expenses you declare show up here, with their approval and payout.',
+        searchPlaceholder: 'Search expenses...',
         table: {
-          date: 'Date',
           description: 'Description',
+          category: 'Category',
+          date: 'Date',
           amount: 'Amount',
+          receipt: 'Receipt',
           status: 'Status',
         },
-        receipt: 'Receipt',
-        withdraw: 'Withdraw',
         reviewNote: 'Note from HR: {note}',
         receiptFailed: 'Could not open this receipt.',
+      },
+      panel: {
+        submittedOn: 'Submitted on',
+        reviewedOn: 'Reviewed on',
+        reviewNote: 'Note from HR',
+        paidOn: 'Paid on',
       },
       withdrawConfirm: {
         title: 'Withdraw this declaration?',
@@ -255,6 +260,10 @@ export const weldhrSelf = {
         client: 'Client',
       },
     },
+    panel: {
+      loadFailed: 'Could not load this item.',
+      notFound: 'This item is no longer there.',
+    },
     timeOff: {
       tabs: {
         leave: 'Leave',
@@ -302,8 +311,6 @@ export const weldhrSelf = {
           title: 'No requests yet',
           description: 'Leave of this type that you request shows up here.',
         },
-        loadFailed: 'Could not load this item.',
-        notFound: 'This item is no longer there.',
       },
     },
     tasks: {

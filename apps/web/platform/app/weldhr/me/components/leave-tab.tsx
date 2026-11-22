@@ -15,7 +15,7 @@ import {
   type GroupConfig,
 } from '@/components/panel-entity-list';
 import { useObjectPanel } from '@/components/object-panel';
-import { MY_LEAVE_REQUEST_PANEL_TYPE } from '@/components/objects/hr-my-time-off/types';
+import { MY_LEAVE_REQUEST_PANEL_TYPE } from '@/components/objects/hr-my-hr/types';
 import { useMyHrCancelLeave, useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';

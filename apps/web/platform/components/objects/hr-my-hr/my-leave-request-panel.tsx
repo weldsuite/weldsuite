@@ -27,7 +27,8 @@ import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { useMyHrCancelLeave, useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { StatusBadge, errorMessage, formatDate } from '@/app/weldhr/components/shared';
 import { isCancellable } from '@/app/weldhr/me/components/leave-tab';
-import { TIME_OFF_PANEL_WIDTH, TimeOffPanelMenu, TimeOffPanelMissing, TimeOffPanelTitle, useDetailsTab } from './parts';
+import { MY_HR_PATHS } from '@/app/weldhr/access';
+import { MY_HR_PANEL_WIDTH, MyHrPanelMenu, MyHrPanelMissing, MyHrPanelTitle, useDetailsTab } from './parts';
 import { MY_LEAVE_REQUEST_PANEL_TYPE } from './types';
 
 export function MyLeaveRequestPanel(props: Readonly<ObjectPanelComponentProps>) {
@@ -38,7 +39,7 @@ export function MyLeaveRequestPanel(props: Readonly<ObjectPanelComponentProps>) 
   const [confirming, setConfirming] = useState(false);
   const detailsTab = useDetailsTab();
 
-  const shell = useObjectPanelShell({ ...props, width: TIME_OFF_PANEL_WIDTH, loading: isLoading && !data });
+  const shell = useObjectPanelShell({ ...props, width: MY_HR_PANEL_WIDTH, loading: isLoading && !data });
 
   async function confirmCancel() {
     if (!request) return;
@@ -57,7 +58,7 @@ export function MyLeaveRequestPanel(props: Readonly<ObjectPanelComponentProps>) 
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(shell.mode)}
       title={
-        <TimeOffPanelTitle
+        <MyHrPanelTitle
           label={request ? (request.leaveTypeName ?? '—') : undefined}
           color={request?.leaveTypeColor ?? null}
           status={request ? <StatusBadge group="leave" status={request.status} /> : null}
@@ -65,19 +66,19 @@ export function MyLeaveRequestPanel(props: Readonly<ObjectPanelComponentProps>) 
       }
       actions={
         request ? (
-          <TimeOffPanelMenu type={MY_LEAVE_REQUEST_PANEL_TYPE} id={request.id}>
+          <MyHrPanelMenu listPath={MY_HR_PATHS.timeOff} type={MY_LEAVE_REQUEST_PANEL_TYPE} id={request.id}>
             {isCancellable(request) ? (
               <DropdownMenuItem variant="destructive" onClick={() => setConfirming(true)}>
                 <X />
                 {t('weldhr.me.leave.cancelConfirm.confirm')}
               </DropdownMenuItem>
             ) : null}
-          </TimeOffPanelMenu>
+          </MyHrPanelMenu>
         ) : null
       }
       tabs={<ObjectPanelTabs tabs={[detailsTab]} activeTab={detailsTab.id} onChange={() => {}} />}
     >
-      {!request && <TimeOffPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
+      {!request && <MyHrPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
 
       {request && (
         <div className="space-y-1 p-4">

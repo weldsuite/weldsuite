@@ -15,7 +15,8 @@ import { useMyHrAbsences } from '@/hooks/queries/use-weldhr-queries';
 import { RecoverDialog } from '@/app/weldhr/absenteeism/components/recover-dialog';
 import { formatDays } from '@/app/weldhr/absenteeism/components/shared';
 import { StatusBadge, formatDate } from '@/app/weldhr/components/shared';
-import { TIME_OFF_PANEL_WIDTH, TimeOffPanelMenu, TimeOffPanelMissing, TimeOffPanelTitle, useDetailsTab } from './parts';
+import { MY_HR_PATHS } from '@/app/weldhr/access';
+import { MY_HR_PANEL_WIDTH, MyHrPanelMenu, MyHrPanelMissing, MyHrPanelTitle, useDetailsTab } from './parts';
 import { MY_SICK_REPORT_PANEL_TYPE } from './types';
 
 export function MySickReportPanel(props: Readonly<ObjectPanelComponentProps>) {
@@ -27,33 +28,33 @@ export function MySickReportPanel(props: Readonly<ObjectPanelComponentProps>) {
   const [recovering, setRecovering] = useState(false);
   const detailsTab = useDetailsTab();
 
-  const shell = useObjectPanelShell({ ...props, width: TIME_OFF_PANEL_WIDTH, loading: isLoading && !data });
+  const shell = useObjectPanelShell({ ...props, width: MY_HR_PANEL_WIDTH, loading: isLoading && !data });
 
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(shell.mode)}
       title={
-        <TimeOffPanelTitle
+        <MyHrPanelTitle
           label={report ? t('weldhr.me.timeOff.panel.sickReportTitle', { date: formatDate(report.startDate) }) : undefined}
           status={report ? <StatusBadge group="absence" status={report.status} /> : null}
         />
       }
       actions={
         report ? (
-          <TimeOffPanelMenu type={MY_SICK_REPORT_PANEL_TYPE} id={report.id}>
+          <MyHrPanelMenu listPath={MY_HR_PATHS.timeOff} type={MY_SICK_REPORT_PANEL_TYPE} id={report.id}>
             {isCurrent ? (
               <DropdownMenuItem onClick={() => setRecovering(true)}>
                 <HeartPulse />
                 {t('weldhr.absenteeism.reportRecovered')}
               </DropdownMenuItem>
             ) : null}
-          </TimeOffPanelMenu>
+          </MyHrPanelMenu>
         ) : null
       }
       tabs={<ObjectPanelTabs tabs={[detailsTab]} activeTab={detailsTab.id} onChange={() => {}} />}
     >
-      {!report && <TimeOffPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
+      {!report && <MyHrPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
 
       {report && (
         <div className="space-y-1 p-4">

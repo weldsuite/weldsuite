@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useObjectPanelUrlSync } from '@/components/object-panel';
+import { MY_HR_PATHS } from '../../access';
 import { HrTabsPage } from '../../components/page-kit';
 import { MyLeaveBalancesList } from '../components/leave-balances';
 import { MyLeaveList } from '../components/leave-tab';
@@ -20,7 +21,7 @@ export default function MyTimeOffPage() {
   const [tab, setTab] = useState<Tab>('leave');
   useMyHrBreadcrumbs(t('weldhr.me.pages.timeOff'));
   // A row opens its details panel; the URL keeps it (`?stack=`), so a link or reload reopens it.
-  useObjectPanelUrlSync('/weldhr/me/time-off');
+  useObjectPanelUrlSync(MY_HR_PATHS.timeOff);
 
   const tabs = [
     { id: 'leave', label: t('weldhr.me.timeOff.tabs.leave') },

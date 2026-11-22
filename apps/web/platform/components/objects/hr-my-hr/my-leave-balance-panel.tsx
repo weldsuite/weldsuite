@@ -29,7 +29,8 @@ import { ActivityIllustration, TabEmptyState, tabBodyClassName } from '@/compone
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { useMyHrLeave } from '@/hooks/queries/use-weldhr-queries';
 import { StatusBadge, formatDate } from '@/app/weldhr/components/shared';
-import { TIME_OFF_PANEL_WIDTH, TimeOffPanelMenu, TimeOffPanelMissing, TimeOffPanelTitle, useDetailsTab } from './parts';
+import { MY_HR_PATHS } from '@/app/weldhr/access';
+import { MY_HR_PANEL_WIDTH, MyHrPanelMenu, MyHrPanelMissing, MyHrPanelTitle, useDetailsTab } from './parts';
 import { MY_LEAVE_BALANCE_PANEL_TYPE, MY_LEAVE_REQUEST_PANEL_TYPE } from './types';
 
 type TabId = 'overview' | 'requests';
@@ -44,7 +45,7 @@ export function MyLeaveBalancePanel(props: Readonly<ObjectPanelComponentProps>) 
   const [activeTab, setActiveTab] = useState<TabId>(props.initialTab === 'requests' ? 'requests' : 'overview');
   const detailsTab = useDetailsTab();
 
-  const shell = useObjectPanelShell({ ...props, width: TIME_OFF_PANEL_WIDTH, loading: isLoading && !data });
+  const shell = useObjectPanelShell({ ...props, width: MY_HR_PANEL_WIDTH, loading: isLoading && !data });
 
   const tabs: ObjectPanelTabDescriptor[] = [
     detailsTab,
@@ -61,11 +62,11 @@ export function MyLeaveBalancePanel(props: Readonly<ObjectPanelComponentProps>) 
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(shell.mode)}
-      title={<TimeOffPanelTitle label={balance?.name} color={balance?.color ?? null} />}
-      actions={balance ? <TimeOffPanelMenu type={MY_LEAVE_BALANCE_PANEL_TYPE} id={balance.leaveTypeId} /> : null}
+      title={<MyHrPanelTitle label={balance?.name} color={balance?.color ?? null} />}
+      actions={balance ? <MyHrPanelMenu listPath={MY_HR_PATHS.timeOff} type={MY_LEAVE_BALANCE_PANEL_TYPE} id={balance.leaveTypeId} /> : null}
       tabs={<ObjectPanelTabs tabs={tabs} activeTab={activeTab} onChange={(id) => setActiveTab(id as TabId)} />}
     >
-      {!balance && <TimeOffPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
+      {!balance && <MyHrPanelMissing loaded={!!data} error={error} onRetry={() => void refetch()} />}
 
       {balance && activeTab === 'overview' && (
         <div className="space-y-1 p-4">

@@ -1,5 +1,5 @@
 /**
- * Pieces the My HR time-off panels share: the title with its status, the "⋮"
+ * Pieces the My HR panels share (time off, expenses): the title with its status, the "⋮"
  * menu with "Copy link", and the body of an item that could not be read.
  */
 
@@ -18,18 +18,17 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 import { RecordLoadFailed, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { errorMessage } from '@/app/weldhr/components/shared';
 import { ColorDot } from '@/app/weldhr/me/components/shared';
-import { MY_TIME_OFF_PATH } from './types';
 
 /** Width of the side panel, as the employee panel. */
-export const TIME_OFF_PANEL_WIDTH = 400;
+export const MY_HR_PANEL_WIDTH = 400;
 
-/** The Details tab every time-off panel opens on. */
+/** The Details tab every My HR panel opens on. */
 export function useDetailsTab(): ObjectPanelTabDescriptor {
   const st = useTranslations();
   return { id: 'overview', label: st('sweep.entities.detailsTab'), icon: LayoutGrid };
 }
 
-export function TimeOffPanelTitle({
+export function MyHrPanelTitle({
   label,
   color,
   status,
@@ -51,13 +50,20 @@ export function TimeOffPanelTitle({
 }
 
 /** The header's "⋮" menu: "Copy link", then the item's own actions. */
-export function TimeOffPanelMenu({
+export function MyHrPanelMenu({
+  listPath,
   type,
   id,
   children,
-}: Readonly<{ type: string; id: string; children?: ReactNode }>) {
+}: Readonly<{
+  /** The My HR page the panel opens on, for "Copy link". */
+  listPath: string;
+  type: string;
+  id: string;
+  children?: ReactNode;
+}>) {
   const st = useTranslations();
-  const copyLink = useCopyPanelLink(MY_TIME_OFF_PATH, type, id);
+  const copyLink = useCopyPanelLink(listPath, type, id);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -87,7 +93,7 @@ export function TimeOffPanelMenu({
 }
 
 /** The body when the list could not be read, or the item is not in it (any more). */
-export function TimeOffPanelMissing({
+export function MyHrPanelMissing({
   loaded,
   error,
   onRetry,
@@ -95,14 +101,14 @@ export function TimeOffPanelMissing({
   const t = useTranslations();
   if (loaded) {
     return (
-      <RecordLoadFailed notFound message={t('weldhr.me.timeOff.panel.notFound')} retryLabel="" onRetry={onRetry} />
+      <RecordLoadFailed notFound message={t('weldhr.me.panel.notFound')} retryLabel="" onRetry={onRetry} />
     );
   }
   if (!error) return null;
   return (
     <RecordLoadFailed
       notFound={false}
-      message={errorMessage(error, t('weldhr.me.timeOff.panel.loadFailed'))}
+      message={errorMessage(error, t('weldhr.me.panel.loadFailed'))}
       retryLabel={t('common.actions.retry')}
       onRetry={onRetry}
     />

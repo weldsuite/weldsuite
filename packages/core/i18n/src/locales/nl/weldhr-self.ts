@@ -183,25 +183,30 @@ export const weldhrSelf = {
       loadFailed: 'Je declaraties konden niet worden geladen.',
       newDeclaration: 'Nieuwe declaratie',
       submitOff: 'Declaraties staan uit in jouw werkruimte. Vraag je HR-team om een uitgave voor je in te voeren.',
-      open: {
-        title: 'Openstaand',
+      groups: {
         pending: 'Wacht op een beslissing',
         approved: 'Goedgekeurd, nog uit te betalen',
-        none: 'Er staat niets open.',
       },
       list: {
-        title: 'Mijn declaraties',
         empty: 'Je hebt nog geen declaraties ingediend.',
+        emptyHint: 'Declaraties die je indient staan hier, met de goedkeuring en uitbetaling.',
+        searchPlaceholder: 'Declaraties zoeken...',
         table: {
-          date: 'Datum',
           description: 'Omschrijving',
+          category: 'Categorie',
+          date: 'Datum',
           amount: 'Bedrag',
+          receipt: 'Bonnetje',
           status: 'Status',
         },
-        receipt: 'Bonnetje',
-        withdraw: 'Intrekken',
         reviewNote: 'Opmerking van HR: {note}',
         receiptFailed: 'Dit bonnetje kon niet worden geopend.',
+      },
+      panel: {
+        submittedOn: 'Ingediend op',
+        reviewedOn: 'Beoordeeld op',
+        reviewNote: 'Opmerking van HR',
+        paidOn: 'Uitbetaald op',
       },
       withdrawConfirm: {
         title: 'Deze declaratie intrekken?',
@@ -256,6 +261,10 @@ export const weldhrSelf = {
         client: 'Klant',
       },
     },
+    panel: {
+      loadFailed: 'Kon dit item niet laden.',
+      notFound: 'Dit item bestaat niet meer.',
+    },
     timeOff: {
       tabs: {
         leave: 'Verlof',
@@ -290,7 +299,7 @@ export const weldhrSelf = {
         requestedOn: 'Aangevraagd op',
         reviewedBy: 'Beoordeeld door',
         reviewedOn: 'Beoordeeld op',
-        reviewNote: 'Notitie van HR',
+        reviewNote: 'Opmerking van HR',
         reportedOn: 'Gemeld op',
         fullAllowance: 'Tegoed voor een heel jaar',
         overAllowance: 'Boven het tegoed',
@@ -303,8 +312,6 @@ export const weldhrSelf = {
           title: 'Nog geen aanvragen',
           description: 'Verlof van deze soort dat je aanvraagt, staat hier.',
         },
-        loadFailed: 'Kon dit item niet laden.',
-        notFound: 'Dit item bestaat niet meer.',
       },
     },
     tasks: {
