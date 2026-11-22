@@ -1493,13 +1493,25 @@ install leaves it off: its seats and modules come from its licence.
   through the grace period (`BILLING_GRACE_DAYS`, 14) a reminder, then the
   plan ends on Free (`applySubscriptionEnded`). Saving a new payment method
   charges the open amount again at once.
+- **No payment method yet** (`modules/core-billing/src/payment_method.rs`):
+  workspaces that move from Global keep their plan but not their Stripe
+  card, so their account has no mandate. `BILLING_RENEWAL_NOTICE_DAYS` (14)
+  before the renewal the billing owners get one email (`billing.dunning`,
+  `upcoming`; the renewal it was sent for is kept in
+  `billing_accounts.dunning_reminded_at`, claimed before sending, so
+  overlapping runs send it once), and `GET /api/billing/subscription`
+  answers `paymentMethodRequired: { dueAt, pastDue }`, which the platform
+  shows billing managers as a banner. A renewal refused for want of a
+  mandate words its failure email and reminder as "add a payment method";
+  the pay link creates the Mollie customer when there is none yet.
 - **Staff**: `weldsuite admin billing show|comp|uncomp|refund|retry-now`
   (see "Staff work").
 
 Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
 `MOLLIE_WEBHOOK_URL`, `MOLLIE_API_URL`), `BILLING_ISSUER_WORKSPACE_ID`,
 `BILLING_ISSUER_ENTITY_ID`, `BILLING_PAY_LINK_KEY`, `BILLING_SELLER_COUNTRY`,
-`BILLING_GRACE_DAYS`, `BILLING_RETURN_URL`, and `PUBLIC_URL` for the links.
+`BILLING_GRACE_DAYS`, `BILLING_RENEWAL_NOTICE_DAYS`, `BILLING_RETURN_URL`, and
+`PUBLIC_URL` for the links.
 `BILLING_PROVIDER=mollie` with one missing stops the start. Chart:
 `config.billing` and `cron.jobs.billing-renewals`. Credit top-ups join plan
 billing: a package's price is before VAT, so `POST /api/credits/checkout`
