@@ -274,6 +274,20 @@ export const weldhrSelf = {
       noDueDate: 'Geen deadline',
       overdue: 'Te laat',
       assignedTo: 'Toegewezen aan {role}',
+      you: 'Jij',
+      searchPlaceholder: 'Taken zoeken...',
+      states: {
+        open: 'Te doen',
+        done: 'Klaar',
+      },
+      columns: {
+        task: 'Taak',
+        checklist: 'Checklist',
+        status: 'Status',
+        type: 'Type',
+        due: 'Deadline',
+        assignee: 'Toegewezen aan',
+      },
     },
     reviews: {
       acknowledge: 'Bevestigen',

@@ -273,6 +273,20 @@ export const weldhrSelf = {
       noDueDate: 'No due date',
       overdue: 'Overdue',
       assignedTo: 'Assigned to {role}',
+      you: 'You',
+      searchPlaceholder: 'Search tasks...',
+      states: {
+        open: 'To do',
+        done: 'Done',
+      },
+      columns: {
+        task: 'Task',
+        checklist: 'Checklist',
+        status: 'Status',
+        type: 'Type',
+        due: 'Due',
+        assignee: 'Assigned to',
+      },
     },
     reviews: {
       acknowledge: 'Acknowledge',
