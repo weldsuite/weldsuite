@@ -13,6 +13,8 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -28,13 +30,20 @@ use weldsuite_books_domain::tables::EXEMPTION_CERTIFICATES as T;
 use weldsuite_catalogs::entity_events::{
     EXEMPTION_CERTIFICATE_CREATED, EXEMPTION_CERTIFICATE_DELETED, EXEMPTION_CERTIFICATE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{documents, exemption_certificates, invoices, parties, tax_lines};
 
 use crate::common::{changes, iso_date, keep, merged, refuse, text, today};
+use crate::orm_bridge::refusal;
+use crate::returns::common::{day_text, parse_day, row_json, rows_json};
+
+/// `exemption_certificates` written from a `{ column: value }` object.
+const CERTIFICATE_ROWS: JsonTable = JsonTable::of::<exemption_certificates::Entity>();
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -190,35 +199,45 @@ async fn check_references(
     invoice_id: Option<&str>,
     document_id: Option<&str>,
 ) -> Result<(), Refusal> {
+    let conn = orm(db);
     if let Some(party) = party_id.filter(|p| !p.is_empty()) {
-        let found: Option<String> =
-            sqlx::query_scalar("select id from parties where id = $1 limit 1")
-                .bind(party)
-                .fetch_optional(db)
-                .await?;
+        let found: Option<String> = parties::Entity::find()
+            .select_only()
+            .column(parties::Column::Id)
+            .filter(parties::Column::Id.eq(party))
+            .into_tuple()
+            .one(&conn)
+            .await
+            .map_err(refusal)?;
         if found.is_none() {
             return Err(refuse(format!("Customer {party} not found"), 400));
         }
     }
     if let Some(invoice) = invoice_id.filter(|i| !i.is_empty()) {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from invoices where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(invoice)
-        .bind(entity_id)
-        .fetch_optional(db)
-        .await?;
+        let found: Option<String> = invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::Id)
+            .filter(invoices::Column::Id.eq(invoice))
+            .filter(invoices::Column::EntityId.eq(entity_id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&conn)
+            .await
+            .map_err(refusal)?;
         if found.is_none() {
             return Err(refuse(format!("Invoice {invoice} not found"), 400));
         }
     }
     if let Some(document) = document_id.filter(|d| !d.is_empty()) {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from documents where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(document)
-        .fetch_optional(db)
-        .await?;
+        let found: Option<String> = documents::Entity::find()
+            .select_only()
+            .column(documents::Column::Id)
+            .filter(documents::Column::Id.eq(document))
+            .filter(documents::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&conn)
+            .await
+            .map_err(refusal)?;
         if found.is_none() {
             return Err(refuse(format!("Document {document} not found"), 400));
         }
@@ -231,21 +250,24 @@ pub(crate) async fn last_used_by_certificate(
     db: &PgPool,
     entity_id: &str,
     ids: &[String],
-) -> Result<Vec<(String, Option<String>)>, sqlx::Error> {
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    use tax_lines::Column;
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select certificate_id, max(tax_date)::text from tax_lines where entity_id = $1 \
-         and certificate_id = any($2) group by certificate_id",
-    )
-    .bind(entity_id)
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(Option<String>, Option<time::Date>)> = tax_lines::Entity::find()
+        .select_only()
+        .column(Column::CertificateId)
+        .column_as(Column::TaxDate.max(), "last_used")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::CertificateId.is_in(ids.iter().map(String::as_str)))
+        .group_by(Column::CertificateId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|(id, last)| id.map(|id| (id, last)))
+        .filter_map(|(id, last)| id.map(|id| (id, last.map(day_text))))
         .collect())
 }
 
@@ -324,16 +346,17 @@ fn event_data(row: &Value, status: Option<&str>) -> Value {
 }
 
 async fn require_certificate(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(exemption_certificates),
-        " from exemption_certificates t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| T.js(r))
+    use exemption_certificates::Column;
+    let row = exemption_certificates::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+        .map_err(refusal)?;
+    row.map(row_json)
+        .transpose()
+        .map_err(refusal)?
         .ok_or_else(|| refuse(format!("Exemption certificate {id} not found"), 404))
 }
 
@@ -346,7 +369,9 @@ pub(crate) async fn link_certificate_to_earlier_sales(
     entity_id: &str,
     certificate: &Value,
     today: &str,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use tax_lines::Column;
     let states: Vec<String> = certificate["states"]
         .as_array()
         .map(|s| {
@@ -370,31 +395,46 @@ pub(crate) async fn link_certificate_to_earlier_sales(
     if single && invoice.is_none() {
         return Ok(0);
     }
-    let linked: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "update tax_lines set certificate_id = $1 where entity_id = $2 and contact_id = $3 \
-         and direction = 'sales' and certificate_id is null and tax_return_id is null \
-         and coalesce(exempt_amount, 0) > 0 \
-         and upper(coalesce(nullif(ship_to_state, ''), state_code)) = any($4) \
-         and tax_date >= $5::date \
-         and (not $6 or (source_type = 'invoice' and source_id = $7)) \
-         returning source_type, source_id",
-    )
-    .bind(text(certificate, "id"))
-    .bind(entity_id)
-    .bind(text(certificate, "partyId"))
-    .bind(&states)
-    .bind(&since)
-    .bind(single)
-    .bind(invoice)
-    .fetch_all(db)
-    .await?;
+    // `contact_id = null` matches no row.
+    let Some(party) = text(certificate, "partyId") else {
+        return Ok(0);
+    };
+    // `upper(coalesce(nullif(ship_to_state, ''), state_code))`.
+    let state = Func::upper(Func::coalesce([
+        Expr::from(
+            Func::cust("nullif")
+                .arg(Expr::col(Column::ShipToState))
+                .arg(""),
+        ),
+        Expr::col(Column::StateCode),
+    ]));
+    let mut update = tax_lines::Entity::update_many()
+        .col_expr(
+            Column::CertificateId,
+            Expr::value(text(certificate, "id").map(str::to_owned)),
+        )
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::ContactId.eq(party))
+        .filter(Column::Direction.eq("sales"))
+        .filter(Column::CertificateId.is_null())
+        .filter(Column::TaxReturnId.is_null())
+        // `coalesce(exempt_amount, 0) > 0`: a null amount isn't more than 0.
+        .filter(Column::ExemptAmount.gt(0))
+        .filter(Expr::from(state).is_in(states))
+        .filter(Column::TaxDate.gte(parse_day(&since)?));
+    if single {
+        update = update
+            .filter(Column::SourceType.eq("invoice"))
+            .filter(Column::SourceId.eq(invoice));
+    }
+    let linked = update.exec_with_returning(&orm(db)).await?;
     let mut documents: Vec<String> = linked
         .iter()
-        .map(|(t, s)| {
+        .map(|line| {
             format!(
                 "{}:{}",
-                t.as_deref().unwrap_or(""),
-                s.as_deref().unwrap_or("")
+                line.source_type,
+                line.source_id.as_deref().unwrap_or("")
             )
         })
         .collect();
@@ -444,22 +484,25 @@ async fn list_certificates(caller: &Caller, state: &BooksState, q: &Query) -> Re
     };
     let entity_id = text(&entity, "id").unwrap_or_default();
     let (_, page_size, offset) = page_params(q);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(exemption_certificates),
-        " from exemption_certificates t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.party_id = $2) order by t.created_at desc"
-    ))
-    .bind(entity_id)
-    .bind(q.present("partyId"))
-    .fetch_all(&caller.db)
-    .await?;
-    let rows = T.js_rows(rows);
+    let mut select = exemption_certificates::Entity::find()
+        .filter(exemption_certificates::Column::EntityId.eq(entity_id))
+        .filter(exemption_certificates::Column::DeletedAt.is_null());
+    if let Some(party) = q.present("partyId") {
+        select = select.filter(exemption_certificates::Column::PartyId.eq(party));
+    }
+    let rows = select
+        .order_by_desc(exemption_certificates::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await
+        .map_err(refusal)?;
+    let rows = rows_json(rows).map_err(refusal)?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
         .collect();
-    let used = last_used_by_certificate(&caller.db, entity_id, &ids).await?;
+    let used = last_used_by_certificate(&caller.db, entity_id, &ids)
+        .await
+        .map_err(refusal)?;
     let day = today(caller, state);
     let mut presented: Vec<Value> = rows
         .iter()
@@ -503,8 +546,9 @@ async fn detail(
             let entity = require_sales_tax_entity(&caller).await?;
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let row = require_certificate(&caller.db, &entity_id, &id).await?;
-            let used =
-                last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id)).await?;
+            let used = last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
+                .await
+                .map_err(refusal)?;
             Ok(ok(present_certificate(
                 &row,
                 last_used(&used, &id),
@@ -587,12 +631,21 @@ async fn create_certificate(caller: &Caller, state: &BooksState, data: Certifica
         "createdAt": at,
         "updatedAt": at,
     });
-    T.insert_raw(&caller.db, T.values(row.as_object().unwrap_or(&Map::new())))
-        .await?;
+    CERTIFICATE_ROWS
+        .insert(
+            &orm(&caller.db),
+            T.values(row.as_object().unwrap_or(&Map::new())),
+        )
+        .await
+        .map_err(refusal)?;
     audit(caller, &entity_id, &id, "created", None).await;
-    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &row, &day).await?;
+    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &row, &day)
+        .await
+        .map_err(refusal)?;
     let used = if linked > 0 {
-        last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id)).await?
+        last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
+            .await
+            .map_err(refusal)?
     } else {
         Vec::new()
     };
@@ -680,8 +733,10 @@ async fn update_certificate(
     keep(&mut update, "status", &data.status);
     keep(&mut update, "receivedOn", &data.received_on);
     keep(&mut update, "notes", &data.notes);
-    T.patch_raw(&caller.db, id, T.values(&update), false)
-        .await?;
+    CERTIFICATE_ROWS
+        .update(&orm(&caller.db), id, T.values(&update), false)
+        .await
+        .map_err(refusal)?;
     audit(
         caller,
         &entity_id,
@@ -692,8 +747,12 @@ async fn update_certificate(
     .await;
     let updated = merged(&row, &update);
     let day = today(caller, state);
-    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &updated, &day).await?;
-    let used = last_used_by_certificate(&caller.db, &entity_id, &[id.to_owned()]).await?;
+    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &updated, &day)
+        .await
+        .map_err(refusal)?;
+    let used = last_used_by_certificate(&caller.db, &entity_id, &[id.to_owned()])
+        .await
+        .map_err(refusal)?;
     let presented = present_certificate(&updated, last_used(&used, id), &day);
     caller.publish(
         state,
@@ -718,13 +777,14 @@ async fn remove(
             let entity = require_sales_tax_entity(&caller).await?;
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let row = require_certificate(&caller.db, &entity_id, &id).await?;
-            sqlx::query(
-                "update exemption_certificates set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-            )
-            .bind(now())
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+            let at = utc_timestamp(time::OffsetDateTime::now_utc());
+            exemption_certificates::Entity::update_many()
+                .col_expr(exemption_certificates::Column::DeletedAt, Expr::value(at))
+                .col_expr(exemption_certificates::Column::UpdatedAt, Expr::value(at))
+                .filter(exemption_certificates::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(refusal)?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(&state, EXEMPTION_CERTIFICATE_DELETED, &id, event_data(&row, None));
             Ok(no_content())

@@ -9,8 +9,13 @@
 //! the payment less any backup withholding.
 
 use base64::Engine;
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::bank_accounts::reveal_account_number;
 use weldsuite_books_domain::checks::{
     MicrInput, amount_in_words, build_micr_fields, build_micr_line, courtesy_amount,
@@ -20,14 +25,15 @@ use weldsuite_books_domain::guards::{PostingCheck, PostingLockKind, assert_posti
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{locale_compare, parse_float, to_fixed, utf16_len};
 use weldsuite_books_domain::payments::{payment_net_amount, void_payment};
-use weldsuite_books_domain::tables::{BILLS, PAYMENT_RUNS, PAYMENTS};
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, PgPool, orm, utc_now};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{bills, parties, payment_allocations, payment_runs, payments};
 
 use super::approval::{RunPayment, create_run_payment};
 use super::runs::{find_run, load_run, s, text};
 use super::settings::{load_entity, read_check_settings};
 use super::{Faults, RunError, bad, load_bank_account, not_found, run_error, us_address_lines};
+use crate::rows::{date_of, js, js_rows, money_text};
 
 /// `checkStatusOf(payment)`.
 pub(crate) fn check_status_of(payment: &Value) -> &'static str {
@@ -92,6 +98,34 @@ fn assert_printable(run: &Value) -> Result<(), RunError> {
     Ok(())
 }
 
+/// `innerJoin(bills, eq(bills.id, paymentAllocations.billId))`.
+fn allocated_bills() -> RelationDef {
+    bills::Entity::belongs_to(payment_allocations::Entity)
+        .from(bills::Column::Id)
+        .to(payment_allocations::Column::BillId)
+        .into()
+}
+
+/// A live allocation of some payments with its bill: `pa.payment_id`,
+/// `pa.amount` and the bill row.
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct BillAllocation {
+    #[sea_orm(nested)]
+    pub bill: bills::Model,
+    pub allocation_payment_id: String,
+    pub allocation_amount: BigDecimal,
+}
+
+impl BillAllocation {
+    /// The allocations joined to their bills, to filter before `into_model`.
+    pub(crate) fn query() -> sea_orm::Select<bills::Entity> {
+        bills::Entity::find()
+            .column_as(payment_allocations::Column::PaymentId, "allocation_payment_id")
+            .column_as(payment_allocations::Column::Amount, "allocation_amount")
+            .join(JoinType::InnerJoin, allocated_bills())
+    }
+}
+
 /// `buildCheckPrintData(db, env, args)`.
 #[allow(clippy::too_many_lines)] // the print data, field by field
 pub(crate) async fn build_check_print_data(
@@ -109,16 +143,12 @@ pub(crate) async fn build_check_print_data(
     let Some(entity) = load_entity(db, entity_id).await? else {
         return Err(not_found("Accounting entity", entity_id));
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.payment_run_id = $1 and t.deleted_at is null"
-    ))
-    .bind(s(&run, "id"))
-    .fetch_all(db)
-    .await?;
-    let mut wanted: Vec<Value> = PAYMENTS
-        .js_rows(rows)
+    let rows = payments::Entity::find()
+        .filter(payments::Column::PaymentRunId.eq(s(&run, "id")))
+        .filter(payments::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    let mut wanted: Vec<Value> = js_rows!(rows)?
         .into_iter()
         .filter(|p| include_printed || check_status_of(p) == "to_print")
         .filter(|p| text(p, "checkNumber").is_some_and(|n| !n.is_empty()))
@@ -135,20 +165,16 @@ pub(crate) async fn build_check_print_data(
     let allocations: Vec<(String, String, Value)> = if payment_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(concat!(
-            "select pa.payment_id, pa.amount::text, ",
-            weldsuite_books_domain::books_row!(bills),
-            " from payment_allocations pa inner join bills t on t.id = pa.bill_id \
-             where pa.payment_id = any($1) and pa.deleted_at is null"
-        ))
-        .bind(&payment_ids)
-        .fetch_all(db)
-        .await?
+        BillAllocation::query()
+            .filter(payment_allocations::Column::PaymentId.is_in(&payment_ids))
+            .filter(payment_allocations::Column::DeletedAt.is_null())
+            .into_model::<BillAllocation>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(|row| Ok((row.allocation_payment_id, money_text(&row.allocation_amount), js!(row.bill)?)))
+            .collect::<Result<_, DbErr>>()?
     };
-    let allocations: Vec<(String, String, Value)> = allocations
-        .into_iter()
-        .map(|(payment, amount, bill)| (payment, amount, BILLS.js(bill)))
-        .collect();
     let parties = super::holds::load_parties(db, &party_ids).await?;
 
     // Blank stock with MICR: the account number comes out of storage once for the whole sheet, and the reveal is logged.
@@ -352,12 +378,14 @@ pub(crate) async fn sync_check_run_status(db: &PgPool, run: Value) -> Result<Val
     if s(&run, "method") != "check" || (status != "approved" && status != "completed") {
         return Ok(run);
     }
-    let statuses: Vec<Option<String>> = sqlx::query_scalar(
-        "select check_status from payments where payment_run_id = $1 and deleted_at is null",
-    )
-    .bind(s(&run, "id"))
-    .fetch_all(db)
-    .await?;
+    let statuses: Vec<Option<String>> = payments::Entity::find()
+        .select_only()
+        .column(payments::Column::CheckStatus)
+        .filter(payments::Column::PaymentRunId.eq(s(&run, "id")))
+        .filter(payments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if statuses.is_empty() {
         return Ok(run);
     }
@@ -369,16 +397,18 @@ pub(crate) async fn sync_check_run_status(db: &PgPool, run: Value) -> Result<Val
     if next == status {
         return Ok(run);
     }
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = $2, updated_at = $3::timestamp where t.id = $1 returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(next)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map_or(run, |row| PAYMENT_RUNS.js(row)))
+    let row = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value(next))
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Ok(run),
+    }
 }
 
 /// `markChecksPrinted(db, args)`: `(run, printed, alreadyPrinted)`.
@@ -396,13 +426,15 @@ pub(crate) async fn mark_checks_printed(
             ids.push(id.clone());
         }
     }
-    let payments: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, check_status from payments where payment_run_id = $1 and id = any($2) and deleted_at is null",
-    )
-    .bind(s(&run, "id"))
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let payments: Vec<(String, Option<String>)> = payments::Entity::find()
+        .select_only()
+        .columns([payments::Column::Id, payments::Column::CheckStatus])
+        .filter(payments::Column::PaymentRunId.eq(s(&run, "id")))
+        .filter(payments::Column::Id.is_in(&ids))
+        .filter(payments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let missing: Vec<&String> = ids
         .iter()
         .filter(|id| !payments.iter().any(|(found, _)| found == *id))
@@ -425,14 +457,15 @@ pub(crate) async fn mark_checks_printed(
         .map(|(id, _)| id.clone())
         .collect();
     if !to_mark.is_empty() {
-        sqlx::query(
-            "update payments set check_status = 'printed', check_printed_at = $2::timestamp, updated_at = $2::timestamp \
-             where id = any($1) and check_status = 'to_print'",
-        )
-        .bind(&to_mark)
-        .bind(now())
-        .execute(db)
-        .await?;
+        let at = utc_now();
+        payments::Entity::update_many()
+            .col_expr(payments::Column::CheckStatus, Expr::value("printed"))
+            .col_expr(payments::Column::CheckPrintedAt, Expr::value(at))
+            .col_expr(payments::Column::UpdatedAt, Expr::value(at))
+            .filter(payments::Column::Id.is_in(&to_mark))
+            .filter(payments::Column::CheckStatus.eq("to_print"))
+            .exec(&orm(db))
+            .await?;
     }
     let synced = sync_check_run_status(db, run).await?;
     Ok((synced, to_mark, already))
@@ -461,17 +494,14 @@ pub(crate) async fn void_check(
     reissue: bool,
     date: Option<&str>,
 ) -> Result<VoidedCheck, RunError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.id = $1 and t.entity_id = $2 limit 1"
-    ))
-    .bind(payment_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row = payments::Entity::find()
+        .filter(payments::Column::Id.eq(payment_id))
+        .filter(payments::Column::EntityId.eq(entity_id))
+        .one(&orm(db))
+        .await?;
     let Some(payment) = row
-        .map(|row| PAYMENTS.js(row))
+        .map(|row| js!(row))
+        .transpose()?
         .filter(|p| s(p, "type") == "sent" && text(p, "paymentMethod") == Some("check"))
     else {
         return Err(not_found("Check", payment_id));
@@ -505,17 +535,23 @@ pub(crate) async fn void_check(
             None,
         ));
     };
-    let rows: Vec<(Option<String>, String)> = sqlx::query_as(
-        "select bill_id, amount::text from payment_allocations where payment_id = $1 and deleted_at is null",
-    )
-    .bind(s(&payment, "id"))
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(Option<String>, BigDecimal)> = payment_allocations::Entity::find()
+        .select_only()
+        .columns([
+            payment_allocations::Column::BillId,
+            payment_allocations::Column::Amount,
+        ])
+        .filter(payment_allocations::Column::PaymentId.eq(s(&payment, "id")))
+        .filter(payment_allocations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    // `amount::text`, read as the worker's `parseFloat`.
     let mut allocations: Vec<(String, f64)> = rows
         .into_iter()
         .filter_map(|(bill, amount)| {
             bill.filter(|b| !b.is_empty())
-                .map(|b| (b, parse_float(&amount)))
+                .map(|b| (b, parse_float(&money_text(&amount))))
         })
         .collect();
     if allocations.is_empty()
@@ -557,11 +593,12 @@ pub(crate) async fn void_check(
         Some(existing) => format!("{existing}\n{note}"),
         None => note,
     };
-    sqlx::query("update payments set check_status = 'voided', notes = $2, updated_at = $3::timestamp where id = $1")
-        .bind(s(&payment, "id"))
-        .bind(&notes)
-        .bind(now())
-        .execute(db)
+    payments::Entity::update_many()
+        .col_expr(payments::Column::CheckStatus, Expr::value("voided"))
+        .col_expr(payments::Column::Notes, Expr::value(notes))
+        .col_expr(payments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(payments::Column::Id.eq(s(&payment, "id")))
+        .exec(&orm(db))
         .await?;
 
     let mut replacement = None;
@@ -644,23 +681,74 @@ pub(crate) struct Register<'a> {
     pub cursor: Option<&'a str>,
 }
 
-/// `registerWhere(filter)` on `t` (payments); `$1` entity, `$2` bank account,
-/// `$3` from, `$4` to.
-macro_rules! register_where {
-    () => {
-        "t.entity_id = $1 and t.type = 'sent' and t.payment_method = 'check' and t.check_number is not null \
-         and ($2::text is null or t.bank_account_id = $2) \
-         and ($3::text is null or t.date >= ($3 || 'T00:00:00.000Z')::timestamp) \
-         and ($4::text is null or t.date <= ($4 || 'T23:59:59.999Z')::timestamp)"
-    };
+/// `registerWhere(filter)` on payments: the entity's checks, voided ones
+/// included, of a bank account, dated from the start of `from` to the end
+/// of `to` (`(day || 'T00:00:00.000Z')::timestamp`, `'T23:59:59.999Z'`).
+pub(crate) fn register_where(
+    entity_id: &str,
+    bank_account_id: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Condition, DbErr> {
+    let mut condition = Condition::all()
+        .add(payments::Column::EntityId.eq(entity_id))
+        .add(payments::Column::Type.eq("sent"))
+        .add(payments::Column::PaymentMethod.eq("check"))
+        .add(payments::Column::CheckNumber.is_not_null());
+    if let Some(bank_account_id) = bank_account_id {
+        condition = condition.add(payments::Column::BankAccountId.eq(bank_account_id));
+    }
+    if let Some(from) = from {
+        condition = condition.add(payments::Column::Date.gte(date_of(from)?.midnight()));
+    }
+    if let Some(to) = to {
+        let end = date_of(to)?
+            .with_hms_milli(23, 59, 59, 999)
+            .map_err(|error| DbErr::Type(error.to_string()))?;
+        condition = condition.add(payments::Column::Date.lte(end));
+    }
+    Ok(condition)
 }
-pub(crate) use register_where;
 
-/// `STATUS_SQL`.
-macro_rules! status_sql {
-    () => {
-        "(case when t.deleted_at is not null or t.check_status = 'voided' then 'voided' else coalesce(t.check_status, 'printed') end)"
-    };
+/// `STATUS_SQL`: `voided` when deleted, else the check status (`printed`
+/// when it has none).
+fn status_expr() -> Expr {
+    Expr::case(
+        Condition::any()
+            .add(payments::Column::DeletedAt.is_not_null())
+            .add(payments::Column::CheckStatus.eq("voided")),
+        "voided",
+    )
+    .finally(Func::coalesce([
+        Expr::col((payments::Entity, payments::Column::CheckStatus)),
+        Expr::val("printed"),
+    ]))
+    .into()
+}
+
+/// The register's page: a check with its payee's name and its run's status.
+#[derive(Debug, FromQueryResult)]
+struct RegisterRow {
+    #[sea_orm(nested)]
+    payment: payments::Model,
+    payee_name: Option<String>,
+    run_status: Option<String>,
+}
+
+/// `leftJoin(parties, eq(parties.id, payments.contactId))`.
+pub(crate) fn payee() -> RelationDef {
+    payments::Entity::belongs_to(parties::Entity)
+        .from(payments::Column::ContactId)
+        .to(parties::Column::Id)
+        .into()
+}
+
+/// `leftJoin(paymentRuns, eq(paymentRuns.id, payments.paymentRunId))`.
+pub(crate) fn payment_run() -> RelationDef {
+    payments::Entity::belongs_to(payment_runs::Entity)
+        .from(payments::Column::PaymentRunId)
+        .to(payment_runs::Column::Id)
+        .into()
 }
 
 /// `decodeOffset(cursor)`.
@@ -697,41 +785,49 @@ pub(crate) async fn check_register(
     entity_id: &str,
     filter: Register<'_>,
 ) -> Result<(Vec<Value>, Value, i64, bool, Option<String>), RunError> {
+    use sea_orm::ExprTrait as _;
     let offset = decode_offset(filter.cursor)?;
-    let rows: Vec<(Value, Option<String>, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        ", p.display_name, r.status from payments t left join parties p on p.id = t.contact_id \
-         left join payment_runs r on r.id = t.payment_run_id where ",
-        register_where!(),
-        " and ($5::text is null or ",
-        status_sql!(),
-        " = $5) order by length(t.check_number), t.check_number asc, t.id asc limit $6 offset $7"
-    ))
-    .bind(entity_id)
-    .bind(filter.bank_account_id)
-    .bind(filter.from)
-    .bind(filter.to)
-    .bind(filter.status)
-    .bind(filter.limit + 1)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
-    let totals: Vec<(String, i64, String)> = sqlx::query_as(concat!(
-        "select ",
-        status_sql!(),
-        ", count(*)::bigint, coalesce(sum(t.amount - coalesce(t.backup_withholding_amount, 0)), 0)::text \
-         from payments t where ",
-        register_where!(),
-        " group by ",
-        status_sql!()
-    ))
-    .bind(entity_id)
-    .bind(filter.bank_account_id)
-    .bind(filter.from)
-    .bind(filter.to)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let checks = || register_where(entity_id, filter.bank_account_id, filter.from, filter.to);
+    let mut listed = checks()?;
+    if let Some(status) = filter.status {
+        listed = listed.add(status_expr().eq(status));
+    }
+    let rows: Vec<RegisterRow> = payments::Entity::find()
+        .column_as(parties::Column::DisplayName, "payee_name")
+        .column_as(payment_runs::Column::Status, "run_status")
+        .join(JoinType::LeftJoin, payee())
+        .join(JoinType::LeftJoin, payment_run())
+        .filter(listed)
+        .order_by_asc(Expr::from(
+            Func::cust("length").arg(Expr::col((payments::Entity, payments::Column::CheckNumber))),
+        ))
+        .order_by_asc(payments::Column::CheckNumber)
+        .order_by_asc(payments::Column::Id)
+        .limit(u64::try_from(filter.limit + 1).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .into_model()
+        .all(&db)
+        .await?;
+    // Grouped by the status's output name: the `case` carries bound values,
+    // so the group can't repeat it.
+    let net = Expr::col(payments::Column::Amount).sub(Func::coalesce([
+        Expr::col(payments::Column::BackupWithholdingAmount),
+        Expr::val(0),
+    ]));
+    let totals: Vec<(String, i64, String)> = payments::Entity::find()
+        .select_only()
+        .column_as(status_expr(), "register_status")
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .column_as(
+            Expr::from(Func::coalesce([Expr::from(Func::sum(net)), Expr::val(0)])).cast_as("text"),
+            "total",
+        )
+        .filter(checks()?)
+        .group_by(Expr::col(Alias::new("register_status")))
+        .into_tuple()
+        .all(&db)
+        .await?;
     let has_more = i64::try_from(rows.len()).unwrap_or(0) > filter.limit;
     let mut summary = Map::new();
     for (status, count, total) in &totals {
@@ -743,12 +839,13 @@ pub(crate) async fn check_register(
     let page: Vec<Value> = rows
         .into_iter()
         .take(usize::try_from(filter.limit).unwrap_or(0))
-        .map(|(row, payee, run_status)| {
-            let payment = PAYMENTS.js(row);
+        .map(|row| -> Result<Value, DbErr> {
+            let payment = js!(row.payment)?;
+            let (payee, run_status) = (row.payee_name, row.run_status);
             let field = |key: &str| payment.get(key).cloned().unwrap_or(Value::Null);
             let withheld = field("backupWithholdingAmount");
             let has_withholding = parse_float(withheld.as_str().unwrap_or("0")) > 0.0;
-            json!({
+            Ok(json!({
                 "paymentId": field("id"),
                 "checkNumber": field("checkNumber"),
                 "date": iso_day(s(&payment, "date")),
@@ -765,9 +862,9 @@ pub(crate) async fn check_register(
                 "voidedAt": field("deletedAt"),
                 "reference": field("reference"),
                 "notes": field("notes"),
-            })
+            }))
         })
-        .collect();
+        .collect::<Result<_, DbErr>>()?;
     let total_count = match filter.status {
         Some(status) => summary
             .get(status)

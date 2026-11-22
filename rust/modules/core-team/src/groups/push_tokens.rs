@@ -22,14 +22,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Router};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::device_tokens as tokens;
 
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate, validate_query};
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate, validate_query};
 
 pub(crate) fn router<Q>(_gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
@@ -69,35 +74,55 @@ impl std::fmt::Debug for ExpoGateway {
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
+/// A `timestamp` as the route's `Date` serializes: `toISOString()`.
+fn js_date(at: Option<PrimitiveDateTime>) -> Value {
+    weldsuite_schema::js::timestamp::option::serialize(&at, serde_json::value::Serializer)
+        .unwrap_or(Value::Null)
+}
+
+/// A listed token's columns.
+#[derive(Debug, FromQueryResult)]
+struct TokenRow {
+    device_id: String,
+    platform: String,
+    app_code: String,
+    token: String,
+    last_used_at: Option<PrimitiveDateTime>,
+    updated_at: PrimitiveDateTime,
+}
+
 async fn list(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                 'deviceId', device_id, 'platform', platform, 'appCode', app_code,
-                 'token', token, 'lastUsedAt', last_used_at, 'updatedAt', updated_at)
-         from device_tokens where user_id = $1 and is_active is null",
-    )
-    .bind(&caller.user_id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<TokenRow>, DbErr> = tokens::Entity::find()
+        .select_only()
+        .columns([
+            tokens::Column::DeviceId,
+            tokens::Column::Platform,
+            tokens::Column::AppCode,
+            tokens::Column::Token,
+            tokens::Column::LastUsedAt,
+            tokens::Column::UpdatedAt,
+        ])
+        .filter(tokens::Column::UserId.eq(&caller.user_id))
+        .filter(tokens::Column::IsActive.is_null())
+        .into_model()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => {
             let tokens: Vec<Value> = rows
                 .into_iter()
-                .map(weldsuite_db::js_row)
                 .map(|row| {
                     // Masked, so screenshots never carry a whole token.
-                    let suffix = row["token"].as_str().map(|token| {
-                        let units: Vec<u16> = token.encode_utf16().collect();
-                        let start = units.len().saturating_sub(12);
-                        String::from_utf16_lossy(&units[start..])
-                    });
+                    let units: Vec<u16> = row.token.encode_utf16().collect();
+                    let start = units.len().saturating_sub(12);
+                    let suffix = String::from_utf16_lossy(&units[start..]);
                     json!({
-                        "deviceId": row["deviceId"],
-                        "platform": row["platform"],
-                        "appCode": row["appCode"],
+                        "deviceId": row.device_id,
+                        "platform": row.platform,
+                        "appCode": row.app_code,
                         "tokenSuffix": suffix,
-                        "lastUsedAt": row["lastUsedAt"],
-                        "updatedAt": row["updatedAt"],
+                        "lastUsedAt": js_date(row.last_used_at),
+                        "updatedAt": js_date(Some(row.updated_at)),
                     })
                 })
                 .collect();
@@ -169,36 +194,55 @@ async fn register_token(
     db: &PgPool,
     user_id: &str,
     input: &Registration,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into device_tokens
-             (id, user_id, device_id, platform, token, token_type, app_code,
-              device_model, os_version, app_version, is_active, last_used_at, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, null,
-                 $11::timestamp, $11::timestamp, $11::timestamp)
-         on conflict (user_id, device_id, app_code) do update set
-             token = excluded.token,
-             token_type = excluded.token_type,
-             platform = excluded.platform,
-             device_model = coalesce($8, device_tokens.device_model),
-             os_version = coalesce($9, device_tokens.os_version),
-             app_version = coalesce($10, device_tokens.app_version),
-             is_active = null,
-             last_used_at = excluded.last_used_at,
-             updated_at = excluded.updated_at",
+) -> Result<(), DbErr> {
+    let stamp = utc_now();
+    // `coalesce($detail, device_tokens.detail)`: a detail the registration
+    // sent replaces the stored one.
+    let details = [
+        (tokens::Column::DeviceModel, &input.device_model),
+        (tokens::Column::OsVersion, &input.os_version),
+        (tokens::Column::AppVersion, &input.app_version),
+    ]
+    .into_iter()
+    .filter(|(_, value)| value.is_some())
+    .map(|(column, _)| column);
+    let mut written = vec![
+        tokens::Column::Token,
+        tokens::Column::TokenType,
+        tokens::Column::Platform,
+    ];
+    written.extend(details);
+    written.extend([
+        tokens::Column::IsActive,
+        tokens::Column::LastUsedAt,
+        tokens::Column::UpdatedAt,
+    ]);
+    tokens::Entity::insert(tokens::ActiveModel {
+        id: Set(generate_id("dt")),
+        user_id: Set(user_id.to_owned()),
+        device_id: Set(input.device_id.clone()),
+        platform: Set(input.platform.clone()),
+        token: Set(input.token.clone()),
+        token_type: Set(input.token_type.clone()),
+        app_code: Set(input.app_code.clone()),
+        device_model: Set(input.device_model.clone()),
+        os_version: Set(input.os_version.clone()),
+        app_version: Set(input.app_version.clone()),
+        is_active: Set(None),
+        last_used_at: Set(Some(stamp)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            tokens::Column::UserId,
+            tokens::Column::DeviceId,
+            tokens::Column::AppCode,
+        ])
+        .update_columns(written)
+        .to_owned(),
     )
-    .bind(generate_id("dt"))
-    .bind(user_id)
-    .bind(&input.device_id)
-    .bind(&input.platform)
-    .bind(&input.token)
-    .bind(&input.token_type)
-    .bind(&input.app_code)
-    .bind(&input.device_model)
-    .bind(&input.os_version)
-    .bind(&input.app_version)
-    .bind(now())
-    .execute(db)
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -213,20 +257,18 @@ async fn unregister(caller: Caller, RawQuery(query): RawQuery) -> Response {
                     .string(values, "deviceId", true, Some(1), None)
                     .unwrap_or_default()
             })?;
-            let stamp = now();
-            sqlx::query(
-                "update device_tokens set is_active = $3::timestamp, updated_at = $3::timestamp
-                 where user_id = $1 and device_id = any($2)",
-            )
-            .bind(&caller.user_id)
-            .bind(vec![
-                device_id.clone(),
-                format!("{device_id}{CALL_DEVICE_SUFFIX}"),
-            ])
-            .bind(&stamp)
-            .execute(&caller.db)
-            .await
-            .map_err(|error| TeamError::internal("Failed to unregister push token", error))?;
+            let stamp = utc_now();
+            tokens::Entity::update_many()
+                .col_expr(tokens::Column::IsActive, Expr::value(stamp))
+                .col_expr(tokens::Column::UpdatedAt, Expr::value(stamp))
+                .filter(tokens::Column::UserId.eq(&caller.user_id))
+                .filter(tokens::Column::DeviceId.is_in([
+                    device_id.clone(),
+                    format!("{device_id}{CALL_DEVICE_SUFFIX}"),
+                ]))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(|error| TeamError::internal("Failed to unregister push token", error))?;
             Ok(Data(json!({ "deviceId": device_id, "unregistered": true })).into_response())
         }
         .await,
@@ -242,15 +284,20 @@ async fn test(caller: Caller, expo: Option<Extension<ExpoGateway>>) -> Response 
 
 async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Response> {
     const FAILED: &str = "Failed to send test push";
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select token, app_code, token_type from device_tokens
-         where user_id = $1 and is_active is null and app_code = any($2)",
-    )
-    .bind(&caller.user_id)
-    .bind(vec!["weldchat".to_owned(), "weldsuite".to_owned()])
-    .fetch_all(&caller.db)
-    .await
-    .map_err(|error| TeamError::internal(FAILED, error))?;
+    let rows: Vec<(String, String, String)> = tokens::Entity::find()
+        .select_only()
+        .columns([
+            tokens::Column::Token,
+            tokens::Column::AppCode,
+            tokens::Column::TokenType,
+        ])
+        .filter(tokens::Column::UserId.eq(&caller.user_id))
+        .filter(tokens::Column::IsActive.is_null())
+        .filter(tokens::Column::AppCode.is_in(["weldchat", "weldsuite"]))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await
+        .map_err(|error| TeamError::internal(FAILED, error))?;
 
     // One Expo request per app: mixing EAS projects fails a whole batch.
     let mut by_app: Vec<(String, Vec<String>)> = Vec::new();
@@ -300,16 +347,14 @@ async fn send_test(caller: &Caller, expo: Option<&ExpoGateway>) -> TeamResult<Re
 
     let invalid: Vec<String> = invalid.into_iter().filter(|t| !t.is_empty()).collect();
     if !invalid.is_empty() {
-        let stamp = now();
-        sqlx::query(
-            "update device_tokens set is_active = $2::timestamp, updated_at = $2::timestamp
-             where token = any($1)",
-        )
-        .bind(&invalid)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await
-        .map_err(|error| TeamError::internal(FAILED, error))?;
+        let stamp = utc_now();
+        tokens::Entity::update_many()
+            .col_expr(tokens::Column::IsActive, Expr::value(stamp))
+            .col_expr(tokens::Column::UpdatedAt, Expr::value(stamp))
+            .filter(tokens::Column::Token.is_in(invalid))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(|error| TeamError::internal(FAILED, error))?;
     }
 
     let ok = tickets.iter().filter(|t| t["status"] == "ok").count();

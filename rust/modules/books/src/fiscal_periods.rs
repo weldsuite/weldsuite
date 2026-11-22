@@ -13,7 +13,13 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::fiscal_year::{
     FiscalYearConfig, fiscal_periods, fiscal_year_config_of, fiscal_year_for,
@@ -23,13 +29,18 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, list_limit, no_content, now, ok, page,
     paged, reply, validate, validate_value,
 };
-use weldsuite_books_domain::tables::{ENTITIES, FISCAL_PERIODS as T};
+use weldsuite_books_domain::tables::FISCAL_PERIODS as T;
 use weldsuite_catalogs::entity_events::{
     FISCAL_PERIOD_CREATED, FISCAL_PERIOD_DELETED, FISCAL_PERIOD_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::entities;
+use weldsuite_schema::tenant::fiscal_periods::{self, Column};
+
+use crate::orm_bridge::{pg_date, sqlx_error, to_json};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -82,16 +93,14 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> M
     body.clone()
 }
 
-async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_periods),
-        " from fiscal_periods t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| T.js(row)))
+async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    fiscal_periods::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -105,59 +114,78 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn list_periods(caller: &Caller, q: &Query) -> Reply {
-    let db = &caller.db;
+    let db = orm(&caller.db);
     let entity = q.present("entityId");
     let status = q.present("status");
     let search = q.present("search").map(|s| format!("%{s}%"));
-    let cursor = match q.present("cursor") {
+    let cursor: Option<(PrimitiveDateTime, String)> = match q.present("cursor") {
         Some(id) => {
-            let row: Option<(String, Option<String>)> = sqlx::query_as(
-                "select id, to_jsonb(created_at) #>> '{}' from fiscal_periods where id = $1 limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-            row.and_then(|(id, created)| {
-                created
-                    .as_deref()
-                    .and_then(weldsuite_db::js_timestamp)
-                    .map(|at| (at, id))
-            })
+            let row: Option<(String, PrimitiveDateTime)> = fiscal_periods::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .column(Column::CreatedAt)
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(&db)
+                .await
+                .map_err(sqlx_error)?;
+            // The cursor row's `createdAt` as the worker read it back: a
+            // `Date`, to the millisecond.
+            row.map(|(id, created)| (weldsuite_db::utc_timestamp(created.assume_utc()), id))
         }
         None => None,
     };
     let Some(limit) = list_limit(q, 25, 100) else {
         return Err(Refusal::Internal("limit is NaN".to_owned()));
     };
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_periods),
-        " from fiscal_periods t where t.deleted_at is null and ($1::text is null or t.entity_id = $1) \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.name like $3) \
-         and ($4::timestamp is null or t.created_at < $4::timestamp \
-              or (t.created_at = $4::timestamp and t.id < $5)) \
-         order by t.created_at desc, t.id desc limit $6"
+    // A negative `limit` is Postgres's error: the route's 500.
+    let Ok(fetch) = u64::try_from(limit + 1) else {
+        return Err(Refusal::Internal("LIMIT must not be negative".to_owned()));
+    };
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(entity) = entity {
+        filters = filters.add(Column::EntityId.eq(entity));
+    }
+    if let Some(status) = status {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(Column::Name.like(search.as_str()));
+    }
+    let mut select = fiscal_periods::Entity::find().filter(filters.clone());
+    if let Some((at, id)) = &cursor {
+        select = select.filter(
+            Condition::any().add(Column::CreatedAt.lt(*at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(*at))
+                    .add(Column::Id.lt(id.as_str())),
+            ),
+        );
+    }
+    let rows = select
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(fetch)
+        .all(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = fiscal_periods::Entity::find()
+        .filter(filters)
+        .count(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let rows = rows
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlx_error)?;
+    let (rows, has_more, next) = page(rows, limit);
+    Ok(paged(
+        rows,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
     ))
-    .bind(entity)
-    .bind(status)
-    .bind(&search)
-    .bind(cursor_at)
-    .bind(cursor_id)
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from fiscal_periods t where t.deleted_at is null and ($1::text is null or t.entity_id = $1) \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.name like $3)",
-    )
-    .bind(entity)
-    .bind(status)
-    .bind(&search)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(T.js_rows(rows), limit);
-    Ok(paged(rows, total, has_more, next))
 }
 
 // ── calendar ────────────────────────────────────────────────────────────────
@@ -263,17 +291,16 @@ async fn calendar_entity(caller: &Caller, requested: Option<String>) -> Result<V
             None => return Err(Refusal::bad_request("No accounting entity resolved")),
         },
     };
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    entity
-        .map(|row| ENTITIES.js(row))
-        .ok_or_else(|| Refusal::not_found("Accounting entity", &entity_id))
+    let entity = entities::Entity::find()
+        .filter(entities::Column::Id.eq(entity_id.as_str()))
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await
+        .map_err(sqlx_error)?
+        .map(to_json)
+        .transpose()
+        .map_err(sqlx_error)?;
+    entity.ok_or_else(|| Refusal::not_found("Accounting entity", &entity_id))
 }
 
 /// `existingPeriods`: the entity's live periods inside the dates.
@@ -282,19 +309,17 @@ async fn existing_periods(
     entity_id: &str,
     from: &str,
     to: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fiscal_periods),
-        " from fiscal_periods t where t.entity_id = $1 and t.deleted_at is null \
-         and t.start_date >= $2::date and t.end_date <= $3::date"
-    ))
-    .bind(entity_id)
-    .bind(from)
-    .bind(to)
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(T.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    fiscal_periods::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::StartDate.gte(pg_date(from)?))
+        .filter(Column::EndDate.lte(pg_date(to)?))
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
 }
 
 fn matching<'a>(existing: &'a [Value], period: &Planned) -> Option<&'a Value> {
@@ -360,7 +385,9 @@ async fn calendar_reply(
     let calendar = fiscal_calendar_for(&entity, year, quarters, whole_year)
         .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
     let entity_id = entity["id"].as_str().unwrap_or_default().to_owned();
-    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end).await?;
+    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end)
+        .await
+        .map_err(sqlx_error)?;
     let locked_through = [&entity["periodLockDate"], &entity["hardLockDate"]]
         .into_iter()
         .filter_map(Value::as_str)
@@ -448,7 +475,9 @@ async fn generate_periods(
     let calendar = fiscal_calendar_for(&entity, year, quarters, whole_year)
         .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
     let entity_id = entity["id"].as_str().unwrap_or_default().to_owned();
-    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end).await?;
+    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end)
+        .await
+        .map_err(sqlx_error)?;
     let at = now();
     let mut rows: Vec<Value> = Vec::new();
     let mut skipped: Vec<Value> = Vec::new();
@@ -511,7 +540,7 @@ async fn generate_periods(
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await? {
+        match find(&caller, &id).await.map_err(sqlx_error)? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Fiscal period", &id)),
         }
@@ -583,7 +612,7 @@ async fn update(
         Err(refusal) => return refusal.respond("Failed to update fiscal period"),
     };
     let result = async {
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Fiscal period", &id));
         };
         if existing["status"].as_str() == Some("closed") {
@@ -627,22 +656,22 @@ async fn close(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Fiscal period", &id));
         };
         if existing["status"].as_str() == Some("closed") {
             return Err(Refusal::bad_request("Fiscal period is already closed"));
         }
-        let at = now();
-        sqlx::query(
-            "update fiscal_periods set status = 'closed', closed_at = $1::timestamp, closed_by = $2, \
-             updated_at = $1::timestamp where id = $3",
-        )
-        .bind(&at)
-        .bind(&caller.user_id)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        fiscal_periods::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("closed"))
+            .col_expr(Column::ClosedAt, Expr::value(at))
+            .col_expr(Column::ClosedBy, Expr::value(caller.user_id.as_str()))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
         let mut changes = Map::new();
         changes.insert("status".to_owned(), change(existing["status"].clone(), json!("closed")));
         write_accounting_audit(
@@ -675,20 +704,21 @@ async fn reopen(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Fiscal period", &id));
         };
         if existing["status"].as_str() != Some("closed") {
             return Err(Refusal::bad_request("Fiscal period is not closed"));
         }
-        sqlx::query(
-            "update fiscal_periods set status = 'open', closed_at = null, closed_by = null, \
-             updated_at = $1::timestamp where id = $2",
-        )
-        .bind(now())
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        fiscal_periods::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("open"))
+            .col_expr(Column::ClosedAt, Expr::value(None::<PrimitiveDateTime>))
+            .col_expr(Column::ClosedBy, Expr::value(None::<String>))
+            .col_expr(Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
         let mut changes = Map::new();
         changes.insert("status".to_owned(), change(json!("closed"), json!("open")));
         write_accounting_audit(
@@ -723,7 +753,7 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Fiscal period", &id));
         };
         if existing["status"].as_str() == Some("closed") {
@@ -731,14 +761,14 @@ async fn remove(
                 "Closed fiscal periods cannot be deleted — reopen the period first",
             ));
         }
-        let at = now();
-        sqlx::query(
-            "update fiscal_periods set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-        )
-        .bind(&at)
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        fiscal_periods::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
         caller.publish(&state, FISCAL_PERIOD_DELETED, &id, json!({ "id": id }));
         Ok(no_content())
     }

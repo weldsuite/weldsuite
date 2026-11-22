@@ -11,8 +11,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::entity_context::{resolve_entity_base_currency, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -20,13 +26,17 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::{parse_int, to_fixed};
 use weldsuite_books_domain::jurisdictions::us;
-use weldsuite_books_domain::tables::{ACCOUNTS as T, ENTITIES};
+use weldsuite_books_domain::tables::ACCOUNTS as T;
 use weldsuite_catalogs::entity_events::{ACCOUNT_CREATED, ACCOUNT_DELETED, ACCOUNT_UPDATED};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::accounts::{self, Column};
+use weldsuite_schema::tenant::{entities, journal_entries, journal_lines};
 
 use crate::entity_setup::{form_1099_box_error, form_of, tax_line_error, tax_year_of};
+use crate::orm_bridge::{sqlx_error, to_json};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -161,16 +171,43 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> M
     out
 }
 
-async fn find_entity(db: &PgPool, entity_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| ENTITIES.js(row)))
+async fn find_entity(db: &PgPool, entity_id: &str) -> Result<Option<Value>, DbErr> {
+    entities::Entity::find()
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
+}
+
+/// The live account of the entity with `code`, if any.
+async fn code_holder(db: &PgPool, entity_id: &str, code: &str) -> Result<Option<String>, DbErr> {
+    accounts::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::Code.eq(code))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// `journal_lines l join journal_entries e on l.journal_entry_id = e.id`:
+/// the live lines of the account on a posted or reversed entry.
+fn posted_lines(account_id: &str) -> sea_orm::Select<journal_lines::Entity> {
+    journal_lines::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            journal_lines::Entity::belongs_to(journal_entries::Entity)
+                .from(journal_lines::Column::JournalEntryId)
+                .to(journal_entries::Column::Id)
+                .into(),
+        )
+        .filter(journal_lines::Column::AccountId.eq(account_id))
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .filter(journal_entries::Column::Status.is_in(["posted", "reversed"]))
 }
 
 /// `mappingError(db, entityId, mapping)`: why a tax line or 1099 box doesn't
@@ -179,7 +216,7 @@ async fn mapping_error(
     db: &PgPool,
     entity_id: &str,
     data: &Map<String, Value>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let tax_line = data
         .get("taxLine")
         .and_then(Value::as_str)
@@ -222,19 +259,21 @@ async fn parent_error(
     entity_id: &str,
     kind: &str,
     parent_id: &str,
-) -> Result<Option<(String, Value)>, sqlx::Error> {
+) -> Result<Option<(String, Value)>, DbErr> {
     if Some(parent_id) == account_id {
         return Ok(Some((
             "An account can not be its own parent.".to_owned(),
             json!({ "code": "PARENT_IS_SELF" }),
         )));
     }
-    let accounts: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, type, parent_account_id from accounts where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let accounts: Vec<(String, String, Option<String>)> = accounts::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Type, Column::ParentAccountId])
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let by_id = |id: &str| accounts.iter().find(|(a, _, _)| a == id);
     let Some((_, parent_type, _)) = by_id(parent_id) else {
         return Ok(Some((
@@ -274,7 +313,7 @@ async fn tree_error(
     db: &PgPool,
     account: &Value,
     data: &Map<String, Value>,
-) -> Result<Option<(String, Value)>, sqlx::Error> {
+) -> Result<Option<(String, Value)>, DbErr> {
     let id = account["id"].as_str().unwrap_or_default();
     let entity_id = account["entityId"].as_str().unwrap_or_default();
     let kind = data
@@ -296,12 +335,14 @@ async fn tree_error(
     if !type_changed {
         return Ok(None);
     }
-    let child: Option<String> = sqlx::query_scalar(
-        "select id from accounts where parent_account_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let child: Option<String> = accounts::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ParentAccountId.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(child.map(|_| {
         (
             "Move or remove the sub-accounts before changing the type of this account.".to_owned(),
@@ -310,16 +351,14 @@ async fn tree_error(
     }))
 }
 
-async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounts),
-        " from accounts t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| T.js(row)))
+async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    accounts::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 // ── GET /tax-lines ──────────────────────────────────────────────────────────
@@ -330,7 +369,10 @@ async fn tax_lines(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(entity) = find_entity(&caller.db, &entity_id).await? else {
+        let Some(entity) = find_entity(&caller.db, &entity_id)
+            .await
+            .map_err(sqlx_error)?
+        else {
             return Err(Refusal::not_found("Entity", &entity_id));
         };
         if entity["jurisdictionCode"].as_str() != Some("US") {
@@ -382,39 +424,64 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let tax_line = q.present("taxLine");
-        let search = q.present("search").map(|s| format!("%{s}%"));
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(accounts),
-            " from accounts t where t.deleted_at is null and t.entity_id = $1 \
-             and (case when $2::text = 'none' then t.tax_line is null and t.type in ('revenue', 'expense') \
-                       when $2::text is not null then t.tax_line = $2 else true end) \
-             and ($3::text is null or t.type = $3) and ($4::text is null or t.subtype = $4) \
-             and ($5::boolean is null or t.is_active = $5) and ($6::text is null or t.parent_account_id = $6) \
-             and ($7::text is null or (t.code like $7 or t.name like $7)) \
-             order by t.code"
-        ))
-        .bind(&entity_id)
-        .bind(tax_line)
-        .bind(q.present("type"))
-        .bind(q.present("subtype"))
-        .bind(q.get("isActive").map(|v| v == "true"))
-        .bind(q.present("parentAccountId"))
-        .bind(&search)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(T.js_rows(rows))))
+        let rows = list_accounts(&caller.db, &entity_id, &q)
+            .await
+            .map_err(sqlx_error)?;
+        Ok(ok(Value::Array(rows)))
     }
     .await;
     reply(result, "Failed to fetch accounts")
+}
+
+/// The entity's live accounts the query's filters keep, by code.
+async fn list_accounts(db: &PgPool, entity_id: &str, q: &Query) -> Result<Vec<Value>, DbErr> {
+    let mut filters = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(Column::EntityId.eq(entity_id));
+    // `taxLine=none`: the revenue and expense accounts without a line.
+    match q.present("taxLine") {
+        Some("none") => {
+            filters = filters
+                .add(Column::TaxLine.is_null())
+                .add(Column::Type.is_in(["revenue", "expense"]));
+        }
+        Some(line) => filters = filters.add(Column::TaxLine.eq(line)),
+        None => {}
+    }
+    if let Some(kind) = q.present("type") {
+        filters = filters.add(Column::Type.eq(kind));
+    }
+    if let Some(subtype) = q.present("subtype") {
+        filters = filters.add(Column::Subtype.eq(subtype));
+    }
+    if let Some(active) = q.get("isActive").map(|v| v == "true") {
+        filters = filters.add(Column::IsActive.eq(active));
+    }
+    if let Some(parent) = q.present("parentAccountId") {
+        filters = filters.add(Column::ParentAccountId.eq(parent));
+    }
+    if let Some(search) = q.present("search").map(|s| format!("%{s}%")) {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Code.like(search.as_str()))
+                .add(Column::Name.like(search.as_str())),
+        );
+    }
+    accounts::Entity::find()
+        .filter(filters)
+        .order_by_asc(Column::Code)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
 }
 
 // ── GET /:id, /:id/transactions ─────────────────────────────────────────────
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await? {
+        match find(&caller, &id).await.map_err(sqlx_error)? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Account", &id)),
         }
@@ -423,45 +490,79 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(result, "Failed to fetch account")
 }
 
+/// One line of `GET /:id/transactions` (`jsonb_build_object` of the line and
+/// its entry): the amounts as their `numeric(18, 2)` text.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LedgerLine {
+    id: String,
+    journal_entry_id: String,
+    description: Option<String>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    debit: Option<sea_orm::prelude::BigDecimal>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    credit: Option<sea_orm::prelude::BigDecimal>,
+    contact_id: Option<String>,
+    entry_number: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    entry_date: PrimitiveDateTime,
+    entry_description: Option<String>,
+    source_type: Option<String>,
+}
+
+/// A page of the account's ledger lines, newest entry first.
+async fn ledger_lines(
+    db: &PgPool,
+    account_id: &str,
+    size: u64,
+    offset: u64,
+) -> Result<Vec<Value>, DbErr> {
+    posted_lines(account_id)
+        .select_only()
+        .columns([
+            journal_lines::Column::Id,
+            journal_lines::Column::JournalEntryId,
+            journal_lines::Column::Description,
+            journal_lines::Column::Debit,
+            journal_lines::Column::Credit,
+            journal_lines::Column::ContactId,
+        ])
+        .column_as(journal_entries::Column::EntryNumber, "entry_number")
+        .column_as(journal_entries::Column::Date, "entry_date")
+        .column_as(journal_entries::Column::Description, "entry_description")
+        .column_as(journal_entries::Column::SourceType, "source_type")
+        .order_by_desc(journal_entries::Column::Date)
+        .limit(size)
+        .offset(offset)
+        .into_model::<LedgerLine>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
+}
+
 async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): RawQuery) -> Response {
     let q = Query::parse(raw.as_deref());
     // `Math.max(parseInt(page || '1'), 1)`, `Math.min(Math.max(parseInt(pageSize || '25'), 1), 100)`
     let page = parse_int(q.present("page").unwrap_or("1")).map(|n| n.max(1));
     let size = parse_int(q.present("pageSize").unwrap_or("25")).map(|n| n.clamp(1, 100));
     let result = async {
-        let total: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from journal_lines l join journal_entries e on l.journal_entry_id = e.id \
-             where l.account_id = $1 and l.deleted_at is null and e.status in ('posted', 'reversed')",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
+        let total = posted_lines(&id)
+            .count(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
         let (Some(page), Some(size)) = (page, size) else {
             return Err(Refusal::Internal("page is NaN".to_owned()));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', l.id, 'journalEntryId', l.journal_entry_id, 'description', l.description, \
-               'debit', l.debit::text, 'credit', l.credit::text, 'contactId', l.contact_id, \
-               'entryNumber', e.entry_number, 'entryDate', e.date, 'entryDescription', e.description, \
-               'sourceType', e.source_type) \
-             from journal_lines l join journal_entries e on l.journal_entry_id = e.id \
-             where l.account_id = $1 and l.deleted_at is null and e.status in ('posted', 'reversed') \
-             order by e.date desc limit $2 offset $3",
-        )
-        .bind(&id)
-        .bind(size)
-        .bind((page - 1) * size)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows
-            .into_iter()
-            .map(|mut row| {
-                if let Some(at) = row["entryDate"].as_str().and_then(weldsuite_db::js_timestamp) {
-                    row["entryDate"] = json!(at);
-                }
-                row
-            })
-            .collect();
+        // A negative `limit` or `offset` is Postgres's error: the route's 500.
+        let (Ok(limit), Ok(offset)) = (u64::try_from(size), u64::try_from((page - 1) * size)) else {
+            return Err(Refusal::Internal("OFFSET must not be negative".to_owned()));
+        };
+        let rows = ledger_lines(&caller.db, &id, limit, offset)
+            .await
+            .map_err(sqlx_error)?;
         Ok(paged(rows, total, page * size < total, None))
     }
     .await;
@@ -494,19 +595,18 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
     let code = data["code"].as_str().unwrap_or_default().to_owned();
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from accounts where code = $1 and entity_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(&code)
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
+    let existing = code_holder(db, &entity_id, &code)
+        .await
+        .map_err(sqlx_error)?;
     if existing.is_some() {
         return Err(Refusal::conflict(format!(
             "Account code '{code}' already exists"
         )));
     }
-    if let Some(message) = mapping_error(db, &entity_id, &data).await? {
+    if let Some(message) = mapping_error(db, &entity_id, &data)
+        .await
+        .map_err(sqlx_error)?
+    {
         return Err(Refusal::bad_request(message));
     }
     if let Some(parent) = data
@@ -515,7 +615,10 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
         .filter(|p| !p.is_empty())
     {
         let kind = data["type"].as_str().unwrap_or_default();
-        if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent).await? {
+        if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent)
+            .await
+            .map_err(sqlx_error)?
+        {
             return Err(Refusal::bad_request_with(message, details));
         }
     }
@@ -560,22 +663,33 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
 async fn deactivation_conflict(
     db: &PgPool,
     account: &Value,
-) -> Result<Option<(String, Value)>, sqlx::Error> {
+) -> Result<Option<(String, Value)>, DbErr> {
     if account["isSystemAccount"].as_bool() == Some(true) {
         return Ok(Some((
             "A system account can not be deactivated.".to_owned(),
             json!({ "code": "ACCOUNT_IS_SYSTEM" }),
         )));
     }
-    let net: String = sqlx::query_scalar(
-        "select coalesce(sum(l.debit::numeric - l.credit::numeric), 0)::text from journal_lines l \
-         join journal_entries e on l.journal_entry_id = e.id \
-         where l.account_id = $1 and l.deleted_at is null and e.status in ('posted', 'reversed')",
-    )
-    .bind(account["id"].as_str().unwrap_or_default())
-    .fetch_one(db)
-    .await?;
-    let ledger = weldsuite_kit::validation::js_number(&net);
+    // `coalesce(sum(l.debit - l.credit), 0)::text`, read as a JS number.
+    let net = {
+        use sea_orm::ExprTrait as _;
+        Expr::expr(Func::coalesce([
+            Func::sum(
+                Expr::col((journal_lines::Entity, journal_lines::Column::Debit))
+                    .sub(Expr::col((journal_lines::Entity, journal_lines::Column::Credit))),
+            )
+            .into(),
+            Expr::val(0),
+        ]))
+        .cast_as(Alias::new("text"))
+    };
+    let net: Option<String> = posted_lines(account["id"].as_str().unwrap_or_default())
+        .select_only()
+        .expr_as(net, "net")
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let ledger = weldsuite_kit::validation::js_number(&net.unwrap_or_default());
     let current = weldsuite_books_domain::js::numeric(&account["currentBalance"]);
     if ledger.abs() < ZERO_BALANCE_EPSILON && current.abs() < ZERO_BALANCE_EPSILON {
         return Ok(None);
@@ -620,7 +734,7 @@ async fn update_account(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(account) = find(caller, id).await? else {
+    let Some(account) = find(caller, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Account", id));
     };
     let truthy = |key: &str| weldsuite_books_domain::js::truthy(data.get(key));
@@ -638,13 +752,9 @@ async fn update_account(
         .filter(|c| !c.is_empty())
         && account["code"].as_str() != Some(code)
     {
-        let dup: Option<String> = sqlx::query_scalar(
-            "select id from accounts where code = $1 and entity_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(code)
-        .bind(&entity_id)
-        .fetch_optional(db)
-        .await?;
+        let dup = code_holder(db, &entity_id, code)
+            .await
+            .map_err(sqlx_error)?;
         if dup.is_some() {
             return Err(Refusal::conflict(format!(
                 "Account code '{code}' already exists"
@@ -653,14 +763,22 @@ async fn update_account(
     }
     if data.get("isActive") == Some(&Value::Bool(false))
         && account["isActive"] != Value::Bool(false)
-        && let Some((message, details)) = deactivation_conflict(db, &account).await?
+        && let Some((message, details)) = deactivation_conflict(db, &account)
+            .await
+            .map_err(sqlx_error)?
     {
         return Err(Refusal::conflict_with(message, details));
     }
-    if let Some(message) = mapping_error(db, &entity_id, &data).await? {
+    if let Some(message) = mapping_error(db, &entity_id, &data)
+        .await
+        .map_err(sqlx_error)?
+    {
         return Err(Refusal::bad_request(message));
     }
-    if let Some((message, details)) = tree_error(db, &account, &data).await? {
+    if let Some((message, details)) = tree_error(db, &account, &data)
+        .await
+        .map_err(sqlx_error)?
+    {
         return Err(Refusal::bad_request_with(message, details));
     }
     let mut set = data.clone();
@@ -707,27 +825,29 @@ async fn remove(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(account) = find(&caller, &id).await? else {
+        let Some(account) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Account", &id));
         };
         if account["isSystemAccount"].as_bool() == Some(true) {
             return Err(Refusal::bad_request("Cannot delete a system account"));
         }
-        let count: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from journal_lines where account_id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .fetch_one(db)
-        .await?;
+        let count = journal_lines::Entity::find()
+            .filter(journal_lines::Column::AccountId.eq(id.as_str()))
+            .filter(journal_lines::Column::DeletedAt.is_null())
+            .count(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         if count > 0 {
             return Err(Refusal::bad_request("Account has bookings — deactivate it instead"));
         }
-        let at = now();
-        sqlx::query("update accounts set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-            .bind(&at)
-            .bind(&id)
-            .execute(db)
-            .await?;
+        let at = weldsuite_db::utc_now();
+        accounts::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         write_accounting_audit(
             &caller,
             db,

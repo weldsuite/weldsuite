@@ -12,6 +12,11 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::{entity_exists, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
@@ -23,12 +28,15 @@ use weldsuite_books_domain::tables::INVOICE_TEMPLATES;
 use weldsuite_catalogs::entity_events::{
     INVOICE_TEMPLATE_CREATED, INVOICE_TEMPLATE_DELETED, INVOICE_TEMPLATE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{invoice_templates, invoices};
 
-use crate::template_schema::{read_create, read_update};
+use crate::invoices::row_json;
+use crate::orm_bridge::sqlx_error;
+use crate::template_schema::{UpdateTemplate, read_create, read_update};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -62,16 +70,12 @@ where
 }
 
 /// `findInvoiceTemplate(db, id)`.
-pub(crate) async fn find_template(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoice_templates),
-        " from invoice_templates t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|r| INVOICE_TEMPLATES.js(r)))
+pub(crate) async fn find_template(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    invoice_templates::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `templateBelongsToEntity(db, templateId, entityId)`.
@@ -79,14 +83,14 @@ pub(crate) async fn template_belongs_to_entity(
     db: &PgPool,
     template_id: &str,
     entity_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from invoice_templates where id = $1 and entity_id = $2 limit 1",
-    )
-    .bind(template_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let found: Option<String> = invoice_templates::Entity::find_by_id(template_id.to_owned())
+        .select_only()
+        .column(invoice_templates::Column::Id)
+        .filter(invoice_templates::Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -96,20 +100,21 @@ pub(crate) async fn resolve_invoice_template(
     db: &PgPool,
     template_id: Option<&str>,
     entity_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     if let Some(template_id) = template_id.filter(|t| !t.is_empty())
         && let Some(own) = find_template(db, template_id).await?
         && own["entityId"] == entity_id
     {
         return Ok(Some(own["document"].clone()));
     }
-    let fallback: Option<Value> = sqlx::query_scalar(
-        "select document from invoice_templates where entity_id = $1 and is_default = true limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(fallback)
+    invoice_templates::Entity::find()
+        .select_only()
+        .column(invoice_templates::Column::Document)
+        .filter(invoice_templates::Column::EntityId.eq(entity_id))
+        .filter(invoice_templates::Column::IsDefault.eq(true))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `toInvoiceTemplate(row)`.
@@ -158,20 +163,50 @@ async fn audit(
 }
 
 /// Unsets the default flag of the entity's other templates.
-async fn unset_other_defaults<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn unset_other_defaults<C: ConnectionTrait>(
+    db: &C,
     entity_id: &str,
     keep_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update invoice_templates set is_default = false, updated_at = $1::timestamp \
-         where entity_id = $2 and is_default = true and id <> $3",
-    )
-    .bind(now())
-    .bind(entity_id)
-    .bind(keep_id)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    invoice_templates::Entity::update_many()
+        .col_expr(invoice_templates::Column::IsDefault, Expr::value(false))
+        .col_expr(invoice_templates::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(invoice_templates::Column::EntityId.eq(entity_id))
+        .filter(invoice_templates::Column::IsDefault.eq(true))
+        .filter(invoice_templates::Column::Id.ne(keep_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// The template's columns the body sent (`coalesce($n, column)` for the
+/// rest), and `updatedAt`.
+async fn update_template<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    input: &UpdateTemplate,
+) -> Result<(), DbErr> {
+    let mut update = invoice_templates::Entity::update_many()
+        .col_expr(invoice_templates::Column::UpdatedAt, Expr::value(utc_now()));
+    if let Some(name) = &input.name {
+        update = update.col_expr(invoice_templates::Column::Name, Expr::value(name));
+    }
+    if let Some(flag) = input.is_default {
+        update = update.col_expr(invoice_templates::Column::IsDefault, Expr::value(flag));
+    }
+    if let Some(document) = &input.document {
+        update = update.col_expr(
+            invoice_templates::Column::Document,
+            Expr::value(document.clone()),
+        );
+        if let Some(paper) = document["paperSize"].as_str() {
+            update = update.col_expr(invoice_templates::Column::PaperSize, Expr::value(paper));
+        }
+    }
+    update
+        .filter(invoice_templates::Column::Id.eq(id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -183,11 +218,12 @@ async fn insert_template(
     let mut tx = db.begin().await?;
     if unset_defaults {
         unset_other_defaults(
-            &mut *tx,
+            &OrmConn::new(&mut tx),
             row["entityId"].as_str().unwrap_or_default(),
             row["id"].as_str().unwrap_or_default(),
         )
-        .await?;
+        .await
+        .map_err(sqlx_error)?;
     }
     INVOICE_TEMPLATES
         .insert_raw(&mut *tx, INVOICE_TEMPLATES.values(row))
@@ -201,19 +237,18 @@ async fn list(caller: Caller) -> Response {
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Ok(all_rows(Vec::new()));
             };
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(invoice_templates),
-                " from invoice_templates t where t.entity_id = $1 order by t.is_default desc, t.name asc, t.id asc"
-            ))
-            .bind(&entity_id)
-            .fetch_all(&caller.db)
-            .await?;
-            let rows: Vec<Value> = INVOICE_TEMPLATES
-                .js_rows(rows)
-                .iter()
-                .map(to_template)
-                .collect();
+            let rows: Vec<Value> = invoice_templates::Entity::find()
+                .filter(invoice_templates::Column::EntityId.eq(entity_id))
+                .order_by_desc(invoice_templates::Column::IsDefault)
+                .order_by_asc(invoice_templates::Column::Name)
+                .order_by_asc(invoice_templates::Column::Id)
+                .all(&orm(&caller.db))
+                .await
+                .map_err(sqlx_error)?
+                .into_iter()
+                .map(|row| row_json(row).map(|row| to_template(&row)))
+                .collect::<Result<_, _>>()
+                .map_err(sqlx_error)?;
             Ok(all_rows(rows))
         }
         .await,
@@ -224,7 +259,7 @@ async fn list(caller: Caller) -> Response {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            match find_template(&caller.db, &id).await? {
+            match find_template(&caller.db, &id).await.map_err(sqlx_error)? {
                 Some(row) => Ok(ok(to_template(&row))),
                 None => Err(Refusal::not_found("Invoice template", &id)),
             }
@@ -253,12 +288,11 @@ async fn create(
             if !entity_exists(db, &input.entity_id).await? {
                 return Err(Refusal::bad_request("Accounting entity not found"));
             }
-            let count: i32 = sqlx::query_scalar(
-                "select count(*)::int from invoice_templates where entity_id = $1",
-            )
-            .bind(&input.entity_id)
-            .fetch_one(db)
-            .await?;
+            let count = invoice_templates::Entity::find()
+                .filter(invoice_templates::Column::EntityId.eq(input.entity_id.as_str()))
+                .count(&orm(db))
+                .await
+                .map_err(sqlx_error)?;
             let is_default = input.is_default == Some(true) || count == 0;
             let at = now();
             let id = generate_id("itpl");
@@ -297,39 +331,27 @@ async fn update(
     reply(
         async {
             let db = &caller.db;
-            let Some(existing) = find_template(db, &id).await? else {
+            let Some(existing) = find_template(db, &id).await.map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             let mut tx = db.begin().await?;
-            if input.is_default == Some(true) {
-                unset_other_defaults(
-                    &mut *tx,
-                    existing["entityId"].as_str().unwrap_or_default(),
-                    &id,
-                )
-                .await?;
+            {
+                let tx = OrmConn::new(&mut tx);
+                if input.is_default == Some(true) {
+                    unset_other_defaults(
+                        &tx,
+                        existing["entityId"].as_str().unwrap_or_default(),
+                        &id,
+                    )
+                    .await
+                    .map_err(sqlx_error)?;
+                }
+                update_template(&tx, &id, &input)
+                    .await
+                    .map_err(sqlx_error)?;
             }
-            sqlx::query(
-                "update invoice_templates set updated_at = $1::timestamp, \
-                 name = coalesce($2, name), is_default = coalesce($3, is_default), \
-                 document = coalesce($4, document), paper_size = coalesce($5, paper_size) \
-                 where id = $6",
-            )
-            .bind(now())
-            .bind(input.name.as_deref())
-            .bind(input.is_default)
-            .bind(input.document.as_ref())
-            .bind(
-                input
-                    .document
-                    .as_ref()
-                    .and_then(|d| d["paperSize"].as_str()),
-            )
-            .bind(&id)
-            .execute(&mut *tx)
-            .await?;
             tx.commit().await?;
-            let Some(row) = find_template(db, &id).await? else {
+            let Some(row) = find_template(db, &id).await.map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             // The document is not diffed into the audit trail: it is a whole page layout.
@@ -357,18 +379,23 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(existing) = find_template(db, &id).await? else {
+            let Some(existing) = find_template(db, &id).await.map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             let mut tx = db.begin().await?;
-            sqlx::query("update invoices set template_id = null where template_id = $1")
-                .bind(&id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("delete from invoice_templates where id = $1")
-                .bind(&id)
-                .execute(&mut *tx)
-                .await?;
+            {
+                let tx = OrmConn::new(&mut tx);
+                invoices::Entity::update_many()
+                    .col_expr(invoices::Column::TemplateId, Expr::value(None::<String>))
+                    .filter(invoices::Column::TemplateId.eq(id.as_str()))
+                    .exec(&tx)
+                    .await
+                    .map_err(sqlx_error)?;
+                invoice_templates::Entity::delete_by_id(id.clone())
+                    .exec(&tx)
+                    .await
+                    .map_err(sqlx_error)?;
+            }
             tx.commit().await?;
             audit(&caller, &existing, &id, "deleted", None).await;
             caller.publish(&state, INVOICE_TEMPLATE_DELETED, &id, json!({ "id": id }));
@@ -386,7 +413,7 @@ async fn duplicate(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(source) = find_template(db, &id).await? else {
+        let Some(source) = find_template(db, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Invoice template", &id));
         };
         let suffix = " (copy)";

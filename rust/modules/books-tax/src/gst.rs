@@ -7,14 +7,19 @@
 use std::collections::{HashMap, HashSet};
 
 use axum::response::Response;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::currency::to_base_currency;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{Caller, Refusal, Reply, ok, reply};
 use weldsuite_books_domain::js::{self, locale_compare, number_value, round_money as round2};
 use weldsuite_books_domain::tax::entity_state_code;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{companies, invoice_items, invoices, parties, tax_lines};
 
+use crate::orm_bridge::{column_text, date_of, iso_of, refused};
 use crate::vat_returns::{entity_row, has_feature};
 
 fn n(value: f64) -> Value {
@@ -66,7 +71,7 @@ async fn load_worksheet(caller: &Caller, start: &str, end: &str) -> Reply {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let Some(entity) = entity_row(db, &entity_id, true).await? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     let code = entity.get("jurisdictionCode").and_then(Value::as_str);
@@ -81,7 +86,9 @@ async fn load_worksheet(caller: &Caller, start: &str, end: &str) -> Reply {
             "This entity's jurisdiction has no GST return.",
         ));
     }
-    let input = load_input(db, &entity, &entity_id, start, end).await?;
+    let input = load_input(db, &entity, &entity_id, start, end)
+        .await
+        .map_err(refused)?;
     Ok(ok(compute(&input)))
 }
 
@@ -131,6 +138,142 @@ struct Input {
     lines: Vec<InvoiceLine>,
 }
 
+/// The period's tax-ledger rows; the rate and amounts as their `numeric`
+/// text, as the service's `Number(text)` read them.
+async fn ledger_rows(
+    db: &PgPool,
+    entity_id: &str,
+    start: &str,
+    end: &str,
+) -> Result<Vec<LedgerRow>, DbErr> {
+    use tax_lines::Column;
+    let (start, end) = (date_of(start)?, date_of(end)?);
+    tax_lines::Entity::find()
+        .select_only()
+        .column(Column::SourceType)
+        .column(Column::SourceId)
+        .column(Column::Direction)
+        .column(Column::Component)
+        .column_as(column_text(Column::Rate), "rate")
+        .column(Column::TaxCategoryCode)
+        .column(Column::SelfAssessed)
+        .column_as(
+            column_text(Column::BaseTaxableAmount),
+            "base_taxable_amount",
+        )
+        .column_as(column_text(Column::BaseTaxAmount), "base_tax_amount")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::TaxDate.gte(start))
+        .filter(Column::TaxDate.lte(end))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+type LedgerRow = (
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    bool,
+    String,
+    String,
+);
+
+type InvoiceRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    PrimitiveDateTime,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// The invoices behind the ledger rows; `total` and `exchange_rate` as their
+/// `numeric` text.
+async fn invoice_rows(db: &PgPool, ids: &[String]) -> Result<Vec<InvoiceRow>, DbErr> {
+    use invoices::Column;
+    invoices::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column(Column::InvoiceNumber)
+        .column(Column::Type)
+        .column(Column::IssueDate)
+        .column_as(column_text(Column::Total), "total")
+        .column(Column::Currency)
+        .column_as(column_text(Column::ExchangeRate), "exchange_rate")
+        .column(Column::PlaceOfSupply)
+        .column(Column::ContactTaxNumber)
+        .column(Column::ContactId)
+        .column(Column::ContactName)
+        .column(Column::CreditNoteForInvoiceId)
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+type ItemRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// The live lines of the invoices; quantities, amounts and rates as their
+/// `numeric` text.
+async fn item_rows(db: &PgPool, ids: &[String]) -> Result<Vec<ItemRow>, DbErr> {
+    use invoice_items::Column;
+    invoice_items::Entity::find()
+        .select_only()
+        .column(Column::InvoiceId)
+        .column(Column::HsnSac)
+        .column(Column::Unit)
+        .column_as(column_text(Column::Quantity), "quantity")
+        .column_as(column_text(Column::LineTotal), "line_total")
+        .column_as(column_text(Column::TaxAmount), "tax_amount")
+        .column_as(column_text(Column::TaxRate), "tax_rate")
+        .filter(Column::InvoiceId.is_in(ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The company VAT numbers of the parties `ids`
+/// (`parties left join companies`).
+async fn party_vat_numbers(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .column(companies::Column::VatNumber)
+        .join(
+            JoinType::LeftJoin,
+            parties::Entity::belongs_to(companies::Entity)
+                .from(parties::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .filter(parties::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 #[allow(clippy::too_many_lines)] // the loader's queries, in the service's order
 async fn load_input(
     db: &PgPool,
@@ -138,29 +281,8 @@ async fn load_input(
     entity_id: &str,
     start: &str,
     end: &str,
-) -> Result<Input, sqlx::Error> {
-    type LedgerRow = (
-        String,
-        Option<String>,
-        String,
-        Option<String>,
-        String,
-        Option<String>,
-        bool,
-        String,
-        String,
-    );
-    let ledger: Vec<LedgerRow> = sqlx::query_as(
-        "select \"source_type\", \"source_id\", \"direction\", \"component\", \"rate\"::text, \
-         \"tax_category_code\", \"self_assessed\", \"base_taxable_amount\"::text, \"base_tax_amount\"::text \
-         from \"tax_lines\" where (\"tax_lines\".\"entity_id\" = $1 and \"tax_lines\".\"tax_date\" >= $2::date \
-         and \"tax_lines\".\"tax_date\" <= $3::date)",
-    )
-    .bind(entity_id)
-    .bind(start)
-    .bind(end)
-    .fetch_all(db)
-    .await?;
+) -> Result<Input, DbErr> {
+    let ledger = ledger_rows(db, entity_id, start, end).await?;
     let entries: Vec<Entry> = ledger
         .iter()
         .map(|r| Entry {
@@ -196,29 +318,7 @@ async fn load_input(
     let mut documents = Vec::new();
     let mut lines = Vec::new();
     if !invoice_ids.is_empty() {
-        type InvoiceRow = (
-            String,
-            Option<String>,
-            Option<String>,
-            Value,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        );
-        let invoices: Vec<InvoiceRow> = sqlx::query_as(
-            "select \"id\", \"invoice_number\", \"type\", to_jsonb(\"issue_date\"), \"total\"::text, \
-             \"currency\", \"exchange_rate\"::text, \"place_of_supply\", \"contact_tax_number\", \
-             \"contact_id\", \"contact_name\", \"credit_note_for_invoice_id\" \
-             from \"invoices\" where \"invoices\".\"id\" = any($1)",
-        )
-        .bind(&invoice_ids)
-        .fetch_all(db)
-        .await?;
+        let invoices = invoice_rows(db, &invoice_ids).await?;
         let mut original_ids: Vec<String> = Vec::new();
         for inv in &invoices {
             if let Some(id) = inv.11.as_deref().filter(|id| !id.is_empty())
@@ -230,12 +330,14 @@ async fn load_input(
         let originals: Vec<(String, Option<String>)> = if original_ids.is_empty() {
             Vec::new()
         } else {
-            sqlx::query_as(
-                "select \"id\", \"invoice_number\" from \"invoices\" where \"invoices\".\"id\" = any($1)",
-            )
-            .bind(&original_ids)
-            .fetch_all(db)
-            .await?
+            invoices::Entity::find()
+                .select_only()
+                .column(invoices::Column::Id)
+                .column(invoices::Column::InvoiceNumber)
+                .filter(invoices::Column::Id.is_in(original_ids.iter().map(String::as_str)))
+                .into_tuple()
+                .all(&orm(db))
+                .await?
         };
         let original_number: HashMap<String, Option<String>> = originals.into_iter().collect();
 
@@ -251,15 +353,9 @@ async fn load_input(
         let gstins: HashMap<String, String> = if unnumbered.is_empty() {
             HashMap::new()
         } else {
-            let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-                "select \"parties\".\"id\", \"companies\".\"vat_number\" from \"parties\" \
-                 left join \"companies\" on \"parties\".\"company_id\" = \"companies\".\"id\" \
-                 where \"parties\".\"id\" = any($1)",
-            )
-            .bind(&unnumbered)
-            .fetch_all(db)
-            .await?;
-            rows.into_iter()
+            party_vat_numbers(db, &unnumbered)
+                .await?
+                .into_iter()
                 .filter_map(|(id, vat)| {
                     vat.filter(|v| !v.is_empty()).map(|v| {
                         (
@@ -277,10 +373,8 @@ async fn load_input(
         for inv in &invoices {
             let total = num(inv.4.as_deref());
             let rate = num(inv.6.as_deref());
-            let issue = match &inv.3 {
-                Value::String(text) => text.clone(),
-                _ => String::new(),
-            };
+            // `to_jsonb(issue_date)` read back as `toISOString()`.
+            let issue = iso_of(inv.3);
             let gstin = inv
                 .8
                 .clone()
@@ -291,11 +385,7 @@ async fn load_input(
                 id: inv.0.clone(),
                 credit_note: inv.2.as_deref() == Some("credit_note"),
                 number: inv.1.clone().unwrap_or_else(|| inv.0.clone()),
-                date: weldsuite_db::js_timestamp(&issue)
-                    .unwrap_or(issue)
-                    .chars()
-                    .take(10)
-                    .collect(),
+                date: issue.chars().take(10).collect(),
                 counterparty_name: inv.10.clone().unwrap_or_default(),
                 gstin,
                 place_of_supply: inv.7.clone(),
@@ -312,23 +402,7 @@ async fn load_input(
             });
         }
 
-        type ItemRow = (
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        );
-        let items: Vec<ItemRow> = sqlx::query_as(
-            "select \"invoice_id\", \"hsn_sac\", \"unit\", \"quantity\"::text, \"line_total\"::text, \
-             \"tax_amount\"::text, \"tax_rate\"::text from \"invoice_items\" \
-             where (\"invoice_items\".\"invoice_id\" = any($1) and \"invoice_items\".\"deleted_at\" is null)",
-        )
-        .bind(&invoice_ids)
-        .fetch_all(db)
-        .await?;
+        let items = item_rows(db, &invoice_ids).await?;
         for item in items {
             let Some(inv) = invoices.iter().find(|i| i.0 == item.0) else {
                 continue;

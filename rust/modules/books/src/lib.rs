@@ -29,6 +29,7 @@ mod fiscal_periods;
 mod fx_rates;
 mod gl_accounts;
 mod journal_entries;
+mod orm_bridge;
 mod tax_rates;
 
 use std::sync::Arc;

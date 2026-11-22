@@ -8,8 +8,13 @@
 use std::collections::HashMap;
 
 use base64::Engine;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, UpdateMany,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::address::format_postal_address_lines;
 use weldsuite_books_domain::backup_withholding::{
     BACKUP_WITHHOLDING_RATE, BackupWithholdingOutcome, ComputeBackupWithholdingInput,
@@ -22,7 +27,7 @@ use weldsuite_books_domain::js::{
 };
 use weldsuite_books_domain::payments::payment_net_amount;
 use weldsuite_books_domain::posting::{account_for_role, load_entity_accounts};
-use weldsuite_books_domain::tables::{AUDIT_LOG, BILLS, PAYMENT_RUNS, PAYMENTS};
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
 
@@ -33,6 +38,8 @@ use super::holds::{
 };
 use super::settings::{ACH_SEC_CODES, DEFAULT_HOLD_WINDOW_DAYS, read_ach_settings};
 use super::{RunError, bad, load_bank_account, not_found, run_error};
+use crate::rows::{date_of, decimal_of, int4, js, js_rows, timestamp_or_err};
+use weldsuite_schema::tenant::{audit_log, bank_accounts, bills, payment_runs, payments};
 
 /// Bill statuses a run may pay.
 pub(crate) const PAYABLE_BILL_STATUSES: [&str; 3] = ["approved", "partial", "overdue"];
@@ -111,30 +118,41 @@ pub(crate) async fn load_run(
     entity_id: &str,
     run_id: &str,
 ) -> Result<Value, RunError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payment_runs),
-        " from payment_runs t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(run_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row))
-        .ok_or_else(|| not_found("Payment run", run_id))
+    let row = payment_runs::Entity::find()
+        .filter(payment_runs::Column::Id.eq(run_id))
+        .filter(payment_runs::Column::EntityId.eq(entity_id))
+        .filter(payment_runs::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(not_found("Payment run", run_id)),
+    }
 }
 
 /// A run row by id (any entity, deleted ones too).
-pub(crate) async fn find_run(db: &PgPool, run_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payment_runs),
-        " from payment_runs t where t.id = $1 limit 1"
-    ))
-    .bind(run_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| PAYMENT_RUNS.js(row)))
+pub(crate) async fn find_run(db: &PgPool, run_id: &str) -> Result<Option<Value>, DbErr> {
+    payment_runs::Entity::find_by_id(run_id)
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
+}
+
+/// `update paymentRuns set … where … returning *`: the run as changed, when
+/// a row matched.
+async fn changed_run(
+    db: &PgPool,
+    update: UpdateMany<payment_runs::Entity>,
+) -> Result<Option<Value>, DbErr> {
+    update
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(|row| js!(row))
+        .transpose()
 }
 
 /// `assertStatus(run, allowed, action)`.
@@ -187,15 +205,12 @@ pub(crate) async fn resolve_items(
             None,
         ));
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bills),
-        " from bills t where t.id = any($1) and t.deleted_at is null"
-    ))
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let bills = BILLS.js_rows(rows);
+    let rows = bills::Entity::find()
+        .filter(bills::Column::Id.is_in(&ids))
+        .filter(bills::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    let bills = js_rows!(rows)?;
     let base = resolve_entity_base_currency(db, entity_id).await?;
     let mut items = Vec::with_capacity(input.len());
     for (bill_id, amount) in input {
@@ -311,7 +326,7 @@ pub(crate) async fn compute_run_withholding(
     payment_date: &str,
     items: &[RunItem],
     parties: &[Value],
-) -> Result<Vec<(String, VendorWithholding)>, sqlx::Error> {
+) -> Result<Vec<(String, VendorWithholding)>, DbErr> {
     let mut result = Vec::new();
     for party in parties {
         if !weldsuite_books_domain::js::truthy(party.get("is1099Vendor")) {
@@ -336,7 +351,8 @@ pub(crate) async fn compute_run_withholding(
                 ..ComputeBackupWithholdingInput::default()
             },
         )
-        .await?;
+        .await
+        .map_err(orm_error)?;
         if outcome.amount > 0.0 {
             result.push((
                 id.to_owned(),
@@ -356,8 +372,10 @@ pub(crate) async fn compute_run_withholding(
 pub(crate) async fn has_backup_withholding_account(
     db: &PgPool,
     entity_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let accounts = load_entity_accounts(db, entity_id).await?;
+) -> Result<bool, DbErr> {
+    let accounts = load_entity_accounts(db, entity_id)
+        .await
+        .map_err(orm_error)?;
     Ok(account_for_role(&accounts, "backup_withholding_payable", &["2310"]).is_some())
 }
 
@@ -477,32 +495,35 @@ pub(crate) async fn create_run(
     )
     .await?;
     let totals = totals_of(&items, &holds);
-    let at = now();
-    let row: Value = sqlx::query_scalar(concat!(
-        "insert into payment_runs as t (id, entity_id, bank_account_id, method, status, payment_date, sec_code, same_day, \
-         total_amount, payment_count, required_approvals, approvals, items, holds, created_by, notes, created_at, updated_at) \
-         values ($1, $2, $3, $4, 'draft', $5::date, $6, $7, $8::numeric, $9, $10, '[]'::jsonb, $11, $12, $13, $14, $15::timestamp, $15::timestamp) \
-         returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(generate_id("prn"))
-    .bind(entity_id)
-    .bind(s(&bank, "id"))
-    .bind(if input.ach { "ach" } else { "check" })
-    .bind(&input.payment_date)
-    .bind(if input.ach { input.sec_code.clone() } else { None })
-    .bind(input.ach && input.same_day)
-    .bind(&totals.total_amount)
-    .bind(totals.payment_count)
-    .bind(required)
-    .bind(items_json(&items))
-    .bind(encode_holds(&holds))
-    .bind(&input.user_id)
-    .bind(&input.notes)
-    .bind(&at)
-    .fetch_one(db)
+    let at = utc_now();
+    let row = payment_runs::Entity::insert(payment_runs::ActiveModel {
+        id: Set(generate_id("prn")),
+        entity_id: Set(entity_id.to_owned()),
+        bank_account_id: Set(s(&bank, "id").to_owned()),
+        method: Set(if input.ach { "ach" } else { "check" }.to_owned()),
+        status: Set("draft".to_owned()),
+        payment_date: Set(date_of(&input.payment_date)?),
+        sec_code: Set(if input.ach {
+            input.sec_code.clone()
+        } else {
+            None
+        }),
+        same_day: Set(input.ach && input.same_day),
+        total_amount: Set(decimal_of(&totals.total_amount)?),
+        payment_count: Set(int4(totals.payment_count)?),
+        required_approvals: Set(int4(required)?),
+        approvals: Set(Some(json!([]))),
+        items: Set(Some(items_json(&items))),
+        holds: Set(Some(encode_holds(&holds))),
+        created_by: Set(Some(input.user_id.clone())),
+        notes: Set(input.notes.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok((PAYMENT_RUNS.js(row), lowered))
+    Ok((js!(row)?, lowered))
 }
 
 /// `UpdateRunInput`: absent fields keep the run's value.
@@ -584,27 +605,38 @@ pub(crate) async fn update_run(
         Field::Null => None,
         Field::Absent => text(&before, "notes").map(str::to_owned),
     };
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set bank_account_id = $2, payment_date = $3::date, sec_code = $4, same_day = $5, \
-         required_approvals = $6, notes = $7, items = $8, holds = $9, total_amount = $10::numeric, payment_count = $11, \
-         updated_at = $12::timestamp where t.id = $1 and t.status = 'draft' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&before, "id"))
-    .bind(&bank_account_id)
-    .bind(&payment_date)
-    .bind(if ach { sec_code } else { None })
-    .bind(ach && same_day)
-    .bind(required)
-    .bind(&notes)
-    .bind(items_json(&items))
-    .bind(encode_holds(&holds))
-    .bind(&totals.total_amount)
-    .bind(totals.payment_count)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    let Some(run) = row.map(|row| PAYMENT_RUNS.js(row)) else {
+    let update = payment_runs::Entity::update_many()
+        .col_expr(
+            payment_runs::Column::BankAccountId,
+            Expr::value(bank_account_id),
+        )
+        .col_expr(
+            payment_runs::Column::PaymentDate,
+            Expr::value(date_of(&payment_date)?),
+        )
+        .col_expr(
+            payment_runs::Column::SecCode,
+            Expr::value(if ach { sec_code } else { None }),
+        )
+        .col_expr(payment_runs::Column::SameDay, Expr::value(ach && same_day))
+        .col_expr(
+            payment_runs::Column::RequiredApprovals,
+            Expr::value(int4(required)?),
+        )
+        .col_expr(payment_runs::Column::Notes, Expr::value(notes))
+        .col_expr(payment_runs::Column::Items, Expr::value(items_json(&items)))
+        .col_expr(payment_runs::Column::Holds, Expr::value(encode_holds(&holds)))
+        .col_expr(
+            payment_runs::Column::TotalAmount,
+            Expr::value(decimal_of(&totals.total_amount)?),
+        )
+        .col_expr(
+            payment_runs::Column::PaymentCount,
+            Expr::value(int4(totals.payment_count)?),
+        )
+        .filter(payment_runs::Column::Id.eq(s(&before, "id")))
+        .filter(payment_runs::Column::Status.eq("draft"));
+    let Some(run) = changed_run(db, update).await? else {
         return Err(changed_meanwhile("editing"));
     };
     Ok((run, before))
@@ -638,22 +670,23 @@ pub(crate) async fn refresh_holds(
     )
     .await?;
     let totals = totals_of(&items, &holds);
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set holds = $2, total_amount = $3::numeric, payment_count = $4, updated_at = $5::timestamp \
-         where t.id = $1 returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(run, "id"))
-    .bind(encode_holds(&holds))
-    .bind(&totals.total_amount)
-    .bind(totals.payment_count)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    Ok((
-        row.map_or_else(|| run.clone(), |row| PAYMENT_RUNS.js(row)),
-        holds,
-    ))
+    let update = held(&holds, &totals)?.filter(payment_runs::Column::Id.eq(s(run, "id")));
+    let row = changed_run(db, update).await?;
+    Ok((row.unwrap_or_else(|| run.clone()), holds))
+}
+
+/// `set({ holds, totalAmount, paymentCount })`.
+fn held(holds: &[RunHold], totals: &Totals) -> Result<UpdateMany<payment_runs::Entity>, DbErr> {
+    Ok(payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Holds, Expr::value(encode_holds(holds)))
+        .col_expr(
+            payment_runs::Column::TotalAmount,
+            Expr::value(decimal_of(&totals.total_amount)?),
+        )
+        .col_expr(
+            payment_runs::Column::PaymentCount,
+            Expr::value(int4(totals.payment_count)?),
+        ))
 }
 
 fn input_items(items: &[RunItem]) -> Vec<(String, f64)> {
@@ -682,16 +715,13 @@ pub(crate) async fn submit_run(
     // Bills may have been paid or edited since the draft was made.
     resolve_items(db, entity_id, &input_items(&items)).await?;
     refresh_holds(db, &run, None).await?;
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'pending_approval', approvals = '[]'::jsonb, updated_at = $2::timestamp \
-         where t.id = $1 and t.status = 'draft' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row))
+    let update = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("pending_approval"))
+        .col_expr(payment_runs::Column::Approvals, Expr::value(json!([])))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.eq("draft"));
+    changed_run(db, update)
+        .await?
         .ok_or_else(|| changed_meanwhile("submitting"))
 }
 
@@ -703,16 +733,13 @@ pub(crate) async fn reject_run(
 ) -> Result<Value, RunError> {
     let run = load_run(db, entity_id, run_id).await?;
     assert_status(&run, &["pending_approval"], "rejected")?;
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'draft', approvals = '[]'::jsonb, updated_at = $2::timestamp \
-         where t.id = $1 and t.status = 'pending_approval' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row))
+    let update = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("draft"))
+        .col_expr(payment_runs::Column::Approvals, Expr::value(json!([])))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.eq("pending_approval"));
+    changed_run(db, update)
+        .await?
         .ok_or_else(|| changed_meanwhile("rejecting"))
 }
 
@@ -728,16 +755,12 @@ pub(crate) async fn cancel_run(
         &OPEN_RUN_STATUSES,
         "cancelled (void its payments instead)",
     )?;
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'cancelled', updated_at = $2::timestamp \
-         where t.id = $1 and t.status in ('draft', 'pending_approval') returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row))
+    let update = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("cancelled"))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.is_in(OPEN_RUN_STATUSES));
+    changed_run(db, update)
+        .await?
         .ok_or_else(|| changed_meanwhile("cancelling"))
 }
 
@@ -749,17 +772,20 @@ pub(crate) async fn delete_run(
 ) -> Result<Value, RunError> {
     let run = load_run(db, entity_id, run_id).await?;
     assert_status(&run, &["draft"], "deleted (cancel it instead)")?;
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-         where t.id = $1 and t.status = 'draft' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row))
-        .ok_or_else(|| changed_meanwhile("deleting"))
+    let at = utc_now();
+    let row = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::DeletedAt, Expr::value(at))
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(at))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.eq("draft"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(changed_meanwhile("deleting")),
+    }
 }
 
 /// `releaseHold(db, args)`: the run and the vendor's holds after the release.
@@ -837,19 +863,10 @@ pub(crate) async fn release_hold(
         })
         .collect();
     let totals = totals_of(&items_of(refreshed.get("items")), &next);
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set holds = $2, total_amount = $3::numeric, payment_count = $4, updated_at = $5::timestamp \
-         where t.id = $1 and t.status in ('draft', 'pending_approval') returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(encode_holds(&next))
-    .bind(&totals.total_amount)
-    .bind(totals.payment_count)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    let Some(updated) = row.map(|row| PAYMENT_RUNS.js(row)) else {
+    let update = held(&next, &totals)?
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.is_in(OPEN_RUN_STATUSES));
+    let Some(updated) = changed_run(db, update).await? else {
         return Err(run_error(
             "INVALID_STATE",
             "The run changed while you were releasing the hold. Reload it and try again."
@@ -964,11 +981,38 @@ pub(crate) struct ListRuns<'a> {
     pub cursor: Option<&'a str>,
 }
 
-macro_rules! runs_where {
-    () => {
-        "t.entity_id = $1 and t.deleted_at is null and ($2::text is null or t.status = $2) \
-         and ($3::text is null or t.method = $3) and ($4::text is null or t.bank_account_id = $4)"
-    };
+/// The list filters: the entity's live runs, by status, method and bank
+/// account.
+fn runs_where(entity_id: &str, filter: &ListRuns<'_>) -> Condition {
+    let mut condition = Condition::all()
+        .add(payment_runs::Column::EntityId.eq(entity_id))
+        .add(payment_runs::Column::DeletedAt.is_null());
+    if let Some(status) = filter.status {
+        condition = condition.add(payment_runs::Column::Status.eq(status));
+    }
+    if let Some(method) = filter.method {
+        condition = condition.add(payment_runs::Column::Method.eq(method));
+    }
+    if let Some(bank_account_id) = filter.bank_account_id {
+        condition = condition.add(payment_runs::Column::BankAccountId.eq(bank_account_id));
+    }
+    condition
+}
+
+/// A run with its bank account's name.
+#[derive(Debug, FromQueryResult)]
+struct ListedRun {
+    #[sea_orm(nested)]
+    run: payment_runs::Model,
+    bank_account_name: Option<String>,
+}
+
+/// `leftJoin(bankAccounts, eq(bankAccounts.id, paymentRuns.bankAccountId))`.
+fn run_bank_account() -> RelationDef {
+    payment_runs::Entity::belongs_to(bank_accounts::Entity)
+        .from(payment_runs::Column::BankAccountId)
+        .to(bank_accounts::Column::Id)
+        .into()
 }
 
 /// `listRuns(db, entityId, filter)`: `(rows, totalCount, hasMore, cursor)`.
@@ -983,39 +1027,40 @@ pub(crate) async fn list_runs(
         ),
         None => None,
     };
-    let (after_at, after_id) = after.unzip();
-    let rows: Vec<(Value, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payment_runs),
-        ", b.name from payment_runs t left join bank_accounts b on b.id = t.bank_account_id where ",
-        runs_where!(),
-        " and ($5::text is null or t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6)) \
-         order by t.created_at desc, t.id desc limit $7"
-    ))
-    .bind(entity_id)
-    .bind(filter.status)
-    .bind(filter.method)
-    .bind(filter.bank_account_id)
-    .bind(after_at.as_deref())
-    .bind(after_id.as_deref())
-    .bind(filter.limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*)::bigint from payment_runs t where ",
-        runs_where!()
-    ))
-    .bind(entity_id)
-    .bind(filter.status)
-    .bind(filter.method)
-    .bind(filter.bank_account_id)
-    .fetch_one(db)
-    .await?;
+    let mut listed = runs_where(entity_id, &filter);
+    if let Some((at, id)) = &after {
+        let at = timestamp_or_err(at)?;
+        listed = listed.add(
+            Condition::any()
+                .add(payment_runs::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(payment_runs::Column::CreatedAt.eq(at))
+                        .add(payment_runs::Column::Id.lt(id.as_str())),
+                ),
+        );
+    }
+    let db = orm(db);
+    let rows: Vec<ListedRun> = payment_runs::Entity::find()
+        .column_as(bank_accounts::Column::Name, "bank_account_name")
+        .join(JoinType::LeftJoin, run_bank_account())
+        .filter(listed)
+        .order_by_desc(payment_runs::Column::CreatedAt)
+        .order_by_desc(payment_runs::Column::Id)
+        .limit(u64::try_from(filter.limit + 1).unwrap_or(0))
+        .into_model()
+        .all(&db)
+        .await?;
+    let total = payment_runs::Entity::find()
+        .filter(runs_where(entity_id, &filter))
+        .count(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
     let has_more = i64::try_from(rows.len()).unwrap_or(0) > filter.limit;
     let mut page: Vec<(Value, Option<String>)> = rows
         .into_iter()
-        .map(|(row, name)| (PAYMENT_RUNS.js(row), name))
-        .collect();
+        .map(|row| Ok((js!(row.run)?, row.bank_account_name)))
+        .collect::<Result<_, DbErr>>()?;
     if has_more {
         page.truncate(usize::try_from(filter.limit).unwrap_or(0));
     }
@@ -1051,33 +1096,32 @@ pub(crate) async fn get_run_detail(
     let bills: Vec<Value> = if bill_ids.is_empty() {
         Vec::new()
     } else {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bills),
-            " from bills t where t.id = any($1)"
-        ))
-        .bind(&bill_ids)
-        .fetch_all(db)
-        .await?;
-        BILLS.js_rows(rows)
+        let rows = bills::Entity::find()
+            .filter(bills::Column::Id.is_in(&bill_ids))
+            .all(&orm(db))
+            .await?;
+        js_rows!(rows)?
     };
     let parties = load_parties(db, &party_ids).await?;
     let payments = run_payment_rows(db, s(&run, "id")).await?;
-    let bank: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, name, account_number_last4 from bank_accounts where id = $1 limit 1",
-    )
-    .bind(s(&run, "bankAccountId"))
-    .fetch_optional(db)
-    .await?;
-    let history: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(audit_log),
-        " from audit_log t where t.entity_type = 'payment_run' and t.entity_id = $1 order by t.timestamp"
-    ))
-    .bind(s(&run, "id"))
-    .fetch_all(db)
-    .await?;
-    let history = AUDIT_LOG.js_rows(history);
+    let bank: Option<(String, String, Option<String>)> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([
+            bank_accounts::Column::Id,
+            bank_accounts::Column::Name,
+            bank_accounts::Column::AccountNumberLast4,
+        ])
+        .filter(bank_accounts::Column::Id.eq(s(&run, "bankAccountId")))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let history = audit_log::Entity::find()
+        .filter(audit_log::Column::EntityType.eq("payment_run"))
+        .filter(audit_log::Column::EntityId.eq(s(&run, "id")))
+        .order_by_asc(audit_log::Column::Timestamp)
+        .all(&orm(db))
+        .await?;
+    let history = js_rows!(history)?;
     let name_of = |party_id: &str| -> String {
         parties
             .iter()
@@ -1246,16 +1290,12 @@ pub(crate) async fn get_run_detail(
 }
 
 /// The payments of a run (voided ones too), as the database returns them.
-pub(crate) async fn run_payment_rows(db: &PgPool, run_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.payment_run_id = $1"
-    ))
-    .bind(run_id)
-    .fetch_all(db)
-    .await?;
-    Ok(PAYMENTS.js_rows(rows))
+pub(crate) async fn run_payment_rows(db: &PgPool, run_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = payments::Entity::find()
+        .filter(payments::Column::PaymentRunId.eq(run_id))
+        .all(&orm(db))
+        .await?;
+    js_rows!(rows)
 }
 
 /// A vendor's payment in the run view.
@@ -1279,6 +1319,22 @@ fn payment_view(payment: &Value) -> Value {
 
 // ── Bills that can go into a run ────────────────────────────────────────────
 
+/// The `(id, items)` of the entity's open runs (draft or pending approval).
+pub(crate) async fn open_run_items(
+    db: &PgPool,
+    entity_id: &str,
+) -> Result<Vec<(String, Option<Value>)>, DbErr> {
+    payment_runs::Entity::find()
+        .select_only()
+        .columns([payment_runs::Column::Id, payment_runs::Column::Items])
+        .filter(payment_runs::Column::EntityId.eq(entity_id))
+        .filter(payment_runs::Column::DeletedAt.is_null())
+        .filter(payment_runs::Column::Status.is_in(OPEN_RUN_STATUSES))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `listPayableBills(db, filter)`: approved bills with an open balance, by
 /// vendor, with each vendor's ACH readiness.
 #[allow(clippy::too_many_lines)] // the view, field by field
@@ -1290,21 +1346,30 @@ pub(crate) async fn list_payable_bills(
     bank_account_id: Option<&str>,
 ) -> Result<Vec<Value>, RunError> {
     let now = now_ms();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bills),
-        " from bills t where t.entity_id = $1 and t.deleted_at is null and t.type = 'standard' \
-         and t.status in ('approved', 'partial', 'overdue') and coalesce(t.balance_due, '0')::numeric > 0 \
-         and ($2::text is null or t.contact_id = $2) \
-         and ($3::text is null or t.due_date < ($3::date + interval '1 day')) \
-         order by t.due_date, t.id"
-    ))
-    .bind(entity_id)
-    .bind(party_id)
-    .bind(due_before)
-    .fetch_all(db)
-    .await?;
-    let bills = BILLS.js_rows(rows);
+    // `coalesce(balance_due, '0') > 0`: a bill without a balance is not open.
+    let mut payable = Condition::all()
+        .add(bills::Column::EntityId.eq(entity_id))
+        .add(bills::Column::DeletedAt.is_null())
+        .add(bills::Column::Type.eq("standard"))
+        .add(bills::Column::Status.is_in(PAYABLE_BILL_STATUSES))
+        .add(bills::Column::BalanceDue.gt(0));
+    if let Some(party_id) = party_id {
+        payable = payable.add(bills::Column::ContactId.eq(party_id));
+    }
+    // `due_date < day + interval '1 day'`; past the last day a date can
+    // hold, every due date is before it.
+    if let Some(day) = due_before
+        && let Some(next) = date_of(day)?.next_day()
+    {
+        payable = payable.add(bills::Column::DueDate.lt(next.midnight()));
+    }
+    let rows = bills::Entity::find()
+        .filter(payable)
+        .order_by_asc(bills::Column::DueDate)
+        .order_by_asc(bills::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let bills = js_rows!(rows)?;
     if bills.is_empty() {
         return Ok(Vec::new());
     }
@@ -1316,13 +1381,7 @@ pub(crate) async fn list_payable_bills(
         }
     }
     let parties = load_parties(db, &party_ids).await?;
-    let open_runs: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, items from payment_runs where entity_id = $1 and deleted_at is null \
-         and status in ('draft', 'pending_approval')",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let open_runs = open_run_items(db, entity_id).await?;
     let history = load_ach_history(db, entity_id, &party_ids).await?;
     let bank = match bank_account_id {
         Some(id) => Some(load_bank_account(db, entity_id, id).await?),

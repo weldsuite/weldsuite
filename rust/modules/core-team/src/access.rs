@@ -234,7 +234,7 @@ pub enum TeamError {
     Response(Box<Response>),
     /// `error.internal(c, message)`: logged, answered with a 500.
     Internal(&'static str, String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl TeamError {
@@ -263,9 +263,17 @@ impl TeamError {
     }
 }
 
+impl From<sea_orm::DbErr> for TeamError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL not converted to the ORM yet, and calls into crates that still
+/// return `sqlx::Error`, report through the same error.
 impl From<sqlx::Error> for TeamError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -286,6 +294,11 @@ pub fn answer(result: TeamResult<Response>) -> Response {
 /// and cast with `::timestamptz` (or `::timestamp`).
 pub fn now() -> String {
     iso_timestamp(OffsetDateTime::now_utc())
+}
+
+/// An entity's row as Drizzle returned it (its serializers decide the JSON).
+pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, sea_orm::DbErr> {
+    serde_json::to_value(model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
 }
 
 /// `zValidator('json', schema)`: the body read by `read`, or the 400.

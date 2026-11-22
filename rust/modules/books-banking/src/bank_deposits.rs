@@ -12,30 +12,44 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_books_domain::document_posting::load_entity;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, PostingLockKind, write_accounting_audit};
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Refusal, all_rows, created, no_content, now, ok, paged, reply, validate,
+    BooksState, Caller, Refusal, all_rows, created, no_content, ok, paged, reply, validate,
 };
 use weldsuite_books_domain::js::{js_number_value, number_value, parse_int, round_money, to_fixed};
 use weldsuite_books_domain::posting::{
     AlsoWrite, PostError, PostJournalEntryInput, PostingLine, ReverseArgs, account_for_role,
     load_entity_accounts, post_journal_entry, reverse_journal_entry,
 };
-use weldsuite_books_domain::tables::{BANK_ACCOUNTS, BANK_DEPOSITS, PAYMENTS};
+use weldsuite_books_domain::tables::BANK_DEPOSITS;
 use weldsuite_catalogs::entity_events::{
     BANK_DEPOSIT_CREATED, BANK_DEPOSIT_DELETED, BANK_DEPOSIT_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm, orm_error, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::cursor::{atob_url, btoa_url};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounts, bank_accounts, bank_deposits, bank_transactions, journal_entries, journal_lines,
+    parties, payments,
+};
 
 use crate::common::{changes, field, posting_refusal, text};
+use crate::orm_bridge::{post_failed, refused, sqlx_error};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -97,35 +111,78 @@ impl Undeposited {
     }
 }
 
-/// `listUndepositedPayments(db, entityId)`.
-async fn list_undeposited(db: &PgPool, entity_id: &str) -> Result<Vec<Undeposited>, sqlx::Error> {
-    let accounts = load_entity_accounts(db, entity_id).await?;
+/// `leftJoin(parties, eq(parties.id, payments.contactId))`.
+fn payment_contact() -> RelationDef {
+    payments::Entity::belongs_to(parties::Entity)
+        .from(payments::Column::ContactId)
+        .to(parties::Column::Id)
+        .into()
+}
+
+/// A received payment with what its entry left in Undeposited Funds and its
+/// contact's name.
+#[derive(Debug, FromQueryResult)]
+struct UndepositedRow {
+    #[sea_orm(nested)]
+    payment: payments::Model,
+    undeposited_amount: Option<BigDecimal>,
+    party_display_name: Option<String>,
+}
+
+/// `listUndepositedPayments(db, entityId)`: the received payments not
+/// deposited yet, with `sum(coalesce(debit, 0) - coalesce(credit, 0))` of
+/// their entry's live lines on Undeposited Funds (read as a number, as the
+/// worker reads the sum's text).
+async fn list_undeposited(db: &PgPool, entity_id: &str) -> Result<Vec<Undeposited>, DbErr> {
+    let accounts = load_entity_accounts(db, entity_id)
+        .await
+        .map_err(orm_error)?;
     let Some(undeposited) = account_for_role(&accounts, "undeposited_funds", &[]) else {
         return Ok(Vec::new());
     };
-    let rows: Vec<(Value, Option<String>, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        ", sum(coalesce(jl.debit, 0) - coalesce(jl.credit, 0))::text, p.display_name \
-         from payments t \
-         inner join journal_lines jl on jl.journal_entry_id = t.journal_entry_id and jl.account_id = $2 \
-           and jl.deleted_at is null \
-         left join parties p on p.id = t.contact_id \
-         where t.entity_id = $1 and t.type = 'received' and t.deleted_at is null and t.deposit_id is null \
-         group by t.id, p.display_name order by t.date, t.created_at"
-    ))
-    .bind(entity_id)
-    .bind(text(undeposited, "id"))
-    .fetch_all(db)
-    .await?;
+    let net = sea_orm::ExprTrait::sub(
+        Expr::expr(Func::coalesce([
+            journal_lines::Column::Debit.into_expr(),
+            Expr::val(0),
+        ])),
+        Func::coalesce([journal_lines::Column::Credit.into_expr(), Expr::val(0)]),
+    );
+    let rows = payments::Entity::find()
+        .column_as(Expr::expr(Func::sum(net)), "undeposited_amount")
+        .column_as(parties::Column::DisplayName, "party_display_name")
+        .join(
+            JoinType::InnerJoin,
+            payments::Entity::belongs_to(journal_lines::Entity)
+                .from(payments::Column::JournalEntryId)
+                .to(journal_lines::Column::JournalEntryId)
+                .into(),
+        )
+        .join(JoinType::LeftJoin, payment_contact())
+        .filter(journal_lines::Column::AccountId.eq(text(undeposited, "id").map(str::to_owned)))
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .filter(payments::Column::EntityId.eq(entity_id))
+        .filter(payments::Column::Type.eq("received"))
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(payments::Column::DepositId.is_null())
+        .group_by(payments::Column::Id)
+        .group_by(parties::Column::DisplayName)
+        .order_by_asc(payments::Column::Date)
+        .order_by_asc(payments::Column::CreatedAt)
+        .into_model::<UndepositedRow>()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|(row, amount, contact_name)| {
-            let amount = js_number_value(amount.map(Value::String).as_ref());
+        .filter_map(|row| {
+            let amount = js_number_value(
+                row.undeposited_amount
+                    .map(|sum| Value::String(sum.to_plain_string()))
+                    .as_ref(),
+            );
             (amount > 0.0).then(|| Undeposited {
-                payment: PAYMENTS.js(row),
+                payment: serde_json::to_value(row.payment).unwrap_or_default(),
                 amount: round_money(amount),
-                contact_name,
+                contact_name: row.party_display_name,
             })
         })
         .collect())
@@ -136,7 +193,9 @@ async fn undeposited(caller: Caller) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Ok(all_rows(Vec::new()));
         };
-        let rows = list_undeposited(&caller.db, &entity_id).await?;
+        let rows = list_undeposited(&caller.db, &entity_id)
+            .await
+            .map_err(refused)?;
         Ok(all_rows(rows.iter().map(Undeposited::to_json).collect()))
     }
     .await;
@@ -159,6 +218,40 @@ fn decode_cursor(cursor: &str) -> Option<(String, String)> {
             .iter()
             .all(|i| b[*i].is_ascii_digit());
     shaped.then(|| (date.to_owned(), id.to_owned()))
+}
+
+/// `$n::<type_name>`: text Postgres reads as the type, as the old statements
+/// bound it.
+fn cast(text: &str, type_name: &'static str) -> Expr {
+    Func::cast_as(Expr::val(text), type_name).into()
+}
+
+/// The list's conditions (`and(...)` of the given filters), without the
+/// cursor: what the page and its `count(*)` share.
+fn deposits_of(
+    entity_id: &str,
+    (account, status, from, to): (Option<&str>, Option<&str>, Option<&str>, Option<&str>),
+) -> sea_orm::Select<bank_deposits::Entity> {
+    use bank_deposits::Column;
+    bank_deposits::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .apply_if(account, |q, account| {
+            q.filter(Column::BankAccountId.eq(account))
+        })
+        .apply_if(status, |q, status| q.filter(Column::Status.eq(status)))
+        .apply_if(from, |q, from| {
+            q.filter(sea_orm::ExprTrait::gte(
+                Column::Date.into_expr(),
+                cast(from, "date"),
+            ))
+        })
+        .apply_if(to, |q, to| {
+            q.filter(sea_orm::ExprTrait::lte(
+                Column::Date.into_expr(),
+                cast(to, "date"),
+            ))
+        })
 }
 
 async fn list(caller: Caller) -> Response {
@@ -185,38 +278,41 @@ async fn list(caller: Caller) -> Response {
             q.present("from"),
             q.present("to"),
         );
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bank_deposits),
-            " from bank_deposits t where t.entity_id = $1 and t.deleted_at is null \
-             and ($2::text is null or t.bank_account_id = $2) and ($3::text is null or t.status = $3) \
-             and ($4::text is null or t.date >= $4::date) and ($5::text is null or t.date <= $5::date) \
-             and ($6::text is null or t.date < $6::date or (t.date = $6::date and t.id < $7)) \
-             order by t.date desc, t.id desc limit $8"
-        ))
-        .bind(&entity_id)
-        .bind(filters.0)
-        .bind(filters.1)
-        .bind(filters.2)
-        .bind(filters.3)
-        .bind(after_date.as_deref())
-        .bind(after_id.as_deref())
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from bank_deposits t where t.entity_id = $1 and t.deleted_at is null \
-             and ($2::text is null or t.bank_account_id = $2) and ($3::text is null or t.status = $3) \
-             and ($4::text is null or t.date >= $4::date) and ($5::text is null or t.date <= $5::date)",
-        )
-        .bind(&entity_id)
-        .bind(filters.0)
-        .bind(filters.1)
-        .bind(filters.2)
-        .bind(filters.3)
-        .fetch_one(&caller.db)
-        .await?;
-        let mut rows = BANK_DEPOSITS.js_rows(rows);
+        let db = orm(&caller.db);
+        // `date < cursor date or (date = cursor date and id < cursor id)`
+        let before_cursor = after_date.as_deref().map(|day| {
+            use bank_deposits::Column;
+            Condition::any()
+                .add(sea_orm::ExprTrait::lt(
+                    Column::Date.into_expr(),
+                    cast(day, "date"),
+                ))
+                .add(
+                    Condition::all()
+                        .add(sea_orm::ExprTrait::eq(
+                            Column::Date.into_expr(),
+                            cast(day, "date"),
+                        ))
+                        .add(Column::Id.lt(after_id.clone())),
+                )
+        });
+        let rows = deposits_of(&entity_id, filters)
+            .apply_if(before_cursor, QueryFilter::filter)
+            .order_by_desc(bank_deposits::Column::Date)
+            .order_by_desc(bank_deposits::Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .all(&db)
+            .await
+            .map_err(refused)?;
+        let total = deposits_of(&entity_id, filters)
+            .count(&db)
+            .await
+            .map_err(refused)?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let mut rows: Vec<Value> = rows
+            .into_iter()
+            .map(|row| serde_json::to_value(row).unwrap_or_default())
+            .collect();
         let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
         if has_more {
             rows.truncate(usize::try_from(limit).unwrap_or(0));
@@ -240,40 +336,40 @@ async fn list(caller: Caller) -> Response {
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn find_deposit(
-    caller: &Caller,
-    entity_id: &str,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_deposits),
-        " from bank_deposits t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| BANK_DEPOSITS.js(row)))
+/// The live deposit `id` of the entity, as Drizzle returns it.
+async fn find_deposit(db: &PgPool, entity_id: &str, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = bank_deposits::Entity::find()
+        .filter(bank_deposits::Column::Id.eq(id))
+        .filter(bank_deposits::Column::EntityId.eq(entity_id))
+        .filter(bank_deposits::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|row| serde_json::to_value(row).unwrap_or_default()))
 }
 
-/// `loadDepositDetail(db, deposit)`: the deposit with its payments, other
-/// lines (account code and name) and bank account and entry.
-async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Error> {
-    let id = text(deposit, "id").unwrap_or_default();
-    let payments: Vec<(Value, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        ", p.display_name from payments t left join parties p on p.id = t.contact_id \
-         where t.deposit_id = $1 and t.deleted_at is null order by t.date"
-    ))
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    let payments: Vec<Value> = payments
+/// A deposited payment and its contact's name.
+#[derive(Debug, FromQueryResult)]
+struct DepositedPayment {
+    #[sea_orm(nested)]
+    payment: payments::Model,
+    party_display_name: Option<String>,
+}
+
+/// The deposit's live payments by date, each with its contact's name.
+async fn deposited_payments(db: &impl ConnectionTrait, id: &str) -> Result<Vec<Value>, DbErr> {
+    let payments = payments::Entity::find()
+        .column_as(parties::Column::DisplayName, "party_display_name")
+        .join(JoinType::LeftJoin, payment_contact())
+        .filter(payments::Column::DepositId.eq(id))
+        .filter(payments::Column::DeletedAt.is_null())
+        .order_by_asc(payments::Column::Date)
+        .into_model::<DepositedPayment>()
+        .all(db)
+        .await?;
+    Ok(payments
         .into_iter()
-        .map(|(row, name)| {
-            let row = PAYMENTS.js(row);
+        .map(|DepositedPayment { payment, party_display_name: name }| {
+            let row = serde_json::to_value(payment).unwrap_or_default();
             json!({
                 "id": field(&row, "id"),
                 "date": field(&row, "date"),
@@ -287,18 +383,33 @@ async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Err
                 "invoiceId": field(&row, "invoiceId"),
             })
         })
-        .collect();
-    let bank_name: Option<Option<String>> =
-        sqlx::query_scalar("select name from bank_accounts where id = $1 limit 1")
-            .bind(text(deposit, "bankAccountId"))
-            .fetch_optional(db)
-            .await?;
+        .collect())
+}
+
+/// `loadDepositDetail(db, deposit)`: the deposit with its payments, other
+/// lines (account code and name) and bank account and entry.
+async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, DbErr> {
+    let db = orm(db);
+    let payments = deposited_payments(&db, text(deposit, "id").unwrap_or_default()).await?;
+    let bank_name: Option<Option<String>> = match text(deposit, "bankAccountId") {
+        Some(bank) => {
+            bank_accounts::Entity::find_by_id(bank.to_owned())
+                .select_only()
+                .column(bank_accounts::Column::Name)
+                .into_tuple()
+                .one(&db)
+                .await?
+        }
+        None => None,
+    };
     let entry_number: Option<Option<String>> =
         match text(deposit, "journalEntryId").filter(|e| !e.is_empty()) {
             Some(entry) => {
-                sqlx::query_scalar("select entry_number from journal_entries where id = $1 limit 1")
-                    .bind(entry)
-                    .fetch_optional(db)
+                journal_entries::Entity::find_by_id(entry.to_owned())
+                    .select_only()
+                    .column(journal_entries::Column::EntryNumber)
+                    .into_tuple()
+                    .one(&db)
                     .await?
             }
             None => None,
@@ -319,9 +430,16 @@ async fn deposit_detail(db: &PgPool, deposit: &Value) -> Result<Value, sqlx::Err
     let accounts: Vec<(String, String, String)> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, code, name from accounts where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
+        accounts::Entity::find()
+            .select_only()
+            .columns([
+                accounts::Column::Id,
+                accounts::Column::Code,
+                accounts::Column::Name,
+            ])
+            .filter(accounts::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&db)
             .await?
     };
     let other_lines: Vec<Value> = lines
@@ -361,10 +479,15 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(deposit) = find_deposit(&caller, &entity_id, &id).await? else {
+        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
+            .await
+            .map_err(refused)?
+        else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
-        Ok(ok(deposit_detail(&caller.db, &deposit).await?))
+        Ok(ok(deposit_detail(&caller.db, &deposit)
+            .await
+            .map_err(refused)?))
     }
     .await;
     reply(result, "Failed to fetch bank deposit")
@@ -483,16 +606,14 @@ async fn create_deposit(
         ));
     };
     let undeposited_id = text(undeposited, "id").unwrap_or_default().to_owned();
-    let bank: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_accounts),
-        " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(&data.bank_account_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(bank) = bank.map(|row| BANK_ACCOUNTS.js(row)) else {
+    let bank = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(data.bank_account_id.as_str()))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+        .map_err(post_failed)?;
+    let Some(bank) = bank.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(posting("Bank account not found for this accounting entity"));
     };
     let Some(ledger) = accounts.by_id(text(&bank, "ledgerAccountId")) else {
@@ -525,7 +646,9 @@ async fn create_deposit(
     if payment_ids.is_empty() && other_lines.is_empty() {
         return Err(posting("Pick at least one payment to deposit"));
     }
-    let candidates = list_undeposited(db, entity_id).await?;
+    let candidates = list_undeposited(db, entity_id)
+        .await
+        .map_err(post_failed)?;
     let mut chosen: Vec<&Undeposited> = Vec::new();
     for id in &payment_ids {
         let Some(found) = candidates
@@ -628,7 +751,10 @@ async fn create_deposit(
         });
     }
 
-    let stamp = now();
+    // One instant: the deposit's timestamps and the payments' `updatedAt`.
+    let at = OffsetDateTime::now_utc();
+    let stamp = iso_timestamp(at);
+    let stamp_at = utc_timestamp(at);
     let mut row = Map::new();
     for (key, value) in [
         ("id", json!(deposit_id)),
@@ -667,15 +793,14 @@ async fn create_deposit(
             );
             BANK_DEPOSITS.insert_raw(&mut *conn, row).await?;
             if has_payments {
-                sqlx::query(
-                    "update payments set deposit_id = $1, updated_at = $3::timestamp \
-                     where id = any($2) and deposit_id is null",
-                )
-                .bind(&deposit_key)
-                .bind(&ids)
-                .bind(&stamp)
-                .execute(&mut *conn)
-                .await?;
+                payments::Entity::update_many()
+                    .col_expr(payments::Column::DepositId, Expr::value(deposit_key))
+                    .col_expr(payments::Column::UpdatedAt, Expr::value(stamp_at))
+                    .filter(payments::Column::Id.is_in(ids))
+                    .filter(payments::Column::DepositId.is_null())
+                    .exec(&OrmConn::new(conn))
+                    .await
+                    .map_err(sqlx_error)?;
             }
             Ok(())
         })
@@ -786,7 +911,10 @@ async fn update(
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(deposit) = find_deposit(&caller, &entity_id, &id).await? else {
+        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
+            .await
+            .map_err(refused)?
+        else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
         let memo = memo
@@ -794,12 +922,13 @@ async fn update(
             .map(weldsuite_books_domain::jurisdictions::js_trim)
             .filter(|m| !m.is_empty())
             .map(str::to_owned);
-        sqlx::query("update bank_deposits set memo = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(&memo)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        bank_deposits::Entity::update_many()
+            .col_expr(bank_deposits::Column::Memo, Expr::value(memo.clone()))
+            .col_expr(bank_deposits::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(bank_deposits::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -839,28 +968,29 @@ async fn update(
 
 /// The void's statements: the deposit void, its payments back in
 /// Undeposited Funds, its bank line released.
-async fn release(conn: &mut sqlx::PgConnection, id: &str, stamp: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update bank_deposits set status = 'void', updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(stamp)
-    .execute(&mut *conn)
-    .await?;
-    sqlx::query(
-        "update payments set deposit_id = null, updated_at = $2::timestamp where deposit_id = $1",
-    )
-    .bind(id)
-    .bind(stamp)
-    .execute(&mut *conn)
-    .await?;
-    sqlx::query(
-        "update bank_transactions set status = 'unreconciled', reconciliation_type = null, deposit_id = null, \n         journal_entry_id = null, updated_at = $2::timestamp where deposit_id = $1",
-    )
-    .bind(id)
-    .bind(stamp)
-    .execute(&mut *conn)
-    .await?;
+async fn release(db: &impl ConnectionTrait, id: &str, at: PrimitiveDateTime) -> Result<(), DbErr> {
+    let none = || Expr::value(Option::<String>::None);
+    bank_deposits::Entity::update_many()
+        .col_expr(bank_deposits::Column::Status, Expr::value("void"))
+        .col_expr(bank_deposits::Column::UpdatedAt, Expr::value(at))
+        .filter(bank_deposits::Column::Id.eq(id))
+        .exec(db)
+        .await?;
+    payments::Entity::update_many()
+        .col_expr(payments::Column::DepositId, none())
+        .col_expr(payments::Column::UpdatedAt, Expr::value(at))
+        .filter(payments::Column::DepositId.eq(id))
+        .exec(db)
+        .await?;
+    bank_transactions::Entity::update_many()
+        .col_expr(bank_transactions::Column::Status, Expr::value("unreconciled"))
+        .col_expr(bank_transactions::Column::ReconciliationType, none())
+        .col_expr(bank_transactions::Column::DepositId, none())
+        .col_expr(bank_transactions::Column::JournalEntryId, none())
+        .col_expr(bank_transactions::Column::UpdatedAt, Expr::value(at))
+        .filter(bank_transactions::Column::DepositId.eq(id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -873,22 +1003,19 @@ async fn void_deposit(
     id: &str,
     user_id: Option<&str>,
 ) -> Result<Value, PostError> {
-    let deposit: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_deposits),
-        " from bank_deposits t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(deposit) = deposit.map(|row| BANK_DEPOSITS.js(row)) else {
+    let Some(deposit) = find_deposit(db, entity_id, id)
+        .await
+        .map_err(post_failed)?
+    else {
         return Err(posting("Deposit not found"));
     };
     if text(&deposit, "status") == Some("void") {
         return Err(posting("This deposit has already been voided"));
     }
-    let stamp = now();
+    // One instant: the reversal's date and the released rows' `updatedAt`.
+    let instant = OffsetDateTime::now_utc();
+    let stamp = iso_timestamp(instant);
+    let at = utc_timestamp(instant);
     match text(&deposit, "journalEntryId").filter(|e| !e.is_empty()) {
         Some(entry) => {
             let memo = text(&deposit, "memo")
@@ -896,9 +1023,12 @@ async fn void_deposit(
                 .map(|m| format!(" — {m}"))
                 .unwrap_or_default();
             let deposit_id = id.to_owned();
-            let at = stamp.clone();
             let write: AlsoWrite = Box::new(move |conn, _| {
-                Box::pin(async move { release(conn, &deposit_id, &at).await })
+                Box::pin(async move {
+                    release(&OrmConn::new(conn), &deposit_id, at)
+                        .await
+                        .map_err(sqlx_error)
+                })
             });
             reverse_journal_entry(
                 db,
@@ -915,7 +1045,9 @@ async fn void_deposit(
         }
         None => {
             let mut tx = db.begin().await?;
-            release(&mut tx, id, &stamp).await?;
+            release(&OrmConn::new(&mut tx), id, at)
+                .await
+                .map_err(post_failed)?;
             tx.commit().await?;
         }
     }

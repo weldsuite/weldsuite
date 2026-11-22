@@ -16,11 +16,15 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Query as SqlQuery};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, paged, reply, validate,
 };
+use sea_orm::prelude::BigDecimal;
 use weldsuite_books_domain::jurisdictions::{js_trim, us};
 use weldsuite_books_domain::sales_tax::route_helpers::{
     optional_sales_tax_entity, page_params, require_agency, require_sales_tax_entity,
@@ -31,13 +35,23 @@ use weldsuite_books_domain::tables::{
 use weldsuite_catalogs::entity_events::{
     SALES_TAX_AGENCY_CREATED, SALES_TAX_AGENCY_DELETED, SALES_TAX_AGENCY_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounts, sales_tax_agencies, sales_tax_jurisdiction_rates, sales_tax_jurisdictions,
+    sales_tax_taxability_rules, sales_tax_zones, tax_lines,
+};
 
 use crate::common::{changes, iso_date, keep, merged, refuse, text, today};
+use crate::orm_bridge::refusal;
+use crate::returns::common::rows_json;
+
+/// `sales_tax_agencies` written from a `{ column: value }` object.
+const AGENCY_ROWS: JsonTable = JsonTable::of::<sales_tax_agencies::Entity>();
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -352,11 +366,11 @@ fn event_data(agency: &Value) -> Value {
 }
 
 /// `id, code, name, current_balance` of an account.
-type Summary = (String, Option<String>, Option<String>, Option<String>);
+type Summary = (String, String, String, Option<BigDecimal>);
 
 /// `withAccounts(db, rows)`: each agency with the accounts its liabilities
 /// are booked to (a payable reads as what is owed, credit positive).
-async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx::Error> {
+async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for row in &rows {
         for key in ["liabilityAccountId", "useTaxAccountId"] {
@@ -370,12 +384,14 @@ async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx
     let accounts: Vec<Summary> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select id, code, name, current_balance::text from accounts where id = any($1)",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
+        use accounts::Column;
+        accounts::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Code, Column::Name, Column::CurrentBalance])
+            .filter(Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&orm(db))
+            .await?
     };
     let account = |id: Option<&str>| -> Value {
         let Some(id) = id.filter(|i| !i.is_empty()) else {
@@ -385,8 +401,10 @@ async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx
             .iter()
             .find(|a| a.0 == id)
             .map_or(Value::Null, |(id, code, name, balance)| {
-                let parsed =
-                    -weldsuite_books_domain::js::parse_float(balance.as_deref().unwrap_or("0"));
+                let balance = balance
+                    .as_ref()
+                    .map_or_else(|| "0".to_owned(), BigDecimal::to_plain_string);
+                let parsed = -weldsuite_books_domain::js::parse_float(&balance);
                 let shown = if parsed.is_nan() || parsed == 0.0 {
                     0.0
                 } else {
@@ -418,15 +436,14 @@ async fn with_accounts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx
 }
 
 /// `agencyHasTaxLines(db, agencyId)`.
-pub(crate) async fn agency_has_tax_lines(
-    db: &PgPool,
-    agency_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let row: Option<String> =
-        sqlx::query_scalar("select id from tax_lines where agency_id = $1 limit 1")
-            .bind(agency_id)
-            .fetch_optional(db)
-            .await?;
+pub(crate) async fn agency_has_tax_lines(db: &PgPool, agency_id: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = tax_lines::Entity::find()
+        .select_only()
+        .column(tax_lines::Column::Id)
+        .filter(tax_lines::Column::AgencyId.eq(agency_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -441,6 +458,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn list_agencies(caller: &Caller, q: &Query) -> Reply {
+    use sales_tax_agencies::Column;
     let Some(entity) = optional_sales_tax_entity(caller).await? else {
         return Ok(paged(Vec::new(), 0, false, None));
     };
@@ -449,34 +467,33 @@ async fn list_agencies(caller: &Caller, q: &Query) -> Reply {
     let status = q.present("status");
     let state = q.present("stateCode").map(str::to_uppercase);
     let level = q.present("level");
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_agencies),
-        " from sales_tax_agencies t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.state_code = $3) \
-         and ($4::text is null or t.level = $4) \
-         order by t.state_code asc, t.level asc, t.name asc limit $5 offset $6"
-    ))
-    .bind(entity_id)
-    .bind(status)
-    .bind(&state)
-    .bind(level)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from sales_tax_agencies t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.state_code = $3) \
-         and ($4::text is null or t.level = $4)",
-    )
-    .bind(entity_id)
-    .bind(status)
-    .bind(&state)
-    .bind(level)
-    .fetch_one(&caller.db)
-    .await?;
-    let rows = with_accounts(&caller.db, T.js_rows(rows)).await?;
+    let db = orm(&caller.db);
+    let mut select = sales_tax_agencies::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(status) = status {
+        select = select.filter(Column::Status.eq(status));
+    }
+    if let Some(state) = &state {
+        select = select.filter(Column::StateCode.eq(state.as_str()));
+    }
+    if let Some(level) = level {
+        select = select.filter(Column::Level.eq(level));
+    }
+    let rows = select
+        .clone()
+        .order_by_asc(Column::StateCode)
+        .order_by_asc(Column::Level)
+        .order_by_asc(Column::Name)
+        .limit(u64::try_from(page_size).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(refusal)?;
+    let total = select.count(&db).await.map_err(refusal)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows_json(rows).map_err(refusal)?;
+    let rows = with_accounts(&caller.db, rows).await.map_err(refusal)?;
     Ok(paged(rows, total, page * page_size < total, None))
 }
 
@@ -489,8 +506,13 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 async fn show(caller: &Caller, id: &str) -> Reply {
     let entity = require_sales_tax_entity(caller).await?;
     let agency = require_agency(&caller.db, text(&entity, "id").unwrap_or_default(), id).await?;
-    let has_lines = agency_has_tax_lines(&caller.db, id).await?;
-    let mut row = with_accounts(&caller.db, vec![agency]).await?.remove(0);
+    let has_lines = agency_has_tax_lines(&caller.db, id)
+        .await
+        .map_err(refusal)?;
+    let mut row = with_accounts(&caller.db, vec![agency])
+        .await
+        .map_err(refusal)?
+        .remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("hasTaxLines".into(), json!(has_lines));
     }
@@ -556,7 +578,10 @@ async fn create_agency(caller: &Caller, state: &BooksState, data: AgencyBody) ->
         &agency_id,
         event_data(&agency),
     );
-    let mut row = with_accounts(&caller.db, vec![agency]).await?.remove(0);
+    let mut row = with_accounts(&caller.db, vec![agency])
+        .await
+        .map_err(refusal)?
+        .remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("accountsCreated".into(), json!(accounts_created));
         map.insert("rulesSeeded".into(), json!(rules_seeded));
@@ -575,6 +600,57 @@ type AccountRow = (
     Option<String>,
     Option<String>,
 );
+
+/// The entity's live accounts, with `metadata->>'systemRole'`.
+async fn chart_of(db: &PgPool, entity_id: &str) -> Result<Vec<AccountRow>, DbErr> {
+    use accounts::Column;
+    accounts::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Code,
+            Column::Name,
+            Column::ParentAccountId,
+            Column::Subtype,
+            Column::Currency,
+            Column::TaxLine,
+        ])
+        .column_as(
+            pg::PgExpr::cast_json_field(Expr::col(Column::Metadata), "systemRole"),
+            "system_role",
+        )
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// An agency of the entity for the same state and level (and, for a local
+/// one, the same jurisdiction code).
+async fn duplicate_of(
+    db: &PgPool,
+    entity_id: &str,
+    fields: &AgencyFields,
+) -> Result<Option<String>, DbErr> {
+    use sales_tax_agencies::Column;
+    let mut find = sales_tax_agencies::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::StateCode.eq(fields.state_code.as_str()))
+        .filter(Column::Level.eq(fields.level.as_str()));
+    if fields.level == "local" {
+        find = find.filter(
+            Column::LocalJurisdictionCode
+                .eq(fields.local_jurisdiction_code.as_deref().unwrap_or("")),
+        );
+    }
+    find.filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
 
 /// One account row of the chart (what the planning reads).
 struct Account {
@@ -726,17 +802,9 @@ pub(crate) async fn create_sales_tax_agency(
     day: &str,
 ) -> Result<(Value, usize, usize), Refusal> {
     let fields = resolve_agency_fields(input, day)?;
-    let duplicate: Option<String> = sqlx::query_scalar(
-        "select id from sales_tax_agencies where entity_id = $1 and state_code = $2 and level = $3 \
-         and (not $4 or local_jurisdiction_code = $5) and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .bind(&fields.state_code)
-    .bind(&fields.level)
-    .bind(fields.level == "local")
-    .bind(fields.local_jurisdiction_code.as_deref().unwrap_or(""))
-    .fetch_optional(db)
-    .await?;
+    let duplicate = duplicate_of(db, entity_id, &fields)
+        .await
+        .map_err(refusal)?;
     if duplicate.is_some() {
         return Err(refuse(
             if fields.level == "local" {
@@ -750,13 +818,7 @@ pub(crate) async fn create_sales_tax_agency(
             409,
         ));
     }
-    let rows: Vec<AccountRow> = sqlx::query_as(
-        "select id, code, name, parent_account_id, subtype, currency, tax_line, metadata->>'systemRole' \
-         from accounts where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let rows = chart_of(db, entity_id).await.map_err(refusal)?;
     let accounts: Vec<Account> = rows
         .into_iter()
         .map(
@@ -835,23 +897,33 @@ pub(crate) async fn create_sales_tax_agency(
     let new_accounts: Vec<Map<String, Value>> =
         [liability_row, use_row].into_iter().flatten().collect();
     let mut tx = db.begin().await?;
-    for account in &new_accounts {
-        ACCOUNTS
-            .insert_raw(&mut *tx, ACCOUNTS.values(account))
-            .await?;
-    }
-    T.insert_raw(
-        &mut *tx,
-        T.values(agency.as_object().unwrap_or(&Map::new())),
-    )
-    .await?;
-    for rule in &rules {
-        SALES_TAX_TAXABILITY_RULES
-            .insert_raw(&mut *tx, SALES_TAX_TAXABILITY_RULES.values(rule))
-            .await?;
+    {
+        let conn = OrmConn::new(&mut tx);
+        let account_rows = JsonTable::of::<accounts::Entity>();
+        for account in &new_accounts {
+            account_rows
+                .insert(&conn, ACCOUNTS.values(account))
+                .await
+                .map_err(refusal)?;
+        }
+        AGENCY_ROWS
+            .insert(&conn, T.values(agency.as_object().unwrap_or(&Map::new())))
+            .await
+            .map_err(refusal)?;
+        let rule_rows = JsonTable::of::<sales_tax_taxability_rules::Entity>();
+        for rule in &rules {
+            rule_rows
+                .insert(&conn, SALES_TAX_TAXABILITY_RULES.values(rule))
+                .await
+                .map_err(refusal)?;
+        }
     }
     tx.commit().await?;
-    let row = T.find_live(db, &agency_id).await?.unwrap_or(Value::Null);
+    let row = AGENCY_ROWS
+        .find(&orm(db), &agency_id, true)
+        .await
+        .map_err(refusal)?
+        .unwrap_or(Value::Null);
     Ok((row, new_accounts.len(), rules.len()))
 }
 
@@ -1014,8 +1086,10 @@ async fn update_agency(caller: &Caller, state: &BooksState, id: &str, data: Agen
     {
         update.insert("registeredUntil".into(), Value::Null);
     }
-    T.patch_raw(&caller.db, id, T.values(&update), false)
-        .await?;
+    AGENCY_ROWS
+        .update(&orm(&caller.db), id, T.values(&update), false)
+        .await
+        .map_err(refusal)?;
     let updated = merged(&agency, &update);
     write_accounting_audit(
         caller,
@@ -1030,11 +1104,62 @@ async fn update_agency(caller: &Caller, state: &BooksState, id: &str, data: Agen
     )
     .await;
     caller.publish(state, SALES_TAX_AGENCY_UPDATED, id, event_data(&updated));
-    let row = with_accounts(&caller.db, vec![updated]).await?.remove(0);
+    let row = with_accounts(&caller.db, vec![updated])
+        .await
+        .map_err(refusal)?
+        .remove(0);
     Ok(ok(row))
 }
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
+
+/// The agency's rates (of its jurisdictions), jurisdictions, zones, rules and
+/// the agency itself, soft-deleted at `at`, in that order.
+async fn delete_with_children(
+    conn: &OrmConn<'_>,
+    entity_id: &str,
+    id: &str,
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use sales_tax_jurisdiction_rates::Column as Rate;
+    use sales_tax_jurisdictions::Column as Jurisdiction;
+    sales_tax_jurisdiction_rates::Entity::update_many()
+        .col_expr(Rate::DeletedAt, Expr::value(at))
+        .filter(Rate::EntityId.eq(entity_id))
+        .filter(
+            Rate::JurisdictionId.in_subquery(
+                SqlQuery::select()
+                    .column(Jurisdiction::Id)
+                    .from(sales_tax_jurisdictions::Entity)
+                    .and_where(Jurisdiction::AgencyId.eq(id))
+                    .to_owned(),
+            ),
+        )
+        .exec(conn)
+        .await?;
+    sales_tax_jurisdictions::Entity::update_many()
+        .col_expr(Jurisdiction::DeletedAt, Expr::value(at))
+        .filter(Jurisdiction::AgencyId.eq(id))
+        .exec(conn)
+        .await?;
+    sales_tax_zones::Entity::update_many()
+        .col_expr(sales_tax_zones::Column::DeletedAt, Expr::value(at))
+        .filter(sales_tax_zones::Column::AgencyId.eq(id))
+        .exec(conn)
+        .await?;
+    sales_tax_taxability_rules::Entity::update_many()
+        .col_expr(sales_tax_taxability_rules::Column::DeletedAt, Expr::value(at))
+        .filter(sales_tax_taxability_rules::Column::AgencyId.eq(id))
+        .exec(conn)
+        .await?;
+    sales_tax_agencies::Entity::update_many()
+        .col_expr(sales_tax_agencies::Column::DeletedAt, Expr::value(at))
+        .col_expr(sales_tax_agencies::Column::UpdatedAt, Expr::value(at))
+        .filter(sales_tax_agencies::Column::Id.eq(id))
+        .exec(conn)
+        .await?;
+    Ok(())
+}
 
 async fn remove(
     caller: Caller,
@@ -1051,8 +1176,12 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let entity = require_sales_tax_entity(caller).await?;
     let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
     let agency = require_agency(&caller.db, &entity_id, id).await?;
-    let at = now();
-    if agency_has_tax_lines(&caller.db, id).await? {
+    let instant = time::OffsetDateTime::now_utc();
+    let at = weldsuite_events::iso_timestamp(instant);
+    if agency_has_tax_lines(&caller.db, id)
+        .await
+        .map_err(refusal)?
+    {
         // Tax-ledger rows point at it: the history stays, and so does the agency.
         let until = text(&agency, "registeredUntil")
             .filter(|u| !u.is_empty())
@@ -1061,8 +1190,10 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         closed.insert("status".into(), json!("closed"));
         closed.insert("registeredUntil".into(), json!(until));
         closed.insert("updatedAt".into(), json!(at));
-        T.patch_raw(&caller.db, id, T.values(&closed), false)
-            .await?;
+        AGENCY_ROWS
+            .update(&orm(&caller.db), id, T.values(&closed), false)
+            .await
+            .map_err(refusal)?;
         let mut audit = Map::new();
         audit.insert(
             "status".into(),
@@ -1096,27 +1227,9 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     }
     // Its rates, zones and rules go with it; its payable accounts stay.
     let mut tx = caller.db.begin().await?;
-    sqlx::query(
-        "update sales_tax_jurisdiction_rates set deleted_at = $1::timestamp where entity_id = $2 \
-         and jurisdiction_id in (select id from sales_tax_jurisdictions where agency_id = $3)",
-    )
-    .bind(&at)
-    .bind(&entity_id)
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-    for statement in [
-        "update sales_tax_jurisdictions set deleted_at = $1::timestamp where agency_id = $2",
-        "update sales_tax_zones set deleted_at = $1::timestamp where agency_id = $2",
-        "update sales_tax_taxability_rules set deleted_at = $1::timestamp where agency_id = $2",
-        "update sales_tax_agencies set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-    ] {
-        sqlx::query(statement)
-            .bind(&at)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    delete_with_children(&OrmConn::new(&mut tx), &entity_id, id, utc_timestamp(instant))
+        .await
+        .map_err(refusal)?;
     tx.commit().await?;
     write_accounting_audit(
         caller,

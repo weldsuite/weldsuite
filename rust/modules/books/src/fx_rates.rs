@@ -15,7 +15,12 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, list_limit, no_content, now, ok, page,
     paged, reply, validate,
@@ -24,7 +29,11 @@ use weldsuite_books_domain::tables::FX_RATES;
 use weldsuite_catalogs::entity_events::{FX_RATE_CREATED, FX_RATE_DELETED, FX_RATE_UPDATED};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Presence};
+use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::fx_rates::{self, Column};
+
+use crate::orm_bridge::{sqlx_error, to_json};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -74,25 +83,37 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     reply(list_rates(&caller, &q).await, "Failed to list fx rates")
 }
 
+/// `from_currency = $from and to_currency = $to`, for the filters given.
+fn pair(from: Option<&str>, to: Option<&str>) -> Condition {
+    let mut condition = Condition::all();
+    if let Some(from) = from {
+        condition = condition.add(Column::FromCurrency.eq(from));
+    }
+    if let Some(to) = to {
+        condition = condition.add(Column::ToCurrency.eq(to));
+    }
+    condition
+}
+
 async fn list_rates(caller: &Caller, q: &Query) -> Reply {
-    let db = &caller.db;
+    let db = orm(&caller.db);
     // `q.x !== undefined && q.x !== ''`
     let from = q.present("fromCurrency");
     let to = q.present("toCurrency");
-    let mut cursor: Option<(String, String)> = None;
+    let mut cursor: Option<(PrimitiveDateTime, String)> = None;
     if let Some(id) = q.present("cursor") {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, to_jsonb(created_at) #>> '{}' from fx_rates where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-        cursor = row.and_then(|(id, created)| {
-            created
-                .as_deref()
-                .and_then(weldsuite_db::js_timestamp)
-                .map(|at| (at, id))
-        });
+        let row: Option<(String, PrimitiveDateTime)> = fx_rates::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .column(Column::CreatedAt)
+            .filter(Column::Id.eq(id))
+            .into_tuple()
+            .one(&db)
+            .await
+            .map_err(sqlx_error)?;
+        // The cursor row's `createdAt` as the worker read it back: a `Date`,
+        // to the millisecond.
+        cursor = row.map(|(id, created)| (weldsuite_db::utc_timestamp(created.assume_utc()), id));
     }
     // The count drops the last condition when a cursor was asked for: the
     // keyset condition, or the last filter when the cursor row is gone.
@@ -104,52 +125,60 @@ async fn list_rates(caller: &Caller, q: &Query) -> Reply {
     let Some(limit) = list_limit(q, 25, 100) else {
         return Err(Refusal::Internal("limit is NaN".to_owned()));
     };
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fx_rates),
-        " from fx_rates t where ($1::text is null or t.from_currency = $1) \
-         and ($2::text is null or t.to_currency = $2) \
-         and ($3::timestamp is null or t.created_at < $3::timestamp \
-         or (t.created_at = $3::timestamp and t.id < $4)) \
-         order by t.created_at desc, t.id desc limit $5"
+    // A negative `limit` is Postgres's error: the route's 500.
+    let Ok(fetch) = u64::try_from(limit + 1) else {
+        return Err(Refusal::Internal("LIMIT must not be negative".to_owned()));
+    };
+    let mut select = fx_rates::Entity::find().filter(pair(from, to));
+    if let Some((at, id)) = &cursor {
+        select = select.filter(
+            Condition::any().add(Column::CreatedAt.lt(*at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(*at))
+                    .add(Column::Id.lt(id.as_str())),
+            ),
+        );
+    }
+    let rows = select
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(fetch)
+        .all(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = fx_rates::Entity::find()
+        .filter(pair(count_from, count_to))
+        .count(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let rows = rows
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlx_error)?;
+    let (rows, has_more, next) = page(rows, limit);
+    Ok(paged(
+        rows,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
     ))
-    .bind(from)
-    .bind(to)
-    .bind(cursor_at)
-    .bind(cursor_id)
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from fx_rates where ($1::text is null or from_currency = $1) \
-         and ($2::text is null or to_currency = $2)",
-    )
-    .bind(count_from)
-    .bind(count_to)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(FX_RATES.js_rows(rows), limit);
-    Ok(paged(rows, total, has_more, next))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fx_rates),
-        " from fx_rates t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| FX_RATES.js(row)))
+async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    fx_rates::Entity::find()
+        .filter(Column::Id.eq(id))
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await? {
+        match find(&caller, &id).await.map_err(sqlx_error)? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("FX rate", &id)),
         }
@@ -213,7 +242,7 @@ async fn update(
         Err(refusal) => return refusal.respond("Failed to update fx rate"),
     };
     let result = async {
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("FX rate", &id));
         };
         // `{ updatedAt, ...data }`: fx_rates has no updated_at, so only the
@@ -254,13 +283,14 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        if find(&caller, &id).await?.is_none() {
+        if find(&caller, &id).await.map_err(sqlx_error)?.is_none() {
             return Err(Refusal::not_found("FX rate", &id));
         }
-        sqlx::query("delete from fx_rates where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+        fx_rates::Entity::delete_many()
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
         caller.publish(&state, FX_RATE_DELETED, &id, json!({ "id": id }));
         Ok(no_content())
     }

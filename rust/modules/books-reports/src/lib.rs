@@ -18,8 +18,10 @@ mod exports;
 mod fixed_assets;
 mod form_1099;
 mod ordered;
+mod orm_bridge;
 mod payroll;
 mod reports;
+mod rows;
 
 use std::sync::Arc;
 

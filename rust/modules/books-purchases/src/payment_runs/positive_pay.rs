@@ -5,20 +5,29 @@
 //! any backup withholding). The account number is decrypted for the file and
 //! the reveal logged (`positive_pay`).
 
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::bank_accounts::reveal_account_number;
 use weldsuite_books_domain::payments::payment_net_amount;
 use weldsuite_books_domain::positive_pay::{
     PositivePayCheck, PositivePayIssue, build_positive_pay_file, is_positive_pay_format,
 };
-use weldsuite_books_domain::tables::PAYMENTS;
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, PgPool, orm};
+use weldsuite_schema::tenant::{parties, payments};
 
-use super::checks::register_where;
+use super::checks::{payee, register_where};
 use super::runs::{s, text};
 use super::settings::{positive_pay_format_of, read_positive_pay_config};
 use super::{RunError, bad, load_bank_account, run_error};
+use crate::rows::js;
+
+/// A printed check with its payee's name.
+#[derive(Debug, FromQueryResult)]
+struct IssuedCheck {
+    #[sea_orm(nested)]
+    payment: payments::Model,
+    payee_name: Option<String>,
+}
 
 #[allow(clippy::cast_precision_loss)]
 fn dollars(cents: i64) -> String {
@@ -62,23 +71,18 @@ pub(crate) async fn generate_positive_pay(
     let format = positive_pay_format_of(&bank, format);
 
     // Every check that was printed, voided ones included.
-    let rows: Vec<(Value, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        ", p.display_name from payments t left join parties p on p.id = t.contact_id where ",
-        register_where!(),
-        " and t.check_printed_at is not null"
-    ))
-    .bind(entity_id)
-    .bind(s(&bank, "id"))
-    .bind(None::<String>)
-    .bind(None::<String>)
-    .fetch_all(db)
-    .await?;
-    let checks: Vec<PositivePayCheck> = rows
-        .into_iter()
-        .map(|(row, payee)| {
-            let payment = PAYMENTS.js(row);
+    let rows: Vec<IssuedCheck> = payments::Entity::find()
+        .column_as(parties::Column::DisplayName, "payee_name")
+        .join(JoinType::LeftJoin, payee())
+        .filter(register_where(entity_id, Some(s(&bank, "id")), None, None)?)
+        .filter(payments::Column::CheckPrintedAt.is_not_null())
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let mut checks: Vec<PositivePayCheck> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (payment, payee) = (js!(row.payment)?, row.payee_name);
+        checks.push({
             let deleted = text(&payment, "deletedAt");
             let voided = deleted.is_some() || text(&payment, "checkStatus") == Some("voided");
             PositivePayCheck {
@@ -90,8 +94,8 @@ pub(crate) async fn generate_positive_pay(
                 void_date: voided.then(|| iso_day(deleted.unwrap_or(s(&payment, "updatedAt")))),
                 account_number: None,
             }
-        })
-        .collect();
+        });
+    }
 
     let account_number = reveal_account_number(db, keyring, &bank, user_id, Some("positive_pay"))
         .await?

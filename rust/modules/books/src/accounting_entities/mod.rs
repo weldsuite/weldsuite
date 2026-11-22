@@ -29,7 +29,11 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_books_domain::accounting_entity::{
     load_accounting_entities, load_accounting_entity, upsert_accounting_entity_settings,
 };
@@ -46,6 +50,7 @@ use weldsuite_catalogs::entity_events::{
     ACCOUNTING_ENTITY_CREATED, ACCOUNTING_ENTITY_DELETED, ACCOUNTING_ENTITY_UPDATED,
     LEGAL_ENTITY_CREATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_legal_entities::service::{
@@ -56,6 +61,10 @@ use weldsuite_legal_entities::{
     EntityAccess, LegalEntityApp, LegalEntityError, can_see_entity, permissions_in_entity,
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounting_entity_settings, accounts, bank_accounts, entity_number_sequences, settings,
+    tax_id_reveals, tax_rates,
+};
 
 use self::body::EntityBody;
 use self::registrations::sync_registrations_from_tax_identifiers;
@@ -64,6 +73,7 @@ use crate::entity_setup::{
     check_us_address, form_of, lock_state, looks_like_ssn, resolve_entity_kind,
     sync_br_tax_profiles, tax_year_of,
 };
+use crate::orm_bridge::{select_flags, sqlx_error};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -465,7 +475,9 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             return Err(Refusal::not_found("Entity", &id));
         };
         let mut out = object(serialize(&entity));
-        out.extend(object(lock_state(&caller.db, &id).await?));
+        out.extend(object(
+            lock_state(&caller.db, &id).await.map_err(sqlx_error)?,
+        ));
         Ok(ok(Value::Object(out)))
     }
     .await;
@@ -769,7 +781,11 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
         .or_else(|| data.text("baseCurrency"))
         .unwrap_or(adapter.default_currency)
         .to_owned();
-    let at = now();
+    // `new Date()`: the text the rows and the response carry, and the
+    // `timestamp` the ORM writes, the same instant.
+    let instant = OffsetDateTime::now_utc();
+    let at = weldsuite_events::iso_timestamp(instant);
+    let stamp = weldsuite_db::utc_timestamp(instant);
     let accounting_method = data
         .get("accountingMethod")
         .filter(|m| !m.is_null())
@@ -903,9 +919,11 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
             timezone: timezone.as_deref(),
             seed_chart: data.seed_defaults,
             at: &at,
+            stamp,
         },
     )
-    .await?;
+    .await
+    .map_err(sqlx_error)?;
 
     // The default entity: the first company, or the one asked for. Making an
     // existing company the workspace default is a company change
@@ -920,7 +938,9 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
             .await
             .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
     } else if default_asked || is_default {
-        make_default_entity(db, &entity_id, &at).await?;
+        make_default_entity(db, &entity_id, &at, stamp)
+            .await
+            .map_err(sqlx_error)?;
     }
     write_accounting_audit(
         caller,
@@ -975,6 +995,8 @@ struct SeedDefaults<'a> {
     timezone: Option<&'a str>,
     seed_chart: bool,
     at: &'a str,
+    /// `at` as the `timestamp` columns hold it.
+    stamp: PrimitiveDateTime,
 }
 
 /// `seedWeldbooksDefaults`: the number sequences (invoice, bill, credit
@@ -984,35 +1006,29 @@ struct SeedDefaults<'a> {
 async fn seed_weldbooks_defaults(
     db: &sqlx::PgPool,
     args: &SeedDefaults<'_>,
-) -> Result<(usize, usize), sqlx::Error> {
-    let mut ids = Vec::new();
-    let mut types = Vec::new();
-    let mut prefixes = Vec::new();
-    for (kind_name, prefix) in [
+) -> Result<(usize, usize), DbErr> {
+    let padding = i32::try_from(args.padding).unwrap_or(4);
+    let sequences = [
         ("invoice", "INV-"),
         ("bill", "BILL-"),
         ("creditNote", "CN-"),
         ("journal", "JE-"),
-    ] {
-        ids.push(generate_id("seq"));
-        types.push(kind_name);
-        prefixes.push(prefix);
-    }
-    sqlx::query(
-        "insert into entity_number_sequences \
-           (id, entity_id, sequence_type, prefix, next_value, padding, created_at, updated_at) \
-         select s.id, $2, s.sequence_type, s.prefix, 1, $5, $6::timestamp, $6::timestamp \
-         from unnest($1::text[], $3::text[], $4::text[]) as s(id, sequence_type, prefix) \
-         on conflict do nothing",
-    )
-    .bind(&ids)
-    .bind(args.entity_id)
-    .bind(&types)
-    .bind(&prefixes)
-    .bind(i32::try_from(args.padding).unwrap_or(4))
-    .bind(args.at)
-    .execute(db)
-    .await?;
+    ]
+    .map(|(kind, prefix)| entity_number_sequences::ActiveModel {
+        id: Set(generate_id("seq")),
+        entity_id: Set(args.entity_id.to_owned()),
+        sequence_type: Set(kind.to_owned()),
+        prefix: Set(prefix.to_owned()),
+        next_value: Set(1),
+        padding: Set(Some(padding)),
+        created_at: Set(args.stamp),
+        updated_at: Set(args.stamp),
+    });
+    // One statement: a sequence the entity already has stays as it is.
+    entity_number_sequences::Entity::insert_many(sequences)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(db))
+        .await?;
     if !args.seed_chart {
         return Ok((0, 0));
     }
@@ -1024,13 +1040,22 @@ async fn seed_weldbooks_defaults(
 async fn seed_defaults(
     db: &sqlx::PgPool,
     args: &SeedDefaults<'_>,
-) -> Result<(usize, usize), sqlx::Error> {
-    let (has_accounts, has_rates): (bool, bool) = sqlx::query_as(
-        "select exists (select 1 from accounts where entity_id = $1), \
-                exists (select 1 from tax_rates where entity_id = $1)",
+) -> Result<(usize, usize), DbErr> {
+    let has_accounts = accounts::Entity::find()
+        .select_only()
+        .expr(Expr::val(1))
+        .filter(accounts::Column::EntityId.eq(args.entity_id));
+    let has_rates = tax_rates::Entity::find()
+        .select_only()
+        .expr(Expr::val(1))
+        .filter(tax_rates::Column::EntityId.eq(args.entity_id));
+    let [has_accounts, has_rates] = select_flags(
+        &orm(db),
+        [
+            Expr::exists(sea_orm::QueryTrait::into_query(has_accounts)),
+            Expr::exists(sea_orm::QueryTrait::into_query(has_rates)),
+        ],
     )
-    .bind(args.entity_id)
-    .fetch_one(db)
     .await?;
     let accounts = if has_accounts {
         Vec::new()
@@ -1100,7 +1125,8 @@ async fn seed_defaults(
             Ok::<_, sqlx::Error>(())
         })
     })
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(counts)
 }
 
@@ -1110,19 +1136,21 @@ async fn make_default_entity(
     db: &sqlx::PgPool,
     entity_id: &str,
     at: &str,
-) -> Result<(), sqlx::Error> {
-    let existing: Option<String> = sqlx::query_scalar("select id from settings limit 1")
-        .fetch_optional(db)
+    stamp: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let existing: Option<String> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
         .await?;
     if let Some(id) = existing {
-        sqlx::query(
-            "update settings set default_entity_id = $1, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(entity_id)
-        .bind(at)
-        .bind(id)
-        .execute(db)
-        .await?;
+        settings::Entity::update_many()
+            .col_expr(settings::Column::DefaultEntityId, Expr::value(entity_id))
+            .col_expr(settings::Column::UpdatedAt, Expr::value(stamp))
+            .filter(settings::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     } else {
         let mut row = Map::new();
         for (key, value) in [
@@ -1133,7 +1161,10 @@ async fn make_default_entity(
         ] {
             row.insert(key.to_owned(), value);
         }
-        SETTINGS.insert_raw(db, SETTINGS.values(&row)).await?;
+        SETTINGS
+            .insert_raw(db, SETTINGS.values(&row))
+            .await
+            .map_err(weldsuite_db::orm_error)?;
     }
     Ok(())
 }
@@ -1211,7 +1242,7 @@ async fn lock_conflict(
     existing: &Map<String, Value>,
     data: &EntityBody,
     next_jurisdiction: &str,
-) -> Result<Option<(String, Value)>, sqlx::Error> {
+) -> Result<Option<(String, Value)>, DbErr> {
     let upper = |key: &str| {
         existing
             .get(key)
@@ -1372,7 +1403,10 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         return Err(Refusal::bad_request(unsupported(&next)));
     }
     let is_us = next == "US";
-    if let Some((message, details)) = lock_conflict(caller, &existing, &data, &next).await? {
+    if let Some((message, details)) = lock_conflict(caller, &existing, &data, &next)
+        .await
+        .map_err(sqlx_error)?
+    {
         return Err(Refusal::conflict_with(message, details));
     }
 
@@ -1566,13 +1600,16 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         .and_then(Value::as_str)
         .filter(|account| !account.is_empty())
     {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(account)
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+        let found: Option<String> = bank_accounts::Entity::find()
+            .select_only()
+            .column(bank_accounts::Column::Id)
+            .filter(bank_accounts::Column::Id.eq(account))
+            .filter(bank_accounts::Column::EntityId.eq(id))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         if found.is_none() {
             return Err(Refusal::bad_request(
                 "That bank account does not belong to this entity",
@@ -1678,10 +1715,12 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         && let Some(classification) = patch.get("taxClassification")
         && Some(classification) != existing.get("taxClassification")
     {
-        sync_br_tax_profiles(db, id, classification.as_str()).await?;
+        sync_br_tax_profiles(db, id, classification.as_str())
+            .await
+            .map_err(sqlx_error)?;
     }
     let mut out = object(serialize(updated.as_ref().unwrap_or(&existing)));
-    out.extend(object(lock_state(db, id).await?));
+    out.extend(object(lock_state(db, id).await.map_err(sqlx_error)?));
     out.insert("taxLineRemapNeeded".to_owned(), json!(form_changed));
     Ok(ok(Value::Object(out)))
 }
@@ -1743,7 +1782,9 @@ async fn apply_lines(
         let year = input
             .1
             .unwrap_or_else(|| tax_year_of(entity["timezone"].as_str()));
-        let result = apply_tax_lines(&caller.db, &entity, input.0, year).await?;
+        let result = apply_tax_lines(&caller.db, &entity, input.0, year)
+            .await
+            .map_err(sqlx_error)?;
         let updated = result["updated"].as_i64().unwrap_or(0);
         if updated > 0 {
             let mut changes = Map::new();
@@ -1809,16 +1850,19 @@ async fn reveal_ssn(
         let plaintext = weldsuite_db::decrypt_field(sealed, &caller.keyring(&state))
             .map_err(|error| Refusal::Internal(error.to_string()))?;
         // No log row, no reveal.
-        sqlx::query(
-            "insert into tax_id_reveals (id, entity_id, subject_type, subject_id, field, revealed_by, reason) \
-             values ($1, $2, 'entity', $2, 'ssn', $3, $4)",
-        )
-        .bind(generate_id("tir"))
-        .bind(&id)
-        .bind(&caller.user_id)
-        .bind(&reason)
-        .execute(&caller.db)
-        .await?;
+        tax_id_reveals::Entity::insert(tax_id_reveals::ActiveModel {
+            id: Set(generate_id("tir")),
+            entity_id: Set(Some(id.clone())),
+            subject_type: Set("entity".to_owned()),
+            subject_id: Set(id.clone()),
+            field: Set("ssn".to_owned()),
+            revealed_by: Set(caller.user_id.clone()),
+            reason: Set(reason.clone()),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
+        .await
+        .map_err(sqlx_error)?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1863,16 +1907,22 @@ async fn remove(
             return Err(Refusal::not_found("Entity", &id));
         }
         let has_data = LegalEntityApp::Weldbooks.has_data(&caller.db, &id).await?;
-        if has_data || lock_state(&caller.db, &id).await?["hasPostings"] == true {
+        if has_data
+            || lock_state(&caller.db, &id)
+                .await
+                .map_err(sqlx_error)?["hasPostings"]
+                == true
+        {
             return Err(Refusal::conflict_with(
                 "WeldBooks already holds invoices, bills or journal entries for this entity. Archive or delete the company in Settings → Legal entities instead.",
                 json!({ "code": "ENTITY_HAS_POSTINGS" }),
             ));
         }
-        sqlx::query("delete from accounting_entity_settings where entity_id = $1")
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+        accounting_entity_settings::Entity::delete_many()
+            .filter(accounting_entity_settings::Column::EntityId.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?;
         write_accounting_audit(
             &caller,
             &caller.db,

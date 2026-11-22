@@ -20,6 +20,11 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, Feature, Task, Tier};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
@@ -27,6 +32,7 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
 use weldsuite_books_domain::tables::DOCUMENTS;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_DOCUMENT_CREATED, ACCOUNTING_DOCUMENT_DELETED, ACCOUNTING_DOCUMENT_UPDATED,
 };
@@ -34,8 +40,11 @@ use weldsuite_kit::validation::{Field, Number, Presence};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{documents, exemption_certificates, parties};
 
 use crate::ocr::{OCR_OP, OcrFailure, load_ocr_file, match_vendor_to_contact, read_document};
+use crate::orm_bridge::refused;
+use crate::rows::{js, js_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -79,19 +88,32 @@ where
 }
 
 /// The live document `id`, as Drizzle returns it.
-pub(crate) async fn find_document(
-    db: &sqlx::PgPool,
+pub(crate) async fn find_document(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    documents::Entity::find()
+        .filter(documents::Column::Id.eq(id))
+        .filter(documents::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
+}
+
+/// `update documents set …, updatedAt = now where id = …`.
+async fn update_document(
+    db: &PgPool,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(documents),
-        " from documents t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DOCUMENTS.js(row)))
+    changes: &[(documents::Column, Expr)],
+) -> Result<(), DbErr> {
+    let mut update = documents::Entity::update_many();
+    for (column, value) in changes {
+        update = update.col_expr(*column, value.clone());
+    }
+    update
+        .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(documents::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
@@ -117,19 +139,23 @@ fn is_workspace_object_key(key: &str, org: Option<&str>) -> bool {
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = Query::parse(raw.as_deref());
     let result: Reply = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(documents),
-            " from documents t where t.deleted_at is null \
-             and ($1::text is null or t.status = $1) and ($2::text is null or t.type = $2) \
-             and ($3::text is null or t.source = $3) order by t.created_at desc limit 100"
-        ))
-        .bind(q.present("status"))
-        .bind(q.present("type"))
-        .bind(q.present("source"))
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(DOCUMENTS.js_rows(rows))))
+        let mut listed = documents::Entity::find().filter(documents::Column::DeletedAt.is_null());
+        if let Some(status) = q.present("status") {
+            listed = listed.filter(documents::Column::Status.eq(status));
+        }
+        if let Some(kind) = q.present("type") {
+            listed = listed.filter(documents::Column::Type.eq(kind));
+        }
+        if let Some(source) = q.present("source") {
+            listed = listed.filter(documents::Column::Source.eq(source));
+        }
+        let rows = listed
+            .order_by_desc(documents::Column::CreatedAt)
+            .limit(100)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
+        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
     }
     .await;
     reply(result, "Failed to fetch documents")
@@ -137,11 +163,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 async fn stats(caller: Caller) -> Response {
     let result: Reply = async {
-        let rows: Vec<(Option<String>, i32)> = sqlx::query_as(
-            "select status, count(*)::int from documents where deleted_at is null group by status",
-        )
-        .fetch_all(&caller.db)
-        .await?;
+        let rows: Vec<(Option<String>, i32)> = documents::Entity::find()
+            .select_only()
+            .column(documents::Column::Status)
+            .column_as(
+                Expr::from(Func::count(Expr::col(Asterisk))).cast_as("int"),
+                "count",
+            )
+            .filter(documents::Column::DeletedAt.is_null())
+            .group_by(documents::Column::Status)
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         let rows = rows
             .into_iter()
             .map(|(status, count)| json!({ "status": status, "count": count }))
@@ -154,7 +188,7 @@ async fn stats(caller: Caller) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        match find_document(&caller.db, &id).await? {
+        match find_document(&caller.db, &id).await.map_err(refused)? {
             Some(doc) => Ok(ok(doc)),
             None => Err(Refusal::not_found("Document", &id)),
         }
@@ -271,30 +305,35 @@ async fn create(
 
 /// `isTaxFormDocument(db, doc)`: filed as a tax form, or attached to a
 /// vendor's W-9 or a customer's exemption certificate.
-async fn is_tax_form_document(db: &sqlx::PgPool, doc: &Value) -> Result<bool, sqlx::Error> {
+async fn is_tax_form_document(db: &PgPool, doc: &Value) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
     if text(doc, "type") == Some("tax_form") {
         return Ok(true);
     }
     let id = text(doc, "id").unwrap_or_default();
-    let found: bool = sqlx::query_scalar(
-        "select exists (select 1 from parties where w9->>'documentId' = $1) \
-         or exists (select 1 from exemption_certificates where document_id = $1)",
-    )
-    .bind(id)
-    .fetch_one(db)
-    .await?;
-    Ok(found)
+    let w9 = sea_orm::sea_query::Query::select()
+        .expr(Expr::val(1))
+        .from(parties::Entity)
+        .and_where(PgExpr::cast_json_field(Expr::col(parties::Column::W9), "documentId").eq(id))
+        .to_owned();
+    let certificate = sea_orm::sea_query::Query::select()
+        .expr(Expr::val(1))
+        .from(exemption_certificates::Entity)
+        .and_where(exemption_certificates::Column::DocumentId.eq(id))
+        .to_owned();
+    let found = sea_orm::sea_query::Query::select()
+        .expr_as(Expr::exists(w9).or(Expr::exists(certificate)), "found")
+        .to_owned();
+    let row = orm(db).query_one(&found).await?;
+    match row {
+        Some(row) => row.try_get_by_index(0),
+        None => Ok(false),
+    }
 }
 
 /// Sets the document's status (the `processing` mark, the `failed` one).
-async fn set_status(db: &sqlx::PgPool, id: &str, status: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update documents set status = $2, updated_at = $3::timestamp where id = $1")
-        .bind(id)
-        .bind(status)
-        .bind(now())
-        .execute(db)
-        .await?;
-    Ok(())
+async fn set_status(db: &PgPool, id: &str, status: &str) -> Result<(), DbErr> {
+    update_document(db, id, &[(documents::Column::Status, Expr::value(status))]).await
 }
 
 async fn process(
@@ -306,10 +345,13 @@ async fn process(
         return Refusal::from(ApiError::unauthorized()).respond("");
     }
     let result: Reply = async {
-        let Some(doc) = find_document(&caller.db, &id).await? else {
+        let Some(doc) = find_document(&caller.db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        if is_tax_form_document(&caller.db, &doc).await? {
+        if is_tax_form_document(&caller.db, &doc)
+            .await
+            .map_err(refused)?
+        {
             return Err(Refusal::bad_request(
                 "Tax forms such as W-9s and exemption certificates are never sent to OCR.",
             ));
@@ -318,11 +360,15 @@ async fn process(
         let Some(ai) = caller.ai(&state) else {
             return Err(AiError::Unavailable.into_api_error().into());
         };
-        set_status(&caller.db, &id, "processing").await?;
+        set_status(&caller.db, &id, "processing")
+            .await
+            .map_err(refused)?;
         match read_and_store(&caller, &state, &ai, &doc, &id).await {
             Ok(response) => Ok(response),
             Err(failure) => {
-                set_status(&caller.db, &id, "failed").await?;
+                set_status(&caller.db, &id, "failed")
+                    .await
+                    .map_err(refused)?;
                 Err(failure.into_api_error().into())
             }
         }
@@ -341,7 +387,7 @@ async fn read_and_store(
     doc: &Value,
     id: &str,
 ) -> Result<Response, OcrFailure> {
-    let failed = |error: sqlx::Error| OcrFailure::Failed(error.to_string());
+    let failed = |error: DbErr| OcrFailure::Failed(error.to_string());
     let db = &caller.db;
     let file = load_ocr_file(
         &caller.buckets(state),
@@ -368,20 +414,21 @@ async fn read_and_store(
     let matched = match_vendor_to_contact(db, &ocr_result)
         .await
         .map_err(failed)?;
-    let now = now();
-    sqlx::query(
-        "update documents set status = 'processed', ocr_result = $2::jsonb, \
-         ocr_processed_at = $3::timestamp, ocr_model = $4, matched_contact_id = $5, \
-         updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&ocr_result)
-    .bind(&now)
-    .bind(&served.model)
-    .bind(&matched)
-    .execute(db)
-    .await
-    .map_err(failed)?;
+    let at = utc_now();
+    documents::Entity::update_many()
+        .col_expr(documents::Column::Status, Expr::value("processed"))
+        .col_expr(documents::Column::OcrResult, Expr::value(ocr_result.clone()))
+        .col_expr(documents::Column::OcrProcessedAt, Expr::value(at))
+        .col_expr(documents::Column::OcrModel, Expr::value(served.model.clone()))
+        .col_expr(
+            documents::Column::MatchedContactId,
+            Expr::value(matched.clone()),
+        )
+        .col_expr(documents::Column::UpdatedAt, Expr::value(at))
+        .filter(documents::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(failed)?;
     let mut changes = Map::new();
     changes.insert(
         "status".into(),
@@ -415,7 +462,7 @@ async fn read_and_store(
 async fn rematch(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await? else {
+        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Document", &id));
         };
         let Some(ocr) = doc.get("ocrResult").filter(|v| !v.is_null()) else {
@@ -423,13 +470,17 @@ async fn rematch(caller: Caller, Path(id): Path<String>) -> Response {
                 "Document has no OCR result to match against",
             ));
         };
-        let matched = match_vendor_to_contact(db, ocr).await?;
-        sqlx::query("update documents set matched_contact_id = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(&matched)
-            .bind(now())
-            .execute(db)
-            .await?;
+        let matched = match_vendor_to_contact(db, ocr).await.map_err(refused)?;
+        update_document(
+            db,
+            &id,
+            &[(
+                documents::Column::MatchedContactId,
+                Expr::value(matched.clone()),
+            )],
+        )
+        .await
+        .map_err(refused)?;
         Ok(ok(json!({ "id": id, "matchedContactId": matched })))
     }
     .await;
@@ -483,19 +534,26 @@ async fn link(
     let (kind, target) = body;
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await? else {
+        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        sqlx::query(
-            "update documents set linked_entity_type = $2, linked_entity_id = $3, status = 'linked', \
-             updated_at = $4::timestamp where id = $1",
+        update_document(
+            db,
+            &id,
+            &[
+                (
+                    documents::Column::LinkedEntityType,
+                    Expr::value(kind.as_str()),
+                ),
+                (
+                    documents::Column::LinkedEntityId,
+                    Expr::value(target.as_str()),
+                ),
+                (documents::Column::Status, Expr::value("linked")),
+            ],
         )
-        .bind(&id)
-        .bind(&kind)
-        .bind(&target)
-        .bind(now())
-        .execute(db)
-        .await?;
+        .await
+        .map_err(refused)?;
         let mut changes = Map::new();
         changes.insert("status".into(), change(doc.get("status"), &json!("linked")));
         changes.insert(
@@ -526,16 +584,16 @@ async fn reject(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await? else {
+        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        sqlx::query(
-            "update documents set status = 'rejected', updated_at = $2::timestamp where id = $1",
+        update_document(
+            db,
+            &id,
+            &[(documents::Column::Status, Expr::value("rejected"))],
         )
-        .bind(&id)
-        .bind(now())
-        .execute(db)
-        .await?;
+        .await
+        .map_err(refused)?;
         let mut changes = Map::new();
         changes.insert(
             "status".into(),
@@ -561,15 +619,17 @@ async fn remove(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await? else {
+        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        let now = now();
-        sqlx::query("update documents set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(db)
-            .await?;
+        let at = utc_now();
+        documents::Entity::update_many()
+            .col_expr(documents::Column::DeletedAt, Expr::value(at))
+            .col_expr(documents::Column::UpdatedAt, Expr::value(at))
+            .filter(documents::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(&caller, db, audit(&doc, &id, "deleted", None)).await;
         caller.publish(&state, ACCOUNTING_DOCUMENT_DELETED, &id, json!({ "id": id }));
         Ok(no_content())

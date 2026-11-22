@@ -36,6 +36,7 @@ mod fiscal;
 mod gst;
 mod icp_declarations;
 mod nl;
+mod orm_bridge;
 mod vat_returns;
 
 use std::sync::Arc;

@@ -8,8 +8,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgPool;
 use weldsuite_books_domain::dates::is_iso_date;
 use weldsuite_books_domain::depreciation::{DepreciationSchedule, depreciation_basis};
 use weldsuite_books_domain::guards::{PostingCheck, PostingLockKind, assert_posting_allowed};
@@ -20,10 +25,14 @@ use weldsuite_books_domain::posting::{
     post_journal_entry,
 };
 use weldsuite_books_domain::reports_basis::periods::fiscal_config_of;
-use weldsuite_books_domain::tables::{
-    BILL_ITEMS, BILLS, ENTITIES, FIXED_ASSET_BOOKS, FIXED_ASSET_DEPRECIATION, FIXED_ASSETS,
-};
+use weldsuite_books_domain::tables::{FIXED_ASSET_BOOKS, FIXED_ASSETS};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    accounting_dimension_values, bill_items, bills, entities, fixed_asset_books,
+    fixed_asset_depreciation, fixed_assets,
+};
 
 use super::books::{
     BookAssetFacts, BookInput, BookIssue, NormalizedBook, default_books, normalize_books,
@@ -37,27 +46,38 @@ use super::shared::{
     is_macrs_book, iso_day, money, not_found, num, opt, present, text, to_cents,
     to_depreciation_asset, to_depreciation_book,
 };
+use crate::rows::{decimal_of, js, js_rows, now_and_stamp};
+
+/// `fixedAssets`, written from `{ column: value }` objects as Drizzle's
+/// `insert` / `update` wrote them.
+const ASSETS: JsonTable = JsonTable::of::<fixed_assets::Entity>();
+/// `fixedAssetBooks`.
+const BOOKS: JsonTable = JsonTable::of::<fixed_asset_books::Entity>();
+/// `fixedAssetDepreciation`.
+const DEPRECIATION: JsonTable = JsonTable::of::<fixed_asset_depreciation::Entity>();
 
 // ---------------------------------------------------------------------------
 // Loading
 
 /// `loadEntity(db, entityId)`.
 pub(crate) async fn load_entity(db: &PgPool, entity_id: &str) -> Result<Value, Fail> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| ENTITIES.js(row))
-        .ok_or_else(|| not_found("Accounting entity not found"))
+    let row = entities::Entity::find_by_id(entity_id.to_owned())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(not_found("Accounting entity not found")),
+    }
 }
 
 /// `loadAsset(db, id)`.
-pub(crate) async fn load_asset(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    FIXED_ASSETS.find_live(db, id).await
+pub(crate) async fn load_asset(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = fixed_assets::Entity::find_by_id(id.to_owned())
+        .filter(fixed_assets::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(|row| js!(row)).transpose()
 }
 
 fn book_order(book: &Value) -> i64 {
@@ -70,16 +90,12 @@ fn book_order(book: &Value) -> i64 {
 }
 
 /// `loadBooks(db, assetId)`: book, federal, then the states.
-pub(crate) async fn load_books(db: &PgPool, asset_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fixed_asset_books),
-        " from fixed_asset_books t where t.asset_id = $1"
-    ))
-    .bind(asset_id)
-    .fetch_all(db)
-    .await?;
-    let mut rows = FIXED_ASSET_BOOKS.js_rows(rows);
+pub(crate) async fn load_books(db: &PgPool, asset_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = fixed_asset_books::Entity::find()
+        .filter(fixed_asset_books::Column::AssetId.eq(asset_id))
+        .all(&orm(db))
+        .await?;
+    let mut rows = js_rows!(rows)?;
     rows.sort_by(|a, b| {
         book_order(a).cmp(&book_order(b)).then_with(|| {
             locale_compare(
@@ -96,23 +112,27 @@ pub(crate) async fn load_books(db: &PgPool, asset_id: &str) -> Result<Vec<Value>
 pub(crate) async fn load_entity_book_rows(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Vec<AssetWithBook>, sqlx::Error> {
-    let rows: Vec<(Value, Value)> = sqlx::query_as(concat!(
-        "select (select ",
-        weldsuite_books_domain::books_row!(fixed_assets),
-        " from fixed_assets t where t.id = fa.id), (select ",
-        weldsuite_books_domain::books_row!(fixed_asset_books),
-        " from fixed_asset_books t where t.id = fab.id) \
-         from fixed_asset_books fab inner join fixed_assets fa on fab.asset_id = fa.id \
-         where fa.entity_id = $1 and fa.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(asset, book)| (FIXED_ASSETS.js(asset), FIXED_ASSET_BOOKS.js(book)))
-        .collect())
+) -> Result<Vec<AssetWithBook>, DbErr> {
+    let rows = fixed_asset_books::Entity::find()
+        .join(JoinType::InnerJoin, book_asset())
+        .select_also(fixed_assets::Entity)
+        .filter(fixed_assets::Column::EntityId.eq(entity_id))
+        .filter(fixed_assets::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    // The inner join always has the asset.
+    rows.into_iter()
+        .filter_map(|(book, asset)| Some((asset?, book)))
+        .map(|(asset, book)| Ok((js!(asset)?, js!(book)?)))
+        .collect()
+}
+
+/// `innerJoin(fixedAssets, eq(fixedAssetBooks.assetId, fixedAssets.id))`.
+fn book_asset() -> RelationDef {
+    fixed_asset_books::Entity::belongs_to(fixed_assets::Entity)
+        .from(fixed_asset_books::Column::AssetId)
+        .to(fixed_assets::Column::Id)
+        .into()
 }
 
 /// `loadLedgerRows(db, assetId, bookId)`, by period.
@@ -120,28 +140,29 @@ pub(crate) async fn load_ledger_rows(
     db: &PgPool,
     asset_id: &str,
     book_id: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fixed_asset_depreciation),
-        " from fixed_asset_depreciation t where t.asset_id = $1 \
-         and ($2::text is null or t.book_id = $2) order by t.period_start"
-    ))
-    .bind(asset_id)
-    .bind(book_id)
-    .fetch_all(db)
-    .await?;
-    Ok(FIXED_ASSET_DEPRECIATION.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    let mut rows =
+        fixed_asset_depreciation::Entity::find().filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id));
+    if let Some(book_id) = book_id {
+        rows = rows.filter(fixed_asset_depreciation::Column::BookId.eq(book_id));
+    }
+    let rows = rows
+        .order_by_asc(fixed_asset_depreciation::Column::PeriodStart)
+        .all(&orm(db))
+        .await?;
+    js_rows!(rows)
 }
 
 /// `hasPostedDepreciation(db, assetId)`.
-async fn has_posted_depreciation(db: &PgPool, asset_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from fixed_asset_depreciation where asset_id = $1 and journal_entry_id is not null limit 1",
-    )
-    .bind(asset_id)
-    .fetch_optional(db)
-    .await?;
+async fn has_posted_depreciation(db: &PgPool, asset_id: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = fixed_asset_depreciation::Entity::find()
+        .select_only()
+        .column(fixed_asset_depreciation::Column::Id)
+        .filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id))
+        .filter(fixed_asset_depreciation::Column::JournalEntryId.is_not_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -149,7 +170,7 @@ async fn has_posted_depreciation(db: &PgPool, asset_id: &str) -> Result<bool, sq
 pub(crate) async fn schedule_context_for(
     db: &PgPool,
     entity: &Value,
-) -> Result<ScheduleContext, sqlx::Error> {
+) -> Result<ScheduleContext, DbErr> {
     let config = fiscal_config_of(entity);
     let rows = load_entity_book_rows(db, text(entity, "id")).await?;
     let conventions = macrs_convention_map(&config, &rows);
@@ -230,15 +251,16 @@ async fn assert_dimension(
     let Some(id) = id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from accounting_dimension_values where id = $1 and entity_id = $2 \
-         and dimension = $3 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(entity_id)
-    .bind(dimension)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<String> = accounting_dimension_values::Entity::find()
+        .select_only()
+        .column(accounting_dimension_values::Column::Id)
+        .filter(accounting_dimension_values::Column::Id.eq(id))
+        .filter(accounting_dimension_values::Column::EntityId.eq(entity_id))
+        .filter(accounting_dimension_values::Column::Dimension.eq(dimension))
+        .filter(accounting_dimension_values::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if row.is_none() {
         return Err(bad(format!(
             "{dimension}Id is not a {dimension} of this accounting entity"
@@ -469,15 +491,40 @@ fn ledger_insert_rows(
         .collect()
 }
 
-async fn insert_ledger_rows(
-    conn: &mut PgConnection,
+async fn insert_ledger_rows<C: ConnectionTrait>(
+    db: &C,
     rows: &[Map<String, Value>],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     for row in rows {
-        FIXED_ASSET_DEPRECIATION
-            .insert_raw(&mut *conn, row.clone())
-            .await?;
+        DEPRECIATION.insert(db, row.clone()).await?;
     }
+    Ok(())
+}
+
+/// Delete the asset's depreciation rows: all of them, or with a book only
+/// that book's unposted rows.
+async fn delete_ledger_rows<C: ConnectionTrait>(
+    db: &C,
+    asset_id: &str,
+    book_id: Option<&str>,
+) -> Result<(), DbErr> {
+    let mut delete = fixed_asset_depreciation::Entity::delete_many()
+        .filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id));
+    if let Some(book_id) = book_id {
+        delete = delete
+            .filter(fixed_asset_depreciation::Column::BookId.eq(book_id))
+            .filter(fixed_asset_depreciation::Column::JournalEntryId.is_null());
+    }
+    delete.exec(db).await?;
+    Ok(())
+}
+
+/// `delete(fixedAssetBooks).where(eq(assetId))`.
+async fn delete_books<C: ConnectionTrait>(db: &C, asset_id: &str) -> Result<(), DbErr> {
+    fixed_asset_books::Entity::delete_many()
+        .filter(fixed_asset_books::Column::AssetId.eq(asset_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -514,7 +561,7 @@ pub(crate) async fn replace_ledger_rows(
     book: &Value,
     rows: &[LedgerRowInput],
     posted: &[Value],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), Fail> {
     let posted_starts: HashSet<String> = posted
         .iter()
         .map(|row| text(row, "periodStart").to_owned())
@@ -522,17 +569,12 @@ pub(crate) async fn replace_ledger_rows(
     let inserts = ledger_insert_rows(asset, book, rows, &now(), &posted_starts);
     let asset_id = text(asset, "id").to_owned();
     let book_id = text(book, "id").to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            sqlx::query(
-                "delete from fixed_asset_depreciation where asset_id = $1 and book_id = $2 \
-                 and journal_entry_id is null",
-            )
-            .bind(&asset_id)
-            .bind(&book_id)
-            .execute(&mut *conn)
-            .await?;
-            insert_ledger_rows(conn, &inserts).await
+            let tx = OrmConn::new(conn);
+            delete_ledger_rows(&tx, &asset_id, Some(&book_id)).await?;
+            insert_ledger_rows(&tx, &inserts).await?;
+            Ok(())
         })
     })
     .await
@@ -721,13 +763,15 @@ pub(crate) async fn create_fixed_asset(
     });
     let asset_row = asset_values(&asset);
     let book_rows: Vec<Map<String, Value>> = books.iter().map(book_values).collect();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            FIXED_ASSETS.insert_raw(&mut *conn, asset_row).await?;
+            let tx = OrmConn::new(conn);
+            ASSETS.insert(&tx, asset_row).await?;
             for book in book_rows {
-                FIXED_ASSET_BOOKS.insert_raw(&mut *conn, book).await?;
+                BOOKS.insert(&tx, book).await?;
             }
-            insert_ledger_rows(conn, &ledger_inserts).await
+            insert_ledger_rows(&tx, &ledger_inserts).await?;
+            Ok(())
         })
     })
     .await?;
@@ -742,19 +786,16 @@ pub(crate) async fn create_fixed_asset(
     })
 }
 
-async fn asset_number_taken(
-    db: &PgPool,
-    entity_id: &str,
-    number: &str,
-) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from fixed_assets where entity_id = $1 and asset_number = $2 \
-         and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .bind(number)
-    .fetch_optional(db)
-    .await?;
+async fn asset_number_taken(db: &PgPool, entity_id: &str, number: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = fixed_assets::Entity::find()
+        .select_only()
+        .column(fixed_assets::Column::Id)
+        .filter(fixed_assets::Column::EntityId.eq(entity_id))
+        .filter(fixed_assets::Column::AssetNumber.eq(number))
+        .filter(fixed_assets::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -763,7 +804,7 @@ async fn asset_number_taken(
 pub(crate) async fn refresh_macrs_conventions(
     db: &PgPool,
     entity: &Value,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
     let config = fiscal_config_of(entity);
     let rows = load_entity_book_rows(db, text(entity, "id")).await?;
     let conventions: Conventions = macrs_convention_map(&config, &rows);
@@ -781,11 +822,14 @@ pub(crate) async fn refresh_macrs_conventions(
         if want == text(book, "convention") {
             continue;
         }
-        sqlx::query("update fixed_asset_books set convention = $1, updated_at = $2::timestamp where id = $3")
-            .bind(want)
-            .bind(now())
-            .bind(text(book, "id"))
-            .execute(db)
+        fixed_asset_books::Entity::update_many()
+            .col_expr(fixed_asset_books::Column::Convention, Expr::value(want))
+            .col_expr(
+                fixed_asset_books::Column::UpdatedAt,
+                Expr::value(weldsuite_db::utc_now()),
+            )
+            .filter(fixed_asset_books::Column::Id.eq(text(book, "id")))
+            .exec(&orm(db))
             .await?;
         changed += 1;
     }
@@ -948,7 +992,7 @@ pub(crate) async fn update_fixed_asset(
                 FIXED_ASSETS.set(&mut values, key, value.clone());
             }
             FIXED_ASSETS.set(&mut values, "updatedAt", json!(now()));
-            FIXED_ASSETS.patch_raw(db, asset_id, values, false).await?;
+            ASSETS.update(&orm(db), asset_id, values, false).await?;
         }
         let asset = load_asset(db, asset_id).await?.unwrap_or(Value::Null);
         let books = load_books(db, asset_id).await?;
@@ -965,12 +1009,14 @@ pub(crate) async fn update_fixed_asset(
             "A disposed asset can only have its name, number, notes, class and location changed",
         ));
     }
-    let posted: Vec<String> = sqlx::query_scalar(
-        "select id from fixed_asset_depreciation where asset_id = $1 and journal_entry_id is not null",
-    )
-    .bind(asset_id)
-    .fetch_all(db)
-    .await?;
+    let posted: Vec<String> = fixed_asset_depreciation::Entity::find()
+        .select_only()
+        .column(fixed_asset_depreciation::Column::Id)
+        .filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id))
+        .filter(fixed_asset_depreciation::Column::JournalEntryId.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if !posted.is_empty() {
         let given: Vec<&str> = [
             ("assetAccountId", patch.asset_account_id.is_some()),
@@ -1031,7 +1077,7 @@ pub(crate) async fn update_fixed_asset(
         Some(&next_text("depreciationExpenseAccountId")),
     )?;
 
-    let at = now();
+    let (at, stamp) = now_and_stamp();
     let mut updated = before.clone();
     for (key, value) in &set {
         updated[key.as_str()] = value.clone();
@@ -1134,60 +1180,48 @@ pub(crate) async fn update_fixed_asset(
 
     let id = asset_id.to_owned();
     let book_rows: Vec<Map<String, Value>> = books.iter().map(book_values).collect();
-    let book_updates: Vec<(String, String, String)> = books
+    let book_updates: Vec<(String, String, sea_orm::prelude::BigDecimal)> = books
         .iter()
         .map(|book| {
-            (
+            Ok((
                 text(book, "id").to_owned(),
                 text(book, "convention").to_owned(),
-                text(book, "depreciableBasis").to_owned(),
-            )
+                // `$n::numeric` of the `toFixed(2)` text.
+                decimal_of(text(book, "depreciableBasis"))?,
+            ))
         })
-        .collect();
+        .collect::<Result<_, DbErr>>()?;
     let ledger_inserts = ledger.as_ref().map_or_else(Vec::new, |(book, rows)| {
         ledger_insert_rows(&updated, book, rows, &at, &HashSet::new())
     });
     let ledger_book_id = ledger.as_ref().map(|(book, _)| text(book, "id").to_owned());
-    let stamp = at.clone();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            FIXED_ASSETS.patch_raw(&mut *conn, &id, asset_set, false).await?;
+            let tx = OrmConn::new(conn);
+            ASSETS.update(&tx, &id, asset_set, false).await?;
             if replace {
-                sqlx::query("delete from fixed_asset_depreciation where asset_id = $1")
-                    .bind(&id)
-                    .execute(&mut *conn)
-                    .await?;
-                sqlx::query("delete from fixed_asset_books where asset_id = $1")
-                    .bind(&id)
-                    .execute(&mut *conn)
-                    .await?;
+                delete_ledger_rows(&tx, &id, None).await?;
+                delete_books(&tx, &id).await?;
                 for book in book_rows {
-                    FIXED_ASSET_BOOKS.insert_raw(&mut *conn, book).await?;
+                    BOOKS.insert(&tx, book).await?;
                 }
-                insert_ledger_rows(conn, &ledger_inserts).await?;
+                insert_ledger_rows(&tx, &ledger_inserts).await?;
             } else {
-                for (book_id, convention, basis) in &book_updates {
-                    sqlx::query(
-                        "update fixed_asset_books set convention = $1, depreciable_basis = $2::numeric, \
-                         updated_at = $3::timestamp where id = $4",
-                    )
-                    .bind(convention)
-                    .bind(basis)
-                    .bind(&stamp)
-                    .bind(book_id)
-                    .execute(&mut *conn)
-                    .await?;
+                for (book_id, convention, basis) in book_updates {
+                    fixed_asset_books::Entity::update_many()
+                        .col_expr(fixed_asset_books::Column::Convention, Expr::value(convention))
+                        .col_expr(
+                            fixed_asset_books::Column::DepreciableBasis,
+                            Expr::value(basis),
+                        )
+                        .col_expr(fixed_asset_books::Column::UpdatedAt, Expr::value(stamp))
+                        .filter(fixed_asset_books::Column::Id.eq(book_id))
+                        .exec(&tx)
+                        .await?;
                 }
                 if let Some(book_id) = ledger_book_id {
-                    sqlx::query(
-                        "delete from fixed_asset_depreciation where asset_id = $1 and book_id = $2 \
-                         and journal_entry_id is null",
-                    )
-                    .bind(&id)
-                    .bind(&book_id)
-                    .execute(&mut *conn)
-                    .await?;
-                    insert_ledger_rows(conn, &ledger_inserts).await?;
+                    delete_ledger_rows(&tx, &id, Some(&book_id)).await?;
+                    insert_ledger_rows(&tx, &ledger_inserts).await?;
                 }
             }
             Ok(())
@@ -1223,25 +1257,19 @@ pub(crate) async fn delete_fixed_asset(db: &PgPool, asset_id: &str) -> Result<Va
             "Depreciation has been posted for this asset, so it cannot be deleted. Dispose of it instead.",
         ));
     }
-    let at = now();
+    let at = weldsuite_db::utc_now();
     let id = asset_id.to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            sqlx::query("delete from fixed_asset_depreciation where asset_id = $1")
-                .bind(&id)
-                .execute(&mut *conn)
+            let tx = OrmConn::new(conn);
+            delete_ledger_rows(&tx, &id, None).await?;
+            delete_books(&tx, &id).await?;
+            fixed_assets::Entity::update_many()
+                .col_expr(fixed_assets::Column::DeletedAt, Expr::value(at))
+                .col_expr(fixed_assets::Column::UpdatedAt, Expr::value(at))
+                .filter(fixed_assets::Column::Id.eq(id))
+                .exec(&tx)
                 .await?;
-            sqlx::query("delete from fixed_asset_books where asset_id = $1")
-                .bind(&id)
-                .execute(&mut *conn)
-                .await?;
-            sqlx::query(
-                "update fixed_assets set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-            )
-            .bind(&at)
-            .bind(&id)
-            .execute(&mut *conn)
-            .await?;
             Ok(())
         })
     })
@@ -1288,39 +1316,36 @@ pub(crate) async fn create_from_bill_line(
     user_id: Option<&str>,
     input: &FromBillLine,
 ) -> Result<FromBill, Fail> {
-    let line: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bill_items),
-        " from bill_items t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(&input.bill_item_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(line) = line.map(|row| BILL_ITEMS.js(row)) else {
+    let orm = orm(db);
+    let line = bill_items::Entity::find()
+        .filter(bill_items::Column::Id.eq(&input.bill_item_id))
+        .filter(bill_items::Column::EntityId.eq(entity_id))
+        .filter(bill_items::Column::DeletedAt.is_null())
+        .one(&orm)
+        .await?;
+    let Some(line) = line.map(|row| js!(row)).transpose()? else {
         return Err(not_found("Bill line not found"));
     };
-    let bill: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bills),
-        " from bills t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(text(&line, "billId"))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(bill) = bill.map(|row| BILLS.js(row)) else {
+    let bill = bills::Entity::find()
+        .filter(bills::Column::Id.eq(text(&line, "billId")))
+        .filter(bills::Column::EntityId.eq(entity_id))
+        .filter(bills::Column::DeletedAt.is_null())
+        .one(&orm)
+        .await?;
+    let Some(bill) = bill.map(|row| js!(row)).transpose()? else {
         return Err(not_found("Bill not found"));
     };
     if text(&bill, "type") == "credit_note" {
         return Err(bad("A credit note line cannot become an asset"));
     }
-    let linked: Option<String> = sqlx::query_scalar(
-        "select id from fixed_assets where bill_item_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(text(&line, "id"))
-    .fetch_optional(db)
-    .await?;
+    let linked: Option<String> = fixed_assets::Entity::find()
+        .select_only()
+        .column(fixed_assets::Column::Id)
+        .filter(fixed_assets::Column::BillItemId.eq(text(&line, "id")))
+        .filter(fixed_assets::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm)
+        .await?;
     if linked.is_some() {
         return Err(conflict(
             "This bill line is already linked to a fixed asset",
@@ -1479,20 +1504,44 @@ pub(crate) async fn create_from_bill_line(
 pub(crate) async fn accumulated_posted_by_asset(
     db: &PgPool,
     asset_ids: &[String],
-) -> Result<HashMap<String, i64>, sqlx::Error> {
+) -> Result<HashMap<String, i64>, DbErr> {
     if asset_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select asset_id, coalesce(sum(amount), 0)::text from fixed_asset_depreciation \
-         where asset_id = any($1) and journal_entry_id is not null group by asset_id",
-    )
-    .bind(asset_ids)
-    .fetch_all(db)
-    .await?;
+    posted_cents_by_asset(&orm(db), asset_ids, None).await
+}
+
+/// Posted depreciation in cents by asset (`coalesce(sum(amount), 0)` of the
+/// posted rows, grouped by asset), through `through` when given.
+pub(crate) async fn posted_cents_by_asset<C: ConnectionTrait>(
+    db: &C,
+    asset_ids: &[String],
+    through: Option<time::Date>,
+) -> Result<HashMap<String, i64>, DbErr> {
+    let mut sums = fixed_asset_depreciation::Entity::find()
+        .select_only()
+        .column(fixed_asset_depreciation::Column::AssetId)
+        .column_as(
+            Expr::from(Func::coalesce([
+                fixed_asset_depreciation::Column::Amount.sum(),
+                Expr::val(0),
+            ])),
+            "total",
+        )
+        .filter(fixed_asset_depreciation::Column::AssetId.is_in(asset_ids.iter().cloned()))
+        .filter(fixed_asset_depreciation::Column::JournalEntryId.is_not_null());
+    if let Some(through) = through {
+        sums = sums.filter(fixed_asset_depreciation::Column::PeriodEnd.lte(through));
+    }
+    let rows: Vec<(String, sea_orm::prelude::BigDecimal)> = sums
+        .group_by(fixed_asset_depreciation::Column::AssetId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    // The sum's text read as a number, then cents (`toCents(asNumber(…))`).
     Ok(rows
         .into_iter()
-        .map(|(id, total)| (id, to_cents(as_number(Some(&json!(total)), 0.0))))
+        .map(|(id, total)| (id, to_cents(as_number(Some(&json!(total.to_plain_string())), 0.0))))
         .collect())
 }
 
@@ -1500,20 +1549,16 @@ pub(crate) async fn accumulated_posted_by_asset(
 pub(crate) async fn books_by_asset(
     db: &PgPool,
     asset_ids: &[String],
-) -> Result<HashMap<String, Vec<Value>>, sqlx::Error> {
+) -> Result<HashMap<String, Vec<Value>>, DbErr> {
     let mut result: HashMap<String, Vec<Value>> = HashMap::new();
     if asset_ids.is_empty() {
         return Ok(result);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fixed_asset_books),
-        " from fixed_asset_books t where t.asset_id = any($1)"
-    ))
-    .bind(asset_ids)
-    .fetch_all(db)
-    .await?;
-    let mut rows = FIXED_ASSET_BOOKS.js_rows(rows);
+    let rows = fixed_asset_books::Entity::find()
+        .filter(fixed_asset_books::Column::AssetId.is_in(asset_ids.iter().cloned()))
+        .all(&orm(db))
+        .await?;
+    let mut rows = js_rows!(rows)?;
     rows.sort_by_key(book_order);
     for row in rows {
         result

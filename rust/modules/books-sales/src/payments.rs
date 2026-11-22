@@ -12,8 +12,11 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_books_domain::books_row;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::entity_context::{records_in_entity, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -24,14 +27,17 @@ use weldsuite_books_domain::payments::{
     AllocationInput, RecordPaymentInput, record_payment, void_payment,
 };
 use weldsuite_books_domain::posting::PostError;
-use weldsuite_books_domain::tables::{PAYMENT_ALLOCATIONS, PAYMENTS};
 use weldsuite_catalogs::entity_events::{PAYMENT_CREATED, PAYMENT_DELETED};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
+use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{payment_allocations, payments};
 
 use crate::body::read_currency;
+use crate::invoices::{js_timestamp, page_window, row_json};
+use crate::orm_bridge::sqlx_error;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -68,6 +74,63 @@ async fn list(caller: Caller) -> Response {
     reply(list_payments(&caller).await, "Failed to fetch payments")
 }
 
+/// The list's filters (`conditions` of `GET /`).
+struct PaymentFilters<'a> {
+    entity_id: &'a str,
+    kind: Option<&'a str>,
+    contact_id: Option<&'a str>,
+    check_number: Option<&'a str>,
+    payment_method: Option<&'a str>,
+    check_status: Option<&'a str>,
+    bank_account_id: Option<&'a str>,
+    deposited: Option<bool>,
+    term: Option<&'a str>,
+    from: Option<PrimitiveDateTime>,
+    to: Option<PrimitiveDateTime>,
+}
+
+impl PaymentFilters<'_> {
+    /// The `where` of the page and of its count.
+    fn condition(&self) -> Condition {
+        let equal = [
+            (payments::Column::Type, self.kind),
+            (payments::Column::ContactId, self.contact_id),
+            (payments::Column::CheckNumber, self.check_number),
+            (payments::Column::PaymentMethod, self.payment_method),
+            (payments::Column::CheckStatus, self.check_status),
+            (payments::Column::BankAccountId, self.bank_account_id),
+        ];
+        let mut condition = Condition::all()
+            .add(payments::Column::DeletedAt.is_null())
+            .add(payments::Column::EntityId.eq(self.entity_id));
+        for (column, value) in equal {
+            if let Some(value) = value {
+                condition = condition.add(column.eq(value));
+            }
+        }
+        match self.deposited {
+            Some(true) => condition = condition.add(payments::Column::DepositId.is_not_null()),
+            Some(false) => condition = condition.add(payments::Column::DepositId.is_null()),
+            None => {}
+        }
+        if let Some(term) = self.term {
+            condition = condition.add(
+                Condition::any()
+                    .add(payments::Column::Reference.like(term))
+                    .add(payments::Column::CheckNumber.like(term))
+                    .add(payments::Column::Notes.like(term)),
+            );
+        }
+        if let Some(from) = self.from {
+            condition = condition.add(payments::Column::Date.gte(from));
+        }
+        if let Some(to) = self.to {
+            condition = condition.add(payments::Column::Date.lte(to));
+        }
+        condition
+    }
+}
+
 async fn list_payments(caller: &Caller) -> Reply {
     let q = caller.query();
     let page = parse_int(q.present("page").unwrap_or("1")).map(|p| p.max(1));
@@ -89,98 +152,71 @@ async fn list_payments(caller: &Caller) -> Reply {
     let term = q
         .present("search")
         .map(|s| format!("%{}%", weldsuite_books_domain::jurisdictions::js_trim(s)));
-    let from = q
-        .present("from")
-        .map(|d| js::js_date(d).ok_or_else(|| Refusal::Internal("Invalid time value".into())))
-        .transpose()?;
-    let to = q
-        .present("to")
-        .map(|d| js::js_date(d).ok_or_else(|| Refusal::Internal("Invalid time value".into())))
-        .transpose()?;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(payments),
-        " from payments t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.type = $2) and ($3::text is null or t.contact_id = $3) \
-         and ($4::text is null or t.check_number = $4) and ($5::text is null or t.payment_method = $5) \
-         and ($6::text is null or t.check_status = $6) and ($7::text is null or t.bank_account_id = $7) \
-         and ($8::boolean is null or ($8 and t.deposit_id is not null) or (not $8 and t.deposit_id is null)) \
-         and ($9::text is null or (t.reference like $9 or t.check_number like $9 or t.notes like $9)) \
-         and ($10::timestamp is null or t.date >= $10::timestamp) and ($11::timestamp is null or t.date <= $11::timestamp) \
-         order by t.date desc limit $12 offset $13"
-    ))
-    .bind(&entity_id)
-    .bind(q.present("type"))
-    .bind(q.present("contactId"))
-    .bind(check_number.as_deref())
-    .bind(q.present("paymentMethod"))
-    .bind(q.present("checkStatus"))
-    .bind(q.present("bankAccountId"))
-    .bind(deposited)
-    .bind(term.as_deref())
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .bind(page_size)
-    .bind((page - 1) * page_size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i32 = sqlx::query_scalar(
-        "select count(*)::int from payments t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.type = $2) and ($3::text is null or t.contact_id = $3) \
-         and ($4::text is null or t.check_number = $4) and ($5::text is null or t.payment_method = $5) \
-         and ($6::text is null or t.check_status = $6) and ($7::text is null or t.bank_account_id = $7) \
-         and ($8::boolean is null or ($8 and t.deposit_id is not null) or (not $8 and t.deposit_id is null)) \
-         and ($9::text is null or (t.reference like $9 or t.check_number like $9 or t.notes like $9)) \
-         and ($10::timestamp is null or t.date >= $10::timestamp) and ($11::timestamp is null or t.date <= $11::timestamp)",
-    )
-    .bind(&entity_id)
-    .bind(q.present("type"))
-    .bind(q.present("contactId"))
-    .bind(check_number.as_deref())
-    .bind(q.present("paymentMethod"))
-    .bind(q.present("checkStatus"))
-    .bind(q.present("bankAccountId"))
-    .bind(deposited)
-    .bind(term.as_deref())
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .fetch_one(&caller.db)
-    .await?;
-    let total = i64::from(total);
-    Ok(paged(
-        PAYMENTS.js_rows(rows),
-        total,
-        page * page_size < total,
-        None,
-    ))
+    let from = q.present("from").map(js_timestamp).transpose()?;
+    let to = q.present("to").map(js_timestamp).transpose()?;
+    let filters = PaymentFilters {
+        entity_id: &entity_id,
+        kind: q.present("type"),
+        contact_id: q.present("contactId"),
+        check_number: check_number.as_deref(),
+        payment_method: q.present("paymentMethod"),
+        check_status: q.present("checkStatus"),
+        bank_account_id: q.present("bankAccountId"),
+        deposited,
+        term: term.as_deref(),
+        from,
+        to,
+    };
+    let (limit, offset) = page_window(page, page_size)?;
+    let db = orm(&caller.db);
+    let rows = payments::Entity::find()
+        .filter(filters.condition())
+        .order_by_desc(payments::Column::Date)
+        .limit(limit)
+        .offset(offset)
+        .all(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = payments::Entity::find()
+        .filter(filters.condition())
+        .count(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlx_error)?;
+    Ok(paged(rows, total, page * page_size < total, None))
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let payment: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                books_row!(payments),
-                " from payments t where t.id = $1 and t.deleted_at is null limit 1"
-            ))
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(payment) = payment.map(|p| PAYMENTS.js(p)) else {
+            let db = orm(&caller.db);
+            let payment = payments::Entity::find_by_id(id.clone())
+                .filter(payments::Column::DeletedAt.is_null())
+                .one(&db)
+                .await
+                .map_err(sqlx_error)?;
+            let Some(payment) = payment.map(row_json).transpose().map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Payment", &id));
             };
-            let allocations: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                books_row!(payment_allocations),
-                " from payment_allocations t where t.payment_id = $1 and t.deleted_at is null"
-            ))
-            .bind(&id)
-            .fetch_all(&caller.db)
-            .await?;
+            let allocations = payment_allocations::Entity::find()
+                .filter(payment_allocations::Column::PaymentId.eq(id.as_str()))
+                .filter(payment_allocations::Column::DeletedAt.is_null())
+                .all(&db)
+                .await
+                .map_err(sqlx_error)?
+                .into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlx_error)?;
             let mut out = payment.as_object().cloned().unwrap_or_default();
             out.insert(
                 "allocations".into(),
-                Value::Array(PAYMENT_ALLOCATIONS.js_rows(allocations)),
+                Value::Array(allocations),
             );
             Ok(ok(Value::Object(out)))
         }

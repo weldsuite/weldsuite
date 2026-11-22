@@ -19,6 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Extension, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_auth::AuthContext;
 use weldsuite_books_domain::bank_feeds::connections::{
@@ -37,12 +38,15 @@ use weldsuite_catalogs::entity_events::{
     BANK_CONNECTION_CREATED, BANK_CONNECTION_DELETED, BANK_CONNECTION_SYNCED,
     BANK_CONNECTION_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::entities;
 
 use crate::common::text;
+use crate::orm_bridge::refused;
 
 const ACCOUNT_TYPES: [&str; 5] = [
     "checking",
@@ -168,11 +172,13 @@ async fn providers(caller: Caller, State(state): State<BooksState>) -> Response 
         if country.as_deref().is_none_or(str::is_empty)
             && let Some(entity_id) = resolve_entity_id(&caller).await?
         {
-            let code: Option<Option<String>> =
-                sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-                    .bind(&entity_id)
-                    .fetch_optional(&caller.db)
-                    .await?;
+            let code = entities::Entity::find_by_id(entity_id)
+                .select_only()
+                .column(entities::Column::JurisdictionCode)
+                .into_tuple::<Option<String>>()
+                .one(&orm(&caller.db))
+                .await
+                .map_err(refused)?;
             country = code.flatten().map(|c| c.to_uppercase());
         }
         let country = country.unwrap_or_else(|| "US".to_owned());

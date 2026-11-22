@@ -17,8 +17,9 @@
 //! logoUrl, primaryColor, accentColor -> branding
 //! ```
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, js_trim};
 use weldsuite_legal_entities::schemas::{RegistrationType, normalize_registration_number};
 use weldsuite_legal_entities::service::{
@@ -26,6 +27,7 @@ use weldsuite_legal_entities::service::{
     UpdateRegistrationInput,
 };
 use weldsuite_legal_entities::{LegalEntityCoreChange, LegalEntityError, locked_core_change};
+use weldsuite_schema::master::workspaces;
 
 /// Currency a new entity gets when the workspace has none: the country's own.
 const COUNTRY_CURRENCY: [(&str, &str); 31] = [
@@ -512,14 +514,19 @@ pub(crate) async fn write_through_to_default_entity(
 /// The workspace's name, the default entity's name of last resort; `None`
 /// when it cannot be read.
 async fn workspace_name(master: &PgPool, org: &str) -> Option<String> {
-    sqlx::query_scalar::<_, String>(
-        "select name from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(master)
-    .await
-    .ok()
-    .flatten()
+    workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Name)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org))
+                .add(workspaces::Column::ClerkOrgId.eq(org)),
+        )
+        .into_tuple::<String>()
+        .one(&orm(master))
+        .await
+        .ok()
+        .flatten()
 }
 
 /// `overlayDefaultEntity`: the settings row with the legal fields read from

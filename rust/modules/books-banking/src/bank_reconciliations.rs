@@ -17,8 +17,16 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::macros::format_description;
+use time::{Date, OffsetDateTime, PrimitiveDateTime};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, PostingLockKind, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -37,12 +45,19 @@ use weldsuite_catalogs::entity_events::{
     BANK_RECONCILIATION_COMPLETED, BANK_RECONCILIATION_CREATED, BANK_RECONCILIATION_DELETED,
     BANK_RECONCILIATION_UNDONE, BANK_RECONCILIATION_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    bank_accounts, bank_deposits, bank_reconciliations, bills, invoices, journal_entries,
+    journal_lines, parties, payments,
+};
 
 use crate::common::{changes, field, text};
+use crate::orm_bridge::{post_failed, refused, sqlx_error};
 
 const EPSILON: f64 = 0.005;
 
@@ -95,6 +110,12 @@ impl From<PostError> for Failure {
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
         Self::Post(PostError::Database(error))
+    }
+}
+
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::Post(post_failed(error))
     }
 }
 
@@ -159,72 +180,139 @@ fn day_after(statement_date: &str) -> String {
     iso_from_millis(days * 86_400_000).unwrap_or_default()
 }
 
+/// `$n::<type_name>`: text Postgres reads as the type, as the old statements
+/// bound it.
+fn cast(text: Option<&str>, type_name: &'static str) -> Expr {
+    Func::cast_as(Expr::val(text.map(str::to_owned)), type_name).into()
+}
+
+/// `text` as an owned value to compare with (`null` stays null).
+fn owned(text: Option<&str>) -> Option<String> {
+    text.map(str::to_owned)
+}
+
+/// A `date` as Postgres prints it (`statement_date::text`).
+fn day_text(day: Date) -> String {
+    day.format(format_description!("[year]-[month]-[day]"))
+        .unwrap_or_default()
+}
+
+/// A ledger line as `loadLines` selects it.
+#[derive(Debug, FromQueryResult)]
+struct LineRow {
+    id: String,
+    journal_entry_id: String,
+    entry_number: Option<String>,
+    entry_date: PrimitiveDateTime,
+    line_description: Option<String>,
+    entry_description: Option<String>,
+    debit: Option<BigDecimal>,
+    credit: Option<BigDecimal>,
+    contact_id: Option<String>,
+    contact_name: Option<String>,
+    reference: Option<String>,
+    source_type: Option<String>,
+    source_id: Option<String>,
+    reversed_by_id: Option<String>,
+}
+
+impl LineRow {
+    /// The line, its amounts read as numbers (`Number(debit)`) and its
+    /// entry's day as the `YYYY-MM-DD` of `toISOString()`.
+    fn into_line(self) -> LedgerLine {
+        let number = |v: Option<BigDecimal>| {
+            v.map_or(0.0, |amount| {
+                weldsuite_kit::validation::js_number(&amount.to_plain_string())
+            })
+        };
+        LedgerLine {
+            id: self.id,
+            journal_entry_id: self.journal_entry_id,
+            entry_number: self.entry_number,
+            date: day_text(self.entry_date.date()),
+            description: self.line_description.or(self.entry_description),
+            debit: number(self.debit),
+            credit: number(self.credit),
+            contact_id: self.contact_id,
+            contact_name: self.contact_name,
+            reference: self.reference,
+            source_type: self.source_type,
+            source_id: self.source_id,
+            reversed_by_id: self.reversed_by_id,
+        }
+    }
+}
+
+/// `innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))`.
+fn line_entry() -> RelationDef {
+    journal_lines::Entity::belongs_to(journal_entries::Entity)
+        .from(journal_lines::Column::JournalEntryId)
+        .to(journal_entries::Column::Id)
+        .into()
+}
+
+/// `leftJoin(parties, eq(parties.id, journalLines.contactId))`.
+fn line_contact() -> RelationDef {
+    journal_lines::Entity::belongs_to(parties::Entity)
+        .from(journal_lines::Column::ContactId)
+        .to(parties::Column::Id)
+        .into()
+}
+
 /// `loadLines` with the open (`open`), cleared (`cleared`) or later
 /// (`later`) condition.
-async fn load_lines(db: &PgPool, rec: &Value, mode: &str) -> Result<Vec<LedgerLine>, sqlx::Error> {
-    type Row = (
-        String,
-        String,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select jl.id, jl.journal_entry_id, je.entry_number, to_jsonb(je.date) #>> '{}', jl.description, \
-         je.description, jl.debit::text, jl.credit::text, jl.contact_id, p.display_name, je.reference, \
-         je.source_type, je.source_id, je.reversed_by_id \
-         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
-         left join parties p on p.id = jl.contact_id \
-         where jl.account_id = $1 and jl.entity_id = $2 and jl.deleted_at is null and je.deleted_at is null \
-         and je.status = any(array['posted','reversed']) \
-         and (($3 = 'open' and jl.reconciliation_id is null and je.date < $4::timestamp) \
-           or ($3 = 'later' and jl.reconciliation_id is null and je.date >= $4::timestamp) \
-           or ($3 = 'cleared' and jl.reconciliation_id = $5)) \
-         order by je.date, je.created_at, jl.sort_order",
-    )
-    .bind(text(rec, "ledgerAccountId"))
-    .bind(text(rec, "entityId"))
-    .bind(mode)
-    .bind(day_after(text(rec, "statementDate").unwrap_or_default()))
-    .bind(text(rec, "id"))
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| {
-            let number = |v: Option<String>| {
-                v.map_or(0.0, |text| weldsuite_kit::validation::js_number(&text))
-            };
-            LedgerLine {
-                id: r.0,
-                journal_entry_id: r.1,
-                entry_number: r.2,
-                date: weldsuite_db::js_timestamp(&r.3)
-                    .unwrap_or(r.3)
-                    .chars()
-                    .take(10)
-                    .collect(),
-                description: r.4.or(r.5),
-                debit: number(r.6),
-                credit: number(r.7),
-                contact_id: r.8,
-                contact_name: r.9,
-                reference: r.10,
-                source_type: r.11,
-                source_id: r.12,
-                reversed_by_id: r.13,
-            }
-        })
-        .collect())
+async fn load_lines(db: &PgPool, rec: &Value, mode: &str) -> Result<Vec<LedgerLine>, DbErr> {
+    use journal_entries::Column as Entry;
+    use journal_lines::Column as Line;
+    let day_after = day_after(text(rec, "statementDate").unwrap_or_default());
+    let unreconciled = |before: bool| {
+        let date = Entry::Date.into_expr();
+        let bound = cast(Some(day_after.as_str()), "timestamp");
+        Condition::all()
+            .add(Line::ReconciliationId.is_null())
+            .add(if before {
+                sea_orm::ExprTrait::lt(date, bound)
+            } else {
+                sea_orm::ExprTrait::gte(date, bound)
+            })
+    };
+    let range = match mode {
+        "open" => unreconciled(true),
+        "later" => unreconciled(false),
+        "cleared" => Condition::all().add(Line::ReconciliationId.eq(owned(text(rec, "id")))),
+        _ => return Ok(Vec::new()),
+    };
+    let rows = journal_lines::Entity::find()
+        .select_only()
+        .column_as(Line::Id, "id")
+        .column_as(Line::JournalEntryId, "journal_entry_id")
+        .column_as(Entry::EntryNumber, "entry_number")
+        .column_as(Entry::Date, "entry_date")
+        .column_as(Line::Description, "line_description")
+        .column_as(Entry::Description, "entry_description")
+        .column_as(Line::Debit, "debit")
+        .column_as(Line::Credit, "credit")
+        .column_as(Line::ContactId, "contact_id")
+        .column_as(parties::Column::DisplayName, "contact_name")
+        .column_as(Entry::Reference, "reference")
+        .column_as(Entry::SourceType, "source_type")
+        .column_as(Entry::SourceId, "source_id")
+        .column_as(Entry::ReversedById, "reversed_by_id")
+        .join(JoinType::InnerJoin, line_entry())
+        .join(JoinType::LeftJoin, line_contact())
+        .filter(Line::AccountId.eq(owned(text(rec, "ledgerAccountId"))))
+        .filter(Line::EntityId.eq(owned(text(rec, "entityId"))))
+        .filter(Line::DeletedAt.is_null())
+        .filter(Entry::DeletedAt.is_null())
+        .filter(Entry::Status.is_in(["posted", "reversed"]))
+        .filter(range)
+        .order_by_asc(Entry::Date)
+        .order_by_asc(Entry::CreatedAt)
+        .order_by_asc(Line::SortOrder)
+        .into_model::<LineRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(LineRow::into_line).collect())
 }
 
 /// `splitNettedPairs`: an entry and its reversal that net to zero, both open
@@ -272,7 +360,33 @@ type PaymentDocument = (
     Option<String>,
 );
 
-async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents, sqlx::Error> {
+/// The numbers of the invoices (`kind` `invoice`) or bills `ids`.
+async fn document_numbers(
+    db: &impl ConnectionTrait,
+    kind: &str,
+    ids: Vec<String>,
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    if kind == "invoice" {
+        invoices::Entity::find()
+            .select_only()
+            .columns([invoices::Column::Id, invoices::Column::InvoiceNumber])
+            .filter(invoices::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(db)
+            .await
+    } else {
+        bills::Entity::find()
+            .select_only()
+            .columns([bills::Column::Id, bills::Column::BillNumber])
+            .filter(bills::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(db)
+            .await
+    }
+}
+
+async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents, DbErr> {
+    let db = orm(db);
     let ids_of = |kind: &str| -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
         for line in lines {
@@ -288,12 +402,19 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
     let mut documents: Documents = Vec::new();
     let payments = ids_of("payment");
     if !payments.is_empty() {
-        let rows: Vec<PaymentDocument> = sqlx::query_as(
-            "select id, type, reference, check_number, payment_method from payments where id = any($1)",
-        )
-        .bind(&payments)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<PaymentDocument> = payments::Entity::find()
+            .select_only()
+            .columns([
+                payments::Column::Id,
+                payments::Column::Type,
+                payments::Column::Reference,
+                payments::Column::CheckNumber,
+                payments::Column::PaymentMethod,
+            ])
+            .filter(payments::Column::Id.is_in(payments))
+            .into_tuple()
+            .all(&db)
+            .await?;
         for (id, kind, reference, check, method) in rows {
             let kind = if kind.as_deref() == Some("received") {
                 "payment_received"
@@ -308,11 +429,13 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
     }
     let deposits = ids_of("bank_deposit");
     if !deposits.is_empty() {
-        let rows: Vec<(String, Option<String>)> =
-            sqlx::query_as("select id, memo from bank_deposits where id = any($1)")
-                .bind(&deposits)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, Option<String>)> = bank_deposits::Entity::find()
+            .select_only()
+            .columns([bank_deposits::Column::Id, bank_deposits::Column::Memo])
+            .filter(bank_deposits::Column::Id.is_in(deposits))
+            .into_tuple()
+            .all(&db)
+            .await?;
         for (id, memo) in rows {
             documents.push((
                 format!("bank_deposit:{id}"),
@@ -320,23 +443,12 @@ async fn load_documents(db: &PgPool, lines: &[&LedgerLine]) -> Result<Documents,
             ));
         }
     }
-    for (kind, sql) in [
-        (
-            "invoice",
-            "select id, invoice_number from invoices where id = any($1)",
-        ),
-        (
-            "bill",
-            "select id, bill_number from bills where id = any($1)",
-        ),
-    ] {
+    for kind in ["invoice", "bill"] {
         let ids = ids_of(kind);
         if ids.is_empty() {
             continue;
         }
-        let rows: Vec<(String, Option<String>)> =
-            sqlx::query_as(sql).bind(&ids).fetch_all(db).await?;
-        for (id, number) in rows {
+        for (id, number) in document_numbers(&db, kind, ids).await? {
             documents.push((
                 format!("{kind}:{id}"),
                 json!({ "type": kind, "id": id, "number": number, "checkNumber": null, "method": null }),
@@ -452,13 +564,16 @@ async fn load_ledger(db: &PgPool, rec: &Value) -> Result<Value, Failure> {
         .ok_or_else(|| posting("The ledger account of this bank account was not found"))
 }
 
-async fn bank_account_name(db: &PgPool, rec: &Value) -> Result<Option<String>, sqlx::Error> {
-    let name: Option<String> =
-        sqlx::query_scalar("select name from bank_accounts where id = $1 limit 1")
-            .bind(text(rec, "bankAccountId"))
-            .fetch_optional(db)
-            .await?;
-    Ok(name)
+async fn bank_account_name(db: &PgPool, rec: &Value) -> Result<Option<String>, DbErr> {
+    let Some(id) = text(rec, "bankAccountId") else {
+        return Ok(None);
+    };
+    bank_accounts::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(bank_accounts::Column::Name)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 fn cleared_ids(rec: &Value) -> Vec<String> {
@@ -633,7 +748,7 @@ async fn build_report(
     ticked: &[&LedgerLine],
     uncleared: &[&LedgerLine],
     adjustment: Option<&Value>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let liability = text(ledger, "type") == Some("liability");
     let (later, _) = split_netted(load_lines(db, rec, "later").await?);
     let all: Vec<&LedgerLine> = ticked
@@ -726,16 +841,12 @@ async fn get_report(db: &PgPool, rec: &Value) -> Result<Value, Failure> {
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-async fn reload(db: &PgPool, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_reconciliations),
-        " from bank_reconciliations t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_one(db)
-    .await?;
-    Ok(BANK_RECONCILIATIONS.js(row))
+async fn reload(db: &PgPool, id: &str) -> Result<Value, DbErr> {
+    let row = bank_reconciliations::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("bank_reconciliations {id}")))?;
+    Ok(serde_json::to_value(row).unwrap_or_default())
 }
 
 /// `findReconciliation(c, id)`: the resolved entity's reconciliation.
@@ -743,16 +854,13 @@ async fn find(caller: &Caller, id: &str) -> Result<Value, Refusal> {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_reconciliations),
-        " from bank_reconciliations t where t.id = $1 and t.entity_id = $2 limit 1"
-    ))
-    .bind(id)
-    .bind(&entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    row.map(|row| BANK_RECONCILIATIONS.js(row))
+    let row = bank_reconciliations::Entity::find()
+        .filter(bank_reconciliations::Column::Id.eq(id))
+        .filter(bank_reconciliations::Column::EntityId.eq(entity_id.as_str()))
+        .one(&orm(&caller.db))
+        .await
+        .map_err(refused)?;
+    row.map(|row| serde_json::to_value(row).unwrap_or_default())
         .ok_or_else(|| Refusal::not_found("Reconciliation", id))
 }
 
@@ -776,32 +884,28 @@ async fn list(caller: Caller) -> Response {
         };
         let account = q.present("bankAccountId");
         let status = q.present("status");
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bank_reconciliations),
-            " from bank_reconciliations t where t.entity_id = $1 and ($2::text is null or t.bank_account_id = $2) \
-             and ($3::text is null or t.status = $3) order by t.statement_date desc, t.created_at desc limit $4 offset $5"
-        ))
-        .bind(&entity_id)
-        .bind(account)
-        .bind(status)
-        .bind(size)
-        .bind((page - 1) * size)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from bank_reconciliations t where t.entity_id = $1 \
-             and ($2::text is null or t.bank_account_id = $2) and ($3::text is null or t.status = $3)",
-        )
-        .bind(&entity_id)
-        .bind(account)
-        .bind(status)
-        .fetch_one(&caller.db)
-        .await?;
-        let slim = BANK_RECONCILIATIONS
-            .js_rows(rows)
+        let db = orm(&caller.db);
+        let of_entity = || {
+            use bank_reconciliations::Column;
+            bank_reconciliations::Entity::find()
+                .filter(Column::EntityId.eq(entity_id.as_str()))
+                .apply_if(account, |q, account| q.filter(Column::BankAccountId.eq(account)))
+                .apply_if(status, |q, status| q.filter(Column::Status.eq(status)))
+        };
+        let rows = of_entity()
+            .order_by_desc(bank_reconciliations::Column::StatementDate)
+            .order_by_desc(bank_reconciliations::Column::CreatedAt)
+            .limit(u64::try_from(size).unwrap_or(0))
+            .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+            .all(&db)
+            .await
+            .map_err(refused)?;
+        let total = of_entity().count(&db).await.map_err(refused)?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let slim = rows
             .into_iter()
             .map(|row| {
+                let row = serde_json::to_value(row).unwrap_or_default();
                 let mut row = row.as_object().cloned().unwrap_or_default();
                 let report = row.remove("report");
                 row.insert(
@@ -1021,13 +1125,16 @@ async fn start_reconciliation(
     entity_id: &str,
     data: &StartBody,
 ) -> Result<Value, Failure> {
-    let bank: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, ledger_account_id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(&data.bank_account_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let orm_db = orm(db);
+    let bank: Option<(String, Option<String>)> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([bank_accounts::Column::Id, bank_accounts::Column::LedgerAccountId])
+        .filter(bank_accounts::Column::Id.eq(data.bank_account_id.as_str()))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
     let Some((bank_id, ledger_id)) = bank else {
         return Err(posting("Bank account not found for this accounting entity"));
     };
@@ -1041,12 +1148,14 @@ async fn start_reconciliation(
         &json!({ "entityId": entity_id, "ledgerAccountId": ledger_id }),
     )
     .await?;
-    let open: Option<String> = sqlx::query_scalar(
-        "select id from bank_reconciliations where bank_account_id = $1 and status = 'in_progress' limit 1",
-    )
-    .bind(&bank_id)
-    .fetch_optional(db)
-    .await?;
+    let open: Option<String> = bank_reconciliations::Entity::find()
+        .select_only()
+        .column(bank_reconciliations::Column::Id)
+        .filter(bank_reconciliations::Column::BankAccountId.eq(bank_id.as_str()))
+        .filter(bank_reconciliations::Column::Status.eq("in_progress"))
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
     if let Some(open) = open {
         return Err(Failure::Conflict(
             "A reconciliation is already in progress for this account. Finish or discard it first."
@@ -1054,13 +1163,20 @@ async fn start_reconciliation(
             open,
         ));
     }
-    let last: Option<(String, Option<String>)> = sqlx::query_as(
-        "select statement_date::text, statement_ending_balance::text from bank_reconciliations \
-         where bank_account_id = $1 and status = 'completed' order by statement_date desc, completed_at desc limit 1",
-    )
-    .bind(&bank_id)
-    .fetch_optional(db)
-    .await?;
+    let last: Option<(String, Option<String>)> = bank_reconciliations::Entity::find()
+        .select_only()
+        .columns([
+            bank_reconciliations::Column::StatementDate,
+            bank_reconciliations::Column::StatementEndingBalance,
+        ])
+        .filter(bank_reconciliations::Column::BankAccountId.eq(bank_id.as_str()))
+        .filter(bank_reconciliations::Column::Status.eq("completed"))
+        .order_by_desc(bank_reconciliations::Column::StatementDate)
+        .order_by_desc(bank_reconciliations::Column::CompletedAt)
+        .into_tuple::<(Date, BigDecimal)>()
+        .one(&orm_db)
+        .await?
+        .map(|(day, ending)| (day_text(day), Some(ending.to_plain_string())));
     if let Some((last_date, _)) = &last
         && data.statement_date.as_str() <= last_date.as_str()
     {
@@ -1189,13 +1305,16 @@ async fn save_progress(db: &PgPool, rec: &Value, patch: &ProgressBody) -> Result
     if text(rec, "status") != Some("in_progress") {
         return Err(posting("Only a reconciliation in progress can be changed"));
     }
-    let last: Option<String> = sqlx::query_scalar(
-        "select statement_date::text from bank_reconciliations where bank_account_id = $1 and status = 'completed' \
-         order by statement_date desc limit 1",
-    )
-    .bind(text(rec, "bankAccountId"))
-    .fetch_optional(db)
-    .await?;
+    let last: Option<String> = bank_reconciliations::Entity::find()
+        .select_only()
+        .column(bank_reconciliations::Column::StatementDate)
+        .filter(bank_reconciliations::Column::BankAccountId.eq(owned(text(rec, "bankAccountId"))))
+        .filter(bank_reconciliations::Column::Status.eq("completed"))
+        .order_by_desc(bank_reconciliations::Column::StatementDate)
+        .into_tuple::<Date>()
+        .one(&orm(db))
+        .await?
+        .map(day_text);
     if let (Some(date), Some(last)) = (
         patch.statement_date.as_deref().filter(|d| !d.is_empty()),
         &last,
@@ -1342,11 +1461,20 @@ async fn complete(
     reply(result, "Failed to complete the reconciliation")
 }
 
+/// `journal_lines` stamped as cleared by the reconciliation `rec_id`.
+fn stamp_lines(rec_id: &str, at: PrimitiveDateTime) -> sea_orm::UpdateMany<journal_lines::Entity> {
+    journal_lines::Entity::update_many()
+        .col_expr(journal_lines::Column::ReconciliationId, Expr::value(rec_id))
+        .col_expr(journal_lines::Column::Reconciled, Expr::value(true))
+        .col_expr(journal_lines::Column::UpdatedAt, Expr::value(at))
+}
+
 /// The statements that finish a reconciliation: stamp the cleared lines
-/// (and the adjustment's bank line) and close it.
+/// (and the adjustment's bank line) and close it. The cleared balance is
+/// written from its text (`$n::numeric`), the difference as `'0.00'`.
 #[allow(clippy::too_many_arguments)]
 async fn finish(
-    conn: &mut sqlx::PgConnection,
+    db: &impl ConnectionTrait,
     rec_id: &str,
     ledger_id: &str,
     stamp_ids: &[String],
@@ -1355,43 +1483,45 @@ async fn finish(
     report: Value,
     adjustment_entry: Option<&str>,
     user_id: Option<&str>,
-    stamp: &str,
-) -> Result<(), sqlx::Error> {
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use bank_reconciliations::Column;
     if !stamp_ids.is_empty() {
-        sqlx::query("update journal_lines set reconciliation_id = $2, reconciled = true, updated_at = $3::timestamp where id = any($1)")
-            .bind(stamp_ids)
-            .bind(rec_id)
-            .bind(stamp)
-            .execute(&mut *conn)
+        stamp_lines(rec_id, at)
+            .filter(journal_lines::Column::Id.is_in(stamp_ids.iter().cloned()))
+            .exec(db)
             .await?;
     }
     if let Some(entry) = adjustment_entry {
-        sqlx::query(
-            "update journal_lines set reconciliation_id = $3, reconciled = true, updated_at = $4::timestamp \
-             where journal_entry_id = $1 and account_id = $2",
-        )
-        .bind(entry)
-        .bind(ledger_id)
-        .bind(rec_id)
-        .bind(stamp)
-        .execute(&mut *conn)
-        .await?;
+        stamp_lines(rec_id, at)
+            .filter(journal_lines::Column::JournalEntryId.eq(entry))
+            .filter(journal_lines::Column::AccountId.eq(ledger_id))
+            .exec(db)
+            .await?;
     }
-    sqlx::query(
-        "update bank_reconciliations set status = 'completed', cleared_line_ids = $2, cleared_balance = $3::numeric, \
-         difference = '0.00', adjustment_journal_entry_id = $4, report = $5, completed_at = $6::timestamp, \
-         completed_by = $7, updated_at = $6::timestamp where id = $1 and status = 'in_progress'",
-    )
-    .bind(rec_id)
-    .bind(json!(ticked_ids))
-    .bind(cleared_balance)
-    .bind(adjustment_entry)
-    .bind(report)
-    .bind(stamp)
-    .bind(user_id)
-    .execute(&mut *conn)
-    .await?;
+    bank_reconciliations::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("completed"))
+        .col_expr(Column::ClearedLineIds, Expr::value(json!(ticked_ids)))
+        .col_expr(Column::ClearedBalance, numeric(cleared_balance))
+        .col_expr(Column::Difference, numeric("0.00"))
+        .col_expr(
+            Column::AdjustmentJournalEntryId,
+            Expr::value(owned(adjustment_entry)),
+        )
+        .col_expr(Column::Report, Expr::value(report))
+        .col_expr(Column::CompletedAt, Expr::value(at))
+        .col_expr(Column::CompletedBy, Expr::value(owned(user_id)))
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(rec_id))
+        .filter(Column::Status.eq("in_progress"))
+        .exec(db)
+        .await?;
     Ok(())
+}
+
+/// `$n::numeric`: an amount written from its text, as Postgres reads it.
+fn numeric(text: &str) -> Expr {
+    cast(Some(text), "numeric")
 }
 
 /// `completeReconciliation(db, rec, args)`.
@@ -1453,7 +1583,7 @@ async fn complete_reconciliation(
         .cloned()
         .chain(netted.iter().map(|l| l.id.clone()))
         .collect();
-    let stamp = now();
+    let stamp = utc_now();
 
     if !differs {
         let report = build_report(
@@ -1468,7 +1598,7 @@ async fn complete_reconciliation(
         .await?;
         let mut tx = db.begin().await?;
         finish(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &rec_id,
             &ledger_id,
             &stamp_ids,
@@ -1477,7 +1607,7 @@ async fn complete_reconciliation(
             report,
             None,
             user_id,
-            &stamp,
+            stamp,
         )
         .await?;
         tx.commit().await?;
@@ -1552,7 +1682,7 @@ async fn complete_reconciliation(
         ticked_ids.clone(),
         cleared_balance.clone(),
         user_id.map(str::to_owned),
-        stamp.clone(),
+        stamp,
         with_entry.clone(),
     );
     let write: AlsoWrite = Box::new(move |conn, posted| {
@@ -1560,7 +1690,7 @@ async fn complete_reconciliation(
             let (rec_id, ledger_id, stamp_ids, ticked_ids, cleared, user, stamp, with_entry) =
                 write_parts;
             finish(
-                conn,
+                &OrmConn::new(conn),
                 &rec_id,
                 &ledger_id,
                 &stamp_ids,
@@ -1569,9 +1699,10 @@ async fn complete_reconciliation(
                 with_entry(&posted.journal_entry_id),
                 Some(&posted.journal_entry_id),
                 user.as_deref(),
-                &stamp,
+                stamp,
             )
             .await
+            .map_err(sqlx_error)
         })
     });
     let posted = post_journal_entry(
@@ -1596,7 +1727,7 @@ async fn complete_reconciliation(
     {
         let mut tx = db.begin().await?;
         finish(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &rec_id,
             &ledger_id,
             &stamp_ids,
@@ -1605,7 +1736,7 @@ async fn complete_reconciliation(
             with_entry(entry),
             Some(entry),
             user_id,
-            &stamp,
+            stamp,
         )
         .await?;
         tx.commit().await?;
@@ -1656,26 +1787,31 @@ async fn undo(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
 
 /// The undo's statements: the stamps cleared, the reconciliation undone.
 async fn release(
-    conn: &mut sqlx::PgConnection,
+    db: &impl ConnectionTrait,
     id: &str,
-    stamp: &str,
+    at: PrimitiveDateTime,
     user: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update journal_lines set reconciliation_id = null, reconciled = false, updated_at = $2::timestamp \n         where reconciliation_id = $1",
-    )
-    .bind(id)
-    .bind(stamp)
-    .execute(&mut *conn)
-    .await?;
-    sqlx::query(
-        "update bank_reconciliations set status = 'undone', undone_at = $2::timestamp, undone_by = $3, \n         updated_at = $2::timestamp where id = $1 and status = 'completed'",
-    )
-    .bind(id)
-    .bind(stamp)
-    .bind(user)
-    .execute(&mut *conn)
-    .await?;
+) -> Result<(), DbErr> {
+    use bank_reconciliations::Column;
+    journal_lines::Entity::update_many()
+        .col_expr(
+            journal_lines::Column::ReconciliationId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(journal_lines::Column::Reconciled, Expr::value(false))
+        .col_expr(journal_lines::Column::UpdatedAt, Expr::value(at))
+        .filter(journal_lines::Column::ReconciliationId.eq(id))
+        .exec(db)
+        .await?;
+    bank_reconciliations::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("undone"))
+        .col_expr(Column::UndoneAt, Expr::value(at))
+        .col_expr(Column::UndoneBy, Expr::value(owned(user)))
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("completed"))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -1692,29 +1828,58 @@ async fn undo_reconciliation(
     let completed_at = text(rec, "completedAt")
         .filter(|c| !c.is_empty())
         .map_or_else(|| "1970-01-01T00:00:00.000Z".to_owned(), str::to_owned);
-    let later: Option<String> = sqlx::query_scalar(
-        "select statement_date::text from bank_reconciliations where bank_account_id = $1 and status = 'completed' \
-         and id <> $2 and (statement_date > $3::date or (statement_date = $3::date and completed_at > $4::timestamp)) limit 1",
-    )
-    .bind(text(rec, "bankAccountId"))
-    .bind(text(rec, "id"))
-    .bind(text(rec, "statementDate"))
-    .bind(&completed_at)
-    .fetch_optional(db)
-    .await?;
+    let later: Option<String> = {
+        use bank_reconciliations::Column;
+        let statement_date = || cast(text(rec, "statementDate"), "date");
+        bank_reconciliations::Entity::find()
+            .select_only()
+            .column(Column::StatementDate)
+            .filter(Column::BankAccountId.eq(owned(text(rec, "bankAccountId"))))
+            .filter(Column::Status.eq("completed"))
+            .filter(Column::Id.ne(owned(text(rec, "id"))))
+            .filter(
+                Condition::any()
+                    .add(sea_orm::ExprTrait::gt(
+                        Column::StatementDate.into_expr(),
+                        statement_date(),
+                    ))
+                    .add(
+                        Condition::all()
+                            .add(sea_orm::ExprTrait::eq(
+                                Column::StatementDate.into_expr(),
+                                statement_date(),
+                            ))
+                            .add(sea_orm::ExprTrait::gt(
+                                Column::CompletedAt.into_expr(),
+                                cast(Some(&completed_at), "timestamp"),
+                            )),
+                    ),
+            )
+            .into_tuple::<Date>()
+            .one(&orm(db))
+            .await?
+            .map(day_text)
+    };
     if let Some(later) = later {
         return Err(posting(format!(
             "Undo the latest reconciliation first (statement of {later}). Only the most recent one can be undone."
         )));
     }
     let id = text(rec, "id").unwrap_or_default().to_owned();
-    let stamp = now();
+    // One instant: the reversal's date and the undo's timestamps.
+    let instant = OffsetDateTime::now_utc();
+    let stamp = iso_timestamp(instant);
+    let at = utc_timestamp(instant);
     let user = user_id.map(str::to_owned);
     match text(rec, "adjustmentJournalEntryId").filter(|e| !e.is_empty()) {
         Some(entry) => {
-            let (rid, at, who) = (id.clone(), stamp.clone(), user.clone());
+            let (rid, who) = (id.clone(), user.clone());
             let write: AlsoWrite = Box::new(move |conn, _| {
-                Box::pin(async move { release(conn, &rid, &at, who.as_deref()).await })
+                Box::pin(async move {
+                    release(&OrmConn::new(conn), &rid, at, who.as_deref())
+                        .await
+                        .map_err(sqlx_error)
+                })
             });
             reverse_journal_entry(
                 db,
@@ -1734,7 +1899,7 @@ async fn undo_reconciliation(
         }
         None => {
             let mut tx = db.begin().await?;
-            release(&mut tx, &id, &stamp, user.as_deref()).await?;
+            release(&OrmConn::new(&mut tx), &id, at, user.as_deref()).await?;
             tx.commit().await?;
         }
     }
@@ -1755,10 +1920,12 @@ async fn discard(
                 "Only a reconciliation in progress can be discarded",
             ));
         }
-        sqlx::query("delete from bank_reconciliations where id = $1 and status = 'in_progress'")
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+        bank_reconciliations::Entity::delete_many()
+            .filter(bank_reconciliations::Column::Id.eq(id.as_str()))
+            .filter(bank_reconciliations::Column::Status.eq("in_progress"))
+            .exec(&orm(&caller.db))
+            .await
+            .map_err(refused)?;
         write_accounting_audit(
             &caller,
             &caller.db,

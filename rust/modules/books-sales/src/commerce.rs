@@ -16,6 +16,13 @@
 //! WeldCommerce (the module crate) does not depend on this crate; the server
 //! hands it a [`CommerceInvoicing`].
 
+use std::str::FromStr;
+
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_books_domain::http::{BooksState, Caller, now};
 use weldsuite_books_domain::js;
@@ -25,8 +32,9 @@ use weldsuite_commerce_domain::money::{self, Cents};
 use weldsuite_commerce_domain::payments::books::{
     Actor, CreditNoteRef, CreditNoteRequest, InvoiceRef, InvoiceRequest, Invoicing, PaymentFacts,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{invoice_items, invoices};
 
 use crate::errors::SalesError;
 use crate::finalize::{FinalizeOptions, finalize_invoice, load_invoice, load_items};
@@ -86,15 +94,18 @@ impl CommerceInvoicing {
     async fn invoice(&self, request: &InvoiceRequest<'_>) -> Result<InvoiceRef, String> {
         let caller = self.caller(request.actor, request.entity_id);
         let db = request.actor.db;
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from invoices where commerce_order_id = $1 and type = 'standard' \
-               and deleted_at is null and status not in ('cancelled', 'void', 'written_off') \
-             order by created_at asc limit 1",
-        )
-        .bind(request.order_id)
-        .fetch_optional(db)
-        .await
-        .map_err(failed)?;
+        let existing: Option<String> = invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::Id)
+            .filter(invoices::Column::CommerceOrderId.eq(request.order_id))
+            .filter(invoices::Column::Type.eq("standard"))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .filter(invoices::Column::Status.is_not_in(["cancelled", "void", "written_off"]))
+            .order_by_asc(invoices::Column::CreatedAt)
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(failed)?;
         let id = match existing {
             Some(id) => id,
             None => {
@@ -216,17 +227,9 @@ impl CommerceInvoicing {
         // (never printed; `reference` keeps the order number the customer
         // sees): a retry after a failure part-way resumes from that note.
         let tag = format!("WeldCommerce refund {}", request.refund_id);
-        let earlier: Option<(String, String)> = sqlx::query_as(
-            "select id, status from invoices \
-             where credit_note_for_invoice_id = $1 and deleted_at is null \
-               and position($2 in coalesce(internal_notes, '')) > 0 \
-             order by created_at desc limit 1",
-        )
-        .bind(request.invoice_id)
-        .bind(&tag)
-        .fetch_optional(db)
-        .await
-        .map_err(failed)?;
+        let earlier = tagged_credit_note(db, request.invoice_id, &tag)
+            .await
+            .map_err(failed)?;
         let note_id = match earlier {
             // Finalised already: at most the payment out is missing.
             Some((id, status)) if status != "draft" => id,
@@ -234,15 +237,17 @@ impl CommerceInvoicing {
                 // A draft left by a failed run may be scaled already: make
                 // it again from the invoice rather than scale it twice.
                 if let Some((draft, _)) = earlier {
-                    sqlx::query(
-                        "update invoices set deleted_at = now() at time zone 'utc', \
-                           updated_at = now() at time zone 'utc' \
-                         where id = $1 and status = 'draft'",
-                    )
-                    .bind(&draft)
-                    .execute(db)
-                    .await
-                    .map_err(failed)?;
+                    // `now() at time zone 'utc'`: the database's clock.
+                    let db_now =
+                        || Func::cust("timezone").arg("utc").arg(Expr::current_timestamp());
+                    invoices::Entity::update_many()
+                        .col_expr(invoices::Column::DeletedAt, db_now().into())
+                        .col_expr(invoices::Column::UpdatedAt, db_now().into())
+                        .filter(invoices::Column::Id.eq(draft))
+                        .filter(invoices::Column::Status.eq("draft"))
+                        .exec(&orm(db))
+                        .await
+                        .map_err(failed)?;
                 }
                 self.make_credit_note(&caller, request, &invoice, &tag)
                     .await?
@@ -317,16 +322,22 @@ impl CommerceInvoicing {
             .as_str()
             .ok_or_else(|| "The credit note could not be made".to_owned())?
             .to_owned();
-        sqlx::query(
-            "update invoices \
-             set internal_notes = concat_ws(E'\\n', nullif(internal_notes, ''), $2::text) \
-             where id = $1",
-        )
-        .bind(&note_id)
-        .bind(tag)
-        .execute(db)
-        .await
-        .map_err(failed)?;
+        // `concat_ws(E'\n', nullif(internal_notes, ''), tag)`: the tag on a
+        // line of its own after any notes the invoice had.
+        let notes = Func::cust("concat_ws")
+            .arg("\n")
+            .arg(
+                Func::cust("nullif")
+                    .arg(Expr::col(invoices::Column::InternalNotes))
+                    .arg(""),
+            )
+            .arg(tag);
+        invoices::Entity::update_many()
+            .col_expr(invoices::Column::InternalNotes, notes.into())
+            .filter(invoices::Column::Id.eq(note_id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(failed)?;
         let invoice_total = cents_of(invoice.get("total"));
         if request.amount > 0 && request.amount < invoice_total {
             scale_draft(db, &note_id, request.amount, invoice_total).await?;
@@ -386,6 +397,7 @@ async fn scale_draft(
         .collect();
     let scaled = money::allocate(refund, &gross);
     let mut tx = db.begin().await.map_err(failed)?;
+    let conn = OrmConn::new(&mut tx);
     let (mut net_sum, mut tax_sum) = (0, 0);
     for (index, item) in items.iter().enumerate() {
         let new_gross = scaled[index];
@@ -401,20 +413,20 @@ async fn scale_draft(
         tax_sum += tax;
         let quantity = js::parse_float(item["quantity"].as_str().unwrap_or("1")).max(0.0001);
         let unit = format!("{:.4}", as_f64(net) / quantity);
-        sqlx::query(
-            "update invoice_items set unit_price = $2::numeric, line_total = $3::numeric, \
-               tax_amount = $4::numeric, line_total_with_tax = $5::numeric, discount_percent = 0, \
-               updated_at = $6::timestamp where id = $1",
-        )
-        .bind(item["id"].as_str())
-        .bind(unit)
-        .bind(money::format(net))
-        .bind(money::format(tax))
-        .bind(money::format(new_gross))
-        .bind(now())
-        .execute(&mut *tx)
-        .await
-        .map_err(failed)?;
+        invoice_items::Entity::update_many()
+            .col_expr(invoice_items::Column::UnitPrice, numeric(&unit)?)
+            .col_expr(invoice_items::Column::LineTotal, numeric(&money::format(net))?)
+            .col_expr(invoice_items::Column::TaxAmount, numeric(&money::format(tax))?)
+            .col_expr(
+                invoice_items::Column::LineTotalWithTax,
+                numeric(&money::format(new_gross))?,
+            )
+            .col_expr(invoice_items::Column::DiscountPercent, Expr::value(0))
+            .col_expr(invoice_items::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(invoice_items::Column::Id.eq(item["id"].as_str()))
+            .exec(&conn)
+            .await
+            .map_err(failed)?;
     }
     let breakdown = scaled_breakdown(
         note.get("taxBreakdown"),
@@ -423,21 +435,81 @@ async fn scale_draft(
         net_sum,
         tax_sum,
     );
-    sqlx::query(
-        "update invoices set subtotal = $2::numeric, discount_total = 0, tax_total = $3::numeric, \
-           total = $4::numeric, balance_due = $4::numeric, tax_breakdown = $5::jsonb, \
-           updated_at = $6::timestamp where id = $1",
-    )
-    .bind(note_id)
-    .bind(money::format(net_sum))
-    .bind(money::format(tax_sum))
-    .bind(money::format(refund))
-    .bind(breakdown)
-    .bind(now())
-    .execute(&mut *tx)
-    .await
-    .map_err(failed)?;
+    scale_invoice(&conn, note_id, (net_sum, tax_sum, refund), breakdown)
+        .await
+        .map_err(failed)?;
     tx.commit().await.map_err(failed)
+}
+
+/// The credit note's totals after scaling: `(net, tax, total)` in cents, the
+/// total open in full, and its VAT rows.
+async fn scale_invoice<C: ConnectionTrait>(
+    db: &C,
+    note_id: &str,
+    (net, tax, total): (Cents, Cents, Cents),
+    breakdown: Value,
+) -> Result<(), DbErr> {
+    let total = amount(&money::format(total))?;
+    invoices::Entity::update_many()
+        .col_expr(
+            invoices::Column::Subtotal,
+            Expr::value(amount(&money::format(net))?),
+        )
+        .col_expr(invoices::Column::DiscountTotal, Expr::value(0))
+        .col_expr(
+            invoices::Column::TaxTotal,
+            Expr::value(amount(&money::format(tax))?),
+        )
+        .col_expr(invoices::Column::Total, Expr::value(total.clone()))
+        .col_expr(invoices::Column::BalanceDue, Expr::value(total))
+        // A JSON `null` stays the jsonb `null` it was bound as.
+        .col_expr(invoices::Column::TaxBreakdown, Expr::value(breakdown))
+        .col_expr(invoices::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(invoices::Column::Id.eq(note_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// An amount the route formats as text (`$n::numeric`), as the exact
+/// decimal it reads as; text that is not one fails as Postgres refuses it.
+fn amount(text: &str) -> Result<BigDecimal, DbErr> {
+    BigDecimal::from_str(text).map_err(|_| {
+        DbErr::Custom(format!(
+            "invalid input syntax for type numeric: \"{text}\""
+        ))
+    })
+}
+
+/// [`amount`] as the value a column is set to.
+fn numeric(text: &str) -> Result<Expr, String> {
+    amount(text).map(Expr::value).map_err(failed)
+}
+
+/// The latest live credit note of `invoice_id` whose internal notes carry
+/// `tag` (`position(tag in coalesce(internal_notes, '')) > 0`): its id and
+/// status.
+async fn tagged_credit_note(
+    db: &PgPool,
+    invoice_id: &str,
+    tag: &str,
+) -> Result<Option<(String, String)>, DbErr> {
+    let notes = Func::coalesce([
+        Expr::col(invoices::Column::InternalNotes),
+        Expr::value(""),
+    ]);
+    let tagged = sea_orm::ExprTrait::gt(Func::cust("strpos").arg(notes).arg(tag), 0);
+    invoices::Entity::find()
+        .select_only()
+        .column(invoices::Column::Id)
+        .column(invoices::Column::Status)
+        .filter(invoices::Column::CreditNoteForInvoiceId.eq(invoice_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(tagged)
+        .order_by_desc(invoices::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// The VAT rows in proportion; the last row takes the rounding, so the rows

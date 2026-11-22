@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use axum::response::Response;
+use sea_orm::DbErr;
 use serde_json::Value;
 use weldsuite_books_domain::depreciation::{DepreciationAsset, DepreciationBook, FiscalPeriod};
 use weldsuite_books_domain::fiscal_year::{FiscalYearConfig, fiscal_year_for, fiscal_year_range};
@@ -25,7 +26,7 @@ pub(crate) enum Fail {
     NotFound(String),
     Conflict(String),
     Ledger(String),
-    Database(sqlx::Error),
+    Database(DbErr),
     Internal(String),
 }
 
@@ -41,16 +42,24 @@ pub(crate) fn not_found(message: impl Into<String>) -> Fail {
     Fail::NotFound(message.into())
 }
 
+impl From<DbErr> for Fail {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// What `weldsuite-books-domain` (not on the ORM yet) still reads and
+/// writes with sqlx.
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
 impl From<PostError> for Fail {
     fn from(error: PostError) -> Self {
         match error {
-            PostError::Database(error) => Self::Database(error),
+            PostError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
             other => Self::Ledger(other.to_string()),
         }
     }
@@ -59,7 +68,7 @@ impl From<PostError> for Fail {
 impl From<GuardError> for Fail {
     fn from(error: GuardError) -> Self {
         match error {
-            GuardError::Database(error) => Self::Database(error),
+            GuardError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
             other => Self::Ledger(other.to_string()),
         }
     }
@@ -68,7 +77,7 @@ impl From<GuardError> for Fail {
 impl From<Refusal> for Fail {
     fn from(refusal: Refusal) -> Self {
         match refusal {
-            Refusal::Database(error) => Self::Database(error),
+            Refusal::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
             Refusal::Internal(error) => Self::Internal(error),
             Refusal::Response(_) => Self::Internal("unexpected response".to_owned()),
         }
@@ -89,7 +98,7 @@ impl Fail {
                 ApiError::not_found(resource, None).into_response()
             }
             Self::Conflict(message) => ApiError::conflict(message).into_response(),
-            Self::Database(error) => Refusal::Database(error).respond(&fallback),
+            Self::Database(error) => crate::orm_bridge::refused(error).respond(&fallback),
             Self::Internal(error) => Refusal::Internal(error).respond(&fallback),
         }
     }

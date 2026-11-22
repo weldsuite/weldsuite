@@ -11,6 +11,8 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -28,15 +30,22 @@ use weldsuite_books_domain::tables::SALES_TAX_TAXABILITY_RULES as T;
 use weldsuite_catalogs::entity_events::{
     SALES_TAX_RULE_CREATED, SALES_TAX_RULE_DELETED, SALES_TAX_RULE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::sales_tax_taxability_rules;
 
 use crate::common::{
     changes, fixed4, iso_date, keep, merged, num, number_of, percent, percent_refined, refuse, text,
 };
+use crate::orm_bridge::refusal;
+use crate::returns::common::{day_text, row_json, rows_json};
+
+/// `sales_tax_taxability_rules` written from a `{ column: value }` object.
+const RULE_ROWS: JsonTable = JsonTable::of::<sales_tax_taxability_rules::Entity>();
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -139,16 +148,17 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>, update: bool) -> Ru
 }
 
 async fn require_rule(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_taxability_rules),
-        " from sales_tax_taxability_rules t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| T.js(r))
+    use sales_tax_taxability_rules::Column;
+    let row = sales_tax_taxability_rules::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+        .map_err(refusal)?;
+    row.map(row_json)
+        .transpose()
+        .map_err(refusal)?
         .ok_or_else(|| refuse(format!("Sales tax rule {id} not found"), 404))
 }
 
@@ -164,16 +174,25 @@ async fn assert_no_overlap(
     to: Option<&str>,
     ignore: Option<&str>,
 ) -> Result<(), Refusal> {
-    let existing: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, effective_from::text, effective_to::text from sales_tax_taxability_rules \
-         where entity_id = $1 and agency_id = $2 and tax_code = $3 and applies_to_use = $4 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .bind(agency_id)
-    .bind(tax_code)
-    .bind(applies_to_use)
-    .fetch_all(db)
-    .await?;
+    use sales_tax_taxability_rules::Column;
+    let existing: Vec<(String, time::Date, Option<time::Date>)> =
+        sales_tax_taxability_rules::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::EffectiveFrom, Column::EffectiveTo])
+            .filter(Column::EntityId.eq(entity_id))
+            .filter(Column::AgencyId.eq(agency_id))
+            .filter(Column::TaxCode.eq(tax_code))
+            .filter(Column::AppliesToUse.eq(applies_to_use))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(refusal)?;
+    // `effective_from::text, effective_to::text`.
+    let existing: Vec<(String, String, Option<String>)> = existing
+        .into_iter()
+        .map(|(id, from, to)| (id, day_text(from), to.map(day_text)))
+        .collect();
     let clash = existing.iter().find(|(id, f, t)| {
         Some(id.as_str()) != ignore
             && ranges_overlap((f, t.as_deref()), (from, to.filter(|t| !t.is_empty())))
@@ -241,6 +260,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn list_rules(caller: &Caller, q: &Query) -> Reply {
+    use sales_tax_taxability_rules::Column;
     let Some(entity) = optional_sales_tax_entity(caller).await? else {
         return Ok(paged(Vec::new(), 0, false, None));
     };
@@ -248,31 +268,30 @@ async fn list_rules(caller: &Caller, q: &Query) -> Reply {
     let (page, page_size, offset) = page_params(q);
     let agency = q.present("agencyId");
     let code = q.present("taxCode");
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_taxability_rules),
-        " from sales_tax_taxability_rules t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.agency_id = $2) and ($3::text is null or t.tax_code = $3) \
-         order by t.agency_id asc, t.tax_code asc, t.effective_from asc limit $4 offset $5"
-    ))
-    .bind(entity_id)
-    .bind(agency)
-    .bind(code)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from sales_tax_taxability_rules t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.agency_id = $2) and ($3::text is null or t.tax_code = $3)",
-    )
-    .bind(entity_id)
-    .bind(agency)
-    .bind(code)
-    .fetch_one(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let mut select = sales_tax_taxability_rules::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(agency) = agency {
+        select = select.filter(Column::AgencyId.eq(agency));
+    }
+    if let Some(code) = code {
+        select = select.filter(Column::TaxCode.eq(code));
+    }
+    let rows = select
+        .clone()
+        .order_by_asc(Column::AgencyId)
+        .order_by_asc(Column::TaxCode)
+        .order_by_asc(Column::EffectiveFrom)
+        .limit(u64::try_from(page_size).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(refusal)?;
+    let total = select.count(&db).await.map_err(refusal)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
     Ok(paged(
-        T.js_rows(rows),
+        rows_json(rows).map_err(refusal)?,
         total,
         page * page_size < total,
         None,
@@ -359,11 +378,13 @@ async fn create_rule(caller: &Caller, state: &BooksState, data: RuleBody) -> Rep
         "createdAt": at,
         "updatedAt": at,
     });
-    T.insert_raw(
-        &caller.db,
-        T.values(rule.as_object().unwrap_or(&Map::new())),
-    )
-    .await?;
+    RULE_ROWS
+        .insert(
+            &orm(&caller.db),
+            T.values(rule.as_object().unwrap_or(&Map::new())),
+        )
+        .await
+        .map_err(refusal)?;
     audit(caller, &entity_id, &id, "created", None).await;
     caller.publish(state, SALES_TAX_RULE_CREATED, &id, event_data(&rule));
     Ok(created(rule))
@@ -438,8 +459,10 @@ async fn update_rule(caller: &Caller, state: &BooksState, id: &str, data: RuleBo
     keep(&mut update, "effectiveFrom", &data.effective_from);
     keep(&mut update, "effectiveTo", &data.effective_to);
     keep(&mut update, "notes", &data.notes);
-    T.patch_raw(&caller.db, id, T.values(&update), false)
-        .await?;
+    RULE_ROWS
+        .update(&orm(&caller.db), id, T.values(&update), false)
+        .await
+        .map_err(refusal)?;
     audit(
         caller,
         &entity_id,
@@ -465,13 +488,14 @@ async fn remove(
             let entity = require_sales_tax_entity(&caller).await?;
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let rule = require_rule(&caller.db, &entity_id, &id).await?;
-            sqlx::query(
-                "update sales_tax_taxability_rules set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-            )
-            .bind(now())
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+            let at = utc_timestamp(time::OffsetDateTime::now_utc());
+            sales_tax_taxability_rules::Entity::update_many()
+                .col_expr(sales_tax_taxability_rules::Column::DeletedAt, Expr::value(at))
+                .col_expr(sales_tax_taxability_rules::Column::UpdatedAt, Expr::value(at))
+                .filter(sales_tax_taxability_rules::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(refusal)?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(&state, SALES_TAX_RULE_DELETED, &id, event_data(&rule));
             Ok(no_content())

@@ -8,6 +8,7 @@
 //! and recorded with a provider engine after posting (a failure there is
 //! kept in `tax_warnings`, never undoes the ledger).
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::compliance::{
     collect_invoice_tax_categories, get_contact_vat_number, validate_invoice_for_finalize,
@@ -17,14 +18,15 @@ use weldsuite_books_domain::sales_tax::document_tax::{
     Runtime, load_sales_tax_entity, uses_sales_tax,
 };
 use weldsuite_books_domain::sales_tax::errors::{SalesTaxError, engine_unavailable};
-use weldsuite_books_domain::tables::{INVOICE_ITEMS, INVOICES};
 use weldsuite_books_domain::tax::{GstSupply, SupplyArgs, TaxError, resolve_gst_supply};
-use weldsuite_books_domain::{books_row, js};
-use weldsuite_db::PgPool;
+use weldsuite_books_domain::js;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{invoice_items, invoices};
 
 use crate::credit_notes::{CreditApplication, apply_credit_note_on_finalize};
 use crate::errors::SalesError;
+use crate::invoices::row_json;
 use crate::persist::{owned, recalculate_stored_invoice, text};
 use crate::provider_sync::{ProviderSync, sync_invoice_with_provider};
 
@@ -39,16 +41,13 @@ pub(crate) struct Finalized {
 }
 
 /// The live invoice `id`, as Drizzle returns it.
-pub(crate) async fn load_invoice(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(invoices),
-        " from invoices t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| INVOICES.js(row)))
+pub(crate) async fn load_invoice(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    invoices::Entity::find_by_id(id.to_owned())
+        .filter(invoices::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// The live lines of an invoice, in the database's order (no `order by`,
@@ -57,27 +56,14 @@ pub(crate) async fn load_items(
     db: &PgPool,
     invoice_id: &str,
     sorted: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = if sorted {
-        sqlx::query_scalar(concat!(
-            "select ",
-            books_row!(invoice_items),
-            " from invoice_items t where t.invoice_id = $1 and t.deleted_at is null order by t.sort_order"
-        ))
-        .bind(invoice_id)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            books_row!(invoice_items),
-            " from invoice_items t where t.invoice_id = $1 and t.deleted_at is null"
-        ))
-        .bind(invoice_id)
-        .fetch_all(db)
-        .await?
-    };
-    Ok(INVOICE_ITEMS.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    let mut lines = invoice_items::Entity::find()
+        .filter(invoice_items::Column::InvoiceId.eq(invoice_id))
+        .filter(invoice_items::Column::DeletedAt.is_null());
+    if sorted {
+        lines = lines.order_by_asc(invoice_items::Column::SortOrder);
+    }
+    lines.all(&orm(db)).await?.into_iter().map(row_json).collect()
 }
 
 /// `gstSplitMissing(invoice)`: GST charged at a slab rate that was not

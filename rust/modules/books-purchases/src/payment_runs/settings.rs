@@ -5,8 +5,10 @@
 //! in the defaults (an unknown or bad stored value falls back); writing merges
 //! section by section, `null` clearing a key.
 
+use sea_orm::sea_query::extension::postgres::PgBinOper;
+use sea_orm::sea_query::{BinOper, Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::checks::{
     CheckAlignment, check_layouts_json, is_check_layout_id, is_fractional_numerator,
 };
@@ -16,10 +18,13 @@ use weldsuite_books_domain::positive_pay::{
     POSITIVE_PAY_DATE_FORMATS, POSITIVE_PAY_FIELDS, POSITIVE_PAY_FORMAT_IDS, PositivePayColumn,
     PositivePayOverrides, is_positive_pay_format, positive_pay_formats_json,
 };
-use weldsuite_books_domain::tables::{BANK_ACCOUNTS, ENTITIES};
+use weldsuite_books_domain::tables::BANK_ACCOUNTS;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{bank_accounts, entities, payments};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, js_trim};
 
 use super::{RunError, load_bank_account, not_found, run_error};
+use crate::rows::js;
 
 pub(crate) const DEFAULT_HOLD_WINDOW_DAYS: i64 = 10;
 pub(crate) const ACH_SEC_CODES: [&str; 4] = ["PPD", "CCD", "CCD+", "CTX"];
@@ -973,29 +978,37 @@ pub(crate) fn can_offset(bank: Option<&Value>) -> bool {
 pub(crate) async fn highest_check_number(
     db: &PgPool,
     bank_account_id: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select max(check_number::bigint) from payments where bank_account_id = $1 and check_number ~ '^[0-9]{1,15}$'",
-    )
-    .bind(bank_account_id)
-    .fetch_one(db)
-    .await
+) -> Result<Option<i64>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let highest: Option<Option<i64>> = payments::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(Func::max(
+                Expr::col(payments::Column::CheckNumber).cast_as("bigint"),
+            )),
+            "highest",
+        )
+        .filter(payments::Column::BankAccountId.eq(bank_account_id))
+        .filter(Expr::col(payments::Column::CheckNumber).binary(
+            BinOper::PgOperator(PgBinOper::Regex),
+            "^[0-9]{1,15}$",
+        ))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(highest.flatten())
 }
 
 /// The entity row.
 pub(crate) async fn load_entity(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| ENTITIES.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    entities::Entity::find_by_id(entity_id)
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
 }
 
 /// `settingsView(db, bank)`.
@@ -1010,15 +1023,13 @@ pub(crate) async fn settings_view(db: &PgPool, bank: &Value) -> Result<Value, Ru
     let bank_id = text(bank, "id").unwrap_or_default();
     let offset = match ach.offset_bank_account_id.as_deref() {
         Some(offset_id) if ach.balanced && offset_id != bank_id => {
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(bank_accounts),
-                " from bank_accounts t where t.id = $1 and t.deleted_at is null limit 1"
-            ))
-            .bind(offset_id)
-            .fetch_optional(db)
-            .await?;
-            row.map(|row| BANK_ACCOUNTS.js(row))
+            bank_accounts::Entity::find()
+                .filter(bank_accounts::Column::Id.eq(offset_id))
+                .filter(bank_accounts::Column::DeletedAt.is_null())
+                .one(&orm(db))
+                .await?
+                .map(|row| js!(row))
+                .transpose()?
         }
         _ => Some(bank.clone()),
     };

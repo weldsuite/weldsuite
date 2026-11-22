@@ -14,9 +14,10 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
-use weldsuite_books_domain::books_row;
 use weldsuite_books_domain::dates::days_in_month;
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
@@ -35,15 +36,19 @@ use weldsuite_books_domain::tax::{DocumentTaxItem, SupplyArgs, TaxArgs, resolve_
 use weldsuite_catalogs::entity_events::{
     RECURRING_INVOICE_CREATED, RECURRING_INVOICE_DELETED, RECURRING_INVOICE_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{parties, recurring_invoices};
 
 use crate::body::{br_document_fiscal, br_line_fiscal, cfop, ncm, read_currency};
 use crate::errors::SalesError;
 use crate::finalize::{FinalizeOptions, finalize_invoice};
 use crate::invoices::write::runtime;
+use crate::invoices::{millis_timestamp, now_stamped, row_json, timestamp_of};
+use crate::orm_bridge::sqlx_error;
 use crate::persist::{
     Drafted, calculate_draft_tax, engine_unavailable_warning, invoice_tax_columns,
     item_tax_columns, text,
@@ -339,16 +344,13 @@ fn read_recurring(
     out
 }
 
-async fn load(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(recurring_invoices),
-        " from recurring_invoices t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|r| RECURRING_INVOICES.js(r)))
+async fn load(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    recurring_invoices::Entity::find_by_id(id.to_owned())
+        .filter(recurring_invoices::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn audit(
@@ -378,15 +380,18 @@ async fn list(caller: Caller) -> Response {
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                books_row!(recurring_invoices),
-                " from recurring_invoices t where t.deleted_at is null and t.entity_id = $1 order by t.created_at desc"
-            ))
-            .bind(&entity_id)
-            .fetch_all(&caller.db)
-            .await?;
-            Ok(ok(Value::Array(RECURRING_INVOICES.js_rows(rows))))
+            let rows: Vec<Value> = recurring_invoices::Entity::find()
+                .filter(recurring_invoices::Column::DeletedAt.is_null())
+                .filter(recurring_invoices::Column::EntityId.eq(entity_id))
+                .order_by_desc(recurring_invoices::Column::CreatedAt)
+                .all(&orm(&caller.db))
+                .await
+                .map_err(sqlx_error)?
+                .into_iter()
+                .map(row_json)
+                .collect::<Result<_, _>>()
+                .map_err(sqlx_error)?;
+            Ok(ok(Value::Array(rows)))
         }
         .await,
         "Failed to fetch recurring invoices",
@@ -396,7 +401,7 @@ async fn list(caller: Caller) -> Response {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            match load(&caller.db, &id).await? {
+            match load(&caller.db, &id).await.map_err(sqlx_error)? {
                 Some(row) => Ok(ok(row)),
                 None => Err(Refusal::not_found("Recurring invoice", &id)),
             }
@@ -513,7 +518,7 @@ async fn update(
     reply(
         async {
             let db = &caller.db;
-            let Some(rec) = load(db, &id).await? else {
+            let Some(rec) = load(db, &id).await.map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
             // The dates after the change: a new end date or next issue date
@@ -584,14 +589,17 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(rec) = load(db, &id).await? else {
+            let Some(rec) = load(db, &id).await.map_err(sqlx_error)? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
-            sqlx::query("update recurring_invoices set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-                .bind(now())
-                .bind(&id)
-                .execute(db)
-                .await?;
+            let at = utc_now();
+            recurring_invoices::Entity::update_many()
+                .col_expr(recurring_invoices::Column::DeletedAt, Expr::value(at))
+                .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(at))
+                .filter(recurring_invoices::Column::Id.eq(id.as_str()))
+                .exec(&orm(db))
+                .await
+                .map_err(sqlx_error)?;
             audit(&caller, rec["entityId"].as_str(), &id, "deleted", None).await;
             caller.publish(&state, RECURRING_INVOICE_DELETED, &id, json!({ "id": id }));
             Ok(no_content())
@@ -609,17 +617,16 @@ async fn set_status(
     action: &str,
 ) -> Reply {
     let db = &caller.db;
-    let Some(rec) = load(db, id).await? else {
+    let Some(rec) = load(db, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Recurring invoice", id));
     };
-    sqlx::query(
-        "update recurring_invoices set status = $1, updated_at = $2::timestamp where id = $3",
-    )
-    .bind(status)
-    .bind(now())
-    .bind(id)
-    .execute(db)
-    .await?;
+    recurring_invoices::Entity::update_many()
+        .col_expr(recurring_invoices::Column::Status, Expr::value(status))
+        .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(recurring_invoices::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(sqlx_error)?;
     let mut changes = Map::new();
     changes.insert(
         "status".into(),
@@ -706,7 +713,7 @@ async fn generate(
 
 async fn generate_route(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(rec) = load(db, id).await? else {
+    let Some(rec) = load(db, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Recurring invoice", id));
     };
     if text(&rec, "status") != Some("active") {
@@ -813,7 +820,7 @@ async fn generate_on(
     if text(rec, "status") != Some("active") {
         return Err(SalesError::posting("Recurring invoice is not active").into());
     }
-    let at = now();
+    let (at, stamp) = now_stamped();
     let at_ms = js::millis_of(&at).unwrap_or(0);
     let entity_id = text(rec, "entityId").unwrap_or_default().to_owned();
     let current_next = text(rec, "nextIssueDate").unwrap_or_default().to_owned();
@@ -825,15 +832,14 @@ async fn generate_on(
         (day_of(text(rec, "endDate")), day_of(Some(&current_next)))
         && next_day > end_day
     {
-        sqlx::query(
-            "update recurring_invoices set status = 'completed', updated_at = $1::timestamp \
-             where id = $2 and status = 'active'",
-        )
-        .bind(&at)
-        .bind(text(rec, "id").unwrap_or_default())
-        .execute(db)
-        .await
-        .map_err(SalesError::from)?;
+        recurring_invoices::Entity::update_many()
+            .col_expr(recurring_invoices::Column::Status, Expr::value("completed"))
+            .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(stamp))
+            .filter(recurring_invoices::Column::Id.eq(text(rec, "id").unwrap_or_default()))
+            .filter(recurring_invoices::Column::Status.eq("active"))
+            .exec(&orm(db))
+            .await
+            .map_err(SalesError::from)?;
         return Err(
             SalesError::posting(format!("This recurring invoice ended on {end_day}.")).into(),
         );
@@ -861,19 +867,8 @@ async fn generate_on(
 
     if period_due {
         // claimPeriod: only the run that still sees the old nextIssueDate wins.
-        let claimed: Option<String> = sqlx::query_scalar(
-            "update recurring_invoices set next_issue_date = $1::timestamp, status = $2, updated_at = $3::timestamp \
-             where id = $4 and next_issue_date = $5::timestamp returning id",
-        )
-        .bind(&next_iso)
-        .bind(status)
-        .bind(&at)
-        .bind(text(rec, "id").unwrap_or_default())
-        .bind(&current_next)
-        .fetch_optional(db)
-        .await
-        .map_err(SalesError::from)?;
-        if claimed.is_none() {
+        let claimed = claim_period(db, rec, next_ms, status, stamp, &current_next).await?;
+        if !claimed {
             return Err(GenerateError::AlreadyGenerated);
         }
     }
@@ -896,13 +891,17 @@ async fn generate_on(
         .filter(|t| *t != 0.0 && !t.is_nan())
         .unwrap_or(30.0);
     let contact_id = text(rec, "contactId").unwrap_or_default().to_owned();
-    let contact: Option<(Option<String>, Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select display_name, billing_address, shipping_address from parties where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&contact_id)
-    .fetch_optional(db)
-    .await
-    .map_err(SalesError::from)?;
+    let contact: Option<(Option<String>, Option<Value>, Option<Value>)> =
+        parties::Entity::find_by_id(contact_id.clone())
+            .select_only()
+            .column(parties::Column::DisplayName)
+            .column(parties::Column::BillingAddress)
+            .column(parties::Column::ShippingAddress)
+            .filter(parties::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(SalesError::from)?;
     let (display_name, billing_raw, shipping_raw) = contact.unwrap_or((None, None, None));
     let billing = normalize_postal_address(billing_raw.as_ref());
     let shipping = normalize_postal_address(shipping_raw.as_ref());
@@ -1104,17 +1103,19 @@ async fn generate_on(
             .await
             .map_err(SalesError::from)?;
     }
-    sqlx::query(
-        "update recurring_invoices set generated_count = $1, last_generated_at = $2::timestamp, \
-         last_generated_invoice_id = $3, updated_at = $2::timestamp where id = $4",
-    )
-    .bind(count)
-    .bind(&at)
-    .bind(&invoice_id)
-    .bind(text(rec, "id").unwrap_or_default())
-    .execute(&mut *tx)
-    .await
-    .map_err(SalesError::from)?;
+    recurring_invoices::Entity::update_many()
+        // An `int8` the column takes as Postgres casts it, as bound before.
+        .col_expr(recurring_invoices::Column::GeneratedCount, Expr::value(count))
+        .col_expr(recurring_invoices::Column::LastGeneratedAt, Expr::value(stamp))
+        .col_expr(
+            recurring_invoices::Column::LastGeneratedInvoiceId,
+            Expr::value(invoice_id.as_str()),
+        )
+        .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(stamp))
+        .filter(recurring_invoices::Column::Id.eq(text(rec, "id").unwrap_or_default()))
+        .exec(&OrmConn::new(&mut tx))
+        .await
+        .map_err(SalesError::from)?;
     tx.commit().await.map_err(SalesError::from)?;
 
     // autoFinalizeGenerated
@@ -1154,6 +1155,31 @@ async fn generate_on(
         journal_entry_id,
         finalize_error,
     })
+}
+
+/// `claimPeriod`: moves `nextIssueDate` on (with the schedule's new status)
+/// only while it still holds `current_next`, the date this run read.
+/// Whether this run won the period.
+async fn claim_period(
+    db: &weldsuite_db::PgPool,
+    rec: &Value,
+    next_ms: i64,
+    status: &str,
+    stamp: time::PrimitiveDateTime,
+    current_next: &str,
+) -> Result<bool, SalesError> {
+    let invalid = || SalesError::from(Refusal::Internal("Invalid time value".to_owned()));
+    let next = millis_timestamp(next_ms).ok_or_else(invalid)?;
+    let current = timestamp_of(current_next).ok_or_else(invalid)?;
+    let claimed = recurring_invoices::Entity::update_many()
+        .col_expr(recurring_invoices::Column::NextIssueDate, Expr::value(next))
+        .col_expr(recurring_invoices::Column::Status, Expr::value(status))
+        .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(stamp))
+        .filter(recurring_invoices::Column::Id.eq(text(rec, "id").unwrap_or_default()))
+        .filter(recurring_invoices::Column::NextIssueDate.eq(current))
+        .exec(&orm(db))
+        .await?;
+    Ok(claimed.rows_affected > 0)
 }
 
 /// What [`generate_recurring_invoice_as_system`] made: the invoice number,

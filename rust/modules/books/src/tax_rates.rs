@@ -11,8 +11,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Expr};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_books_domain::entity_context::{entity_exists, resolve_entity_id};
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -21,9 +27,14 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::jurisdictions::{self, nl};
 use weldsuite_books_domain::tables::TAX_RATES as T;
 use weldsuite_catalogs::entity_events::{TAX_RATE_CREATED, TAX_RATE_DELETED, TAX_RATE_UPDATED};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::tax_rates::{self, Column};
+use weldsuite_schema::tenant::{entities, journal_lines};
+
+use crate::orm_bridge::{sqlx_error, to_json};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -183,16 +194,59 @@ fn read_body(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> M
     out
 }
 
-async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_rates),
-        " from tax_rates t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| T.js(row)))
+async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    tax_rates::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
+}
+
+/// One of `ensureStandardTaxRates`' updates of the rate `id`: the `name`,
+/// `rate` (text, cast to `numeric` as before) and `jurisdictionMetadata` in
+/// `set`, with `updated_at`.
+async fn update_standard_rate(
+    db: &PgPool,
+    entity_id: &str,
+    id: &str,
+    set: &Map<String, Value>,
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let mut update = tax_rates::Entity::update_many();
+    if let Some(name) = set.get("name") {
+        // `$1::jsonb ->> 'name'`
+        update = update.col_expr(Column::Name, Expr::value(json_text(name)));
+    }
+    if let Some(rate) = set.get("rate") {
+        // `($1::jsonb ->> 'rate')::numeric`
+        let rate = Expr::val(json_text(rate));
+        update = update.col_expr(
+            Column::Rate,
+            sea_orm::ExprTrait::cast_as(rate, Alias::new("numeric")),
+        );
+    }
+    if let Some(metadata) = set.get("jurisdictionMetadata") {
+        update = update.col_expr(Column::JurisdictionMetadata, Expr::value(metadata.clone()));
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// `jsonb ->> key` of a value: a string as itself, `null` as SQL NULL,
+/// anything else as its JSON text.
+fn json_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
 }
 
 // ── ensureStandardTaxRates ──────────────────────────────────────────────────
@@ -204,24 +258,25 @@ async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
 pub(crate) async fn ensure_standard_tax_rates(
     db: &PgPool,
     entity_id: &str,
-) -> Result<(), sqlx::Error> {
-    let code: Option<String> =
-        sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<(), DbErr> {
+    let code: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::Id.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if code.as_deref() != Some("NL") {
         return Ok(());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_rates),
-        " from tax_rates t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let rates = T.js_rows(rows);
+    let rates = tax_rates::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?;
     let has_name = |name: &str| rates.iter().any(|r| r["name"].as_str() == Some(name));
     // An entity created without defaults has none of the standard rates.
     if !has_name("BTW Hoog 21%") {
@@ -262,22 +317,13 @@ pub(crate) async fn ensure_standard_tax_rates(
             updates.push((id.clone(), set));
         }
     }
-    let at = now();
-    for (id, mut set) in updates {
-        set.insert("updatedAt".to_owned(), json!(at));
-        sqlx::query(concat!(
-            "update tax_rates as t set ",
-            "name = case when $1::jsonb ? 'name' then $1::jsonb ->> 'name' else t.name end, ",
-            "rate = case when $1::jsonb ? 'rate' then ($1::jsonb ->> 'rate')::numeric else t.rate end, ",
-            "jurisdiction_metadata = case when $1::jsonb ? 'jurisdictionMetadata' then $1::jsonb -> 'jurisdictionMetadata' else t.jurisdiction_metadata end, ",
-            "updated_at = $2::timestamp where t.id = $3 and t.entity_id = $4"
-        ))
-        .bind(Value::Object(set))
-        .bind(&at)
-        .bind(&id)
-        .bind(entity_id)
-        .execute(db)
-        .await?;
+    // `new Date()`: the text the new rate's row carries and the `timestamp`
+    // the updates write, the same instant.
+    let instant = OffsetDateTime::now_utc();
+    let at = weldsuite_events::iso_timestamp(instant);
+    let stamp = weldsuite_db::utc_timestamp(instant);
+    for (id, set) in updates {
+        update_standard_rate(db, entity_id, &id, &set, stamp).await?;
     }
     if !rates
         .iter()
@@ -311,7 +357,9 @@ pub(crate) async fn ensure_standard_tax_rates(
         if let Some(meta) = template.get("jurisdictionMetadata") {
             row.insert("jurisdictionMetadata".to_owned(), meta.clone());
         }
-        T.insert_raw(db, T.values(&row)).await?;
+        T.insert_raw(db, T.values(&row))
+            .await
+            .map_err(weldsuite_db::orm_error)?;
     }
     Ok(())
 }
@@ -327,19 +375,26 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         if let Err(error) = ensure_standard_tax_rates(&caller.db, &entity_id).await {
             tracing::warn!(%error, "[books-api/tax-rates] ensureStandardTaxRates failed");
         }
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(tax_rates),
-            " from tax_rates t where t.deleted_at is null and t.entity_id = $1 \
-             and ($2::text is null or t.type = $2) and ($3::boolean is null or t.is_active = $3) \
-             order by t.name"
-        ))
-        .bind(&entity_id)
-        .bind(q.present("type"))
-        .bind(q.get("isActive").map(|v| v == "true"))
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(T.js_rows(rows))))
+        let mut filters = Condition::all()
+            .add(Column::DeletedAt.is_null())
+            .add(Column::EntityId.eq(entity_id.as_str()));
+        if let Some(kind) = q.present("type") {
+            filters = filters.add(Column::Type.eq(kind));
+        }
+        if let Some(active) = q.get("isActive").map(|v| v == "true") {
+            filters = filters.add(Column::IsActive.eq(active));
+        }
+        let rows = tax_rates::Entity::find()
+            .filter(filters)
+            .order_by_asc(Column::Name)
+            .all(&orm(&caller.db))
+            .await
+            .map_err(sqlx_error)?
+            .into_iter()
+            .map(to_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlx_error)?;
+        Ok(ok(Value::Array(rows)))
     }
     .await;
     reply(result, "Failed to list tax rates")
@@ -349,7 +404,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await? {
+        match find(&caller, &id).await.map_err(sqlx_error)? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Tax rate", &id)),
         }
@@ -458,7 +513,7 @@ async fn update_rate(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(existing) = find(caller, id).await? else {
+    let Some(existing) = find(caller, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Tax rate", id));
     };
     let mut set = data.clone();
@@ -512,26 +567,28 @@ async fn remove(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(existing) = find(&caller, &id).await? else {
+        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
             return Err(Refusal::not_found("Tax rate", &id));
         };
-        let used: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from journal_lines where tax_rate_id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .fetch_one(db)
-        .await?;
+        let used = journal_lines::Entity::find()
+            .filter(journal_lines::Column::TaxRateId.eq(id.as_str()))
+            .filter(journal_lines::Column::DeletedAt.is_null())
+            .count(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         if used > 0 {
             return Err(Refusal::bad_request(
                 "Tax rate is used by bookings — deactivate it instead",
             ));
         }
-        let at = now();
-        sqlx::query("update tax_rates set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-            .bind(&at)
-            .bind(&id)
-            .execute(db)
-            .await?;
+        let at = weldsuite_db::utc_now();
+        tax_rates::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         write_accounting_audit(
             &caller,
             db,

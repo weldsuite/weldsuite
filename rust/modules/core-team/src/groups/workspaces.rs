@@ -18,10 +18,13 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, workspaces};
 
 use crate::{AccountCaller, Caller, CoreTeamState};
 
@@ -73,16 +76,35 @@ pub(crate) fn entry(row: Row, ids: EntryId) -> Value {
     })
 }
 
+/// `innerJoin(workspaces, eq(userWorkspaces.workspaceId, workspaces.id))`.
+fn membership_workspace() -> RelationDef {
+    user_workspaces::Entity::belongs_to(workspaces::Entity)
+        .from(user_workspaces::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
+
+/// The caller's active memberships of active workspaces.
+async fn rows(master: &PgPool, user_id: &str) -> Result<Vec<Row>, DbErr> {
+    user_workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::ClerkOrgId)
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Name)
+        .column(workspaces::Column::Slug)
+        .column(workspaces::Column::ImageUrl)
+        .column(user_workspaces::Column::Role)
+        .join(JoinType::InnerJoin, membership_workspace())
+        .filter(user_workspaces::Column::UserId.eq(user_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .filter(workspaces::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm(master))
+        .await
+}
+
 async fn answer(master: &PgPool, user_id: &str, ids: EntryId) -> Response {
-    let rows: Result<Vec<Row>, sqlx::Error> = sqlx::query_as(
-        "select w.clerk_org_id, w.id, w.name, w.slug, w.image_url, uw.role
-         from user_workspaces uw
-         inner join workspaces w on uw.workspace_id = w.id
-         where uw.user_id = $1 and uw.status = 'ACTIVE' and w.is_active = true",
-    )
-    .bind(user_id)
-    .fetch_all(master)
-    .await;
+    let rows = rows(master, user_id).await;
     match rows {
         Ok(rows) => {
             let workspaces: Vec<Value> = rows.into_iter().map(|row| entry(row, ids)).collect();

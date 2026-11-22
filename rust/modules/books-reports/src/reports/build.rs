@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::dates::{add_days, diff_days};
@@ -17,12 +18,15 @@ use weldsuite_books_domain::reports_basis::{
     AggregateOptions, AggregateRow, DateRange, Edge, Ledger, LedgerAccount, LedgerRange,
     ReportColumn, ReportInputError, money, parse_report_date,
 };
+use weldsuite_schema::tenant::{bills, entities, invoices, parties};
+
+use crate::rows::js_rows;
 
 /// What a builder can fail with: a bad parameter (400) or the database (500).
 #[derive(Debug)]
 pub(crate) enum BuildError {
     Input(ReportInputError),
-    Database(sqlx::Error),
+    Database(DbErr),
     Internal(String),
 }
 
@@ -32,9 +36,17 @@ impl From<ReportInputError> for BuildError {
     }
 }
 
+impl From<DbErr> for BuildError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// The ledger and the documents' contact names are still read with sqlx by
+/// `weldsuite-books-domain`.
 impl From<sqlx::Error> for BuildError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -1018,11 +1030,13 @@ pub(crate) async fn build_revenue_by_customer(
     let ids: Vec<String> = by_contact.iter().map(|(id, _)| id.clone()).collect();
     let mut names: HashMap<String, Option<String>> = HashMap::new();
     for chunk in ids.chunks(400) {
-        let parties: Vec<(String, Option<String>)> =
-            sqlx::query_as("select id, display_name from parties where id = any($1::text[])")
-                .bind(chunk)
-                .fetch_all(db)
-                .await?;
+        let parties: Vec<(String, Option<String>)> = parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::DisplayName])
+            .filter(parties::Column::Id.is_in(chunk.iter().cloned()))
+            .into_tuple()
+            .all(&weldsuite_db::orm(db))
+            .await?;
         names.extend(parties);
     }
     let mut customers: Vec<CustomerRevenue> = by_contact
@@ -1237,41 +1251,44 @@ pub(crate) async fn build_aged_report(
     receivables: bool,
     as_of: &str,
 ) -> Built<AgedReport> {
-    let base: Option<String> =
-        sqlx::query_scalar("select base_currency from entities where id = $1 limit 1")
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+    let orm = weldsuite_db::orm(db);
+    let base: Option<String> = entities::Entity::find_by_id(entity_id.to_owned())
+        .select_only()
+        .column(entities::Column::BaseCurrency)
+        .into_tuple()
+        .one(&orm)
+        .await?;
     let base_currency = base.unwrap_or_else(|| "EUR".to_owned());
 
+    let closed = [
+        "draft",
+        "cancelled",
+        "void",
+        "paid",
+        "uncollectible",
+        "written_off",
+    ];
     let rows: Vec<Value> = if receivables {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(invoices),
-            " from invoices t where t.entity_id = $1 and t.deleted_at is null \
-             and t.status not in ('draft', 'cancelled', 'void', 'paid', 'uncollectible', 'written_off') \
-             and t.type not in ('proforma') and t.balance_due::numeric <> 0 order by t.due_date"
-        ))
-        .bind(entity_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|row| weldsuite_books_domain::tables::INVOICES.js(row))
-        .collect()
+        let invoices = invoices::Entity::find()
+            .filter(invoices::Column::EntityId.eq(entity_id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .filter(invoices::Column::Status.is_not_in(closed))
+            .filter(invoices::Column::Type.is_not_in(["proforma"]))
+            .filter(invoices::Column::BalanceDue.ne(0))
+            .order_by_asc(invoices::Column::DueDate)
+            .all(&orm)
+            .await?;
+        js_rows!(invoices)?
     } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bills),
-            " from bills t where t.entity_id = $1 and t.deleted_at is null \
-             and t.status not in ('draft', 'cancelled', 'void', 'paid', 'uncollectible', 'written_off') \
-             and t.balance_due::numeric <> 0 order by t.due_date"
-        ))
-        .bind(entity_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|row| weldsuite_books_domain::tables::BILLS.js(row))
-        .collect()
+        let bills = bills::Entity::find()
+            .filter(bills::Column::EntityId.eq(entity_id))
+            .filter(bills::Column::DeletedAt.is_null())
+            .filter(bills::Column::Status.is_not_in(closed))
+            .filter(bills::Column::BalanceDue.ne(0))
+            .order_by_asc(bills::Column::DueDate)
+            .all(&orm)
+            .await?;
+        js_rows!(bills)?
     };
     let rows = weldsuite_books_domain::contacts::with_contact_names(db, rows).await?;
 

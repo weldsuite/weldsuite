@@ -30,7 +30,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use weldsuite_books_domain::address::format_postal_address_lines;
 use weldsuite_books_domain::bank_accounts::{BankAccountError, NO_KEY_MESSAGE};
 use weldsuite_books_domain::dates::is_iso_date;
@@ -41,8 +41,8 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::math_round;
 use weldsuite_books_domain::positive_pay::positive_pay_formats_json;
-use weldsuite_books_domain::tables::BANK_ACCOUNTS;
 use weldsuite_books_domain::vendor_tax::VendorTaxError;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_catalogs::entity_events::{
     BANK_ACCOUNT_UPDATED, PAYMENT_CREATED, PAYMENT_DELETED, PAYMENT_RUN_APPROVED,
     PAYMENT_RUN_CREATED, PAYMENT_RUN_DELETED, PAYMENT_RUN_EXPORTED, PAYMENT_RUN_UPDATED,
@@ -51,8 +51,10 @@ use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::bank_accounts;
 
 use self::runs::{s, text};
+use crate::rows::js;
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -109,9 +111,16 @@ pub(crate) fn not_found(what: &str, id: &str) -> RunError {
     )
 }
 
+impl From<DbErr> for RunError {
+    fn from(error: DbErr) -> Self {
+        Self::Internal(error.to_string())
+    }
+}
+
+/// The books domain's statements (not on the entities yet) fail the same way.
 impl From<sqlx::Error> for RunError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.to_string())
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -195,17 +204,16 @@ pub(crate) async fn load_bank_account(
     entity_id: &str,
     bank_account_id: &str,
 ) -> Result<Value, RunError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_accounts),
-        " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(bank_account_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| BANK_ACCOUNTS.js(row))
-        .ok_or_else(|| not_found("Bank account", bank_account_id))
+    let row = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(bank_account_id))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(not_found("Bank account", bank_account_id)),
+    }
 }
 
 /// `formatPostalAddressLines(address ? { country: 'US', ...address } : null, { omitCountry: 'US' })`.

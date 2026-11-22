@@ -20,20 +20,30 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Query;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_books_domain::attachments;
 use weldsuite_books_domain::contacts::{with_contact_email, with_contact_names};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
-use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, ok, paged, reply};
+use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, ok, paged, reply};
 use weldsuite_books_domain::js::{self, parse_int};
 use weldsuite_books_domain::sales_tax::document_tax::{
     CreditLine, OriginalLine, map_credit_items_to_original,
 };
-use weldsuite_books_domain::tables::{INVOICES, PAYMENTS};
-use weldsuite_books_domain::{attachments, books_row};
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{invoices, parties, payment_allocations, payments};
 
 use crate::finalize::{load_invoice, load_items};
+use crate::orm_bridge::sqlx_error;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -134,6 +144,48 @@ pub(crate) fn js_date(text: &str) -> Result<String, Refusal> {
     js::js_date(text).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))
 }
 
+/// [`js_date`] as the `timestamp` a filter compares with (the ISO text
+/// Drizzle bound, `$n::timestamp`).
+pub(crate) fn js_timestamp(text: &str) -> Result<PrimitiveDateTime, Refusal> {
+    let iso = js_date(text)?;
+    timestamp_of(&iso).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))
+}
+
+/// An ISO instant the route holds as text (`toISOString()`), as Postgres
+/// read it into a `timestamp` column (`$n::timestamp`: its UTC wall-clock
+/// time, to the millisecond). `None` for text that is not one.
+pub(crate) fn timestamp_of(iso: &str) -> Option<PrimitiveDateTime> {
+    millis_timestamp(js::millis_of(iso)?)
+}
+
+/// `new Date(millis)` as Drizzle writes it to a `timestamp` column.
+pub(crate) fn millis_timestamp(millis: i64) -> Option<PrimitiveDateTime> {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .ok()
+        .map(utc_timestamp)
+}
+
+/// One `new Date()` the route both returns (`toISOString()`) and writes to
+/// `timestamp` columns (UTC, to the millisecond, as Drizzle bound it).
+pub(crate) fn now_stamped() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
+}
+
+/// A row as Drizzle returned it: the entity's model, serialized.
+pub(crate) fn row_json(model: impl Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// A `numeric(p, S)` value as Postgres prints it (`::text`): exactly `S`
+/// decimals, through the entities' own serializer.
+pub(crate) fn numeric_text<const S: i64>(value: &BigDecimal) -> String {
+    weldsuite_schema::js::Numeric::<S>::serialize(value, serde_json::value::Serializer)
+        .ok()
+        .and_then(|text| text.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 async fn list(caller: Caller) -> Response {
@@ -145,7 +197,7 @@ async fn list(caller: Caller) -> Response {
 async fn with_source_invoice_numbers(
     caller: &Caller,
     rows: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let mut source_ids: Vec<String> = Vec::new();
     for row in &rows {
         if let Some(id) = row["creditNoteForInvoiceId"]
@@ -159,9 +211,13 @@ async fn with_source_invoice_numbers(
     let sources: Vec<(String, Option<String>)> = if source_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, invoice_number from invoices where id = any($1)")
-            .bind(&source_ids)
-            .fetch_all(&caller.db)
+        invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::Id)
+            .column(invoices::Column::InvoiceNumber)
+            .filter(invoices::Column::Id.is_in(source_ids))
+            .into_tuple()
+            .all(&orm(&caller.db))
             .await?
     };
     let numbers: HashMap<String, Option<String>> = sources.into_iter().collect();
@@ -180,6 +236,80 @@ async fn with_source_invoice_numbers(
         .collect())
 }
 
+/// The list's filters (`conditions` of `GET /`), with the moment `overdue`
+/// compares due dates with.
+struct InvoiceFilters<'a> {
+    entity_id: &'a str,
+    status: Option<&'a str>,
+    kind: Option<&'a str>,
+    contact_id: Option<&'a str>,
+    from: Option<PrimitiveDateTime>,
+    to: Option<PrimitiveDateTime>,
+    overdue: bool,
+    term: Option<&'a str>,
+}
+
+impl InvoiceFilters<'_> {
+    /// The `where` of the page and of its count; `overdue` is measured
+    /// against `now`.
+    fn condition(&self, now: PrimitiveDateTime) -> Condition {
+        let mut condition = Condition::all()
+            .add(invoices::Column::DeletedAt.is_null())
+            .add(invoices::Column::EntityId.eq(self.entity_id));
+        if let Some(status) = self.status {
+            condition = condition.add(invoices::Column::Status.eq(status));
+        }
+        if let Some(kind) = self.kind {
+            condition = condition.add(
+                Condition::any()
+                    .add(invoices::Column::Type.eq(kind))
+                    .add_option(
+                        (kind == "invoice").then(|| invoices::Column::Type.ne("credit_note")),
+                    ),
+            );
+        }
+        if let Some(contact) = self.contact_id {
+            condition = condition.add(invoices::Column::ContactId.eq(contact));
+        }
+        if let Some(from) = self.from {
+            condition = condition.add(invoices::Column::IssueDate.gte(from));
+        }
+        if let Some(to) = self.to {
+            condition = condition.add(invoices::Column::IssueDate.lte(to));
+        }
+        if self.overdue {
+            condition = condition
+                .add(invoices::Column::BalanceDue.gt(0))
+                .add(invoices::Column::DueDate.lte(now));
+        }
+        if let Some(term) = self.term {
+            // A customer whose current name matches counts too.
+            let named = Query::select()
+                .column(parties::Column::Id)
+                .from(parties::Entity)
+                .and_where(parties::Column::DisplayName.like(term))
+                .to_owned();
+            condition = condition.add(
+                Condition::any()
+                    .add(invoices::Column::InvoiceNumber.like(term))
+                    .add(invoices::Column::ContactName.like(term))
+                    .add(invoices::Column::Reference.like(term))
+                    .add(invoices::Column::ContactId.in_subquery(named)),
+            );
+        }
+        condition
+    }
+}
+
+/// `limit` and `offset` of a page; a negative offset fails as Postgres
+/// refuses it.
+pub(crate) fn page_window(page: i64, page_size: i64) -> Result<(u64, u64), Refusal> {
+    let refused = |what: &str| Refusal::Internal(format!("{what} must not be negative"));
+    let limit = u64::try_from(page_size).map_err(|_| refused("LIMIT"))?;
+    let offset = u64::try_from((page - 1) * page_size).map_err(|_| refused("OFFSET"))?;
+    Ok((limit, offset))
+}
+
 async fn list_invoices(caller: &Caller) -> Reply {
     let q = caller.query();
     let page = parse_int(q.present("page").unwrap_or("1"));
@@ -190,64 +320,48 @@ async fn list_invoices(caller: &Caller) -> Reply {
     let (Some(page), Some(page_size)) = (page, page_size) else {
         return Err(Refusal::Internal("page is NaN".to_owned()));
     };
-    let from = q.present("from").map(js_date).transpose()?;
-    let to = q.present("to").map(js_date).transpose()?;
-    let overdue = q.get("overdue") == Some("true");
+    let from = q.present("from").map(js_timestamp).transpose()?;
+    let to = q.present("to").map(js_timestamp).transpose()?;
     let term = q.present("search").map(|s| format!("%{s}%"));
-    // `type=invoice` is every invoice that is not a credit note (standard,
-    // proforma, correction): the invoice list, next to the credit notes list.
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(invoices),
-        " from invoices t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) \
-         and ($3::text is null or t.type = $3 or ($3 = 'invoice' and t.type <> 'credit_note')) \
-         and ($4::text is null or t.contact_id = $4) \
-         and ($5::timestamp is null or t.issue_date >= $5::timestamp) \
-         and ($6::timestamp is null or t.issue_date <= $6::timestamp) \
-         and (not $7 or (t.balance_due::numeric > 0 and t.due_date <= $8::timestamp)) \
-         and ($9::text is null or (t.invoice_number like $9 or t.contact_name like $9 or t.reference like $9 \
-           or t.contact_id in (select p.id from parties p where p.display_name like $9))) \
-         order by t.issue_date desc, t.created_at desc, t.id desc limit $10 offset $11"
-    ))
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("type"))
-    .bind(q.present("contactId"))
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .bind(overdue)
-    .bind(now())
-    .bind(term.as_deref())
-    .bind(page_size)
-    .bind((page - 1) * page_size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i32 = sqlx::query_scalar(
-        "select count(*)::int from invoices t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) \
-         and ($3::text is null or t.type = $3 or ($3 = 'invoice' and t.type <> 'credit_note')) \
-         and ($4::text is null or t.contact_id = $4) \
-         and ($5::timestamp is null or t.issue_date >= $5::timestamp) \
-         and ($6::timestamp is null or t.issue_date <= $6::timestamp) \
-         and (not $7 or (t.balance_due::numeric > 0 and t.due_date <= $8::timestamp)) \
-         and ($9::text is null or (t.invoice_number like $9 or t.contact_name like $9 or t.reference like $9 \
-           or t.contact_id in (select p.id from parties p where p.display_name like $9)))",
-    )
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("type"))
-    .bind(q.present("contactId"))
-    .bind(from.as_deref())
-    .bind(to.as_deref())
-    .bind(overdue)
-    .bind(now())
-    .bind(term.as_deref())
-    .fetch_one(&caller.db)
-    .await?;
-    let total = i64::from(total);
-    let named = with_contact_names(&caller.db, INVOICES.js_rows(rows)).await?;
-    let named = with_source_invoice_numbers(caller, named).await?;
+    let filters = InvoiceFilters {
+        entity_id: &entity_id,
+        status: q.present("status"),
+        // `type=invoice` is every invoice that is not a credit note (standard,
+        // proforma, correction): the invoice list, next to the credit notes list.
+        kind: q.present("type"),
+        contact_id: q.present("contactId"),
+        from,
+        to,
+        overdue: q.get("overdue") == Some("true"),
+        term: term.as_deref(),
+    };
+    let (limit, offset) = page_window(page, page_size)?;
+    let db = orm(&caller.db);
+    let rows = invoices::Entity::find()
+        .filter(filters.condition(utc_now()))
+        .order_by_desc(invoices::Column::IssueDate)
+        .order_by_desc(invoices::Column::CreatedAt)
+        .order_by_desc(invoices::Column::Id)
+        .limit(limit)
+        .offset(offset)
+        .all(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = invoices::Entity::find()
+        .filter(filters.condition(utc_now()))
+        .count(&db)
+        .await
+        .map_err(sqlx_error)?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlx_error)?;
+    let named = with_contact_names(&caller.db, rows).await?;
+    let named = with_source_invoice_numbers(caller, named)
+        .await
+        .map_err(sqlx_error)?;
     Ok(paged(named, total, page * page_size < total, None))
 }
 
@@ -276,10 +390,10 @@ fn credit_line(item: &Value) -> CreditLine<'_> {
 )]
 async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(invoice) = load_invoice(db, id).await? else {
+    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
         return Err(Refusal::not_found("Invoice", id));
     };
-    let items = load_items(db, id, true).await?;
+    let items = load_items(db, id, true).await.map_err(sqlx_error)?;
 
     // A credit memo's lines say which invoice line they credit.
     let credit_for = invoice["creditNoteForInvoiceId"]
@@ -287,7 +401,9 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
         .filter(|s| !s.is_empty());
     let item_rows: Vec<Value> = match credit_for {
         Some(original) if invoice["type"] == "credit_note" => {
-            let originals = load_items(db, original, false).await?;
+            let originals = load_items(db, original, false)
+                .await
+                .map_err(sqlx_error)?;
             let credit_lines: Vec<CreditLine<'_>> = items.iter().map(credit_line).collect();
             let original_lines: Vec<OriginalLine<'_>> = originals
                 .iter()
@@ -316,30 +432,40 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     };
 
     // Payments that settle this invoice: directly, or through an allocation.
-    let allocations: Vec<(String, String)> = sqlx::query_as(
-        "select payment_id, amount::text from payment_allocations \
-         where invoice_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let allocations: Vec<(String, BigDecimal)> = payment_allocations::Entity::find()
+        .select_only()
+        .column(payment_allocations::Column::PaymentId)
+        .column(payment_allocations::Column::Amount)
+        .filter(payment_allocations::Column::InvoiceId.eq(id))
+        .filter(payment_allocations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(sqlx_error)?;
     let allocated_ids: Vec<String> = allocations.iter().map(|(p, _)| p.clone()).collect();
-    let payment_rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(payments),
-        " from payments t where t.deleted_at is null and (t.invoice_id = $1 or t.id = any($2)) \
-         order by t.date desc"
-    ))
-    .bind(id)
-    .bind(&allocated_ids)
-    .fetch_all(db)
-    .await?;
+    let payment_rows = payments::Entity::find()
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(payments::Column::InvoiceId.eq(id))
+                // `id = any('{}')` matches nothing.
+                .add_option(
+                    (!allocated_ids.is_empty()).then(|| payments::Column::Id.is_in(allocated_ids)),
+                ),
+        )
+        .order_by_desc(payments::Column::Date)
+        .all(&orm(db))
+        .await
+        .map_err(sqlx_error)?;
     let mut allocated: HashMap<String, String> = HashMap::new();
     for (payment, amount) in allocations {
-        allocated.insert(payment, amount);
+        allocated.insert(payment, numeric_text::<2>(&amount));
     }
-    let payments: Vec<Value> = PAYMENTS
-        .js_rows(payment_rows)
+    let payments: Vec<Value> = payment_rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlx_error)?
         .into_iter()
         .map(|mut payment| {
             let amount = payment["id"]
@@ -361,20 +487,24 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let credit_notes: Vec<Value> = if named["type"] == "credit_note" {
         Vec::new()
     } else {
-        let rows: Vec<CreditNoteRow> = sqlx::query_as(
-            "select id, invoice_number, status, \
-             to_char(issue_date, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), total::text \
-             from invoices where credit_note_for_invoice_id = $1 and deleted_at is null \
-             order by issue_date",
-        )
-        .bind(id)
-        .fetch_all(db)
-        .await?;
+        let rows = invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::Id)
+            .column(invoices::Column::InvoiceNumber)
+            .column(invoices::Column::Status)
+            .column(invoices::Column::IssueDate)
+            .column(invoices::Column::Total)
+            .filter(invoices::Column::CreditNoteForInvoiceId.eq(id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .order_by_asc(invoices::Column::IssueDate)
+            .into_model::<CreditNoteRow>()
+            .all(&orm(db))
+            .await
+            .map_err(sqlx_error)?;
         rows.into_iter()
-            .map(|(cid, number, status, issue_date, total)| {
-                json!({ "id": cid, "invoiceNumber": number, "status": status, "issueDate": issue_date, "total": total })
-            })
-            .collect()
+            .map(row_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlx_error)?
     };
     if let Value::Object(fields) = &mut named {
         fields.insert("items".into(), Value::Array(item_rows));
@@ -384,8 +514,19 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     Ok(ok(named))
 }
 
-/// A credit note of an invoice: id, number, status, issue date, total.
-type CreditNoteRow = (String, Option<String>, String, String, Option<String>);
+/// A credit note of an invoice: id, number, status, issue date (as
+/// `toISOString()`), total (as text).
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreditNoteRow {
+    id: String,
+    invoice_number: Option<String>,
+    status: String,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    issue_date: PrimitiveDateTime,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    total: Option<BigDecimal>,
+}
 
 // ── GET /:id/attachments/:index ─────────────────────────────────────────────
 
@@ -396,12 +537,14 @@ async fn attachment(
 ) -> Response {
     reply(
         async {
-            let keys: Option<Option<Value>> = sqlx::query_scalar(
-                "select attachment_keys from invoices where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let keys: Option<Option<Value>> = invoices::Entity::find_by_id(id.clone())
+                .select_only()
+                .column(invoices::Column::AttachmentKeys)
+                .filter(invoices::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await
+                .map_err(sqlx_error)?;
             let Some(keys) = keys else {
                 return Err(Refusal::not_found("Invoice", &id));
             };

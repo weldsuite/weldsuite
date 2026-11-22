@@ -10,6 +10,7 @@
 //! the outbound HTTP port. Entities without a provider engine (the manual
 //! engine, every non-US entity) answer `not_applicable`, as in TypeScript.
 
+use sea_orm::{DbErr, EntityTrait};
 use serde_json::{Value, json};
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::sales_tax::document_tax::{
@@ -21,11 +22,12 @@ use weldsuite_books_domain::sales_tax::load::{LoadOptions, load_sales_tax_contex
 use weldsuite_books_domain::sales_tax::{ReverseLine, SalesTaxResult};
 use weldsuite_books_domain::tables::INVOICES;
 use weldsuite_books_domain::tax::TaxError;
-use weldsuite_db::PgPool;
-
-use weldsuite_books_domain::books_row;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::invoices;
 
 use crate::finalize::{load_invoice, load_items};
+use crate::invoices::row_json;
+use crate::orm_bridge::sqlx_error;
 use crate::persist::{invoice_document_context, merge_sync_warning, owned, text};
 
 /// `ProviderSyncResult`.
@@ -66,7 +68,7 @@ pub(crate) async fn sync_invoice_with_provider(
     invoice_id: &str,
     runtime: &Runtime,
 ) -> Result<ProviderSync, TaxError> {
-    let Some(invoice) = load_invoice(db, invoice_id).await? else {
+    let Some(invoice) = load_invoice(db, invoice_id).await.map_err(sqlx_error)? else {
         return Err(TaxError::SalesTax(
             DocumentError::new("TAX_COMMIT_NOT_APPLICABLE", "Invoice not found").into(),
         ));
@@ -96,7 +98,9 @@ pub(crate) async fn sync_invoice_with_provider(
     let Some(entity) = entity else {
         return Ok(ProviderSync::status("not_applicable"));
     };
-    let items = load_items(db, invoice_id, false).await?;
+    let items = load_items(db, invoice_id, false)
+        .await
+        .map_err(sqlx_error)?;
     let credit_memo = text(&invoice, "type") == Some("credit_note");
     // Anything that goes wrong is kept on the invoice, never thrown.
     let outcome = provider_call(db, &invoice, &items, &entity, runtime, credit_memo).await;
@@ -191,6 +195,13 @@ impl From<sqlx::Error> for Failure {
     }
 }
 
+/// An ORM statement's failure, with the database error's own message.
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        sqlx_error(error).into()
+    }
+}
+
 impl From<weldsuite_books_domain::sales_tax::errors::EngineError> for Failure {
     fn from(error: weldsuite_books_domain::sales_tax::errors::EngineError) -> Self {
         Self {
@@ -281,17 +292,11 @@ async fn reverse_credit_memo(
     engine: &weldsuite_books_domain::sales_tax::Engine,
 ) -> Result<Outcome, Failure> {
     let original = match text(invoice, "creditNoteForInvoiceId").filter(|i| !i.is_empty()) {
-        Some(id) => {
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                books_row!(invoices),
-                " from invoices t where t.id = $1 limit 1"
-            ))
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-            row.map(|row| INVOICES.js(row))
-        }
+        Some(id) => invoices::Entity::find_by_id(id.to_owned())
+            .one(&orm(db))
+            .await?
+            .map(row_json)
+            .transpose()?,
         None => None,
     };
     let committed = original.as_ref().and_then(|o| {

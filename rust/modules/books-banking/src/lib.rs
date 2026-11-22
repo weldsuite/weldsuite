@@ -21,6 +21,7 @@ mod bank_transactions;
 mod common;
 mod csv_format;
 mod import;
+mod orm_bridge;
 mod parsers;
 mod reconciliation_rules;
 
