@@ -9,7 +9,15 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 
+use crate::picker::{self, WorkspaceChoice};
 use crate::{McpSession, McpState, rpc};
+
+/// Who a request is answered for: a member in a workspace, or (membership
+/// mode, a plain `/mcp`, several workspaces) someone who has to pick one.
+enum Caller {
+    Member(Box<McpSession>),
+    Choosing(WorkspaceChoice),
+}
 
 /// The SDK's `MAX_BATCH_SIZE`.
 const MAX_BATCH_SIZE: usize = 100;
@@ -46,14 +54,18 @@ pub(crate) fn internal_error() -> Response {
 
 /// `/mcp`, every method.
 pub async fn serve(State(state): State<McpState>, request: Request) -> Response {
-    let Some(session) = request.extensions().get::<McpSession>().cloned() else {
+    let caller = if let Some(session) = request.extensions().get::<McpSession>() {
+        Caller::Member(Box::new(session.clone()))
+    } else if let Some(choice) = request.extensions().get::<WorkspaceChoice>() {
+        Caller::Choosing(choice.clone())
+    } else {
         // The authentication layer always sets one.
         tracing::error!("mcp: /mcp without a session");
         return internal_error();
     };
     let (parts, body) = request.into_parts();
     match parts.method {
-        Method::POST => post(&state, &session, parts, body).await,
+        Method::POST => post(&state, &caller, parts, body).await,
         Method::GET => {
             let accepts = header_text(&parts.headers, header::ACCEPT)
                 .is_some_and(|accept| accept.contains("text/event-stream"));
@@ -97,7 +109,7 @@ pub async fn serve(State(state): State<McpState>, request: Request) -> Response 
 
 async fn post(
     state: &McpState,
-    session: &McpSession,
+    caller: &Caller,
     parts: http::request::Parts,
     body: Body,
 ) -> Response {
@@ -159,7 +171,10 @@ async fn post(
     let mut answers = Vec::new();
     for message in &messages {
         if is_request(message) {
-            answers.push(rpc::handle(state, session, &parts, message).await);
+            answers.push(match caller {
+                Caller::Member(session) => rpc::handle(state, session, &parts, message).await,
+                Caller::Choosing(choice) => picker::handle(choice, message),
+            });
         }
     }
     let body = if answers.len() == 1 {

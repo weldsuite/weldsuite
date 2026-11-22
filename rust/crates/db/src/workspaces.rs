@@ -111,6 +111,8 @@ pub enum WorkspaceError {
     /// A database URL that is not a usable Postgres URL.
     BadDatabaseUrl,
     Database(sqlx::Error),
+    /// A master query through the ORM failed.
+    Orm(sea_orm::DbErr),
 }
 
 impl fmt::Display for WorkspaceError {
@@ -121,6 +123,7 @@ impl fmt::Display for WorkspaceError {
             Self::Decrypt(error) => write!(f, "cannot open the workspace database URL: {error}"),
             Self::BadDatabaseUrl => f.write_str("the database URL is not a Postgres URL"),
             Self::Database(error) => write!(f, "master database: {error}"),
+            Self::Orm(error) => write!(f, "master database: {error}"),
         }
     }
 }
@@ -130,6 +133,12 @@ impl std::error::Error for WorkspaceError {}
 impl From<sqlx::Error> for WorkspaceError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(error)
+    }
+}
+
+impl From<sea_orm::DbErr> for WorkspaceError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Orm(error)
     }
 }
 
