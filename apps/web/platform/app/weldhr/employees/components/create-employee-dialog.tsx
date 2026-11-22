@@ -221,11 +221,9 @@ export function CreateEmployeeDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                {!membersLoading && members.length === 0
-                  ? t('weldhr.employees.create.noMembersAvailable')
-                  : t('weldhr.employees.create.memberHint')}
-              </p>
+              {!membersLoading && members.length === 0 && (
+                <p className="text-xs text-muted-foreground">{t('weldhr.employees.create.noMembersAvailable')}</p>
+              )}
             </div>
 
             {showFields && (

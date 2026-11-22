@@ -68,7 +68,6 @@ export const weldhrPeople = {
       member: 'Workspace member',
       memberPlaceholder: 'Select a workspace member…',
       memberRequired: 'Select the workspace member this employee is.',
-      memberHint: 'Employees are people in this workspace. Pick someone who is already a member.',
       employeeMemberTag: 'Employee',
       teamMember: 'Team member',
       teamMemberPlaceholder: 'Select a team member…',
