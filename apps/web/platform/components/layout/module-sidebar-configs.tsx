@@ -36,6 +36,7 @@ import {
   Calculator,
   FileText,
   Receipt,
+  BookCheck,
   Building,
   Building2,
   Landmark,
@@ -665,6 +666,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.chartOfAccounts, href: '/weldbooks/accounts', icon: WalletCards },
           { title: t.navigation.moduleSidebar.weldbooks.journalEntries, href: '/weldbooks/journal', icon: TextAlignStart },
           { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
+          { title: t.navigation.moduleSidebar.weldbooks.annualReports, href: '/weldbooks/annual-reports', icon: BookCheck },
           { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },
           { title: t.navigation.moduleSidebar.weldbooks.payroll, href: '/weldbooks/payroll', icon: HandCoins },
           // Opening and closing periods is month-end work, not configuration.

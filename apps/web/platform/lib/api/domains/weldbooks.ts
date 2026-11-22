@@ -5,6 +5,7 @@ import type { BrFiscalView } from '@/lib/weldbooks/br-contact';
 import type { WeekFiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
 import type { UsAccountingMethod } from '@/lib/weldbooks/us-entity';
+import type { AnnualReport, AnnualReportFiled, AnnualReportPatch, FilingStatus, TaxFiled } from '@/lib/weldbooks/annual-report-model';
 import type {
   CreateInvoiceTemplateInput,
   InvoiceTemplate,
@@ -686,6 +687,11 @@ export interface VatReturn {
   filedAt?: string | null;
   filedBy?: string | null;
   notes?: string | null;
+  /** `rejected`: why the Belastingdienst refused it, and when. The return can be filed again. */
+  rejectionReason?: string | null;
+  rejectedAt?: string | null;
+  /** What Digipoort answered when the return was sent (`environment`: `preprod` or `production`). */
+  digipoortResponse?: { environment?: 'preprod' | 'production' } | null;
 }
 
 export interface IcpDeclaration {
@@ -698,6 +704,9 @@ export interface IcpDeclaration {
   totalAmount: string;
   filingReference?: string | null;
   notes?: string | null;
+  rejectionReason?: string | null;
+  rejectedAt?: string | null;
+  digipoortResponse?: { environment?: 'preprod' | 'production' } | null;
 }
 
 interface IcpLine {
@@ -1031,7 +1040,7 @@ export const accountingApi = {
   getVatReturn: (id: string) => weldbooksApi.get<ApiResponse<VatReturn>>(`/vat-returns/${id}`),
   calculateVatReturn: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<{ id: string; rubrieken: Record<string, number>; recalculated?: boolean }>>('/vat-returns/calculate', data),
   updateVatReturn: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<VatReturn>>(`/vat-returns/${id}`, data),
-  fileVatReturn: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/vat-returns/${id}/file`),
+  fileVatReturn: (id: string) => weldbooksApi.post<ApiResponse<TaxFiled>>(`/vat-returns/${id}/file`),
   /** Where there is no Digipoort: record that the return was filed with the tax authority by hand. */
   markVatReturnFiled: (id: string, data: { filingReference?: string; filedAt?: string }) =>
     weldbooksApi.post<ApiResponse<Pick<VatReturn, 'id' | 'status' | 'filingReference' | 'filedAt'>>>(
@@ -1042,7 +1051,7 @@ export const accountingApi = {
   deleteVatReturn: (id: string) => weldbooksApi.delete<unknown>(`/vat-returns/${id}`),
   getVatReturnXml: (id: string) => weldbooksApi.get<string>(`/vat-returns/${id}/xml`),
   getVatFilingStatus: (id: string) =>
-    weldbooksApi.get<ApiResponse<{ id: string; kenmerk: string; status: string; statusDescription?: string; simulated?: boolean }>>(`/vat-returns/${id}/filing-status`),
+    weldbooksApi.get<ApiResponse<FilingStatus>>(`/vat-returns/${id}/filing-status`),
   createSuppletie: (id: string) =>
     weldbooksApi.post<ApiResponse<{ correctionRequired: boolean; id?: string; netDiff: number; foldIntoNextReturn?: boolean; suppletieDeadline?: string; message: string }>>(`/vat-returns/${id}/suppletie`),
 
@@ -1053,8 +1062,29 @@ export const accountingApi = {
     weldbooksApi.post<ApiResponse<{ id: string; totalAmount: number; lineCount: number; skippedContacts: string[]; recalculated?: boolean }>>('/icp-declarations/calculate', data),
   /** Only a declaration that was not filed yet can be deleted. */
   deleteIcpDeclaration: (id: string) => weldbooksApi.delete<unknown>(`/icp-declarations/${id}`),
-  fileIcpDeclaration: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/icp-declarations/${id}/file`),
+  fileIcpDeclaration: (id: string) => weldbooksApi.post<ApiResponse<TaxFiled>>(`/icp-declarations/${id}/file`),
+  /** What Digipoort says about a declaration that was sent. */
+  getIcpFilingStatus: (id: string) => weldbooksApi.get<ApiResponse<FilingStatus>>(`/icp-declarations/${id}/filing-status`),
   getIcpDeclarationXml: (id: string) => weldbooksApi.get<string>(`/icp-declarations/${id}/xml`),
+
+  // Annual reports (KvK jaarrekening, Dutch entities)
+  listAnnualReports: () => weldbooksApi.get<ApiResponse<AnnualReport[]>>('/annual-reports'),
+  getAnnualReport: (id: string) => weldbooksApi.get<ApiResponse<AnnualReport>>(`/annual-reports/${id}`),
+  createAnnualReport: (data: { fiscalYear: number; sizeClass: 'micro' | 'small' }) =>
+    weldbooksApi.post<ApiResponse<AnnualReport>>('/annual-reports', data),
+  updateAnnualReport: (id: string, data: AnnualReportPatch) =>
+    weldbooksApi.patch<ApiResponse<AnnualReport>>(`/annual-reports/${id}`, data),
+  /** The figures from the ledger again (a draft or rejected report only). */
+  recalculateAnnualReport: (id: string) =>
+    weldbooksApi.post<ApiResponse<AnnualReport>>(`/annual-reports/${id}/recalculate`),
+  /** The XBRL file: its bytes and the name the server gave it. 400 while the report is incomplete. */
+  downloadAnnualReportXbrl: (id: string) => weldbooksApi.getBlob(`/annual-reports/${id}/xbrl`),
+  fileAnnualReport: (id: string) => weldbooksApi.post<ApiResponse<AnnualReportFiled>>(`/annual-reports/${id}/file`),
+  markAnnualReportFiled: (id: string, data: { filingReference?: string; filedAt?: string }) =>
+    weldbooksApi.post<ApiResponse<AnnualReport>>(`/annual-reports/${id}/mark-filed`, data),
+  getAnnualReportFilingStatus: (id: string) =>
+    weldbooksApi.get<ApiResponse<FilingStatus>>(`/annual-reports/${id}/filing-status`),
+  deleteAnnualReport: (id: string) => weldbooksApi.delete<unknown>(`/annual-reports/${id}`),
 
   // Exports
   getXafAuditfile: (fiscalYear: number) => weldbooksApi.get<string>(`/accounting-exports/xaf?fiscalYear=${fiscalYear}`),

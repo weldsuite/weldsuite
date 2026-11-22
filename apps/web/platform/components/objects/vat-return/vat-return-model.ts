@@ -35,9 +35,12 @@ export function vatTotalToneClass(total: number): string {
   return total < 0 ? 'text-green-600 dark:text-green-400' : '';
 }
 
-/** A return that was not filed yet can be filed and deleted; a rejected one can be deleted and calculated again. */
+/**
+ * A return that was not filed yet can be filed and deleted. A rejected one (the Belastingdienst refused it)
+ * can be corrected and filed again; one that is sent and waiting for the answer can not.
+ */
 export function canFileVatReturn(status: string): boolean {
-  return status === 'calculated' || status === 'reviewed';
+  return status === 'calculated' || status === 'reviewed' || status === 'rejected';
 }
 
 export function canDeleteVatReturn(status: string): boolean {
@@ -55,4 +58,14 @@ export function canRecalculateVatReturn(vr: { status: string; correctionOfId?: s
 /** A filed return can be followed up at the tax authority and corrected (suppletie). */
 export function isFiledVatReturn(status: string): boolean {
   return status === 'filed' || status === 'accepted';
+}
+
+/** Sent through Digipoort, waiting for the Belastingdienst: not filed yet, and not to be filed twice. */
+export function isSubmittedVatReturn(status: string): boolean {
+  return status === 'submitted';
+}
+
+/** The statuses of a return or ICP declaration whose delivery can be asked about at Digipoort. */
+export function canCheckFilingStatus(status: string): boolean {
+  return status === 'submitted' || isFiledVatReturn(status);
 }

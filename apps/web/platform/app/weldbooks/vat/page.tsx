@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@weldsuite/ui/components/dialog';
-import { FileText, Receipt, Trash2 } from 'lucide-react';
+import { FileText, Receipt, ShieldCheck, Trash2 } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
@@ -26,7 +26,14 @@ import {
 } from '@/components/accounting/weldbooks-row-cells';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
-import { vatStatusTone, vatTotalToneClass } from '@/components/objects/vat-return/vat-return-model';
+import {
+  canCheckFilingStatus,
+  canDeleteVatReturn,
+  canFileVatReturn,
+  vatStatusTone,
+  vatTotalToneClass,
+} from '@/components/objects/vat-return/vat-return-model';
+import { PreprodBadge } from '@/components/accounting/digipoort-filing';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
@@ -127,10 +134,33 @@ export default function VatReturnsPage() {
     onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpCalculationFailed')),
   });
 
+  const td = t.weldbooksNl.digipoort;
+
+  // A refused filing answers with the reason (the Belastingdienst's, or Digipoort's): show it as it is.
   const fileIcp = useMutation({
     mutationFn: (icpId: string) => accountingApi.fileIcpDeclaration(icpId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
+      toast.success(res.data?.status === 'submitted' ? td.icpSubmitted : td.icpFiled);
+    },
     onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
+  });
+
+  // Asks Digipoort, then reads the declaration again so its new status shows.
+  const checkIcpStatus = useMutation({
+    mutationFn: (icpId: string) => accountingApi.getIcpFilingStatus(icpId),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
+      const result = res.data;
+      if (result.success === false) {
+        toast.error(result.error ?? td.statusCheckFailed);
+        return;
+      }
+      toast.info(td.icpStatusResult.replace('{status}', td.statusLabels[result.status]), {
+        description: result.statusDescription || result.reason || undefined,
+      });
+    },
+    onError: (err) => toast.error(err?.message ?? td.statusCheckFailed),
   });
 
   const deleteIcp = useMutation({
@@ -272,7 +302,22 @@ export default function VatReturnsPage() {
       id: 'period',
       header: tv.colPeriod,
       width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
-      render: (d) => <RowTitle>{d.periodLabel || periodRange(d.periodStart, d.periodEnd)}</RowTitle>,
+      render: (d) => (
+        <RowTitle
+          chips={
+            <>
+              <PreprodBadge row={d} />
+              {d.status === 'rejected' && d.rejectionReason ? (
+                <span title={d.rejectionReason} className="hidden min-w-0 truncate text-xs text-destructive @3xl/list:inline">
+                  {d.rejectionReason}
+                </span>
+              ) : null}
+            </>
+          }
+        >
+          {d.periodLabel || periodRange(d.periodStart, d.periodEnd)}
+        </RowTitle>
+      ),
     },
     {
       id: 'total',
@@ -289,15 +334,27 @@ export default function VatReturnsPage() {
     {
       id: 'actions',
       header: '',
-      width: 'shrink-0 w-[150px] justify-end gap-2',
-      render: (d) =>
-        d.status === 'calculated' || d.status === 'reviewed' ? (
-          <>
-            {isFeatureAvailable('vat-digipoort') ? (
-              <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
-                {tv.icpFile}
-              </Button>
-            ) : null}
+      width: 'shrink-0 w-[200px] justify-end gap-2',
+      render: (d) => (
+        <>
+          {canCheckFilingStatus(d.status) && isFeatureAvailable('vat-digipoort') ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={checkIcpStatus.isPending}
+              onClick={() => checkIcpStatus.mutate(d.id)}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {checkIcpStatus.isPending && checkIcpStatus.variables === d.id ? tv.checkingStatus : tv.checkStatus}
+            </Button>
+          ) : null}
+          {canFileVatReturn(d.status) && isFeatureAvailable('vat-digipoort') ? (
+            <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
+              {tv.icpFile}
+            </Button>
+          ) : null}
+          {canDeleteVatReturn(d.status) && d.status !== 'draft' ? (
             <Button
               size="sm"
               variant="ghost"
@@ -308,8 +365,9 @@ export default function VatReturnsPage() {
             >
               <Trash2 className="h-4 w-4" />
             </Button>
-          </>
-        ) : null,
+          ) : null}
+        </>
+      ),
     },
   ];
 

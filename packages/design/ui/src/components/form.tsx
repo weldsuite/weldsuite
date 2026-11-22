@@ -107,19 +107,29 @@ function FormLabel({
   )
 }
 
-function FormControl({ ...props }: React.ComponentProps<typeof Slot>) {
+/**
+ * The field's control. `invalid` flags an error the form's own validation
+ * doesn't know about (a check the server made): the control is then marked
+ * invalid and its `FormMessage` is linked through `aria-describedby`, exactly
+ * as for a validation error, so a screen reader reads why.
+ */
+function FormControl({
+  invalid,
+  ...props
+}: React.ComponentProps<typeof Slot> & { invalid?: boolean }) {
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField()
+  const flagged = !!error || !!invalid
 
   return (
     <Slot
       data-slot="form-control"
       id={formItemId}
       aria-describedby={
-        !error
+        !flagged
           ? `${formDescriptionId}`
           : `${formDescriptionId} ${formMessageId}`
       }
-      aria-invalid={!!error}
+      aria-invalid={flagged}
       {...props}
     />
   )

@@ -36,6 +36,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +52,7 @@ import {
 } from '@/components/object-panel';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { FilingStatusSummary, PreprodBadge, RejectionNotice } from '@/components/accounting/digipoort-filing';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import {
   PanelRow,
@@ -62,15 +64,18 @@ import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-
 import { VatNotAvailable } from '@/app/weldbooks/vat/components/vat-not-available';
 import { accountingApi, type VatReturn } from '@/lib/api/domains/weldbooks';
 import { isFeatureAvailable } from '@/lib/edition';
+import type { FilingStatus } from '@/lib/weldbooks/annual-report-model';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
+  canCheckFilingStatus,
   canDeleteVatReturn,
   canFileVatReturn,
   canRecalculateVatReturn,
   isFiledVatReturn,
+  isSubmittedVatReturn,
   vatStatusTone,
   vatTotalToneClass,
   VAT_BOXES,
@@ -120,6 +125,9 @@ function VatReturnTitle({ vr, t }: Readonly<{ vr?: VatReturn; t: Translations }>
       </span>
       <span className="flex-shrink-0">
         <StatusChip tone={vatStatusTone(vr.status)}>{statusLabels[vr.status] ?? vr.status}</StatusChip>
+      </span>
+      <span className="flex-shrink-0">
+        <PreprodBadge row={vr} />
       </span>
     </div>
   );
@@ -258,7 +266,7 @@ function VatReturnActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {filed && digipoort ? (
+          {canCheckFilingStatus(vr.status) && digipoort ? (
             <DropdownMenuItem onClick={onCheckStatus} disabled={checkingStatus}>
               <ShieldCheck />
               {checkingStatus ? tv.checkingStatus : tv.checkStatus}
@@ -302,12 +310,15 @@ function VatReturnDetailsTab({
   vr,
   filedNotice,
   filingError,
+  statusResult,
   t,
 }: Readonly<{
   vr: VatReturn;
-  /** The return was filed from this panel a moment ago. */
-  filedNotice: boolean;
+  /** The return was filed from this panel a moment ago: `sent` when it went through Digipoort and waits for an answer. */
+  filedNotice: 'filed' | 'sent' | null;
   filingError: string | null;
+  /** The answer of the last status check made from this panel. */
+  statusResult: FilingStatus | null;
   t: Translations;
 }>) {
   const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
@@ -317,14 +328,28 @@ function VatReturnDetailsTab({
   const rubrieken = vr.rubrieken ?? {};
   const total = rubrieken.r5g ?? 0;
   const digipoort = isFeatureAvailable('vat-digipoort');
+  const td = t.weldbooksNl.digipoort;
 
   return (
     <div className="@container p-4 space-y-4">
       {filedNotice ? (
         <p className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400" role="status">
           <CheckCircle2 className="h-4 w-4" />
-          {tv.filedSuccess}
+          {filedNotice === 'sent' ? td.vatSubmitted : tv.filedSuccess}
         </p>
+      ) : null}
+      {vr.status === 'rejected' ? (
+        <RejectionNotice
+          title={td.rejectedTitle}
+          reason={vr.rejectionReason}
+          noReason={td.rejectedNoReason}
+          fileAgain={td.rejectedFileAgain}
+        />
+      ) : null}
+      {isSubmittedVatReturn(vr.status) ? (
+        <InfoBanner variant="info" title={td.submittedTitle}>
+          {td.submittedBody}
+        </InfoBanner>
       ) : null}
       {filingError ? (
         <p className="flex items-center gap-1 text-sm text-red-600 dark:text-red-400" role="alert">
@@ -364,6 +389,9 @@ function VatReturnDetailsTab({
             tabular
           />
         ) : null}
+        {vr.status === 'rejected' && vr.rejectedAt ? (
+          <PanelRow icon={CalendarDays} label={td.rejectedAt} value={formatDate(vr.rejectedAt)} tabular />
+        ) : null}
         {vr.filingReference || vr.filedAt ? (
           <>
             {vr.filingReference ? (
@@ -385,6 +413,8 @@ function VatReturnDetailsTab({
       </div>
 
       {canRecalculateVatReturn(vr) ? <p className="text-xs text-muted-foreground">{tv.recalculateHint}</p> : null}
+
+      {statusResult ? <FilingStatusSummary status={statusResult} /> : null}
 
       {vr.notes ? (
         <PanelSection title={tv.notesSection}>
@@ -441,17 +471,27 @@ function VatReturnTabBody({
   activeTab,
   filedNotice,
   filingError,
+  statusResult,
   t,
 }: Readonly<{
   vr: Parameters<typeof VatReturnBoxesTab>[0]['vr'];
   activeTab: VatReturnTab['id'];
-  filedNotice: boolean;
+  filedNotice: 'filed' | 'sent' | null;
   filingError: string | null;
+  statusResult: FilingStatus | null;
   t: Translations;
 }>) {
   if (activeTab === 'boxes') return <VatReturnBoxesTab vr={vr} t={t} />;
   if (activeTab === 'history') return <EntityAuditPanel entityType={VAT_RETURN_TYPE} entityId={vr.id} />;
-  return <VatReturnDetailsTab vr={vr} filedNotice={filedNotice} filingError={filingError} t={t} />;
+  return (
+    <VatReturnDetailsTab
+      vr={vr}
+      filedNotice={filedNotice}
+      filingError={filingError}
+      statusResult={statusResult}
+      t={t}
+    />
+  );
 }
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
@@ -539,7 +579,14 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   const handleCheckStatus = () => {
     statusMutation.mutate(undefined, {
-      onSuccess: (res) => toast.info(tv.statusResult.replace('{status}', String(res.data.status))),
+      onSuccess: (res) => {
+        // A failed lookup answers `{ success: false, error }`: say why instead of reporting "unknown".
+        if (res.data.success === false) {
+          toast.error(res.data.error ?? st('sweep.weldbooks.vat.statusCheckFailed'));
+          return;
+        }
+        toast.info(tv.statusResult.replace('{status}', String(res.data.status)));
+      },
       onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.statusCheckFailed')),
     });
   };
@@ -550,6 +597,10 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
         fileMutation.error?.message || st('sweep.weldbooks.common.unknownError'),
       )
     : null;
+
+  let filedNotice: 'filed' | 'sent' | null = null;
+  if (fileMutation.isSuccess) filedNotice = fileMutation.data?.data?.status === 'submitted' ? 'sent' : 'filed';
+  else if (markFiledMutation.isSuccess) filedNotice = 'filed';
 
   let body = null;
   if (!jurisdictionPending && !features.vatReturn) {
@@ -563,7 +614,8 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
       <VatReturnTabBody
         vr={vr}
         activeTab={activeTab}
-        filedNotice={fileMutation.isSuccess || markFiledMutation.isSuccess}
+        filedNotice={filedNotice}
+        statusResult={statusMutation.data?.data ?? null}
         filingError={filingError}
         t={t}
       />

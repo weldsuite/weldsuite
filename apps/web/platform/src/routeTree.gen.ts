@@ -256,6 +256,7 @@ import { Route as WeldbooksCustomersIndexRouteImport } from './routes/weldbooks/
 import { Route as WeldbooksCreditNotesIndexRouteImport } from './routes/weldbooks/credit-notes/index'
 import { Route as WeldbooksBillsIndexRouteImport } from './routes/weldbooks/bills/index'
 import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/banking/index'
+import { Route as WeldbooksAnnualReportsIndexRouteImport } from './routes/weldbooks/annual-reports/index'
 import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
 import { Route as WeldboardTemplatesIndexRouteImport } from './routes/weldboard/templates/index'
 import { Route as WeldboardBoardIdIndexRouteImport } from './routes/weldboard/$boardId/index'
@@ -467,6 +468,7 @@ import { Route as WeldbooksBankingReconciliationIndexRouteImport } from './route
 import { Route as WeldbooksBankingImportIndexRouteImport } from './routes/weldbooks/banking/import/index'
 import { Route as WeldbooksBankingFeedsIndexRouteImport } from './routes/weldbooks/banking/feeds/index'
 import { Route as WeldbooksBankingIdIndexRouteImport } from './routes/weldbooks/banking/$id/index'
+import { Route as WeldbooksAnnualReportsIdIndexRouteImport } from './routes/weldbooks/annual-reports/$id/index'
 import { Route as WeldbooksAccountsTaxLinesIndexRouteImport } from './routes/weldbooks/accounts/tax-lines/index'
 import { Route as WeldbooksAccountsAddIndexRouteImport } from './routes/weldbooks/accounts/add/index'
 import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks/accounts/$id/index'
@@ -1913,6 +1915,12 @@ const WeldbooksBankingIndexRoute = WeldbooksBankingIndexRouteImport.update({
   path: '/banking/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksAnnualReportsIndexRoute =
+  WeldbooksAnnualReportsIndexRouteImport.update({
+    id: '/annual-reports/',
+    path: '/annual-reports/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksAccountsIndexRoute = WeldbooksAccountsIndexRouteImport.update({
   id: '/accounts/',
   path: '/accounts/',
@@ -3074,6 +3082,12 @@ const WeldbooksBankingIdIndexRoute = WeldbooksBankingIdIndexRouteImport.update({
   path: '/banking/$id/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksAnnualReportsIdIndexRoute =
+  WeldbooksAnnualReportsIdIndexRouteImport.update({
+    id: '/annual-reports/$id/',
+    path: '/annual-reports/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksAccountsTaxLinesIndexRoute =
   WeldbooksAccountsTaxLinesIndexRouteImport.update({
     id: '/accounts/tax-lines/',
@@ -4338,6 +4352,7 @@ export interface FileRoutesByFullPath {
   '/weldboard/$boardId/': typeof WeldboardBoardIdIndexRoute
   '/weldboard/templates/': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
+  '/weldbooks/annual-reports/': typeof WeldbooksAnnualReportsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
   '/weldbooks/credit-notes/': typeof WeldbooksCreditNotesIndexRoute
@@ -4543,6 +4558,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/accounts/$id/': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add/': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/accounts/tax-lines/': typeof WeldbooksAccountsTaxLinesIndexRoute
+  '/weldbooks/annual-reports/$id/': typeof WeldbooksAnnualReportsIdIndexRoute
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds/': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import/': typeof WeldbooksBankingImportIndexRoute
@@ -4921,6 +4937,7 @@ export interface FileRoutesByTo {
   '/weldboard/$boardId': typeof WeldboardBoardIdIndexRoute
   '/weldboard/templates': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts': typeof WeldbooksAccountsIndexRoute
+  '/weldbooks/annual-reports': typeof WeldbooksAnnualReportsIndexRoute
   '/weldbooks/banking': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills': typeof WeldbooksBillsIndexRoute
   '/weldbooks/credit-notes': typeof WeldbooksCreditNotesIndexRoute
@@ -5119,6 +5136,7 @@ export interface FileRoutesByTo {
   '/weldbooks/accounts/$id': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/accounts/tax-lines': typeof WeldbooksAccountsTaxLinesIndexRoute
+  '/weldbooks/annual-reports/$id': typeof WeldbooksAnnualReportsIdIndexRoute
   '/weldbooks/banking/$id': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import': typeof WeldbooksBankingImportIndexRoute
@@ -5551,6 +5569,7 @@ export interface FileRoutesById {
   '/weldboard/$boardId/': typeof WeldboardBoardIdIndexRoute
   '/weldboard/templates/': typeof WeldboardTemplatesIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
+  '/weldbooks/annual-reports/': typeof WeldbooksAnnualReportsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
   '/weldbooks/credit-notes/': typeof WeldbooksCreditNotesIndexRoute
@@ -5756,6 +5775,7 @@ export interface FileRoutesById {
   '/weldbooks/accounts/$id/': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add/': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/accounts/tax-lines/': typeof WeldbooksAccountsTaxLinesIndexRoute
+  '/weldbooks/annual-reports/$id/': typeof WeldbooksAnnualReportsIdIndexRoute
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds/': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import/': typeof WeldbooksBankingImportIndexRoute
@@ -6189,6 +6209,7 @@ export interface FileRouteTypes {
     | '/weldboard/$boardId/'
     | '/weldboard/templates/'
     | '/weldbooks/accounts/'
+    | '/weldbooks/annual-reports/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
     | '/weldbooks/credit-notes/'
@@ -6394,6 +6415,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/'
     | '/weldbooks/accounts/add/'
     | '/weldbooks/accounts/tax-lines/'
+    | '/weldbooks/annual-reports/$id/'
     | '/weldbooks/banking/$id/'
     | '/weldbooks/banking/feeds/'
     | '/weldbooks/banking/import/'
@@ -6772,6 +6794,7 @@ export interface FileRouteTypes {
     | '/weldboard/$boardId'
     | '/weldboard/templates'
     | '/weldbooks/accounts'
+    | '/weldbooks/annual-reports'
     | '/weldbooks/banking'
     | '/weldbooks/bills'
     | '/weldbooks/credit-notes'
@@ -6970,6 +6993,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id'
     | '/weldbooks/accounts/add'
     | '/weldbooks/accounts/tax-lines'
+    | '/weldbooks/annual-reports/$id'
     | '/weldbooks/banking/$id'
     | '/weldbooks/banking/feeds'
     | '/weldbooks/banking/import'
@@ -7401,6 +7425,7 @@ export interface FileRouteTypes {
     | '/weldboard/$boardId/'
     | '/weldboard/templates/'
     | '/weldbooks/accounts/'
+    | '/weldbooks/annual-reports/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
     | '/weldbooks/credit-notes/'
@@ -7606,6 +7631,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/'
     | '/weldbooks/accounts/add/'
     | '/weldbooks/accounts/tax-lines/'
+    | '/weldbooks/annual-reports/$id/'
     | '/weldbooks/banking/$id/'
     | '/weldbooks/banking/feeds/'
     | '/weldbooks/banking/import/'
@@ -9627,6 +9653,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksBankingIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/annual-reports/': {
+      id: '/weldbooks/annual-reports/'
+      path: '/annual-reports'
+      fullPath: '/weldbooks/annual-reports/'
+      preLoaderRoute: typeof WeldbooksAnnualReportsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/accounts/': {
       id: '/weldbooks/accounts/'
       path: '/accounts'
@@ -11102,6 +11135,13 @@ declare module '@tanstack/react-router' {
       path: '/banking/$id'
       fullPath: '/weldbooks/banking/$id/'
       preLoaderRoute: typeof WeldbooksBankingIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/annual-reports/$id/': {
+      id: '/weldbooks/annual-reports/$id/'
+      path: '/annual-reports/$id'
+      fullPath: '/weldbooks/annual-reports/$id/'
+      preLoaderRoute: typeof WeldbooksAnnualReportsIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
     '/weldbooks/accounts/tax-lines/': {
@@ -12678,6 +12718,7 @@ const WeldboardRouteRouteWithChildren = WeldboardRouteRoute._addFileChildren(
 interface WeldbooksRouteRouteChildren {
   WeldbooksIndexRoute: typeof WeldbooksIndexRoute
   WeldbooksAccountsIndexRoute: typeof WeldbooksAccountsIndexRoute
+  WeldbooksAnnualReportsIndexRoute: typeof WeldbooksAnnualReportsIndexRoute
   WeldbooksBankingIndexRoute: typeof WeldbooksBankingIndexRoute
   WeldbooksBillsIndexRoute: typeof WeldbooksBillsIndexRoute
   WeldbooksCreditNotesIndexRoute: typeof WeldbooksCreditNotesIndexRoute
@@ -12703,6 +12744,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksAccountsIdIndexRoute: typeof WeldbooksAccountsIdIndexRoute
   WeldbooksAccountsAddIndexRoute: typeof WeldbooksAccountsAddIndexRoute
   WeldbooksAccountsTaxLinesIndexRoute: typeof WeldbooksAccountsTaxLinesIndexRoute
+  WeldbooksAnnualReportsIdIndexRoute: typeof WeldbooksAnnualReportsIdIndexRoute
   WeldbooksBankingIdIndexRoute: typeof WeldbooksBankingIdIndexRoute
   WeldbooksBankingFeedsIndexRoute: typeof WeldbooksBankingFeedsIndexRoute
   WeldbooksBankingImportIndexRoute: typeof WeldbooksBankingImportIndexRoute
@@ -12772,6 +12814,7 @@ interface WeldbooksRouteRouteChildren {
 const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksIndexRoute: WeldbooksIndexRoute,
   WeldbooksAccountsIndexRoute: WeldbooksAccountsIndexRoute,
+  WeldbooksAnnualReportsIndexRoute: WeldbooksAnnualReportsIndexRoute,
   WeldbooksBankingIndexRoute: WeldbooksBankingIndexRoute,
   WeldbooksBillsIndexRoute: WeldbooksBillsIndexRoute,
   WeldbooksCreditNotesIndexRoute: WeldbooksCreditNotesIndexRoute,
@@ -12797,6 +12840,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksAccountsIdIndexRoute: WeldbooksAccountsIdIndexRoute,
   WeldbooksAccountsAddIndexRoute: WeldbooksAccountsAddIndexRoute,
   WeldbooksAccountsTaxLinesIndexRoute: WeldbooksAccountsTaxLinesIndexRoute,
+  WeldbooksAnnualReportsIdIndexRoute: WeldbooksAnnualReportsIdIndexRoute,
   WeldbooksBankingIdIndexRoute: WeldbooksBankingIdIndexRoute,
   WeldbooksBankingFeedsIndexRoute: WeldbooksBankingFeedsIndexRoute,
   WeldbooksBankingImportIndexRoute: WeldbooksBankingImportIndexRoute,

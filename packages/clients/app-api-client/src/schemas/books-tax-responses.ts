@@ -73,12 +73,18 @@ export const vatReturnCalculatedSchema = z.object({
   recalculated: z.boolean(),
 });
 
-/** `POST /api/vat-returns/:id/file`. */
+/**
+ * `POST /api/vat-returns/:id/file` and `POST /api/icp-declarations/:id/file`.
+ * Without a Digipoort connection the filing is simulated (`filed`,
+ * `simulated: true`); with one it is sent (`submitted`, `simulated: false`)
+ * and the tax office answers later (`filing-status`).
+ */
 export const vatReturnFiledSchema = z.object({
   id: z.string(),
-  status: z.literal('filed'),
+  status: z.enum(['filed', 'submitted']),
   kenmerk: z.string().optional(),
   digipoortSuccess: z.boolean(),
+  simulated: z.boolean().optional(),
   message: z.string(),
 });
 
@@ -95,19 +101,122 @@ export const vatSuppletieSchema = z
   })
   .strict();
 
-/** `GET /api/vat-returns/:id/filing-status`. */
+/** One status message Digipoort reported for a delivery (`statuses[]` of a filing status). */
+export const digipoortStatusEntrySchema = z
+  .object({
+    kenmerk: z.string().optional(),
+    code: z.string().nullable().optional(),
+    at: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    errorCode: z.string().nullable().optional(),
+    errorDescription: z.string().nullable().optional(),
+    details: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/**
+ * `GET /api/vat-returns/:id/filing-status`, `GET /api/icp-declarations/:id/filing-status`
+ * and `GET /api/annual-reports/:id/filing-status`. A failed lookup answers
+ * `{ success: false, status: 'unknown', error }`.
+ */
 export const vatFilingStatusSchema = z
   .object({
     id: z.string(),
-    kenmerk: z.string(),
+    kenmerk: z.string().optional(),
     success: z.boolean(),
     status: z.enum(['submitted', 'processing', 'accepted', 'rejected', 'unknown']),
-    statusDescription: z.string().optional(),
+    statusCode: z.string().nullable().optional(),
+    statusDescription: z.string().nullable().optional(),
+    reason: z.string().nullable().optional(),
+    statuses: z.array(digipoortStatusEntrySchema).optional(),
     timestamp: z.string().optional(),
     simulated: z.boolean().optional(),
     error: z.string().optional(),
   })
   .passthrough();
+
+/** The balance sheet lines of a jaarrekening, in euros. */
+export const annualReportLinesSchema = z.object({
+  intangibleAssets: z.number(),
+  tangibleAssets: z.number(),
+  financialAssets: z.number(),
+  inventories: z.number(),
+  receivables: z.number(),
+  securities: z.number(),
+  cash: z.number(),
+  shareCapital: z.number(),
+  sharePremium: z.number(),
+  revaluationReserve: z.number(),
+  legalReserves: z.number(),
+  statutoryReserves: z.number(),
+  otherReserves: z.number(),
+  resultForTheYear: z.number(),
+  provisions: z.number(),
+  longTermLiabilities: z.number(),
+  currentLiabilities: z.number(),
+});
+
+/** `AnnualReport` of books-api (`/api/annual-reports`): a KvK jaarrekening (Dutch entities). */
+export const annualReportSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    entityId: z.string(),
+    fiscalYear: z.number(),
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    sizeClass: z.enum(['micro', 'small']),
+    status: z.enum(['draft', 'submitted', 'accepted', 'rejected', 'filed']),
+    figures: z.object({
+      current: annualReportLinesSchema,
+      prior: annualReportLinesSchema.nullable(),
+      accounts: z.array(
+        z.object({
+          item: z.string(),
+          accountId: z.string().nullable(),
+          code: z.string().nullable(),
+          name: z.string().nullable(),
+          current: z.number(),
+          prior: z.number().nullable(),
+        }),
+      ),
+      computedAt: z.string().nullable(),
+      edited: z.boolean(),
+    }),
+    disclosures: z.object({
+      legalForm: z.enum(['bv', 'nv']).nullable(),
+      kvkNumber: nullableString,
+      registeredOffice: nullableString,
+      city: nullableString,
+      postalCode: nullableString,
+      email: nullableString,
+      preparedOn: nullableString,
+      appropriation: z.enum(['before', 'after']),
+      averageEmployees: z.number().nullable(),
+    }),
+    adopted: z.boolean(),
+    adoptionDate: nullableString,
+    filingReference: nullableString,
+    /** What Digipoort answered when the report was sent (`environment`: `preprod` or `production`). */
+    digipoortResponse: z.record(z.unknown()).nullable().optional(),
+    filedAt: nullableString,
+    acceptedAt: nullableString,
+    rejectedAt: nullableString,
+    rejectionReason: nullableString,
+    notes: nullableString,
+    issues: z.array(z.object({ field: z.string(), message: z.string() })),
+  })
+  .passthrough();
+
+/** `POST /api/annual-reports/:id/file`. */
+export const annualReportFiledSchema = z.object({
+  id: z.string(),
+  status: z.literal('submitted'),
+  kenmerk: z.string(),
+  environment: z.enum(['preprod', 'production']),
+  message: z.string(),
+});
 
 const gstHeadsSchema = z.object({ igst: z.number(), cgst: z.number(), sgst: z.number(), cess: z.number() });
 const gstOutwardSchema = gstHeadsSchema.extend({ taxableValue: z.number() });

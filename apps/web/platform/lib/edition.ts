@@ -109,7 +109,12 @@ export const EDITION_FEATURES = [
   'books-ocr',
   /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
   'phone-number-purchase',
-  /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
+  /**
+   * Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid
+   * client certificate). On the Rust backend it is offered exactly where the
+   * install has a Digipoort connection; the status of a filing is then read
+   * back from Digipoort.
+   */
   'vat-digipoort',
   /** WeldHost: buying and renewing domains (a Stripe checkout and Stripe-billed renewals). */
   'domain-purchase',
@@ -201,6 +206,20 @@ export const EDITION_FEATURES = [
    * where the chart runs clamd (`mailInbound.clamav`).
    */
   'mail-threat-protection',
+  /**
+   * WeldBooks annual reports (jaarrekening) for Dutch entities
+   * (`/api/annual-reports`, the Annual reports screen). Built only in Rust, so
+   * it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the screen.
+   */
+  'annual-reports',
+  /**
+   * Depositing an annual report with the KvK through Digipoort
+   * (`POST /api/annual-reports/:id/file`): offered where the install has a
+   * Digipoort connection (a PKIoverheid client certificate). Without it the
+   * report is downloaded as XBRL and marked as filed by hand. Built only in
+   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'kvk-digipoort',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

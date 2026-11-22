@@ -3277,6 +3277,7 @@ export const accounting = {
         reviewed: 'Beoordeeld',
         accepted: 'Geaccepteerd',
         rejected: 'Afgewezen',
+        submitted: 'Ingediend',
       },
       // Terugkerende factuurstatussen (recurring/[id]/page)
       recurringInvoice: {
