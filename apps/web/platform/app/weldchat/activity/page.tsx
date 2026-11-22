@@ -277,8 +277,10 @@ export default function ActivityPage() {
         key={item.id}
         type="button"
         onClick={() => handleItemClick(item)}
+        // The standard list row (as on WeldHR's employees): 24px avatar 8px
+        // from a 14px medium name, the actions column setting the height.
         className={cn(
-          'flex w-full text-left items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group relative',
+          'group relative flex w-full cursor-pointer items-center gap-4 border-b border-border/70 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40',
           isUnread && 'bg-blue-50/40 dark:bg-blue-950/20',
         )}
       >
@@ -286,7 +288,7 @@ export default function ActivityPage() {
           <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500 rounded-r" />
         )}
 
-        <div className="flex-1 min-w-0 flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* Nudged up to the title line when a second line follows it. */}
           <div className={cn('relative flex-shrink-0', body && '-top-[6px]')}>
             <MemberAvatar
@@ -303,10 +305,7 @@ export default function ActivityPage() {
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className={cn(
-              'text-sm leading-snug truncate',
-              isUnread ? 'font-semibold text-foreground' : 'text-foreground/80',
-            )}>
+            <div className={cn('truncate', isUnread ? 'font-medium text-foreground' : 'text-foreground/80')}>
               {renderWithMentions(item.title, membersMap, st('sweep.weldchat.mentionAutocomplete.unknownUser'))}
               {item.channelName && !dmName && (
                 <span className="font-normal text-muted-foreground"> {st('sweep.weldchat.bookmarksPanel.inChannel')} #{item.channelName}</span>
@@ -334,7 +333,7 @@ export default function ActivityPage() {
           </span>
         </div>
 
-        <div className="w-[40px] flex-shrink-0" />
+        <div className="h-7 w-[40px] flex-shrink-0" />
       </button>
     );
   }, [membersMap, actorsMap, dmNames, handleItemClick, st]);
