@@ -171,75 +171,76 @@ export function viewBetween(from: WorldMapView, to: WorldMapView, t: number): Wo
   return viewCentredOn(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, k);
 }
 
+/** A part's box in map units: left, top, right, bottom. */
+type PartBox = [number, number, number, number];
+
+/** Where a path is drawing: the current point and where its part started (for `Z`). */
+interface Pen {
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+}
+
+/** The straight-line commands: how many numbers each takes and where they move the pen. */
+const LINE_STEPS: Readonly<Record<string, { size: number; move: (pen: Pen, n: readonly number[]) => void }>> = {
+  L: { size: 2, move: (pen, n) => Object.assign(pen, { x: n[0] ?? pen.x, y: n[1] ?? pen.y }) },
+  l: { size: 2, move: (pen, n) => Object.assign(pen, { x: pen.x + (n[0] ?? 0), y: pen.y + (n[1] ?? 0) }) },
+  H: { size: 1, move: (pen, n) => Object.assign(pen, { x: n[0] ?? pen.x }) },
+  h: { size: 1, move: (pen, n) => Object.assign(pen, { x: pen.x + (n[0] ?? 0) }) },
+  V: { size: 1, move: (pen, n) => Object.assign(pen, { y: n[0] ?? pen.y }) },
+  v: { size: 1, move: (pen, n) => Object.assign(pen, { y: pen.y + (n[0] ?? 0) }) },
+};
+
+/** Draws lines from the pen with `numbers`, growing the part's box. */
+function lineTo(pen: Pen, box: PartBox | undefined, command: string, numbers: readonly number[]) {
+  const step = LINE_STEPS[command];
+  if (!step || !box) return;
+  for (let i = 0; i + step.size <= numbers.length; i += step.size) {
+    step.move(pen, numbers.slice(i, i + step.size));
+    box[0] = Math.min(box[0], pen.x);
+    box[1] = Math.min(box[1], pen.y);
+    box[2] = Math.max(box[2], pen.x);
+    box[3] = Math.max(box[3], pen.y);
+  }
+}
+
+/** Starts a part; the pairs after the first are lines, as SVG reads them. */
+function moveTo(pen: Pen, boxes: PartBox[], relative: boolean, numbers: readonly number[]) {
+  const fromPen = relative && boxes.length > 0;
+  pen.x = (fromPen ? pen.x : 0) + (numbers[0] ?? 0);
+  pen.y = (fromPen ? pen.y : 0) + (numbers[1] ?? 0);
+  pen.startX = pen.x;
+  pen.startY = pen.y;
+  const box: PartBox = [pen.x, pen.y, pen.x, pen.y];
+  boxes.push(box);
+  lineTo(pen, box, relative ? 'l' : 'L', numbers.slice(2));
+}
+
+/** The box of each part of a path made of straight lines (M, L, H, V, Z, absolute or relative). */
+export function partBoxes(d: string): PartBox[] {
+  const boxes: PartBox[] = [];
+  const pen: Pen = { x: 0, y: 0, startX: 0, startY: 0 };
+  for (const segment of d.split(/(?=[a-z])/i)) {
+    const command = segment.charAt(0);
+    const numbers = (segment.slice(1).match(/-?(?:\d+(?:\.\d+)?|\.\d+)/g) ?? []).map(Number);
+    if (command === 'M' || command === 'm') moveTo(pen, boxes, command === 'm', numbers);
+    else if (command === 'Z' || command === 'z') Object.assign(pen, { x: pen.startX, y: pen.startY });
+    else lineTo(pen, boxes.at(-1), command, numbers);
+  }
+  return boxes;
+}
+
 /**
  * The box (in map units) around a country's main parts: its largest part and
  * any other at least `MAIN_PART_SHARE` of its size (Alaska next to the
  * mainland US), leaving out small far-off islands and territories (the
  * Caribbean Netherlands, French Guiana) that would make the box half the
- * world. The shapes are straight lines only (M, L, H, V, Z, absolute or
- * relative).
+ * world.
  */
 export function mainPartsBox(d: string): { x: number; y: number; width: number; height: number } | null {
-  const tokens = d.match(/[MmLlHhVvZz]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g) ?? [];
-  const parts: [number, number, number, number][] = [];
-  let part: [number, number, number, number] | null = null;
-  let x = 0;
-  let y = 0;
-  let startX = 0;
-  let startY = 0;
-  let command = 'M';
-  let i = 0;
-  const next = () => Number(tokens[i++]);
-  while (i < tokens.length) {
-    const token = tokens[i]!;
-    if (/[A-Za-z]/.test(token)) {
-      command = token;
-      i++;
-      if (command === 'Z' || command === 'z') {
-        x = startX;
-        y = startY;
-      }
-      continue;
-    }
-    if (command === 'M' || command === 'm') {
-      const dx = next();
-      const dy = next();
-      if (command === 'm' && part) {
-        x += dx;
-        y += dy;
-      } else {
-        x = dx;
-        y = dy;
-      }
-      startX = x;
-      startY = y;
-      part = [x, y, x, y];
-      parts.push(part);
-      // Pairs after a moveto are lines.
-      command = command === 'm' ? 'l' : 'L';
-    } else if (command === 'L' || command === 'l') {
-      const nx = next();
-      const ny = next();
-      x = command === 'l' ? x + nx : nx;
-      y = command === 'l' ? y + ny : ny;
-    } else if (command === 'H' || command === 'h') {
-      const n = next();
-      x = command === 'h' ? x + n : n;
-    } else if (command === 'V' || command === 'v') {
-      const n = next();
-      y = command === 'v' ? y + n : n;
-    } else {
-      i++;
-      continue;
-    }
-    if (part) {
-      part[0] = Math.min(part[0], x);
-      part[1] = Math.min(part[1], y);
-      part[2] = Math.max(part[2], x);
-      part[3] = Math.max(part[3], y);
-    }
-  }
-  const area = (p: [number, number, number, number]) => (p[2] - p[0]) * (p[3] - p[1]);
+  const parts = partBoxes(d);
+  const area = (p: PartBox) => (p[2] - p[0]) * (p[3] - p[1]);
   const largest = Math.max(0, ...parts.map(area));
   const main = parts.filter((p) => area(p) >= largest * MAIN_PART_SHARE);
   if (main.length === 0) return null;
