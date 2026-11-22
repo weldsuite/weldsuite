@@ -143,6 +143,8 @@ export function annotationChartClick(api: ChartAnnotationsApi, rows: readonly un
   const pick = api.onPickIndex;
   if (!pick) return undefined;
   return (state) => {
+    // No active point (a click off the data) is not the first row.
+    if (state.activeTooltipIndex === null || state.activeTooltipIndex === undefined) return;
     const index = Number(state.activeTooltipIndex);
     if (Number.isInteger(index) && index >= 0 && index < rows.length) pick(index);
   };
