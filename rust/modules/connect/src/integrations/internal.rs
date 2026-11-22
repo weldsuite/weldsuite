@@ -346,6 +346,23 @@ async fn connector_event(
         Ok(None) => return ApiError::not_found("Connection", Some(&id)).into_response(),
         Err(error) => return internal_error(&error, "Failed to ingest connector webhook"),
     };
+    // A store outside the EU (Stripe, Shopify) the workspace has switched off
+    // is not followed up (ADR OPS-026): the delivery is acknowledged, so the
+    // store doesn't retry it, and skipped.
+    if let Some(service) = weldsuite_outside_eu::ServiceId::for_integration(
+        row["provider"].as_str().unwrap_or_default(),
+    ) && !weldsuite_outside_eu::allowed(
+        &internal.db,
+        service,
+        &format!("connector webhook {id}"),
+    )
+    .await
+    {
+        return axum::Json(
+            json!({ "data": { "message": "Skipped: switched off outside the EU" } }),
+        )
+        .into_response();
+    }
     let workspace = headers
         .get("x-internal-workspace-id")
         .and_then(|v| v.to_str().ok())

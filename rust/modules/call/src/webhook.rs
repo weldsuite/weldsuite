@@ -76,9 +76,26 @@ struct Hook<'a> {
     telnyx: Telnyx,
 }
 
+/// What [`Hook::tenant`] fails with for a workspace that has not switched
+/// Telnyx on (ADR OPS-026, EU edition): the event is acknowledged and
+/// dropped, nothing is called at Telnyx for it.
+const TELNYX_OFF: &str = "outside-eu: Telnyx is switched off for this workspace";
+
 impl Hook<'_> {
+    /// The workspace's tenant database; [`TELNYX_OFF`] when the workspace
+    /// has Telnyx switched off (logged by the check).
     async fn tenant(&self, org: &str) -> Result<PgPool, String> {
-        self.ctx.tenant(self.state, org).await
+        let db = self.ctx.tenant(self.state, org).await?;
+        if !weldsuite_outside_eu::allowed(
+            &db,
+            weldsuite_outside_eu::ServiceId::Telnyx,
+            &format!("telnyx webhook {org}"),
+        )
+        .await
+        {
+            return Err(TELNYX_OFF.to_owned());
+        }
+        Ok(db)
     }
 
     fn master(&self) -> Option<PgPool> {
@@ -293,7 +310,9 @@ pub(crate) async fn receive(
         telnyx: ctx.telnyx(&state),
     };
     match process(&hook, &event).await {
+        // Telnyx switched off for the workspace (OPS-026): acknowledged.
         Ok(()) => ok(),
+        Err(error) if error == TELNYX_OFF => ok(),
         Err(error) => {
             tracing::error!(%error, "[Telnyx Webhook] Error processing webhook");
             answer(
@@ -306,6 +325,7 @@ pub(crate) async fn receive(
 
 /// Everything after the signature and the JSON; `Err` where the worker's
 /// handler throws (its 500).
+#[allow(clippy::too_many_lines)] // the TypeScript handler, step by step
 async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
     let data = event
         .get("data")
@@ -316,7 +336,9 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
         .ok_or("event_type is not a string")?;
     let payload = &data["payload"];
     if event_type.starts_with("porting.order.") {
-        if let Err(error) = porting_event(hook, payload).await {
+        if let Err(error) = porting_event(hook, payload).await
+            && error != TELNYX_OFF
+        {
             tracing::error!(%error, "[Telnyx Webhook] Porting handler threw");
         }
         return Ok(());
@@ -377,7 +399,9 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
         && event_type == "call.initiated"
         && (matches!(direction.as_str(), "incoming" | "inbound") || hook.is_trunk_call(payload))
     {
-        if let Err(error) = inbound(hook, payload).await {
+        if let Err(error) = inbound(hook, payload).await
+            && error != TELNYX_OFF
+        {
             tracing::error!(%error, "[Telnyx Webhook] Inbound handler threw");
         }
         return Ok(());

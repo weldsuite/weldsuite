@@ -183,6 +183,16 @@ async fn open_draft_pull_request(
     repository: &Value,
     input: &DraftInput,
 ) -> Result<Value, DraftError> {
+    // ADR OPS-026: refused, not failed, while the workspace has GitHub off.
+    match crate::require_provider(scope.db, "github", None).await {
+        Ok(()) => {}
+        Err(MergeError::OutsideEu(service)) => {
+            return Err(DraftError::Refused(
+                weldsuite_outside_eu::OutsideEuError::message(service),
+            ));
+        }
+        Err(error) => return Err(DraftError::Failed(error)),
+    }
     let set = |name: &str| scope.overrides.env_set(scope.state, name);
     let (Some(app_id), Some(private_key)) = (set("GITHUB_APP_ID"), set("GITHUB_APP_PRIVATE_KEY"))
     else {

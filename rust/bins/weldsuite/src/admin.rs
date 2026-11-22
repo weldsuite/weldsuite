@@ -74,6 +74,14 @@ without writing.
         credit note in WeldBooks, in the issuer workspace
   billing retry-now <workspace> --reason <text>
         charges a past-due workspace's open charge on its mandate again
+  outside-eu list <workspace>
+        the services outside the EU and which the workspace switched on
+        (ADR OPS-026)
+  outside-eu on <workspace> --service <id>[,<id>…] [--via staff|move]
+        --reason <text>
+        switches services on; --via move records an integration the
+        workspace had connected on Global before it moved
+  outside-eu off <workspace> --service <id>[,<id>…] --reason <text>
 
 <workspace> is its id, slug or organization id. --app defaults to weldreach.
 
@@ -124,6 +132,8 @@ enum Command {
     },
     /// `billing …` (`crate::admin_billing`).
     Billing(crate::admin_billing::BillingCommand),
+    /// `outside-eu …` (`crate::admin_outside_eu`).
+    OutsideEu(crate::admin_outside_eu::OutsideEuCommand),
 }
 
 /// [`LimitsPatch`] with `PartialEq`, for the parser's tests.
@@ -161,6 +171,7 @@ impl Options {
     fn writes(&self) -> bool {
         match &self.command {
             Command::Billing(billing) => billing.writes(),
+            Command::OutsideEu(outside_eu) => outside_eu.writes(),
             command => !matches!(
                 command,
                 Command::AccessList { .. } | Command::AccessShow { .. } | Command::StaffList
@@ -193,6 +204,8 @@ const VALUE_FLAGS: &[&str] = &[
     "--seats",
     "--until",
     "--amount",
+    "--service",
+    "--via",
 ];
 
 /// The words after `admin`: positionals and flags (`--flag value` or
@@ -318,9 +331,18 @@ fn parse(args: &[String], actor_env: Option<String>) -> Result<Parsed, String> {
             words.get(2).map(String::as_str),
             &mut take,
         )?),
+        (Some("outside-eu"), action) => {
+            Command::OutsideEu(crate::admin_outside_eu::OutsideEuCommand::parse(
+                action,
+                words.get(2).map(String::as_str),
+                &mut take,
+            )?)
+        }
         (Some(area @ ("access" | "staff")), None) => return Err(format!("{area} needs an action")),
         (Some(area), _) => return Err(format!("unknown area {area}")),
-        (None, _) => return Err("name an area: access, staff or billing".to_owned()),
+        (None, _) => {
+            return Err("name an area: access, staff, billing or outside-eu".to_owned());
+        }
     };
     // A flag no command above took is one this command doesn't have.
     if let Some((flag, _)) = flags.first() {
@@ -455,6 +477,17 @@ async fn execute(options: &Options, master_url: &str) -> StaffResult<String> {
                 options.actor.as_deref(),
                 &options.reason,
                 options.dry_run,
+            )
+            .await
+        }
+        Command::OutsideEu(outside_eu) => {
+            crate::admin_outside_eu::execute(
+                &master,
+                outside_eu,
+                options.actor.as_deref(),
+                &options.reason,
+                options.dry_run,
+                options.json,
             )
             .await
         }

@@ -94,6 +94,11 @@ pub struct Model {
     pub email_notifications_enabled: bool,
     #[serde(rename = "pushNotificationsEnabled")]
     pub push_notifications_enabled: bool,
+    /// Feature switches. `outsideEu` holds the services outside the EU the
+    /// workspace switched on (ADR OPS-026), by service id: `{ enabled,
+    /// enabledBy, enabledAt, acknowledgedAt, via: admin|staff|move, reason,
+    /// disabledBy, disabledAt }`. Written only by `crates/outside-eu`; no
+    /// entry, or `enabled: false`, is off.
     #[sea_orm(column_type = "JsonBinary")]
     #[serde(rename = "features")]
     pub features: Option<Json>,

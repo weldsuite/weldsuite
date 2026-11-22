@@ -152,11 +152,26 @@ fn state_secret(overrides: &Overrides, state: &ConnectState) -> String {
     )
 }
 
+/// ADR OPS-026: a route that reaches GitHub, or starts or extends a
+/// connection to it, answers 403 `OUTSIDE_EU_SERVICE_OFF` while the
+/// workspace hasn't switched GitHub on (enforced on the EU edition;
+/// elsewhere this never reads the database). Reading what is stored, editing
+/// and removing it stay open, so a workspace can always disconnect.
+async fn github_off(caller: &Caller) -> Option<Response> {
+    weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::GitHub)
+        .await
+        .err()
+        .map(|error| error.to_api_error().into_response())
+}
+
 async fn install_url(
     State(state): State<ConnectState>,
     caller: Caller,
     RawQuery(query): RawQuery,
 ) -> Response {
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let read = validate_query(query.as_deref(), |issues, fields| {
         let project_id = issues.text(fields, "projectId", Presence::Nullish, None, None);
         let return_to = issues.text(fields, "returnTo", Presence::Optional, None, None);
@@ -306,6 +321,9 @@ fn app_headers(request: HttpRequest, jwt: &str) -> HttpRequest {
 }
 
 async fn discoverable(State(state): State<ConnectState>, caller: Caller) -> Response {
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let Some(creds) = credentials(&caller.overrides, &state) else {
         return ApiError::internal()
             .with_message(NOT_CONFIGURED)
@@ -525,6 +543,9 @@ async fn recover(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to recover GitHub installation";
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let installation_id = match validate(&headers, &body, |issues, b| {
         positive_int(issues, b, "installationId", Presence::Required)
     }) {
@@ -715,6 +736,16 @@ pub(crate) async fn install_callback(
                 .map_err(|error| error.to_string())?;
             return Ok(settings("?disconnected=1", workspace_ref));
         }
+        // ADR OPS-026: no installation is recorded while GitHub is off.
+        if !weldsuite_outside_eu::allowed(
+            &db,
+            weldsuite_outside_eu::ServiceId::GitHub,
+            &format!("github install callback {workspace_id}"),
+        )
+        .await
+        {
+            return Ok(settings("?error=outside_eu_service_off", workspace_ref));
+        }
         let created_by = match claims.get("userId") {
             Some(Value::String(u)) => u.clone(),
             _ => String::new(),
@@ -764,6 +795,9 @@ pub(crate) async fn install_callback(
 /// `listAvailableRepos(token)` behind the workspace's active installation.
 async fn repos_available(State(state): State<ConnectState>, caller: Caller) -> Response {
     const FAILED: &str = "Failed to list available repositories";
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let Some(creds) = credentials(&caller.overrides, &state) else {
         return ApiError::internal()
             .with_message(NOT_CONFIGURED)
@@ -912,6 +946,9 @@ fn direction(issues: &mut Issues, b: &Map<String, Value>) -> Field<String> {
 
 async fn link_repo(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     const FAILED: &str = "Failed to link repository";
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let input = match validate(&headers, &body, |issues, b| RepoLink {
         project_id: issues
             .text(b, "projectId", Presence::Nullish, None, None)
@@ -1260,6 +1297,9 @@ async fn active_token(
     caller: &Caller,
     failed: &str,
 ) -> Result<(Value, String), Box<Response>> {
+    if let Some(off) = github_off(caller).await {
+        return Err(Box::new(off));
+    }
     let Some(creds) = credentials(&caller.overrides, state) else {
         return Err(Box::new(
             ApiError::internal()
@@ -1507,6 +1547,9 @@ const PROJECT_LINK_COLUMNS: &str =
 
 async fn link_project(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     const FAILED: &str = "Failed to link project";
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let mut values = match validate(&headers, &body, project_link_values) {
         Ok(values) => values,
         Err(refusal) => return refusal.respond(FAILED),
@@ -1650,6 +1693,9 @@ async fn unlink_project(caller: Caller, Path(id): Path<String>) -> Response {
 /// id; a run already there for that minute is reused.
 async fn sync_project(caller: Caller, Path(id): Path<String>, request: Request) -> Response {
     const FAILED: &str = "Failed to trigger synchronization";
+    if let Some(off) = github_off(&caller).await {
+        return off;
+    }
     let runs = request
         .extensions()
         .get::<RequestProjectSyncRuns>()

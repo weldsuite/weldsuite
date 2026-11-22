@@ -181,6 +181,15 @@ export const EDITION_FEATURES = [
    */
   'stash-replenishment',
   /**
+   * Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
+   * EU edition each is off until a workspace admin switches it on under
+   * Settings › Services outside the EU, and the integrations that use one
+   * carry a "Leaves the EU" label. A self-hosted install lists it as
+   * unavailable (its operator decides), and Global has it in
+   * `GLOBAL_UNAVAILABLE_FEATURES` (nothing changes there).
+   */
+  'outside-eu-services',
+  /**
    * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */

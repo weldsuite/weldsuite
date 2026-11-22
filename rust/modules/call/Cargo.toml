@@ -15,6 +15,7 @@ weldsuite-db = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 aws-lc-rs = { workspace = true }
@@ -33,6 +34,7 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true }
 
 [lints]
 workspace = true

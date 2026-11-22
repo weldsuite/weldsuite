@@ -27,6 +27,8 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: locale }) };
 });
 vi.mock('@weldsuite/i18n/client', () => ({ useTranslations: () => (key: string) => key }));
+// The EU edition's PostPeer notice reads its own query (covered in settings/outside-eu).
+vi.mock('@/components/outside-eu/outside-eu-notice', () => ({ OutsideEuNotice: () => null }));
 vi.mock('@/hooks/queries/use-social-queries', () => ({
   useSocialSettings: () => m.settings,
   useSocialTimezones: () => m.timezones,

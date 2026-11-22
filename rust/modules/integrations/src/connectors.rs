@@ -418,6 +418,24 @@ pub async fn catch_up_workspace(
     for connection in catchup::due_connections(db).await? {
         let at = if connection.due_at <= now {
             let interval = now + connection.interval_minutes * 60_000;
+            // ADR OPS-026: a store outside the EU (Stripe, Shopify) the
+            // workspace hasn't switched on is not probed; it stays scheduled.
+            let switched_off =
+                match weldsuite_outside_eu::ServiceId::for_integration(&connection.provider) {
+                    Some(service) => {
+                        !weldsuite_outside_eu::allowed(
+                            db,
+                            service,
+                            &format!("connector catch-up {} in {clerk_org_id}", connection.id),
+                        )
+                        .await
+                    }
+                    None => false,
+                };
+            if switched_off {
+                next = Some(next.map_or(interval, |n| n.min(interval)));
+                continue;
+            }
             match catchup::probe_updates(&connection.row, env).await {
                 Ok(false) => {
                     counts.probed += 1;
