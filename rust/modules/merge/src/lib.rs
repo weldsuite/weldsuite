@@ -715,7 +715,7 @@ pub(crate) fn publish(state: &MergeState, context: &EventContext, events: Vec<Pe
 /// and anything else as the module workers answer a thrown error.
 #[derive(Debug)]
 pub(crate) enum MergeError {
-    Db(sqlx::Error),
+    Db(sea_orm::DbErr),
     /// `GithubNotConfiguredError`.
     GithubNotConfigured,
     /// `GithubApiError`: GitHub answered with this status.
@@ -740,9 +740,17 @@ pub(crate) enum MergeError {
     Unexpected(String),
 }
 
+impl From<sea_orm::DbErr> for MergeError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted yet, through
+/// [`weldsuite_db::orm_error`].
 impl From<sqlx::Error> for MergeError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Db(error)
+        Self::Db(weldsuite_db::orm_error(error))
     }
 }
 
@@ -855,9 +863,17 @@ impl From<MergeError> for Refusal {
     }
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Error(MergeError::Db(error))
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted yet, through
+/// [`weldsuite_db::orm_error`].
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Error(MergeError::Db(error))
+        Self::Error(MergeError::Db(weldsuite_db::orm_error(error)))
     }
 }
 

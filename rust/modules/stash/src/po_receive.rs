@@ -43,24 +43,32 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query};
+use sea_orm::{
+    ActiveValue, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_RECEIVED;
 use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_UPDATE;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    purchase_order_items as items, purchase_order_receipts as receipts, purchase_orders as orders,
+    warehouse_locations,
+};
 
 use crate::inventory::date_field;
 use crate::ledger::{
     LedgerError, StockChange, apply_stock_change_in, check_receipt, managed_warehouse,
     warehouse_is_managed,
 };
-use crate::po_actions::{ORDER, event_data, lock_order, receipt_row, require_status};
+use crate::po_actions::{ORDER, event_data, lock_order, receipt_json, require_status};
 use crate::po_guard::refuse_odoo_managed;
 use crate::po_totals::recompute_po_totals;
-use crate::rows::purchase_order_item_row;
 use crate::tables::{PURCHASE_ORDER_ITEMS, PURCHASE_ORDERS};
 use crate::{Caller, Refusal, StashState, now, validate};
 
@@ -359,14 +367,15 @@ async fn check_postings(
         .into_iter()
         .collect();
     if !locations.is_empty() {
-        let found: Vec<String> = sqlx::query_scalar(
-            "select id from warehouse_locations where id = any($1) and warehouse_id = $2 \
-             and deleted_at is null",
-        )
-        .bind(&locations)
-        .bind(&receipt.warehouse_id)
-        .fetch_all(db)
-        .await?;
+        let found: Vec<String> = warehouse_locations::Entity::find()
+            .select_only()
+            .column(warehouse_locations::Column::Id)
+            .filter(warehouse_locations::Column::Id.is_in(locations.iter().map(String::as_str)))
+            .filter(warehouse_locations::Column::WarehouseId.eq(receipt.warehouse_id.as_str()))
+            .filter(warehouse_locations::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let mut missing: Vec<&String> = locations.iter().filter(|id| !found.contains(id)).collect();
         missing.sort();
         if let Some(location) = missing.first() {
@@ -386,47 +395,43 @@ async fn check_postings(
 // ── Reading ─────────────────────────────────────────────────────────────────
 
 /// The lines of the purchase order, oldest first (as `GET /:id/items`).
-pub(crate) async fn load_items<'e>(
-    db: impl sqlx::PgExecutor<'e>,
-    order_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        purchase_order_item_row!(),
-        " from purchase_order_items t where t.purchase_order_id = $1",
-        " order by t.created_at asc, t.id asc"
-    ))
-    .bind(order_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
+pub(crate) async fn load_items(db: &PgPool, order_id: &str) -> Result<Vec<Value>, DbErr> {
+    items::Entity::find()
+        .filter(items::Column::PurchaseOrderId.eq(order_id))
+        .order_by_asc(items::Column::CreatedAt)
+        .order_by_asc(items::Column::Id)
+        .all(&orm(db))
+        .await?
         .into_iter()
-        .map(|row| PURCHASE_ORDER_ITEMS.js(row))
-        .collect())
+        .map(|line| {
+            serde_json::to_value(line)
+                .map(|row| PURCHASE_ORDER_ITEMS.drizzle(row))
+                .map_err(|error| DbErr::Json(error.to_string()))
+        })
+        .collect()
 }
 
 /// The stored receipt with this idempotency key.
-async fn find_receipt(db: &PgPool, key: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from purchase_order_receipts t where t.idempotency_key = $1 limit 1",
-    )
-    .bind(key)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(receipt_row))
+async fn find_receipt(db: &PgPool, key: &str) -> Result<Option<Value>, DbErr> {
+    receipts::Entity::find()
+        .filter(receipts::Column::IdempotencyKey.eq(key))
+        .one(&orm(db))
+        .await?
+        .map(receipt_json)
+        .transpose()
 }
 
 /// `{ receipt, purchaseOrder, items }` for the receipt `receipt_id`.
 async fn result(db: &PgPool, order_id: &str, receipt_id: &str) -> Result<Value, Refusal> {
-    let receipt: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from purchase_order_receipts t where t.id = $1")
-            .bind(receipt_id)
-            .fetch_optional(db)
-            .await?;
+    let receipt = receipts::Entity::find_by_id(receipt_id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(receipt_json)
+        .transpose()?;
     let order = PURCHASE_ORDERS.find_live(db, order_id).await?;
     let items = load_items(db, order_id).await?;
     Ok(json!({
-        "receipt": receipt.map(receipt_row),
+        "receipt": receipt,
         "purchaseOrder": order,
         "items": items,
     }))

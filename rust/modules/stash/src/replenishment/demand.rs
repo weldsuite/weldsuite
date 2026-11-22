@@ -667,8 +667,7 @@ pub(crate) async fn plan_items(
             warehouse_id: None,
         },
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     let mut receipts: HashMap<String, Vec<(Option<Date>, i64)>> = HashMap::new();
     for line in open_lines {
         receipts

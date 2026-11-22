@@ -14,17 +14,16 @@ use sea_orm::{
     QuerySelect,
 };
 use serde_json::{Map, Value, json};
-use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::WMS_ADJUSTMENT_CREATED;
 use weldsuite_catalogs::permission_keys::{INVENTORY_CREATE, INVENTORY_READ};
-use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_kit::{ApiError, Created, Data, generate_id};
+use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::stock_adjustments as adjustments;
 
-use crate::args::page_list;
-use crate::crud::write_failed;
+use crate::args::{CursorRow, before, cursor_row, page_list};
+use crate::crud::{cursor_failed, write_failed};
 use crate::js::{js_limit, query_param, query_set, sql_limit};
 use crate::tables::STOCK_ADJUSTMENTS;
 use crate::{Caller, Refusal, StashState, internal, now, validate};
@@ -72,43 +71,22 @@ fn filters(query: Option<&str>) -> Condition {
     condition
 }
 
-/// The cursor row's `createdAt` as JavaScript read it (milliseconds) and
-/// its id; `None` when the row is gone.
-async fn cursor_row(
-    db: &PgPool,
-    cursor: &str,
-) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
-    let row: Option<(PrimitiveDateTime, String)> = adjustments::Entity::find()
-        .select_only()
-        .column(adjustments::Column::CreatedAt)
-        .column(adjustments::Column::Id)
-        .filter(adjustments::Column::Id.eq(cursor))
-        .into_tuple()
-        .one(&orm(db))
-        .await?;
-    Ok(row.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)))
-}
-
 /// The page (`limit + 1` rows, newest first, after the cursor) and the
 /// number of rows the filters match.
 async fn page(
     db: &PgPool,
     query: Option<&str>,
-    cursor: Option<(PrimitiveDateTime, String)>,
+    cursor: Option<CursorRow>,
     limit: f64,
 ) -> Result<(Vec<Value>, i64), DbErr> {
     let db = orm(db);
     let mut rows = adjustments::Entity::find().filter(filters(query));
-    if let Some((at, id)) = cursor {
-        rows = rows.filter(
-            Condition::any()
-                .add(adjustments::Column::CreatedAt.lt(at))
-                .add(
-                    Condition::all()
-                        .add(adjustments::Column::CreatedAt.eq(at))
-                        .add(adjustments::Column::Id.lt(id)),
-                ),
-        );
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(
+            adjustments::Column::CreatedAt,
+            adjustments::Column::Id,
+            cursor,
+        ));
     }
     let rows = rows
         .order_by(adjustments::Column::CreatedAt, Order::Desc)
@@ -136,12 +114,16 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     // The cursor lookup runs before the route's `try`: a failure is the
     // app's 500.
     let cursor = match query_set(query, "cursor") {
-        Some(cursor) => match cursor_row(&caller.db, &cursor).await {
+        Some(cursor) => match cursor_row::<adjustments::Entity>(
+            &caller.db,
+            adjustments::Column::CreatedAt,
+            adjustments::Column::Id,
+            &cursor,
+        )
+        .await
+        {
             Ok(cursor) => cursor,
-            Err(error) => {
-                tracing::error!(%error, "stash: cursor lookup failed");
-                return ApiError::internal().into_response();
-            }
+            Err(error) => return cursor_failed(&error),
         },
         None => None,
     };

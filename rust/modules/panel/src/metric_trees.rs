@@ -85,7 +85,7 @@ async fn nodes_problem(
     project_id: &str,
     nodes: &[Value],
     actor: &Actor,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, sea_orm::DbErr> {
     for node in nodes {
         if let Some(spec) = node.get("metric").and_then(|metric| metric.get("spec"))
             && spec.get("projectId").and_then(Value::as_str) != Some(project_id)

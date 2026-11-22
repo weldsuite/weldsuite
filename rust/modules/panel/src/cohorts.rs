@@ -13,20 +13,29 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_COHORT_CREATED, PANEL_COHORT_DELETED, PANEL_COHORT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::PANEL_PROJECTS_MANAGE;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::panel_cohorts as cohorts;
 use weldsuite_zod::{Keys, Z};
 
-use crate::saved::{PROJECT_ID, field, project_exists, rows, text};
+use crate::saved::{PROJECT_ID, field, project_exists, text};
 use crate::schemas_gen::{CREATE_PANEL_COHORT, UPDATE_PANEL_COHORT};
 use crate::{Caller, PanelState, unexpected};
 
 const LIST_QUERY: Z = Z::Obj(&[("projectId", Z::Opt(&PROJECT_ID))], Keys::Strip);
+
+/// A row as Drizzle returns it.
+fn js_row(model: cohorts::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
 
 /// `toCohortDto(c)`.
 fn dto(row: &Value) -> Value {
@@ -51,14 +60,13 @@ fn publish(caller: &Caller, state: &PanelState, cohort: &Value, event: EventName
     caller.publish(state, event, text(cohort, "id"), &event_data(cohort));
 }
 
-async fn get_cohort(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from panel_cohorts c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn get_cohort(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    cohorts::Entity::find_by_id(id)
+        .filter(cohorts::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `mayChange(c, cohort)`: its owner, or a manager.
@@ -72,17 +80,19 @@ pub(crate) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(query) => query,
         Err(response) => return response,
     };
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from panel_cohorts c
-         where c.deleted_at is null and ($1::text is null or c.project_id = $1)
-         order by c.name asc limit 500",
-    )
-    .bind(query.text("projectId"))
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = cohorts::Entity::find().filter(cohorts::Column::DeletedAt.is_null());
+    if let Some(project_id) = query.text("projectId") {
+        find = find.filter(cohorts::Column::ProjectId.eq(project_id));
+    }
+    let found = find
+        .order_by_asc(cohorts::Column::Name)
+        .limit(500)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match found {
         Ok(found) => {
-            let cohorts: Vec<Value> = rows(found).iter().map(dto).collect();
+            let cohorts: Vec<Value> = found.iter().map(dto).collect();
             let count = cohorts.len() as u64;
             List::new(cohorts, Pagination::new(count, false, None)).into_response()
         }
@@ -110,22 +120,23 @@ pub(crate) async fn create(
         Ok(false) => return ApiError::not_found("Project", Some(&project_id)).into_response(),
         Err(error) => return unexpected(&error, "create cohort"),
     }
-    let created: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_cohorts as c (id, project_id, name, description, filter, owner_user_id)
-         values ($1, $2, $3, $4, $5, $6)
-         returning to_jsonb(c)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnc"))
-    .bind(&project_id)
-    .bind(input.text("name"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(input.get("filter"))
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let created = cohorts::Entity::insert(cohorts::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnc")),
+        project_id: Set(project_id.clone()),
+        name: Set(input.text("name").unwrap_or_default().to_owned()),
+        description: Set(input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
+        filter: Set(input.get("filter").cloned().unwrap_or(Value::Null)),
+        owner_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     match created {
-        Ok(row) => {
-            let cohort = weldsuite_db::js_row(row);
+        Ok(cohort) => {
             publish(&caller, &state, &cohort, PANEL_COHORT_CREATED);
             Created(dto(&cohort)).into_response()
         }
@@ -165,25 +176,28 @@ pub(crate) async fn update(
             .with_message("Only the owner can change this cohort")
             .into_response();
     }
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_cohorts as c set
-           name = coalesce($2, c.name),
-           description = case when $3 then $4 else c.description end,
-           filter = coalesce($5, c.filter),
-           updated_at = now()
-         where c.id = $1 and c.deleted_at is null
-         returning to_jsonb(c)",
-    )
-    .bind(&id)
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.get("description").is_some())
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(input.get("filter"))
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = cohorts::Entity::update_many();
+    if let Some(name) = input.get("name").and_then(Value::as_str) {
+        update = update.col_expr(cohorts::Column::Name, Expr::value(name));
+    }
+    if let Some(description) = input.get("description") {
+        update = update.col_expr(
+            cohorts::Column::Description,
+            Expr::value(description.as_str().map(str::to_owned)),
+        );
+    }
+    if let Some(filter) = input.get("filter") {
+        update = update.col_expr(cohorts::Column::Filter, Expr::value(filter.clone()));
+    }
+    let updated = update
+        .col_expr(cohorts::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(cohorts::Column::Id.eq(&id))
+        .filter(cohorts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match updated {
-        Ok(Some(row)) => {
-            let cohort = weldsuite_db::js_row(row);
+        Ok(Some(cohort)) => {
             publish(&caller, &state, &cohort, PANEL_COHORT_UPDATED);
             Data(dto(&cohort)).into_response()
         }
@@ -209,17 +223,16 @@ pub(crate) async fn remove(
             .with_message("Only the owner can delete this cohort")
             .into_response();
     }
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_cohorts as c set deleted_at = now(), updated_at = now()
-         where c.id = $1 and c.deleted_at is null
-         returning to_jsonb(c)",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let deleted = cohorts::Entity::update_many()
+        .col_expr(cohorts::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(cohorts::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(cohorts::Column::Id.eq(&id))
+        .filter(cohorts::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match deleted {
-        Ok(Some(row)) => {
-            let cohort = weldsuite_db::js_row(row);
+        Ok(Some(cohort)) => {
             publish(&caller, &state, &cohort, PANEL_COHORT_DELETED);
             NoContent.into_response()
         }

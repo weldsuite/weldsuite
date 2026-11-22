@@ -5,20 +5,28 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::Value;
-use weldsuite_db::PgPool;
-use weldsuite_events::iso_timestamp;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_panel_domain::js;
 use weldsuite_ports::{Cache, DynCache, PortError};
+use weldsuite_schema::master::panel_project_registry::{self as registry, Column};
+use weldsuite_schema::master::{plans, workspaces};
 
 use crate::domain::{
     names_replay_tier, plan_replay_tier, project_key, project_record, stored_project_record,
     tier_key, with_replay_tier, with_setting_defaults,
 };
+use crate::saved::{instant, js_row};
 
 /// What a registry write can fail with: the master database or the cache.
 #[derive(Debug)]
 pub(crate) enum RegistryError {
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Cache(PortError),
 }
 
@@ -31,9 +39,15 @@ impl std::fmt::Display for RegistryError {
     }
 }
 
+impl From<sea_orm::DbErr> for RegistryError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for RegistryError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -63,15 +77,21 @@ impl ProjectView<'_> {
     }
 }
 
+/// An ISO moment of a project row (`updatedAt`) as the `timestamptz` it
+/// was read from.
+fn moment(iso: &str) -> Result<OffsetDateTime, DbErr> {
+    js::parse_iso(iso)
+        .map(instant)
+        .ok_or_else(|| DbErr::Type(format!("not a timestamp: {iso:?}")))
+}
+
 impl Registry {
-    async fn row(&self, project_id: &str) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(r) from panel_project_registry r where r.project_id = $1 limit 1",
-        )
-        .bind(project_id)
-        .fetch_optional(&self.master)
-        .await?;
-        Ok(row.map(weldsuite_db::js_row))
+    async fn row(&self, project_id: &str) -> Result<Option<Value>, DbErr> {
+        registry::Entity::find_by_id(project_id)
+            .one(&orm(&self.master))
+            .await?
+            .map(js_row)
+            .transpose()
     }
 
     /// Deletes the cache records of `tokens`, each once, except `keep`'s.
@@ -117,32 +137,39 @@ impl Registry {
             .await?;
 
         let settings = with_setting_defaults(project.get("settings"));
-        let written: Option<String> = sqlx::query_scalar(
-            "insert into panel_project_registry
-               (project_id, token, workspace_id, status, allowed_domains, settings, updated_at, deleted_at)
-             values ($1, $2, $3, $4, $5, $6, $7::timestamptz, null)
-             on conflict (project_id) do update set
-               token = excluded.token,
-               workspace_id = excluded.workspace_id,
-               status = excluded.status,
-               allowed_domains = excluded.allowed_domains,
-               settings = excluded.settings,
-               updated_at = excluded.updated_at,
-               deleted_at = null
-             where panel_project_registry.updated_at <= $7::timestamptz
-             returning project_id",
+        let version = moment(updated_at)?;
+        let written = registry::Entity::insert(registry::ActiveModel {
+            project_id: Set(project_id.to_owned()),
+            token: Set(token.to_owned()),
+            workspace_id: Set(self.workspace_id.clone()),
+            status: Set(view.text("status").to_owned()),
+            allowed_domains: Set(view.get("allowedDomains")),
+            settings: Set(settings.clone()),
+            updated_at: Set(version),
+            deleted_at: Set(None),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(Column::ProjectId)
+                .update_columns([
+                    Column::Token,
+                    Column::WorkspaceId,
+                    Column::Status,
+                    Column::AllowedDomains,
+                    Column::Settings,
+                    Column::UpdatedAt,
+                    Column::DeletedAt,
+                ])
+                .action_and_where(sea_orm::ExprTrait::lte(
+                    Expr::col((registry::Entity, Column::UpdatedAt)),
+                    version,
+                ))
+                .to_owned(),
         )
-        .bind(project_id)
-        .bind(token)
-        .bind(&self.workspace_id)
-        .bind(view.text("status"))
-        .bind(view.get("allowedDomains"))
-        .bind(&settings)
-        .bind(updated_at)
-        .fetch_optional(&self.master)
+        .exec_without_returning(&orm(&self.master))
         .await?;
         // A newer version was synced meanwhile, and publishes itself.
-        if written.is_none() {
+        if written == 0 {
             return Ok(());
         }
 
@@ -205,17 +232,16 @@ impl Registry {
         let view = ProjectView(project);
         let project_id = view.text("id");
         let before = self.row(project_id).await?;
-        sqlx::query(
-            "update panel_project_registry
-             set deleted_at = $2::timestamptz,
-                 updated_at = greatest(updated_at, $3::timestamptz)
-             where project_id = $1",
-        )
-        .bind(project_id)
-        .bind(iso_timestamp(time::OffsetDateTime::now_utc()))
-        .bind(view.text("updatedAt"))
-        .execute(&self.master)
-        .await?;
+        let version = moment(view.text("updatedAt"))?;
+        registry::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(instant(js::now_millis())))
+            .col_expr(
+                Column::UpdatedAt,
+                Func::greatest([Expr::col(Column::UpdatedAt), Expr::value(version)]).into(),
+            )
+            .filter(Column::ProjectId.eq(project_id))
+            .exec(&orm(&self.master))
+            .await?;
         let before_token = before
             .as_ref()
             .and_then(|row| row.get("token"))
@@ -226,20 +252,35 @@ impl Registry {
     }
 }
 
+/// `loadPlanSlug`: the slug of the workspace's plan, `None` for a
+/// workspace without a plan, or none.
+pub(crate) async fn plan_slug(master: &PgPool, workspace_id: &str) -> Result<Option<String>, DbErr> {
+    let slug: Option<Option<String>> = workspaces::Entity::find()
+        .select_only()
+        .column(plans::Column::Slug)
+        .join(JoinType::LeftJoin, workspace_plan())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(slug.flatten())
+}
+
+/// `plans p on p.id = w.plan_id`.
+pub(crate) fn workspace_plan() -> sea_orm::RelationDef {
+    workspaces::Entity::belongs_to(plans::Entity)
+        .from(workspaces::Column::PlanId)
+        .to(plans::Column::Id)
+        .into()
+}
+
 /// `replayTierOf(registry)`: the tier the workspace's plan writes new
 /// recording chunks to; `30d` for a workspace without a plan, or none.
 pub(crate) async fn replay_tier_of(
     master: &PgPool,
     workspace_id: &str,
-) -> Result<&'static str, sqlx::Error> {
-    let slug: Option<Option<String>> = sqlx::query_scalar(
-        "select p.slug from workspaces w left join plans p on p.id = w.plan_id
-         where w.id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    Ok(plan_replay_tier(slug.flatten().as_deref()))
+) -> Result<&'static str, DbErr> {
+    Ok(plan_replay_tier(plan_slug(master, workspace_id).await?.as_deref()))
 }
 
 /// `applyReplayTier(deps, workspaceId, tier)`: brings the cache records of
@@ -261,14 +302,15 @@ pub async fn apply_replay_tier(
     if cache.get_boxed(&tier_key(workspace_id)).await?.as_deref() == Some(tier) {
         return Ok(false);
     }
-    let tokens: Vec<String> = sqlx::query_scalar(
-        "select token from panel_project_registry
-         where workspace_id = $1 and deleted_at is null",
-    )
-    .bind(workspace_id)
-    .fetch_all(master)
-    .await
-    .map_err(PortError::backend)?;
+    let tokens: Vec<String> = registry::Entity::find()
+        .select_only()
+        .column(Column::Token)
+        .filter(Column::WorkspaceId.eq(workspace_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(master))
+        .await
+        .map_err(PortError::backend)?;
     for token in tokens {
         let raw = cache.get_boxed(&project_key(&token)).await?;
         let Some(record) = stored_project_record(raw.as_deref()) else {

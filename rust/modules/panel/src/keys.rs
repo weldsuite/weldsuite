@@ -18,16 +18,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_catalogs::entity_events::{EventName, PANEL_KEY_CREATED, PANEL_KEY_DELETED};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Created, List, NoContent, Pagination};
 use weldsuite_ports::{Cache, DynCache, PortError};
+use weldsuite_schema::master::panel_key_registry as key_registry;
 
 use crate::projects::{live_project, registry_for};
 use crate::registry::{Registry, RegistryError};
-use crate::saved::{field, rows, text};
+use crate::saved::{field, text};
 use crate::schemas_gen::CREATE_PANEL_KEY;
 use crate::{Caller, PanelState, unexpected};
 
@@ -52,6 +55,11 @@ fn generate_secret_key() -> String {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).expect("the operating system has a random source");
     format!("wps_{}", hex::encode(bytes))
+}
+
+/// A row as Drizzle returns it.
+fn js_row(model: key_registry::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `toKeyDto(row)`.
@@ -93,16 +101,13 @@ async fn active_keys(
     master: &PgPool,
     workspace_id: &str,
     project_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(k) from panel_key_registry k
-         where k.workspace_id = $1 and k.project_id = $2 and k.revoked_at is null",
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_all(master)
-    .await?;
-    Ok(rows(found))
+) -> Result<Vec<key_registry::Model>, DbErr> {
+    key_registry::Entity::find()
+        .filter(key_registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(key_registry::Column::ProjectId.eq(project_id))
+        .filter(key_registry::Column::RevokedAt.is_null())
+        .all(&orm(master))
+        .await
 }
 
 /// `syncKeyRecords(registry, project, deleted)`: the project's active keys'
@@ -116,16 +121,11 @@ pub(crate) async fn sync_key_records(
     let project_id = text(project, "id");
     let status = text(project, "status");
     for key in active_keys(&registry.master, &registry.workspace_id, project_id).await? {
-        let cache_key = key_cache_key(text(&key, "keyHash"));
+        let cache_key = key_cache_key(&key.key_hash);
         if deleted {
             registry.cache.delete(&cache_key).await?;
         } else {
-            let record = key_record(
-                text(&key, "id"),
-                &registry.workspace_id,
-                text(&key, "projectId"),
-                status,
-            );
+            let record = key_record(&key.id, &registry.workspace_id, &key.project_id, status);
             registry.cache.put(&cache_key, &record, None).await?;
         }
     }
@@ -158,18 +158,17 @@ pub(crate) async fn list(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(k) from panel_key_registry k
-         where k.workspace_id = $1 and k.project_id = $2
-         order by k.created_at asc, k.id asc",
-    )
-    .bind(&registry.workspace_id)
-    .bind(&project_id)
-    .fetch_all(&registry.master)
-    .await;
+    let found = key_registry::Entity::find()
+        .filter(key_registry::Column::WorkspaceId.eq(&registry.workspace_id))
+        .filter(key_registry::Column::ProjectId.eq(&project_id))
+        .order_by_asc(key_registry::Column::CreatedAt)
+        .order_by_asc(key_registry::Column::Id)
+        .all(&orm(&registry.master))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match found {
         Ok(found) => {
-            let keys: Vec<Value> = rows(found).iter().map(dto).collect();
+            let keys: Vec<Value> = found.iter().map(dto).collect();
             let count = keys.len() as u64;
             List::new(keys, Pagination::new(count, false, None)).into_response()
         }
@@ -180,7 +179,7 @@ pub(crate) async fn list(
 /// What creating a key can fail with.
 enum CreateFailure {
     Limit,
-    Database(sqlx::Error),
+    Database(DbErr),
     Cache(PortError),
 }
 
@@ -203,23 +202,20 @@ async fn create_key(
     }
     let key = generate_secret_key();
     let key_hash = sha256_hex(&key);
-    let row: Value = sqlx::query_scalar(
-        "insert into panel_key_registry as k
-           (id, key_hash, key_prefix, name, workspace_id, project_id, created_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7)
-         returning to_jsonb(k)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnk"))
-    .bind(&key_hash)
-    .bind(&key[..PREFIX_LENGTH])
-    .bind(name)
-    .bind(&registry.workspace_id)
-    .bind(project_id)
-    .bind(user_id)
-    .fetch_one(&registry.master)
+    let row = key_registry::Entity::insert(key_registry::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnk")),
+        key_hash: Set(key_hash.clone()),
+        key_prefix: Set(key[..PREFIX_LENGTH].to_owned()),
+        name: Set(name.to_owned()),
+        workspace_id: Set(registry.workspace_id.clone()),
+        project_id: Set(project_id.to_owned()),
+        created_by_user_id: Set(user_id.to_owned()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&registry.master))
     .await
+    .and_then(js_row)
     .map_err(CreateFailure::Database)?;
-    let row = weldsuite_db::js_row(row);
     let record = key_record(
         text(&row, "id"),
         &registry.workspace_id,
@@ -227,9 +223,8 @@ async fn create_key(
         text(project, "status"),
     );
     if let Err(error) = cache.put(&key_cache_key(&key_hash), &record, None).await {
-        if let Err(cleanup) = sqlx::query("delete from panel_key_registry where id = $1")
-            .bind(text(&row, "id"))
-            .execute(&registry.master)
+        if let Err(cleanup) = key_registry::Entity::delete_by_id(text(&row, "id"))
+            .exec(&orm(&registry.master))
             .await
         {
             tracing::error!(error = %cleanup, "[panel-api] cleanup after a failed key registration");
@@ -284,31 +279,28 @@ async fn revoke_key(
     project_id: &str,
     key_id: &str,
 ) -> Result<Option<Value>, RegistryError> {
-    let revoked: Option<Value> = sqlx::query_scalar(
-        "update panel_key_registry as k set revoked_at = now()
-         where k.id = $1 and k.workspace_id = $2 and k.project_id = $3 and k.revoked_at is null
-         returning to_jsonb(k)",
-    )
-    .bind(key_id)
-    .bind(&registry.workspace_id)
-    .bind(project_id)
-    .fetch_optional(&registry.master)
-    .await?;
+    let master = orm(&registry.master);
+    let revoked = key_registry::Entity::update_many()
+        .col_expr(key_registry::Column::RevokedAt, Expr::current_timestamp())
+        .filter(key_registry::Column::Id.eq(key_id))
+        .filter(key_registry::Column::WorkspaceId.eq(&registry.workspace_id))
+        .filter(key_registry::Column::ProjectId.eq(project_id))
+        .filter(key_registry::Column::RevokedAt.is_null())
+        .exec_with_returning(&master)
+        .await?
+        .into_iter()
+        .next();
     let row = match revoked {
         Some(row) => Some(row),
         None => {
-            sqlx::query_scalar(
-                "select to_jsonb(k) from panel_key_registry k
-                 where k.id = $1 and k.workspace_id = $2 and k.project_id = $3 limit 1",
-            )
-            .bind(key_id)
-            .bind(&registry.workspace_id)
-            .bind(project_id)
-            .fetch_optional(&registry.master)
-            .await?
+            key_registry::Entity::find_by_id(key_id)
+                .filter(key_registry::Column::WorkspaceId.eq(&registry.workspace_id))
+                .filter(key_registry::Column::ProjectId.eq(project_id))
+                .one(&master)
+                .await?
         }
     };
-    let Some(row) = row.map(weldsuite_db::js_row) else {
+    let Some(row) = row.map(js_row).transpose()? else {
         return Ok(None);
     };
     registry

@@ -220,19 +220,6 @@ impl Table {
         .await
     }
 
-    /// [`Table::patch`] on a SeaORM connection (`OrmConn` in a transaction).
-    pub(crate) async fn patch_on<C: ConnectionTrait>(
-        &self,
-        db: &C,
-        id: &str,
-        values: Map<String, Value>,
-        live_only: bool,
-        trusted: &[&str],
-    ) -> Result<Option<Value>, WriteError> {
-        self.check_dates(&values, trusted)?;
-        self.write(db, id, values, live_only).await
-    }
-
     /// The patch's statements: the rename when `values` sets `id`, then the
     /// other columns of the (renamed) row.
     async fn write<C: ConnectionTrait>(

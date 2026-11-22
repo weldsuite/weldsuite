@@ -21,14 +21,18 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::PANEL_PEOPLE_READ;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data, NoContent};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::query::activity::{ActivityOptions, activity_query};
 use weldsuite_panel_domain::query::{PanelQueryContext, Runner};
 use weldsuite_permissions::Permissions;
 use weldsuite_ports::{DynFileStore, PutOptions, StoredObject};
+use weldsuite_schema::tenant::panel_session_favorites as favorites;
 use weldsuite_zod::{Keys, S, Z};
 
 use crate::engine::Engine;
@@ -42,6 +46,7 @@ use crate::recordings::{
     latest_session_summary, load_chunks, mark_favorites, overrides, session_context,
     session_summary_dto, sessions_rows, sessions_spec,
 };
+use crate::saved::js_row;
 use crate::{Caller, PanelState, unexpected};
 
 const MAX_MARKERS: i64 = 1000;
@@ -420,21 +425,22 @@ async fn upsert_favorite(
     session_id: &str,
     note: Option<&str>,
 ) -> Result<Value, Failure> {
-    let row: Value = sqlx::query_scalar(
-        "insert into panel_session_favorites as f
-           (id, project_id, session_id, note, favorited_by_user_id)
-         values ($1, $2, $3, $4, $5)
-         on conflict (project_id, session_id) do update set note = excluded.note
-         returning to_jsonb(f)",
+    let row = favorites::Entity::insert(favorites::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnf")),
+        project_id: Set(project_id.to_owned()),
+        session_id: Set(session_id.to_owned()),
+        note: Set(note.map(str::to_owned)),
+        favorited_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([favorites::Column::ProjectId, favorites::Column::SessionId])
+            .update_column(favorites::Column::Note)
+            .to_owned(),
     )
-    .bind(weldsuite_kit::id::generate_id("pnf"))
-    .bind(project_id)
-    .bind(session_id)
-    .bind(note)
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(weldsuite_db::js_row(row))
+    Ok(js_row(row)?)
 }
 
 /// `PUT /:id/favorite`.
@@ -533,13 +539,11 @@ pub(crate) async fn unfavorite(
                 bucket.delete_many_boxed(batch).await?;
             }
         }
-        sqlx::query(
-            "delete from panel_session_favorites where project_id = $1 and session_id = $2",
-        )
-        .bind(&project_id)
-        .bind(&session_id)
-        .execute(&caller.db)
-        .await?;
+        favorites::Entity::delete_many()
+            .filter(favorites::Column::ProjectId.eq(&project_id))
+            .filter(favorites::Column::SessionId.eq(&session_id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok::<_, Failure>(())
     };
     match removed.await {

@@ -25,8 +25,12 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PURCHASE_ORDER_APPROVED, PURCHASE_ORDER_CANCELLED, PURCHASE_ORDER_CLOSED,
     PURCHASE_ORDER_ORDERED,
@@ -34,12 +38,17 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{PURCHASE_ORDERS_READ, PURCHASE_ORDERS_UPDATE};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Data, List, Pagination};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    purchase_order_items as items, purchase_order_receipts as receipts_table,
+    purchase_orders as orders,
+};
 
+use crate::args::timestamp_of;
 use crate::inventory::date_field;
 use crate::po_guard::refuse_odoo_managed;
 use crate::po_totals::recompute_po_totals;
-use crate::rows::purchase_order_row;
 use crate::tables::PURCHASE_ORDERS;
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -67,19 +76,24 @@ where
 
 // ── Shared by the actions (and receive) ─────────────────────────────────────
 
-/// The live purchase order `id`, locked for the rest of the transaction,
-/// or the 404.
-pub(crate) async fn lock_order(conn: &mut PgConnection, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        purchase_order_row!(),
-        " from purchase_orders t where t.id = $1 and t.deleted_at is null for update"
-    ))
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+/// A purchase order row as Drizzle returns it.
+pub(crate) fn order_json(order: orders::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(order)
+        .map(|row| PURCHASE_ORDERS.drizzle(row))
+        .map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// The live purchase order `id`, locked for the rest of the transaction
+/// (`select … for update`), or the 404.
+pub(crate) async fn lock_order<C: ConnectionTrait>(db: &C, id: &str) -> Result<Value, Refusal> {
+    let row = orders::Entity::find()
+        .filter(orders::Column::Id.eq(id))
+        .filter(orders::Column::DeletedAt.is_null())
+        .lock_exclusive()
+        .one(db)
+        .await?;
     match row {
-        Some(row) => Ok(PURCHASE_ORDERS.js(row)),
+        Some(row) => Ok(order_json(row)?),
         None => Err(Refusal::not_found(ORDER, id)),
     }
 }
@@ -185,72 +199,72 @@ impl Change {
 }
 
 /// Write `change` on the locked purchase order `id`.
-async fn apply(
-    conn: &mut PgConnection,
+async fn apply<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     change: &Change,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), Refusal> {
-    match change {
-        Change::Approve { user_id } => {
-            sqlx::query(
-                "update purchase_orders set status = 'approved', approved_by = $2, \
-                 approved_at = $3::timestamp, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(id)
-            .bind(user_id)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
-        }
+    let update = orders::Entity::update_many().filter(orders::Column::Id.eq(id));
+    let update = match change {
+        Change::Approve { user_id } => update
+            .col_expr(orders::Column::Status, Expr::value("approved"))
+            .col_expr(orders::Column::ApprovedBy, Expr::value(user_id.as_str()))
+            .col_expr(orders::Column::ApprovedAt, Expr::value(now)),
         Change::MarkOrdered {
             order_date,
             expected_date,
         } => {
-            sqlx::query(
-                "update purchase_orders set status = 'ordered', order_date = $2::timestamp, \
-                 expected_date = coalesce($3::timestamp, expected_date), \
-                 updated_at = $4::timestamp where id = $1",
-            )
-            .bind(id)
-            .bind(order_date)
-            .bind(expected_date.as_deref())
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            let mut update = update
+                .col_expr(orders::Column::Status, Expr::value("ordered"))
+                .col_expr(
+                    orders::Column::OrderDate,
+                    Expr::value(timestamp_of(order_date)?),
+                );
+            // `coalesce($expected, expected_date)`: none sent keeps it.
+            if let Some(expected) = expected_date {
+                update = update.col_expr(
+                    orders::Column::ExpectedDate,
+                    Expr::value(timestamp_of(expected)?),
+                );
+            }
+            update
         }
         Change::Cancel => {
-            let received: i64 = sqlx::query_scalar(
-                "select coalesce(sum(coalesce(quantity_received, 0) + coalesce(quantity_rejected, 0)), 0)::bigint \
-                 from purchase_order_items where purchase_order_id = $1",
-            )
-            .bind(id)
-            .fetch_one(&mut *conn)
-            .await?;
-            if received > 0 {
+            if received_units(db, id).await? > 0 {
                 return Err(Refusal::bad_request(
                     "A purchase order with received units cannot be cancelled",
                 ));
             }
-            sqlx::query(
-                "update purchase_orders set status = 'cancelled', updated_at = $2::timestamp where id = $1",
-            )
-            .bind(id)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            update.col_expr(orders::Column::Status, Expr::value("cancelled"))
         }
-        Change::Close => {
-            sqlx::query(
-                "update purchase_orders set status = 'closed', updated_at = $2::timestamp where id = $1",
-            )
-            .bind(id)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
-        }
-    }
+        Change::Close => update.col_expr(orders::Column::Status, Expr::value("closed")),
+    };
+    update
+        .col_expr(orders::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await?;
     Ok(())
+}
+
+/// The units received or rejected on the purchase order's lines.
+async fn received_units<C: ConnectionTrait>(db: &C, id: &str) -> Result<i64, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let or_zero = |column: items::Column| Func::coalesce([column.into_expr(), Expr::val(0)]);
+    let units = Func::coalesce([
+        Expr::from(Func::sum(
+            or_zero(items::Column::QuantityReceived).add(or_zero(items::Column::QuantityRejected)),
+        )),
+        Expr::val(0),
+    ]);
+    let received: Option<i64> = items::Entity::find()
+        .select_only()
+        .expr(Expr::from(units).cast_as("bigint"))
+        .filter(items::Column::PurchaseOrderId.eq(id))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(received.unwrap_or(0))
 }
 
 /// Run `action` on the purchase order `id`: lock, check, write, recompute
@@ -262,14 +276,15 @@ async fn run(
     action: &'static Action,
     change: Change,
 ) -> Response {
-    let at = now();
+    let at = utc_now();
     let result = weldsuite_db::atomically_with(&caller.db, move |conn| {
         Box::pin(async move {
-            let order = lock_order(conn, &id).await?;
+            let db = OrmConn::new(conn);
+            let order = lock_order(&db, &id).await?;
             refuse_odoo_managed(&order)?;
             require_status(&order, action.from, action.refused)?;
-            apply(conn, &id, &change, &at).await?;
-            let order = recompute_po_totals(&mut *conn, &id, &at)
+            apply(&db, &id, &change, at).await?;
+            let order = recompute_po_totals(&db, &id, at)
                 .await?
                 .ok_or_else(|| Refusal::not_found(ORDER, &id))?;
             Ok::<_, Refusal>((order, change))
@@ -360,8 +375,8 @@ async fn close(
 // ── Receipts ────────────────────────────────────────────────────────────────
 
 /// A `purchase_order_receipts` row as Drizzle returns it.
-pub(crate) fn receipt_row(row: Value) -> Value {
-    weldsuite_db::js_row(row)
+pub(crate) fn receipt_json(receipt: receipts_table::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(receipt).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 async fn receipts(caller: Caller, Path(id): Path<String>) -> Response {
@@ -371,21 +386,18 @@ async fn receipts(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(None) => return Refusal::not_found(ORDER, &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
     }
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from purchase_order_receipts t where t.purchase_order_id = $1 \
-         order by t.received_at desc, t.created_at desc, t.id desc",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = receipts_table::Entity::find()
+        .filter(receipts_table::Column::PurchaseOrderId.eq(id.as_str()))
+        .order_by_desc(receipts_table::Column::ReceivedAt)
+        .order_by_desc(receipts_table::Column::CreatedAt)
+        .order_by_desc(receipts_table::Column::Id)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(receipt_json).collect::<Result<Vec<_>, _>>());
     match rows {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
-            List::new(
-                rows.into_iter().map(receipt_row).collect(),
-                Pagination::new(total, false, None),
-            )
-            .into_response()
+            List::new(rows, Pagination::new(total, false, None)).into_response()
         }
         Err(error) => internal(&error, FAILED),
     }

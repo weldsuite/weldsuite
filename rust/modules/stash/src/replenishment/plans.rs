@@ -238,7 +238,7 @@ fn after(cursor: &Cursor) -> Condition {
 
 /// A plan with the names and terms the list shows.
 #[derive(Debug, FromQueryResult)]
-struct Joined {
+struct ListRow {
     #[sea_orm(nested)]
     plan: plans::Model,
     joined_product_name: Option<String>,
@@ -254,7 +254,7 @@ struct Joined {
     joined_sort_name: String,
 }
 
-impl Joined {
+impl ListRow {
     /// `select({ row: t, productName: p.name, … })`.
     fn query(filters: &Filters, today: Date) -> Select<plans::Entity> {
         use sea_orm::ExprTrait as _;
@@ -392,7 +392,7 @@ async fn page(
     cursor: Option<&Cursor>,
     limit: i64,
 ) -> Result<(Vec<Value>, Option<String>, bool), DbErr> {
-    let mut query = Joined::query(filters, today());
+    let mut query = ListRow::query(filters, today());
     if let Some(cursor) = cursor {
         query = query.filter(after(cursor));
     }
@@ -401,7 +401,7 @@ async fn page(
         .order_by(sort_name(), Order::Asc)
         .order_by(plans::Column::Id, Order::Asc)
         .limit(u64::try_from(limit + 1).ok())
-        .into_model::<Joined>()
+        .into_model::<ListRow>()
         .all(db)
         .await?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;

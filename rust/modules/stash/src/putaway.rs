@@ -27,13 +27,14 @@ use weldsuite_catalogs::permission_keys::{
 use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     inventory, inventory_movements as movements, products, warehouse_locations,
 };
 
-use crate::args::page_body;
+use crate::args::{CursorRow, before, cursor_row, page_body};
+use crate::crud::cursor_failed;
 use crate::js::{js_limit, query_param, query_set, sql_limit, time_number};
 use crate::tables::{INVENTORY, INVENTORY_MOVEMENTS, STOCK_ADJUSTMENTS};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
@@ -235,43 +236,22 @@ struct Counts {
     cancelled: i64,
 }
 
-/// The cursor row's `createdAt` as JavaScript read it (milliseconds) and
-/// its id; `None` when the row is gone.
-async fn cursor_row(
-    db: &PgPool,
-    cursor: &str,
-) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
-    let row: Option<(PrimitiveDateTime, String)> = movements::Entity::find()
-        .select_only()
-        .column(movements::Column::CreatedAt)
-        .column(movements::Column::Id)
-        .filter(movements::Column::Id.eq(cursor))
-        .into_tuple()
-        .one(&orm(db))
-        .await?;
-    Ok(row.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)))
-}
-
 /// The page (`limit + 1` tasks, newest first, after the cursor), the
 /// number of tasks the filters match and the status counts, in that order.
 async fn page(
     db: &PgPool,
     query: Option<&str>,
-    cursor: Option<(PrimitiveDateTime, String)>,
+    cursor: Option<CursorRow>,
     limit: f64,
 ) -> Result<(Vec<Value>, i64, Value), DbErr> {
     let db = orm(db);
     let mut rows = selection().filter(filters(query));
-    if let Some((at, id)) = cursor {
-        rows = rows.filter(
-            Condition::any()
-                .add(movements::Column::CreatedAt.lt(at))
-                .add(
-                    Condition::all()
-                        .add(movements::Column::CreatedAt.eq(at))
-                        .add(movements::Column::Id.lt(id)),
-                ),
-        );
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(
+            movements::Column::CreatedAt,
+            movements::Column::Id,
+            cursor,
+        ));
     }
     let rows = rows
         .order_by(movements::Column::CreatedAt, Order::Desc)
@@ -323,12 +303,16 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     // The cursor lookup runs before the route's `try`: a failure is the
     // app's 500.
     let cursor = match query_set(query, "cursor") {
-        Some(cursor) => match cursor_row(&caller.db, &cursor).await {
+        Some(cursor) => match cursor_row::<movements::Entity>(
+            &caller.db,
+            movements::Column::CreatedAt,
+            movements::Column::Id,
+            &cursor,
+        )
+        .await
+        {
             Ok(cursor) => cursor,
-            Err(error) => {
-                tracing::error!(%error, "stash: cursor lookup failed");
-                return ApiError::internal().into_response();
-            }
+            Err(error) => return cursor_failed(&error),
         },
         None => None,
     };

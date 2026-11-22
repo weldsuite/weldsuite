@@ -105,12 +105,12 @@ async fn warehouse_managed_on<C: ConnectionTrait>(
         .into_tuple()
         .one(db)
         .await?;
-    Ok(owned(owner))
+    Ok(owned(owner.flatten()))
 }
 
 /// `coalesce(managed_by_connection_id, '') <> ''`, false without a row.
-fn owned(owner: Option<Option<String>>) -> bool {
-    owner.flatten().is_some_and(|owner| !owner.is_empty())
+fn owned(owner: Option<String>) -> bool {
+    owner.is_some_and(|owner| !owner.is_empty())
 }
 
 /// Whether the warehouse of the bucket `inventory_id` is owned by a
@@ -130,7 +130,7 @@ pub(crate) async fn bucket_is_managed(db: &PgPool, inventory_id: &str) -> Result
         .into_tuple()
         .one(&orm(db))
         .await?;
-    Ok(owned(owner))
+    Ok(owned(owner.flatten()))
 }
 
 async fn refuse_managed<C: ConnectionTrait>(

@@ -49,9 +49,11 @@ use http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use http::request::Parts;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use http_body_util::BodyExt;
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::{MasterDb, PgPool};
+use weldsuite_db::{MasterDb, PgPool, orm};
+use weldsuite_schema::master::{panel_project_registry as registry, plans, workspaces};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::RequestEnv;
 use weldsuite_ports::{
@@ -505,32 +507,47 @@ async fn load_project(
     let Some(master) = ctx.master(state) else {
         return Ok(None);
     };
-    let row: Option<(Value, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(r), p.slug from panel_project_registry r
-         left join workspaces w on w.id = r.workspace_id
-         left join plans p on p.id = w.plan_id
-         where r.token = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(token)
-    .fetch_optional(&master)
-    .await
-    .map_err(PortError::backend)?;
-    let Some((row, plan)) = row else {
+    let row: Option<(String, String, String, Value, Value, Option<String>)> =
+        registry::Entity::find()
+            .select_only()
+            .columns([
+                registry::Column::ProjectId,
+                registry::Column::WorkspaceId,
+                registry::Column::Status,
+                registry::Column::AllowedDomains,
+                registry::Column::Settings,
+            ])
+            .column(plans::Column::Slug)
+            .join(
+                JoinType::LeftJoin,
+                registry::Entity::belongs_to(workspaces::Entity)
+                    .from(registry::Column::WorkspaceId)
+                    .to(workspaces::Column::Id)
+                    .into(),
+            )
+            .join(
+                JoinType::LeftJoin,
+                workspaces::Entity::belongs_to(plans::Entity)
+                    .from(workspaces::Column::PlanId)
+                    .to(plans::Column::Id)
+                    .into(),
+            )
+            .filter(registry::Column::Token.eq(token))
+            .filter(registry::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&master))
+            .await
+            .map_err(PortError::backend)?;
+    let Some((project_id, workspace_id, status, allowed_domains, settings, plan)) = row else {
         return Ok(None);
     };
-    let row = weldsuite_db::js_row(row);
-    let field = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
     let record = crate::domain::with_replay_tier(
         crate::domain::project_record(
-            row.get("projectId")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            row.get("workspaceId")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            &field("status"),
-            &field("allowedDomains"),
-            &field("settings"),
+            &project_id,
+            &workspace_id,
+            &Value::String(status),
+            &allowed_domains,
+            &settings,
         ),
         crate::domain::plan_replay_tier(plan.as_deref()),
     )

@@ -20,7 +20,9 @@ use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use regex::Regex;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::query::rows::{to_iso, to_number, to_text};
@@ -32,11 +34,13 @@ use weldsuite_panel_domain::query::{
 };
 use weldsuite_panel_domain::schemas::{DateRange, PanelQuerySpec};
 use weldsuite_ports::{Cache, DynFileStore};
+use weldsuite_schema::tenant::{panel_ai_summaries, panel_session_favorites};
 
 use crate::collector::RequestCollector;
 use crate::engine::Engine;
 use crate::erasure::{ErasureQueue, RequestErasureQueue};
 use crate::query::{QueryDeps, QueryFailure};
+use crate::saved::js_row;
 use crate::schemas_gen::PANEL_QUERY_SPEC;
 use crate::{Caller, PanelState};
 
@@ -115,6 +119,12 @@ impl From<PanelError> for Failure {
 impl From<PanelQueryError> for Failure {
     fn from(error: PanelQueryError) -> Self {
         Self::Query(error.message)
+    }
+}
+
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::upstream(error)
     }
 }
 
@@ -517,16 +527,14 @@ pub(crate) async fn get_favorite(
     caller: &Caller,
     project_id: &str,
     session_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from panel_session_favorites f
-         where f.project_id = $1 and f.session_id = $2 limit 1",
-    )
-    .bind(project_id)
-    .bind(session_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    panel_session_favorites::Entity::find()
+        .filter(panel_session_favorites::Column::ProjectId.eq(project_id))
+        .filter(panel_session_favorites::Column::SessionId.eq(session_id))
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `toFavoriteDto`.
@@ -547,17 +555,16 @@ pub(crate) async fn latest_session_summary(
     caller: &Caller,
     project_id: &str,
     session_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from panel_ai_summaries s
-         where s.project_id = $1 and s.scope = 'session' and s.session_id = $2
-         order by s.created_at desc limit 1",
-    )
-    .bind(project_id)
-    .bind(session_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    panel_ai_summaries::Entity::find()
+        .filter(panel_ai_summaries::Column::ProjectId.eq(project_id))
+        .filter(panel_ai_summaries::Column::Scope.eq("session"))
+        .filter(panel_ai_summaries::Column::SessionId.eq(session_id))
+        .order_by_desc(panel_ai_summaries::Column::CreatedAt)
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `toSessionSummaryDto`.
@@ -584,7 +591,7 @@ pub(crate) async fn mark_favorites(
     caller: &Caller,
     project_id: &str,
     mut sessions: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if sessions.is_empty() {
         return Ok(sessions);
     }
@@ -592,14 +599,7 @@ pub(crate) async fn mark_favorites(
         .iter()
         .map(|s| s["sessionId"].as_str().unwrap_or_default().to_owned())
         .collect();
-    let favourites: Vec<String> = sqlx::query_scalar(
-        "select session_id from panel_session_favorites
-         where project_id = $1 and session_id = any($2)",
-    )
-    .bind(project_id)
-    .bind(&ids)
-    .fetch_all(&caller.db)
-    .await?;
+    let favourites = favorite_session_ids(&caller.db, project_id, ids).await?;
     for session in sessions.iter_mut().filter_map(Value::as_object_mut) {
         let favourite = session
             .get("sessionId")
@@ -608,6 +608,22 @@ pub(crate) async fn mark_favorites(
         session.insert("favorite".to_owned(), Value::Bool(favourite));
     }
     Ok(sessions)
+}
+
+/// The sessions among `ids` the project has favourited (`inArray`).
+pub(crate) async fn favorite_session_ids(
+    db: &weldsuite_db::PgPool,
+    project_id: &str,
+    ids: Vec<String>,
+) -> Result<Vec<String>, DbErr> {
+    panel_session_favorites::Entity::find()
+        .select_only()
+        .column(panel_session_favorites::Column::SessionId)
+        .filter(panel_session_favorites::Column::ProjectId.eq(project_id))
+        .filter(panel_session_favorites::Column::SessionId.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 #[cfg(test)]

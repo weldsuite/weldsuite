@@ -10,10 +10,14 @@
 
 use std::collections::HashSet;
 
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::PANEL_PROJECTS_MANAGE;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{panel_dashboard_tiles, panel_dashboards, panel_projects, panel_reports};
 use weldsuite_zod::{Keys, S, Z};
 
 use crate::Caller;
@@ -86,15 +90,50 @@ pub(crate) fn rows(rows: Vec<Value>) -> Vec<Value> {
     rows.into_iter().map(weldsuite_db::js_row).collect()
 }
 
+/// An entity's row as Drizzle returns it: the entity serializes as Drizzle
+/// did.
+pub(crate) fn js_row(model: impl Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// Entity rows as Drizzle returns them, in order.
+pub(crate) fn js_rows<M: Serialize>(models: Vec<M>) -> Result<Vec<Value>, DbErr> {
+    models.into_iter().map(js_row).collect()
+}
+
+/// An epoch-millisecond moment (`new Date(ms)`) as a `timestamptz` value.
+pub(crate) fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
 /// `projectExists(db, projectId)`: a live project of this tenant.
-pub(crate) async fn project_exists(db: &PgPool, project_id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(
-        "select 1 from panel_projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+pub(crate) async fn project_exists(db: &PgPool, project_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = panel_projects::Entity::find_by_id(project_id)
+        .filter(panel_projects::Column::DeletedAt.is_null())
+        .select_only()
+        .column(panel_projects::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
+}
+
+/// `scopeCondition(scope, userId)` on an owned, shared object: `mine` is
+/// the user's own, `shared` the workspace's, anything else both.
+pub(crate) fn scope_filter(
+    owner: impl ColumnTrait,
+    visibility: impl ColumnTrait,
+    user_id: &str,
+    scope: &str,
+) -> Condition {
+    match scope {
+        "mine" => Condition::all().add(owner.eq(user_id)),
+        "shared" => Condition::all().add(visibility.eq("workspace")),
+        _ => Condition::any()
+            .add(owner.eq(user_id))
+            .add(visibility.eq("workspace")),
+    }
 }
 
 /// The `where` of a scoped list on `alias` (`scopeCondition`), with the
@@ -139,29 +178,27 @@ pub(crate) fn report_event_data(row: &Value) -> Value {
 }
 
 /// `getReport(db, id)`: a live report.
-pub(crate) async fn get_report(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_reports r where r.id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub(crate) async fn get_report(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    panel_reports::Entity::find_by_id(id)
+        .filter(panel_reports::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// The live reports with these ids, in the order the database returns them
 /// (`inArray`, no order).
-pub(crate) async fn reports_by_id(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn reports_by_id(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_reports r where r.id = any($1) and r.deleted_at is null",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows(found))
+    let found = panel_reports::Entity::find()
+        .filter(panel_reports::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(panel_reports::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    js_rows(found)
 }
 
 // ---------------------------------------------------------------------------
@@ -315,31 +352,28 @@ pub(crate) fn tile_dto(row: &Value) -> Value {
 }
 
 /// `getDashboard(db, id)`: a live dashboard.
-pub(crate) async fn get_dashboard(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from panel_dashboards d
-         where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub(crate) async fn get_dashboard(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    panel_dashboards::Entity::find_by_id(id)
+        .filter(panel_dashboards::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `listTiles(db, dashboardId)`: oldest first.
-pub(crate) async fn list_tiles(db: &PgPool, dashboard_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from panel_dashboard_tiles t
-         where t.dashboard_id = $1 order by t.created_at asc, t.id asc",
-    )
-    .bind(dashboard_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows(found))
+pub(crate) async fn list_tiles(db: &PgPool, dashboard_id: &str) -> Result<Vec<Value>, DbErr> {
+    let found = panel_dashboard_tiles::Entity::find()
+        .filter(panel_dashboard_tiles::Column::DashboardId.eq(dashboard_id))
+        .order_by_asc(panel_dashboard_tiles::Column::CreatedAt)
+        .order_by_asc(panel_dashboard_tiles::Column::Id)
+        .all(&orm(db))
+        .await?;
+    js_rows(found)
 }
 
 /// `tileReports(db, tiles)`: the live reports behind the report tiles.
-pub(crate) async fn tile_reports(db: &PgPool, tiles: &[Value]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn tile_reports(db: &PgPool, tiles: &[Value]) -> Result<Vec<Value>, DbErr> {
     let mut seen = HashSet::new();
     let ids: Vec<String> = tiles
         .iter()
@@ -362,7 +396,7 @@ pub(crate) async fn dashboard_detail(
     db: &PgPool,
     dashboard: &Value,
     actor: &Actor,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let tiles = list_tiles(db, text(dashboard, "id")).await?;
     let reports = tile_reports(db, &tiles).await?;
     let visible: Vec<&Value> = reports.iter().filter(|r| can_see(r, actor)).collect();
@@ -409,7 +443,7 @@ pub(crate) async fn get_target(
     db: &PgPool,
     target_type: &str,
     target_id: &str,
-) -> Result<Option<Target>, sqlx::Error> {
+) -> Result<Option<Target>, DbErr> {
     Ok(if target_type == "report" {
         get_report(db, target_id).await?.map(|row| Target {
             target_type: "report",

@@ -11,6 +11,8 @@
 //! their own items; they deactivate their warehouses and delete their
 //! products afterwards, so later runs stay small.
 
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 

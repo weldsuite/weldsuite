@@ -181,7 +181,7 @@ async fn get_or_create(
         .resolve(&caller.db, &caller.user_id, entity_id)
         .await?
     else {
-        return Err(ChatError::Database(sqlx::Error::RowNotFound));
+        return Err(ChatError::from(sqlx::Error::RowNotFound));
     };
     if let Some(deleted) = find_deleted_channel(caller, entity_type, entity_id).await? {
         let followers = add_followers(
@@ -887,7 +887,7 @@ async fn send(
             }
             Err(PostError::Feature(403, message)) => return Err(ChatError::forbidden(message)),
             Err(PostError::Feature(_, message)) => return Err(ChatError::bad_request(message)),
-            Err(PostError::Database(error)) => return Err(ChatError::Database(error)),
+            Err(PostError::Database(error)) => return Err(ChatError::from(error)),
         };
         let name = got.channel["name"].as_str().unwrap_or_default().to_owned();
         announce_new_followers(

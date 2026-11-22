@@ -190,7 +190,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 pub enum ChatError {
     /// A response the route wrote itself.
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl ChatError {
@@ -226,9 +226,18 @@ impl ChatError {
     }
 }
 
+impl From<sea_orm::DbErr> for ChatError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL not converted to the ORM yet, and the crates not converted yet
+/// (`weldsuite-chat-domain`, `weldsuite-notifications`), report through
+/// `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for ChatError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

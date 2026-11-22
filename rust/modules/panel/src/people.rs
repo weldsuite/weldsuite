@@ -35,7 +35,7 @@ use weldsuite_zod::{Keys, N, S, Z};
 use crate::engine::Engine;
 use crate::erasure::{EraseDeps, EraseFailure, erase_person, incomplete};
 use crate::project_state::{ListPeopleInput, PanelProjectState, Person, ProjectRef};
-use crate::projects::live_project;
+use crate::projects::{live_project, live_project_names};
 use crate::query::QueryDeps;
 use crate::recordings::{
     Bindings, Failure, full_date_range, mark_favorites, number_of, overrides, session_context,
@@ -508,12 +508,7 @@ async fn people_by_email(
 ) -> Result<Value, Failure> {
     let state = require_state(caller, panel)?;
     let needle = js::trim(email).to_lowercase();
-    let projects: Vec<(String, String)> = sqlx::query_as(
-        "select id, name from panel_projects where deleted_at is null
-         order by created_at asc, id asc",
-    )
-    .fetch_all(&caller.db)
-    .await?;
+    let projects = live_project_names(&caller.db).await?;
     let projects = &projects[..projects.len().min(MAX_CARD_PROJECTS)];
 
     let per_project =

@@ -44,15 +44,21 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbBackend, DbErr, EntityTrait, JoinType, Order,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use time::{Date, Duration, OffsetDateTime, Time, UtcOffset};
+use time::{Date, Duration, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 use weldsuite_catalogs::entity_events::{
     REPLENISHMENT_RUN_COMPLETED, REPLENISHMENT_RUN_CREATED, REPLENISHMENT_RUN_FAILED,
 };
 use weldsuite_catalogs::permission_keys::INVENTORY_MANAGE;
-use weldsuite_db::TenantPermissionQueries;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{OrmConn, TenantPermissionQueries, orm, orm_error, utc_now};
 use weldsuite_events::{EntityEventPublisher, EventContext, EventSource, publish_entity_event};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
@@ -60,12 +66,15 @@ use weldsuite_permissions::{has_app_permission, resolve_effective_permissions};
 use weldsuite_ports::{
     BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, PortError, StepRetry, step,
 };
+use weldsuite_schema::tenant::{
+    notifications, product_variants, products, purchase_orders, stash_item_plans as plans,
+    stash_planning_runs as runs, warehouses, workspace_members,
+};
 
 use super::demand::{Item, ItemPlan, Planning, plan_items, ymd};
 use super::review::{Prior, Review, next_review};
-use super::settings::{demand_warehouse, from_json, load_settings, settings_json};
+use super::settings::{demand_warehouse, from_json, load_settings, model_json, settings_json};
 use crate::incoming::parse_date;
-use crate::now;
 
 /// The job's name.
 pub const REPLENISHMENT_RUN_JOB: &str = "stash.replenishment-run";
@@ -135,13 +144,37 @@ pub(crate) enum Started {
 /// Why a run could not start.
 #[derive(Debug)]
 pub(crate) enum StartError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Jobs(PortError),
 }
 
+impl From<DbErr> for StartError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// `atomically_with`'s own failures (begin, commit).
 impl From<sqlx::Error> for StartError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(orm_error(error))
+    }
+}
+
+/// A transaction's failure: a statement's, or `atomically_with`'s own
+/// (begin, commit).
+#[derive(Debug)]
+struct TxError(DbErr);
+
+impl From<DbErr> for TxError {
+    fn from(error: DbErr) -> Self {
+        Self(error)
+    }
+}
+
+impl From<sqlx::Error> for TxError {
+    fn from(error: sqlx::Error) -> Self {
+        Self(orm_error(error))
     }
 }
 
@@ -163,42 +196,46 @@ pub(crate) async fn start_run(
     start: &RunStart,
 ) -> Result<Started, StartError> {
     let id = generate_id("prun");
-    let at = now();
+    let at = utc_now();
     let trigger = start.trigger;
     let started_by = start.started_by.clone();
     let row_id = id.clone();
     let started = weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            sqlx::query(RUNS_LOCK).execute(&mut *conn).await?;
-            sqlx::query(
-                "update stash_planning_runs set status = 'failed', finished_at = $1::timestamp, \
-                 error = 'The run stopped without finishing' \
-                 where status = 'running' and started_at < $1::timestamp - interval '6 hours'",
-            )
-            .bind(&at)
-            .execute(&mut *conn)
-            .await?;
-            let running: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(t) from stash_planning_runs t where t.status = 'running' \
-                 order by t.started_at desc, t.id desc limit 1",
-            )
-            .fetch_optional(&mut *conn)
-            .await?;
+            let db = OrmConn::new(conn);
+            lock_runs(&db).await?;
+            runs::Entity::update_many()
+                .col_expr(runs::Column::Status, Expr::val("failed"))
+                .col_expr(runs::Column::FinishedAt, Expr::val(at))
+                .col_expr(
+                    runs::Column::Error,
+                    Expr::val("The run stopped without finishing"),
+                )
+                .filter(runs::Column::Status.eq("running"))
+                .filter(runs::Column::StartedAt.lt(at - Duration::hours(6)))
+                .exec(&db)
+                .await?;
+            let running = runs::Entity::find()
+                .filter(runs::Column::Status.eq("running"))
+                .order_by(runs::Column::StartedAt, Order::Desc)
+                .order_by(runs::Column::Id, Order::Desc)
+                .one(&db)
+                .await?;
             if let Some(running) = running {
-                return Ok::<_, sqlx::Error>(Started::Running(weldsuite_db::js_row(running)));
+                return Ok::<_, StartError>(Started::Running(model_json!(running)?));
             }
-            let row: Value = sqlx::query_scalar(
-                "insert into stash_planning_runs as t (id, created_at, trigger, status, started_at, \
-                 started_by) values ($1, $2::timestamp, $3, 'running', $2::timestamp, $4) \
-                 returning to_jsonb(t)",
-            )
-            .bind(&row_id)
-            .bind(&at)
-            .bind(trigger)
-            .bind(started_by.as_deref())
-            .fetch_one(&mut *conn)
+            let row = runs::Entity::insert(runs::ActiveModel {
+                id: Set(row_id),
+                created_at: Set(at),
+                trigger: Set(trigger.to_owned()),
+                status: Set("running".to_owned()),
+                started_at: Set(at),
+                started_by: Set(started_by),
+                ..Default::default()
+            })
+            .exec_with_returning(&db)
             .await?;
-            Ok(Started::New(weldsuite_db::js_row(row)))
+            Ok(Started::New(model_json!(row)?))
         })
     })
     .await?;
@@ -257,18 +294,19 @@ pub(crate) async fn fail_run(
     db: &PgPool,
     run_id: &str,
     message: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let error: String = message.chars().take(MAX_ERROR_LEN).collect();
-    let row: Option<Value> = sqlx::query_scalar(
-        "update stash_planning_runs t set status = 'failed', finished_at = $2::timestamp, \
-         error = $3 where t.id = $1 and t.status = 'running' returning to_jsonb(t)",
-    )
-    .bind(run_id)
-    .bind(now())
-    .bind(error)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    runs::Entity::update_many()
+        .col_expr(runs::Column::Status, Expr::val("failed"))
+        .col_expr(runs::Column::FinishedAt, Expr::val(utc_now()))
+        .col_expr(runs::Column::Error, Expr::val(error))
+        .filter(runs::Column::Id.eq(run_id))
+        .filter(runs::Column::Status.eq("running"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .first()
+        .map(|row| model_json!(row))
+        .transpose()
 }
 
 // ── The job ─────────────────────────────────────────────────────────────────
@@ -553,33 +591,146 @@ impl ReplenishmentRunJob {
 
 // ── Steps ───────────────────────────────────────────────────────────────────
 
+/// `coalesce(<column>, true)` of a nullable flag.
+fn true_or_null(column: Expr) -> Condition {
+    use sea_orm::ExprTrait as _;
+    Condition::any()
+        .add(column.clone().is_null())
+        .add(column.eq(true))
+}
+
+/// A live product: `deleted_at is null and coalesce(track_inventory, true)`.
+fn live_product() -> Condition {
+    Condition::all()
+        .add(products::Column::DeletedAt.is_null())
+        .add(true_or_null(Expr::col((
+            products::Entity,
+            products::Column::TrackInventory,
+        ))))
+}
+
+/// A product's live variants (`left join product_variants v on
+/// v.product_id = p.id and v.deleted_at is null and coalesce(v.track_inventory,
+/// true)`).
+fn live_variants() -> RelationDef {
+    products::Entity::belongs_to(product_variants::Entity)
+        .from(products::Column::Id)
+        .to(product_variants::Column::ProductId)
+        .on_condition(|_, right| {
+            Condition::all()
+                .add(sea_orm::ExprTrait::is_null(Expr::col((
+                    right.clone(),
+                    product_variants::Column::DeletedAt,
+                ))))
+                .add(true_or_null(Expr::col((
+                    right,
+                    product_variants::Column::TrackInventory,
+                ))))
+        })
+        .into()
+}
+
 /// Plannable rows per product (the product itself and its tracked live
 /// variants), in id order.
-const PRODUCT_ROWS: &str = "select p.id, (1 + count(v.id))::bigint from products p \
-     left join product_variants v on v.product_id = p.id and v.deleted_at is null \
-       and coalesce(v.track_inventory, true) \
-     where p.deleted_at is null and coalesce(p.track_inventory, true) \
-     group by p.id order by p.id";
+async fn product_rows<C: ConnectionTrait>(db: &C) -> Result<Vec<(String, i64)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let rows = Expr::val(1)
+        .add(Func::count(Expr::col((
+            product_variants::Entity,
+            product_variants::Column::Id,
+        ))))
+        .cast_as("bigint");
+    products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .column_as(rows, "rows")
+        .join(JoinType::LeftJoin, live_variants())
+        .filter(live_product())
+        .group_by(products::Column::Id)
+        .order_by(products::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await
+}
 
-/// The plannable products and variants with an id in `[$1, $2]`.
-const CHUNK_ROWS: &str = "select p.id, null::text from products p \
-     where p.deleted_at is null and coalesce(p.track_inventory, true) and p.id >= $1 and p.id <= $2 \
-     union all \
-     select v.product_id, v.id from product_variants v join products p on p.id = v.product_id \
-     where v.deleted_at is null and coalesce(v.track_inventory, true) \
-       and p.deleted_at is null and coalesce(p.track_inventory, true) and p.id >= $1 and p.id <= $2 \
-     order by 1, 2 nulls first";
+/// The plannable products and variants with a product id in `[first,
+/// last]`: each product, then its variants, in id order.
+async fn chunk_rows<C: ConnectionTrait>(
+    db: &C,
+    (first, last): (&str, &str),
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    let in_range = || {
+        Condition::all()
+            .add(products::Column::Id.gte(first))
+            .add(products::Column::Id.lte(last))
+    };
+    let products: Vec<String> = products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .filter(live_product())
+        .filter(in_range())
+        .order_by(products::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let variants: Vec<(String, String)> = product_variants::Entity::find()
+        .select_only()
+        .columns([
+            product_variants::Column::ProductId,
+            product_variants::Column::Id,
+        ])
+        .join(
+            JoinType::InnerJoin,
+            product_variants::Entity::belongs_to(products::Entity)
+                .from(product_variants::Column::ProductId)
+                .to(products::Column::Id)
+                .into(),
+        )
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .filter(true_or_null(Expr::col((
+            product_variants::Entity,
+            product_variants::Column::TrackInventory,
+        ))))
+        .filter(live_product())
+        .filter(in_range())
+        .order_by(product_variants::Column::ProductId, Order::Asc)
+        .order_by(product_variants::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await?;
+    // `order by 1, 2 nulls first`: the product's own row, then its variants.
+    let mut by_product: HashMap<String, Vec<String>> = HashMap::new();
+    for (product, variant) in variants {
+        by_product.entry(product).or_default().push(variant);
+    }
+    let mut rows = Vec::new();
+    for product in products {
+        let variants = by_product.remove(&product).unwrap_or_default();
+        rows.push((product.clone(), None));
+        rows.extend(
+            variants
+                .into_iter()
+                .map(|variant| (product.clone(), Some(variant))),
+        );
+    }
+    Ok(rows)
+}
 
 /// Step 1.
-pub(crate) async fn setup(db: &PgPool, today: Date) -> Result<Setup, sqlx::Error> {
-    let settings = settings_json(db).await?;
-    let demand = demand_warehouse(db, &from_json(&settings)).await?;
-    let warehouses: Vec<String> = sqlx::query_scalar(
-        "select id from warehouses where deleted_at is null and coalesce(is_active, true) order by id",
-    )
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<(String, i64)> = sqlx::query_as(PRODUCT_ROWS).fetch_all(db).await?;
+pub(crate) async fn setup(db: &PgPool, today: Date) -> Result<Setup, DbErr> {
+    let db = orm(db);
+    let settings = settings_json(&db).await?;
+    let demand = demand_warehouse(&db, &from_json(&settings)).await?;
+    let warehouses: Vec<String> = warehouses::Entity::find()
+        .select_only()
+        .column(warehouses::Column::Id)
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .filter(true_or_null(Expr::col(warehouses::Column::IsActive)))
+        .order_by(warehouses::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let rows = product_rows(&db).await?;
     let chunks = chunk_ranges(&rows, warehouses.len(), CHUNK_ITEMS);
     Ok(Setup {
         today,
@@ -625,52 +776,71 @@ type PriorRow = (
     String,
     String,
     String,
+    Option<PrimitiveDateTime>,
     Option<String>,
-    bool,
-    Option<String>,
-    Option<i64>,
+    Option<i32>,
     Option<String>,
 );
 
 /// Serialises the writers of runs: [`start_run`], each chunk's write and
-/// [`finish_run`] take it first, for their transaction.
-const RUNS_LOCK: &str = "select pg_advisory_xact_lock(hashtext('stash_planning_runs'))";
+/// [`finish_run`] take it first, for their transaction
+/// (`select pg_advisory_xact_lock(hashtext('stash_planning_runs'))`).
+async fn lock_runs<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
+    let mut lock = Query::select();
+    lock.expr(
+        Func::cust("pg_advisory_xact_lock")
+            .arg(Func::cust("hashtext").arg("stash_planning_runs")),
+    );
+    db.execute_raw(DbBackend::Postgres.build(&lock)).await?;
+    Ok(())
+}
 
-/// In a transaction: take [`RUNS_LOCK`], lock the run row and say whether
-/// `run_id` is still the workspace's current run (`running`, and the
-/// latest run that is). A run a later start took for lost is not: it must
-/// write nothing more, or the later run's [`finish_run`] would delete what
-/// it wrote along with the review state on those rows.
-pub(crate) async fn hold_current_run(
-    conn: &mut sqlx::PgConnection,
+/// In a transaction: take the runs' lock ([`lock_runs`]), lock the run row
+/// and say whether `run_id` is still the workspace's current run
+/// (`running`, and the latest run that is). A run a later start took for
+/// lost is not: it must write nothing more, or the later run's
+/// [`finish_run`] would delete what it wrote along with the review state on
+/// those rows.
+pub(crate) async fn hold_current_run<C: ConnectionTrait>(
+    db: &C,
     run_id: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query(RUNS_LOCK).execute(&mut *conn).await?;
-    let status: Option<String> =
-        sqlx::query_scalar("select status from stash_planning_runs where id = $1 for update")
-            .bind(run_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+) -> Result<bool, DbErr> {
+    lock_runs(db).await?;
+    let status: Option<String> = runs::Entity::find()
+        .select_only()
+        .column(runs::Column::Status)
+        .filter(runs::Column::Id.eq(run_id))
+        .lock_exclusive()
+        .into_tuple()
+        .one(db)
+        .await?;
     if status.as_deref() != Some("running") {
         return Ok(false);
     }
-    let current: Option<String> = sqlx::query_scalar(
-        "select id from stash_planning_runs where status = 'running' \
-         order by started_at desc, id desc limit 1",
-    )
-    .fetch_optional(&mut *conn)
-    .await?;
+    let current: Option<String> = runs::Entity::find()
+        .select_only()
+        .column(runs::Column::Id)
+        .filter(runs::Column::Status.eq("running"))
+        .order_by(runs::Column::StartedAt, Order::Desc)
+        .order_by(runs::Column::Id, Order::Desc)
+        .into_tuple()
+        .one(db)
+        .await?;
     Ok(current.as_deref() == Some(run_id))
 }
 
 /// Whether `run_id` is the current run now (a cheap check before the work
 /// of a chunk; the write checks again under the lock).
-async fn is_current_run(db: &PgPool, run_id: &str) -> Result<bool, sqlx::Error> {
+async fn is_current_run(db: &PgPool, run_id: &str) -> Result<bool, DbErr> {
     let run_id = run_id.to_owned();
     weldsuite_db::atomically_with(db, move |conn| {
-        Box::pin(async move { hold_current_run(conn, &run_id).await })
+        Box::pin(async move {
+            let db = OrmConn::new(conn);
+            Ok::<_, TxError>(hold_current_run(&db, &run_id).await?)
+        })
     })
     .await
+    .map_err(|TxError(error)| error)
 }
 
 /// Step 2 for the products in `range`, each in every one of `warehouses`.
@@ -681,15 +851,11 @@ pub(crate) async fn plan_chunk(
     warehouses: &[String],
     range: (&str, &str),
     run_id: &str,
-) -> Result<Option<ChunkCounts>, sqlx::Error> {
+) -> Result<Option<ChunkCounts>, DbErr> {
     if !is_current_run(db, run_id).await? {
         return Ok(None);
     }
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(CHUNK_ROWS)
-        .bind(range.0)
-        .bind(range.1)
-        .fetch_all(db)
-        .await?;
+    let rows = chunk_rows(&orm(db), range).await?;
     let mut items = Vec::with_capacity(rows.len() * warehouses.len());
     for (product_id, variant_id) in rows {
         for warehouse in warehouses {
@@ -704,6 +870,87 @@ pub(crate) async fn plan_chunk(
     write_plans(db, plans, run_id).await
 }
 
+/// `to_char(<timestamp>, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`: the review state's
+/// text of a dismissal's end.
+fn local_millis(at: PrimitiveDateTime) -> String {
+    format!(
+        "{}T{:02}:{:02}:{:02}.{:03}",
+        ymd(at.date()),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.millisecond()
+    )
+}
+
+/// The plans of `keys`, locked (`for update`), with their review state at
+/// `at`.
+async fn priors<C: ConnectionTrait>(
+    db: &C,
+    keys: &[String],
+    at: PrimitiveDateTime,
+) -> Result<HashMap<String, (String, Prior)>, DbErr> {
+    let rows: Vec<PriorRow> = plans::Entity::find()
+        .select_only()
+        .columns([
+            plans::Column::ItemKey,
+            plans::Column::Id,
+            plans::Column::ReviewStatus,
+            plans::Column::DismissedUntil,
+            plans::Column::DismissedBy,
+            plans::Column::DismissedQty,
+            plans::Column::PurchaseOrderId,
+        ])
+        .filter(plans::Column::ItemKey.is_in(keys.iter().map(String::as_str)))
+        .order_by(plans::Column::ItemKey, Order::Asc)
+        .lock_exclusive()
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(key, id, status, until, by, qty, order)| {
+            let prior = Prior {
+                status,
+                dismissed_until: until.map(local_millis),
+                // `coalesce(dismissed_until <= $at, false)`.
+                dismissal_over: until.is_some_and(|until| until <= at),
+                dismissed_by: by,
+                dismissed_qty: qty.map(i64::from),
+                purchase_order_id: order,
+            };
+            (key, (id, prior))
+        })
+        .collect())
+}
+
+/// Of the purchase orders `ids`, those still open: live and not
+/// `received`, `closed` or `cancelled`.
+async fn open_orders<C: ConnectionTrait>(db: &C, ids: &[String]) -> Result<HashSet<String>, DbErr> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let open: Vec<String> = purchase_orders::Entity::find()
+        .select_only()
+        .column(purchase_orders::Column::Id)
+        .filter(purchase_orders::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(purchase_orders::Column::DeletedAt.is_null())
+        // `coalesce(status, '') not in (…)`.
+        .filter(
+            Condition::any()
+                .add(purchase_orders::Column::Status.is_null())
+                .add(purchase_orders::Column::Status.is_not_in([
+                    "received",
+                    "closed",
+                    "cancelled",
+                ])),
+        )
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(open.into_iter().collect())
+}
+
 /// Upsert `plans` with their review state, all or nothing, while
 /// `run_id` is the current run ([`hold_current_run`]); `None` (nothing
 /// written) once it is not.
@@ -711,60 +958,25 @@ pub(crate) async fn write_plans(
     db: &PgPool,
     plans: Vec<ItemPlan>,
     run_id: &str,
-) -> Result<Option<ChunkCounts>, sqlx::Error> {
-    let at = now();
+) -> Result<Option<ChunkCounts>, DbErr> {
+    let at = OffsetDateTime::now_utc();
+    let (text, stamp) = (weldsuite_events::iso_timestamp(at), weldsuite_db::utc_timestamp(at));
     let run_id = run_id.to_owned();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            if !hold_current_run(conn, &run_id).await? {
-                return Ok(None);
-            }
-            let keys: Vec<String> = plans.iter().map(|plan| plan.key.clone()).collect();
-            let priors: Vec<PriorRow> = sqlx::query_as(
-                "select item_key, id, review_status, \
-                 to_char(dismissed_until, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), \
-                 coalesce(dismissed_until <= $2::timestamp, false), dismissed_by, \
-                 dismissed_qty::bigint, purchase_order_id \
-                 from stash_item_plans where item_key = any($1) order by item_key for update",
-            )
-            .bind(&keys)
-            .bind(&at)
-            .fetch_all(&mut *conn)
-            .await?;
-            let mut prior_by_key: HashMap<String, (String, Prior)> = HashMap::new();
-            for (key, id, status, until, over, by, qty, order) in priors {
-                prior_by_key.insert(
-                    key,
-                    (
-                        id,
-                        Prior {
-                            status,
-                            dismissed_until: until,
-                            dismissal_over: over,
-                            dismissed_by: by,
-                            dismissed_qty: qty,
-                            purchase_order_id: order,
-                        },
-                    ),
-                );
-            }
-            let ordered: Vec<String> = prior_by_key
-                .values()
-                .filter(|(_, prior)| prior.status == "ordered")
-                .filter_map(|(_, prior)| prior.purchase_order_id.clone())
-                .collect();
-            let open_orders: HashSet<String> = if ordered.is_empty() {
-                HashSet::new()
-            } else {
-                sqlx::query_scalar::<_, String>(
-                    "select id from purchase_orders where id = any($1) and deleted_at is null \
-                     and coalesce(status, '') not in ('received', 'closed', 'cancelled')",
-                )
-                .bind(&ordered)
-                .fetch_all(&mut *conn)
-                .await?
-                .into_iter()
-                .collect()
+            let (prior_by_key, open_orders) = {
+                let db = OrmConn::new(&mut *conn);
+                if !hold_current_run(&db, &run_id).await? {
+                    return Ok(None);
+                }
+                let keys: Vec<String> = plans.iter().map(|plan| plan.key.clone()).collect();
+                let prior_by_key = priors(&db, &keys, stamp).await?;
+                let ordered: Vec<String> = prior_by_key
+                    .values()
+                    .filter(|(_, prior)| prior.status == "ordered")
+                    .filter_map(|(_, prior)| prior.purchase_order_id.clone())
+                    .collect();
+                (prior_by_key, open_orders(&db, &ordered).await?)
             };
             let mut counts = ChunkCounts::default();
             let mut rows = Vec::new();
@@ -787,18 +999,32 @@ pub(crate) async fn write_plans(
                     counts.newly_open += 1;
                 }
                 let id = prior.map_or_else(|| generate_id("iplan"), |(id, _)| id.clone());
-                rows.push(plan_row(plan, &id, &run_id, &at, &review));
+                rows.push(plan_row(plan, &id, &run_id, &text, &review));
             }
             if !rows.is_empty() {
-                sqlx::query(UPSERT)
-                    .bind(Value::Array(rows))
-                    .execute(&mut *conn)
-                    .await?;
+                upsert_plans(conn, rows).await?;
             }
-            Ok(Some(counts))
+            Ok::<_, TxError>(Some(counts))
         })
     })
     .await
+    .map_err(|TxError(error)| error)
+}
+
+/// Insert or update the plans `rows` ([`plan_row`]) in one statement.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a chunk's plans upserted from one jsonb parameter \
+              (`jsonb_populate_recordset`): one statement and one bind parameter whatever the \
+              chunk's size, where a row per value would pass Postgres's 65535 parameters"
+)]
+async fn upsert_plans(conn: &mut sqlx::PgConnection, rows: Vec<Value>) -> Result<(), DbErr> {
+    sqlx::query(UPSERT)
+        .bind(Value::Array(rows))
+        .execute(&mut *conn)
+        .await
+        .map_err(orm_error)?;
+    Ok(())
 }
 
 /// Insert or update plans from a JSON array of rows (`snake_case` columns).
@@ -910,48 +1136,76 @@ fn plan_row(plan: &ItemPlan, id: &str, run_id: &str, at: &str, review: &Review) 
 /// deleted. Under the lock no superseded run writes any more, so the plans
 /// without this run's id are the items it found out of scope; a plan
 /// another run still running wrote is never among them.
-pub(crate) async fn finish_run(
-    db: &PgPool,
-    run_id: &str,
-    planned: i64,
-) -> Result<Value, sqlx::Error> {
-    let at = now();
+pub(crate) async fn finish_run(db: &PgPool, run_id: &str, planned: i64) -> Result<Value, DbErr> {
+    let at = utc_now();
     let run_id = run_id.to_owned();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            if !hold_current_run(conn, &run_id).await? {
+            use sea_orm::ExprTrait as _;
+            let db = OrmConn::new(conn);
+            if !hold_current_run(&db, &run_id).await? {
                 return Ok(Value::Null);
             }
-            sqlx::query(
-                "delete from stash_item_plans where run_id is distinct from $1 \
-                 and (run_id is null or run_id not in \
-                   (select id from stash_planning_runs where status = 'running'))",
-            )
-            .bind(&run_id)
-            .execute(&mut *conn)
-            .await?;
-            let row: Value = sqlx::query_scalar(
-                "update stash_planning_runs t set status = 'done', finished_at = $2::timestamp, \
-                 items_planned = $3, items_to_reorder = (select count(*)::integer from \
-                 stash_item_plans p where p.run_id = $1 and p.review_status = 'open' \
-                 and p.suggested_qty > 0) where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(&run_id)
-            .bind(&at)
-            .bind(i32::try_from(planned).unwrap_or(i32::MAX))
-            .fetch_one(&mut *conn)
-            .await?;
-            sqlx::query(
-                "delete from stash_planning_runs where status <> 'running' \
-                 and started_at < $1::timestamp - interval '90 days'",
-            )
-            .bind(&at)
-            .execute(&mut *conn)
-            .await?;
-            Ok(weldsuite_db::js_row(row))
+            // `run_id is distinct from $1 and (run_id is null or run_id not in
+            // (the running runs))`.
+            let mut running = Query::select();
+            running
+                .column(runs::Column::Id)
+                .from(runs::Entity)
+                .and_where(Expr::col(runs::Column::Status).eq("running"));
+            plans::Entity::delete_many()
+                .filter(
+                    Condition::any()
+                        .add(plans::Column::RunId.is_null())
+                        .add(plans::Column::RunId.ne(run_id.as_str())),
+                )
+                .filter(
+                    Condition::any()
+                        .add(plans::Column::RunId.is_null())
+                        .add(plans::Column::RunId.not_in_subquery(running)),
+                )
+                .exec(&db)
+                .await?;
+            // `(select count(*)::integer from stash_item_plans p where …)`.
+            let mut to_reorder = Query::select();
+            to_reorder
+                .expr(Expr::from(Func::count(Expr::col(sea_orm::sea_query::Asterisk))).cast_as("integer"))
+                .from(plans::Entity)
+                .and_where(Expr::col((plans::Entity, plans::Column::RunId)).eq(run_id.as_str()))
+                .and_where(Expr::col((plans::Entity, plans::Column::ReviewStatus)).eq("open"))
+                .and_where(Expr::col((plans::Entity, plans::Column::SuggestedQty)).gt(0));
+            let row = runs::Entity::update_many()
+                .col_expr(runs::Column::Status, Expr::val("done"))
+                .col_expr(runs::Column::FinishedAt, Expr::val(at))
+                .col_expr(
+                    runs::Column::ItemsPlanned,
+                    Expr::val(i32::try_from(planned).unwrap_or(i32::MAX)),
+                )
+                .col_expr(
+                    runs::Column::ItemsToReorder,
+                    Expr::SubQuery(
+                        None,
+                        Box::new(sea_orm::sea_query::SubQueryStatement::SelectStatement(
+                            to_reorder,
+                        )),
+                    ),
+                )
+                .filter(runs::Column::Id.eq(run_id.as_str()))
+                .exec_with_returning(&db)
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| DbErr::RecordNotFound(run_id.clone()))?;
+            runs::Entity::delete_many()
+                .filter(runs::Column::Status.ne("running"))
+                .filter(runs::Column::StartedAt.lt(at - Duration::days(90)))
+                .exec(&db)
+                .await?;
+            Ok::<_, TxError>(model_json!(row)?)
         })
     })
     .await
+    .map_err(|TxError(error)| error)
 }
 
 /// Step 5: notify the members who may manage inventory (`inventory:manage`
@@ -964,13 +1218,20 @@ pub(crate) async fn notify_reorder(
     clerk_org_id: Option<&str>,
     run_id: &str,
     count: i64,
-) -> Result<usize, sqlx::Error> {
-    let users: Vec<String> = sqlx::query_scalar(
-        "select distinct user_id from workspace_members where deleted_at is null \
-         and status = 'ACTIVE' and coalesce(user_id, '') <> '' order by user_id",
-    )
-    .fetch_all(db)
-    .await?;
+) -> Result<usize, DbErr> {
+    let conn = orm(db);
+    let users: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .distinct()
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        // `coalesce(user_id, '') <> ''`.
+        .filter(workspace_members::Column::UserId.ne(""))
+        .order_by(workspace_members::Column::UserId, Order::Asc)
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let queries = TenantPermissionQueries::new(db.clone());
     let title = "Items to reorder".to_owned();
     let body = if count == 1 {
@@ -980,18 +1241,13 @@ pub(crate) async fn notify_reorder(
     };
     let mut sent = 0;
     for user in users {
-        let resolved = resolve_effective_permissions(&queries, &user).await?;
+        let resolved = resolve_effective_permissions(&queries, &user)
+            .await
+            .map_err(orm_error)?;
         if !has_app_permission(&resolved, INVENTORY_MANAGE, Some("weldstash")) {
             continue;
         }
-        let recent: bool = sqlx::query_scalar(
-            "select exists(select 1 from notifications where user_id = $1 and category = 'wms' \
-             and entity_type = 'replenishment_run' and created_at > now() - interval '1 day')",
-        )
-        .bind(&user)
-        .fetch_one(db)
-        .await?;
-        if recent {
+        if notified_lately(&conn, &user).await? {
             continue;
         }
         let params = NewNotification {
@@ -1018,6 +1274,21 @@ pub(crate) async fn notify_reorder(
         }
     }
     Ok(sent)
+}
+
+/// Whether `user` had a replenishment notification in the last day
+/// (`created_at > now() - interval '1 day'`, the database's clock).
+async fn notified_lately<C: ConnectionTrait>(db: &C, user: &str) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let since = Expr::from(Func::cust("now")).sub(Expr::val("1 day").cast_as("interval"));
+    let recent = notifications::Entity::find()
+        .filter(notifications::Column::UserId.eq(user))
+        .filter(notifications::Column::Category.eq("wms"))
+        .filter(notifications::Column::EntityType.eq("replenishment_run"))
+        .filter(Expr::col((notifications::Entity, notifications::Column::CreatedAt)).gt(since))
+        .count(db)
+        .await?;
+    Ok(recent > 0)
 }
 
 // ── The nightly sweep ───────────────────────────────────────────────────────
@@ -1054,7 +1325,9 @@ pub async fn run_replenishment_sweep(
             let events = events.clone();
             async move {
                 let (db, clerk_org_id) = tenants(workspace_id.clone()).await?;
-                let settings = load_settings(&db).await.map_err(|e| e.to_string())?;
+                let settings = load_settings(&orm(&db))
+                    .await
+                    .map_err(|e| e.to_string())?;
                 if !settings.enabled {
                     return Ok::<_, String>(None);
                 }

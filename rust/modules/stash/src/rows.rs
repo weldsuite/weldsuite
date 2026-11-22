@@ -18,11 +18,4 @@ macro_rules! purchase_order_item_row {
     };
 }
 
-/// `inventory`.
-macro_rules! inventory_row {
-    () => {
-        "(to_jsonb(t) || jsonb_build_object('unit_cost', t.\"unit_cost\"::text, 'total_value', t.\"total_value\"::text))"
-    };
-}
-
-pub(crate) use {inventory_row, purchase_order_item_row, purchase_order_row};
+pub(crate) use {purchase_order_item_row, purchase_order_row};

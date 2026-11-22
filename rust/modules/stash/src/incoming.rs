@@ -14,9 +14,17 @@
 //! one with their dates (the planner's expected receipts). An empty
 //! `variant_id` counts as no variant.
 
+use sea_orm::sea_query::{Alias, Expr, Func, NullOrdering, Order};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    Select,
+};
 use serde_json::{Value, json};
-use sqlx::PgExecutor;
-use time::{Date, Month};
+use time::{Date, Month, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{purchase_order_items as items, purchase_orders as orders};
+
+use crate::args::{iso, millis};
 
 /// The purchase order statuses whose lines are on their way.
 pub(crate) const INCOMING_STATUSES: [&str; 3] = ["approved", "ordered", "partial"];
@@ -86,50 +94,81 @@ pub(crate) struct IncomingLine {
     pub(crate) expected_date: Option<Date>,
 }
 
-/// The open-line conditions, at `$1`–`$5`: statuses, product ids (or
-/// null), the variant mode (`any` | `none` | `only`), the variant, the
-/// warehouse (or null).
-macro_rules! open_lines {
-    () => {
-        "from purchase_order_items i join purchase_orders o on o.id = i.purchase_order_id \
-         where o.deleted_at is null and o.status = any($1) \
-         and coalesce(i.product_id, '') <> '' and coalesce(o.warehouse_id, '') <> '' \
-         and i.quantity_ordered - coalesce(i.quantity_received, 0) - coalesce(i.quantity_rejected, 0) > 0 \
-         and ($2::text[] is null or i.product_id = any($2)) \
-         and ($3::text = 'any' \
-              or ($3::text = 'none' and coalesce(i.variant_id, '') = '') \
-              or ($3::text = 'only' and i.variant_id = $4)) \
-         and ($5::text is null or o.warehouse_id = $5)"
-    };
+/// `coalesce(x, '')` of a column that may be null.
+fn or_empty(column: impl ColumnTrait) -> Expr {
+    Func::coalesce([column.into_expr(), Expr::val("")]).into()
 }
 
-const INCOMING: &str = concat!(
-    "select i.product_id, nullif(i.variant_id, ''), o.warehouse_id, ",
-    "sum(i.quantity_ordered - coalesce(i.quantity_received, 0) - coalesce(i.quantity_rejected, 0))::bigint, ",
-    "to_jsonb(min(o.expected_date)) #>> '{}' ",
-    open_lines!(),
-    " group by i.product_id, nullif(i.variant_id, ''), o.warehouse_id",
-    " order by i.product_id, nullif(i.variant_id, '') nulls first, o.warehouse_id"
-);
+/// `coalesce(x, '') <> ''`.
+fn set(column: impl ColumnTrait) -> Expr {
+    use sea_orm::ExprTrait as _;
+    or_empty(column).ne("")
+}
 
-const LINES: &str = concat!(
-    "select o.id, i.id, i.product_id, nullif(i.variant_id, ''), o.warehouse_id, ",
-    "(i.quantity_ordered - coalesce(i.quantity_received, 0) - coalesce(i.quantity_rejected, 0))::bigint, ",
-    "to_char(o.expected_date, 'YYYY-MM-DD') ",
-    open_lines!(),
-    " order by i.product_id, nullif(i.variant_id, '') nulls first, o.warehouse_id, ",
-    "o.expected_date nulls last, o.id, i.id"
-);
+/// `nullif(i.variant_id, '')`, selected as `variant_key`: grouped and
+/// ordered by that name.
+fn variant_key() -> Expr {
+    Func::cust("nullif")
+        .arg(items::Column::VariantId.into_expr())
+        .arg("")
+        .into()
+}
 
-fn variant_mode(filter: &VariantFilter) -> (&'static str, Option<&str>) {
-    match filter {
-        VariantFilter::Any => ("any", None),
-        VariantFilter::None => ("none", None),
-        VariantFilter::Only(id) => ("only", Some(id.as_str())),
+/// The name [`variant_key`] is selected as.
+const VARIANT_KEY: &str = "variant_key";
+
+/// `i.quantity_ordered - coalesce(i.quantity_received, 0) -
+/// coalesce(i.quantity_rejected, 0)`: what is still to come.
+fn still_to_come() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let or_zero = |column: items::Column| Func::coalesce([column.into_expr(), Expr::val(0)]);
+    items::Column::QuantityOrdered
+        .into_expr()
+        .sub(or_zero(items::Column::QuantityReceived))
+        .sub(or_zero(items::Column::QuantityRejected))
+}
+
+/// The open lines `query` selects: purchase order lines joined to their
+/// live purchase order in an incoming status, with a product, a
+/// destination warehouse and units still to come.
+fn open_lines(query: &IncomingQuery) -> Select<items::Entity> {
+    use sea_orm::ExprTrait as _;
+    let mut condition = Condition::all()
+        .add(orders::Column::DeletedAt.is_null())
+        .add(orders::Column::Status.is_in(INCOMING_STATUSES))
+        .add(set(items::Column::ProductId))
+        .add(set(orders::Column::WarehouseId))
+        .add(still_to_come().gt(0));
+    if let Some(products) = &query.product_ids {
+        // `= any('{}')`: an empty list matches nothing.
+        condition = condition.add(items::Column::ProductId.is_in(products.iter().map(String::as_str)));
     }
+    match &query.variant {
+        VariantFilter::Any => {}
+        VariantFilter::None => {
+            use sea_orm::ExprTrait as _;
+            condition = condition.add(or_empty(items::Column::VariantId).eq(""));
+        }
+        VariantFilter::Only(variant) => {
+            condition = condition.add(items::Column::VariantId.eq(variant.as_str()));
+        }
+    }
+    if let Some(warehouse) = &query.warehouse_id {
+        condition = condition.add(orders::Column::WarehouseId.eq(warehouse.as_str()));
+    }
+    items::Entity::find()
+        .select_only()
+        .join(
+            JoinType::InnerJoin,
+            items::Entity::belongs_to(orders::Entity)
+                .from(items::Column::PurchaseOrderId)
+                .to(orders::Column::Id)
+                .into(),
+        )
+        .filter(condition)
 }
 
-type IncomingRow = (String, Option<String>, String, i64, Option<String>);
+type IncomingRow = (String, Option<String>, String, i64, Option<PrimitiveDateTime>);
 type LineRow = (
     String,
     String,
@@ -137,25 +176,17 @@ type LineRow = (
     Option<String>,
     String,
     i64,
-    Option<String>,
+    Option<PrimitiveDateTime>,
 );
 
 /// Incoming stock per item (product, variant, destination warehouse) for
 /// the items `query` selects, ordered by product, variant (none first) and
 /// warehouse. Items with nothing to come are not listed.
-pub(crate) async fn incoming<'e>(
-    db: impl PgExecutor<'e>,
+pub(crate) async fn incoming(
+    db: &PgPool,
     query: &IncomingQuery,
-) -> Result<Vec<Incoming>, sqlx::Error> {
-    let (mode, variant) = variant_mode(&query.variant);
-    let rows: Vec<IncomingRow> = sqlx::query_as(INCOMING)
-        .bind(&INCOMING_STATUSES[..])
-        .bind(query.product_ids.as_deref())
-        .bind(mode)
-        .bind(variant)
-        .bind(query.warehouse_id.as_deref())
-        .fetch_all(db)
-        .await?;
+) -> Result<Vec<Incoming>, DbErr> {
+    let rows: Vec<IncomingRow> = per_item(query).into_tuple().all(&orm(db)).await?;
     Ok(rows
         .into_iter()
         .map(
@@ -164,27 +195,63 @@ pub(crate) async fn incoming<'e>(
                 variant_id,
                 warehouse_id,
                 quantity,
-                next_expected_date: next
-                    .map(|text| weldsuite_db::js_timestamp(&text).unwrap_or(text)),
+                next_expected_date: next.map(|at| iso(millis(at))),
             },
         )
         .collect())
 }
 
+/// The per-item sums: grouped by product, variant and warehouse, and
+/// ordered so (variant none first). The variant is grouped and ordered by
+/// its name in the select list, which stays one expression with its bound
+/// `''`.
+fn per_item(query: &IncomingQuery) -> Select<items::Entity> {
+    use sea_orm::ExprTrait as _;
+    open_lines(query)
+        .column(items::Column::ProductId)
+        .expr_as(variant_key(), VARIANT_KEY)
+        .column(orders::Column::WarehouseId)
+        .expr(Func::sum(still_to_come()).cast_as("bigint"))
+        .expr(Func::min(orders::Column::ExpectedDate.into_expr()))
+        .group_by(items::Column::ProductId)
+        .group_by(Expr::col(Alias::new(VARIANT_KEY)))
+        .group_by(orders::Column::WarehouseId)
+        .order_by_asc(items::Column::ProductId)
+        .order_by_with_nulls(
+            Expr::col(Alias::new(VARIANT_KEY)),
+            Order::Asc,
+            NullOrdering::First,
+        )
+        .order_by_asc(orders::Column::WarehouseId)
+}
+
 /// The open purchase order lines `query` selects, one by one, ordered by
 /// item, then expected date (none last).
-pub(crate) async fn incoming_lines<'e>(
-    db: impl PgExecutor<'e>,
+pub(crate) async fn incoming_lines(
+    db: &PgPool,
     query: &IncomingQuery,
-) -> Result<Vec<IncomingLine>, sqlx::Error> {
-    let (mode, variant) = variant_mode(&query.variant);
-    let rows: Vec<LineRow> = sqlx::query_as(LINES)
-        .bind(&INCOMING_STATUSES[..])
-        .bind(query.product_ids.as_deref())
-        .bind(mode)
-        .bind(variant)
-        .bind(query.warehouse_id.as_deref())
-        .fetch_all(db)
+) -> Result<Vec<IncomingLine>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let rows: Vec<LineRow> = open_lines(query)
+        .column(orders::Column::Id)
+        .column(items::Column::Id)
+        .column(items::Column::ProductId)
+        .expr_as(variant_key(), VARIANT_KEY)
+        .column(orders::Column::WarehouseId)
+        .expr(still_to_come().cast_as("bigint"))
+        .column(orders::Column::ExpectedDate)
+        .order_by_asc(items::Column::ProductId)
+        .order_by_with_nulls(
+            Expr::col(Alias::new(VARIANT_KEY)),
+            Order::Asc,
+            NullOrdering::First,
+        )
+        .order_by_asc(orders::Column::WarehouseId)
+        .order_by_with_nulls(orders::Column::ExpectedDate, Order::Asc, NullOrdering::Last)
+        .order_by_asc(orders::Column::Id)
+        .order_by_asc(items::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
         .await?;
     Ok(rows
         .into_iter()
@@ -197,7 +264,7 @@ pub(crate) async fn incoming_lines<'e>(
                     variant_id,
                     warehouse_id,
                     quantity,
-                    expected_date: date.as_deref().and_then(parse_date),
+                    expected_date: date.map(PrimitiveDateTime::date),
                 }
             },
         )
@@ -249,13 +316,49 @@ mod tests {
         );
     }
 
+    fn sql(query: &IncomingQuery) -> String {
+        use sea_orm::QueryTrait as _;
+        per_item(query).build(sea_orm::DbBackend::Postgres).sql
+    }
+
     #[test]
-    fn the_variant_filter_binds_a_mode() {
-        assert_eq!(variant_mode(&VariantFilter::Any), ("any", None));
-        assert_eq!(variant_mode(&VariantFilter::None), ("none", None));
-        assert_eq!(
-            variant_mode(&VariantFilter::Only("var_1".to_owned())),
-            ("only", Some("var_1"))
+    fn the_variant_filter_picks_the_lines() {
+        let any = sql(&IncomingQuery::default());
+        assert!(!any.contains("variant_id\" ="), "{any}");
+        let none = sql(&IncomingQuery {
+            variant: VariantFilter::None,
+            ..IncomingQuery::default()
+        });
+        assert!(
+            none.contains(r#"COALESCE("purchase_order_items"."variant_id", $"#),
+            "{none}"
         );
+        let only = sql(&IncomingQuery {
+            variant: VariantFilter::Only("var_1".to_owned()),
+            ..IncomingQuery::default()
+        });
+        assert!(
+            only.contains(r#""purchase_order_items"."variant_id" = $"#),
+            "{only}"
+        );
+    }
+
+    #[test]
+    fn the_sums_group_and_order_by_the_selected_variant() {
+        let sums = sql(&IncomingQuery::default());
+        assert!(
+            sums.contains(r#"GROUP BY "purchase_order_items"."product_id", "variant_key", "purchase_orders"."warehouse_id""#),
+            "{sums}"
+        );
+        assert!(sums.contains(r#""variant_key" ASC NULLS FIRST"#), "{sums}");
+    }
+
+    #[test]
+    fn an_empty_product_list_matches_nothing() {
+        let none = sql(&IncomingQuery {
+            product_ids: Some(Vec::new()),
+            ..IncomingQuery::default()
+        });
+        assert!(none.contains("1 = 2"), "{none}");
     }
 }

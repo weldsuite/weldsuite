@@ -4,16 +4,18 @@
 //! `1`/`I`). `po_number` has no unique index, so uniqueness is checked
 //! against every purchase order of the workspace, deleted ones included.
 //!
-//! Twelve spare candidates go to the database in one query and the first
-//! free ones win, so a collision costs nothing; 32⁴ (about a million)
+//! Twelve spare candidates go to the database in one query (which of them
+//! are taken) and the first free ones win, so a collision costs nothing;
+//! 32⁴ (about a million)
 //! numbers a day leave the spares all but unused. Should all of them be
 //! taken, the number gets an eight-character suffix instead.
 
 use std::collections::HashSet;
 
-use sqlx::PgExecutor;
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use time::{Date, OffsetDateTime};
 use weldsuite_kit::random_string;
+use weldsuite_schema::tenant::purchase_orders;
 
 const ALPHABET: &str = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
@@ -31,38 +33,47 @@ pub(crate) fn po_number_prefix(date: Date) -> String {
 }
 
 /// One new purchase order number, not used by any purchase order of the
-/// workspace. Runs on a pool, a connection or inside a transaction.
+/// workspace. Runs on the pool (`orm`) or inside a transaction (`OrmConn`).
 #[allow(dead_code)] // the replenishment routes number several orders at once
-pub(crate) async fn generate_po_number<'e>(db: impl PgExecutor<'e>) -> Result<String, sqlx::Error> {
+pub(crate) async fn generate_po_number<C: ConnectionTrait>(db: &C) -> Result<String, DbErr> {
     let mut numbers = generate_po_numbers(db, 1).await?;
     Ok(numbers.pop().unwrap_or_else(|| fallback(&today_prefix())))
 }
 
 /// `count` distinct new purchase order numbers, for a request that creates
 /// several purchase orders before inserting any (one query).
-pub(crate) async fn generate_po_numbers<'e>(
-    db: impl PgExecutor<'e>,
+pub(crate) async fn generate_po_numbers<C: ConnectionTrait>(
+    db: &C,
     count: usize,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if count == 0 {
         return Ok(Vec::new());
     }
     let prefix = today_prefix();
     let candidates = candidates(&prefix, count + SPARES);
-    let free: Vec<String> = sqlx::query_scalar(
-        "select u.c from unnest($1::text[]) with ordinality as u(c, n) \
-         where not exists (select 1 from purchase_orders p where p.po_number = u.c) \
-         order by u.n limit $2",
-    )
-    .bind(&candidates)
-    .bind(i64::try_from(count).unwrap_or(i64::MAX))
-    .fetch_all(db)
-    .await?;
-    let mut numbers = free;
+    let taken: HashSet<String> = purchase_orders::Entity::find()
+        .select_only()
+        .column(purchase_orders::Column::PoNumber)
+        .filter(purchase_orders::Column::PoNumber.is_in(candidates.iter().map(String::as_str)))
+        .into_tuple::<String>()
+        .all(db)
+        .await?
+        .into_iter()
+        .collect();
+    let mut numbers = free(candidates, &taken, count);
     while numbers.len() < count {
         numbers.push(fallback(&prefix));
     }
     Ok(numbers)
+}
+
+/// The first `count` candidates no purchase order uses, in candidate order.
+fn free(candidates: Vec<String>, taken: &HashSet<String>, count: usize) -> Vec<String> {
+    candidates
+        .into_iter()
+        .filter(|candidate| !taken.contains(candidate))
+        .take(count)
+        .collect()
 }
 
 fn today_prefix() -> String {
@@ -110,5 +121,13 @@ mod tests {
             assert!(suffix.chars().all(|c| ALPHABET.contains(c)), "{number}");
         }
         assert_eq!(fallback("PO-20261118-").len(), "PO-20261118-".len() + 8);
+    }
+
+    #[test]
+    fn the_first_free_candidates_win() {
+        let candidates: Vec<String> = ["a", "b", "c", "d"].map(str::to_owned).into();
+        let taken: HashSet<String> = ["a", "c"].map(str::to_owned).into();
+        assert_eq!(free(candidates.clone(), &taken, 1), vec!["b".to_owned()]);
+        assert_eq!(free(candidates, &taken, 3), vec!["b".to_owned(), "d".to_owned()]);
     }
 }

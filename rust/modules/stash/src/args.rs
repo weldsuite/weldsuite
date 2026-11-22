@@ -1,55 +1,18 @@
 //! Statement parameters and the cursor-paged lists every route file shares.
 //!
 //! A list pushes its conditions in the TypeScript route's order: each one
-//! is a slot that is on or off, and its count drops the last one that is
-//! on when a `?cursor=` was given ([`sliced`]). The conditions are typed
-//! ones on the entity's columns; [`Arg`] and [`bind_scalar`] are what the
-//! route files still written in SQL bind their slots with.
+//! is a slot that is on or off (a typed condition on the entity's columns),
+//! and its count drops the last one that is on when a `?cursor=` was given
+//! ([`sliced`]).
 
 use axum::response::{IntoResponse, Response};
 use sea_orm::sea_query::SelectStatement;
 use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use sqlx::Postgres;
-use sqlx::postgres::PgArguments;
-use sqlx::query::QueryScalar;
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm};
 
 use crate::table::Table;
-
-/// One statement parameter.
-#[derive(Debug, Clone)]
-pub(crate) enum Arg {
-    Bool(bool),
-    Text(Option<String>),
-    Int(Option<i64>),
-}
-
-impl Arg {
-    pub(crate) fn text(value: impl Into<String>) -> Self {
-        Self::Text(Some(value.into()))
-    }
-
-    pub(crate) fn opt(value: Option<&str>) -> Self {
-        Self::Text(value.map(str::to_owned))
-    }
-}
-
-/// Bind `args` in order onto a statement answering one column.
-pub(crate) fn bind_scalar<O>(
-    mut query: QueryScalar<'_, Postgres, O, PgArguments>,
-    args: Vec<Arg>,
-) -> QueryScalar<'_, Postgres, O, PgArguments> {
-    for arg in args {
-        query = match arg {
-            Arg::Bool(flag) => query.bind(flag),
-            Arg::Text(text) => query.bind(text),
-            Arg::Int(number) => query.bind(number),
-        };
-    }
-    query
-}
 
 /// The conditions of a count: with a `?cursor=`, TypeScript counts with
 /// `conditions.slice(0, -1)`, which drops the cursor condition, or the last
@@ -172,36 +135,6 @@ pub(crate) async fn table_count(
 ) -> Result<i64, DbErr> {
     table.entity.count(&orm(db), select).await
 }
-
-/// The keyset operands of a cursor row read by its `createdAt`: the time as
-/// JavaScript read it (milliseconds) and the id. `None` when the row is gone
-/// or has no `createdAt` (`if (cur?.createdAt)`). For the route files still
-/// written in SQL.
-pub(crate) async fn created_cursor(
-    db: &PgPool,
-    sql: &'static str,
-    cursor: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(Option<String>, String)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
-    Ok(row.and_then(|(created_at, id)| {
-        created_at
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
-    }))
-}
-
-/// `select createdAt, id from <table> where id = $1 limit 1`.
-macro_rules! cursor_sql {
-    ($table:literal) => {
-        concat!(
-            "select to_jsonb(t.created_at)#>>'{}', t.id from \"",
-            $table,
-            "\" t where t.id = $1 limit 1"
-        )
-    };
-}
-pub(crate) use cursor_sql;
 
 /// `hasMore = rows.length > limit`, `data = hasMore ? rows.slice(0, limit) :
 /// rows`, `nextCursor = hasMore && data.length > 0 ? last.id : null`.

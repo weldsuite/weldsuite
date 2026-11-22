@@ -31,18 +31,16 @@ use sea_orm::ActiveValue::Set;
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::{Expr, Func, LockType};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType, Order,
-    QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationDef,
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, RelationDef,
 };
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime, Time};
 use weldsuite_catalogs::entity_events::{EventName, PURCHASE_ORDER_CREATED};
 use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_CREATE;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, generate_id};
 use weldsuite_db::{OrmConn, orm, utc_timestamp};
-use weldsuite_events::iso_timestamp;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{
     product_suppliers, product_variants, products, purchase_order_items, purchase_orders,
@@ -121,22 +119,24 @@ struct PlanRow {
     cost: Option<f64>,
 }
 
-type PlanTuple = (
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    i32,
-    String,
-    Option<i32>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<f64>,
-);
+/// A plan's columns and joined names as [`lock_plans`] reads them.
+#[derive(Debug, FromQueryResult)]
+struct PlanColumns {
+    id: String,
+    product_id: String,
+    variant_id: Option<String>,
+    warehouse_id: String,
+    warehouse_name: Option<String>,
+    suggested_qty: i32,
+    review_status: String,
+    lead_time_days: Option<i32>,
+    product_supplier_id: Option<String>,
+    product_name: Option<String>,
+    product_sku: Option<String>,
+    variant_name: Option<String>,
+    variant_sku: Option<String>,
+    cost: Option<f64>,
+}
 
 /// A live product supplier's terms and its live supplier.
 #[derive(Debug, Clone)]
@@ -298,20 +298,17 @@ async fn create_orders(caller: &Caller, body: Body) -> Result<Outcome, Refusal> 
     let user_id = caller.user_id.clone();
     let quantities = body.quantities;
     let at = OffsetDateTime::now_utc();
-    let today = at.date();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            let (plans, rows) = {
-                let orm = OrmConn::new(&mut *conn);
-                let plans = lock_plans(&orm, &ids).await?;
-                let products: Vec<String> = plans
-                    .values()
-                    .map(|plan| plan.product_id.clone())
-                    .collect::<HashSet<_>>()
-                    .into_iter()
-                    .collect();
-                (plans, terms(&orm, &products).await?)
-            };
+            let conn = OrmConn::new(conn);
+            let plans = lock_plans(&conn, &ids).await?;
+            let products: Vec<String> = plans
+                .values()
+                .map(|plan| plan.product_id.clone())
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            let rows = terms(&conn, &products).await?;
             let mut links = Vec::with_capacity(rows.len());
             let mut terms: HashMap<String, Terms> = HashMap::new();
             for row in rows {
@@ -398,11 +395,11 @@ async fn create_orders(caller: &Caller, body: Body) -> Result<Outcome, Refusal> 
                 }
             }
 
-            let numbers = generate_po_numbers(&mut *conn, orders.len()).await?;
+            let numbers = generate_po_numbers(&conn, orders.len()).await?;
             let mut created = Vec::with_capacity(orders.len());
             let mut events = Vec::with_capacity(orders.len());
             for (order, number) in orders.iter().zip(numbers) {
-                let row = write_order(&mut *conn, order, &number, &user_id, at).await?;
+                let row = write_order(&conn, order, &number, &user_id, at).await?;
                 let id = row["id"].as_str().unwrap_or_default().to_owned();
                 created.push(json!({
                     "id": id,
@@ -491,57 +488,40 @@ async fn lock_plans<C: ConnectionTrait>(
             ),
         )
         .filter(plans::Column::Id.is_in(ids.iter().map(String::as_str)))
-        .order_by(plans::Column::Id, Order::Asc);
+        .order_by(plans::Column::Id, sea_orm::Order::Asc);
     QueryTrait::query(&mut query).lock_with_tables(LockType::Update, [plans::Entity]);
-    let rows: Vec<PlanTuple> = query.into_tuple().all(db).await?;
+    let rows = query.into_model::<PlanColumns>().all(db).await?;
     Ok(rows
         .into_iter()
-        .map(
-            |(
-                id,
-                product_id,
-                variant_id,
-                warehouse_id,
-                warehouse_name,
-                suggested_qty,
-                review_status,
-                lead_time_days,
-                product_supplier_id,
-                product_name,
-                product_sku,
-                variant_name,
-                variant_sku,
-                cost,
-            )| {
-                (
-                    id.clone(),
-                    PlanRow {
-                        id,
-                        product_id,
-                        // `nullif(t.variant_id, '')`.
-                        variant_id: variant_id.filter(|variant| !variant.is_empty()),
-                        warehouse_id,
-                        warehouse_name,
-                        suggested_qty: i64::from(suggested_qty),
-                        review_status,
-                        lead_time_days: lead_time_days.map(i64::from),
-                        product_supplier_id,
-                        product_name,
-                        product_sku,
-                        variant_name,
-                        variant_sku,
-                        cost,
-                    },
-                )
-            },
-        )
+        .map(|row| {
+            (
+                row.id.clone(),
+                PlanRow {
+                    id: row.id,
+                    product_id: row.product_id,
+                    // `nullif(t.variant_id, '')`.
+                    variant_id: row.variant_id.filter(|variant| !variant.is_empty()),
+                    warehouse_id: row.warehouse_id,
+                    warehouse_name: row.warehouse_name,
+                    suggested_qty: i64::from(row.suggested_qty),
+                    review_status: row.review_status,
+                    lead_time_days: row.lead_time_days.map(i64::from),
+                    product_supplier_id: row.product_supplier_id,
+                    product_name: row.product_name,
+                    product_sku: row.product_sku,
+                    variant_name: row.variant_name,
+                    variant_sku: row.variant_sku,
+                    cost: row.cost,
+                },
+            )
+        })
         .collect())
 }
 
 /// Insert `order` as a draft with its lines, total it, and mark its plans
 /// ordered. The purchase order row.
-async fn write_order(
-    conn: &mut PgConnection,
+async fn write_order<C: ConnectionTrait>(
+    db: &C,
     order: &Order,
     number: &str,
     user_id: &str,
@@ -558,28 +538,25 @@ async fn write_order(
     // `<today + lead>T00:00:00.000`.
     let expected = PrimitiveDateTime::new(at.date() + Duration::days(lead), Time::MIDNIGHT);
     let currency = order.lines.iter().find_map(|line| line.currency.clone());
-    {
-        let orm = OrmConn::new(&mut *conn);
-        purchase_orders::Entity::insert(purchase_orders::ActiveModel {
-            id: Set(id.clone()),
-            created_at: Set(stamp),
-            updated_at: Set(stamp),
-            po_number: Set(number.to_owned()),
-            supplier_id: Set(Some(order.supplier_id.clone())),
-            supplier_name: Set(order.supplier_name.clone()),
-            warehouse_id: Set(Some(order.warehouse_id.clone())),
-            warehouse_name: Set(order.warehouse_name.clone()),
-            status: Set("draft".to_owned()),
-            expected_date: Set(Some(expected)),
-            currency: Set(Some(currency.unwrap_or_else(|| "USD".to_owned()))),
-            created_by: Set(Some(user_id.to_owned())),
-            ..Default::default()
-        })
-        .exec_without_returning(&orm)
-        .await?;
-        insert_lines(&orm, &id, stamp, &order.lines).await?;
-    }
-    let row = recompute_po_totals(&mut *conn, &id, &iso_timestamp(at))
+    purchase_orders::Entity::insert(purchase_orders::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        po_number: Set(number.to_owned()),
+        supplier_id: Set(Some(order.supplier_id.clone())),
+        supplier_name: Set(order.supplier_name.clone()),
+        warehouse_id: Set(Some(order.warehouse_id.clone())),
+        warehouse_name: Set(order.warehouse_name.clone()),
+        status: Set("draft".to_owned()),
+        expected_date: Set(Some(expected)),
+        currency: Set(Some(currency.unwrap_or_else(|| "USD".to_owned()))),
+        created_by: Set(Some(user_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
+    .await?;
+    insert_lines(db, &id, stamp, &order.lines).await?;
+    let row = recompute_po_totals(db, &id, stamp)
         .await?
         .ok_or_else(|| Refusal::from(ApiError::internal()))?;
     let plan_ids: Vec<String> = order
@@ -598,7 +575,7 @@ async fn write_order(
         .col_expr(plans::Column::DismissedQty, Expr::val(None::<i32>))
         .col_expr(plans::Column::UpdatedAt, Expr::val(stamp))
         .filter(plans::Column::Id.is_in(plan_ids))
-        .exec(&OrmConn::new(&mut *conn))
+        .exec(db)
         .await?;
     Ok(row)
 }

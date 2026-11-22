@@ -935,7 +935,7 @@ pub(crate) fn feature_error(error: PostError, channel_id: &str) -> ChatError {
         PostError::Feature(404, _) => ChatError::not_found("Channel", Some(channel_id)),
         PostError::Feature(403, message) => ChatError::forbidden(message),
         PostError::Feature(_, message) => ChatError::bad_request(message),
-        PostError::Database(error) => ChatError::Database(error),
+        PostError::Database(error) => ChatError::from(error),
     }
 }
 
