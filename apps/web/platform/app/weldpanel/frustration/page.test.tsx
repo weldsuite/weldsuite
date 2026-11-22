@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   perms: new Set<string>(['panel_recordings:read']),
   specs: [] as { spec: PanelTrendsSpec; options: { enabled?: boolean } | undefined }[],
   overview: { error: null as unknown, isLoading: false, empty: false },
+  push: vi.fn(),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -24,16 +25,15 @@ vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/router', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: state.push, replace: vi.fn() }),
   Link: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>
       {children}
     </a>
   ),
 }));
-vi.mock('../components/charts/time-series-chart', () => ({
-  seriesColor: () => 'red',
-  TimeSeriesChart: ({ data }: { data: { label: string }[] }) => <div data-testid="chart">{data.length} points</div>,
+vi.mock('@weldsuite/ui/components/comparison-chart', () => ({
+  ComparisonChart: ({ points }: { points: unknown[] }) => <div data-testid="chart">{points.length} points</div>,
 }));
 
 const result = (series: { seriesIndex: number; breakdownValue: string | null; total: number }[]) => ({
@@ -73,6 +73,8 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
 }));
 
 const tf = en.weldpanel.observe.frustration;
+/** A signal's figure: a button named by its label, value and change. */
+const signal = (label: string) => screen.getByRole('button', { name: new RegExp(`^${label}`) });
 const lastWith = (predicate: (spec: PanelTrendsSpec) => boolean) => [...state.specs].reverse().find((s) => predicate(s.spec))!;
 
 describe('Frustration', () => {
@@ -93,16 +95,26 @@ describe('Frustration', () => {
 
   it('shows a count per signal and the trend', () => {
     render(<FrustrationPage />);
-    expect(screen.getByRole('button', { name: tf.types.rage }).textContent).toContain('30');
-    expect(screen.getByRole('button', { name: tf.types.errors }).textContent).toContain('7');
+    expect(signal(tf.types.rage).textContent).toContain('30');
+    expect(signal(tf.types.errors).textContent).toContain('7');
     expect(screen.getByTestId('chart').textContent).toBe('2 points');
   });
 
-  it('lists the pages with the most rage clicks, biggest first, each linking to its recordings', () => {
+  it('compares the overview with the period before', () => {
     render(<FrustrationPage />);
-    const rows = within(screen.getAllByRole('table')[0]!).getAllByRole('row').slice(1);
-    expect(rows.map((r) => r.textContent)).toEqual(['/checkout20Watch recordings', '/pricing9Watch recordings']);
-    const href = screen.getByRole('link', { name: tf.watchPage.replace('{value}', '/checkout') }).getAttribute('href')!;
+    expect(lastWith((s) => !s.breakdown).spec.compare).toBe(true);
+    expect(signal(tf.types.rage).textContent).toContain(tf.noneBefore);
+  });
+
+  it('lists the pages with the most rage clicks, biggest first, each opening its recordings', async () => {
+    render(<FrustrationPage />);
+    const pages = within(screen.getByRole('region', { name: tf.topPages }));
+    // Each row reads label, share (shown on hover) and count; the share is left out here.
+    expect(pages.getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, '').replace(/\d+%/, ''))).toEqual(
+      expect.arrayContaining([expect.stringContaining('/checkout20'), expect.stringContaining('/pricing9')]),
+    );
+    await userEvent.click(pages.getByRole('button', { name: /\/checkout/ }));
+    const href = state.push.mock.calls.at(-1)![0] as string;
     expect(href).toContain('/weldpanel/recordings?');
     expect(href).toContain('frustration=%5B%22rage%22%5D');
     expect(decodeURIComponent(href)).toContain('pages=["/checkout"]');
@@ -116,7 +128,7 @@ describe('Frustration', () => {
 
   it('switches to another signal, asks again for its pages, and drops the elements it does not have', async () => {
     render(<FrustrationPage />);
-    await userEvent.click(screen.getByRole('button', { name: tf.types.quickback }));
+    await userEvent.click(signal(tf.types.quickback));
     expect(lastWith((s) => s.breakdown !== undefined).spec.series[0]!.event).toBe('$quickback');
     expect(lastWith((s) => s.breakdown?.source === 'column' && s.breakdown.field === 'el_selector').options).toMatchObject({ enabled: false });
     expect(screen.getByText(tf.elementsHint)).toBeTruthy();
@@ -124,7 +136,7 @@ describe('Frustration', () => {
 
   it('links the chosen signal to its recordings with the period', async () => {
     render(<FrustrationPage />);
-    await userEvent.click(screen.getByRole('button', { name: tf.types.errors }));
+    await userEvent.click(signal(tf.types.errors));
     const href = decodeURIComponent(screen.getByRole('link', { name: tf.watch }).getAttribute('href')!);
     expect(href).toContain('errors=true');
     expect(href).toContain('sort=errors_desc');
@@ -138,11 +150,11 @@ describe('Frustration', () => {
     expect(screen.getByText(tf.noRecordingsPermission)).toBeTruthy();
   });
 
-  it('shows an empty trend when nothing frustrates anyone', () => {
+  it('draws zeros when nothing frustrates anyone', () => {
     state.overview.empty = true;
     render(<FrustrationPage />);
-    expect(screen.getByText(tf.trendEmpty)).toBeTruthy();
-    expect(screen.queryByTestId('chart')).toBeNull();
+    expect(signal(tf.types.rage).textContent).toContain('0');
+    expect(screen.getByTestId('chart').textContent).toBe('2 points');
   });
 
   it('shows a skeleton while loading', () => {

@@ -84,7 +84,7 @@ function FunnelTrendView({ result }: Readonly<{ result: PanelFunnelResult }>) {
   const tx = t.weldpanel.explore.funnels.trend;
   const trend = result.trend ?? [];
   if (trend.length === 0) return <EmptyText>{tx.none}</EmptyText>;
-  const data = trend.map((p) => ({ label: formatBucket(p.bucket, result.interval ?? 'day', language), conversion: p.conversion }));
+  const data = trend.map((p) => ({ label: formatBucket(p.bucket, result.interval ?? 'day', language), bucket: p.bucket, conversion: p.conversion }));
   return (
     <div className="grid gap-3">
       <ValueLineChart

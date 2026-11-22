@@ -1,2 +1,4 @@
 results/
 .env
+# WeldID sign-ins for the EU target (refresh tokens): pnpm load-test login --target eu
+.weldid/

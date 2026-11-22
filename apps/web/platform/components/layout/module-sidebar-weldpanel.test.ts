@@ -53,7 +53,7 @@ describe('WeldPanel module registration', () => {
   });
 
   it('groups them', () => {
-    expect(config.getMenuItems(en).map((group) => group.group)).toEqual(['General', 'Analyse', 'Behaviour', 'Saved', 'Setup']);
+    expect(config.getMenuItems(en).map((group) => group.group)).toEqual(['Analyse', 'Behaviour', 'Saved', 'Setup']);
   });
 
   it('translates the section names', () => {
