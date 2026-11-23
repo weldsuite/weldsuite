@@ -64,7 +64,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/external-api",
     "modules/host",
     "modules/integrations",
-    "modules/mail",
     "modules/mcp",
     "modules/meet",
     "modules/merge",

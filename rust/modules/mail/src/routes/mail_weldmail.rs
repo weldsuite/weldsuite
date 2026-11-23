@@ -35,7 +35,6 @@ use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::permission_keys::{ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ};
 use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
-use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -403,7 +402,7 @@ async fn reserve(
         if let Err(error) = inserted {
             return Err(unique_or(error));
         }
-        seed_system_labels(&caller.db, &id, &iso_timestamp(now)).await?;
+        seed_system_labels(&caller.db, &id, at).await?;
         let registry = registry::Entity::insert(registry::ActiveModel {
             id: Set(generate_id("reg")),
             email: Set(email.clone()),

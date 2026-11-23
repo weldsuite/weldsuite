@@ -86,8 +86,7 @@ async fn list_drafts(
 ) -> Result<Response, DbErr> {
     let limit = limit.min(100);
     let db = orm(&caller.db);
-    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty())
-    {
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty()) {
         Some(cursor) => {
             mail_drafts::Entity::find_by_id(cursor.to_owned())
                 .select_only()

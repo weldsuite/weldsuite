@@ -205,7 +205,10 @@ async fn threads(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 /// `canAccessMessageAccounts(db, access, ids)`: every mailbox the ids sit in
 /// (deleted messages included) is open to the caller.
-pub(crate) async fn can_access_message_accounts(caller: &Caller, ids: &[String]) -> MailResult<bool> {
+pub(crate) async fn can_access_message_accounts(
+    caller: &Caller,
+    ids: &[String],
+) -> MailResult<bool> {
     if ids.is_empty() {
         return Ok(true);
     }

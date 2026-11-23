@@ -235,12 +235,7 @@ async fn cursor_position(
         .into_tuple()
         .one(&orm(&caller.db))
         .await?;
-    Ok(row.map(|(at, id)| {
-        (
-            at.replace_millisecond(at.millisecond()).unwrap_or(at),
-            id,
-        )
-    }))
+    Ok(row.map(|(at, id)| (at.replace_millisecond(at.millisecond()).unwrap_or(at), id)))
 }
 
 /// `GET /:id`.
@@ -493,9 +488,13 @@ async fn update(
 }
 
 /// `updateTemplate`'s write: `updated_at`, and each field the body sent.
-async fn update_template(caller: &Caller, id: &str, data: &Map<String, Value>) -> Result<(), DbErr> {
-    let mut update = mail_templates::Entity::update_many()
-        .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+async fn update_template(
+    caller: &Caller,
+    id: &str,
+    data: &Map<String, Value>,
+) -> Result<(), DbErr> {
+    let mut update =
+        mail_templates::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
     for (key, column) in [
         ("name", Column::Name),
         ("subject", Column::Subject),
@@ -621,12 +620,11 @@ async fn copy_template(caller: &Caller, id: &str, new_id: &str) -> Result<(), Db
         .to_owned();
     let insert = Query::insert()
         .into_table(mail_templates::Entity)
-        .columns(
-            [Column::Id, Column::Name]
-                .into_iter()
-                .chain(copied)
-                .chain([Column::IsDefault, Column::CreatedAt, Column::UpdatedAt]),
-        )
+        .columns([Column::Id, Column::Name].into_iter().chain(copied).chain([
+            Column::IsDefault,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+        ]))
         .select_from(source)
         .map_err(|error| DbErr::Custom(error.to_string()))?
         .to_owned();

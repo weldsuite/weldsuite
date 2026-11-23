@@ -152,8 +152,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = limit.unwrap_or(50).min(100);
-        let (rows, total) =
-            list_page(&caller, kind.as_deref(), limit, cursor.as_deref()).await?;
+        let (rows, total) = list_page(&caller, kind.as_deref(), limit, cursor.as_deref()).await?;
         let (data, has_more, next) = page(rows, limit);
         Ok(list_response(data, total, has_more, next))
     }
@@ -390,7 +389,9 @@ async fn create(
             type_: Set(signature_type(&kind)?),
             include_in_replies: Set(flag(&data, "includeInReplies").unwrap_or(true)),
             include_in_forwards: Set(flag(&data, "includeInForwards").unwrap_or(true)),
-            position: Set(signature_position(text(&data, "position").unwrap_or("below"))?),
+            position: Set(signature_position(
+                text(&data, "position").unwrap_or("below"),
+            )?),
             tags: Set(data.get("tags").cloned()),
             created_at: Set(at),
             updated_at: Set(at),
@@ -525,8 +526,14 @@ async fn write_update(
         update = update.col_expr(mail_signatures::Column::UserIds, Expr::value(user_ids));
     }
     for (key, column) in [
-        ("includeInReplies", mail_signatures::Column::IncludeInReplies),
-        ("includeInForwards", mail_signatures::Column::IncludeInForwards),
+        (
+            "includeInReplies",
+            mail_signatures::Column::IncludeInReplies,
+        ),
+        (
+            "includeInForwards",
+            mail_signatures::Column::IncludeInForwards,
+        ),
     ] {
         if let Some(value) = flag(data, key) {
             update = update.col_expr(column, Expr::value(value));

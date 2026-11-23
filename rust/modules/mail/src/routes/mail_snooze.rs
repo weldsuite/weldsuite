@@ -225,7 +225,10 @@ async fn apply_snooze(
             &["SNOOZED".to_owned()],
         );
         update
-            .col_expr(mail_messages::Column::Labels, Expr::value(labels_value(&next)))
+            .col_expr(
+                mail_messages::Column::Labels,
+                Expr::value(labels_value(&next)),
+            )
             .col_expr(mail_messages::Column::IsRead, Expr::value(true))
             .col_expr(
                 mail_messages::Column::SnoozedUntil,
@@ -306,7 +309,10 @@ async fn unsnooze(caller: Caller, Path((account, id)): Path<(String, String)>) -
         );
         let stamp = weldsuite_db::utc_now();
         mail_messages::Entity::update_many()
-            .col_expr(mail_messages::Column::Labels, Expr::value(labels_value(&next)))
+            .col_expr(
+                mail_messages::Column::Labels,
+                Expr::value(labels_value(&next)),
+            )
             .col_expr(mail_messages::Column::IsRead, Expr::value(false))
             .col_expr(
                 mail_messages::Column::SnoozedUntil,

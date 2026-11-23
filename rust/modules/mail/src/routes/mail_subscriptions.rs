@@ -13,9 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
-};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::MAIL_SUBSCRIPTION_UNSUBSCRIBED;
 use weldsuite_catalogs::permission_keys::{MESSAGES_READ, MESSAGES_UPDATE};
@@ -348,7 +346,10 @@ async fn unsubscribe(
         };
         let at = utc_now();
         let updated = mail_subscriptions::Entity::update_many()
-            .col_expr(mail_subscriptions::Column::Status, Expr::value("unsubscribed"))
+            .col_expr(
+                mail_subscriptions::Column::Status,
+                Expr::value("unsubscribed"),
+            )
             .col_expr(
                 mail_subscriptions::Column::UnsubscribeMethod,
                 Expr::value(method),

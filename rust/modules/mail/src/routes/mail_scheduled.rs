@@ -396,7 +396,10 @@ async fn schedule(
                 .one(&orm(&caller.db))
                 .await?;
         let Some((email, display_name)) = account else {
-            return Err(scheduled_error("ACCOUNT_NOT_FOUND", "Mail account not found"));
+            return Err(scheduled_error(
+                "ACCOUNT_NOT_FOUND",
+                "Mail account not found",
+            ));
         };
         let validated = validate_attachments(&state, &caller, &org, &data.send).await?;
         let reparented = movable_attachment_ids(&caller, &data.attachment_ids).await?;
@@ -449,7 +452,10 @@ async fn schedule(
             in_reply_to: Set(data.send.in_reply_to.clone()),
             references: Set(data.send.references.as_ref().map(|r| json!(r))),
             is_reply: Set(Some(
-                data.send.in_reply_to.as_deref().is_some_and(|s| !s.is_empty()),
+                data.send
+                    .in_reply_to
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty()),
             )),
             send_status: Set(Some("scheduled".to_owned())),
             scheduled_for: Set(Some(ms_timestamp(at))),
@@ -496,7 +502,13 @@ async fn schedule(
                 .await?;
             refresh_count(&caller.db, &message_id, now).await?;
         }
-        let params = run_params(&org, &caller.user_id, &message_id, &data.account_id, &scheduled_iso);
+        let params = run_params(
+            &org,
+            &caller.user_id,
+            &message_id,
+            &data.account_id,
+            &scheduled_iso,
+        );
         let run = runs.create(&message_id, &params).await.map_err(|error| {
             tracing::error!("[mail-scheduled] could not start the run: {error}");
             MailError::api(ApiError::internal().with_message("Failed to schedule email"))

@@ -780,11 +780,7 @@ async fn sync_catch_all(
 
 /// Whether another workspace (or a personal account) has active addresses
 /// on `domain` in the master registry.
-async fn used_elsewhere(
-    master: &PgPool,
-    workspace_id: &str,
-    domain: &str,
-) -> Result<bool, DbErr> {
+async fn used_elsewhere(master: &PgPool, workspace_id: &str, domain: &str) -> Result<bool, DbErr> {
     let mut pattern = String::from("%@");
     for c in domain.to_lowercase().chars() {
         if matches!(c, '\\' | '%' | '_') {
@@ -1038,7 +1034,10 @@ async fn write_update(
     for (value, column) in [
         (&fields.mail_provider, mail_domains::Column::MailProvider),
         (&fields.send_provider, mail_domains::Column::SendProvider),
-        (&fields.receive_provider, mail_domains::Column::ReceiveProvider),
+        (
+            &fields.receive_provider,
+            mail_domains::Column::ReceiveProvider,
+        ),
     ] {
         if let Some(value) = value {
             update = update.col_expr(column, Expr::value(value.clone()));
@@ -1051,7 +1050,10 @@ async fn write_update(
         update = update.col_expr(mail_domains::Column::CatchAllEnabled, Expr::value(enabled));
     }
     if let Some(account) = account_write {
-        update = update.col_expr(mail_domains::Column::CatchAllAccountId, Expr::value(account));
+        update = update.col_expr(
+            mail_domains::Column::CatchAllAccountId,
+            Expr::value(account),
+        );
     }
     update
         .filter(mail_domains::Column::Id.eq(id))
@@ -1317,7 +1319,7 @@ mod tests {
             ownership: Some(ownership.clone()),
         };
         assert!(!pending.verified());
-        assert_eq!(pending.dns_status(), "pending");
+        assert_eq!(pending.dns_status(), MailDomainDnsStatus::Pending);
         ownership.verified = true;
         let done = Provisioned {
             setup: setup(true),
@@ -1368,9 +1370,9 @@ mod tests {
 /// adapter. Runs when `WELDSUITE_TEST_MASTER_URL` and
 /// `WELDSUITE_TEST_TENANT_URL` are set; otherwise it returns early.
 #[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test fixtures")]
 mod db_tests {
     #![allow(clippy::too_many_lines)] // one scenario, step by step
+    #![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -1543,10 +1545,15 @@ mod db_tests {
                     .is_some_and(|m| m.contains("is a WeldMail domain")),
                 "{body}"
             );
-            let refused =
-                ensure_provisioned(&state, &caller(&offline), fake.as_ref(), name, OffsetDateTime::now_utc())
-                    .await
-                    .expect_err("a WeldMail domain");
+            let refused = ensure_provisioned(
+                &state,
+                &caller(&offline),
+                fake.as_ref(),
+                name,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect_err("a WeldMail domain");
             assert_eq!(refused.respond("").status(), StatusCode::BAD_REQUEST);
         }
         assert!(fake.reached.lock().expect("lock").is_empty());

@@ -159,7 +159,10 @@ async fn list_page(
         Some(cursor) => {
             mail_campaigns::Entity::find_by_id(cursor.to_owned())
                 .select_only()
-                .columns([mail_campaigns::Column::CreatedAt, mail_campaigns::Column::Id])
+                .columns([
+                    mail_campaigns::Column::CreatedAt,
+                    mail_campaigns::Column::Id,
+                ])
                 .into_tuple()
                 .one(&db)
                 .await?
