@@ -18,7 +18,6 @@ use weldsuite_db::{PgPool, orm};
 use weldsuite_schema::tenant::{entities, sales_tax_agencies, tax_returns};
 
 use crate::common::{now_of, text};
-use crate::orm_bridge::refusal;
 
 /// `FILED_STATUSES`.
 pub(crate) const FILED_STATUSES: [&str; 2] = ["filed", "paid"];
@@ -302,11 +301,9 @@ pub(crate) async fn load_agency(
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| not_found(format!("Sales tax agency {agency_id} not found")))
 }
 
@@ -327,9 +324,8 @@ pub(crate) async fn load_us_entity(db: &PgPool, entity_id: &str) -> Result<Value
         .filter(Column::Id.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
-    let Some(entity) = row.map(row_json).transpose().map_err(refusal)? else {
+        .await?;
+    let Some(entity) = row.map(row_json).transpose()? else {
         return Err(not_found(format!(
             "Accounting entity {entity_id} not found"
         )));
@@ -365,11 +361,9 @@ pub(crate) async fn load_return(db: &PgPool, entity_id: &str, id: &str) -> Resul
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| not_found(format!("Tax return {id} not found")))
 }
 

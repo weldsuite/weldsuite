@@ -3,8 +3,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Alias, Expr, Func, Order, Query};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{crm_customer_statuses, workspace_members};
 
 use crate::{DomainError, DomainResult};
 
@@ -35,12 +38,14 @@ pub async fn assert_valid_member_fields(
     if ids.is_empty() {
         return Ok(());
     }
-    let valid: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = any($1) and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let valid: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let valid: HashSet<String> = valid.into_iter().collect();
     for key in ["ownerId", "accountManagerId"] {
         if let Some(id) = text(key)
@@ -65,10 +70,16 @@ pub struct StatusLookup {
 
 /// `loadCustomerStatusLookup(db)`.
 pub async fn load_status_lookup(db: &PgPool) -> DomainResult<StatusLookup> {
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select slug, name from crm_customer_statuses where deleted_at is null")
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = crm_customer_statuses::Entity::find()
+        .select_only()
+        .columns([
+            crm_customer_statuses::Column::Slug,
+            crm_customer_statuses::Column::Name,
+        ])
+        .filter(crm_customer_statuses::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut lookup = StatusLookup::default();
     for key in BUILTIN_CUSTOMER_STATUSES {
         lookup.keys.insert(key.to_owned());
@@ -111,6 +122,69 @@ pub async fn assert_valid_status(
             field: "status".to_owned(),
         })
     }
+}
+
+/// `(coalesce(a, '') || E'\n' || coalesce(b, '') || …) ilike pattern`: the
+/// search of a list over several text columns, one line each.
+pub(crate) fn search_match<C: ColumnTrait>(columns: &[C], pattern: &str) -> Expr {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let line = |column: &C| Expr::expr(Func::coalesce([column.into_expr(), Expr::val("")]));
+    let mut haystack: Option<Expr> = None;
+    for column in columns {
+        haystack = Some(match haystack {
+            None => line(column),
+            Some(text) => PgExpr::concat(PgExpr::concat(text, Expr::val("\n")), line(column)),
+        });
+    }
+    PgExpr::ilike(haystack.unwrap_or_else(|| Expr::val("")), pattern)
+}
+
+/// A list's `sortDir`: the direction, `None` for a value that is neither
+/// `asc` nor `desc` (the sort then doesn't apply).
+pub(crate) fn sort_order(dir: &str) -> Option<Order> {
+    match dir {
+        "asc" => Some(Order::Asc),
+        "desc" => Some(Order::Desc),
+        _ => None,
+    }
+}
+
+/// What a built-in sort orders by: `lower(col::text)` for the `text`
+/// family, the column itself for the rest.
+pub(crate) fn sort_value<C: ColumnTrait>(column: C, family: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    if family == "text" {
+        Expr::expr(Func::lower(column.into_expr().cast_as("text")))
+    } else {
+        column.into_expr()
+    }
+}
+
+/// `(created_at, id) < (select created_at, id from <table> where id =
+/// cursor)`: past the cursor row, newest first; nothing when that row is
+/// gone.
+pub(crate) fn before_row<E: EntityTrait>(created_at: E::Column, id: E::Column, cursor: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    let row = Alias::new("c");
+    let cursor_row = Query::select()
+        .column((row.clone(), created_at))
+        .column((row.clone(), id))
+        .from_as(E::default(), row.clone())
+        .and_where(Expr::col((row, id)).eq(cursor))
+        .to_owned();
+    Expr::tuple([created_at.into_expr(), id.into_expr()]).lt(Expr::from(cursor_row))
+}
+
+/// `limit $n` of a page with its probe row (`limit + 1`); Postgres refuses
+/// a negative `LIMIT`.
+pub(crate) fn probe_limit(limit: i64) -> Result<u64, DbErr> {
+    u64::try_from(limit.saturating_add(1))
+        .map_err(|_| DbErr::Custom("LIMIT must not be negative".to_owned()))
+}
+
+/// `count(*)` as Postgres returns it (a `bigint`).
+pub(crate) fn count(rows: u64) -> i64 {
+    i64::try_from(rows).unwrap_or(i64::MAX)
 }
 
 /// `containsPattern(term)`: `%term%` with `\`, `%` and `_` escaped.

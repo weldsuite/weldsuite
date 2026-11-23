@@ -30,7 +30,7 @@ use weldsuite_schema::tenant::{
     tax_returns,
 };
 
-use crate::orm_bridge::{column_text, date_of, decimal_of, sqlx_error, text_of, timestamp_of_iso};
+use crate::orm_bridge::{column_text, date_of, decimal_of, text_of, timestamp_of_iso};
 
 /// Why the worksheet can't be made (`BrApuracaoError`): a 400.
 #[derive(Debug)]
@@ -1380,8 +1380,7 @@ async fn quarter_revenue(
 async fn payroll_12m(db: &PgPool, entity: &Value, from: &str) -> Result<f64, DbErr> {
     let entity_id = entity["id"].as_str().unwrap_or_default();
     let accounts = load_entity_accounts(db, entity_id)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     let ids: Vec<String> = [
         account_for_role(&accounts, "payroll_wages_expense", &[]),
         account_for_role(&accounts, "payroll_tax_expense", &[]),
@@ -1731,7 +1730,6 @@ pub(crate) async fn book_apuracao(
                     &now,
                 )
                 .await
-                .map_err(sqlx_error)
             })
         })
     };
@@ -1753,7 +1751,7 @@ pub(crate) async fn book_apuracao(
     )
     .await
     .map_err(|error| match error {
-        PostError::Database(error) => ApuracaoError::Database(orm_error(error)),
+        PostError::Database(error) => ApuracaoError::Database(error),
         other => ApuracaoError::Post(other),
     })?;
     Ok(Booked {

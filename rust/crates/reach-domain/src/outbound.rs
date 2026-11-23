@@ -2,11 +2,14 @@
 //! `reach_messages`. The row is written (status `sending`) before the SMTP
 //! transaction, so a crash never causes a silent double send.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde_json::Value;
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{reach_mailboxes as mailboxes, reach_messages as messages};
 
 use crate::credentials::open;
 use crate::render::{email_footer, snippet_of};
@@ -15,7 +18,7 @@ use crate::smtp::{
     MailAddress, OutgoingMessage, SmtpConfig, SmtpEnvelope, SmtpTransport, build_mime_message,
     generate_message_id,
 };
-use crate::{ReachResult, iso, text};
+use crate::{ReachResult, js, stamp, text};
 
 /// `MAILBOX_NOT_FOUND`, `MAILBOX_NOT_USABLE`, `CREDENTIALS_UNAVAILABLE`.
 pub const MAILBOX_NOT_FOUND: &str = "mailbox_not_found";
@@ -90,24 +93,27 @@ async fn finish_message(
     error: Option<&str>,
     set_response: bool,
 ) -> ReachResult<Value> {
+    use messages::Column;
     let id = text(&row, "id").unwrap_or_default().to_owned();
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update reach_messages set status = $2,
-             sent_at = case when $3::text is null then sent_at else $3::timestamptz end,
-             smtp_response = case when $4 then $5 else smtp_response end,
-             error = $6, updated_at = $7::timestamptz
-         where id = $1 returning to_jsonb(reach_messages)",
-    )
-    .bind(&id)
-    .bind(status)
-    .bind(sent_at.map(iso))
-    .bind(set_response)
-    .bind(smtp_response)
-    .bind(error)
-    .bind(iso((deps.now)()))
-    .fetch_optional(deps.db)
-    .await?;
-    Ok(updated.map_or(row, weldsuite_db::js_row))
+    let mut update = messages::Entity::update_many().col_expr(Column::Status, Expr::value(status));
+    if let Some(sent_at) = sent_at {
+        update = update.col_expr(Column::SentAt, Expr::value(stamp(sent_at)));
+    }
+    if set_response {
+        update = update.col_expr(Column::SmtpResponse, Expr::value(smtp_response));
+    }
+    let updated = update
+        .col_expr(Column::Error, Expr::value(error))
+        .col_expr(Column::UpdatedAt, Expr::value(stamp((deps.now)())))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(deps.db))
+        .await?
+        .into_iter()
+        .next();
+    match updated {
+        Some(updated) => Ok(js(serde_json::to_value(updated))?),
+        None => Ok(row),
+    }
 }
 
 /// `sendFromMailbox(deps, input)`.
@@ -115,13 +121,14 @@ pub async fn send_from_mailbox(
     deps: &OutboundDeps<'_>,
     input: &SendInput,
 ) -> ReachResult<SendResult> {
-    let mailbox: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_mailboxes t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(&input.mailbox_id)
-    .fetch_optional(deps.db)
-    .await?;
-    let Some(mailbox) = mailbox.map(weldsuite_db::js_row) else {
+    let mailbox = mailboxes::Entity::find_by_id(input.mailbox_id.as_str())
+        .filter(mailboxes::Column::DeletedAt.is_null())
+        .one(&orm(deps.db))
+        .await?
+        .map(serde_json::to_value)
+        .map(js)
+        .transpose()?;
+    let Some(mailbox) = mailbox else {
         return Ok(not_sent(MAILBOX_NOT_FOUND));
     };
     if let Some(problem) = mailbox_problem(
@@ -175,34 +182,32 @@ pub async fn send_from_mailbox(
         Err(error) => return Ok(not_sent(format!("message_build_failed: {error}"))),
     };
     let references = (!input.references.is_empty()).then(|| input.references.join(" "));
-    let row: Option<Value> = sqlx::query_scalar(
-        "insert into reach_messages (id, direction, campaign_id, enrollment_id, step_id, mailbox_id, prospect_id,
-             thread_key, message_id_header, in_reply_to, \"references\", from_email, to_email, subject, snippet,
-             body_text, status, sent_by)
-         values ($1, 'out', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'sending', $16)
-         returning to_jsonb(reach_messages)",
-    )
-    .bind(generate_id("rmsg"))
-    .bind(&input.campaign_id)
-    .bind(&input.enrollment_id)
-    .bind(&input.step_id)
-    .bind(text(&mailbox, "id"))
-    .bind(&input.prospect_id)
-    .bind(input.thread_key.clone().unwrap_or_else(|| message_id.clone()))
-    .bind(&message_id)
-    .bind(&input.in_reply_to)
-    .bind(&references)
-    .bind(&mailbox_email)
-    .bind(&input.to_email)
-    .bind(&input.subject)
-    .bind(snippet_of(&input.text, 500))
-    .bind(&body)
-    .bind(&input.sent_by)
-    .fetch_optional(deps.db)
+    let row = messages::Entity::insert(messages::ActiveModel {
+        id: Set(generate_id("rmsg")),
+        direction: Set("out".to_owned()),
+        campaign_id: Set(input.campaign_id.clone()),
+        enrollment_id: Set(input.enrollment_id.clone()),
+        step_id: Set(input.step_id.clone()),
+        mailbox_id: Set(text(&mailbox, "id").unwrap_or_default().to_owned()),
+        prospect_id: Set(input.prospect_id.clone()),
+        thread_key: Set(Some(
+            input.thread_key.clone().unwrap_or_else(|| message_id.clone()),
+        )),
+        message_id_header: Set(message_id.clone()),
+        in_reply_to: Set(input.in_reply_to.clone()),
+        references: Set(references),
+        from_email: Set(mailbox_email.clone()),
+        to_email: Set(input.to_email.clone()),
+        subject: Set(Some(input.subject.clone())),
+        snippet: Set(Some(snippet_of(&input.text, 500))),
+        body_text: Set(Some(body.clone())),
+        status: Set(Some("sending".to_owned())),
+        sent_by: Set(input.sent_by.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(deps.db))
     .await?;
-    let Some(row) = row.map(weldsuite_db::js_row) else {
-        return Ok(not_sent("message_insert_failed"));
-    };
+    let row = js(serde_json::to_value(row))?;
     let config = SmtpConfig {
         host: credentials.host.clone(),
         port: credentials.port,
@@ -242,10 +247,11 @@ pub async fn send_from_mailbox(
             true,
         )
         .await?;
-        sqlx::query("update reach_mailboxes set last_sent_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-            .bind(text(&mailbox, "id"))
-            .bind(iso(sent_at))
-            .execute(deps.db)
+        mailboxes::Entity::update_many()
+            .col_expr(mailboxes::Column::LastSentAt, Expr::value(stamp(sent_at)))
+            .col_expr(mailboxes::Column::UpdatedAt, Expr::value(stamp(sent_at)))
+            .filter(mailboxes::Column::Id.eq(text(&mailbox, "id")))
+            .exec(&orm(deps.db))
             .await?;
         return Ok(SendResult {
             ok: true,

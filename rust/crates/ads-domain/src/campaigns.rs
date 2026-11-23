@@ -2,14 +2,18 @@
 //! push the campaigns edited in WeldSuite (`pending_push`), pull the synced
 //! ones whose content changed on Meta.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_core_domain::js::number_text;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::enums::AdCampaignSyncStatus;
+use weldsuite_schema::tenant::{ad_accounts, ad_campaigns};
 
+use crate::AdsError;
 use crate::meta::{
     CampaignChanges, CampaignContent, MetaCampaign, MetaClient, NewCampaign, hash_campaign_payload,
 };
-use crate::{AdsError, now};
 
 /// What a sync covers: pushes, pulls, or both (`'push' | 'pull' | 'full'`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,15 +103,21 @@ async fn load_selected_accounts(
     connection_id: &str,
     platform_account_id: Option<&str>,
 ) -> Result<Vec<Account>, AdsError> {
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, platform_account_id, currency from ad_accounts
-         where connection_id = $1 and is_selected = true and deleted_at is null
-           and ($2::text is null or platform_account_id = $2)",
-    )
-    .bind(connection_id)
-    .bind(filled(platform_account_id))
-    .fetch_all(db)
-    .await?;
+    use ad_accounts::Column;
+    let mut filter = Condition::all()
+        .add(Column::ConnectionId.eq(connection_id))
+        .add(Column::IsSelected.eq(true))
+        .add(Column::DeletedAt.is_null());
+    if let Some(platform_account_id) = filled(platform_account_id) {
+        filter = filter.add(Column::PlatformAccountId.eq(platform_account_id));
+    }
+    let rows: Vec<(String, String, Option<String>)> = ad_accounts::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::PlatformAccountId, Column::Currency])
+        .filter(filter)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, platform_account_id, currency)| Account {
@@ -123,23 +133,39 @@ async fn load_selected_accounts(
 async fn load_campaigns(
     db: &PgPool,
     accounts: &[Account],
-    sync_status: &str,
+    sync_status: AdCampaignSyncStatus,
     platform_campaign_id: Option<&str>,
 ) -> Result<Vec<Campaign>, AdsError> {
+    use ad_campaigns::Column;
+    // `ad_account_id = any('{}')` matches nothing.
+    if accounts.is_empty() {
+        return Ok(Vec::new());
+    }
     let ids: Vec<String> = accounts.iter().map(|a| a.id.clone()).collect();
-    let rows: Vec<CampaignTuple> = sqlx::query_as(
-        "select id, ad_account_id, platform_campaign_id, name, status, objective, daily_budget,
-                lifetime_budget, content_hash
-         from ad_campaigns
-         where ad_account_id = any($1) and sync_status = $2::ad_campaign_sync_status
-           and deleted_at is null
-           and ($3::text is null or platform_campaign_id = $3)",
-    )
-    .bind(&ids)
-    .bind(sync_status)
-    .bind(filled(platform_campaign_id))
-    .fetch_all(db)
-    .await?;
+    let mut filter = Condition::all()
+        .add(Column::AdAccountId.is_in(ids))
+        .add(Column::SyncStatus.eq(sync_status))
+        .add(Column::DeletedAt.is_null());
+    if let Some(platform_campaign_id) = filled(platform_campaign_id) {
+        filter = filter.add(Column::PlatformCampaignId.eq(platform_campaign_id));
+    }
+    let rows: Vec<CampaignTuple> = ad_campaigns::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::AdAccountId,
+            Column::PlatformCampaignId,
+            Column::Name,
+            Column::Status,
+            Column::Objective,
+            Column::DailyBudget,
+            Column::LifetimeBudget,
+            Column::ContentHash,
+        ])
+        .filter(filter)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(Campaign::from).collect())
 }
 
@@ -149,15 +175,17 @@ async fn mark_campaign_sync_error(
     campaign_id: &str,
     message: &str,
 ) -> Result<(), AdsError> {
-    sqlx::query(
-        "update ad_campaigns set sync_status = 'error', sync_error = $2, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(campaign_id)
-    .bind(message)
-    .bind(now())
-    .execute(db)
-    .await?;
+    use ad_campaigns::Column;
+    ad_campaigns::Entity::update_many()
+        .col_expr(
+            Column::SyncStatus,
+            Column::SyncStatus.save_as(Expr::val(AdCampaignSyncStatus::Error)),
+        )
+        .col_expr(Column::SyncError, Expr::value(message.to_owned()))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(campaign_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -169,40 +197,56 @@ async fn apply_remote_campaign_state(
     account_currency: Option<&str>,
     remote: &MetaCampaign,
 ) -> Result<(), AdsError> {
+    use ad_campaigns::Column;
+    use sea_orm::ExprTrait as _;
     let content_hash = hash_campaign_payload(&CampaignContent::from(remote));
-    let now = now();
-    sqlx::query(
-        "update ad_campaigns set
-             platform_campaign_id = $2,
-             name = $3,
-             status = coalesce($4, status),
-             objective = coalesce($5, objective),
-             daily_budget = coalesce($6::integer, daily_budget),
-             lifetime_budget = coalesce($7::integer, lifetime_budget),
-             currency = coalesce($8, currency),
-             metrics = coalesce($9::jsonb, metrics),
-             metrics_synced_at = case when $9::jsonb is null then metrics_synced_at
-                                      else $10::timestamp end,
-             content_hash = $11,
-             sync_status = 'synced',
-             sync_error = null,
-             last_synced_at = $10::timestamp,
-             updated_at = $10::timestamp
-         where id = $1",
-    )
-    .bind(campaign_id)
-    .bind(&remote.platform_campaign_id)
-    .bind(&remote.name)
-    .bind(remote.status.as_deref())
-    .bind(remote.objective.as_deref())
-    .bind(remote.daily_budget.map(number_text))
-    .bind(remote.lifetime_budget.map(number_text))
-    .bind(account_currency)
-    .bind(remote.metrics.as_ref().map(crate::meta::Metrics::to_value))
-    .bind(&now)
-    .bind(&content_hash)
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    let mut update = ad_campaigns::Entity::update_many()
+        .col_expr(
+            Column::PlatformCampaignId,
+            Expr::value(remote.platform_campaign_id.clone()),
+        )
+        .col_expr(Column::Name, Expr::value(remote.name.clone()));
+    // `coalesce($n, column)`: what Meta left out stays.
+    if let Some(status) = &remote.status {
+        update = update.col_expr(Column::Status, Expr::value(status.clone()));
+    }
+    if let Some(objective) = &remote.objective {
+        update = update.col_expr(Column::Objective, Expr::value(objective.clone()));
+    }
+    // `$n::integer` of the number's JavaScript text, as before.
+    if let Some(budget) = remote.daily_budget {
+        update = update.col_expr(
+            Column::DailyBudget,
+            Expr::val(number_text(budget)).cast_as("integer"),
+        );
+    }
+    if let Some(budget) = remote.lifetime_budget {
+        update = update.col_expr(
+            Column::LifetimeBudget,
+            Expr::val(number_text(budget)).cast_as("integer"),
+        );
+    }
+    if let Some(currency) = account_currency {
+        update = update.col_expr(Column::Currency, Expr::value(currency.to_owned()));
+    }
+    if let Some(metrics) = &remote.metrics {
+        update = update
+            .col_expr(Column::Metrics, Expr::value(metrics.to_value()))
+            .col_expr(Column::MetricsSyncedAt, Expr::value(now));
+    }
+    update
+        .col_expr(Column::ContentHash, Expr::value(content_hash))
+        .col_expr(
+            Column::SyncStatus,
+            Column::SyncStatus.save_as(Expr::val(AdCampaignSyncStatus::Synced)),
+        )
+        .col_expr(Column::SyncError, Expr::value(None::<String>))
+        .col_expr(Column::LastSyncedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(campaign_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -275,7 +319,7 @@ pub async fn push_pending_campaigns(
     if accounts.is_empty() {
         return Ok((0, 0));
     }
-    let pending = load_campaigns(db, &accounts, "pending_push", None).await?;
+    let pending = load_campaigns(db, &accounts, AdCampaignSyncStatus::PendingPush, None).await?;
     let client = MetaClient::new(http.clone(), access_token);
     let (mut pushed, mut failed) = (0, 0);
     for campaign in pending {
@@ -314,7 +358,7 @@ pub async fn pull_synced_campaigns(
     if accounts.is_empty() {
         return Ok(0);
     }
-    let synced = load_campaigns(db, &accounts, "synced", platform_campaign_id).await?;
+    let synced = load_campaigns(db, &accounts, AdCampaignSyncStatus::Synced, platform_campaign_id).await?;
     let client = MetaClient::new(http.clone(), access_token);
     let mut pulled = 0;
     for campaign in synced {

@@ -38,7 +38,6 @@ use weldsuite_schema::tenant::payroll_connections;
 use super::journal::{Totals, build_payroll_lines, payroll_error};
 use super::mapping::{Deferred, read_account_record};
 use super::{CONNECTIONS, Fail, fail};
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows, now_and_stamp};
 
 const GUSTO_API_VERSION: &str = "2024-04-01";
@@ -652,8 +651,7 @@ pub(super) async fn create(
                 &orm(&caller.db),
                 PAYROLL_CONNECTIONS.values(row.as_object().expect("an object")),
             )
-            .await
-            .map_err(refused)?;
+            .await?;
         let id = row["id"].as_str().unwrap_or_default().to_owned();
         write_accounting_audit(
             &caller,

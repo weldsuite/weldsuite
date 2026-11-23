@@ -3,7 +3,7 @@
 //! its agencies as registrations, and for the manual engine its
 //! jurisdictions, rates, zones and taxability rules. books-api calls it.
 
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
@@ -393,6 +393,7 @@ pub async fn load_customer_certificates(
     entity_id: &str,
     party_id: &str,
 ) -> Result<Vec<CertificateRef>, DbErr> {
+    use sea_orm::ExprTrait as _;
     let db = &orm(db);
     let rows = exemption_certificates::Entity::find()
         .filter(exemption_certificates::Column::EntityId.eq(entity_id))
@@ -406,7 +407,7 @@ pub async fn load_customer_certificates(
     let rows = js_rows(rows)?;
     let ids: Vec<String> = rows.iter().filter_map(|r| owned(r, "id")).collect();
     // `max(tax_date)::text`: the day as Postgres prints it.
-    let last_used = Expr::col(tax_lines::Column::TaxDate).max().cast_as("text");
+    let last_used = Expr::expr(Func::max(Expr::col(tax_lines::Column::TaxDate))).cast_as("text");
     let used: Vec<(Option<String>, Option<String>)> = tax_lines::Entity::find()
         .select_only()
         .column(tax_lines::Column::CertificateId)

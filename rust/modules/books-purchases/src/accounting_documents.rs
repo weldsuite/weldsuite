@@ -43,7 +43,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{documents, exemption_certificates, parties};
 
 use crate::ocr::{OCR_OP, OcrFailure, load_ocr_file, match_vendor_to_contact, read_document};
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -153,9 +152,8 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .order_by_desc(documents::Column::CreatedAt)
             .limit(100)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
-        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
+            .await?;
+        Ok(ok(Value::Array(js_rows!(rows)?)))
     }
     .await;
     reply(result, "Failed to fetch documents")
@@ -175,8 +173,7 @@ async fn stats(caller: Caller) -> Response {
             .group_by(documents::Column::Status)
             .into_tuple()
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         let rows = rows
             .into_iter()
             .map(|(status, count)| json!({ "status": status, "count": count }))
@@ -189,7 +186,7 @@ async fn stats(caller: Caller) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        match find_document(&caller.db, &id).await.map_err(refused)? {
+        match find_document(&caller.db, &id).await? {
             Some(doc) => Ok(ok(doc)),
             None => Err(Refusal::not_found("Document", &id)),
         }
@@ -346,12 +343,11 @@ async fn process(
         return Refusal::from(ApiError::unauthorized()).respond("");
     }
     let result: Reply = async {
-        let Some(doc) = find_document(&caller.db, &id).await.map_err(refused)? else {
+        let Some(doc) = find_document(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
         if is_tax_form_document(&caller.db, &doc)
-            .await
-            .map_err(refused)?
+            .await?
         {
             return Err(Refusal::bad_request(
                 "Tax forms such as W-9s and exemption certificates are never sent to OCR.",
@@ -362,14 +358,12 @@ async fn process(
             return Err(AiError::Unavailable.into_api_error().into());
         };
         set_status(&caller.db, &id, "processing")
-            .await
-            .map_err(refused)?;
+            .await?;
         match read_and_store(&caller, &state, &ai, &doc, &id).await {
             Ok(response) => Ok(response),
             Err(failure) => {
                 set_status(&caller.db, &id, "failed")
-                    .await
-                    .map_err(refused)?;
+                    .await?;
                 Err(failure.into_api_error().into())
             }
         }
@@ -469,7 +463,7 @@ async fn read_and_store(
 async fn rematch(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
+        let Some(doc) = find_document(db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
         let Some(ocr) = doc.get("ocrResult").filter(|v| !v.is_null()) else {
@@ -477,7 +471,7 @@ async fn rematch(caller: Caller, Path(id): Path<String>) -> Response {
                 "Document has no OCR result to match against",
             ));
         };
-        let matched = match_vendor_to_contact(db, ocr).await.map_err(refused)?;
+        let matched = match_vendor_to_contact(db, ocr).await?;
         update_document(
             db,
             &id,
@@ -486,8 +480,7 @@ async fn rematch(caller: Caller, Path(id): Path<String>) -> Response {
                 Expr::value(matched.clone()),
             )],
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         Ok(ok(json!({ "id": id, "matchedContactId": matched })))
     }
     .await;
@@ -541,7 +534,7 @@ async fn link(
     let (kind, target) = body;
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
+        let Some(doc) = find_document(db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
         update_document(
@@ -559,8 +552,7 @@ async fn link(
                 (documents::Column::Status, Expr::value("linked")),
             ],
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         let mut changes = Map::new();
         changes.insert("status".into(), change(doc.get("status"), &json!("linked")));
         changes.insert(
@@ -591,7 +583,7 @@ async fn reject(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
+        let Some(doc) = find_document(db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
         update_document(
@@ -599,8 +591,7 @@ async fn reject(
             &id,
             &[(documents::Column::Status, Expr::value("rejected"))],
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         let mut changes = Map::new();
         changes.insert(
             "status".into(),
@@ -626,7 +617,7 @@ async fn remove(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(doc) = find_document(db, &id).await.map_err(refused)? else {
+        let Some(doc) = find_document(db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
         let at = utc_now();
@@ -635,8 +626,7 @@ async fn remove(
             .col_expr(documents::Column::UpdatedAt, Expr::value(at))
             .filter(documents::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(&caller, db, audit(&doc, &id, "deleted", None)).await;
         caller.publish(
             &state,

@@ -27,17 +27,22 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{
     CallCancelReason, Notifier, cancel_incoming_call_push, chat as notify, create_and_deliver,
 };
 use weldsuite_ports::DynCache;
 use weldsuite_ports::video_rooms::DynVideoRooms;
+use weldsuite_schema::tenant::{chat_calls, chat_channel_members, chat_channels, chat_messages};
 
 use crate::publish::{Realtime, object};
+use crate::{json_error, timestamp_of};
 
 /// How long a DM call rings before it counts as missed (`RING_TIMEOUT_MS`).
 pub const RING_TIMEOUT_MS: i64 = 25_000;
@@ -111,11 +116,15 @@ pub fn now_ms() -> i64 {
     crate::publish::now_ms()
 }
 
+/// `new Date(ms)`.
+fn at_of_ms(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
 /// `new Date(ms).toISOString()`.
 pub fn iso_of_ms(ms: i64) -> String {
-    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
-        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
-    weldsuite_events::iso_timestamp(at)
+    weldsuite_events::iso_timestamp(at_of_ms(ms))
 }
 
 /// `Math.round(seconds)` for a positive or negative number.
@@ -129,13 +138,11 @@ fn round_seconds(ms: i64) -> i64 {
 // ============================================================================
 
 /// The call row as Drizzle reads it, or `None`.
-pub async fn call_row(db: &PgPool, call_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from chat_calls t where t.id = $1 limit 1")
-            .bind(call_id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub async fn call_row(db: &PgPool, call_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = chat_calls::Entity::find_by_id(call_id)
+        .one(&orm(db))
+        .await?;
+    row.map(serde_json::to_value).transpose().map_err(json_error)
 }
 
 /// `call.participants ?? []`.
@@ -322,23 +329,35 @@ pub async fn insert_call_notice(
     content: &str,
     metadata: &Value,
     at: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into chat_messages (id, channel_id, author_id, author_name, author_avatar, content,
-             type, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, 'system', $7, $8::timestamp, $8::timestamp)",
-    )
-    .bind(id)
-    .bind(channel_id)
-    .bind(author_id)
-    .bind(author_name)
-    .bind(author_avatar)
-    .bind(content)
-    .bind(metadata)
-    .bind(at)
-    .execute(db)
+) -> Result<(), DbErr> {
+    let at = timestamp_of(at)?;
+    chat_messages::Entity::insert(chat_messages::ActiveModel {
+        id: Set(id.to_owned()),
+        channel_id: Set(channel_id.to_owned()),
+        author_id: Set(author_id.to_owned()),
+        author_name: Set(author_name.to_owned()),
+        author_avatar: Set(author_avatar.map(str::to_owned)),
+        content: Set(content.to_owned()),
+        type_: Set("system".to_owned()),
+        metadata: Set(Some(metadata.clone())),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
+}
+
+/// `select user_id from chat_channel_members where channel_id = $1`.
+async fn channel_member_ids(db: &PgPool, channel_id: &str) -> Result<Vec<String>, DbErr> {
+    chat_channel_members::Entity::find()
+        .select_only()
+        .column(chat_channel_members::Column::UserId)
+        .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 // ============================================================================
@@ -354,7 +373,7 @@ pub async fn broadcast_call_to_members(
     channel_id: &str,
     action: &str,
     data: Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if !realtime.is_on() {
         return Ok(());
     }
@@ -363,11 +382,7 @@ pub async fn broadcast_call_to_members(
     } else {
         "call_ended"
     };
-    let members: Vec<String> =
-        sqlx::query_scalar("select user_id from chat_channel_members where channel_id = $1")
-            .bind(channel_id)
-            .fetch_all(db)
-            .await?;
+    let members = channel_member_ids(db, channel_id).await?;
     let mut payload = Map::new();
     payload.insert("channelId".into(), json!(channel_id));
     payload.extend(data);
@@ -567,9 +582,10 @@ pub async fn end_chat_call(
     call: &Value,
     ended_by: &str,
     send_missed_if_unanswered: bool,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let now_ms = now_ms();
     let now = iso_of_ms(now_ms);
+    let ended_at = utc_timestamp(at_of_ms(now_ms));
     let duration = field_ms(call, "startedAt").map_or(0, |start| round_seconds(now_ms - start));
     let unanswered = !was_answered(call);
     let status = if unanswered && matches!(text(call, "status"), Some("ringing" | "active")) {
@@ -577,17 +593,17 @@ pub async fn end_chat_call(
     } else {
         "ended"
     };
-    sqlx::query(
-        "update chat_calls set status = $2, ended_at = $3::timestamp, duration = $4,
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(call_id)
-    .bind(status)
-    .bind(&now)
-    .bind(i32::try_from(duration).unwrap_or(i32::MAX))
-    .execute(db)
-    .await?;
+    chat_calls::Entity::update_many()
+        .col_expr(chat_calls::Column::Status, Expr::value(status))
+        .col_expr(chat_calls::Column::EndedAt, Expr::value(ended_at))
+        .col_expr(
+            chat_calls::Column::Duration,
+            Expr::value(i32::try_from(duration).unwrap_or(i32::MAX)),
+        )
+        .col_expr(chat_calls::Column::UpdatedAt, Expr::value(ended_at))
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(db))
+        .await?;
 
     let channel_id = text(call, "channelId").unwrap_or_default();
     if let Some(room) = room_of(call) {
@@ -632,10 +648,10 @@ pub async fn end_chat_call(
         &now,
     )
     .await?;
-    sqlx::query("update chat_calls set end_message_id = $2 where id = $1")
-        .bind(call_id)
-        .bind(&message_id)
-        .execute(db)
+    chat_calls::Entity::update_many()
+        .col_expr(chat_calls::Column::EndMessageId, Expr::value(message_id.as_str()))
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(db))
         .await?;
 
     ports
@@ -752,7 +768,7 @@ pub async fn end_chat_call_if_empty(
     call: &Value,
     ended_by: &str,
     options: EndIfEmptyOptions,
-) -> Result<EndIfEmpty, sqlx::Error> {
+) -> Result<EndIfEmpty, DbErr> {
     if let Some(room) = room_of(call) {
         match ports.video.live_participant_count(room).await {
             Ok(live) if live > u32::from(options.end_when_alone) => {
@@ -782,19 +798,17 @@ pub async fn end_chat_call_if_empty(
 /// a channel call. Never fails.
 pub async fn dm_call_recipients(db: &PgPool, channel_id: &str, initiator_id: &str) -> Vec<String> {
     let run = async {
-        let kind: Option<String> =
-            sqlx::query_scalar("select type from chat_channels where id = $1 limit 1")
-                .bind(channel_id)
-                .fetch_optional(db)
-                .await?;
+        let kind: Option<String> = chat_channels::Entity::find()
+            .select_only()
+            .column(chat_channels::Column::Type)
+            .filter(chat_channels::Column::Id.eq(channel_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if kind.as_deref() != Some("dm") {
-            return Ok::<_, sqlx::Error>(Vec::new());
+            return Ok::<_, DbErr>(Vec::new());
         }
-        let members: Vec<String> =
-            sqlx::query_scalar("select user_id from chat_channel_members where channel_id = $1")
-                .bind(channel_id)
-                .fetch_all(db)
-                .await?;
+        let members = channel_member_ids(db, channel_id).await?;
         Ok(members
             .into_iter()
             .filter(|member| member != initiator_id)
@@ -824,7 +838,7 @@ pub async fn cancel_call_rings(
 pub async fn ring_timed_out(db: &PgPool, ports: &CallPorts, org_id: &str, call_id: &str) {
     let run = async {
         let Some(fresh) = call_row(db, call_id).await? else {
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         };
         let status = text(&fresh, "status");
         if !matches!(status, Some("ringing" | "active")) {
@@ -914,14 +928,19 @@ pub async fn leave_other_active_calls(
     except_call_id: Option<&str>,
     triggered_at: i64,
 ) {
-    let needle = json!([{ "userId": user_id }]).to_string();
-    let calls: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_calls t
-         where t.status in ('ringing', 'active') and t.participants @> $1::jsonb",
-    )
-    .bind(&needle)
-    .fetch_all(db)
-    .await;
+    let calls = chat_calls::Entity::find()
+        .filter(chat_calls::Column::Status.is_in(["ringing", "active"]))
+        .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((chat_calls::Entity, chat_calls::Column::Participants)),
+            json!([{ "userId": user_id }]),
+        ))
+        .all(&orm(db))
+        .await
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(|row| serde_json::to_value(row).map_err(json_error))
+                .collect::<Result<Vec<Value>, DbErr>>()
+        });
     let calls = match calls {
         Ok(calls) => calls,
         Err(error) => {
@@ -929,7 +948,7 @@ pub async fn leave_other_active_calls(
             return;
         }
     };
-    for call in calls.into_iter().map(weldsuite_db::js_row) {
+    for call in calls {
         let call_id = text(&call, "id").unwrap_or_default().to_owned();
         if Some(call_id.as_str()) == except_call_id {
             continue;
@@ -948,7 +967,7 @@ async fn leave_call(
     user_id: &str,
     call: &Value,
     triggered_at: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let deduped = dedupe_participants(&participants_of(call));
     let Some(mine) = deduped
         .iter()
@@ -972,7 +991,8 @@ async fn leave_call(
     let evicted: Vec<String> = session.map(str::to_owned).into_iter().collect();
     evict_sessions(ports, room_of(call), &evicted, None).await;
 
-    let now = iso_of_ms(now_ms());
+    let left_ms = now_ms();
+    let now = iso_of_ms(left_ms);
     let updated: Vec<Value> = deduped
         .iter()
         .map(|p| {
@@ -988,14 +1008,18 @@ async fn leave_call(
         })
         .collect();
     let still_active = updated.iter().any(|p| !has_left(p));
-    sqlx::query(
-        "update chat_calls set participants = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(call_id)
-    .bind(Value::Array(updated))
-    .bind(&now)
-    .execute(db)
-    .await?;
+    chat_calls::Entity::update_many()
+        .col_expr(
+            chat_calls::Column::Participants,
+            Expr::value(Value::Array(updated)),
+        )
+        .col_expr(
+            chat_calls::Column::UpdatedAt,
+            Expr::value(utc_timestamp(at_of_ms(left_ms))),
+        )
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(db))
+        .await?;
     let channel_id = text(call, "channelId").unwrap_or_default();
     publish_participant_left(&ports.realtime, channel_id, call_id, user_id).await;
 

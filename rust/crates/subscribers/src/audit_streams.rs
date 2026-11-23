@@ -50,10 +50,14 @@ use std::error::Error as StdError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use time::OffsetDateTime;
+use sea_orm::sea_query::{Expr, Func, Order};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
-use weldsuite_db::{Keyring, PgPool, decrypt_field};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
 use weldsuite_ports::{BoxFuture, HttpRequest, OutboundHttp, PortError};
+use weldsuite_schema::tenant::{audit_log_streams, audit_logs};
 
 use crate::js::{self, Json};
 use crate::safe_url::{PRIVATE_ADDRESS, check_safe_url};
@@ -744,16 +748,28 @@ pub struct FlushStreamResult {
     pub error: Option<String>,
 }
 
+/// A timestamp cut to the millisecond (`date_trunc('milliseconds', …)`), as
+/// the JavaScript `Date` the worker reads it as.
+fn millis(at: PrimitiveDateTime) -> PrimitiveDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
+}
+
 /// A timestamp column cut to the millisecond, as `toISOString()` writes the
 /// `Date` the worker reads it as.
-macro_rules! iso_millis {
-    ($column:literal) => {
-        concat!(
-            "to_char(date_trunc('milliseconds', ",
-            $column,
-            "), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
-        )
-    };
+fn iso_millis(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
+
+/// Where a stream's cursor stands, as a flush knows it (`cursor`,
+/// `current`).
+#[derive(Debug, Clone)]
+struct Cursor {
+    /// `cursor_created_at ?? created_at`, to the millisecond (`cursorOf`).
+    at: PrimitiveDateTime,
+    /// Whether `cursor_created_at` is set (a stream that never delivered
+    /// may have none).
+    has_at: bool,
+    id: Option<String>,
 }
 
 /// An active stream, as a flush reads it.
@@ -762,18 +778,16 @@ struct StoredStream {
     kind: String,
     url: String,
     token_encrypted: Option<String>,
+    /// `settings` as Postgres prints the jsonb.
     settings: Option<String>,
     consecutive_failures: i32,
     /// `last_attempt_at`, to the millisecond.
     last_attempt_at: Option<String>,
-    /// `cursor_created_at ?? created_at`, to the millisecond (`cursorOf`).
-    cursor_at: String,
-    /// Whether `cursor_created_at` is set (a stream that never delivered
-    /// may have none).
-    has_cursor_at: bool,
-    cursor_id: Option<String>,
+    cursor: Cursor,
 }
 
+/// id, type, url, token, `settings::text`, consecutive failures, last
+/// attempt, created at, cursor created at, cursor id.
 type StoredStreamRow = (
     String,
     String,
@@ -781,115 +795,218 @@ type StoredStreamRow = (
     Option<String>,
     Option<String>,
     i32,
-    Option<String>,
-    String,
-    bool,
-    Option<String>,
-);
-
-const ACTIVE_STREAMS: &str = concat!(
-    "select s.id, s.type, s.url, s.token_encrypted, s.settings::text, s.consecutive_failures, ",
-    iso_millis!("s.last_attempt_at"),
-    ", ",
-    iso_millis!("coalesce(s.cursor_created_at, s.created_at)"),
-    ", s.cursor_created_at is not null, s.cursor_id \
-     from audit_log_streams s where s.status = 'active'"
-);
-
-/// Rows strictly after the cursor (`$1` its instant, `$2` its id or null) in
-/// `(ms(created_at), id)` order, oldest first, that are older than the
-/// settle window (`$4` the time of the flush, `$5` the window in
-/// milliseconds) (`readBatch`). `$4` is cut to the millisecond, so the bound
-/// never splits the rows of one: a millisecond is read whole or not at all,
-/// and the cursor cannot stop between two rows it orders by id.
-const READ_BATCH: &str = concat!(
-    "select a.id, ",
-    iso_millis!("a.created_at"),
-    ", a.entity_type, a.entity_id, a.action, a.description, a.changes::text, \
-     a.performed_by, a.performed_by_name, a.ip_address, \
-     case when jsonb_typeof(a.metadata->'workspaceId') = 'string' \
-          then nullif(a.metadata->>'workspaceId', '') end, \
-     case when jsonb_typeof(a.metadata->'source') = 'string' \
-          then nullif(a.metadata->>'source', '') end \
-     from audit_logs a \
-     where a.created_at >= $1::timestamp \
-       and a.created_at < date_trunc('milliseconds', $4::timestamp) \
-                          - $5::bigint * interval '1 millisecond' \
-       and case when $2::text is null \
-                then date_trunc('milliseconds', a.created_at) > $1::timestamp \
-                else (date_trunc('milliseconds', a.created_at), a.id) > ($1::timestamp, $2::text) \
-           end \
-     order by date_trunc('milliseconds', a.created_at) asc, a.id asc \
-     limit $3"
-);
-
-type AuditRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
+    Option<PrimitiveDateTime>,
+    PrimitiveDateTime,
+    Option<PrimitiveDateTime>,
     Option<String>,
 );
 
-/// The cursor moved past a delivered batch, if it still stands where this
-/// flush read it (`sameCursor`): `$6` says whether `cursor_created_at` was
-/// set, `$7` what it was, `$8` the cursor id or null.
-const MOVE_CURSOR: &str = "update audit_log_streams set \
-       cursor_created_at = $2::timestamp, cursor_id = $3, \
-       last_delivered_at = $4::timestamp, last_attempt_at = $4::timestamp, \
-       last_error = null, consecutive_failures = 0, \
-       delivered_count = delivered_count + $5, updated_at = $4::timestamp \
-     where id = $1 \
-       and case when $6 then cursor_created_at = $7::timestamp else cursor_created_at is null end \
-       and case when $8::text is null then cursor_id is null else cursor_id = $8::text end \
-     returning id";
-
-const HAS_ACTIVE_STREAM: &str = "select id from audit_log_streams where status = 'active' limit 1";
-
-const RECORD_FAILURE: &str = "update audit_log_streams set \
-       last_attempt_at = $2::timestamp, last_error = $3, consecutive_failures = $4, \
-       status = case when $5 then 'disabled' else status end, updated_at = $2::timestamp \
-     where id = $1";
-
-/// `readBatch(db, cursor, settledBefore)`; `now` is the time of the flush.
-async fn read_batch(
-    db: &PgPool,
-    at: &str,
-    id: Option<&str>,
-    now: &str,
-) -> Result<Vec<AuditStreamRow>, sqlx::Error> {
-    let rows: Vec<AuditRow> = sqlx::query_as(READ_BATCH)
-        .bind(at)
-        .bind(id)
-        .bind(i64::try_from(AUDIT_STREAM_BATCH_SIZE).unwrap_or(i64::MAX))
-        .bind(now)
-        .bind(i64::try_from(AUDIT_STREAM_SETTLE.as_millis()).unwrap_or(i64::MAX))
-        .fetch_all(db)
+/// The workspace's active streams.
+async fn active_streams(db: &PgPool) -> Result<Vec<StoredStream>, DbErr> {
+    use audit_log_streams::Column;
+    use sea_orm::ExprTrait as _;
+    let rows: Vec<StoredStreamRow> = audit_log_streams::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Type, Column::Url, Column::TokenEncrypted])
+        .expr(Expr::col((audit_log_streams::Entity, Column::Settings)).cast_as("text"))
+        .columns([
+            Column::ConsecutiveFailures,
+            Column::LastAttemptAt,
+            Column::CreatedAt,
+            Column::CursorCreatedAt,
+            Column::CursorId,
+        ])
+        .filter(Column::Status.eq(ACTIVE))
+        .into_tuple()
+        .all(&orm(db))
         .await?;
     Ok(rows
         .into_iter()
-        .map(|row| AuditStreamRow {
+        .map(|row| StoredStream {
             id: row.0,
-            created_at: row.1,
-            entity_type: row.2,
-            entity_id: row.3,
-            action: row.4,
-            description: row.5,
-            changes: row.6,
-            performed_by: row.7,
-            performed_by_name: row.8,
-            ip_address: row.9,
-            workspace_id: row.10,
-            source: row.11,
+            kind: row.1,
+            url: row.2,
+            token_encrypted: row.3,
+            settings: row.4,
+            consecutive_failures: row.5,
+            last_attempt_at: row.6.map(iso_millis),
+            cursor: Cursor {
+                at: millis(row.8.unwrap_or(row.7)),
+                has_at: row.8.is_some(),
+                id: row.9,
+            },
         })
         .collect())
+}
+
+/// `audit_log_streams.status` of a stream that delivers.
+const ACTIVE: &str = "active";
+
+/// id, created at, entity type, entity id, action, description,
+/// `changes::text`, performed by, performed by name, ip address, metadata.
+type AuditRow = (
+    String,
+    PrimitiveDateTime,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+);
+
+/// `metadataString`: a metadata field when it is a non-empty string.
+fn metadata_string(metadata: Option<&Value>, key: &str) -> Option<String> {
+    metadata
+        .and_then(|metadata| metadata.get(key))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+/// `readBatch(db, cursor, settledBefore)`: the rows strictly after the
+/// cursor in `(ms(created_at), id)` order, oldest first, that are older than
+/// `settled_before` (the time of the flush cut to the millisecond, less the
+/// settle window), each with its `created_at` to the millisecond. The bound
+/// is cut to the millisecond, so it never splits the rows of one: a
+/// millisecond is read whole or not at all, and the cursor cannot stop
+/// between two rows it orders by id.
+async fn read_batch(
+    db: &PgPool,
+    cursor: &Cursor,
+    settled_before: PrimitiveDateTime,
+) -> Result<Vec<(PrimitiveDateTime, AuditStreamRow)>, DbErr> {
+    use audit_logs::Column;
+    use sea_orm::ExprTrait as _;
+    let col = |column: Column| Expr::col((audit_logs::Entity, column));
+    let ms = || Expr::from(Func::cust("date_trunc").arg("milliseconds").arg(col(Column::CreatedAt)));
+    let after = match &cursor.id {
+        None => ms().gt(cursor.at),
+        Some(id) => Expr::tuple([ms(), col(Column::Id)])
+            .gt(Expr::tuple([Expr::val(cursor.at), Expr::val(id.as_str())])),
+    };
+    let rows: Vec<AuditRow> = audit_logs::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::CreatedAt,
+            Column::EntityType,
+            Column::EntityId,
+            Column::Action,
+            Column::Description,
+        ])
+        .expr(col(Column::Changes).cast_as("text"))
+        .columns([
+            Column::PerformedBy,
+            Column::PerformedByName,
+            Column::IpAddress,
+            Column::Metadata,
+        ])
+        .filter(
+            Condition::all()
+                .add(Column::CreatedAt.gte(cursor.at))
+                .add(Column::CreatedAt.lt(settled_before))
+                .add(after),
+        )
+        .order_by(ms(), Order::Asc)
+        .order_by(Column::Id, Order::Asc)
+        .limit(u64::try_from(AUDIT_STREAM_BATCH_SIZE).unwrap_or(u64::MAX))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let metadata = row.10.as_ref();
+            let row_at = AuditStreamRow {
+                id: row.0,
+                created_at: iso_millis(row.1),
+                entity_type: row.2,
+                entity_id: row.3,
+                action: row.4,
+                description: row.5,
+                changes: row.6,
+                performed_by: row.7,
+                performed_by_name: row.8,
+                ip_address: row.9,
+                workspace_id: metadata_string(metadata, "workspaceId"),
+                source: metadata_string(metadata, "source"),
+            };
+            (millis(row.1), row_at)
+        })
+        .collect())
+}
+
+/// A failed delivery: the error, one more failure, and the stream switched
+/// off at [`AUDIT_STREAM_DISABLE_AFTER_FAILURES`].
+async fn record_failure(
+    db: &PgPool,
+    stream_id: &str,
+    now: PrimitiveDateTime,
+    error: &str,
+    failures: i32,
+) -> Result<(), DbErr> {
+    use audit_log_streams::Column;
+    let mut update = audit_log_streams::Entity::update_many()
+        .col_expr(Column::LastAttemptAt, Expr::value(now))
+        .col_expr(Column::LastError, Expr::value(error.to_owned()))
+        .col_expr(Column::ConsecutiveFailures, Expr::value(failures));
+    // `status = case when … then 'disabled' else status end`
+    if failures >= AUDIT_STREAM_DISABLE_AFTER_FAILURES {
+        update = update.col_expr(Column::Status, Expr::value("disabled"));
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(stream_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// The cursor moved past a delivered batch (`to`), if it still stands where
+/// this flush read it (`from`, `sameCursor`). Whether it moved.
+async fn move_cursor(
+    db: &PgPool,
+    stream_id: &str,
+    from: &Cursor,
+    to: &Cursor,
+    delivered: usize,
+    now: PrimitiveDateTime,
+) -> Result<bool, DbErr> {
+    use audit_log_streams::Column;
+    use sea_orm::ExprTrait as _;
+    let same_at = if from.has_at {
+        Column::CursorCreatedAt.eq(from.at)
+    } else {
+        Column::CursorCreatedAt.is_null()
+    };
+    let same_id = match &from.id {
+        None => Column::CursorId.is_null(),
+        Some(id) => Column::CursorId.eq(id.as_str()),
+    };
+    let delivered_count = Expr::col((audit_log_streams::Entity, Column::DeliveredCount))
+        .add(i32::try_from(delivered).unwrap_or(i32::MAX));
+    let moved = audit_log_streams::Entity::update_many()
+        .col_expr(Column::CursorCreatedAt, Expr::value(to.at))
+        .col_expr(Column::CursorId, Expr::value(to.id.clone()))
+        .col_expr(Column::LastDeliveredAt, Expr::value(now))
+        .col_expr(Column::LastAttemptAt, Expr::value(now))
+        .col_expr(Column::LastError, Expr::value(None::<String>))
+        .col_expr(Column::ConsecutiveFailures, Expr::value(0))
+        .col_expr(Column::DeliveredCount, delivered_count)
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(
+            Condition::all()
+                .add(Column::Id.eq(stream_id))
+                .add(same_at)
+                .add(same_id),
+        )
+        .exec(&orm(db))
+        .await?;
+    Ok(moved.rows_affected > 0)
 }
 
 /// `flushStream(db, stream, options, now)`.
@@ -898,7 +1015,7 @@ async fn flush_stream(
     sender: &AuditStreamSender,
     stream: &StoredStream,
     options: &FlushOptions<'_>,
-) -> Result<FlushStreamResult, sqlx::Error> {
+) -> Result<FlushStreamResult, DbErr> {
     let mut result = FlushStreamResult {
         stream_id: stream.id.clone(),
         outcome: FlushOutcome::Idle,
@@ -906,6 +1023,7 @@ async fn flush_stream(
         error: None,
     };
     let now = weldsuite_events::iso_timestamp(options.now);
+    let now_at = weldsuite_db::utc_timestamp(options.now);
 
     // Still waiting after a failure.
     if stream.consecutive_failures > 0
@@ -924,19 +1042,17 @@ async fn flush_stream(
         settings: stream.settings.as_deref(),
     };
     // The cursor as this flush knows it (`cursor`, `current`).
-    let mut cursor_at = stream.cursor_at.clone();
-    let mut cursor_id = stream.cursor_id.clone();
-    let mut has_cursor_at = stream.has_cursor_at;
+    let mut cursor = stream.cursor.clone();
     let mut consecutive_failures = stream.consecutive_failures;
 
     for _ in 0..AUDIT_STREAM_MAX_REQUESTS_PER_FLUSH {
-        let batch = read_batch(db, &cursor_at, cursor_id.as_deref(), &now).await?;
-        let Some(last) = batch.last() else {
+        let batch = read_batch(db, &cursor, now_at - AUDIT_STREAM_SETTLE).await?;
+        let Some((last_at, last)) = batch.last() else {
             break;
         };
         let events: Vec<AuditStreamEvent> = batch
             .iter()
-            .map(|row| build_audit_stream_event(row, options.workspace_id))
+            .map(|(_, row)| build_audit_stream_event(row, options.workspace_id))
             .collect();
         let failure = match &token {
             Ok(token) => {
@@ -948,39 +1064,25 @@ async fn flush_stream(
 
         if let Some(error) = failure {
             let failures = consecutive_failures + 1;
-            sqlx::query(RECORD_FAILURE)
-                .bind(&stream.id)
-                .bind(&now)
-                .bind(&error)
-                .bind(failures)
-                .bind(failures >= AUDIT_STREAM_DISABLE_AFTER_FAILURES)
-                .execute(db)
-                .await?;
+            record_failure(db, &stream.id, now_at, &error, failures).await?;
             result.outcome = FlushOutcome::Failed;
             result.error = Some(error);
             return Ok(result);
         }
 
-        let moved: Option<String> = sqlx::query_scalar(MOVE_CURSOR)
-            .bind(&stream.id)
-            .bind(&last.created_at)
-            .bind(&last.id)
-            .bind(&now)
-            .bind(i32::try_from(batch.len()).unwrap_or(i32::MAX))
-            .bind(has_cursor_at)
-            .bind(&cursor_at)
-            .bind(cursor_id.as_deref())
-            .fetch_optional(db)
-            .await?;
+        let delivered = Cursor {
+            at: *last_at,
+            has_at: true,
+            id: Some(last.id.clone()),
+        };
+        let moved = move_cursor(db, &stream.id, &cursor, &delivered, batch.len(), now_at).await?;
         result.outcome = FlushOutcome::Delivered;
         result.delivered += batch.len();
         // Another flush moved the cursor under us: leave it to that flush.
-        if moved.is_none() {
+        if !moved {
             break;
         }
-        cursor_at.clone_from(&last.created_at);
-        cursor_id = Some(last.id.clone());
-        has_cursor_at = true;
+        cursor = delivered;
         consecutive_failures = 0;
         if batch.len() < AUDIT_STREAM_BATCH_SIZE {
             break;
@@ -994,8 +1096,12 @@ async fn flush_stream(
 /// the settle window when there is none. A failed query reads as "none" (the
 /// streams keep their cursor and catch up on a later flush).
 pub async fn has_active_audit_log_streams(db: &PgPool) -> bool {
-    sqlx::query_scalar::<_, String>(HAS_ACTIVE_STREAM)
-        .fetch_optional(db)
+    audit_log_streams::Entity::find()
+        .select_only()
+        .column(audit_log_streams::Column::Id)
+        .filter(audit_log_streams::Column::Status.eq(ACTIVE))
+        .into_tuple::<String>()
+        .one(&orm(db))
         .await
         .is_ok_and(|found| found.is_some())
 }
@@ -1010,24 +1116,11 @@ pub async fn flush_audit_log_streams(
     sender: &AuditStreamSender,
     options: &FlushOptions<'_>,
 ) -> Vec<FlushStreamResult> {
-    let streams: Vec<StoredStreamRow> = match sqlx::query_as(ACTIVE_STREAMS).fetch_all(db).await {
-        Ok(streams) => streams,
-        Err(_) => return Vec::new(),
+    let Ok(streams) = active_streams(db).await else {
+        return Vec::new();
     };
     let mut results = Vec::with_capacity(streams.len());
-    for row in streams {
-        let stream = StoredStream {
-            id: row.0,
-            kind: row.1,
-            url: row.2,
-            token_encrypted: row.3,
-            settings: row.4,
-            consecutive_failures: row.5,
-            last_attempt_at: row.6,
-            cursor_at: row.7,
-            has_cursor_at: row.8,
-            cursor_id: row.9,
-        };
+    for stream in streams {
         let result = flush_stream(db, sender, &stream, options)
             .await
             .unwrap_or_else(|_| FlushStreamResult {

@@ -45,6 +45,7 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::locale_compare;
 use weldsuite_books_domain::jurisdictions::{self, TaxIdField, br, india, us};
+use weldsuite_books_domain::table::TxError;
 use weldsuite_books_domain::tables::{ACCOUNTS, ENTITIES, SETTINGS, TAX_RATES};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_ENTITY_CREATED, ACCOUNTING_ENTITY_DELETED, ACCOUNTING_ENTITY_UPDATED,
@@ -73,7 +74,7 @@ use crate::entity_setup::{
     check_us_address, form_of, lock_state, looks_like_ssn, resolve_entity_kind,
     sync_br_tax_profiles, tax_year_of,
 };
-use crate::orm_bridge::{select_flags, sqlx_error};
+use crate::orm_bridge::select_flags;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -188,7 +189,7 @@ fn object(value: Value) -> Map<String, Value> {
 pub(crate) async fn find_active(
     caller: &Caller,
     id: &str,
-) -> Result<Option<Map<String, Value>>, sqlx::Error> {
+) -> Result<Option<Map<String, Value>>, DbErr> {
     let access = entity_access(caller).await?;
     if !can_see_entity(&access, Some(id)) || !record_in_request_entity(caller, Some(id)).await? {
         return Ok(None);
@@ -201,7 +202,7 @@ pub(crate) async fn find_active(
 fn legal_entity_refusal(error: LegalEntityError, answer: fn(String) -> Refusal) -> Refusal {
     match error {
         LegalEntityError::Coded { message, .. } => answer(message),
-        LegalEntityError::Database(error) => Refusal::Database(sqlx_error(error)),
+        LegalEntityError::Database(error) => Refusal::Database(error),
         LegalEntityError::Internal(message) => Refusal::Internal(message),
     }
 }
@@ -209,7 +210,7 @@ fn legal_entity_refusal(error: LegalEntityError, answer: fn(String) -> Refusal) 
 /// A `LegalEntityError` the route does not catch on its own: the route's 500.
 fn legal_entity_failure(error: LegalEntityError) -> Refusal {
     match error {
-        LegalEntityError::Database(error) => Refusal::Database(sqlx_error(error)),
+        LegalEntityError::Database(error) => Refusal::Database(error),
         other => Refusal::Internal(other.to_string()),
     }
 }
@@ -476,7 +477,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         };
         let mut out = object(serialize(&entity));
         out.extend(object(
-            lock_state(&caller.db, &id).await.map_err(sqlx_error)?,
+            lock_state(&caller.db, &id).await?,
         ));
         Ok(ok(Value::Object(out)))
     }
@@ -553,10 +554,8 @@ async fn can_in_entity(
     access: &EntityAccess,
     entity_id: &str,
     key: &str,
-) -> Result<bool, sqlx::Error> {
-    let resolved = permissions_in_entity(&caller.db, access, entity_id)
-        .await
-        .map_err(sqlx_error)?;
+) -> Result<bool, DbErr> {
+    let resolved = permissions_in_entity(&caller.db, access, entity_id).await?;
     Ok(caller.permissions.with_resolved(resolved).has_any(&[key]))
 }
 
@@ -924,8 +923,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
             stamp,
         },
     )
-    .await
-    .map_err(sqlx_error)?;
+    .await?;
 
     // The default entity: the first company, or the one asked for. Making an
     // existing company the workspace default is a company change
@@ -941,8 +939,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
             .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
     } else if default_asked || is_default {
         make_default_entity(db, &entity_id, &at, stamp)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
     }
     write_accounting_audit(
         caller,
@@ -1124,11 +1121,10 @@ async fn seed_defaults(
                     .insert_raw(&mut *conn, TAX_RATES.values(&rate))
                     .await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, TxError>(())
         })
     })
-    .await
-    .map_err(weldsuite_db::orm_error)?;
+    .await?;
     Ok(counts)
 }
 
@@ -1163,10 +1159,7 @@ async fn make_default_entity(
         ] {
             row.insert(key.to_owned(), value);
         }
-        SETTINGS
-            .insert_raw(db, SETTINGS.values(&row))
-            .await
-            .map_err(weldsuite_db::orm_error)?;
+        SETTINGS.insert_raw(db, SETTINGS.values(&row)).await?;
     }
     Ok(())
 }
@@ -1406,8 +1399,7 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
     }
     let is_us = next == "US";
     if let Some((message, details)) = lock_conflict(caller, &existing, &data, &next)
-        .await
-        .map_err(sqlx_error)?
+        .await?
     {
         return Err(Refusal::conflict_with(message, details));
     }
@@ -1610,8 +1602,7 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
             .filter(bank_accounts::Column::DeletedAt.is_null())
             .into_tuple()
             .one(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if found.is_none() {
             return Err(Refusal::bad_request(
                 "That bank account does not belong to this entity",
@@ -1718,11 +1709,10 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         && Some(classification) != existing.get("taxClassification")
     {
         sync_br_tax_profiles(db, id, classification.as_str())
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
     }
     let mut out = object(serialize(updated.as_ref().unwrap_or(&existing)));
-    out.extend(object(lock_state(db, id).await.map_err(sqlx_error)?));
+    out.extend(object(lock_state(db, id).await?));
     out.insert("taxLineRemapNeeded".to_owned(), json!(form_changed));
     Ok(ok(Value::Object(out)))
 }
@@ -1785,8 +1775,7 @@ async fn apply_lines(
             .1
             .unwrap_or_else(|| tax_year_of(entity["timezone"].as_str()));
         let result = apply_tax_lines(&caller.db, &entity, input.0, year)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         let updated = result["updated"].as_i64().unwrap_or(0);
         if updated > 0 {
             let mut changes = Map::new();
@@ -1863,8 +1852,7 @@ async fn reveal_ssn(
             ..Default::default()
         })
         .exec_without_returning(&orm(&caller.db))
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1910,12 +1898,10 @@ async fn remove(
         }
         let has_data = LegalEntityApp::Weldbooks
             .has_data(&caller.db, &id)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if has_data
             || lock_state(&caller.db, &id)
-                .await
-                .map_err(sqlx_error)?["hasPostings"]
+                .await?["hasPostings"]
                 == true
         {
             return Err(Refusal::conflict_with(
@@ -1926,8 +1912,7 @@ async fn remove(
         accounting_entity_settings::Entity::delete_many()
             .filter(accounting_entity_settings::Column::EntityId.eq(id.as_str()))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,

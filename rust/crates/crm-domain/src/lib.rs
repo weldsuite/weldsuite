@@ -7,11 +7,6 @@
 //! the caller set, defaults filled in), as JSON objects keyed like the
 //! TypeScript types.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod activities;
 pub mod auto_add;
 pub mod companies;
@@ -80,7 +75,8 @@ pub enum DomainError {
     },
     /// A 400 with the message.
     BadRequest(String),
-    Database(sqlx::Error),
+    /// A database failure.
+    Database(sea_orm::DbErr),
     /// Anything else (`throw new Error(message)`).
     Other(String),
 }
@@ -101,7 +97,7 @@ impl DomainError {
             } => Ok(ApiError::conflict(message)
                 .with_details(serde_json::json!({ "existingPersonId": existing_person_id }))),
             Self::BadRequest(message) => Ok(ApiError::bad_request(message)),
-            Self::Database(error) => Err(error.to_string()),
+            Self::Database(error) => Err(db_message(&error)),
             Self::Other(message) => Err(message),
         }
     }
@@ -115,27 +111,33 @@ impl DomainError {
             | Self::DuplicateEmail { message, .. }
             | Self::BadRequest(message)
             | Self::Other(message) => message.clone(),
-            Self::Database(error) => error.to_string(),
+            Self::Database(error) => db_message(error),
         }
     }
 }
 
-/// An ORM failure is a database failure; the route answers its 500 with the message.
+/// A database failure's message as the driver words it (`err.message`):
+/// the statement's own error, not SeaORM's wrapping of it.
+pub fn db_message(error: &sea_orm::DbErr) -> String {
+    use sea_orm::{DbErr, RuntimeErr};
+    match error {
+        DbErr::Conn(RuntimeErr::SqlxError(error))
+        | DbErr::Exec(RuntimeErr::SqlxError(error))
+        | DbErr::Query(RuntimeErr::SqlxError(error)) => error.to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// A database failure; the route answers its 500 with the message.
 impl From<sea_orm::DbErr> for DomainError {
     fn from(error: sea_orm::DbErr) -> Self {
-        Self::Other(error.to_string())
+        Self::Database(error)
     }
 }
 
 impl From<serde_json::Error> for DomainError {
     fn from(error: serde_json::Error) -> Self {
         Self::Other(error.to_string())
-    }
-}
-
-impl From<sqlx::Error> for DomainError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
     }
 }
 
@@ -158,6 +160,11 @@ pub fn date_or_null(value: Option<&Value>) -> DomainResult<Value> {
         Some(Value::String(text)) if !text.is_empty() => Ok(Value::String(to_iso(text)?)),
         _ => Ok(Value::Null),
     }
+}
+
+/// A `timestamp` as Drizzle returns it: `toISOString()`.
+pub(crate) fn js_date(at: time::PrimitiveDateTime) -> String {
+    iso_timestamp(at.assume_utc())
 }
 
 /// A row read with `to_jsonb(t)`, as Drizzle returns it.

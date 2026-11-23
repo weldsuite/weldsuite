@@ -73,7 +73,6 @@ pub mod js;
 pub mod jurisdictions;
 pub mod nacha;
 pub mod nexus;
-mod orm_bridge;
 pub mod payments;
 pub mod payroll;
 pub mod positive_pay;

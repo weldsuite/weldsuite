@@ -15,7 +15,7 @@ use weldsuite_chat_domain::text::{
     read_reply_reference,
 };
 use weldsuite_chat_domain::{Can, Realtime};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now, utc_timestamp};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{chat as notify, create_and_deliver};
 use weldsuite_ports::JobRequest;
@@ -72,14 +72,6 @@ pub(crate) enum PostError {
 impl From<DbErr> for PostError {
     fn from(error: DbErr) -> Self {
         Self::Database(error)
-    }
-}
-
-/// `weldsuite-chat-domain` is not converted yet: its failures report
-/// through `weldsuite_db::orm_error`.
-impl From<sqlx::Error> for PostError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(orm_error(error))
     }
 }
 

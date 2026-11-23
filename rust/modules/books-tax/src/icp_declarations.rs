@@ -39,7 +39,7 @@ use crate::filing::{
     is_unfiled, iso_day, load_period_lines, overlapping_period, parse_period, submit_filing,
 };
 use crate::nl::{self, IcpXmlInput, IcpXmlLine};
-use crate::orm_bridge::{day_of, decimal_of, refused, timestamp_of_iso, to_json, to_json_rows};
+use crate::orm_bridge::{day_of, decimal_of, timestamp_of_iso, to_json, to_json_rows};
 use crate::vat_returns::{
     PeriodBody, btw_number, company_name, entity_row, has_feature, phone, read_period, xml_response,
 };
@@ -122,8 +122,7 @@ async fn list(caller: Caller) -> Response {
                 .order_by_desc(icp_declarations::Column::PeriodStart)
                 .all(&orm(&caller.db))
                 .await
-                .and_then(to_json_rows)
-                .map_err(refused)?;
+                .and_then(to_json_rows)?;
             Ok(ok(Value::Array(rows)))
         }
         .await,
@@ -136,7 +135,7 @@ async fn list(caller: Caller) -> Response {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let Some(declaration) = find(&caller.db, &id).await.map_err(refused)? else {
+            let Some(declaration) = find(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("ICP declaration", &id));
             };
             let rows = icp_lines::Entity::find()
@@ -144,8 +143,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
                 .order_by_asc(icp_lines::Column::VatNumber)
                 .all(&orm(&caller.db))
                 .await
-                .and_then(to_json_rows)
-                .map_err(refused)?;
+                .and_then(to_json_rows)?;
             let mut body = declaration.as_object().cloned().unwrap_or_default();
             body.insert("lines".into(), Value::Array(rows));
             Ok(ok(Value::Object(body)))
@@ -203,8 +201,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         .filter(entities::Column::Id.eq(&entity_id))
         .into_tuple()
         .one(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
     if !has_feature(code.as_deref(), "icp") {
         return Err(Refusal::bad_request(
             "ICP declarations only apply to EU (Dutch) entities",
@@ -213,8 +210,8 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
     let (start_at, end_at) = (
-        timestamp_of_iso(&start).map_err(refused)?,
-        timestamp_of_iso(&end).map_err(refused)?,
+        timestamp_of_iso(&start)?,
+        timestamp_of_iso(&end)?,
     );
     // Declarations never overlap: the supplies of a month are declared once.
     let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = icp_declarations::Entity::find()
@@ -227,8 +224,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         .filter(icp_declarations::Column::DeletedAt.is_null())
         .into_tuple()
         .all(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
     let periods: Vec<(String, String)> = periods
         .into_iter()
         .map(|(from, to)| (day_of(from), day_of(to)))
@@ -247,8 +243,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         .order_by_desc(icp_declarations::Column::CreatedAt)
         .one(&orm(db))
         .await
-        .and_then(|row| row.map(to_json).transpose())
-        .map_err(refused)?;
+        .and_then(|row| row.map(to_json).transpose())?;
     if let Some(existing) = &existing
         && !is_unfiled(text(existing, "status").unwrap_or_default())
     {
@@ -258,8 +253,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     }
 
     let ledger = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await
-        .map_err(refused)?;
+        .await?;
     let mut per_vat: Vec<BuyerSupply> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
     let mut vat_of: HashMap<String, Option<NormalizedVat>> = HashMap::new();
@@ -332,7 +326,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     });
     let label = data.period_label.filter(|l| !l.is_empty());
     // `total_amount` is `numeric(15, 2)`: the total as `toFixed(2)` wrote it.
-    let total_amount = decimal_of(&js::to_fixed(total, 2)).map_err(refused)?;
+    let total_amount = decimal_of(&js::to_fixed(total, 2))?;
     let id = if let Some(existing) = &existing {
         let id = text(existing, "id").unwrap_or_default().to_owned();
         let label = label
@@ -366,13 +360,11 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
             .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
             .filter(icp_declarations::Column::Id.eq(&id))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         icp_lines::Entity::delete_many()
             .filter(icp_lines::Column::DeclarationId.eq(&id))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         id
     } else {
         let id = generate_id("icp");
@@ -391,8 +383,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
             ..Default::default()
         })
         .exec_without_returning(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
         id
     };
 
@@ -415,12 +406,10 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
                     updated_at: Set(stamp),
                 })
             })
-            .collect::<Result<Vec<_>, DbErr>>()
-            .map_err(refused)?;
+            .collect::<Result<Vec<_>, DbErr>>()?;
         icp_lines::Entity::insert_many(lines)
             .exec_without_returning(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
     }
 
     let recalculated = existing.is_some();
@@ -475,7 +464,7 @@ async fn file(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
 
 async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(declaration) = find(db, id).await.map_err(refused)? else {
+    let Some(declaration) = find(db, id).await? else {
         return Err(Refusal::not_found("ICP declaration", id));
     };
     let status = text(&declaration, "status").unwrap_or_default().to_owned();
@@ -484,7 +473,7 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
             "ICP declaration has already been filed",
         ));
     }
-    let lines = lines_of(db, id).await.map_err(refused)?;
+    let lines = lines_of(db, id).await?;
     if lines.is_empty() {
         return Err(Refusal::bad_request(
             "ICP declaration has no lines — nothing to file (an ICP declaration is only due when there were intracommunautaire supplies)",
@@ -493,7 +482,7 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
     let entity_id = text(&declaration, "entityId")
         .unwrap_or_default()
         .to_owned();
-    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     let Some(btw) = btw_number(&entity) else {
@@ -528,8 +517,7 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
         .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
         .filter(icp_declarations::Column::Id.eq(id))
         .exec(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let mut changes = Map::new();
     changes.insert("status".into(), change(json!(status), json!("filed")));
@@ -581,16 +569,16 @@ async fn xml(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
             let db = &caller.db;
-            let Some(declaration) = find(db, &id).await.map_err(refused)? else {
+            let Some(declaration) = find(db, &id).await? else {
                 return Err(Refusal::not_found("ICP declaration", &id));
             };
             let xml = if let Some(xml) = text(&declaration, "xmlContent").filter(|x| !x.is_empty())
             {
                 xml.to_owned()
             } else {
-                let lines = lines_of(db, &id).await.map_err(refused)?;
+                let lines = lines_of(db, &id).await?;
                 let entity_id = text(&declaration, "entityId").unwrap_or_default();
-                let entity = entity_row(db, entity_id, false).await.map_err(refused)?;
+                let entity = entity_row(db, entity_id, false).await?;
                 let btw = entity.as_ref().and_then(btw_number);
                 let (Some(entity), Some(btw)) = (entity, btw) else {
                     return Err(Refusal::bad_request(
@@ -619,7 +607,7 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(declaration) = find(db, &id).await.map_err(refused)? else {
+            let Some(declaration) = find(db, &id).await? else {
                 return Err(Refusal::not_found("ICP declaration", &id));
             };
             if !is_unfiled(text(&declaration, "status").unwrap_or_default()) {
@@ -631,15 +619,13 @@ async fn remove(
             icp_lines::Entity::delete_many()
                 .filter(icp_lines::Column::DeclarationId.eq(&id))
                 .exec(&orm(db))
-                .await
-                .map_err(refused)?;
+                .await?;
             icp_declarations::Entity::update_many()
                 .col_expr(icp_declarations::Column::DeletedAt, Expr::value(stamp))
                 .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
                 .filter(icp_declarations::Column::Id.eq(&id))
                 .exec(&orm(db))
-                .await
-                .map_err(refused)?;
+                .await?;
             write_accounting_audit(
                 &caller,
                 db,

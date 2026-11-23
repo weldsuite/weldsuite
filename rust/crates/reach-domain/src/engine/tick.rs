@@ -16,11 +16,21 @@
 use std::collections::HashMap;
 
 use futures_util::StreamExt;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
+};
 use serde_json::Value;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::REACH_MAILBOX_UPDATED;
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm};
+use weldsuite_schema::tenant::{
+    reach_campaign_mailboxes as campaign_mailboxes, reach_campaign_steps as steps,
+    reach_campaigns as campaigns, reach_enrollments as enrollments, reach_mailboxes as mailboxes,
+    reach_messages as messages, reach_prospects,
+};
 
 use super::guardrails::{mailbox_event, record_hard_bounce};
 use super::scheduler::{
@@ -40,8 +50,8 @@ use crate::send_window::start_of_zoned_day;
 use crate::smtp::SmtpTransport;
 use crate::suppressions::{SuppressionIndex, load_index, suppress_email};
 use crate::{
-    EventSink, ReachEvent, ReachResult, epoch_ms, from_epoch_ms, int, iso, parse_iso, text,
-    text_or_empty,
+    EventSink, ReachEvent, ReachResult, epoch_ms, from_epoch_ms, int, iso, js, js_all, parse_iso,
+    stamp, text, text_or_empty,
 };
 
 /// Most rows one tick claims.
@@ -136,21 +146,26 @@ fn ms_of(row: &Value, key: &str) -> Option<i64> {
     text(row, key).and_then(parse_iso).map(epoch_ms)
 }
 
-fn ts(ms: i64) -> String {
-    iso(from_epoch_ms(ms))
+/// `new Date(ms)`.
+fn ts(ms: i64) -> OffsetDateTime {
+    from_epoch_ms(ms)
 }
 
 /// `markStuckSendingMessages(db, now)`.
 pub async fn mark_stuck_sending_messages(db: &PgPool, now: i64) -> ReachResult<u64> {
-    let rows = sqlx::query(
-        "update reach_messages set status = 'unknown', error = 'Send interrupted; delivery unknown', updated_at = $1::timestamptz
-         where direction = 'out' and status = 'sending' and created_at < $2::timestamptz",
-    )
-    .bind(ts(now))
-    .bind(ts(now - STUCK_SENDING_MS))
-    .execute(db)
-    .await?;
-    Ok(rows.rows_affected())
+    let rows = messages::Entity::update_many()
+        .col_expr(messages::Column::Status, Expr::value("unknown"))
+        .col_expr(
+            messages::Column::Error,
+            Expr::value("Send interrupted; delivery unknown"),
+        )
+        .col_expr(messages::Column::UpdatedAt, Expr::value(ts(now)))
+        .filter(messages::Column::Direction.eq("out"))
+        .filter(messages::Column::Status.eq("sending"))
+        .filter(messages::Column::CreatedAt.lt(ts(now - STUCK_SENDING_MS)))
+        .exec(&orm(db))
+        .await?;
+    Ok(rows.rows_affected)
 }
 
 async fn load_state(
@@ -169,28 +184,38 @@ async fn load_state(
         .and_then(|s| text(s, "defaultTimezone"))
         .unwrap_or(DEFAULT_DAY_TIMEZONE)
         .to_owned();
-    let links: Vec<(String, String)> = sqlx::query_as(
-        "select campaign_id, mailbox_id from reach_campaign_mailboxes where campaign_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let mailbox_rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_mailboxes t where t.deleted_at is null and t.status <> 'deleted'",
-    )
-    .fetch_all(db)
-    .await?;
-    let step_rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_campaign_steps t where t.campaign_id = any($1) order by t.\"order\" asc",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let links: Vec<(String, String)> = campaign_mailboxes::Entity::find()
+        .select_only()
+        .column(campaign_mailboxes::Column::CampaignId)
+        .column(campaign_mailboxes::Column::MailboxId)
+        .filter(campaign_mailboxes::Column::CampaignId.is_in(&ids))
+        .into_tuple()
+        .all(&conn)
+        .await?;
+    let mailbox_rows = js_all(
+        mailboxes::Entity::find()
+            .filter(mailboxes::Column::DeletedAt.is_null())
+            .filter(mailboxes::Column::Status.ne("deleted"))
+            .all(&conn)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
+    let step_rows = js_all(
+        steps::Entity::find()
+            .filter(steps::Column::CampaignId.is_in(&ids))
+            .order_by_asc(steps::Column::Order)
+            .all(&conn)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let sent_today =
         count_sent_today(db, start_of_zoned_day(from_epoch_ms(now), &day_timezone)).await?;
 
     let mut steps: HashMap<String, Vec<Value>> = HashMap::new();
-    for step in step_rows.into_iter().map(weldsuite_db::js_row) {
+    for step in step_rows {
         steps
             .entry(text_or_empty(&step, "campaignId").to_owned())
             .or_default()
@@ -198,7 +223,7 @@ async fn load_state(
     }
     let mut mailboxes = HashMap::new();
     let mut plan_mailboxes = HashMap::new();
-    for m in mailbox_rows.into_iter().map(weldsuite_db::js_row) {
+    for m in mailbox_rows {
         let id = text_or_empty(&m, "id").to_owned();
         plan_mailboxes.insert(
             id.clone(),
@@ -253,12 +278,29 @@ async fn load_state(
     })
 }
 
-/// `and(status = 'active', next_send_at <= now, claimable(now))` as SQL on
-/// `$1` (now) and `$2` (now - `CLAIM_STALE_MS`).
-macro_rules! due_now {
-    () => {
-        "status = 'active' and next_send_at <= $1::timestamptz and (claimed_at is null or claimed_at < $2::timestamptz)"
-    };
+/// `and(status = 'active', next_send_at <= now, claimable(now))`: claimable
+/// when never claimed or claimed before `now - CLAIM_STALE_MS`.
+fn due_now(now: i64) -> Condition {
+    use enrollments::Column;
+    Condition::all()
+        .add(Column::Status.eq("active"))
+        .add(Column::NextSendAt.lte(ts(now)))
+        .add(
+            Condition::any()
+                .add(Column::ClaimedAt.is_null())
+                .add(Column::ClaimedAt.lt(ts(now - CLAIM_STALE_MS))),
+        )
+}
+
+/// Push the due enrollments `which` matches to `until`.
+async fn push_back(db: &PgPool, now: i64, until: i64, which: Condition) -> Result<(), DbErr> {
+    enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::NextSendAt, Expr::value(ts(until)))
+        .col_expr(enrollments::Column::UpdatedAt, Expr::value(ts(now)))
+        .filter(which.add(due_now(now)))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// `deferUnsendable(state)`: the open campaigns and the mailboxes' readiness.
@@ -270,16 +312,12 @@ async fn defer_unsendable(db: &PgPool, state: &TickState) -> ReachResult<(Vec<St
         match evaluate_campaign_gate(pc, &state.ctx) {
             CampaignGate::Open => open.push(id.clone()),
             CampaignGate::Closed { reopens_at, .. } => {
-                sqlx::query(concat!(
-                    "update reach_enrollments set next_send_at = $3::timestamptz, updated_at = $1::timestamptz
-                     where campaign_id = $4 and ",
-                    due_now!()
-                ))
-                .bind(ts(now))
-                .bind(ts(now - CLAIM_STALE_MS))
-                .bind(ts(reopens_at))
-                .bind(id)
-                .execute(db)
+                push_back(
+                    db,
+                    now,
+                    reopens_at,
+                    Condition::all().add(enrollments::Column::CampaignId.eq(id.as_str())),
+                )
                 .await?;
             }
         }
@@ -297,48 +335,37 @@ async fn defer_unsendable(db: &PgPool, state: &TickState) -> ReachResult<(Vec<St
         .map(|m| m.id.clone())
         .collect();
     // Pinned to a mailbox that cannot send at all: look again in an hour.
-    sqlx::query(concat!(
-        "update reach_enrollments set next_send_at = $3::timestamptz, updated_at = $1::timestamptz
-         where campaign_id = any($4) and mailbox_id is not null
-           and (cardinality($5::varchar[]) = 0 or mailbox_id <> all($5)) and ",
-        due_now!()
-    ))
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_STALE_MS))
-    .bind(ts(now + UNAVAILABLE_RETRY_MS))
-    .bind(&open)
-    .bind(&active)
-    .execute(db)
-    .await?;
+    let mut unusable = Condition::all()
+        .add(enrollments::Column::CampaignId.is_in(&open))
+        .add(enrollments::Column::MailboxId.is_not_null());
+    if !active.is_empty() {
+        unusable = unusable.add(enrollments::Column::MailboxId.is_not_in(&active));
+    }
+    push_back(db, now, now + UNAVAILABLE_RETRY_MS, unusable).await?;
     let capped: Vec<String> = readiness.capped.iter().cloned().collect();
     for pc in &open_campaigns {
         // Pinned to a mailbox out of sends for today: tomorrow's window.
         if !capped.is_empty() {
-            sqlx::query(concat!(
-                "update reach_enrollments set next_send_at = $3::timestamptz, updated_at = $1::timestamptz
-                 where campaign_id = $4 and mailbox_id = any($5) and ",
-                due_now!()
-            ))
-            .bind(ts(now))
-            .bind(ts(now - CLAIM_STALE_MS))
-            .bind(ts(next_day_window_start(pc, &state.ctx)))
-            .bind(&pc.id)
-            .bind(&capped)
-            .execute(db)
+            push_back(
+                db,
+                now,
+                next_day_window_start(pc, &state.ctx),
+                Condition::all()
+                    .add(enrollments::Column::CampaignId.eq(pc.id.as_str()))
+                    .add(enrollments::Column::MailboxId.is_in(&capped)),
+            )
             .await?;
         }
         // First emails of a campaign none of whose mailboxes can send.
         if let Some(until) = first_email_hold(pc, state, &readiness) {
-            sqlx::query(concat!(
-                "update reach_enrollments set next_send_at = $3::timestamptz, updated_at = $1::timestamptz
-                 where campaign_id = $4 and mailbox_id is null and ",
-                due_now!()
-            ))
-            .bind(ts(now))
-            .bind(ts(now - CLAIM_STALE_MS))
-            .bind(ts(until))
-            .bind(&pc.id)
-            .execute(db)
+            push_back(
+                db,
+                now,
+                until,
+                Condition::all()
+                    .add(enrollments::Column::CampaignId.eq(pc.id.as_str()))
+                    .add(enrollments::Column::MailboxId.is_null()),
+            )
             .await?;
         }
     }
@@ -385,28 +412,8 @@ async fn claim_due(
         .cloned()
         .collect();
     let limit = CLAIM_MAX.min((ready.len() as i64 * 3).max(4));
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "update reach_enrollments set claimed_at = $1::timestamptz, updated_at = $1::timestamptz
-         where id in (
-             select id from reach_enrollments
-             where campaign_id = any($3) and ",
-        due_now!(),
-        " and (mailbox_id = any($4) or (cardinality($5::varchar[]) > 0 and mailbox_id is null and campaign_id = any($5)))
-             order by next_send_at asc, id asc
-             limit $6)
-           and ",
-        due_now!(),
-        " returning to_jsonb(reach_enrollments)"
-    ))
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_STALE_MS))
-    .bind(open)
-    .bind(&ready)
-    .bind(&with_ready)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    let mut claimed: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let rows = claim(db, now, open, &ready, &with_ready, limit).await?;
+    let mut claimed = js_all(rows.into_iter().map(serde_json::to_value))?;
     claimed.sort_by(|a, b| {
         ms_of(a, "nextSendAt")
             .unwrap_or(0)
@@ -414,6 +421,45 @@ async fn claim_due(
             .then_with(|| text_or_empty(a, "id").cmp(text_or_empty(b, "id")))
     });
     Ok(claimed)
+}
+
+/// The claim itself, one statement: `update … set claimed_at = now where id
+/// in (select id … order by next_send_at, id limit n) and <due now>
+/// returning *`, so two ticks never claim the same enrollment.
+async fn claim(
+    db: &PgPool,
+    now: i64,
+    open: &[String],
+    ready: &[String],
+    with_ready: &[String],
+    limit: i64,
+) -> Result<Vec<enrollments::Model>, DbErr> {
+    use enrollments::Column;
+    let mut sendable = Condition::any().add(Column::MailboxId.is_in(ready));
+    if !with_ready.is_empty() {
+        sendable = sendable.add(
+            Condition::all()
+                .add(Column::MailboxId.is_null())
+                .add(Column::CampaignId.is_in(with_ready)),
+        );
+    }
+    let due = enrollments::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::CampaignId.is_in(open))
+        .filter(due_now(now))
+        .filter(sendable)
+        .order_by_asc(Column::NextSendAt)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_query();
+    enrollments::Entity::update_many()
+        .col_expr(Column::ClaimedAt, Expr::value(ts(now)))
+        .col_expr(Column::UpdatedAt, Expr::value(ts(now)))
+        .filter(Column::Id.in_subquery(due))
+        .filter(due_now(now))
+        .exec_with_returning(&orm(db))
+        .await
 }
 
 /// What the message rows say about the step an enrollment is on.
@@ -616,29 +662,31 @@ async fn triage(
             prospect_ids.push(id);
         }
     }
-    let prospect_rows: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = any($1)")
-            .bind(&prospect_ids)
-            .fetch_all(db)
-            .await?;
-    let prospect_rows: Vec<Value> = prospect_rows
-        .into_iter()
-        .map(weldsuite_db::js_row)
-        .collect();
+    let conn = orm(db);
+    let prospect_rows = js_all(
+        reach_prospects::Entity::find()
+            .filter(reach_prospects::Column::Id.is_in(prospect_ids))
+            .all(&conn)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let enrollment_ids: Vec<String> = claimed
         .iter()
         .map(|e| text_or_empty(e, "id").to_owned())
         .collect();
-    let history: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_messages t
-         where t.enrollment_id = any($1) and t.direction = 'out'
-           and t.status in ('sending', 'sent', 'unknown', 'failed')
-         order by t.created_at asc, t.id asc",
-    )
-    .bind(&enrollment_ids)
-    .fetch_all(db)
-    .await?;
-    let history: Vec<Value> = history.into_iter().map(weldsuite_db::js_row).collect();
+    let history = js_all(
+        messages::Entity::find()
+            .filter(messages::Column::EnrollmentId.is_in(enrollment_ids))
+            .filter(messages::Column::Direction.eq("out"))
+            .filter(messages::Column::Status.is_in(["sending", "sent", "unknown", "failed"]))
+            .order_by_asc(messages::Column::CreatedAt)
+            .order_by_asc(messages::Column::Id)
+            .all(&conn)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let emails: Vec<String> = prospect_rows
         .iter()
         .map(|p| text_or_empty(p, "email").to_owned())
@@ -694,19 +742,7 @@ async fn send_one(deps: &TickDeps<'_>, now: i64, input: SendOne<'_>) -> ReachRes
     let mailbox = input.mailbox;
     let mailbox_id = text_or_empty(mailbox, "id");
     // Reserve the mailbox: the gap restarts now, and a racing tick backs off.
-    let reserved: Option<String> = sqlx::query_scalar(
-        "update reach_mailboxes set last_sent_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = $1 and status = 'active'
-           and (case when $3::text is null then last_sent_at is null
-                     else date_trunc('milliseconds', last_sent_at) = $3::timestamptz end)
-         returning id",
-    )
-    .bind(mailbox_id)
-    .bind(ts(now))
-    .bind(text(mailbox, "lastSentAt"))
-    .fetch_optional(db)
-    .await?;
-    if reserved.is_none() {
+    if !reserve(db, mailbox_id, now, text(mailbox, "lastSentAt")).await? {
         return Ok(Outcome::Busy);
     }
     let values = template_values(
@@ -815,6 +851,37 @@ async fn send_one(deps: &TickDeps<'_>, now: i64, input: SendOne<'_>) -> ReachRes
     } else {
         Outcome::Temporary
     })
+}
+
+/// `update reach_mailboxes set last_sent_at = now … where id and status =
+/// 'active' and last_sent_at is still what the tick read` (to the
+/// millisecond): whether this tick has the mailbox.
+async fn reserve(
+    db: &PgPool,
+    mailbox_id: &str,
+    now: i64,
+    last_sent_at: Option<&str>,
+) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use mailboxes::Column;
+    let unchanged = match last_sent_at {
+        None => Column::LastSentAt.is_null(),
+        Some(at) => Expr::from(
+            Func::cust("date_trunc")
+                .arg("milliseconds")
+                .arg(Expr::col((mailboxes::Entity, Column::LastSentAt))),
+        )
+        .eq(parse_iso(at)),
+    };
+    let reserved = mailboxes::Entity::update_many()
+        .col_expr(Column::LastSentAt, Expr::value(ts(now)))
+        .col_expr(Column::UpdatedAt, Expr::value(ts(now)))
+        .filter(Column::Id.eq(mailbox_id))
+        .filter(Column::Status.eq("active"))
+        .filter(unchanged)
+        .exec(&orm(db))
+        .await?;
+    Ok(reserved.rows_affected > 0)
 }
 
 struct SendRun {
@@ -1039,18 +1106,23 @@ async fn apply_outcomes(
 
 async fn persist(deps: &TickDeps<'_>, now: i64, applied: &Applied) -> ReachResult<()> {
     let db = deps.db;
+    let conn = orm(db);
     for (mailbox_id, reason, error) in &applied.problems {
-        let updated: Option<Value> = sqlx::query_scalar(
-            "update reach_mailboxes set status = 'error', paused_reason = $2, last_error = $3, updated_at = $4::timestamptz
-             where id = $1 and status = 'active' returning to_jsonb(reach_mailboxes)",
-        )
-        .bind(mailbox_id)
-        .bind(*reason)
-        .bind(crate::js_slice(error, 500))
-        .bind(ts(now))
-        .fetch_optional(db)
-        .await?;
-        if let Some(updated) = updated.map(weldsuite_db::js_row) {
+        let updated = mailboxes::Entity::update_many()
+            .col_expr(mailboxes::Column::Status, Expr::value("error"))
+            .col_expr(mailboxes::Column::PausedReason, Expr::value(*reason))
+            .col_expr(
+                mailboxes::Column::LastError,
+                Expr::value(crate::js_slice(error, 500)),
+            )
+            .col_expr(mailboxes::Column::UpdatedAt, Expr::value(ts(now)))
+            .filter(mailboxes::Column::Id.eq(mailbox_id.as_str()))
+            .filter(mailboxes::Column::Status.eq("active"))
+            .exec_with_returning(&conn)
+            .await?
+            .into_iter()
+            .next();
+        if let Some(updated) = updated.map(serde_json::to_value).map(js).transpose()? {
             deps.events.emit(ReachEvent::new(
                 REACH_MAILBOX_UPDATED,
                 text_or_empty(&updated, "id"),
@@ -1063,34 +1135,7 @@ async fn persist(deps: &TickDeps<'_>, now: i64, applied: &Applied) -> ReachResul
     let updates: Vec<_> = applied
         .patches
         .iter()
-        .map(|(id, patch)| {
-            sqlx::query(
-                "update reach_enrollments set
-                 status = coalesce($2, status),
-                 current_step = coalesce($3, current_step),
-                 mailbox_id = coalesce($4, mailbox_id),
-                 last_message_id = coalesce($5, last_message_id),
-                 thread_root_message_id = case when $6 then $7 else thread_root_message_id end,
-                 next_send_at = case when $8 then $9::timestamptz else next_send_at end,
-                 stopped_reason = case when $10 then $11 else stopped_reason end,
-                 claimed_at = null,
-                 updated_at = $12::timestamptz
-             where id = $1 and status = 'active'",
-            )
-            .bind(id)
-            .bind(&patch.status)
-            .bind(patch.current_step.map(|n| n as i32))
-            .bind(&patch.mailbox_id)
-            .bind(&patch.last_message_id)
-            .bind(patch.thread_root_message_id.is_some())
-            .bind(patch.thread_root_message_id.clone().flatten())
-            .bind(patch.next_send_at.is_some())
-            .bind(patch.next_send_at.flatten().map(ts))
-            .bind(patch.stopped_reason.is_some())
-            .bind(patch.stopped_reason.clone().flatten())
-            .bind(ts(now))
-            .execute(db)
-        })
+        .map(|(id, patch)| patch_update(id, patch, now).exec(&conn))
         .collect();
     let updates = futures_util::stream::iter(updates)
         .buffer_unordered(SEND_CONCURRENCY)
@@ -1115,6 +1160,39 @@ async fn persist(deps: &TickDeps<'_>, now: i64, applied: &Applied) -> ReachResul
     Ok(())
 }
 
+/// One enrollment's patch (`EnrollmentPatch`): the fields it sets, the claim
+/// cleared and `updated_at`, while the enrollment is still `active`.
+fn patch_update(id: &str, patch: &Patch, now: i64) -> sea_orm::UpdateMany<enrollments::Entity> {
+    use enrollments::Column;
+    let mut update = enrollments::Entity::update_many();
+    if let Some(status) = &patch.status {
+        update = update.col_expr(Column::Status, Expr::value(status.as_str()));
+    }
+    if let Some(step) = patch.current_step {
+        update = update.col_expr(Column::CurrentStep, Expr::value(step as i32));
+    }
+    if let Some(mailbox_id) = &patch.mailbox_id {
+        update = update.col_expr(Column::MailboxId, Expr::value(mailbox_id.as_str()));
+    }
+    if let Some(message_id) = &patch.last_message_id {
+        update = update.col_expr(Column::LastMessageId, Expr::value(message_id.as_str()));
+    }
+    if let Some(root) = &patch.thread_root_message_id {
+        update = update.col_expr(Column::ThreadRootMessageId, Expr::value(root.clone()));
+    }
+    if let Some(next) = patch.next_send_at {
+        update = update.col_expr(Column::NextSendAt, Expr::value(next.map(ts)));
+    }
+    if let Some(reason) = &patch.stopped_reason {
+        update = update.col_expr(Column::StoppedReason, Expr::value(reason.clone()));
+    }
+    update
+        .col_expr(Column::ClaimedAt, Expr::value(None::<OffsetDateTime>))
+        .col_expr(Column::UpdatedAt, Expr::value(ts(now)))
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("active"))
+}
+
 /// `finishTick(state, retryAt)`: complete finished campaigns, then when
 /// the workspace next has work.
 async fn finish_tick(
@@ -1124,14 +1202,27 @@ async fn finish_tick(
 ) -> ReachResult<Option<i64>> {
     let db = deps.db;
     complete_and_publish(db, deps.events, &state.campaign_order).await?;
-    let earliest: Option<String> = sqlx::query_scalar(
-        "select to_char(min(e.next_send_at) at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-         from reach_enrollments e join reach_campaigns c on c.id = e.campaign_id
-         where e.status = 'active' and c.status = 'active' and c.deleted_at is null and e.next_send_at is not null",
-    )
-    .fetch_one(db)
-    .await?;
-    let Some(earliest) = earliest.as_deref().and_then(parse_iso).map(epoch_ms) else {
+    let earliest: Option<Option<OffsetDateTime>> = enrollments::Entity::find()
+        .select_only()
+        .expr(Func::min(Expr::col((
+            enrollments::Entity,
+            enrollments::Column::NextSendAt,
+        ))))
+        .join(
+            JoinType::InnerJoin,
+            enrollments::Entity::belongs_to(campaigns::Entity)
+                .from(enrollments::Column::CampaignId)
+                .to(campaigns::Column::Id)
+                .into(),
+        )
+        .filter(enrollments::Column::Status.eq("active"))
+        .filter(campaigns::Column::Status.eq("active"))
+        .filter(campaigns::Column::DeletedAt.is_null())
+        .filter(enrollments::Column::NextSendAt.is_not_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let Some(earliest) = earliest.flatten().map(stamp).map(epoch_ms) else {
         return Ok(None);
     };
     let now = state.now;
@@ -1152,18 +1243,15 @@ pub async fn run_send_tick(deps: &TickDeps<'_>) -> ReachResult<TickResult> {
     let now = epoch_ms((deps.clock)());
     let mut tally = TickResult::default();
     mark_stuck_sending_messages(db, now).await?;
-    let campaign_rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_campaigns t where t.status = 'active' and t.deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+    let campaign_rows = campaigns::Entity::find()
+        .filter(campaigns::Column::Status.eq("active"))
+        .filter(campaigns::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
     if campaign_rows.is_empty() {
         return Ok(tally);
     }
-    let campaign_rows: Vec<Value> = campaign_rows
-        .into_iter()
-        .map(weldsuite_db::js_row)
-        .collect();
+    let campaign_rows = js_all(campaign_rows.into_iter().map(serde_json::to_value))?;
     let state = load_state(deps, now, campaign_rows).await?;
     let (open, readiness) = defer_unsendable(db, &state).await?;
     let claimed = claim_due(db, &state, &open, &readiness).await?;

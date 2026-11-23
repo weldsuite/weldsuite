@@ -38,7 +38,6 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::common::{changes, keep, merged, num, number_of, refuse, text, today};
-use crate::orm_bridge::refusal;
 use crate::returns::common::{day_text, row_json, rows_json};
 
 /// `sales_tax_zones` written from a `{ column: value }` object.
@@ -299,8 +298,7 @@ async fn check_jurisdictions(
             .filter(Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm(db))
-            .await
-            .map_err(refusal)?
+            .await?
     };
     let agency_of = |id: &str| rows.iter().find(|(r, _)| r == id).map(|(_, a)| a.as_str());
     let missing: Vec<&str> = unique
@@ -368,8 +366,7 @@ async fn present_zones(
             .filter(Jurisdiction::Id.is_in(ids.iter().map(String::as_str)))
             .into_tuple()
             .all(&conn)
-            .await
-            .map_err(refusal)?;
+            .await?;
         let rates: Vec<(time::Date, Option<time::Date>, String, BigDecimal)> =
             sales_tax_jurisdiction_rates::Entity::find()
                 .select_only()
@@ -384,8 +381,7 @@ async fn present_zones(
                 .filter(Rate::DeletedAt.is_null())
                 .into_tuple()
                 .all(&conn)
-                .await
-                .map_err(refusal)?;
+                .await?;
         // `effective_from::text, coalesce(effective_to::text, ''), jurisdiction_id, rate::text`.
         let rates = rates
             .into_iter()
@@ -454,11 +450,9 @@ async fn require_zone(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, R
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| refuse(format!("Sales tax zone {id} not found"), 404))
 }
 
@@ -534,14 +528,13 @@ async fn list_zones(caller: &Caller, state: &BooksState, q: &Query) -> Reply {
         .limit(u64::try_from(page_size).unwrap_or(0))
         .offset(u64::try_from(offset).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refusal)?;
-    let total = select.count(&db).await.map_err(refusal)?;
+        .await?;
+    let total = select.count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = present_zones(
         &caller.db,
         entity_id,
-        rows_json(rows).map_err(refusal)?,
+        rows_json(rows)?,
         &today(caller, state),
     )
     .await?;
@@ -625,8 +618,7 @@ async fn create_zone(caller: &Caller, state: &BooksState, data: ZoneBody) -> Rep
             &orm(&caller.db),
             T.values(zone.as_object().unwrap_or(&Map::new())),
         )
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(caller, &entity_id, &id, "created", None).await;
     caller.publish(state, SALES_TAX_ZONE_CREATED, &id, event_data(&zone));
     let row = present_zones(&caller.db, &entity_id, vec![zone], &today(caller, state))
@@ -681,8 +673,7 @@ async fn update_zone(caller: &Caller, state: &BooksState, id: &str, data: ZoneBo
     keep(&mut update, "priority", &data.priority);
     ZONE_ROWS
         .update(&orm(&caller.db), id, T.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(
         caller,
         &entity_id,
@@ -717,8 +708,7 @@ async fn remove(
                 .col_expr(sales_tax_zones::Column::UpdatedAt, Expr::value(at))
                 .filter(sales_tax_zones::Column::Id.eq(id.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(refusal)?;
+                .await?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(&state, SALES_TAX_ZONE_DELETED, &id, event_data(&zone));
             Ok(no_content())

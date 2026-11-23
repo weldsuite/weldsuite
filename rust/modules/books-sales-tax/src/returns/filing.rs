@@ -26,7 +26,6 @@ use super::lifecycle::RETURN_ROWS;
 use super::periods::build_period_rows;
 use super::rows::{LoadedRows, ReceivedFilter, received_by_invoice, rows_by_ids};
 use crate::common::text;
-use crate::orm_bridge::refusal;
 use weldsuite_books_domain::http::Refusal;
 
 /// The statements that stamp the rows a return counted with its id, run on
@@ -179,8 +178,7 @@ pub(crate) async fn file_return(
             created_not_after: Some(now),
         },
     )
-    .await
-    .map_err(refusal)?;
+    .await?;
     if !same_worksheet(&ret["summary"], &calc.summary) {
         return Err(conflict(
             "The ledger changed since this return was calculated. Recalculate it, review the worksheet and file again.",
@@ -189,10 +187,9 @@ pub(crate) async fn file_return(
 
     let mut tx = db.begin().await?;
     mark_filed(&OrmConn::new(&mut tx), &input, &calc, &filed_at)
-        .await
-        .map_err(refusal)?;
+        .await?;
     tx.commit().await?;
-    let updated = return_by_id(db, s(ret, "id")).await.map_err(refusal)?;
+    let updated = return_by_id(db, s(ret, "id")).await?;
     let Some(updated) = updated.filter(|u| s(u, "status") == "filed" && !u["filedAt"].is_null())
     else {
         return Err(conflict(
@@ -222,8 +219,7 @@ pub(crate) async fn file_return(
         }
     }
     let returns = super::common::load_agency_returns(db, s(ret, "entityId"), s(agency, "id"))
-        .await
-        .map_err(refusal)?;
+        .await?;
     let from = add_months(s(ret, "periodStart"), -24);
     let unfiled: Vec<String> = build_period_rows(
         agency,
@@ -601,7 +597,7 @@ pub(crate) async fn carry_forward(
     if !is_filed(ret) {
         return Err(bad("Only a filed return has exceptions to carry forward"));
     }
-    let result = list_exceptions(db, agency, ret).await.map_err(refusal)?;
+    let result = list_exceptions(db, agency, ret).await?;
     let open = open_row_ids(&result);
     let mut ids: Vec<String> = Vec::new();
     for id in tax_line_ids
@@ -624,11 +620,9 @@ pub(crate) async fn carry_forward(
     }
     let exceptions = with_resolutions(ret, &ids, "carried_forward", user_id, now, None);
     set_exceptions(&orm(db), s(ret, "id"), exceptions, now)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let updated = return_by_id(db, s(ret, "id"))
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or_else(|| ret.clone());
     let tax_amount = sum_money(
         result
@@ -638,8 +632,7 @@ pub(crate) async fn carry_forward(
             .map(|i| i.tax_amount),
     );
     let later = later_calculated(db, s(ret, "entityId"), s(agency, "id"), s(ret, "periodEnd"))
-        .await
-        .map_err(refusal)?;
+        .await?;
     Ok((updated, ids.len(), tax_amount, later))
 }
 
@@ -698,8 +691,7 @@ pub(crate) async fn amend_return(
         .filter(tax_returns::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     if let Some((id, status)) = existing {
         return Err(conflict(if FILED_STATUSES.contains(&status.as_str()) {
             format!("This return was already amended by {id}; amend that return instead")
@@ -707,7 +699,7 @@ pub(crate) async fn amend_return(
             format!("An amended return ({id}) is already open for this period")
         }));
     }
-    let exceptions = list_exceptions(db, agency, ret).await.map_err(refusal)?;
+    let exceptions = list_exceptions(db, agency, ret).await?;
     let take_ids: Vec<String> = exceptions
         .items
         .iter()
@@ -756,8 +748,7 @@ pub(crate) async fn amend_return(
             created_not_after: None,
         },
     )
-    .await
-    .map_err(refusal)?;
+    .await?;
     if take_ids.is_empty() && same_worksheet(&ret["summary"], &calculation.summary) {
         return Err(bad(
             "Nothing to amend: the ledger still matches the filed return",
@@ -786,18 +777,16 @@ pub(crate) async fn amend_return(
     let mut tx = db.begin().await?;
     {
         let conn = OrmConn::new(&mut tx);
-        RETURN_ROWS.insert(&conn, values).await.map_err(refusal)?;
+        RETURN_ROWS.insert(&conn, values).await?;
         if !take_ids.is_empty() {
             let marked = with_resolutions(ret, &take_ids, "amended", user_id, now, Some(&id));
             set_exceptions(&conn, s(ret, "id"), marked, now)
-                .await
-                .map_err(refusal)?;
+                .await?;
         }
     }
     tx.commit().await?;
     let created = return_by_id(db, &id)
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or(Value::Null);
     Ok((created, take_ids.len()))
 }

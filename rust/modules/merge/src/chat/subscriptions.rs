@@ -31,7 +31,7 @@ use sea_orm::{
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_schema::tenant::{merge_chat_subscriptions, merge_repositories, merge_teams};
@@ -384,8 +384,7 @@ pub(crate) async fn create(
     })?;
     let db = &caller.db;
     if !weldsuite_chat_domain::can_access_channel(db, &input.channel_id, &caller.user_id, None)
-        .await
-        .map_err(orm_error)?
+        .await?
     {
         return Err(Refusal::not_found("Channel", Some(&input.channel_id)));
     }

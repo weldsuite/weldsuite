@@ -6,11 +6,18 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use time::Date;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::fx_rates;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
 
+use crate::db_values::{date_of, decimal_of};
 use crate::http::now_ms;
 use crate::js::math_round;
 
@@ -193,34 +200,33 @@ pub async fn persist_daily_ecb_rates(
     scope: &str,
     http: Option<&OutboundHttp>,
     iso_date: &str,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
     let rates = get_exchange_rates(cache, scope, http).await;
     store_ecb_rates(db, iso_date, &rates).await
 }
 
-async fn store_ecb_rates(db: &PgPool, iso_date: &str, rates: &Rates) -> Result<usize, sqlx::Error> {
+async fn store_ecb_rates(db: &PgPool, iso_date: &str, rates: &Rates) -> Result<usize, DbErr> {
     let rows: Vec<&(String, f64)> = rates.iter().filter(|(code, _)| code != "EUR").collect();
     if rows.is_empty() {
         return Ok(0);
     }
-    let ids: Vec<String> = rows.iter().map(|_| generate_id("fxr")).collect();
-    let codes: Vec<String> = rows.iter().map(|(code, _)| code.clone()).collect();
-    let values: Vec<String> = rows
-        .iter()
-        .map(|(_, rate)| crate::js::number_text(*rate))
-        .collect();
-    sqlx::query(
-        "insert into fx_rates (id, date, from_currency, to_currency, rate, source) \
-         select id, $2::date, 'EUR', code, rate::numeric, 'ecb' \
-         from unnest($1::varchar[], $3::varchar[], $4::text[]) as r(id, code, rate) \
-         on conflict do nothing",
-    )
-    .bind(&ids)
-    .bind(iso_date)
-    .bind(&codes)
-    .bind(&values)
-    .execute(db)
-    .await?;
+    let date = date_of(iso_date)?;
+    let mut models = Vec::with_capacity(rows.len());
+    for (code, rate) in &rows {
+        models.push(fx_rates::ActiveModel {
+            id: Set(generate_id("fxr")),
+            date: Set(date),
+            from_currency: Set("EUR".to_owned()),
+            to_currency: Set(code.clone()),
+            rate: Set(decimal_of(&crate::js::number_text(*rate))?),
+            source: Set("ecb".to_owned()),
+            ..Default::default()
+        });
+    }
+    fx_rates::Entity::insert_many(models)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(rows.len())
 }
 
@@ -229,16 +235,23 @@ async fn latest_eur(
     db: &PgPool,
     counter: &str,
     iso_date: &str,
-) -> Result<Option<f64>, sqlx::Error> {
-    let rate: Option<String> = sqlx::query_scalar(
-        "select rate::text from fx_rates where from_currency = 'EUR' and to_currency = $1 \
-         and date <= $2::date order by date desc limit 1",
-    )
-    .bind(counter)
-    .bind(iso_date)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<f64>, DbErr> {
+    let rate: Option<String> = fx_rates::Entity::find()
+        .select_only()
+        .column_as(rate_text(), "rate")
+        .filter(fx_rates::Column::FromCurrency.eq("EUR"))
+        .filter(fx_rates::Column::ToCurrency.eq(counter))
+        .filter(fx_rates::Column::Date.lte(date_of(iso_date)?))
+        .order_by_desc(fx_rates::Column::Date)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(rate.map(|r| weldsuite_kit::validation::js_number(&r)))
+}
+
+/// `rate::text`: the stored rate as Postgres prints it.
+fn rate_text() -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::col(fx_rates::Column::Rate), "text")
 }
 
 /// `lookupHistoricalRate`: a stored rate crossed over EUR.
@@ -247,7 +260,7 @@ async fn lookup_historical_rate(
     from: &str,
     to: &str,
     iso_date: &str,
-) -> Result<Option<f64>, sqlx::Error> {
+) -> Result<Option<f64>, DbErr> {
     if from == "EUR" {
         return latest_eur(db, to, iso_date).await;
     }
@@ -278,7 +291,7 @@ pub async fn get_exchange_rate(
     from: &str,
     to: &str,
     stored: Option<(&PgPool, &str)>,
-) -> Result<Result<f64, RateUnavailable>, sqlx::Error> {
+) -> Result<Result<f64, RateUnavailable>, DbErr> {
     if from == to {
         return Ok(Ok(1.0));
     }
@@ -310,23 +323,25 @@ pub async fn lookup_stored_rate(
     from: &str,
     to: &str,
     iso_date: &str,
-) -> Result<Option<f64>, sqlx::Error> {
+) -> Result<Option<f64>, DbErr> {
     let from_code = from.to_uppercase();
     let to_code = to.to_uppercase();
     if from_code == to_code {
         return Ok(Some(1.0));
     }
     let latest = |a: String, b: String| async move {
-        let row: Option<(String, String)> = sqlx::query_as(
-            "select date::text, rate::text from fx_rates where from_currency = $1 and to_currency = $2 \
-             and date <= $3::date order by date desc limit 1",
-        )
-        .bind(&a)
-        .bind(&b)
-        .bind(iso_date)
-        .fetch_optional(db)
-        .await?;
-        Ok::<_, sqlx::Error>(row.and_then(|(date, rate)| {
+        let row: Option<(Date, String)> = fx_rates::Entity::find()
+            .select_only()
+            .column(fx_rates::Column::Date)
+            .column_as(rate_text(), "rate")
+            .filter(fx_rates::Column::FromCurrency.eq(a))
+            .filter(fx_rates::Column::ToCurrency.eq(b))
+            .filter(fx_rates::Column::Date.lte(date_of(iso_date)?))
+            .order_by_desc(fx_rates::Column::Date)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        Ok::<_, DbErr>(row.and_then(|(date, rate)| {
             let rate = weldsuite_kit::validation::js_number(&rate);
             (rate.is_finite() && rate > 0.0).then_some((date, rate))
         }))

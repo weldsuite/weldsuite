@@ -7,7 +7,7 @@ use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_chat_domain::text::build_message_preview;
 use weldsuite_chat_domain::{can_access_channel, unreadable_record_chat_ids};
-use weldsuite_db::{orm, orm_error, utc_now};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{
     chat_channel_members as members, chat_channels, chat_messages, workspace_members,
@@ -72,8 +72,7 @@ pub(crate) async fn forward_message(
         .await?;
     if member.is_none()
         || !can_access_channel(db, source_channel_id, user_id, None)
-            .await
-            .map_err(orm_error)?
+            .await?
     {
         return Ok(Err((
             403,
@@ -215,8 +214,7 @@ pub(crate) async fn forward_message(
         .cloned()
         .collect();
     let unreadable = unreadable_record_chat_ids(db, user_id, &record_targets, None)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     if !unreadable.is_empty() {
         return Ok(Err((
             403,

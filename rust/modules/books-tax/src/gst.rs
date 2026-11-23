@@ -19,7 +19,7 @@ use weldsuite_books_domain::tax::entity_state_code;
 use weldsuite_db::orm;
 use weldsuite_schema::tenant::{companies, invoice_items, invoices, parties, tax_lines};
 
-use crate::orm_bridge::{column_text, date_of, iso_of, refused};
+use crate::orm_bridge::{column_text, date_of, iso_of};
 use crate::vat_returns::{entity_row, has_feature};
 
 fn n(value: f64) -> Value {
@@ -71,7 +71,7 @@ async fn load_worksheet(caller: &Caller, start: &str, end: &str) -> Reply {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     let code = entity.get("jurisdictionCode").and_then(Value::as_str);
@@ -87,8 +87,7 @@ async fn load_worksheet(caller: &Caller, start: &str, end: &str) -> Reply {
         ));
     }
     let input = load_input(db, &entity, &entity_id, start, end)
-        .await
-        .map_err(refused)?;
+        .await?;
     Ok(ok(compute(&input)))
 }
 

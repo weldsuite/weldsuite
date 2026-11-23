@@ -3,11 +3,19 @@
 //! to every active internal member, and `chat_channels.member_count` follows
 //! the roster. Realtime and entity events stay with the routes.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    chat_channel_members as members, chat_channels, weldagent_agents, workspace_members,
+};
 
 use crate::text::{js_len, js_prefix, slugify_channel_name};
+use crate::{json_error, timestamp_of};
 
 /// What a new channel is made of (`CreateChannelInput`).
 #[derive(Debug, Clone, Default)]
@@ -38,17 +46,19 @@ pub async fn resolve_channel_slug(
     db: &PgPool,
     name: &str,
     channel_id: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let base = slugify_channel_name(name);
     if base.is_empty() {
         return Ok(channel_id.to_owned());
     }
-    let clash: Option<String> =
-        sqlx::query_scalar("select id from chat_channels where slug = $1 and id <> $2 limit 1")
-            .bind(&base)
-            .bind(channel_id)
-            .fetch_optional(db)
-            .await?;
+    let clash: Option<String> = chat_channels::Entity::find()
+        .select_only()
+        .column(chat_channels::Column::Id)
+        .filter(chat_channels::Column::Slug.eq(&base))
+        .filter(chat_channels::Column::Id.ne(channel_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if clash.is_none() {
         return Ok(base);
     }
@@ -63,33 +73,32 @@ fn add_unique(list: &mut Vec<String>, id: &str) {
     }
 }
 
-/// Membership rows for `user_ids` in one statement (`onConflictDoNothing`).
+/// Membership rows for `user_ids` in one statement (`onConflictDoNothing`),
+/// in their order.
 async fn insert_members(
     db: &PgPool,
     channel_id: &str,
     user_ids: &[String],
     member_type: Option<&str>,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
     if user_ids.is_empty() {
         return Ok(());
     }
-    let ids: Vec<String> = user_ids.iter().map(|_| generate_id("cmb")).collect();
-    sqlx::query(
-        "insert into chat_channel_members
-            (id, channel_id, user_id, member_type, role, joined_at, created_at)
-         select m.id, $2, m.user_id, coalesce($4, 'user'), 'member', $5::timestamp, $5::timestamp
-         from unnest($1::varchar[], $3::varchar[]) with ordinality as m(id, user_id, n)
-         order by m.n
-         on conflict do nothing",
-    )
-    .bind(&ids)
-    .bind(channel_id)
-    .bind(user_ids)
-    .bind(member_type)
-    .bind(now)
-    .execute(db)
-    .await?;
+    let rows = user_ids.iter().map(|user_id| members::ActiveModel {
+        id: Set(generate_id("cmb")),
+        channel_id: Set(channel_id.to_owned()),
+        user_id: Set(user_id.clone()),
+        member_type: Set(member_type.unwrap_or("user").to_owned()),
+        role: Set("member".to_owned()),
+        joined_at: Set(now),
+        created_at: Set(now),
+        ..Default::default()
+    });
+    members::Entity::insert_many(rows)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -99,39 +108,40 @@ pub async fn create_channel(
     creator_user_id: &str,
     input: &NewChannel,
     now: &str,
-) -> Result<CreatedChannel, sqlx::Error> {
+) -> Result<CreatedChannel, DbErr> {
     let id = generate_id("ch");
     let slug = resolve_channel_slug(db, &input.name, &id).await?;
-    sqlx::query(
-        "insert into chat_channels
-            (id, name, slug, description, topic, type, icon, section_id, created_by,
-             member_count, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $11::timestamp, $11::timestamp)",
-    )
-    .bind(&id)
-    .bind(&input.name)
-    .bind(&slug)
-    .bind(&input.description)
-    .bind(&input.topic)
-    .bind(&input.kind)
-    .bind(&input.icon)
-    .bind(&input.section_id)
-    .bind(creator_user_id)
-    .bind(&input.metadata)
-    .bind(now)
-    .execute(db)
+    let now = timestamp_of(now)?;
+    chat_channels::Entity::insert(chat_channels::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(input.name.clone()),
+        slug: Set(slug),
+        description: Set(input.description.clone()),
+        topic: Set(input.topic.clone()),
+        type_: Set(input.kind.clone()),
+        icon: Set(input.icon.clone()),
+        section_id: Set(input.section_id.clone()),
+        created_by: Set(Some(creator_user_id.to_owned())),
+        member_count: Set(1),
+        metadata: Set(input.metadata.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
 
     // 1. The creator is the owner.
-    sqlx::query(
-        "insert into chat_channel_members (id, channel_id, user_id, role, joined_at, created_at)
-         values ($1, $2, $3, 'owner', $4::timestamp, $4::timestamp)",
-    )
-    .bind(generate_id("cmb"))
-    .bind(&id)
-    .bind(creator_user_id)
-    .bind(now)
-    .execute(db)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(generate_id("cmb")),
+        channel_id: Set(id.clone()),
+        user_id: Set(creator_user_id.to_owned()),
+        role: Set("owner".to_owned()),
+        joined_at: Set(now),
+        created_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let mut added: Vec<String> = vec![creator_user_id.to_owned()];
 
@@ -174,12 +184,7 @@ pub async fn create_channel(
         }
     }
     if !agent_ids.is_empty() {
-        let valid: Vec<String> = sqlx::query_scalar(
-            "select id from weldagent_agents where id = any($1) and deleted_at is null",
-        )
-        .bind(&agent_ids)
-        .fetch_all(db)
-        .await?;
+        let valid = live_agent_ids(db, &agent_ids).await?;
         if !valid.is_empty() {
             insert_members(db, &id, &valid, Some("agent"), now).await?;
             for agent in &valid {
@@ -190,14 +195,15 @@ pub async fn create_channel(
 
     // 4. The denormalised roster size.
     if added.len() > 1 {
-        sqlx::query(
-            "update chat_channels set member_count = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(i32::try_from(added.len()).unwrap_or(i32::MAX))
-        .bind(now)
-        .execute(db)
-        .await?;
+        chat_channels::Entity::update_many()
+            .col_expr(
+                chat_channels::Column::MemberCount,
+                Expr::value(i32::try_from(added.len()).unwrap_or(i32::MAX)),
+            )
+            .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+            .filter(chat_channels::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
     }
 
     let channel = channel_row(db, &id).await?.unwrap_or(Value::Null);
@@ -208,23 +214,47 @@ pub async fn create_channel(
 }
 
 /// `select * from chat_channels where id = $1` as Drizzle returns it.
-pub async fn channel_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(c) from chat_channels c where c.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub async fn channel_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = chat_channels::Entity::find_by_id(id).one(&orm(db)).await?;
+    row.map(serde_json::to_value).transpose().map_err(json_error)
 }
 
 /// ACTIVE, live INTERNAL members of the workspace.
-async fn list_internal_member_ids(db: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select user_id from workspace_members
-         where status = 'ACTIVE' and member_type = 'INTERNAL' and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await
+async fn list_internal_member_ids(db: &PgPool) -> Result<Vec<String>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .filter(workspace_members::Column::MemberType.eq("INTERNAL"))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Of `user_ids` (not empty), the ACTIVE, live workspace members.
+async fn active_member_ids(db: &PgPool, user_ids: &[String]) -> Result<Vec<String>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(user_ids.iter().map(String::as_str)))
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Of `agent_ids` (not empty), the agents not deleted.
+async fn live_agent_ids(db: &PgPool, agent_ids: &[String]) -> Result<Vec<String>, DbErr> {
+    weldagent_agents::Entity::find()
+        .select_only()
+        .column(weldagent_agents::Column::Id)
+        .filter(weldagent_agents::Column::Id.is_in(agent_ids.iter().map(String::as_str)))
+        .filter(weldagent_agents::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `filterToWorkspaceMembers`: the ids that are active workspace members,
@@ -232,17 +262,11 @@ async fn list_internal_member_ids(db: &PgPool) -> Result<Vec<String>, sqlx::Erro
 async fn filter_to_workspace_members(
     db: &PgPool,
     user_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let valid: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = any($1) and status = 'ACTIVE' and deleted_at is null",
-    )
-    .bind(user_ids)
-    .fetch_all(db)
-    .await?;
+    let valid = active_member_ids(db, user_ids).await?;
     Ok(user_ids
         .iter()
         .filter(|id| valid.contains(id))
@@ -264,7 +288,7 @@ pub async fn add_channel_members(
     user_ids: &[String],
     member_type: &str,
     now: &str,
-) -> Result<AddMembers, sqlx::Error> {
+) -> Result<AddMembers, DbErr> {
     let mut unique: Vec<String> = Vec::new();
     for id in user_ids {
         add_unique(&mut unique, id);
@@ -277,13 +301,14 @@ pub async fn add_channel_members(
     if let Some(message) = validate_member_ids(db, &unique, member_type).await? {
         return Ok(AddMembers::Refused(message));
     }
-    let existing: Vec<String> = sqlx::query_scalar(
-        "select user_id from chat_channel_members where channel_id = $1 and user_id = any($2)",
-    )
-    .bind(channel_id)
-    .bind(&unique)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<String> = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.is_in(unique.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let to_add: Vec<String> = unique
         .into_iter()
         .filter(|uid| !existing.contains(uid))
@@ -293,16 +318,20 @@ pub async fn add_channel_members(
             added_user_ids: Vec::new(),
         });
     }
+    let now = timestamp_of(now)?;
     insert_members(db, channel_id, &to_add, Some(member_type), now).await?;
-    sqlx::query(
-        "update chat_channels set member_count = member_count + $2, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(channel_id)
-    .bind(i32::try_from(to_add.len()).unwrap_or(i32::MAX))
-    .bind(now)
-    .execute(db)
-    .await?;
+    chat_channels::Entity::update_many()
+        .col_expr(
+            chat_channels::Column::MemberCount,
+            sea_orm::ExprTrait::add(
+                Expr::col(chat_channels::Column::MemberCount),
+                i32::try_from(to_add.len()).unwrap_or(i32::MAX),
+            ),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .exec(&orm(db))
+        .await?;
     Ok(AddMembers::Added {
         added_user_ids: to_add,
     })
@@ -313,7 +342,7 @@ async fn validate_member_ids(
     db: &PgPool,
     user_ids: &[String],
     member_type: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if member_type == "agent" {
         let invalid: Vec<&str> = user_ids
             .iter()
@@ -323,12 +352,7 @@ async fn validate_member_ids(
         if !invalid.is_empty() {
             return Ok(Some(format!("Invalid agent id(s): {}", invalid.join(", "))));
         }
-        let found: Vec<String> = sqlx::query_scalar(
-            "select id from weldagent_agents where id = any($1) and deleted_at is null",
-        )
-        .bind(user_ids)
-        .fetch_all(db)
-        .await?;
+        let found = live_agent_ids(db, user_ids).await?;
         let missing: Vec<&str> = user_ids
             .iter()
             .filter(|id| !found.contains(id))
@@ -339,13 +363,7 @@ async fn validate_member_ids(
         }
         return Ok(None);
     }
-    let found: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = any($1) and status = 'ACTIVE' and deleted_at is null",
-    )
-    .bind(user_ids)
-    .fetch_all(db)
-    .await?;
+    let found = active_member_ids(db, user_ids).await?;
     let missing: Vec<&str> = user_ids
         .iter()
         .filter(|id| !found.contains(id))
@@ -366,29 +384,25 @@ pub async fn remove_channel_member_by_user_id(
     channel_id: &str,
     user_id: &str,
     now: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let membership: Option<(String, String)> = sqlx::query_as(
-        "select id, role from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((id, role)) = membership else {
+) -> Result<Option<String>, DbErr> {
+    let Some((id, role)) = get_membership(db, channel_id, user_id).await? else {
         return Ok(None);
     };
-    sqlx::query("delete from chat_channel_members where id = $1")
-        .bind(&id)
-        .execute(db)
+    members::Entity::delete_by_id(id).exec(&orm(db)).await?;
+    let now = timestamp_of(now)?;
+    chat_channels::Entity::update_many()
+        .col_expr(
+            chat_channels::Column::MemberCount,
+            Func::greatest([
+                sea_orm::ExprTrait::sub(Expr::col(chat_channels::Column::MemberCount), 1),
+                Expr::val(0),
+            ])
+            .into(),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .exec(&orm(db))
         .await?;
-    sqlx::query(
-        "update chat_channels set member_count = greatest(member_count - 1, 0),
-            updated_at = $2::timestamp where id = $1",
-    )
-    .bind(channel_id)
-    .bind(now)
-    .execute(db)
-    .await?;
     Ok(Some(role))
 }
 
@@ -397,14 +411,15 @@ pub async fn get_membership(
     db: &PgPool,
     channel_id: &str,
     user_id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, role from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<(String, String)>, DbErr> {
+    members::Entity::find()
+        .select_only()
+        .columns([members::Column::Id, members::Column::Role])
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `joinPublicChannel`: `Err(message)` when the channel is missing or not
@@ -414,36 +429,42 @@ pub async fn join_public_channel(
     channel_id: &str,
     user_id: &str,
     now: &str,
-) -> Result<Result<bool, &'static str>, sqlx::Error> {
-    let kind: Option<String> = sqlx::query_scalar(
-        "select type from chat_channels where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Result<bool, &'static str>, DbErr> {
+    let kind: Option<String> = chat_channels::Entity::find()
+        .select_only()
+        .column(chat_channels::Column::Type)
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if kind.as_deref() != Some("public") {
         return Ok(Err("Channel not found or is not public"));
     }
     if get_membership(db, channel_id, user_id).await?.is_some() {
         return Ok(Ok(true));
     }
-    sqlx::query(
-        "insert into chat_channel_members (id, channel_id, user_id, role, joined_at, created_at)
-         values ($1, $2, $3, 'member', $4::timestamp, $4::timestamp) on conflict do nothing",
-    )
-    .bind(generate_id("cmb"))
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(now)
-    .execute(db)
+    let now = timestamp_of(now)?;
+    members::Entity::insert(members::ActiveModel {
+        id: Set(generate_id("cmb")),
+        channel_id: Set(channel_id.to_owned()),
+        user_id: Set(user_id.to_owned()),
+        role: Set("member".to_owned()),
+        joined_at: Set(now),
+        created_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(db))
     .await?;
-    sqlx::query(
-        "update chat_channels set member_count = member_count + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(channel_id)
-    .bind(now)
-    .execute(db)
-    .await?;
+    chat_channels::Entity::update_many()
+        .col_expr(
+            chat_channels::Column::MemberCount,
+            sea_orm::ExprTrait::add(Expr::col(chat_channels::Column::MemberCount), 1),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .exec(&orm(db))
+        .await?;
     Ok(Ok(false))
 }

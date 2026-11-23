@@ -37,7 +37,6 @@ use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{companies, parties, people, w9_requests};
 
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows, timestamp_of_millis};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -147,17 +146,14 @@ async fn list_requests(caller: &Caller, q: &Query) -> Reply {
         .order_by_desc(w9_requests::Column::CreatedAt)
         .limit(u64::try_from(limit).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = w9_requests::Entity::find()
         .filter(listed())
         .count(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let at = now_ms();
-    let rows: Vec<Value> = js_rows!(rows)
-        .map_err(refused)?
+    let rows: Vec<Value> = js_rows!(rows)?
         .iter()
         .map(|row| to_w9_request_view(row, at))
         .collect();
@@ -177,7 +173,7 @@ async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        match find(&caller.db, &id).await.map_err(refused)? {
+        match find(&caller.db, &id).await? {
             Some(row) => Ok(ok(to_w9_request_view(&row, now_ms()))),
             None => Err(Refusal::not_found("W-9 request", &id)),
         }
@@ -267,8 +263,7 @@ async fn create_request(
         .filter(parties::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
     let Some((party_id, company_id, person_id)) = party else {
         return Err(Refusal::not_found("Contact", &body.party_id));
     };
@@ -282,8 +277,7 @@ async fn create_request(
             .filter(companies::Column::Id.eq(company_id.as_deref()))
             .into_tuple()
             .one(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         email = found.flatten();
     } else if empty(&email) && person_id.as_deref().is_some_and(|id| !id.is_empty()) {
         let found: Option<Option<String>> = people::Entity::find()
@@ -292,8 +286,7 @@ async fn create_request(
             .filter(people::Column::Id.eq(person_id.as_deref()))
             .into_tuple()
             .one(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         email = found.flatten();
     }
 
@@ -305,9 +298,8 @@ async fn create_request(
         .filter(w9_requests::Column::PartyId.eq(party_id.as_str()))
         .filter(w9_requests::Column::Status.eq("pending"))
         .exec_with_returning(&orm(db))
-        .await
-        .map_err(refused)?;
-    for old in js_rows!(superseded).map_err(refused)? {
+        .await?;
+    for old in js_rows!(superseded)? {
         forget_token(caller, state, text(&old, "tokenHash").unwrap_or_default()).await?;
         let id = text(&old, "id").unwrap_or_default().to_owned();
         caller.publish(
@@ -337,9 +329,8 @@ async fn create_request(
         ..Default::default()
     })
     .exec_with_returning(&orm(db))
-    .await
-    .map_err(refused)?;
-    let row = js!(row).map_err(refused)?;
+    .await?;
+    let row = js!(row)?;
 
     let Some(cache) = caller.cache(state) else {
         return Err(Refusal::Internal("WORKSPACE_CACHE is not bound".to_owned()));
@@ -390,7 +381,7 @@ async fn cancel(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(row) = find(db, &id).await.map_err(refused)? else {
+        let Some(row) = find(db, &id).await? else {
             return Err(Refusal::not_found("W-9 request", &id));
         };
         let status = text(&row, "status").unwrap_or_default();
@@ -405,13 +396,11 @@ async fn cancel(
             .filter(w9_requests::Column::Id.eq(id.as_str()))
             .filter(w9_requests::Column::Status.eq("pending"))
             .exec_with_returning(&orm(db))
-            .await
-            .map_err(refused)?
+            .await?
             .into_iter()
             .next()
             .map(|row| js!(row))
-            .transpose()
-            .map_err(refused)?;
+            .transpose()?;
         let Some(updated) = updated else {
             return Err(Refusal::conflict("This request is no longer pending"));
         };

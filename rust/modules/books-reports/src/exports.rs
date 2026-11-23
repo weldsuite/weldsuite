@@ -27,7 +27,6 @@ use weldsuite_schema::tenant::{
     payments, tax_rates,
 };
 
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows, timestamp_of_millis};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -525,9 +524,8 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
     let entity = entities::Entity::find_by_id(entity_id.clone())
         .filter(entities::Column::DeletedAt.is_null())
         .one(&orm)
-        .await
-        .map_err(refused)?;
-    let Some(entity) = entity.map(|row| js!(row)).transpose().map_err(refused)? else {
+        .await?;
+    let Some(entity) = entity.map(|row| js!(row)).transpose()? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
 
@@ -557,8 +555,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
             .filter(invoices::Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm)
-            .await
-            .map_err(refused)?,
+            .await?,
         bills::Entity::find()
             .select_only()
             .column(bills::Column::ContactId)
@@ -566,8 +563,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
             .filter(bills::Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm)
-            .await
-            .map_err(refused)?,
+            .await?,
         payments::Entity::find()
             .select_only()
             .column(payments::Column::ContactId)
@@ -575,8 +571,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
             .filter(payments::Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm)
-            .await
-            .map_err(refused)?,
+            .await?,
         journal_lines::Entity::find()
             .select_only()
             .column(journal_lines::Column::ContactId)
@@ -584,8 +579,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
             .filter(journal_lines::Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm)
-            .await
-            .map_err(refused)?,
+            .await?,
     ];
     for ids in relations {
         for id in ids.into_iter().flatten().filter(|id| !id.is_empty()) {
@@ -600,9 +594,8 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         .filter(accounts::Column::DeletedAt.is_null())
         .order_by_asc(accounts::Column::Code)
         .all(&orm)
-        .await
-        .map_err(refused)?;
-    let accounts = js_rows!(accounts).map_err(refused)?;
+        .await?;
+    let accounts = js_rows!(accounts)?;
     let parties: Vec<PartyRow> = if contact_ids.is_empty() {
         Vec::new()
     } else {
@@ -622,26 +615,23 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
             .order_by_asc(parties::Column::DisplayName)
             .into_tuple()
             .all(&orm)
-            .await
-            .map_err(refused)?
+            .await?
     };
     let tax_rates = tax_rates::Entity::find()
         .filter(tax_rates::Column::EntityId.eq(&entity_id))
         .filter(tax_rates::Column::DeletedAt.is_null())
         .all(&orm)
-        .await
-        .map_err(refused)?;
-    let tax_rates = js_rows!(tax_rates).map_err(refused)?;
+        .await?;
+    let tax_rates = js_rows!(tax_rates)?;
     let entries = journal_entries::Entity::find()
         .filter(journal_entries::Column::EntityId.eq(&entity_id))
         .filter(journal_entries::Column::Status.is_in(["posted", "reversed"]))
         .filter(journal_entries::Column::DeletedAt.is_null())
-        .filter(journal_entries::Column::Date.gte(timestamp_of_millis(start).map_err(refused)?))
-        .filter(journal_entries::Column::Date.lte(timestamp_of_millis(end).map_err(refused)?))
+        .filter(journal_entries::Column::Date.gte(timestamp_of_millis(start)?))
+        .filter(journal_entries::Column::Date.lte(timestamp_of_millis(end)?))
         .order_by_asc(journal_entries::Column::Date)
         .all(&orm)
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let code_by_id: HashMap<String, String> = accounts
         .iter()
@@ -649,15 +639,14 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         .collect();
     let mut transactions = Vec::with_capacity(entries.len());
     for entry in entries {
-        let entry = js!(entry).map_err(refused)?;
+        let entry = js!(entry)?;
         let entry_id = entry["id"].as_str().unwrap_or_default().to_owned();
         let lines = journal_lines::Entity::find()
             .filter(journal_lines::Column::JournalEntryId.eq(&entry_id))
             .filter(journal_lines::Column::DeletedAt.is_null())
             .order_by_asc(journal_lines::Column::SortOrder)
             .all(&orm)
-            .await
-            .map_err(refused)?;
+            .await?;
         let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
         transactions.push(XafTransaction {
             entry_number: text(&entry, "entryNumber").unwrap_or_else(|| entry_id.clone()),
@@ -666,8 +655,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
                 .map(|d| d.chars().take(10).collect())
                 .unwrap_or_default(),
             description: text(&entry, "description"),
-            lines: js_rows!(lines)
-                .map_err(refused)?
+            lines: js_rows!(lines)?
                 .iter()
                 .map(|line| {
                     let account_id = text(line, "accountId").unwrap_or_default();

@@ -299,7 +299,7 @@ pub(crate) async fn execute(
             .bind(&found.id)
             .execute(&mut *tx)
             .await?;
-            record_success(&mut *tx, &entry).await?;
+            record_success(&weldsuite_db::OrmConn::new(&mut tx), &entry).await?;
             tx.commit().await?;
             Ok(format!("Comped {} ({}): {details}\n", found.name, found.id))
         }
@@ -348,7 +348,7 @@ pub(crate) async fn execute(
             .bind(&found.id)
             .execute(&mut *tx)
             .await?;
-            record_success(&mut *tx, &entry).await?;
+            record_success(&weldsuite_db::OrmConn::new(&mut tx), &entry).await?;
             tx.commit().await?;
             if paying {
                 return Ok(format!(
@@ -456,7 +456,7 @@ pub(crate) async fn execute(
             .bind(i32::try_from(amount).unwrap_or(i32::MAX))
             .execute(&mut *tx)
             .await?;
-            record_success(&mut *tx, &entry).await?;
+            record_success(&weldsuite_db::OrmConn::new(&mut tx), &entry).await?;
             tx.commit().await?;
             Ok(format!(
                 "Refund {} ({}) started for {} cents of {payment_id}. Make the credit note in WeldBooks, in the issuer workspace.\n",
@@ -494,7 +494,7 @@ pub(crate) async fn execute(
                 weldsuite_core_billing::renewals::retry_open_charge(&state, &found.id, &open, now)
                     .await
                     .map_err(|error| StaffError::Refused(format!("{error:?}")))?;
-            record_success(master, &entry).await?;
+            record_success(&weldsuite_db::orm(master), &entry).await?;
             Ok(if accepted {
                 format!(
                     "Mollie took the charge for {} on; the webhook settles it.\n",

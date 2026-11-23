@@ -22,7 +22,7 @@ use time::PrimitiveDateTime;
 use weldsuite_chat_domain::agents::{agent_viewer_for, inaccessible_agent_ids};
 use weldsuite_chat_domain::members::remove_channel_member_by_user_id;
 use weldsuite_chat_domain::{can_access_channel, get_channel_role, is_channel_moderator};
-use weldsuite_db::{orm, orm_error, utc_now};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -150,16 +150,14 @@ async fn add_member_denial(
 ) -> Result<Option<&'static str>, DbErr> {
     if !is_self_add {
         if is_channel_moderator(&caller.db, channel_id, &caller.user_id)
-            .await
-            .map_err(orm_error)?
+            .await?
         {
             return Ok(None);
         }
         return Ok(Some("Only a channel admin can add members"));
     }
     if can_access_channel(&caller.db, channel_id, &caller.user_id, None)
-        .await
-        .map_err(orm_error)?
+        .await?
     {
         return Ok(None);
     }
@@ -191,8 +189,7 @@ async fn cap_granted_role(
         return Ok(requested.to_owned());
     }
     let role = get_channel_role(&caller.db, channel_id, &caller.user_id)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     Ok(if role.as_deref() == Some("owner") {
         "owner".to_owned()
     } else {

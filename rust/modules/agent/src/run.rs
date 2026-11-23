@@ -15,7 +15,7 @@ use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::{Ai, AiError};
-use weldsuite_db::{orm, orm_error};
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_ports::DynRealtimePublisher;
 use weldsuite_schema::tenant::weldagent_conversations::{self as conversations, Column};
@@ -695,8 +695,7 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
         },
         &viewer,
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     if !allowed {
         return Err(RunError::Forbidden(
             "You no longer have access to this agent".to_owned(),

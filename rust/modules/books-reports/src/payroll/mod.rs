@@ -52,7 +52,6 @@ use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{accounts, journal_lines, payroll_connections, payroll_imports};
 
-use crate::orm_bridge::sqlx_error;
 use crate::rows::{date_of, js, js_rows, money_text};
 use csv_import::{CsvImportArgs, ImportError, import_payroll_csv, problems_message};
 use journal::payroll_error;
@@ -152,15 +151,13 @@ impl From<PostError> for Fail {
 
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
-        Self::Post(PostError::Database(error))
+        Self::Post(PostError::from(error))
     }
 }
 
-/// `PostError` (`weldsuite-books-domain`, not on the ORM yet) still holds
-/// sqlx's error.
 impl From<DbErr> for Fail {
     fn from(error: DbErr) -> Self {
-        Self::Post(PostError::Database(sqlx_error(error)))
+        Self::Post(PostError::Database(error))
     }
 }
 
@@ -287,8 +284,7 @@ async fn save_csv_mapping(
     let (now, stamp) = crate::rows::now_and_stamp();
     let db = orm(&caller.db);
     if let Some(mut existing) = load_csv_connection(caller, entity_id)
-        .await
-        .map_err(sqlx_error)?
+        .await?
     {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
         payroll_connections::Entity::update_many()
@@ -299,8 +295,7 @@ async fn save_csv_mapping(
             .col_expr(payroll_connections::Column::UpdatedAt, Expr::value(stamp))
             .filter(payroll_connections::Column::Id.eq(&id))
             .exec(&db)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         existing["accountMapping"] = flat;
         existing["updatedAt"] = json!(now);
         return Ok((existing, false));
@@ -321,7 +316,7 @@ async fn save_csv_mapping(
         "lastError": null,
     });
     let values = PAYROLL_CONNECTIONS.values(row.as_object().expect("an object"));
-    CONNECTIONS.insert(&db, values).await.map_err(sqlx_error)?;
+    CONNECTIONS.insert(&db, values).await?;
     Ok((row, true))
 }
 

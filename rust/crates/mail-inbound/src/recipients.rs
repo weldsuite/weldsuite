@@ -3,8 +3,11 @@
 //! registry row resolved to its mailbox and the members to notify
 //! (`findRecipientAccounts`, `collectRecipientEmails`, `selectNotifyMembers`).
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::{mail_account_registry as registry, workspaces};
+use weldsuite_schema::tenant::{mail_accounts, workspace_members};
 
 use crate::catch_all::{expand_catch_all_candidates, is_catch_all_registry_email};
 use crate::context::InboundContext;
@@ -66,18 +69,25 @@ type RawRegistryRow = (String, String, String, Option<String>, Option<String>);
 pub async fn registry_rows(
     master: &PgPool,
     emails: &[String],
-) -> Result<Vec<RegistryRow>, sqlx::Error> {
+) -> Result<Vec<RegistryRow>, DbErr> {
+    use registry::Column as R;
     if emails.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<RawRegistryRow> = sqlx::query_as(
-        "select email, account_id, tenant_kind::text, workspace_id, personal_account_id
-         from mail_account_registry
-         where email = any($1) and is_active = true",
-    )
-    .bind(emails)
-    .fetch_all(master)
-    .await?;
+    let rows: Vec<RawRegistryRow> = registry::Entity::find()
+        .select_only()
+        .columns([
+            R::Email,
+            R::AccountId,
+            R::TenantKind,
+            R::WorkspaceId,
+            R::PersonalAccountId,
+        ])
+        .filter(R::Email.is_in(emails.to_vec()))
+        .filter(R::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -117,7 +127,7 @@ impl RecipientMatch {
 pub async fn lookup_recipient(
     master: &PgPool,
     address: &str,
-) -> Result<Option<RecipientMatch>, sqlx::Error> {
+) -> Result<Option<RecipientMatch>, DbErr> {
     let normalized = js_trim(address).to_lowercase();
     if normalized.is_empty() {
         return Ok(None);
@@ -189,29 +199,42 @@ async fn resolve_workspace(
         tracing::warn!(email = %reg.email, "[Recipients] Workspace registry row missing workspaceId");
         return Ok(None);
     };
-    let workspace: Option<(String, Option<String>)> =
-        sqlx::query_as("select id, clerk_org_id from workspaces where id = $1 limit 1")
-            .bind(workspace_id)
-            .fetch_optional(&ctx.master)
-            .await?;
+    let workspace: Option<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(&ctx.master))
+        .await?;
     let Some((_, clerk_org_id)) = workspace else {
         tracing::warn!(workspace_id, "[Recipients] Workspace not found");
         return Ok(None);
     };
-    let db = ctx.tenants.tenant_db(workspace_id).await?;
-    let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, email, role from workspace_members
-         where deleted_at is null and status = 'ACTIVE'",
-    )
-    .fetch_all(&db)
-    .await?;
-    let access: Option<(String, Option<bool>, Option<Value>)> = sqlx::query_as(
-        "select email, is_shared, assigned_user_ids from mail_accounts
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&reg.account_id)
-    .fetch_optional(&db)
-    .await?;
+    let db = orm(&ctx.tenants.tenant_db(workspace_id).await?);
+    let members: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Email,
+            workspace_members::Column::Role,
+        ])
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let access: Option<(String, Option<bool>, Option<Value>)> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([
+            mail_accounts::Column::Email,
+            mail_accounts::Column::IsShared,
+            mail_accounts::Column::AssignedUserIds,
+        ])
+        .filter(mail_accounts::Column::Id.eq(&reg.account_id))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some((account_email, is_shared, assigned)) = access else {
         tracing::warn!(account = %reg.account_id, "[Recipients] Mail account not found or deleted");
         return Ok(None);
@@ -269,7 +292,7 @@ async fn resolve_workspace(
 pub async fn find_recipient_accounts(
     ctx: &InboundContext,
     recipient_emails: &[String],
-) -> Result<Vec<RecipientAccount>, sqlx::Error> {
+) -> Result<Vec<RecipientAccount>, DbErr> {
     let mut normalized: Vec<String> = Vec::new();
     for email in recipient_emails {
         let e = js_trim(email).to_lowercase();

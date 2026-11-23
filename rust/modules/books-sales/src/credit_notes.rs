@@ -11,7 +11,6 @@ use weldsuite_books_domain::posting::PostError;
 use weldsuite_db::{PgPool, orm_error};
 
 use crate::finalize::load_invoice;
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{owned, text};
 
 /// Invoice statuses that still have an open balance a credit note can lower.
@@ -55,7 +54,7 @@ pub(crate) async fn apply_credit_note(
     invoice_id: Option<&str>,
     amount: Option<f64>,
 ) -> Result<Option<CreditApplication>, PostError> {
-    let Some(note) = load_invoice(db, credit_note_id).await.map_err(sqlx_error)? else {
+    let Some(note) = load_invoice(db, credit_note_id).await? else {
         return Err(posting("Credit note not found"));
     };
     if text(&note, "type") != Some("credit_note") {
@@ -71,7 +70,7 @@ pub(crate) async fn apply_credit_note(
     else {
         return Err(posting("Choose the invoice to apply the credit note to"));
     };
-    let Some(invoice) = load_invoice(db, &invoice_id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, &invoice_id).await? else {
         return Err(posting("Invoice not found"));
     };
     if !matches!(text(&invoice, "type"), Some("standard" | "correction")) {
@@ -118,8 +117,7 @@ pub(crate) async fn apply_credit_note(
 
     let note_id = text(&note, "id").unwrap_or_default().to_owned();
     let settled = settle_both(db, &note_id, &invoice_id, amount)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     if settled.len() != 2 {
         return Err(posting(
             "The credit note or the invoice changed while the credit was being applied; nothing was applied. Reload and try again.",

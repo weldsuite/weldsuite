@@ -674,8 +674,7 @@ async fn send_test(
                 data_json: &data_json,
             },
         )
-        .await
-        .map_err(weldsuite_db::orm_error)?;
+        .await?;
         if !outcome.delivered
             && !clerk_org_id.is_empty()
             && let Some(master) = caller.overrides.master(&state)

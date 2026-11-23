@@ -4,21 +4,31 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_core_domain::custom_field_query::{
     CustomFilter, custom_field_filter, parse_custom_field_key,
 };
 use weldsuite_core_domain::custom_field_values::{self as cfv, Definition};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{
+    companies, custom_field_values, list_members, lists, parties, people, person_companies,
+};
 
-use crate::tables::{COMPANIES, PARTIES};
+use crate::tables::{COMPANIES, PARTIES, insert_row, update_rows};
 use crate::validation::{
     StatusLookup, assert_valid_member_fields, assert_valid_status, compute_changes,
-    contains_pattern, decode_list_cursor, encode_list_cursor, load_status_lookup,
+    before_row, contains_pattern, count, decode_list_cursor, encode_list_cursor, load_status_lookup,
+    probe_limit, search_match, sort_order, sort_value,
 };
-use crate::{DomainError, DomainResult, drizzle_row, insert_sql, now, to_iso, update_sql};
+use crate::{DomainError, DomainResult, js_date, now, to_iso};
 
 /// `deriveDisplayName({ name, tradingName })`.
 pub fn derive_display_name(name: Option<&str>, trading_name: Option<&str>) -> String {
@@ -47,12 +57,17 @@ pub async fn ensure_wrapping_party(db: &PgPool, company: &Value) -> DomainResult
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let existing: Option<(String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select id, role, billing_address from parties where company_id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, Option<String>, Option<Value>)> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::Id,
+            parties::Column::Role,
+            parties::Column::BillingAddress,
+        ])
+        .filter(parties::Column::CompanyId.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let supplier = company.get("isSupplier") == Some(&json!(true));
     let field = |key: &str| company.get(key).cloned().unwrap_or(Value::Null);
     if let Some((party_id, role, billing)) = existing {
@@ -67,11 +82,13 @@ pub async fn ensure_wrapping_party(db: &PgPool, company: &Value) -> DomainResult
             }
         }
         set.insert("updatedAt".into(), json!(now()));
-        sqlx::query(update_sql!(parties, "where t.id = $1"))
-            .bind(&party_id)
-            .bind(PARTIES.set(&set))
-            .execute(db)
-            .await?;
+        update_rows::<parties::Entity>(
+            &orm(db),
+            &PARTIES,
+            &set,
+            Condition::all().add(parties::Column::Id.eq(party_id)),
+        )
+        .await?;
         return Ok(());
     }
     if !supplier {
@@ -89,10 +106,7 @@ pub async fn ensure_wrapping_party(db: &PgPool, company: &Value) -> DomainResult
     values.insert("archivedAt".into(), field("archivedAt"));
     values.insert("createdAt".into(), json!(now));
     values.insert("updatedAt".into(), json!(now));
-    sqlx::query(insert_sql!(parties))
-        .bind(PARTIES.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<parties::Entity>(&orm(db), &PARTIES, &values).await?;
     Ok(())
 }
 
@@ -117,6 +131,29 @@ pub struct Resolved {
     pub custom: Option<CustomFilter>,
 }
 
+/// The kind of the live list `list_id`.
+pub(crate) async fn list_kind(db: &PgPool, list_id: &str) -> DomainResult<Option<String>> {
+    Ok(lists::Entity::find()
+        .select_only()
+        .column(lists::Column::Kind)
+        .filter(lists::Column::Id.eq(list_id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?)
+}
+
+/// The entity ids on the list `list_id`.
+pub(crate) async fn list_member_ids(db: &PgPool, list_id: &str) -> DomainResult<Vec<String>> {
+    Ok(list_members::Entity::find()
+        .select_only()
+        .column(list_members::Column::EntityId)
+        .filter(list_members::Column::ListId.eq(list_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
+}
+
 /// `buildCompanyConditions`: `None` when the filter can only match nothing.
 pub async fn resolve_filter(
     db: &PgPool,
@@ -126,20 +163,10 @@ pub async fn resolve_filter(
 ) -> DomainResult<Option<Resolved>> {
     let mut resolved = Resolved::default();
     if let Some(list_id) = filter.list_id.as_deref().filter(|l| !l.is_empty()) {
-        let kind: Option<String> = sqlx::query_scalar(
-            "select kind from lists where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(list_id)
-        .fetch_optional(db)
-        .await?;
-        if kind.as_deref() != Some(entity_type) {
+        if list_kind(db, list_id).await?.as_deref() != Some(entity_type) {
             return Ok(None);
         }
-        let members: Vec<String> =
-            sqlx::query_scalar("select entity_id from list_members where list_id = $1")
-                .bind(list_id)
-                .fetch_all(db)
-                .await?;
+        let members = list_member_ids(db, list_id).await?;
         if members.is_empty() {
             return Ok(None);
         }
@@ -168,63 +195,79 @@ pub async fn resolve_filter(
     Ok(Some(resolved))
 }
 
-/// The `where` of a company list or export: `$1` owner scope, `$2` search
-/// pattern, `$3`–`$7` the column filters, `$8` list members, `$9`–`$16`
-/// the custom-field filter.
-macro_rules! company_where {
-    () => {
-        "t.deleted_at is null
-           and ($1::text is null or t.owner_id = $1)
-           and ($2::text is null or (coalesce(t.display_name, '') || E'\\n' || coalesce(t.name, '')
-                || E'\\n' || coalesce(t.trading_name, '') || E'\\n' || coalesce(t.email, '')
-                || E'\\n' || coalesce(t.vat_number, '')) ilike $2)
-           and ($3::text is null or t.status = $3)
-           and ($4::text is null or t.owner_id = $4)
-           and ($5::text is null or t.industry = $5)
-           and ($6::bool is null or t.is_supplier = $6)
-           and ($7::bool is null or t.is_lead = $7)
-           and ($8::text[] is null or t.id = any($8))
-           and ($9::text is null or t.id in (
-                select v.entity_id from custom_field_values v
-                where v.entity_type = 'company' and v.field_id = $10
-                  and (case $9 when 'number' then v.value_number = $11
-                               when 'date' then v.value_date::date = $12::timestamp::date
-                               when 'bool' then v.value_bool = $13
-                               when 'json' then v.value_json @> $14
-                               when 'ref' then v.value_ref = $15
-                               else v.value_text ilike $16 end)))"
-    };
+/// `buildCompanyConditions`'s `where` of a company list or export: live,
+/// within the owner scope, the search and column filters, the list members
+/// and the custom-field filter.
+fn company_condition(scope: Option<&str>, filter: &CompanyFilter, resolved: &Resolved) -> Condition {
+    use companies::Column as C;
+    let given = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
+    let mut condition = Condition::all().add(C::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        condition = condition.add(C::OwnerId.eq(owner));
+    }
+    if let Some(search) = given(&filter.search) {
+        condition = condition.add(search_match(
+            &[C::DisplayName, C::Name, C::TradingName, C::Email, C::VatNumber],
+            &contains_pattern(&search),
+        ));
+    }
+    if let Some(status) = given(&filter.status) {
+        condition = condition.add(C::Status.eq(status));
+    }
+    if let Some(owner) = given(&filter.owner_id) {
+        condition = condition.add(C::OwnerId.eq(owner));
+    }
+    if let Some(industry) = given(&filter.industry) {
+        condition = condition.add(C::Industry.eq(industry));
+    }
+    if let Some(supplier) = filter.is_supplier {
+        condition = condition.add(C::IsSupplier.eq(supplier));
+    }
+    if let Some(lead) = filter.is_lead {
+        condition = condition.add(C::IsLead.eq(lead));
+    }
+    if let Some(members) = &resolved.members {
+        condition = condition.add(C::Id.is_in(members.clone()));
+    }
+    if let Some(custom) = &resolved.custom {
+        condition = condition.add(C::Id.in_subquery(custom_field_match("company", custom)));
+    }
+    condition
 }
 
-/// Bind the sixteen parameters of [`company_where`] / `person_where`.
-#[macro_export]
-macro_rules! bind_entity_filter {
-    ($query:expr, $scope:expr, $filter:expr, $resolved:expr) => {{
-        let custom = $resolved.custom.as_ref();
-        $query
-            .bind($scope)
-            .bind(
-                $filter
-                    .search
-                    .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .map($crate::validation::contains_pattern),
-            )
-            .bind($filter.status.as_deref().filter(|s| !s.is_empty()))
-            .bind($filter.owner_id.as_deref().filter(|s| !s.is_empty()))
-            .bind($filter.industry.as_deref().filter(|s| !s.is_empty()))
-            .bind($filter.is_supplier)
-            .bind($filter.is_lead)
-            .bind($resolved.members.as_ref())
-            .bind(custom.map(|c| c.kind))
-            .bind(custom.map(|c| c.field_id.clone()))
-            .bind(custom.and_then(|c| c.number))
-            .bind(custom.and_then(|c| c.date.clone()))
-            .bind(custom.and_then(|c| c.flag))
-            .bind(custom.and_then(|c| c.json.clone()))
-            .bind(custom.and_then(|c| c.reference.clone()))
-            .bind(custom.and_then(|c| c.pattern.clone()))
-    }};
+/// `customFieldFilter`: the ids of the `entity_type` rows whose value of the
+/// field matches (`v.value_number = n`, `v.value_date::date =
+/// d::timestamp::date`, `v.value_bool = b`, `v.value_json @> j`,
+/// `v.value_ref = r`, `v.value_text ilike p`).
+fn custom_field_match(entity_type: &str, custom: &CustomFilter) -> SelectStatement {
+    use custom_field_values::Column as V;
+    use sea_orm::ExprTrait as _;
+    let matches = match custom.kind {
+        "number" => V::ValueNumber.eq(custom.number),
+        "date" => V::ValueDate.into_expr().cast_as("date").eq(Expr::val(custom.date.clone())
+            .cast_as("timestamp")
+            .cast_as("date")),
+        "bool" => V::ValueBool.eq(custom.flag),
+        "json" => sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            V::ValueJson.into_expr(),
+            Expr::val(custom.json.clone()),
+        ),
+        "ref" => V::ValueRef.eq(custom.reference.clone()),
+        _ => match &custom.pattern {
+            Some(pattern) => V::ValueText.ilike(pattern),
+            None => V::ValueText.eq(Option::<String>::None),
+        },
+    };
+    Query::select()
+        .column(V::EntityId)
+        .from(custom_field_values::Entity)
+        .cond_where(
+            Condition::all()
+                .add(V::EntityType.eq(entity_type))
+                .add(V::FieldId.eq(custom.field_id.as_str()))
+                .add(matches),
+        )
+        .to_owned()
 }
 
 /// Built-in sortable columns: grid key → (sort family, column).
@@ -251,6 +294,72 @@ pub const COMPANY_SORTS: [(&str, &str); 20] = [
     ("nextFollowUpDate", "time"),
     ("createdAt", "time"),
 ];
+
+/// A custom field's value of the listed company, for a sort by it:
+/// `coalesce(value_text, value_ref)` for text and references, the typed
+/// column for the rest.
+fn custom_sort_value(
+    entity_type: &str,
+    sort: &weldsuite_core_domain::custom_field_query::CustomSort,
+) -> Expr {
+    use custom_field_values::Column as V;
+    use sea_orm::ExprTrait as _;
+    let value = match sort.kind {
+        "text" | "ref" => Expr::expr(Func::coalesce([
+            V::ValueText.into_expr(),
+            V::ValueRef.into_expr(),
+        ])),
+        "number" => V::ValueNumber.into_expr(),
+        "date" => V::ValueDate.into_expr(),
+        "bool" => V::ValueBool.into_expr(),
+        _ => V::ValueJson.into_expr(),
+    };
+    Expr::from(
+        Query::select()
+            .expr(value)
+            .from(custom_field_values::Entity)
+            .cond_where(
+                Condition::all()
+                    .add(V::EntityType.eq(entity_type))
+                    .add(
+                        Expr::col((custom_field_values::Entity, V::EntityId))
+                            .equals((companies::Entity, companies::Column::Id)),
+                    )
+                    .add(V::FieldId.eq(sort.field_id.as_str())),
+            )
+            .to_owned(),
+    )
+}
+
+/// The column a built-in company sort orders by: `lower(col::text)` for
+/// the `text` family, the column itself for the rest.
+fn company_sort_value(key: &str, family: &str) -> Option<Expr> {
+    use companies::Column as C;
+    let column = match key {
+        "name" => C::DisplayName,
+        "email" => C::Email,
+        "phone" => C::Phone,
+        "industry" => C::Industry,
+        "status" => C::Status,
+        "website" => C::Website,
+        "vatNumber" => C::VatNumber,
+        "registrationNumber" => C::RegistrationNumber,
+        "employeeCount" => C::EmployeeCount,
+        "lifecycleStage" => C::LifecycleStage,
+        "segment" => C::Segment,
+        "source" => C::Source,
+        "preferredLanguage" => C::PreferredLanguage,
+        "ownerId" => C::OwnerId,
+        "isSupplier" => C::IsSupplier,
+        "isLead" => C::IsLead,
+        "leadScore" => C::LeadScore,
+        "lastContactDate" => C::LastContactDate,
+        "nextFollowUpDate" => C::NextFollowUpDate,
+        "createdAt" => C::CreatedAt,
+        _ => return None,
+    };
+    Some(sort_value(column, family))
+}
 
 /// One page of a list (`ListResult`).
 #[derive(Debug, Clone)]
@@ -311,93 +420,58 @@ pub async fn list_companies(
     } else {
         cursor.as_ref().map(|c| c.position.clone())
     };
-    let (sort_family, sort_key) =
-        builtin.map_or((None, None), |(key, family)| (Some(*family), Some(*key)));
-    let (custom_kind, custom_field) = custom_sort.map_or((None, None), |d| {
-        let sort = weldsuite_core_domain::custom_field_query::CustomSort::of(d);
-        (Some(sort.kind), Some(sort.field_id))
-    });
-    let tie_break = if custom_sort.is_some() {
-        Some("desc".to_owned())
-    } else if builtin.is_some() {
-        Some(dir.clone())
-    } else {
-        None
-    };
-    let query = sqlx::query_scalar::<_, Value>(concat!(
-        "select to_jsonb(t) from companies t where ",
-        company_where!(),
-        " and ($17::text is null or (t.created_at, t.id) < (select c.created_at, c.id from companies c where c.id = $17))
-         order by
-           (select case when $22 in ('text', 'ref') then coalesce(v.value_text, v.value_ref) end
-              from custom_field_values v where $21 = 'asc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23
-                and case $22 when 'text' then true when 'ref' then true else false end) asc nulls last,
-           (select case when $22 in ('text', 'ref') then coalesce(v.value_text, v.value_ref) end
-              from custom_field_values v where $21 = 'desc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23
-                and case $22 when 'text' then true when 'ref' then true else false end) desc nulls last,
-           (select v.value_number from custom_field_values v where $22 = 'number' and $21 = 'asc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) asc nulls last,
-           (select v.value_number from custom_field_values v where $22 = 'number' and $21 = 'desc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) desc nulls last,
-           (select v.value_date from custom_field_values v where $22 = 'date' and $21 = 'asc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) asc nulls last,
-           (select v.value_date from custom_field_values v where $22 = 'date' and $21 = 'desc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) desc nulls last,
-           (select v.value_bool from custom_field_values v where $22 = 'bool' and $21 = 'asc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) asc nulls last,
-           (select v.value_bool from custom_field_values v where $22 = 'bool' and $21 = 'desc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) desc nulls last,
-           (select v.value_json from custom_field_values v where $22 = 'json' and $21 = 'asc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) asc nulls last,
-           (select v.value_json from custom_field_values v where $22 = 'json' and $21 = 'desc' and v.entity_type = 'company' and v.entity_id = t.id and v.field_id = $23) desc nulls last,
-           case when $18 = 'text' and $21 = 'asc' then lower((case $19
-               when 'name' then t.display_name when 'email' then t.email when 'phone' then t.phone
-               when 'industry' then t.industry when 'status' then t.status when 'website' then t.website
-               when 'vatNumber' then t.vat_number when 'registrationNumber' then t.registration_number
-               when 'employeeCount' then t.employee_count when 'lifecycleStage' then t.lifecycle_stage
-               when 'segment' then t.segment when 'source' then t.source
-               when 'preferredLanguage' then t.preferred_language when 'ownerId' then t.owner_id end)::text) end asc nulls last,
-           case when $18 = 'text' and $21 = 'desc' then lower((case $19
-               when 'name' then t.display_name when 'email' then t.email when 'phone' then t.phone
-               when 'industry' then t.industry when 'status' then t.status when 'website' then t.website
-               when 'vatNumber' then t.vat_number when 'registrationNumber' then t.registration_number
-               when 'employeeCount' then t.employee_count when 'lifecycleStage' then t.lifecycle_stage
-               when 'segment' then t.segment when 'source' then t.source
-               when 'preferredLanguage' then t.preferred_language when 'ownerId' then t.owner_id end)::text) end desc nulls last,
-           case when $18 = 'bool' and $21 = 'asc' then (case $19 when 'isSupplier' then t.is_supplier when 'isLead' then t.is_lead end) end asc nulls last,
-           case when $18 = 'bool' and $21 = 'desc' then (case $19 when 'isSupplier' then t.is_supplier when 'isLead' then t.is_lead end) end desc nulls last,
-           case when $18 = 'int' and $21 = 'asc' then t.lead_score end asc nulls last,
-           case when $18 = 'int' and $21 = 'desc' then t.lead_score end desc nulls last,
-           case when $18 = 'time' and $21 = 'asc' then (case $19 when 'lastContactDate' then t.last_contact_date
-               when 'nextFollowUpDate' then t.next_follow_up_date when 'createdAt' then t.created_at end) end asc nulls last,
-           case when $18 = 'time' and $21 = 'desc' then (case $19 when 'lastContactDate' then t.last_contact_date
-               when 'nextFollowUpDate' then t.next_follow_up_date when 'createdAt' then t.created_at end) end desc nulls last,
-           case when $24 = 'asc' then t.id end asc,
-           case when $24 = 'desc' then t.id end desc,
-           t.created_at desc, t.id desc
-         limit $20 offset $25"
-    ));
-    let query = bind_entity_filter!(query, scope, filter, resolved);
-    let rows: Vec<Value> = query
-        .bind(&keyset)
-        .bind(sort_family)
-        .bind(sort_key)
-        .bind(limit + 1)
-        .bind(&dir)
-        .bind(custom_kind)
-        .bind(&custom_field)
-        .bind(&tie_break)
-        .bind(offset)
-        .fetch_all(db)
+    let order = sort_order(&dir);
+    let mut select = companies::Entity::find().filter(company_condition(scope, filter, &resolved));
+    if let Some(keyset) = &keyset {
+        select = select.filter(before_row::<companies::Entity>(
+            companies::Column::CreatedAt,
+            companies::Column::Id,
+            keyset,
+        ));
+    }
+    if let (Some(definition), Some(order)) = (custom_sort, order.clone()) {
+        let sort = weldsuite_core_domain::custom_field_query::CustomSort::of(definition);
+        select = select.order_by_with_nulls(
+            custom_sort_value("company", &sort),
+            order,
+            NullOrdering::Last,
+        );
+    }
+    if let (Some((key, family)), Some(order)) = (builtin, order.clone())
+        && let Some(value) = company_sort_value(key, family)
+    {
+        select = select.order_by_with_nulls(value, order, NullOrdering::Last);
+    }
+    // The tie-break: newest id first for a custom field, the sort's own
+    // direction for a column.
+    if custom_sort.is_some() {
+        select = select.order_by_desc(companies::Column::Id);
+    } else if let (Some(_), Some(order)) = (builtin, order) {
+        select = select.order_by(companies::Column::Id, order);
+    }
+    let conn = orm(db);
+    let rows = select
+        .order_by_desc(companies::Column::CreatedAt)
+        .order_by_desc(companies::Column::Id)
+        .limit(probe_limit(limit)?)
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&conn)
         .await?;
     let total_count = if let Some(total) = cursor.as_ref().and_then(|c| c.total_count) {
         total
     } else {
-        {
-            let query = sqlx::query_scalar::<_, i64>(concat!(
-                "select count(*) from companies t where ",
-                company_where!()
-            ));
-            bind_entity_filter!(query, scope, filter, resolved)
-                .fetch_one(db)
-                .await?
-        }
+        count(
+            companies::Entity::find()
+                .filter(company_condition(scope, filter, &resolved))
+                .count(&conn)
+                .await?,
+        )
     };
     let has_more = usize::try_from(limit).is_ok_and(|limit| rows.len() > limit);
-    let mut page: Vec<Value> = rows.into_iter().map(drizzle_row).collect();
+    let mut page = rows
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?;
     page.truncate(usize::try_from(limit).unwrap_or(0));
     let mut data = cfv::hydrate(db, "company", page, Some(&definitions)).await?;
     if options.include_attributes {
@@ -449,21 +523,18 @@ pub async fn export_companies(
     let Some(resolved) = resolve_filter(db, filter, "company", None).await? else {
         return Ok(Vec::new());
     };
-    let query = sqlx::query_scalar::<_, Value>(concat!(
-        "select to_jsonb(t) from companies t where ",
-        company_where!(),
-        " order by t.created_at desc, t.id desc limit 50000"
-    ));
-    let rows: Vec<Value> = bind_entity_filter!(query, scope, filter, resolved)
-        .fetch_all(db)
+    let rows = companies::Entity::find()
+        .filter(company_condition(scope, filter, &resolved))
+        .order_by_desc(companies::Column::CreatedAt)
+        .order_by_desc(companies::Column::Id)
+        .limit(50_000)
+        .all(&orm(db))
         .await?;
-    Ok(cfv::hydrate(
-        db,
-        "company",
-        rows.into_iter().map(drizzle_row).collect(),
-        None,
-    )
-    .await?)
+    let rows = rows
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(cfv::hydrate(db, "company", rows, None).await?)
 }
 
 /// The live company row, within the owner scope, as Drizzle reads it.
@@ -472,15 +543,13 @@ pub async fn raw_company(
     id: &str,
     scope: Option<&str>,
 ) -> DomainResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from companies t
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(drizzle_row))
+    let mut query = companies::Entity::find_by_id(id.to_owned())
+        .filter(companies::Column::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        query = query.filter(companies::Column::OwnerId.eq(owner));
+    }
+    let row = query.one(&orm(db)).await?;
+    Ok(row.map(serde_json::to_value).transpose()?)
 }
 
 /// `getCompany(db, id, ownerScope)`: the live row with its custom fields.
@@ -604,10 +673,7 @@ async fn insert_company_row(
     ] {
         values.insert(key.into(), or_null(input, key, fallback));
     }
-    sqlx::query(insert_sql!(companies))
-        .bind(COMPANIES.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<companies::Entity>(&orm(db), &COMPANIES, &values).await?;
     let created = get_company(db, &id, None)
         .await?
         .ok_or_else(|| DomainError::Other("Company disappeared after insert".to_owned()))?;
@@ -700,15 +766,13 @@ pub async fn update_company(
             )),
         );
     }
-    let written: Vec<String> = sqlx::query_scalar(update_sql!(
-        companies,
-        "where t.id = $1 and ($3::int is null or t.version = $3) returning t.id"
-    ))
-    .bind(id)
-    .bind(COMPANIES.set(&updates))
-    .bind(expected.map(|_| i32::try_from(version).unwrap_or(i32::MAX)))
-    .fetch_all(db)
-    .await?;
+    let mut written = Condition::all().add(companies::Column::Id.eq(id));
+    if expected.is_some() {
+        written = written.add(
+            companies::Column::Version.eq(i32::try_from(version).unwrap_or(i32::MAX)),
+        );
+    }
+    let written = update_rows::<companies::Entity>(&orm(db), &COMPANIES, &updates, written).await?;
     if written.is_empty() {
         if expected.is_some() {
             return Err(DomainError::VersionConflict(VERSION_CONFLICT.to_owned()));
@@ -729,13 +793,13 @@ pub async fn delete_company(db: &PgPool, id: &str, scope: Option<&str>) -> Domai
     if raw_company(db, id, scope).await?.is_none() {
         return Ok(false);
     }
-    sqlx::query(
-        "update companies set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    companies::Entity::update_many()
+        .col_expr(companies::Column::DeletedAt, Expr::value(now))
+        .col_expr(companies::Column::UpdatedAt, Expr::value(now))
+        .filter(companies::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(true)
 }
 
@@ -749,22 +813,65 @@ pub async fn set_archived(
     if raw_company(db, id, scope).await?.is_none() {
         return Ok(None);
     }
-    let now = now();
-    sqlx::query(
-        "update companies set archived_at = case when $3 then $2::timestamp else null end,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(archived)
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    companies::Entity::update_many()
+        .col_expr(
+            companies::Column::ArchivedAt,
+            Expr::value(archived.then_some(now)),
+        )
+        .col_expr(companies::Column::UpdatedAt, Expr::value(now))
+        .filter(companies::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     let updated = get_company(db, id, None).await?;
     if let Some(updated) = &updated {
         ensure_wrapping_party(db, updated).await?;
     }
     Ok(updated)
+}
+
+/// A `person_companies` link with the live person's card.
+#[derive(Debug, FromQueryResult)]
+struct CompanyPerson {
+    id: String,
+    created_at: PrimitiveDateTime,
+    updated_at: PrimitiveDateTime,
+    person_id: String,
+    company_id: String,
+    role: Option<String>,
+    is_primary: bool,
+    started_at: Option<PrimitiveDateTime>,
+    ended_at: Option<PrimitiveDateTime>,
+    display_name: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: Option<String>,
+    avatar_url: Option<String>,
+}
+
+impl CompanyPerson {
+    /// The link as Drizzle returns it, with its `person`.
+    fn json(self) -> Value {
+        json!({
+            "id": self.id,
+            "createdAt": js_date(self.created_at),
+            "updatedAt": js_date(self.updated_at),
+            "personId": self.person_id,
+            "companyId": self.company_id,
+            "role": self.role,
+            "isPrimary": self.is_primary,
+            "startedAt": self.started_at.map(js_date),
+            "endedAt": self.ended_at.map(js_date),
+            "person": {
+                "id": self.person_id,
+                "displayName": self.display_name,
+                "firstName": self.first_name,
+                "lastName": self.last_name,
+                "email": self.email,
+                "avatarUrl": self.avatar_url,
+            },
+        })
+    }
 }
 
 /// `listCompanyPeople(db, companyId, ownerScope)`: the company's people
@@ -774,26 +881,49 @@ pub async fn list_company_people(
     company_id: &str,
     scope: Option<&str>,
 ) -> DomainResult<Vec<Value>> {
+    use person_companies::Column as Pc;
     if scope.is_some() && get_company(db, company_id, scope).await?.is_none() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                 'id', pc.id, 'created_at', pc.created_at, 'updated_at', pc.updated_at,
-                 'person_id', pc.person_id, 'company_id', pc.company_id, 'role', pc.role,
-                 'is_primary', pc.is_primary, 'started_at', pc.started_at, 'ended_at', pc.ended_at,
-                 'person', jsonb_build_object('id', pc.person_id, 'displayName', p.display_name,
-                     'firstName', p.first_name, 'lastName', p.last_name, 'email', p.email,
-                     'avatarUrl', p.avatar_url))
-         from person_companies pc
-         left join people p on p.id = pc.person_id and p.deleted_at is null
-         where pc.company_id = $1 and p.display_name is not null
-         order by pc.is_primary desc, pc.created_at desc",
-    )
-    .bind(company_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(drizzle_row).collect())
+    let rows: Vec<CompanyPerson> = person_companies::Entity::find()
+        .select_only()
+        .columns([
+            Pc::Id,
+            Pc::CreatedAt,
+            Pc::UpdatedAt,
+            Pc::PersonId,
+            Pc::CompanyId,
+            Pc::Role,
+            Pc::IsPrimary,
+            Pc::StartedAt,
+            Pc::EndedAt,
+        ])
+        .column_as(people::Column::DisplayName, "display_name")
+        .column_as(people::Column::FirstName, "first_name")
+        .column_as(people::Column::LastName, "last_name")
+        .column_as(people::Column::Email, "email")
+        .column_as(people::Column::AvatarUrl, "avatar_url")
+        .join(
+            JoinType::LeftJoin,
+            person_companies::Entity::belongs_to(people::Entity)
+                .from(Pc::PersonId)
+                .to(people::Column::Id)
+                .on_condition(|_, person| {
+                    Condition::all().add(sea_orm::ExprTrait::is_null(Expr::col((
+                        person,
+                        people::Column::DeletedAt,
+                    ))))
+                })
+                .into(),
+        )
+        .filter(Pc::CompanyId.eq(company_id))
+        .filter(people::Column::DisplayName.is_not_null())
+        .order_by_desc(Pc::IsPrimary)
+        .order_by_desc(Pc::CreatedAt)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(CompanyPerson::json).collect())
 }
 
 /// `bulkUpdateCompanies(db, { companyIds, updates }, ownerScope)`:
@@ -826,17 +956,27 @@ pub async fn bulk_update_companies(
     }
     assert_valid_member_fields(db, set_fields).await?;
     assert_valid_status(db, set_fields.get("status"), None).await?;
-    let before: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'ownerId', owner_id, 'accountManagerId', account_manager_id,
-                 'status', status, 'lifecycleStage', lifecycle_stage)
-         from companies where deleted_at is null and ($1::text is null or owner_id = $1)",
-    )
-    .bind(scope)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let mut live = Condition::all().add(companies::Column::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        live = live.add(companies::Column::OwnerId.eq(owner));
+    }
+    let before: Vec<BulkFields> = companies::Entity::find()
+        .select_only()
+        .columns([
+            companies::Column::Id,
+            companies::Column::OwnerId,
+            companies::Column::AccountManagerId,
+            companies::Column::Status,
+            companies::Column::LifecycleStage,
+        ])
+        .filter(live.clone())
+        .into_model()
+        .all(&conn)
+        .await?;
     let before: HashMap<String, Value> = before
         .into_iter()
-        .map(|row| (row["id"].as_str().unwrap_or_default().to_owned(), row))
+        .map(|row| (row.id.clone(), row.json()))
         .collect();
     let mut updates = Map::new();
     updates.insert("updatedAt".into(), json!(now()));
@@ -845,14 +985,12 @@ pub async fn bulk_update_companies(
             updates.insert(field.into(), value.clone());
         }
     }
-    let written: Vec<String> = sqlx::query_scalar(update_sql!(
-        companies,
-        "where t.id = any($1) and t.deleted_at is null and ($3::text is null or t.owner_id = $3) returning t.id"
-    ))
-    .bind(&ids)
-    .bind(COMPANIES.set(&updates))
-    .bind(scope)
-    .fetch_all(db)
+    let written = update_rows::<companies::Entity>(
+        &conn,
+        &COMPANIES,
+        &updates,
+        live.add(companies::Column::Id.is_in(ids.clone())),
+    )
     .await?;
     let failed = ids
         .iter()
@@ -879,6 +1017,29 @@ pub async fn bulk_update_companies(
 
 /// The fields a bulk update may set.
 const FIELDS: [&str; 4] = ["ownerId", "accountManagerId", "status", "lifecycleStage"];
+
+/// A row's [`FIELDS`] before a bulk update.
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct BulkFields {
+    id: String,
+    owner_id: Option<String>,
+    account_manager_id: Option<String>,
+    status: Option<String>,
+    lifecycle_stage: Option<String>,
+}
+
+impl BulkFields {
+    /// The fields by Drizzle key.
+    pub(crate) fn json(self) -> Value {
+        json!({
+            "id": self.id,
+            "ownerId": self.owner_id,
+            "accountManagerId": self.account_manager_id,
+            "status": self.status,
+            "lifecycleStage": self.lifecycle_stage,
+        })
+    }
+}
 
 /// `loadCustomerStatusLookup`, re-exported for the importer's callers.
 pub async fn status_lookup(db: &PgPool) -> DomainResult<StatusLookup> {

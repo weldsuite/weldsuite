@@ -50,7 +50,6 @@ use weldsuite_schema::tenant::{
 
 use crate::common::{bank_account_refusal, changes, field, text};
 use crate::csv_format;
-use crate::orm_bridge::refused;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -279,8 +278,7 @@ async fn load_ledger_account(
         .filter(accounts::Column::EntityId.eq(entity_id))
         .filter(accounts::Column::DeletedAt.is_null())
         .one(&orm(&caller.db))
-        .await
-        .map_err(refused)?;
+        .await?;
     let Some(ledger) = ledger.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(Refusal::bad_request(
             "Ledger account not found for this accounting entity",
@@ -414,8 +412,7 @@ async fn list(caller: Caller) -> Response {
             })
             .order_by_asc(bank_accounts::Column::Name)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         Ok(ok(Value::Array(
             rows.into_iter()
                 .map(|row| public_bank_account(&serde_json::to_value(row).unwrap_or_default()))
@@ -545,7 +542,7 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
 
     let mut tx = caller.db.begin().await?;
     if let Some(row) = &new_ledger {
-        insert_ledger_account(&mut *tx, row).await?;
+        insert_ledger_account(&OrmConn::new(&mut tx), row).await?;
     }
     BANK_ACCOUNTS
         .insert_raw(&mut *tx, BANK_ACCOUNTS.values(&account))
@@ -553,8 +550,7 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
     // WeldBooks' side of the account (release 1 writes it next to the old columns).
     BooksSettings::of(&Value::Object(account.clone()))
         .write(&OrmConn::new(&mut tx), false)
-        .await
-        .map_err(refused)?;
+        .await?;
     tx.commit().await?;
 
     if let Some(row) = &new_ledger {
@@ -613,12 +609,11 @@ async fn bring_into_weldbooks(
         .filter(bank_accounts::Column::EntityId.eq(entity_id))
         .filter(bank_accounts::Column::DeletedAt.is_null())
         .one(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let Some(core) = core.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(Refusal::not_found("Bank account", bank_account_id));
     };
-    if in_books(&db, bank_account_id).await.map_err(refused)? {
+    if in_books(&db, bank_account_id).await? {
         return Err(Refusal::conflict(
             "This bank account is already in WeldBooks",
         ));
@@ -697,15 +692,14 @@ async fn bring_into_weldbooks(
     BANK_ACCOUNTS.set(&mut values, "updatedAt", json!(now()));
     let mut tx = caller.db.begin().await?;
     if let Some(row) = &new_ledger {
-        insert_ledger_account(&mut *tx, row).await?;
+        insert_ledger_account(&OrmConn::new(&mut tx), row).await?;
     }
     BANK_ACCOUNTS
         .patch_raw(&mut *tx, bank_account_id, values, false)
         .await?;
     BooksSettings::of(&merged)
         .write(&OrmConn::new(&mut tx), false)
-        .await
-        .map_err(refused)?;
+        .await?;
     tx.commit().await?;
 
     if let Some(row) = &new_ledger {
@@ -830,8 +824,7 @@ async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Bod
     // `upsertBankAccountSettings(db, { ...account, ...patch })`
     BooksSettings::of(&updated)
         .write(&orm(&caller.db), true)
-        .await
-        .map_err(refused)?;
+        .await?;
     caller.publish(
         state,
         BANK_ACCOUNT_UPDATED,
@@ -932,7 +925,7 @@ async fn remove(
             return Err(Refusal::not_found("Bank account", &id));
         };
         let db = orm(&caller.db);
-        if !in_books(&db, &id).await.map_err(refused)? {
+        if !in_books(&db, &id).await? {
             return Err(Refusal::not_found("Bank account", &id));
         }
         let pays_salaries = hr_payroll_employers::Entity::find()
@@ -942,8 +935,7 @@ async fn remove(
             .filter(hr_payroll_employers::Column::DeletedAt.is_null())
             .into_tuple::<String>()
             .one(&db)
-            .await
-            .map_err(refused)?
+            .await?
             .is_some();
         let stamp = utc_now();
         if !pays_salaries {
@@ -952,16 +944,14 @@ async fn remove(
                 .col_expr(bank_accounts::Column::UpdatedAt, Expr::value(stamp))
                 .filter(bank_accounts::Column::Id.eq(id.as_str()))
                 .exec(&db)
-                .await
-                .map_err(refused)?;
+                .await?;
         }
         // The account leaves WeldBooks; an entity that printed it on invoices
         // falls back to bank_details.
         books_settings::Entity::delete_many()
             .filter(books_settings::Column::BankAccountId.eq(id.as_str()))
             .exec(&db)
-            .await
-            .map_err(refused)?;
+            .await?;
         accounting_entity_settings::Entity::update_many()
             .col_expr(
                 accounting_entity_settings::Column::InvoiceBankAccountId,
@@ -973,8 +963,7 @@ async fn remove(
             )
             .filter(accounting_entity_settings::Column::InvoiceBankAccountId.eq(id.as_str()))
             .exec(&db)
-            .await
-            .map_err(refused)?;
+            .await?;
         // Kept for WeldHR, the core account only lost its WeldBooks part (as
         // bringing it in is an update).
         let event = if pays_salaries {

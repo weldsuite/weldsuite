@@ -226,7 +226,7 @@ fn write_values(
 fn write_error(error: WriteError) -> String {
     match error {
         WriteError::NotADate(_) => "value.toISOString is not a function".to_owned(),
-        WriteError::Database(error) => db_message(&orm_error(error)),
+        WriteError::Database(error) => db_message(&error),
     }
 }
 

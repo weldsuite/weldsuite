@@ -23,7 +23,7 @@ use weldsuite_catalogs::entity_events::{
     REACH_MAILBOX_CREATED, REACH_MAILBOX_DELETED, REACH_MAILBOX_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{orm, orm_error};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{Data, List, NoContent, Pagination, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -236,7 +236,7 @@ pub(crate) async fn register_in_pool(
     .await
     .map(|_| ())
     .map_err(|error| match error {
-        PoolError::Database(error) => db_error(orm_error(error)),
+        PoolError::Database(error) => db_error(error),
         other => ReachError::unexpected(&other),
     })
 }

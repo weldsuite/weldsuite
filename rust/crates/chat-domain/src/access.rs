@@ -6,11 +6,15 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use sqlx::PgPool;
-use weldsuite_db::TenantPermissionQueries;
+use weldsuite_db::{PgPool, TenantPermissionQueries, orm, orm_error};
 use weldsuite_permissions::{
     Permissions, ResolvedPermissions, has_app_permission, resolve_effective_permissions,
+};
+
+use weldsuite_schema::tenant::{
+    chat_channel_members, chat_channels, chat_messages, workspace_members,
 };
 
 use crate::entity;
@@ -45,7 +49,7 @@ impl Can<'_> {
     }
 
     /// Whether the user holds `permission`.
-    pub async fn can(&self, permission: &str) -> Result<bool, sqlx::Error> {
+    pub async fn can(&self, permission: &str) -> Result<bool, DbErr> {
         match self {
             Self::Context(permissions) => Ok(permissions.has_any(&[permission])),
             Self::Denied => Ok(false),
@@ -59,7 +63,9 @@ impl Can<'_> {
                     resolved
                 } else {
                     let queries = TenantPermissionQueries::new(user.db.clone());
-                    let resolved = resolve_effective_permissions(&queries, &user.user_id).await?;
+                    let resolved = resolve_effective_permissions(&queries, &user.user_id)
+                        .await
+                        .map_err(orm_error)?;
                     *user
                         .resolved
                         .lock()
@@ -80,14 +86,19 @@ struct ChannelRef {
     entity_id: Option<String>,
 }
 
-async fn live_channel(db: &PgPool, channel_id: &str) -> Result<Option<ChannelRef>, sqlx::Error> {
-    let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select type, entity_type, entity_id from chat_channels
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+async fn live_channel(db: &PgPool, channel_id: &str) -> Result<Option<ChannelRef>, DbErr> {
+    let row: Option<(String, Option<String>, Option<String>)> = chat_channels::Entity::find()
+        .select_only()
+        .columns([
+            chat_channels::Column::Type,
+            chat_channels::Column::EntityType,
+            chat_channels::Column::EntityId,
+        ])
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|(kind, entity_type, entity_id)| ChannelRef {
         kind,
         entity_type,
@@ -103,7 +114,7 @@ pub async fn can_access_channel(
     channel_id: &str,
     user_id: &str,
     can: Option<&Can<'_>>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(channel) = live_channel(db, channel_id).await? else {
         return Ok(false);
     };
@@ -133,14 +144,15 @@ pub async fn can_access_channel(
 }
 
 /// Whether the user has a membership row for the channel.
-pub async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = chat_channel_members::Entity::find()
+        .select_only()
+        .column(chat_channel_members::Column::Id)
+        .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -151,18 +163,23 @@ pub async fn unreadable_record_chat_ids(
     user_id: &str,
     channel_ids: &[String],
     can: Option<&Can<'_>>,
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
     let mut unreadable = HashSet::new();
     if channel_ids.is_empty() {
         return Ok(unreadable);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, entity_type, entity_id from chat_channels
-         where id = any($1) and type = 'entity'",
-    )
-    .bind(channel_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = chat_channels::Entity::find()
+        .select_only()
+        .columns([
+            chat_channels::Column::Id,
+            chat_channels::Column::EntityType,
+            chat_channels::Column::EntityId,
+        ])
+        .filter(chat_channels::Column::Id.is_in(channel_ids.iter().map(String::as_str)))
+        .filter(chat_channels::Column::Type.eq("entity"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let fallback;
     let can = if let Some(can) = can {
         can
@@ -207,7 +224,7 @@ async fn visible_entity_ids(
     can: &Can<'_>,
     entity_type: &str,
     entity_ids: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
     let Some(provider) = entity::provider(entity_type) else {
         return Ok(HashSet::new());
     };
@@ -234,13 +251,15 @@ pub async fn can_access_message(
     message_id: &str,
     user_id: &str,
     can: Option<&Can<'_>>,
-) -> Result<bool, sqlx::Error> {
-    let channel: Option<String> = sqlx::query_scalar(
-        "select channel_id from chat_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(message_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let channel: Option<String> = chat_messages::Entity::find()
+        .select_only()
+        .column(chat_messages::Column::ChannelId)
+        .filter(chat_messages::Column::Id.eq(message_id))
+        .filter(chat_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     match channel.filter(|c| !c.is_empty()) {
         Some(channel_id) => can_access_channel(db, &channel_id, user_id, can).await,
         None => Ok(false),
@@ -253,25 +272,28 @@ pub async fn get_channel_role(
     db: &PgPool,
     channel_id: &str,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select role from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    chat_channel_members::Entity::find()
+        .select_only()
+        .column(chat_channel_members::Column::Role)
+        .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `isWorkspaceAdmin`: the built-in `workspace_members.role` is OWNER or ADMIN.
-async fn is_workspace_admin(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
-    let role: Option<Option<String>> = sqlx::query_scalar(
-        "select role from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let role = role.flatten().map(|r| r.to_uppercase());
+async fn is_workspace_admin(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
+    let role: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Role)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let role = role.map(|r| r.to_uppercase());
     Ok(matches!(role.as_deref(), Some("OWNER" | "ADMIN")))
 }
 
@@ -280,7 +302,7 @@ pub async fn is_channel_moderator(
     db: &PgPool,
     channel_id: &str,
     user_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let role = get_channel_role(db, channel_id, user_id).await?;
     if matches!(role.as_deref(), Some("admin" | "owner")) {
         return Ok(true);

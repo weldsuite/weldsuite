@@ -12,7 +12,7 @@ use axum::response::Response;
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -31,7 +31,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::reconciliation_rules;
 
 use crate::common::text;
-use crate::orm_bridge::refused;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -161,7 +160,7 @@ fn read_fields(
     out
 }
 
-async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
     RECONCILIATION_RULES.find_live(&caller.db, id).await
 }
 
@@ -177,8 +176,7 @@ async fn list(caller: Caller) -> Response {
             .filter(reconciliation_rules::Column::EntityId.eq(entity_id.as_str()))
             .order_by_desc(reconciliation_rules::Column::Priority)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         Ok(ok(Value::Array(
             rows.into_iter()
                 .map(|row| serde_json::to_value(row).unwrap_or_default())
@@ -331,8 +329,7 @@ async fn remove(
             .col_expr(reconciliation_rules::Column::UpdatedAt, Expr::value(stamp))
             .filter(reconciliation_rules::Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,

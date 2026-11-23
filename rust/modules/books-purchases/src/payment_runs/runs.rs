@@ -27,7 +27,7 @@ use weldsuite_books_domain::js::{
 };
 use weldsuite_books_domain::payments::payment_net_amount;
 use weldsuite_books_domain::posting::{account_for_role, load_entity_accounts};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
 
@@ -351,8 +351,7 @@ pub(crate) async fn compute_run_withholding(
                 ..ComputeBackupWithholdingInput::default()
             },
         )
-        .await
-        .map_err(orm_error)?;
+        .await?;
         if outcome.amount > 0.0 {
             result.push((
                 id.to_owned(),
@@ -374,8 +373,7 @@ pub(crate) async fn has_backup_withholding_account(
     entity_id: &str,
 ) -> Result<bool, DbErr> {
     let accounts = load_entity_accounts(db, entity_id)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     Ok(account_for_role(&accounts, "backup_withholding_payable", &["2310"]).is_some())
 }
 

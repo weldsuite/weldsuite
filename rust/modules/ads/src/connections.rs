@@ -35,7 +35,6 @@ use weldsuite_ports::OutboundHttp;
 use weldsuite_schema::tenant::ad_platform_connections as connections;
 use weldsuite_schema::tenant::enums::{AdPlatform, AdPlatformConnectionStatus};
 
-use crate::orm_bridge::sqlx_error;
 use crate::{AdsState, Caller, internal, json_error, query_param, validate};
 
 /// How long an OAuth start's state is kept (`STATE_TTL_SECONDS`).
@@ -240,8 +239,7 @@ async fn connect(
         .filter(connections::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let tokens = encrypt_oauth_tokens(&long_lived.access_token, &caller.keyring())?;
     let expires_at = long_lived
         .expires_at
@@ -275,8 +273,7 @@ async fn connect(
             .col_expr(connections::Column::UpdatedAt, Expr::val(now))
             .filter(connections::Column::Id.eq(id))
             .exec(&db)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         id.clone()
     } else {
         let id = generate_id("adcn");
@@ -294,8 +291,7 @@ async fn connect(
             ..Default::default()
         })
         .exec_without_returning(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
         id
     };
     discover_ad_accounts(&caller.db, &http, &connection_id, &long_lived.access_token).await?;
@@ -443,8 +439,7 @@ pub(crate) async fn remove(
             )
             .filter(connections::Column::Id.eq(&id))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if caller.org_id.as_deref().is_some_and(|org| !org.is_empty()) {
             delete_ad_sync_index(caller.master(&state).as_ref(), &caller.workspace_id, &id).await?;
         }

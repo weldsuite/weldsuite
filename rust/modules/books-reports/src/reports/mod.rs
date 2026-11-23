@@ -34,7 +34,6 @@ use weldsuite_schema::tenant::entities;
 use build::{BuildError, delta_of, latest_date};
 use export::{Meta, Table, TableColumn, TableRow};
 
-use crate::orm_bridge::refused;
 use crate::rows::js;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -84,7 +83,7 @@ impl From<BuildError> for Failure {
     fn from(error: BuildError) -> Self {
         match error {
             BuildError::Input(error) => Self::Input(error.0),
-            BuildError::Database(error) => Self::Refusal(refused(error)),
+            BuildError::Database(error) => Self::Refusal(Refusal::Database(error)),
             BuildError::Internal(error) => Self::Refusal(Refusal::Internal(error)),
         }
     }
@@ -92,15 +91,13 @@ impl From<BuildError> for Failure {
 
 impl From<DbErr> for Failure {
     fn from(error: DbErr) -> Self {
-        Self::Refusal(refused(error))
+        Self::Refusal(Refusal::Database(error))
     }
 }
 
-/// The report basis and ledger are still read with sqlx by
-/// `weldsuite-books-domain`.
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::Database(error))
+        Self::Refusal(Refusal::from(error))
     }
 }
 

@@ -35,15 +35,14 @@ impl From<TaxError> for SalesError {
 
 impl From<sqlx::Error> for SalesError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::Database(error))
+        Self::Refusal(Refusal::from(error))
     }
 }
 
-/// An ORM statement's failure, as the books routes report a database error
-/// (`Refusal::Database` still holds `sqlx::Error`).
+/// An ORM statement's failure, as the books routes report a database error.
 impl From<sea_orm::DbErr> for SalesError {
     fn from(error: sea_orm::DbErr) -> Self {
-        Self::Refusal(Refusal::Database(crate::orm_bridge::sqlx_error(error)))
+        Self::Refusal(Refusal::Database(error))
     }
 }
 

@@ -41,7 +41,6 @@ use weldsuite_schema::tenant::sales_tax_taxability_rules;
 use crate::common::{
     changes, fixed4, iso_date, keep, merged, num, number_of, percent, percent_refined, refuse, text,
 };
-use crate::orm_bridge::refusal;
 use crate::returns::common::{day_text, row_json, rows_json};
 
 /// `sales_tax_taxability_rules` written from a `{ column: value }` object.
@@ -154,11 +153,9 @@ async fn require_rule(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, R
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| refuse(format!("Sales tax rule {id} not found"), 404))
 }
 
@@ -186,8 +183,7 @@ async fn assert_no_overlap(
             .filter(Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm(db))
-            .await
-            .map_err(refusal)?;
+            .await?;
     // `effective_from::text, effective_to::text`.
     let existing: Vec<(String, String, Option<String>)> = existing
         .into_iter()
@@ -286,12 +282,11 @@ async fn list_rules(caller: &Caller, q: &Query) -> Reply {
         .limit(u64::try_from(page_size).unwrap_or(0))
         .offset(u64::try_from(offset).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refusal)?;
-    let total = select.count(&db).await.map_err(refusal)?;
+        .await?;
+    let total = select.count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     Ok(paged(
-        rows_json(rows).map_err(refusal)?,
+        rows_json(rows)?,
         total,
         page * page_size < total,
         None,
@@ -383,8 +378,7 @@ async fn create_rule(caller: &Caller, state: &BooksState, data: RuleBody) -> Rep
             &orm(&caller.db),
             T.values(rule.as_object().unwrap_or(&Map::new())),
         )
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(caller, &entity_id, &id, "created", None).await;
     caller.publish(state, SALES_TAX_RULE_CREATED, &id, event_data(&rule));
     Ok(created(rule))
@@ -461,8 +455,7 @@ async fn update_rule(caller: &Caller, state: &BooksState, id: &str, data: RuleBo
     keep(&mut update, "notes", &data.notes);
     RULE_ROWS
         .update(&orm(&caller.db), id, T.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(
         caller,
         &entity_id,
@@ -500,8 +493,7 @@ async fn remove(
                 )
                 .filter(sales_tax_taxability_rules::Column::Id.eq(id.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(refusal)?;
+                .await?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(&state, SALES_TAX_RULE_DELETED, &id, event_data(&rule));
             Ok(no_content())

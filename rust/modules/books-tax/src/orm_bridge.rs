@@ -1,44 +1,18 @@
 //! What the tax filings' SeaORM queries share (ADR DATA-019):
 //!
-//! - [`sqlx_error`] / [`refused`]: the way back from SeaORM's error to
-//!   sqlx's, for what `weldsuite-books-domain` still declares with
-//!   `sqlx::Error` (a route's `Refusal::Database`, and the `AlsoWrite`
-//!   callbacks posting runs inside its transaction). They exist only until
-//!   that crate is converted to the ORM and holds `sea_orm::DbErr`; then they
-//!   go.
 //! - [`to_json`]: a row as Drizzle's `select()` returned it.
 //! - the values the routes used to bind as text and cast (`$n::timestamp`,
 //!   `$n::date`, `$n::numeric`) as the entities' own types, and the text the
 //!   old statements read back (`numeric::text`, `to_char(…)`).
 
 use std::str::FromStr;
-use std::sync::Arc;
 
+use sea_orm::DbErr;
 use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::{Expr, IntoColumnRef};
-use sea_orm::{DbErr, RuntimeErr};
 use serde_json::Value;
 use time::macros::format_description;
 use time::{Date, OffsetDateTime, PrimitiveDateTime};
-use weldsuite_books_domain::http::Refusal;
-
-/// The `sqlx::Error` inside `error` when SeaORM ran the statement through
-/// sqlx (and nothing else holds it), else a protocol error carrying its text.
-pub(crate) fn sqlx_error(error: DbErr) -> sqlx::Error {
-    match error {
-        DbErr::Conn(RuntimeErr::SqlxError(inner))
-        | DbErr::Exec(RuntimeErr::SqlxError(inner))
-        | DbErr::Query(RuntimeErr::SqlxError(inner)) => Arc::try_unwrap(inner)
-            .unwrap_or_else(|shared| sqlx::Error::Protocol(shared.to_string())),
-        other => sqlx::Error::Protocol(other.to_string()),
-    }
-}
-
-/// A failed statement as the route's failure (`Refusal::Database`: logged,
-/// and answered with the route's 500), as an `sqlx::Error` was.
-pub(crate) fn refused(error: DbErr) -> Refusal {
-    Refusal::Database(sqlx_error(error))
-}
 
 /// A row as Drizzle's `select()` returns it: the entity's model serializes
 /// to that JSON (`numeric` as its text with the column's scale, `Date`s as

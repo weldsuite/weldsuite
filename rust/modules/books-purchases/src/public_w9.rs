@@ -36,7 +36,6 @@ use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_ports::{DynCache, RequestCache};
 use weldsuite_schema::tenant::{entities, parties, w9_requests};
 
-use crate::orm_bridge::sqlx_error;
 use crate::rows::{js, now_and_stamp};
 
 /// `W9_MAX_BODY_BYTES`.
@@ -597,8 +596,7 @@ async fn submit_form(
         .filter(w9_requests::Column::Id.eq(request_id.as_str()))
         .filter(w9_requests::Column::Status.eq("pending"))
         .exec(&OrmConn::new(&mut tx))
-        .await
-        .map_err(|error| VendorTaxError::from(sqlx_error(error)))?;
+        .await?;
     tx.commit().await?;
 
     if let Some(cache) = shared.cache(state) {

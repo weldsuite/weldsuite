@@ -44,7 +44,7 @@ use weldsuite_catalogs::entity_events::{
     ACCOUNTING_CONTACT_ARCHIVED, ACCOUNTING_CONTACT_CREATED, ACCOUNTING_CONTACT_DELETED,
     ACCOUNTING_CONTACT_UPDATED,
 };
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
@@ -64,7 +64,6 @@ use identity::{
     sync_identity,
 };
 
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -304,7 +303,7 @@ async fn load_identities(db: &PgPool, rows: &[Value]) -> Result<Identities, DbEr
         people: by_id(people),
         billing: load_billing_contacts(db, &company_ids)
             .await
-            .map_err(orm_error)?,
+            ?,
     })
 }
 
@@ -414,16 +413,14 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
         .limit(u64::try_from(size).unwrap_or(0))
         .offset(u64::try_from((page - 1) * size).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = parties::Entity::find()
         .filter(listed())
         .count(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = js_rows!(rows).map_err(refused)?;
-    let identities = load_identities(&caller.db, &rows).await.map_err(refused)?;
+    let rows = js_rows!(rows)?;
+    let identities = load_identities(&caller.db, &rows).await?;
     let data = rows.iter().map(|row| view_with(row, &identities)).collect();
     Ok(paged(data, total, page * size < total, None))
 }
@@ -432,7 +429,7 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
-        match load_contact_view(&caller.db, &id).await.map_err(refused)? {
+        match load_contact_view(&caller.db, &id).await? {
             Some(view) => Ok(ok(view)),
             None => Err(Refusal::not_found("Contact", &id)),
         }
@@ -445,7 +442,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 /// who is not allowed everywhere only sees the documents of the entity the
 /// request is scoped to (per-entity access; `entityScopeCondition(column,
 /// await requestEntityScope(c), null)`), as [`in_scope`].
-async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Error> {
+async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, DbErr> {
     let request = request_entity(caller).await?;
     Ok(entity_scope_condition(
         request_entity_scope(&request).as_deref(),
@@ -469,9 +466,8 @@ async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
             .filter(in_scope(&scope, invoices::Column::EntityId))
             .order_by_desc(invoices::Column::IssueDate)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
-        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
+            .await?;
+        Ok(ok(Value::Array(js_rows!(rows)?)))
     }
     .await;
     reply(result, "Failed to fetch contact invoices")
@@ -486,9 +482,8 @@ async fn bills(caller: Caller, Path(id): Path<String>) -> Response {
             .filter(in_scope(&scope, bills::Column::EntityId))
             .order_by_desc(bills::Column::IssueDate)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
-        Ok(ok(Value::Array(js_rows!(rows).map_err(refused)?)))
+            .await?;
+        Ok(ok(Value::Array(js_rows!(rows)?)))
     }
     .await;
     reply(result, "Failed to fetch contact bills")
@@ -538,8 +533,7 @@ async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
             invoices::Column::BalanceDue,
             invoices::Column::DueDate,
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         let (bill_out, bill_due) = balance_sums(
             &caller.db,
             bills::Entity::find()
@@ -549,8 +543,7 @@ async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
             bills::Column::BalanceDue,
             bills::Column::DueDate,
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         Ok(ok(json!({
             "receivable": { "totalOutstanding": inv_out, "totalOverdue": inv_due },
             "payable": { "totalOutstanding": bill_out, "totalOverdue": bill_due },
@@ -729,7 +722,7 @@ fn check_kvk_format(
 
 /// The entity's jurisdiction, upper-cased (`entity?.jurisdictionCode?.toUpperCase()`).
 async fn entity_jurisdiction(caller: &Caller) -> Result<Option<String>, DbErr> {
-    let Some(entity_id) = resolve_entity_id(caller).await.map_err(orm_error)? else {
+    let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Ok(None);
     };
     let code: Option<Option<String>> = entities::Entity::find()
@@ -1235,12 +1228,11 @@ async fn remove(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(contact) = find_party(db, &id).await.map_err(refused)? else {
+        let Some(contact) = find_party(db, &id).await? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         let used: Vec<(&str, i64)> = contact_usage(db, &id)
-            .await
-            .map_err(refused)?
+            .await?
             .into_iter()
             .filter(|(_, n)| *n > 0)
             .collect();
@@ -1268,8 +1260,7 @@ async fn remove(
             .col_expr(parties::Column::UpdatedAt, Expr::value(at))
             .filter(parties::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             db,
@@ -1309,7 +1300,7 @@ async fn unarchive(
 async fn set_archived(caller: &Caller, state: &BooksState, id: &str, archived: bool) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(contact) = find_party(db, id).await.map_err(refused)? else {
+        let Some(contact) = find_party(db, id).await? else {
             return Err(Refusal::not_found("Contact", id));
         };
         let is_archived = contact.get("archivedAt").is_some_and(|v| !v.is_null());
@@ -1327,8 +1318,7 @@ async fn set_archived(caller: &Caller, state: &BooksState, id: &str, archived: b
                 .col_expr(parties::Column::UpdatedAt, Expr::value(at))
                 .filter(parties::Column::Id.eq(id))
                 .exec(&orm(db))
-                .await
-                .map_err(refused)?;
+                .await?;
             write_accounting_audit(
                 caller,
                 db,
@@ -1348,7 +1338,7 @@ async fn set_archived(caller: &Caller, state: &BooksState, id: &str, archived: b
             };
             caller.publish(state, event, id, json!({ "id": id, "archived": archived }));
         }
-        match load_contact_view(db, id).await.map_err(refused)? {
+        match load_contact_view(db, id).await? {
             Some(view) => Ok(ok(view)),
             None => Err(Refusal::not_found("Contact", id)),
         }
@@ -1388,8 +1378,7 @@ async fn promote_role(
             .filter(parties::Column::Id.eq(id.as_str()))
             .into_tuple()
             .one(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         let Some((_, role)) = row else {
             return Err(Refusal::not_found("Party", &id));
         };
@@ -1407,8 +1396,7 @@ async fn promote_role(
             .col_expr(parties::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(parties::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         caller.publish(
             &state,
             ACCOUNTING_CONTACT_UPDATED,
@@ -1468,7 +1456,7 @@ async fn reveal(
     }
     let result: Reply = async {
         let db = &caller.db;
-        let Some(party) = find_party(db, id).await.map_err(refused)? else {
+        let Some(party) = find_party(db, id).await? else {
             return Err(Refusal::not_found("Contact", id));
         };
         let user = if caller.user_id.is_empty() {
@@ -1569,9 +1557,8 @@ async fn reveal_log(caller: Caller, Path(id): Path<String>) -> Response {
             .order_by_desc(tax_id_reveals::Column::CreatedAt)
             .limit(200)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
-        let rows = js_rows!(rows).map_err(refused)?;
+            .await?;
+        let rows = js_rows!(rows)?;
         let total = i64::try_from(rows.len()).unwrap_or(0);
         Ok(paged(rows, total, false, None))
     }
@@ -1586,7 +1573,7 @@ async fn verify_bank_details(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(party) = find_party(db, &id).await.map_err(refused)? else {
+        let Some(party) = find_party(db, &id).await? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         let filled = |key: &str| text(&party, key).is_some_and(|v| !v.is_empty());
@@ -1607,9 +1594,8 @@ async fn verify_bank_details(
             .col_expr(parties::Column::UpdatedAt, Expr::value(at))
             .filter(parties::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
-        let Some(updated) = load_contact_view(db, &id).await.map_err(refused)? else {
+            .await?;
+        let Some(updated) = load_contact_view(db, &id).await? else {
             return Err(Refusal::not_found("Contact", &id));
         };
         write_accounting_audit(

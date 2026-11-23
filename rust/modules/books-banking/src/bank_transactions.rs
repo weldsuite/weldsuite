@@ -18,8 +18,8 @@ use axum::routing::{delete, get, post};
 use http::HeaderMap;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
-    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    QueryTrait,
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -57,7 +57,6 @@ use crate::csv_format;
 use crate::import::{
     DeleteScope, count_duplicates, delete_lines, import_transactions, line_delete_blocker,
 };
-use crate::orm_bridge::refused;
 use crate::parsers::{CsvFormatRequired, ParseOptions, ParseResult, parse_bank_file};
 
 const FILE_FORMATS: [&str; 7] = ["mt940", "camt053", "csv", "ofx", "qfx", "qbo", "bai2"];
@@ -249,9 +248,8 @@ async fn list_lines(caller: &Caller) -> Reply {
         .limit(u64::try_from(size).unwrap_or(0))
         .offset(u64::try_from((page - 1) * size).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refused)?;
-    let total = filters.select().count(&db).await.map_err(refused)?;
+        .await?;
+    let total = filters.select().count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     Ok(paged(
         rows.into_iter()
@@ -281,8 +279,7 @@ async fn unreconciled(caller: Caller) -> Response {
             .order_by_desc(bank_transactions::Column::Date)
             .limit(100)
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         Ok(ok(Value::Array(
             rows.into_iter()
                 .map(|row| serde_json::to_value(row).unwrap_or_default())
@@ -497,8 +494,7 @@ async fn create_line(caller: &Caller, state: &BooksState, data: ManualBody) -> R
         )
         .filter(bank_accounts::Column::Id.eq(data.bank_account_id.as_str()))
         .exec(&orm(&caller.db))
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let mut journal_entry_id: Option<String> = None;
     if let Some(category) = &data.category_account_id {
@@ -764,8 +760,7 @@ async fn preview_file(caller: &Caller, data: FileBody) -> Reply {
                 text(account, "id").unwrap_or_default(),
                 &parse.transactions,
             )
-            .await
-            .map_err(refused)?,
+            .await?,
         ),
         None => None,
     };
@@ -927,8 +922,7 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         &batch_id,
         &parse.transactions,
     )
-    .await
-    .map_err(refused)?;
+    .await?;
     let (imported, duplicates) = (counts.imported, counts.duplicates);
     let auto_reconciled = if weldsuite_books_domain::js::truthy(account.get("autoReconcile")) {
         let http = caller.http(state);
@@ -963,8 +957,7 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
         )
         .filter(bank_import_batches::Column::Id.eq(batch_id.as_str()))
         .exec(&orm(&caller.db))
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let remember = (parse.format == "csv" && data.remember_csv_format)
         .then(|| data.csv_format.clone())
@@ -1006,8 +999,7 @@ async fn import_file(caller: &Caller, state: &BooksState, data: FileBody) -> Rep
                 .col_expr(bank_accounts::Column::CurrentBalance, balance)
                 .filter(bank_accounts::Column::Id.eq(account_id.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(refused)?;
+                .await?;
         }
         caller.publish(
             state,
@@ -1148,7 +1140,7 @@ async fn suggestions(caller: Caller, Path(id): Path<String>) -> Response {
 // ── Matching a line ─────────────────────────────────────────────────────────
 
 /// `findLine(c, id)`: the live line of the resolved entity.
-async fn find_line(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find_line(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
     let entity_id = resolve_entity_id(caller).await?;
     let txn = find_transaction(&caller.db, id).await?;
     Ok(txn.filter(|txn| {
@@ -1581,8 +1573,7 @@ async fn exclude(
             .col_expr(bank_transactions::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(bank_transactions::Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1672,8 +1663,7 @@ async fn undo_import(
             .filter(bank_transactions::Column::ImportBatchId.eq(batch_id.as_str()))
             .filter(bank_transactions::Column::DeletedAt.is_null())
             .all(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         let (deleted, kept) = delete_lines(
             &caller.db,
             lines
@@ -1682,8 +1672,7 @@ async fn undo_import(
                 .collect(),
             DeleteScope::ImportBatch(&batch_id),
         )
-        .await
-        .map_err(refused)?;
+        .await?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1741,8 +1730,7 @@ async fn remove(
             None => {}
         }
         let (deleted, _) = delete_lines(&caller.db, vec![txn], DeleteScope::Line(&id))
-            .await
-            .map_err(refused)?;
+            .await?;
         // Another request deleted or reconciled it after the read above.
         if deleted.is_empty() {
             return Err(Refusal::conflict(

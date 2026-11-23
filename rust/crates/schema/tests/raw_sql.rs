@@ -23,18 +23,9 @@ const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations", "crate
 /// Not converted yet. Remove a crate when its root `allow` goes; never add one.
 const NOT_CONVERTED: &[&str] = &[
     "bins/weldsuite",
-    "crates/ads-domain",
-    "crates/ai",
     "crates/books-domain",
-    "crates/chat-domain",
     "crates/connect-domain",
-    "crates/crm-domain",
     "crates/db",
-    "crates/mail-inbound",
-    "crates/reach-domain",
-    "crates/social-domain",
-    "crates/staff-domain",
-    "crates/subscribers",
 ];
 
 fn rust_dir() -> PathBuf {

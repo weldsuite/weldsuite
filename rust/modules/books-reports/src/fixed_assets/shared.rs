@@ -48,8 +48,7 @@ impl From<DbErr> for Fail {
     }
 }
 
-/// What `weldsuite-books-domain` (not on the ORM yet) still reads and
-/// writes with sqlx.
+/// A transaction's own `BEGIN` / `COMMIT`, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(weldsuite_db::orm_error(error))
@@ -59,7 +58,7 @@ impl From<sqlx::Error> for Fail {
 impl From<PostError> for Fail {
     fn from(error: PostError) -> Self {
         match error {
-            PostError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
+            PostError::Database(error) => Self::Database(error),
             other => Self::Ledger(other.to_string()),
         }
     }
@@ -68,7 +67,7 @@ impl From<PostError> for Fail {
 impl From<GuardError> for Fail {
     fn from(error: GuardError) -> Self {
         match error {
-            GuardError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
+            GuardError::Database(error) => Self::Database(error),
             other => Self::Ledger(other.to_string()),
         }
     }
@@ -77,7 +76,7 @@ impl From<GuardError> for Fail {
 impl From<Refusal> for Fail {
     fn from(refusal: Refusal) -> Self {
         match refusal {
-            Refusal::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
+            Refusal::Database(error) => Self::Database(error),
             Refusal::Internal(error) => Self::Internal(error),
             Refusal::Response(_) => Self::Internal("unexpected response".to_owned()),
         }
@@ -98,7 +97,7 @@ impl Fail {
                 ApiError::not_found(resource, None).into_response()
             }
             Self::Conflict(message) => ApiError::conflict(message).into_response(),
-            Self::Database(error) => crate::orm_bridge::refused(error).respond(&fallback),
+            Self::Database(error) => Refusal::Database(error).respond(&fallback),
             Self::Internal(error) => Refusal::Internal(error).respond(&fallback),
         }
     }

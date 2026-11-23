@@ -40,7 +40,6 @@ use crate::credit_notes::{CreditApplication, apply_credit_note};
 use crate::errors::SalesError;
 use crate::finalize::{FinalizeOptions, finalize_invoice, load_invoice, load_items};
 use crate::invoices::write::runtime;
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{
     invoice_document_context, invoice_item_to_tax_item, invoice_tax_columns, item_tax_columns,
     owned, text,
@@ -516,10 +515,10 @@ async fn insert_document(
 )]
 async fn duplicate_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
-    let items = load_items(db, id, false).await.map_err(sqlx_error)?;
+    let items = load_items(db, id, false).await?;
     let new_id = generate_id("inv");
     let at = now();
     let at_ms = js::millis_of(&at).unwrap_or_else(now_ms);

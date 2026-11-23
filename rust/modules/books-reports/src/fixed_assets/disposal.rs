@@ -33,7 +33,6 @@ use super::schedules::{annual_schedule, business_use, ledger_rows};
 use super::shared::{
     Fail, bad, conflict, from_cents, money, not_found, num, opt, present, text, to_cents,
 };
-use crate::orm_bridge::sqlx_error;
 use crate::rows::{date_of, decimal_of};
 
 /// `DisposeInput`.
@@ -337,8 +336,7 @@ pub(crate) async fn dispose_fixed_asset(
                 Ok(())
             }
             .await;
-            // `post_journal_entry`'s transaction still speaks sqlx.
-            written.map_err(sqlx_error)
+            written
         })
     });
     let posted = post_journal_entry(

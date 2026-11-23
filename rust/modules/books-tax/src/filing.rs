@@ -17,7 +17,7 @@ use sqlx::PgPool;
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::http::{now, now_ms};
 use weldsuite_books_domain::js;
-use weldsuite_db::{OrmConn, orm, orm_error, utc_now};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_schema::tenant::{entities, tax_lines, tax_rates};
 
 use crate::nl::{ReturnLine, escape_xml};
@@ -218,8 +218,7 @@ pub(crate) async fn file_period(
         let mut mirror = serde_json::Map::new();
         mirror.insert("taxLockDate".into(), json!(end_day));
         upsert_accounting_entity_settings(&mut *tx, entity_id, &mirror)
-            .await
-            .map_err(orm_error)?;
+            .await?;
     }
     Ok(())
 }

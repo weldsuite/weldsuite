@@ -41,7 +41,6 @@ use super::{fields_of, js_date, now_stamped, total_or_zero};
 use crate::body::{InvoiceInput, LineInput, read_invoice};
 use crate::errors::SalesError;
 use crate::finalize::{load_invoice, load_items};
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{
     Drafted, calculate_draft_tax, engine_unavailable_warning, invoice_document_context,
     invoice_item_to_tax_item, invoice_kind, invoice_tax_columns, item_tax_columns,
@@ -936,7 +935,7 @@ pub(crate) async fn remove(
 
 async fn delete_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
     if text(&invoice, "status") != Some("draft") {
@@ -950,8 +949,7 @@ async fn delete_invoice(caller: &Caller, state: &BooksState, id: &str) -> Reply 
         .col_expr(invoices::Column::UpdatedAt, Expr::value(at))
         .filter(invoices::Column::Id.eq(id))
         .exec(&orm(db))
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     write_accounting_audit(
         caller,
         db,

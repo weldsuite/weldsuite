@@ -15,7 +15,6 @@ mod certificates;
 mod common;
 mod jurisdictions;
 mod nexus;
-mod orm_bridge;
 pub mod reminders;
 mod reports;
 mod returns;

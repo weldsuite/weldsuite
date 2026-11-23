@@ -33,7 +33,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::master::mail_account_registry;
 use weldsuite_schema::tenant::{settings, workflow_templates};
 
-use crate::orm_bridge::{sqlx_error, to_json};
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -143,7 +143,7 @@ async fn find(caller: &Caller) -> Result<Option<Map<String, Value>>, DbErr> {
 
 async fn read(caller: Caller) -> Response {
     let result = async {
-        if let Some(row) = find(&caller).await.map_err(sqlx_error)? {
+        if let Some(row) = find(&caller).await? {
             return Ok(ok(Value::Object(row)));
         }
         // Made on first read.
@@ -262,7 +262,7 @@ async fn update(
 
 async fn update_settings(caller: &Caller, state: &BooksState, data: Map<String, Value>) -> Reply {
     let db = &caller.db;
-    let Some(existing) = find(caller).await.map_err(sqlx_error)? else {
+    let Some(existing) = find(caller).await? else {
         // No settings row yet: create one.
         let id = generate_id("acs");
         let at = now();
@@ -438,9 +438,8 @@ async fn inbox(
                 .to_owned(),
         )
         .exec_without_returning(&orm(&master))
-        .await
-        .map_err(sqlx_error)?;
-        if let Some(current) = find(&caller).await.map_err(sqlx_error)? {
+        .await?;
+        if let Some(current) = find(&caller).await? {
             let id = current["id"].as_str().unwrap_or_default().to_owned();
             let old = current
                 .get("emailSettings")
@@ -458,8 +457,7 @@ async fn inbox(
                 .col_expr(settings::Column::UpdatedAt, Expr::value(at))
                 .filter(settings::Column::Id.eq(id.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(sqlx_error)?;
+                .await?;
             let mut changes = Map::new();
             changes.insert("emailSettings".to_owned(), change(old, Value::Object(next)));
             write_accounting_audit(
@@ -495,8 +493,7 @@ async fn seed_workflows(caller: Caller) -> Response {
             .filter(workflow_templates::Column::Category.eq("finance"))
             .into_tuple()
             .one(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if existing.is_some() {
             return Err(Refusal::conflict(
                 "Accounting workflow templates already seeded.",
@@ -521,7 +518,7 @@ async fn seed_workflows(caller: Caller) -> Response {
                 for row in rows {
                     WORKFLOW_TEMPLATES.insert_raw(&mut *conn, row).await?;
                 }
-                Ok::<_, sqlx::Error>(())
+                Ok::<_, Refusal>(())
             })
         })
         .await?;

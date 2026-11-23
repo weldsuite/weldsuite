@@ -32,7 +32,6 @@ use weldsuite_schema::tenant::{
 
 use crate::certificates::last_used_by_certificate;
 use crate::common::{is_iso_date_text, text, today_in};
-use crate::orm_bridge::refusal;
 use crate::returns::checks::{agency_liability, status_as_of};
 use crate::returns::common::{
     add_days, add_months, bad, day_start, day_text, decimal_num, load_agencies,
@@ -110,8 +109,7 @@ async fn liability(
                 return Err(bad("asOf must be a YYYY-MM-DD date"));
             }
             Ok(ok(liability_report(&caller.db, &entity, &as_of)
-                .await
-                .map_err(refusal)?))
+                .await?))
         }
         .await,
         "Failed to fetch the sales tax liability",
@@ -412,8 +410,7 @@ async fn sales_summary(
                 &to,
                 &group_by,
             )
-            .await
-            .map_err(refusal)?))
+            .await?))
         }
         .await,
         "Failed to fetch the sales summary",
@@ -594,8 +591,7 @@ async fn exceptions(
                 &from,
                 &to,
             )
-            .await
-            .map_err(refusal)?))
+            .await?))
         }
         .await,
         "Failed to fetch the sales tax exceptions",
@@ -986,8 +982,7 @@ async fn expiring(
                 .clamp(1, 730);
             let today = today_of(&caller, &state, &entity);
             Ok(ok(expiring_certificates(&caller.db, &entity, days, &today)
-                .await
-                .map_err(refusal)?))
+                .await?))
         }
         .await,
         "Failed to fetch expiring certificates",
@@ -1098,8 +1093,7 @@ async fn missing(
             Ok(ok(missing_certificates(
                 &caller.db, &entity, from, to, &today,
             )
-            .await
-            .map_err(refusal)?))
+            .await?))
         }
         .await,
         "Failed to fetch missing certificates",
@@ -1204,8 +1198,7 @@ async fn provider_reconciliation(
             }
             let all = matches!(q.get("all"), Some("1" | "true"));
             Ok(ok(reconcile(&caller.db, &entity, &from, &to, all)
-                .await
-                .map_err(refusal)?))
+                .await?))
         }
         .await,
         "Failed to reconcile the tax provider",

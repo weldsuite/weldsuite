@@ -28,7 +28,7 @@ use sea_orm::{
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{COMPANIES_READ, TICKETS_READ};
 use weldsuite_chat_domain::access::{Can, can_access_channel};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, NoContent, generate_id};
 use weldsuite_schema::tenant::{
@@ -211,13 +211,11 @@ impl<'a> TitleAccess<'a> {
         if let Some(answer) = self.answers.get(&key) {
             return Ok(*answer);
         }
-        // WeldChat's and the permissions' lookups are not on the entities yet.
         let answer = match record_type {
             "chat_channel" => can_access_channel(self.db, record_id, self.user_id, Some(&self.can))
-                .await
-                .map_err(orm_error)?,
-            "desk_ticket" => self.can.can(TICKETS_READ).await.map_err(orm_error)?,
-            "crm_company" => self.can.can(COMPANIES_READ).await.map_err(orm_error)?,
+                .await?,
+            "desk_ticket" => self.can.can(TICKETS_READ).await?,
+            "crm_company" => self.can.can(COMPANIES_READ).await?,
             _ => false,
         };
         self.answers.insert(key, answer);

@@ -25,7 +25,7 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::jurisdictions::us;
 use weldsuite_books_domain::tax_calendar::{AgencyInput, CalendarEntity, tax_calendar};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -35,7 +35,6 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::common::{is_iso_date_text, text, today_in};
-use crate::orm_bridge::refusal;
 use crate::returns::common::{
     FILED_STATUSES, agency_to_input, load_agencies, parse_day, row_json, rows_json,
 };
@@ -61,7 +60,7 @@ where
 
 /// The entity of the request (any jurisdiction), or `None`.
 async fn entity_of(caller: &Caller) -> Result<Option<Value>, DbErr> {
-    let Some(id) = resolve_entity_id(caller).await.map_err(orm_error)? else {
+    let Some(id) = resolve_entity_id(caller).await? else {
         return Ok(None);
     };
     entities::Entity::find_by_id(id)
@@ -349,7 +348,7 @@ async fn calendar(
     let q = Query::parse(raw.as_deref());
     reply(
         async {
-            let Some(entity) = entity_of(&caller).await.map_err(refusal)? else {
+            let Some(entity) = entity_of(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
             let year = match q.get("year").filter(|y| !y.is_empty()) {
@@ -363,8 +362,7 @@ async fn calendar(
             };
             let today = today_in(&caller, &state, text(&entity, "timezone"));
             Ok(ok(entity_calendar(&caller.db, &entity, year, &today)
-                .await
-                .map_err(refusal)?))
+                .await?))
         }
         .await,
         "Failed to fetch the tax calendar",
@@ -426,7 +424,7 @@ async fn complete(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
 }
 
 async fn mark_done(caller: &Caller, data: CompleteBody) -> Reply {
-    let Some(entity) = entity_of(caller).await.map_err(refusal)? else {
+    let Some(entity) = entity_of(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
     if text(&entity, "jurisdictionCode") != Some("US") {
@@ -437,8 +435,7 @@ async fn mark_done(caller: &Caller, data: CompleteBody) -> Reply {
     let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
     let user = caller.user().map(str::to_owned);
     let row = complete_deadline(&caller.db, &entity_id, &data, user)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let mut changes = Map::new();
     changes.insert("deadlineKey".into(), change(Value::Null, json!(data.key)));
     write_accounting_audit(
@@ -503,7 +500,7 @@ async fn complete_deadline(
 async fn reopen(caller: Caller, Path(key): Path<String>) -> Response {
     reply(
         async {
-            let Some(entity) = entity_of(&caller).await.map_err(refusal)? else {
+            let Some(entity) = entity_of(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
@@ -511,8 +508,7 @@ async fn reopen(caller: Caller, Path(key): Path<String>) -> Response {
                 .filter(tax_calendar_completions::Column::EntityId.eq(entity_id.as_str()))
                 .filter(tax_calendar_completions::Column::DeadlineKey.eq(key.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(refusal)?;
+                .await?;
             if removed.rows_affected == 0 {
                 return Err(Refusal::not_found("Completion", &key));
             }

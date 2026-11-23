@@ -3,9 +3,12 @@
 //! (`@weldsuite/mail-domain/store/model`), the worker's `applyMailRules`
 //! and `finalizeOpFromStates`, and the Postgres store's `inbound.finalize`.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_mail_domain::labels::{add_labels, remove_labels};
+use weldsuite_schema::tenant::{mail_messages, mail_rules};
 
 use crate::parsed::{EmailAddress, ParsedEmail};
 
@@ -392,21 +395,21 @@ pub async fn apply_mail_rules(
     email: &ParsedEmail,
     message_id: &str,
     state: &RuleState,
-) -> Result<Result<RulesOutcome, RuleError>, sqlx::Error> {
+) -> Result<Result<RulesOutcome, RuleError>, DbErr> {
+    use sea_orm::ExprTrait as _;
     let (outcome, applied) = fold_rules(rules, email, state);
     for id in applied {
-        let now = weldsuite_mail_domain::outbound::clock::iso(
-            weldsuite_mail_domain::outbound::clock::now_ms(),
-        );
-        sqlx::query(
-            "update mail_rules set applied_count = applied_count + 1,
-                    last_applied_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        let now = crate::store::timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
+        mail_rules::Entity::update_many()
+            .col_expr(
+                mail_rules::Column::AppliedCount,
+                mail_rules::Column::AppliedCount.into_expr().add(1),
+            )
+            .col_expr(mail_rules::Column::LastAppliedAt, Expr::value(now))
+            .col_expr(mail_rules::Column::UpdatedAt, Expr::value(now))
+            .filter(mail_rules::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
         tracing::info!(rule = %id, message_id, "[Rules] Applied rule");
     }
     Ok(outcome)
@@ -421,7 +424,8 @@ pub async fn finalize_inbound(
     message_id: &str,
     initial: &RuleState,
     state: &RuleState,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use mail_messages::Column as M;
     let add: Vec<String> = state
         .labels
         .iter()
@@ -447,13 +451,15 @@ pub async fn finalize_inbound(
     {
         return Ok(());
     }
-    let existing: Option<Option<Value>> = sqlx::query_scalar(
-        "select labels from mail_messages where id = $1 and account_id = $2 limit 1",
-    )
-    .bind(message_id)
-    .bind(account_id)
-    .fetch_optional(db)
-    .await?;
+    let conn = orm(db);
+    let existing: Option<Option<Value>> = mail_messages::Entity::find()
+        .select_only()
+        .column(M::Labels)
+        .filter(M::Id.eq(message_id))
+        .filter(M::AccountId.eq(account_id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(existing) = existing else {
         return Ok(());
     };
@@ -463,36 +469,33 @@ pub async fn finalize_inbound(
         let current = weldsuite_mail_domain::labels::labels_of(existing.as_ref());
         Some(remove_labels(&add_labels(&current, &add), &remove))
     };
-    let now = weldsuite_mail_domain::outbound::clock::iso(
-        weldsuite_mail_domain::outbound::clock::now_ms(),
-    );
-    sqlx::query(
-        "update mail_messages set
-            labels = case when $3 then $4::jsonb else labels end,
-            is_trash = case when $3 then $5 else is_trash end,
-            is_read = coalesce($6, is_read),
-            is_flagged = coalesce($7, is_flagged),
-            is_spam = coalesce($8, is_spam),
-            deleted_at = case when $9 then $10::timestamp else deleted_at end,
-            updated_at = $10::timestamp
-         where id = $1 and account_id = $2",
-    )
-    .bind(message_id)
-    .bind(account_id)
-    .bind(labels.is_some())
-    .bind(Value::from(labels.clone().unwrap_or_default()))
-    .bind(
-        labels
-            .as_ref()
-            .is_some_and(|l| l.iter().any(|l| l == "TRASH")),
-    )
-    .bind(is_read)
-    .bind(is_flagged)
-    .bind(is_spam)
-    .bind(deleted)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let now = crate::store::timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
+    // Only the fields that changed are written; the rest keep their value.
+    let mut update = mail_messages::Entity::update_many();
+    if let Some(labels) = labels {
+        let trash = labels.iter().any(|l| l == "TRASH");
+        update = update
+            .col_expr(M::Labels, Expr::value(Value::from(labels)))
+            .col_expr(M::IsTrash, Expr::value(trash));
+    }
+    for (column, value) in [
+        (M::IsRead, is_read),
+        (M::IsFlagged, is_flagged),
+        (M::IsSpam, is_spam),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if deleted {
+        update = update.col_expr(M::DeletedAt, Expr::value(now));
+    }
+    update
+        .col_expr(M::UpdatedAt, Expr::value(now))
+        .filter(M::Id.eq(message_id))
+        .filter(M::AccountId.eq(account_id))
+        .exec(&conn)
+        .await?;
     Ok(())
 }
 

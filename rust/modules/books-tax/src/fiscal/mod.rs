@@ -18,7 +18,6 @@ use sqlx::PgPool;
 use weldsuite_books_domain::http::Refusal;
 use weldsuite_kit::ApiError;
 
-use crate::orm_bridge::refused;
 use crate::vat_returns::{entity_row, has_feature};
 use focus::ProviderError;
 use payload::PayloadError;
@@ -39,16 +38,16 @@ pub(crate) enum FiscalError {
     Refusal(Refusal),
 }
 
-/// A failure of `weldsuite-books-domain`, not converted to the ORM yet.
+/// A transaction's own `BEGIN` / `COMMIT`, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for FiscalError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::Database(error))
+        Self::Refusal(Refusal::from(error))
     }
 }
 
 impl From<DbErr> for FiscalError {
     fn from(error: DbErr) -> Self {
-        Self::Refusal(refused(error))
+        Self::Refusal(Refusal::Database(error))
     }
 }
 

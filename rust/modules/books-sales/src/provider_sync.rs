@@ -10,7 +10,7 @@
 //! the outbound HTTP port. Entities without a provider engine (the manual
 //! engine, every non-US entity) answer `not_applicable`, as in TypeScript.
 
-use sea_orm::{DbErr, EntityTrait};
+use sea_orm::{DbErr, EntityTrait, RuntimeErr};
 use serde_json::{Value, json};
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::sales_tax::document_tax::{
@@ -27,7 +27,6 @@ use weldsuite_schema::tenant::invoices;
 
 use crate::finalize::{load_invoice, load_items};
 use crate::invoices::row_json;
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{invoice_document_context, merge_sync_warning, owned, text};
 
 /// `ProviderSyncResult`.
@@ -68,7 +67,7 @@ pub(crate) async fn sync_invoice_with_provider(
     invoice_id: &str,
     runtime: &Runtime,
 ) -> Result<ProviderSync, TaxError> {
-    let Some(invoice) = load_invoice(db, invoice_id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, invoice_id).await? else {
         return Err(TaxError::SalesTax(
             DocumentError::new("TAX_COMMIT_NOT_APPLICABLE", "Invoice not found").into(),
         ));
@@ -99,8 +98,7 @@ pub(crate) async fn sync_invoice_with_provider(
         return Ok(ProviderSync::status("not_applicable"));
     };
     let items = load_items(db, invoice_id, false)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let credit_memo = text(&invoice, "type") == Some("credit_note");
     // Anything that goes wrong is kept on the invoice, never thrown.
     let outcome = provider_call(db, &invoice, &items, &entity, runtime, credit_memo).await;
@@ -198,7 +196,16 @@ impl From<sqlx::Error> for Failure {
 /// An ORM statement's failure, with the database error's own message.
 impl From<DbErr> for Failure {
     fn from(error: DbErr) -> Self {
-        sqlx_error(error).into()
+        let message = match &error {
+            DbErr::Conn(RuntimeErr::SqlxError(inner))
+            | DbErr::Exec(RuntimeErr::SqlxError(inner))
+            | DbErr::Query(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+            other => other.to_string(),
+        };
+        Self {
+            message,
+            invalid_request: false,
+        }
     }
 }
 

@@ -1,17 +1,22 @@
 //! A connection's sync (`@weldsuite/ads-domain/sync`): its OAuth tokens,
 //! the ad accounts it reaches, which of them sync, and the sync itself.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{DecryptError, EncryptError, Keyring, PgPool, decrypt_field, encrypt_field};
+use weldsuite_db::{
+    DecryptError, EncryptError, Keyring, PgPool, decrypt_field, encrypt_field, orm, utc_now,
+};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{ad_accounts, ad_campaigns, ad_platform_connections};
 
+use crate::AdsError;
 use crate::campaigns::{SyncScope, sync_ad_connection};
 use crate::meta::MetaClient;
 use crate::sync_index::{
     SyncIndexEntry, touch_ad_sync_index_after_metrics_sync, upsert_ad_sync_index,
 };
-use crate::{AdsError, now};
 
 /// `decryptAccessToken(encrypted, keyring)`: `None` for a missing or empty
 /// token.
@@ -51,55 +56,56 @@ pub async fn discover_ad_accounts(
     connection_id: &str,
     access_token: &str,
 ) -> Result<(), AdsError> {
+    use ad_accounts::Column;
     let remote_accounts = MetaClient::new(http.clone(), access_token)
         .list_ad_accounts()
         .await?;
-    let now = now();
+    let now = utc_now();
+    let db = orm(db);
     for remote in remote_accounts {
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from ad_accounts
-             where connection_id = $1 and platform_account_id = $2 and deleted_at is null
-             limit 1",
-        )
-        .bind(connection_id)
-        .bind(&remote.platform_account_id)
-        .fetch_optional(db)
-        .await?;
-        if let Some(id) = existing {
-            sqlx::query(
-                "update ad_accounts set
-                     name = $2,
-                     currency = coalesce($3, currency),
-                     timezone = coalesce($4, timezone),
-                     status = coalesce($5, status),
-                     updated_at = $6::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(&remote.name)
-            .bind(remote.currency.as_deref())
-            .bind(remote.timezone.as_deref())
-            .bind(remote.status.as_deref())
-            .bind(&now)
-            .execute(db)
+        let existing: Option<String> = ad_accounts::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::ConnectionId.eq(connection_id))
+            .filter(Column::PlatformAccountId.eq(remote.platform_account_id.as_str()))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&db)
             .await?;
+        if let Some(id) = existing {
+            let mut update = ad_accounts::Entity::update_many()
+                .col_expr(Column::Name, Expr::value(remote.name.clone()));
+            // `coalesce($n, column)`: what Meta left out stays.
+            if let Some(currency) = &remote.currency {
+                update = update.col_expr(Column::Currency, Expr::value(currency.clone()));
+            }
+            if let Some(timezone) = &remote.timezone {
+                update = update.col_expr(Column::Timezone, Expr::value(timezone.clone()));
+            }
+            if let Some(status) = &remote.status {
+                update = update.col_expr(Column::Status, Expr::value(status.clone()));
+            }
+            update
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .exec(&db)
+                .await?;
             continue;
         }
-        sqlx::query(
-            "insert into ad_accounts
-                 (id, connection_id, platform_account_id, name, currency, timezone, status,
-                  is_selected, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, false, $8::timestamp, $8::timestamp)",
-        )
-        .bind(generate_id("adac"))
-        .bind(connection_id)
-        .bind(&remote.platform_account_id)
-        .bind(&remote.name)
-        .bind(remote.currency.as_deref())
-        .bind(remote.timezone.as_deref())
-        .bind(remote.status.as_deref())
-        .bind(&now)
-        .execute(db)
+        ad_accounts::Entity::insert(ad_accounts::ActiveModel {
+            id: Set(generate_id("adac")),
+            connection_id: Set(connection_id.to_owned()),
+            platform_account_id: Set(remote.platform_account_id.clone()),
+            name: Set(remote.name.clone()),
+            currency: Set(remote.currency.clone()),
+            timezone: Set(remote.timezone.clone()),
+            status: Set(remote.status.clone()),
+            is_selected: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
     }
     Ok(())
@@ -159,16 +165,17 @@ pub async fn sync_selected_accounts(
         platform_campaign_id,
     )
     .await?;
-    let now = now();
-    sqlx::query(
-        "update ad_platform_connections
-         set last_sync_at = $2::timestamp, updated_at = $2::timestamp, last_error = null
-         where id = $1",
-    )
-    .bind(connection_id)
-    .bind(&now)
-    .execute(target.db)
-    .await?;
+    let now = utc_now();
+    ad_platform_connections::Entity::update_many()
+        .col_expr(ad_platform_connections::Column::LastSyncAt, Expr::value(now))
+        .col_expr(ad_platform_connections::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            ad_platform_connections::Column::LastError,
+            Expr::value(None::<String>),
+        )
+        .filter(ad_platform_connections::Column::Id.eq(connection_id))
+        .exec(&orm(target.db))
+        .await?;
     if matches!(scope, SyncScope::Pull | SyncScope::Full) {
         touch_ad_sync_index_after_metrics_sync(target.master, workspace_id, connection_id).await?;
     }
@@ -199,21 +206,20 @@ pub async fn set_account_selection(
     master: Option<&PgPool>,
     selection: AccountSelection<'_>,
 ) -> Result<(), AdsError> {
-    sqlx::query(
-        "update ad_accounts set is_selected = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(selection.account_id)
-    .bind(selection.is_selected)
-    .bind(now())
-    .execute(db)
-    .await?;
-    let selected: i64 = sqlx::query_scalar(
-        "select count(*)::bigint from ad_accounts
-         where connection_id = $1 and is_selected = true and deleted_at is null",
-    )
-    .bind(selection.connection_id)
-    .fetch_one(db)
-    .await?;
+    use ad_accounts::Column;
+    let db = orm(db);
+    ad_accounts::Entity::update_many()
+        .col_expr(Column::IsSelected, Expr::value(selection.is_selected))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(selection.account_id))
+        .exec(&db)
+        .await?;
+    let selected = ad_accounts::Entity::find()
+        .filter(Column::ConnectionId.eq(selection.connection_id))
+        .filter(Column::IsSelected.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .count(&db)
+        .await?;
     upsert_ad_sync_index(
         master,
         &SyncIndexEntry {
@@ -231,31 +237,33 @@ pub async fn set_account_selection(
 /// `cleanupConnectionMappings`: a disconnected connection's campaigns and
 /// accounts are deleted (soft), its accounts unselected.
 pub async fn cleanup_connection_mappings(db: &PgPool, connection_id: &str) -> Result<(), AdsError> {
-    let account_ids: Vec<String> = sqlx::query_scalar(
-        "select id from ad_accounts where connection_id = $1 and deleted_at is null",
-    )
-    .bind(connection_id)
-    .fetch_all(db)
-    .await?;
-    let now = now();
-    if !account_ids.is_empty() {
-        sqlx::query(
-            "update ad_campaigns set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where ad_account_id = any($1) and deleted_at is null",
-        )
-        .bind(&account_ids)
-        .bind(&now)
-        .execute(db)
+    use ad_accounts::Column;
+    let db = orm(db);
+    let account_ids: Vec<String> = ad_accounts::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ConnectionId.eq(connection_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
         .await?;
+    let now = utc_now();
+    if !account_ids.is_empty() {
+        ad_campaigns::Entity::update_many()
+            .col_expr(ad_campaigns::Column::DeletedAt, Expr::value(now))
+            .col_expr(ad_campaigns::Column::UpdatedAt, Expr::value(now))
+            .filter(ad_campaigns::Column::AdAccountId.is_in(account_ids))
+            .filter(ad_campaigns::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
     }
-    sqlx::query(
-        "update ad_accounts
-         set deleted_at = $2::timestamp, updated_at = $2::timestamp, is_selected = false
-         where connection_id = $1 and deleted_at is null",
-    )
-    .bind(connection_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    ad_accounts::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .col_expr(Column::IsSelected, Expr::value(false))
+        .filter(Column::ConnectionId.eq(connection_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
     Ok(())
 }

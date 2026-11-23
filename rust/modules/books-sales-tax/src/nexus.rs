@@ -29,7 +29,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{invoices, tax_lines};
 
 use crate::common::{is_iso_date_text, text, today_in};
-use crate::orm_bridge::refusal;
 use crate::returns::common::{
     add_months, bad, day_start, day_text, decimal_num, load_agencies, n, next_day, num_at,
     parse_day, registered_on, round2, rows_json, s, state_of_address, sum_money, us_entity_of,
@@ -426,8 +425,7 @@ async fn overview(
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
             Ok(ok(nexus_overview(&caller.db, s(&entity, "id"), &day)
-                .await
-                .map_err(refusal)?))
+                .await?))
         }
         .await,
         "Failed to fetch the nexus monitor",
@@ -447,8 +445,7 @@ async fn detail(
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
             match nexus_detail(&caller.db, s(&entity, "id"), &code, &day)
-                .await
-                .map_err(refusal)?
+                .await?
             {
                 Some(detail) => Ok(ok(detail)),
                 None => Ok((

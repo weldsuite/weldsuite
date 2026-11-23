@@ -12,10 +12,21 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationDef,
+};
 use serde_json::Value;
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    accounts, bills, entities, invoices, journal_entries, journal_lines, payment_allocations,
+    payments, settings,
+};
 
 use super::{ReportInputError, iso};
+use crate::db_values::timestamp_of;
 use crate::js::{locale_compare, parse_float, round_money};
 use crate::posting::{EntityAccounts, account_for_role, load_entity_accounts};
 
@@ -54,7 +65,7 @@ pub async fn resolve_basis(
     db: &PgPool,
     accounting_method: Option<&str>,
     requested: Option<Basis>,
-) -> Result<Basis, sqlx::Error> {
+) -> Result<Basis, DbErr> {
     if let Some(basis) = requested {
         return Ok(basis);
     }
@@ -63,11 +74,13 @@ pub async fn resolve_basis(
         Some("accrual") => return Ok(Basis::Accrual),
         _ => {}
     }
-    let method: Option<Option<String>> = sqlx::query_scalar(
-        "select accounting_method from settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let method: Option<Option<String>> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::AccountingMethod)
+        .filter(settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(if method.flatten().as_deref() == Some("cash") {
         Basis::Cash
     } else {
@@ -236,7 +249,7 @@ pub async fn create_ledger(
     basis: Basis,
     filters: LedgerFilters,
     up_to: i64,
-) -> Result<Ledger, sqlx::Error> {
+) -> Result<Ledger, DbErr> {
     let chart = load_entity_accounts(db, entity_id).await?;
     let mut accounts: Vec<LedgerAccount> = chart.rows().iter().map(to_ledger_account).collect();
 
@@ -248,11 +261,13 @@ pub async fn create_ledger(
     let mut events = Vec::new();
 
     if basis == Basis::Cash {
-        let entity: Option<(String, String)> =
-            sqlx::query_as("select id, base_currency from entities where id = $1 limit 1")
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+        let entity: Option<(String, String)> = entities::Entity::find()
+            .select_only()
+            .columns([entities::Column::Id, entities::Column::BaseCurrency])
+            .filter(entities::Column::Id.eq(entity_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let (id, base_currency) =
             entity.unwrap_or_else(|| (entity_id.to_owned(), "USD".to_owned()));
         events = load_cash_events(
@@ -323,59 +338,64 @@ pub async fn create_ledger(
     })
 }
 
-/// The entry and line conditions every journal query of a ledger shares
-/// (`lineConditions(range)`): `$1` entity, `$2` to, `$3` from, `$4` class,
-/// `$5` location, `$6` cash basis, `$7` the control accounts.
-macro_rules! line_conditions {
-    () => {
-        "jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
-         and je.status in ('posted', 'reversed') and je.date <= $2::timestamp \
-         and ($3::timestamp is null or je.date >= $3::timestamp) \
-         and ($4::text is null or jl.class_id = $4) \
-         and ($5::text is null or jl.location_id = $5) \
-         and (not $6 or ((je.source_type is null or je.source_type not in \
-         ('invoice', 'credit_note', 'bill', 'bill_credit_note', 'write_off')) \
-         and (cardinality($7::text[]) = 0 or jl.account_id <> all($7::text[])) \
-         and not coalesce(je.source_type in ('payment', 'payment_fx_adjustment') \
-         and je.source_id in (select p.id from payments p where p.deleted_at is not null), false)))"
-    };
+/// `jl.<column>` (`journal_lines`) in the joined statements.
+fn jl(column: journal_lines::Column) -> Expr {
+    Expr::col((journal_lines::Entity, column))
 }
 
-const AGGREGATE_SQL: &str = concat!(
-    "select jl.account_id, null::text, coalesce(sum(jl.debit::numeric), 0)::text, \
-     coalesce(sum(jl.credit::numeric), 0)::text from journal_lines jl \
-     inner join journal_entries je on jl.journal_entry_id = je.id \
-     inner join accounts a on jl.account_id = a.id where ",
-    line_conditions!(),
-    " and ($8::text[] is null or a.type = any($8::text[])) \
-     and ($9::text[] is null or jl.account_id = any($9::text[])) group by jl.account_id"
-);
+/// `inner join journal_entries je on jl.journal_entry_id = je.id`.
+fn line_entry() -> RelationDef {
+    journal_lines::Entity::belongs_to(journal_entries::Entity)
+        .from(journal_lines::Column::JournalEntryId)
+        .to(journal_entries::Column::Id)
+        .into()
+}
 
-const AGGREGATE_BY_CONTACT_SQL: &str = concat!(
-    "select jl.account_id, jl.contact_id, coalesce(sum(jl.debit::numeric), 0)::text, \
-     coalesce(sum(jl.credit::numeric), 0)::text from journal_lines jl \
-     inner join journal_entries je on jl.journal_entry_id = je.id \
-     inner join accounts a on jl.account_id = a.id where ",
-    line_conditions!(),
-    " and ($8::text[] is null or a.type = any($8::text[])) \
-     and ($9::text[] is null or jl.account_id = any($9::text[])) \
-     group by jl.account_id, jl.contact_id"
-);
+/// `inner join accounts a on jl.account_id = a.id`.
+fn line_account() -> RelationDef {
+    journal_lines::Entity::belongs_to(accounts::Entity)
+        .from(journal_lines::Column::AccountId)
+        .to(accounts::Column::Id)
+        .into()
+}
 
-const ACCOUNT_LINES_SQL: &str = concat!(
-    "select jl.id, jl.journal_entry_id, je.entry_number, \
-     floor(extract(epoch from je.date) * 1000)::bigint, je.status, jl.description, \
-     jl.debit::text, jl.credit::text, jl.contact_id, je.source_type \
-     from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id where ",
-    line_conditions!(),
-    " and jl.account_id = $8 order by je.date asc, je.id asc, jl.sort_order asc"
-);
+/// `column::text`: a `numeric` as Postgres prints it.
+fn text_of(column: impl Into<Expr>) -> Expr {
+    sea_orm::ExprTrait::cast_as(column.into(), "text")
+}
+
+/// `coalesce(sum(expr), 0)::text`.
+fn sum_text(expr: Expr) -> Expr {
+    text_of(Func::coalesce([Func::sum(expr).into(), Expr::val(0)]))
+}
+
+/// `$n::timestamp` of `iso(millis)`.
+fn stamp(millis: i64) -> Result<PrimitiveDateTime, DbErr> {
+    timestamp_of(&iso(millis))
+}
+
+/// `floor(extract(epoch from at) * 1000)`: a `timestamp` read as UTC, in
+/// epoch milliseconds.
+fn epoch_millis(at: PrimitiveDateTime) -> i64 {
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
+        .unwrap_or(i64::MAX)
+}
+
+/// The source types whose entries cash basis leaves out: the documents and
+/// write-offs (their payments recognise them).
+const DOCUMENT_SOURCES: [&str; 5] = [
+    "invoice",
+    "credit_note",
+    "bill",
+    "bill_credit_note",
+    "write_off",
+];
 
 type LineRow = (
     String,
     Option<String>,
     Option<String>,
-    i64,
+    PrimitiveDateTime,
     String,
     Option<String>,
     Option<String>,
@@ -415,19 +435,51 @@ impl Ledger {
         })
     }
 
-    fn bind_conditions<'q, O>(
-        &'q self,
-        query: sqlx::query::QueryAs<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments>,
-        range: LedgerRange,
-    ) -> sqlx::query::QueryAs<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments> {
-        query
-            .bind(&self.entity_id)
-            .bind(iso(range.to))
-            .bind(range.from.map(iso))
-            .bind(self.filters.class_id.as_deref())
-            .bind(self.filters.location_id.as_deref())
-            .bind(self.basis == Basis::Cash)
-            .bind(&self.control_ids)
+    /// The entry and line conditions every journal query of a ledger
+    /// shares (`lineConditions(range)`): the entity's live lines of posted
+    /// (or reversed) entries in the range, of the class and location asked
+    /// for; on cash basis no document or write-off entries, no lines on the
+    /// control accounts, and nothing of a voided payment.
+    fn line_conditions(&self, range: LedgerRange) -> Result<Condition, DbErr> {
+        use journal_entries::Column as Je;
+        use journal_lines::Column as Jl;
+        use sea_orm::ExprTrait as _;
+        let mut conditions = Condition::all()
+            .add(Jl::EntityId.eq(&self.entity_id))
+            .add(Jl::DeletedAt.is_null())
+            .add(Je::DeletedAt.is_null())
+            .add(Je::Status.is_in(["posted", "reversed"]))
+            .add(Je::Date.lte(stamp(range.to)?));
+        if let Some(from) = range.from {
+            conditions = conditions.add(Je::Date.gte(stamp(from)?));
+        }
+        if let Some(class_id) = &self.filters.class_id {
+            conditions = conditions.add(Jl::ClassId.eq(class_id));
+        }
+        if let Some(location_id) = &self.filters.location_id {
+            conditions = conditions.add(Jl::LocationId.eq(location_id));
+        }
+        if self.basis == Basis::Cash {
+            conditions = conditions.add(
+                Condition::any()
+                    .add(Je::SourceType.is_null())
+                    .add(Je::SourceType.is_not_in(DOCUMENT_SOURCES)),
+            );
+            if !self.control_ids.is_empty() {
+                conditions = conditions.add(Jl::AccountId.is_not_in(self.control_ids.clone()));
+            }
+            let voided = Query::select()
+                .column(payments::Column::Id)
+                .from(payments::Entity)
+                .and_where(payments::Column::DeletedAt.is_not_null())
+                .to_owned();
+            let of_voided_payment = Je::SourceType
+                .is_in(["payment", "payment_fx_adjustment"])
+                .and(Je::SourceId.in_subquery(voided));
+            conditions =
+                conditions.add(Func::coalesce([of_voided_payment, Expr::val(false)]).not());
+        }
+        Ok(conditions)
     }
 
     /// `aggregate(range, opts)`: debit and credit totals per account (and per
@@ -436,22 +488,8 @@ impl Ledger {
         &self,
         range: LedgerRange,
         opts: AggregateOptions<'_>,
-    ) -> Result<Vec<AggregateRow>, sqlx::Error> {
-        let types: Option<Vec<String>> = (!opts.account_types.is_empty())
-            .then(|| opts.account_types.iter().map(|t| (*t).to_owned()).collect());
-        let ids: Option<Vec<String>> = (!opts.account_ids.is_empty())
-            .then(|| opts.account_ids.iter().map(|t| (*t).to_owned()).collect());
-        let sql = if opts.by_contact {
-            AGGREGATE_BY_CONTACT_SQL
-        } else {
-            AGGREGATE_SQL
-        };
-        let rows: Vec<(String, Option<String>, String, String)> = self
-            .bind_conditions(sqlx::query_as(sql), range)
-            .bind(types)
-            .bind(ids)
-            .fetch_all(&self.db)
-            .await?;
+    ) -> Result<Vec<AggregateRow>, DbErr> {
+        let rows = self.aggregate_rows(range, opts).await?;
 
         let key = |account_id: &str, contact_id: Option<&str>| {
             if opts.by_contact {
@@ -517,19 +555,76 @@ impl Ledger {
         Ok(merged)
     }
 
+    /// The journal's totals per account (and contact) in `range`: `select
+    /// jl.account_id[, jl.contact_id], coalesce(sum(jl.debit), 0)::text,
+    /// coalesce(sum(jl.credit), 0)::text … group by …`.
+    async fn aggregate_rows(
+        &self,
+        range: LedgerRange,
+        opts: AggregateOptions<'_>,
+    ) -> Result<Vec<(String, Option<String>, String, String)>, DbErr> {
+        use journal_lines::Column as Jl;
+        let mut select = journal_lines::Entity::find()
+            .select_only()
+            .column(Jl::AccountId);
+        if opts.by_contact {
+            select = select.column(Jl::ContactId);
+        }
+        select = select
+            .column_as(sum_text(jl(Jl::Debit)), "debit")
+            .column_as(sum_text(jl(Jl::Credit)), "credit")
+            .join(JoinType::InnerJoin, line_entry())
+            .join(JoinType::InnerJoin, line_account())
+            .filter(self.line_conditions(range)?);
+        if !opts.account_types.is_empty() {
+            select = select.filter(accounts::Column::Type.is_in(opts.account_types.to_vec()));
+        }
+        if !opts.account_ids.is_empty() {
+            select = select.filter(Jl::AccountId.is_in(opts.account_ids.to_vec()));
+        }
+        select = select.group_by(Jl::AccountId);
+        let db = orm(&self.db);
+        if opts.by_contact {
+            select.group_by(Jl::ContactId).into_tuple().all(&db).await
+        } else {
+            let rows: Vec<(String, String, String)> = select.into_tuple().all(&db).await?;
+            Ok(rows
+                .into_iter()
+                .map(|(account_id, debit, credit)| (account_id, None, debit, credit))
+                .collect())
+        }
+    }
+
     /// `accountLines(accountId, range)`: every line of one account in a
     /// range, oldest first.
     pub async fn account_lines(
         &self,
         account_id: &str,
         range: LedgerRange,
-    ) -> Result<Vec<LedgerLine>, sqlx::Error> {
+    ) -> Result<Vec<LedgerLine>, DbErr> {
+        use journal_entries::Column as Je;
+        use journal_lines::Column as Jl;
         let mut lines = Vec::new();
         if !account_id.starts_with("virtual:") {
-            let rows: Vec<LineRow> = self
-                .bind_conditions(sqlx::query_as(ACCOUNT_LINES_SQL), range)
-                .bind(account_id)
-                .fetch_all(&self.db)
+            let rows: Vec<LineRow> = journal_lines::Entity::find()
+                .select_only()
+                .columns([Jl::Id, Jl::JournalEntryId])
+                .column(Je::EntryNumber)
+                .column_as(Je::Date, "entry_date")
+                .column_as(Je::Status, "entry_status")
+                .column(Jl::Description)
+                .column_as(text_of(jl(Jl::Debit)), "debit")
+                .column_as(text_of(jl(Jl::Credit)), "credit")
+                .column(Jl::ContactId)
+                .column(Je::SourceType)
+                .join(JoinType::InnerJoin, line_entry())
+                .filter(self.line_conditions(range)?)
+                .filter(Jl::AccountId.eq(account_id))
+                .order_by_asc(Je::Date)
+                .order_by_asc(Je::Id)
+                .order_by_asc(Jl::SortOrder)
+                .into_tuple()
+                .all(&orm(&self.db))
                 .await?;
             for (
                 id,
@@ -548,7 +643,7 @@ impl Ledger {
                     id,
                     journal_entry_id,
                     entry_number,
-                    entry_date,
+                    entry_date: epoch_millis(entry_date),
                     entry_status,
                     description,
                     debit: parse_float(debit.as_deref().unwrap_or("0")),
@@ -694,7 +789,7 @@ type PaymentTuple = (
     String,
     Option<String>,
     Option<String>,
-    i64,
+    PrimitiveDateTime,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -713,6 +808,44 @@ type GroupTuple = (
     String,
 );
 
+/// The accrual entries of the documents `ids`, their live lines summed per
+/// account, contact, class and location (`coalesce(sum(jl.debit -
+/// jl.credit), 0)::text`).
+async fn document_line_groups(
+    db: &sea_orm::DatabaseConnection,
+    entity_id: &str,
+    ids: &[String],
+) -> Result<Vec<GroupTuple>, DbErr> {
+    use journal_entries::Column as Je;
+    use journal_lines::Column as Jl;
+    use sea_orm::ExprTrait as _;
+    let net = jl(Jl::Debit).sub(jl(Jl::Credit));
+    journal_lines::Entity::find()
+        .select_only()
+        .columns([Je::SourceId, Je::SourceType, Je::Id, Je::EntryNumber])
+        .columns([Jl::AccountId, Jl::ContactId, Jl::ClassId, Jl::LocationId])
+        .column_as(sum_text(net), "net")
+        .join(JoinType::InnerJoin, line_entry())
+        .filter(Je::EntityId.eq(entity_id))
+        .filter(Je::DeletedAt.is_null())
+        .filter(Je::ReversalOfId.is_null())
+        .filter(Je::Status.is_in(["posted", "reversed"]))
+        .filter(Je::SourceType.is_in(["invoice", "credit_note", "bill", "bill_credit_note"]))
+        .filter(Je::SourceId.is_in(ids.to_vec()))
+        .filter(Jl::DeletedAt.is_null())
+        .group_by(Je::SourceId)
+        .group_by(Je::SourceType)
+        .group_by(Je::Id)
+        .group_by(Je::EntryNumber)
+        .group_by(Jl::AccountId)
+        .group_by(Jl::ContactId)
+        .group_by(Jl::ClassId)
+        .group_by(Jl::LocationId)
+        .into_tuple()
+        .all(db)
+        .await
+}
+
 /// `loadCashEvents(db, entity, upTo, controlIds, unappliedIncomeId, unappliedExpenseId)`.
 #[allow(clippy::too_many_lines)] // mirrors the TypeScript function step for step
 async fn load_cash_events(
@@ -723,17 +856,31 @@ async fn load_cash_events(
     control_ids: &[String],
     unapplied_income_id: &str,
     unapplied_expense_id: &str,
-) -> Result<Vec<CashEvent>, sqlx::Error> {
-    let up_to = iso(up_to);
-    let payment_rows: Vec<PaymentTuple> = sqlx::query_as(
-        "select id, type, amount::text, currency, exchange_rate::text, \
-         floor(extract(epoch from date) * 1000)::bigint, contact_id, reference, invoice_id, bill_id \
-         from payments where entity_id = $1 and deleted_at is null and date <= $2::timestamp",
-    )
-    .bind(entity_id)
-    .bind(&up_to)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<CashEvent>, DbErr> {
+    let up_to = stamp(up_to)?;
+    let db = &orm(db);
+    let payment_rows: Vec<PaymentTuple> = payments::Entity::find()
+        .select_only()
+        .columns([payments::Column::Id, payments::Column::Type])
+        .column_as(text_of(Expr::col(payments::Column::Amount)), "amount")
+        .column(payments::Column::Currency)
+        .column_as(
+            text_of(Expr::col(payments::Column::ExchangeRate)),
+            "exchange_rate",
+        )
+        .columns([
+            payments::Column::Date,
+            payments::Column::ContactId,
+            payments::Column::Reference,
+            payments::Column::InvoiceId,
+            payments::Column::BillId,
+        ])
+        .filter(payments::Column::EntityId.eq(entity_id))
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(payments::Column::Date.lte(up_to))
+        .into_tuple()
+        .all(db)
+        .await?;
     if payment_rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -757,7 +904,7 @@ async fn load_cash_events(
                 amount,
                 currency,
                 exchange_rate,
-                date,
+                date: epoch_millis(date),
                 contact_id,
                 reference,
                 invoice_id,
@@ -766,16 +913,35 @@ async fn load_cash_events(
         )
         .collect();
 
-    let allocation_rows: Vec<(String, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "select pa.payment_id, pa.invoice_id, pa.bill_id, pa.amount::text \
-         from payment_allocations pa inner join payments p on pa.payment_id = p.id \
-         where p.entity_id = $1 and p.deleted_at is null and pa.deleted_at is null \
-         and p.date <= $2::timestamp",
-    )
-    .bind(entity_id)
-    .bind(&up_to)
-    .fetch_all(db)
-    .await?;
+    let allocation_rows: Vec<(String, Option<String>, Option<String>, String)> =
+        payment_allocations::Entity::find()
+            .select_only()
+            .columns([
+                payment_allocations::Column::PaymentId,
+                payment_allocations::Column::InvoiceId,
+                payment_allocations::Column::BillId,
+            ])
+            .column_as(
+                text_of(Expr::col((
+                    payment_allocations::Entity,
+                    payment_allocations::Column::Amount,
+                ))),
+                "amount",
+            )
+            .join(
+                JoinType::InnerJoin,
+                payment_allocations::Entity::belongs_to(payments::Entity)
+                    .from(payment_allocations::Column::PaymentId)
+                    .to(payments::Column::Id)
+                    .into(),
+            )
+            .filter(payments::Column::EntityId.eq(entity_id))
+            .filter(payments::Column::DeletedAt.is_null())
+            .filter(payment_allocations::Column::DeletedAt.is_null())
+            .filter(payments::Column::Date.lte(up_to))
+            .into_tuple()
+            .all(db)
+            .await?;
 
     let mut allocations_by_payment: Ordered<Vec<Allocation>> = Ordered::new();
     for (payment_id, invoice_id, bill_id, amount) in allocation_rows {
@@ -826,14 +992,16 @@ async fn load_cash_events(
 
     let mut documents: Ordered<DocumentRow> = Ordered::new();
     for ids in invoice_ids.chunks(400) {
-        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, total::text, invoice_number from invoices \
-             where entity_id = $1 and id = any($2::text[])",
-        )
-        .bind(entity_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, Option<String>, Option<String>)> = invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::Id)
+            .column_as(text_of(Expr::col(invoices::Column::Total)), "total")
+            .column(invoices::Column::InvoiceNumber)
+            .filter(invoices::Column::EntityId.eq(entity_id))
+            .filter(invoices::Column::Id.is_in(ids.to_vec()))
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, total, number) in rows {
             documents.set(
                 &id,
@@ -845,14 +1013,16 @@ async fn load_cash_events(
         }
     }
     for ids in bill_ids.chunks(400) {
-        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, total::text, bill_number from bills \
-             where entity_id = $1 and id = any($2::text[])",
-        )
-        .bind(entity_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, Option<String>, Option<String>)> = bills::Entity::find()
+            .select_only()
+            .column(bills::Column::Id)
+            .column_as(text_of(Expr::col(bills::Column::Total)), "total")
+            .column(bills::Column::BillNumber)
+            .filter(bills::Column::EntityId.eq(entity_id))
+            .filter(bills::Column::Id.is_in(ids.to_vec()))
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, total, number) in rows {
             documents.set(
                 &id,
@@ -868,22 +1038,7 @@ async fn load_cash_events(
     let mut document_entries: Ordered<DocumentEntry> = Ordered::new();
     let document_ids: Vec<String> = documents.keys.clone();
     for ids in document_ids.chunks(400) {
-        let rows: Vec<GroupTuple> = sqlx::query_as(
-            "select je.source_id, je.source_type, je.id, je.entry_number, jl.account_id, \
-             jl.contact_id, jl.class_id, jl.location_id, \
-             coalesce(sum(jl.debit::numeric - jl.credit::numeric), 0)::text \
-             from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
-             where je.entity_id = $1 and je.deleted_at is null and je.reversal_of_id is null \
-             and je.status in ('posted', 'reversed') \
-             and je.source_type in ('invoice', 'credit_note', 'bill', 'bill_credit_note') \
-             and je.source_id = any($2::text[]) and jl.deleted_at is null \
-             group by je.source_id, je.source_type, je.id, je.entry_number, jl.account_id, \
-             jl.contact_id, jl.class_id, jl.location_id",
-        )
-        .bind(entity_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
+        let rows = document_line_groups(db, entity_id, ids).await?;
         for (
             source_id,
             source_type,

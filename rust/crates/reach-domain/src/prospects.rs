@@ -3,8 +3,17 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    companies, list_members, lists, people, person_companies,
+    reach_enrollments as enrollments, reach_prospect_list_members as members,
+    reach_prospects as prospects, welddata_leads, welddata_lists,
+};
 use weldsuite_catalogs::entity_events::{
     REACH_PROSPECT_CREATED, REACH_PROSPECT_DELETED, REACH_PROSPECT_UPDATED,
 };
@@ -13,15 +22,15 @@ use weldsuite_ports::OutboundHttp;
 
 use crate::campaigns::complete_and_publish;
 use crate::lists::{
-    Page, PageQuery, add_to_list, create_list, cursor_row, find_list, like_pattern, page_result,
-    parse_limit, recount_list,
+    Page, PageQuery, add_to_list, before, create_list, cursor_row, find_list, like_pattern,
+    page_result, parse_limit, probe, recount_list,
 };
 use crate::schemas::email_domain;
 use crate::suppressions::load_index;
 use crate::text::js_trim;
 use crate::validation::validate_emails;
 use crate::{
-    EventSink, ReachError, ReachEvent, ReachResult, field, iso, js_rows, js_slice, now, text,
+    EventSink, ReachError, ReachEvent, ReachResult, field, js, js_all, js_slice, now, text,
 };
 
 const CHUNK: usize = 500;
@@ -153,64 +162,53 @@ pub async fn import_prospects(
             skipped: report_skipped(skipped),
         });
     }
+    let conn = orm(db);
     let mut existing: HashSet<String> = HashSet::new();
     for chunk in emails.chunks(CHUNK) {
-        let found: Vec<String> =
-            sqlx::query_scalar("select email from reach_prospects where email = any($1)")
-                .bind(chunk)
-                .fetch_all(db)
-                .await?;
+        let found: Vec<String> = prospects::Entity::find()
+            .select_only()
+            .column(prospects::Column::Email)
+            .filter(prospects::Column::Email.is_in(chunk))
+            .into_tuple()
+            .all(&conn)
+            .await?;
         existing.extend(found);
     }
     let suppressed = load_index(db, &emails).await?;
     let verdicts = validate_emails(&emails, options.allow_consumer, &suppressed, http).await;
-    let at = iso(now());
+    let at = now();
     let mut stored: Vec<StoredProspect> = Vec::new();
     for (chunk_index, chunk) in emails.chunks(CHUNK).enumerate() {
-        let mut values: Vec<Value> = Vec::with_capacity(chunk.len());
-        for (i, email) in chunk.iter().enumerate() {
+        let rows = chunk.iter().enumerate().map(|(i, email)| {
             let row = by_email[chunk_index * CHUNK + i];
             let domain = email_domain(email);
-            values.push(json!({
-                "id": generate_id("rpro"),
-                "email": email,
-                "first_name": clip(blank_to_null(row.first_name.as_deref()), 100),
-                "last_name": clip(blank_to_null(row.last_name.as_deref()), 100),
-                "company_name": clip(blank_to_null(row.company_name.as_deref()), 200),
-                "company_domain": if domain.is_empty() { None } else { Some(domain) },
-                "person_id": blank_to_null(row.person_id.as_deref()),
-                "title": clip(blank_to_null(row.title.as_deref()), 200),
-                "timezone": clip(blank_to_null(row.timezone.as_deref()), 64),
-                "custom_fields": row.custom_fields.clone().map_or_else(|| json!({}), Value::Object),
-                "validation": verdicts.get(email).copied().unwrap_or("valid"),
-            }));
-        }
-        let inserted: Vec<(String, String, String)> = sqlx::query_as(
-            "insert into reach_prospects (id, email, first_name, last_name, company_name, company_domain, person_id,
-                 title, timezone, custom_fields, source, source_ref, validation, created_by)
-             select v->>'id', v->>'email', v->>'first_name', v->>'last_name', v->>'company_name', v->>'company_domain',
-                 v->>'person_id', v->>'title', v->>'timezone', v->'custom_fields', $2, $3, v->>'validation', $4
-             from jsonb_array_elements($1::jsonb) with ordinality as r(v, n) order by n
-             on conflict (email) do update set
-                 first_name = coalesce(excluded.first_name, reach_prospects.first_name),
-                 last_name = coalesce(excluded.last_name, reach_prospects.last_name),
-                 company_name = coalesce(excluded.company_name, reach_prospects.company_name),
-                 title = coalesce(excluded.title, reach_prospects.title),
-                 timezone = coalesce(excluded.timezone, reach_prospects.timezone),
-                 person_id = coalesce(reach_prospects.person_id, excluded.person_id),
-                 custom_fields = reach_prospects.custom_fields || excluded.custom_fields,
-                 validation = excluded.validation,
-                 deleted_at = null,
-                 updated_at = $5::timestamptz
-             returning id, email, validation",
-        )
-        .bind(Value::Array(values))
-        .bind(options.source)
-        .bind(options.source_ref)
-        .bind(options.created_by)
-        .bind(&at)
-        .fetch_all(db)
-        .await?;
+            prospects::ActiveModel {
+                id: Set(generate_id("rpro")),
+                email: Set(email.clone()),
+                first_name: Set(clip(blank_to_null(row.first_name.as_deref()), 100)),
+                last_name: Set(clip(blank_to_null(row.last_name.as_deref()), 100)),
+                company_name: Set(clip(blank_to_null(row.company_name.as_deref()), 200)),
+                company_domain: Set((!domain.is_empty()).then_some(domain)),
+                person_id: Set(blank_to_null(row.person_id.as_deref())),
+                title: Set(clip(blank_to_null(row.title.as_deref()), 200)),
+                timezone: Set(clip(blank_to_null(row.timezone.as_deref()), 64)),
+                custom_fields: Set(row
+                    .custom_fields
+                    .clone()
+                    .map_or_else(|| json!({}), Value::Object)),
+                source: Set(options.source.to_owned()),
+                source_ref: Set(options.source_ref.map(str::to_owned)),
+                validation: Set(verdicts.get(email).copied().unwrap_or("valid").to_owned()),
+                created_by: Set(options.created_by.map(str::to_owned)),
+                ..Default::default()
+            }
+        });
+        let inserted = prospects::Entity::insert_many(rows)
+            .on_conflict(merge_on_email(at))
+            .exec_with_returning(&conn)
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row.email, row.validation));
         for (id, email, validation) in inserted {
             let is_new = !existing.contains(&email);
             stored.push(StoredProspect {
@@ -236,39 +234,79 @@ pub async fn import_prospects(
     })
 }
 
+/// `onConflictDoUpdate({ target: email, set })` of an import: blanks keep
+/// what the prospect had, the person link is kept, custom fields merge, and
+/// a deleted prospect comes back.
+fn merge_on_email(at: OffsetDateTime) -> OnConflict {
+    use prospects::Column;
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+    let current = |column: Column| Expr::col((prospects::Entity, column));
+    let keep_blank = |column: Column| Func::coalesce([excluded(column), current(column)]);
+    OnConflict::column(Column::Email)
+        .value(Column::FirstName, keep_blank(Column::FirstName))
+        .value(Column::LastName, keep_blank(Column::LastName))
+        .value(Column::CompanyName, keep_blank(Column::CompanyName))
+        .value(Column::Title, keep_blank(Column::Title))
+        .value(Column::Timezone, keep_blank(Column::Timezone))
+        .value(
+            Column::PersonId,
+            Func::coalesce([current(Column::PersonId), excluded(Column::PersonId)]),
+        )
+        .value(
+            Column::CustomFields,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                current(Column::CustomFields),
+                excluded(Column::CustomFields),
+            ),
+        )
+        .value(Column::Validation, excluded(Column::Validation))
+        .value(Column::DeletedAt, Expr::value(None::<OffsetDateTime>))
+        .value(Column::UpdatedAt, Expr::value(at))
+        .to_owned()
+}
+
 /// `softDeleteProspect(db, id)`: the campaigns that lost an enrollment, or
 /// `None` when there was no live prospect.
 pub async fn soft_delete(db: &PgPool, id: &str) -> ReachResult<Option<Vec<String>>> {
-    let at = iso(now());
-    let row: Option<String> = sqlx::query_scalar(
-        "update reach_prospects set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = $1 and deleted_at is null returning id",
-    )
-    .bind(id)
-    .bind(&at)
-    .fetch_optional(db)
-    .await?;
-    if row.is_none() {
+    let at = now();
+    let conn = orm(db);
+    let deleted = prospects::Entity::update_many()
+        .col_expr(prospects::Column::DeletedAt, Expr::value(at))
+        .col_expr(prospects::Column::UpdatedAt, Expr::value(at))
+        .filter(prospects::Column::Id.eq(id))
+        .filter(prospects::Column::DeletedAt.is_null())
+        .exec(&conn)
+        .await?;
+    if deleted.rows_affected == 0 {
         return Ok(None);
     }
-    let lists: Vec<String> = sqlx::query_scalar(
-        "delete from reach_prospect_list_members where prospect_id = $1 returning list_id",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let lists: Vec<String> = members::Entity::delete_many()
+        .filter(members::Column::ProspectId.eq(id))
+        .exec_with_returning(&conn)
+        .await?
+        .into_iter()
+        .map(|member| member.list_id)
+        .collect();
     for list_id in crate::unique(&lists) {
         recount_list(db, &list_id).await?;
     }
-    let stopped: Vec<String> = sqlx::query_scalar(
-        "update reach_enrollments set status = 'failed', stopped_reason = 'prospect_deleted', claimed_at = null,
-             next_send_at = null, updated_at = $2::timestamptz
-         where prospect_id = $1 and status in ('queued', 'active') returning campaign_id",
-    )
-    .bind(id)
-    .bind(&at)
-    .fetch_all(db)
-    .await?;
+    let never: Option<OffsetDateTime> = None;
+    let stopped: Vec<String> = enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("failed"))
+        .col_expr(
+            enrollments::Column::StoppedReason,
+            Expr::value("prospect_deleted"),
+        )
+        .col_expr(enrollments::Column::ClaimedAt, Expr::value(never))
+        .col_expr(enrollments::Column::NextSendAt, Expr::value(never))
+        .col_expr(enrollments::Column::UpdatedAt, Expr::value(at))
+        .filter(enrollments::Column::ProspectId.eq(id))
+        .filter(enrollments::Column::Status.is_in(["queued", "active"]))
+        .exec_with_returning(&conn)
+        .await?
+        .into_iter()
+        .map(|enrollment| enrollment.campaign_id)
+        .collect();
     Ok(Some(crate::unique(&stopped)))
 }
 
@@ -310,22 +348,30 @@ async fn current_company_names(
     db: &PgPool,
     person_ids: &[String],
 ) -> ReachResult<Vec<(String, String)>> {
-    let links: Vec<(String, String, Option<bool>)> = sqlx::query_as(
-        "select person_id, company_id, is_primary from person_companies where person_id = any($1) and ended_at is null",
-    )
-    .bind(person_ids)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let links: Vec<(String, String, Option<bool>)> = person_companies::Entity::find()
+        .select_only()
+        .column(person_companies::Column::PersonId)
+        .column(person_companies::Column::CompanyId)
+        .column(person_companies::Column::IsPrimary)
+        .filter(person_companies::Column::PersonId.is_in(person_ids))
+        .filter(person_companies::Column::EndedAt.is_null())
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let company_ids = crate::unique(&links.iter().map(|l| l.1.clone()).collect::<Vec<_>>());
     let names: Vec<(String, String)> = if company_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select id, display_name from companies where id = any($1) and deleted_at is null",
-        )
-        .bind(&company_ids)
-        .fetch_all(db)
-        .await?
+        companies::Entity::find()
+            .select_only()
+            .column(companies::Column::Id)
+            .column(companies::Column::DisplayName)
+            .filter(companies::Column::Id.is_in(company_ids))
+            .filter(companies::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&conn)
+            .await?
     };
     let mut ranked = links;
     ranked.sort_by_key(|l| std::cmp::Reverse(i32::from(l.2.unwrap_or(false))));
@@ -346,11 +392,16 @@ pub async fn load_crm_list_rows(
     db: &PgPool,
     crm_list_id: &str,
 ) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
-    let list: Option<(String, String, String)> =
-        sqlx::query_as("select name, kind::text, type::text from lists where id = $1 and deleted_at is null limit 1")
-            .bind(crm_list_id)
-            .fetch_optional(db)
-            .await?;
+    let conn = orm(db);
+    let list: Option<(String, String, String)> = lists::Entity::find_by_id(crm_list_id)
+        .select_only()
+        .column(lists::Column::Name)
+        .column(lists::Column::Kind)
+        .column(lists::Column::Type)
+        .filter(lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((name, kind, kind_type)) = list else {
         return Ok(Err(SourceListError::NotFound));
     };
@@ -360,12 +411,14 @@ pub async fn load_crm_list_rows(
     if kind_type != "static" {
         return Ok(Err(SourceListError::SmartList));
     }
-    let members: Vec<String> =
-        sqlx::query_scalar("select entity_id from list_members where list_id = $1 limit $2")
-            .bind(crm_list_id)
-            .bind(MAX_SOURCE_LIST_ROWS + 1)
-            .fetch_all(db)
-            .await?;
+    let members: Vec<String> = list_members::Entity::find()
+        .select_only()
+        .column(list_members::Column::EntityId)
+        .filter(list_members::Column::ListId.eq(crm_list_id))
+        .limit(probe(MAX_SOURCE_LIST_ROWS))
+        .into_tuple()
+        .all(&conn)
+        .await?;
     if i64::try_from(members.len()).unwrap_or_default() > MAX_SOURCE_LIST_ROWS {
         return Ok(Err(SourceListError::TooLarge));
     }
@@ -378,13 +431,19 @@ pub async fn load_crm_list_rows(
             Option<String>,
             Option<String>,
             Option<String>,
-        )> = sqlx::query_as(
-            "select id, email, first_name, last_name, display_name, title from people
-                 where id = any($1) and deleted_at is null",
-        )
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
+        )> = people::Entity::find()
+            .select_only()
+            .column(people::Column::Id)
+            .column(people::Column::Email)
+            .column(people::Column::FirstName)
+            .column(people::Column::LastName)
+            .column(people::Column::DisplayName)
+            .column(people::Column::Title)
+            .filter(people::Column::Id.is_in(chunk))
+            .filter(people::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&conn)
+            .await?;
         let company_of = current_company_names(db, chunk).await?;
         for (id, email, first, last, display, title) in persons {
             let Some(email) = email.filter(|e| !e.is_empty()) else {
@@ -414,30 +473,32 @@ pub async fn load_welddata_list_rows(
     db: &PgPool,
     list_id: &str,
 ) -> ReachResult<Result<(String, Vec<ImportRow>), SourceListError>> {
-    let list: Option<(String, String)> = sqlx::query_as(
-        "select name, kind::text from welddata_lists where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(list_id)
-    .fetch_optional(db)
-    .await?;
+    let conn = orm(db);
+    let list: Option<(String, String)> = welddata_lists::Entity::find_by_id(list_id)
+        .select_only()
+        .column(welddata_lists::Column::Name)
+        .column(welddata_lists::Column::Kind)
+        .filter(welddata_lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((name, kind)) = list else {
         return Ok(Err(SourceListError::NotFound));
     };
     if kind != "person" {
         return Ok(Err(SourceListError::WrongKind));
     }
-    let leads: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_leads t where t.list_id = $1 and t.deleted_at is null limit $2",
-    )
-    .bind(list_id)
-    .bind(MAX_SOURCE_LIST_ROWS + 1)
-    .fetch_all(db)
-    .await?;
+    let leads = welddata_leads::Entity::find()
+        .filter(welddata_leads::Column::ListId.eq(list_id))
+        .filter(welddata_leads::Column::DeletedAt.is_null())
+        .limit(probe(MAX_SOURCE_LIST_ROWS))
+        .all(&conn)
+        .await?;
     if i64::try_from(leads.len()).unwrap_or_default() > MAX_SOURCE_LIST_ROWS {
         return Ok(Err(SourceListError::TooLarge));
     }
     let mut rows = Vec::new();
-    for lead in js_rows(leads) {
+    for lead in js_all(leads.into_iter().map(serde_json::to_value))? {
         let Some(email) = text(&lead, "email").filter(|e| !e.is_empty()) else {
             continue;
         };
@@ -488,6 +549,7 @@ fn emit_prospect(
 
 /// `listProspects(db, q)`.
 pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
+    use prospects::Column;
     let limit = parse_limit(query.limit.as_deref());
     let search = query
         .search
@@ -500,48 +562,69 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         None => None,
     };
     let list_id = query.list_id.clone().filter(|l| !l.is_empty());
-    let cursor = cursor_row(db, "reach_prospects", query.cursor.as_deref()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_prospects t
-         where t.deleted_at is null
-           and ($1::text is null or t.email ilike $1 or t.first_name ilike $1 or t.last_name ilike $1 or t.company_name ilike $1)
-           and ($2::text is null or t.validation = $2)
-           and ($3::text is null or t.id in (select prospect_id from reach_prospect_list_members where list_id = $3))
-           and ($4::timestamptz is null or t.created_at < $4::timestamptz or (t.created_at = $4::timestamptz and t.id < $5))
-         order by t.created_at desc, t.id desc limit $6",
+    let cursor = cursor_row::<prospects::Entity>(
+        db,
+        Column::CreatedAt,
+        Column::Id,
+        query.cursor.as_deref(),
     )
-    .bind(&search)
-    .bind(&validation)
-    .bind(&list_id)
-    .bind(cursor.as_ref().map(|c| c.0.clone()))
-    .bind(cursor.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .fetch_all(db)
     .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from reach_prospects t
-         where t.deleted_at is null
-           and ($1::text is null or t.email ilike $1 or t.first_name ilike $1 or t.last_name ilike $1 or t.company_name ilike $1)
-           and ($2::text is null or t.validation = $2)
-           and ($3::text is null or t.id in (select prospect_id from reach_prospect_list_members where list_id = $3))",
-    )
-    .bind(&search)
-    .bind(&validation)
-    .bind(&list_id)
-    .fetch_one(db)
-    .await?;
-    Ok(page_result(&js_rows(rows), limit, total, to_prospect))
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(search) = &search {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Email.ilike(search.as_str()))
+                .add(Column::FirstName.ilike(search.as_str()))
+                .add(Column::LastName.ilike(search.as_str()))
+                .add(Column::CompanyName.ilike(search.as_str())),
+        );
+    }
+    if let Some(validation) = &validation {
+        filters = filters.add(Column::Validation.eq(validation.as_str()));
+    }
+    if let Some(list_id) = &list_id {
+        filters = filters.add(
+            Column::Id.in_subquery(
+                Query::select()
+                    .column(members::Column::ProspectId)
+                    .from(members::Entity)
+                    .and_where(members::Column::ListId.eq(list_id.as_str()))
+                    .to_owned(),
+            ),
+        );
+    }
+    let page = match &cursor {
+        Some(cursor) => filters
+            .clone()
+            .add(before(Column::CreatedAt, Column::Id, cursor)),
+        None => filters.clone(),
+    };
+    let conn = orm(db);
+    let rows = prospects::Entity::find()
+        .filter(page)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe(limit))
+        .all(&conn)
+        .await?;
+    let total = prospects::Entity::find().filter(filters).count(&conn).await?;
+    let rows = js_all(rows.into_iter().map(serde_json::to_value))?;
+    Ok(page_result(
+        &rows,
+        limit,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        to_prospect,
+    ))
 }
 
 /// `getProspect(db, id)`.
 pub async fn get(db: &PgPool, id: &str) -> ReachResult<Value> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = $1 and t.deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(|r| to_prospect(&weldsuite_db::js_row(r)))
-        .ok_or_else(|| ReachError::not_found("Prospect", Some(id)))
+    let row = prospects::Entity::find_by_id(id)
+        .filter(prospects::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| ReachError::not_found("Prospect", Some(id)))?;
+    Ok(to_prospect(&js(serde_json::to_value(row))?))
 }
 
 /// `createProspect(deps, input)`.
@@ -552,11 +635,13 @@ pub async fn create(
 ) -> ReachResult<Value> {
     let db = deps.db;
     let email = row.email.clone().unwrap_or_default();
-    let existing: Option<Option<String>> =
-        sqlx::query_scalar("select deleted_at::text from reach_prospects where email = $1 limit 1")
-            .bind(&email)
-            .fetch_optional(db)
-            .await?;
+    let existing: Option<Option<OffsetDateTime>> = prospects::Entity::find()
+        .select_only()
+        .column(prospects::Column::DeletedAt)
+        .filter(prospects::Column::Email.eq(email.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if matches!(existing, Some(None)) {
         return Err(ReachError::conflict(
             "A prospect with this email already exists",
@@ -585,12 +670,13 @@ pub async fn create(
     if let Some(list_id) = list_id {
         add_to_list(db, list_id, std::slice::from_ref(&stored.id)).await?;
     }
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1")
-            .bind(&stored.id)
-            .fetch_optional(db)
-            .await?;
-    let Some(row) = row.map(weldsuite_db::js_row) else {
+    let row = prospects::Entity::find_by_id(stored.id.as_str())
+        .one(&orm(db))
+        .await?
+        .map(serde_json::to_value)
+        .map(js)
+        .transpose()?;
+    let Some(row) = row else {
         return Err(ReachError::internal("Failed to create the prospect"));
     };
     emit_prospect(deps.emit, REACH_PROSPECT_CREATED, &row);
@@ -616,34 +702,37 @@ pub async fn update(
     id: &str,
     input: ProspectUpdate,
 ) -> ReachResult<Value> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_prospects set
-             first_name = case when $2 then $3 else first_name end,
-             last_name = case when $4 then $5 else last_name end,
-             company_name = case when $6 then $7 else company_name end,
-             title = case when $8 then $9 else title end,
-             timezone = case when $10 then $11 else timezone end,
-             custom_fields = case when $12 then $13::jsonb else custom_fields end,
-             updated_at = $14::timestamptz
-         where id = $1 and deleted_at is null returning to_jsonb(reach_prospects)",
-    )
-    .bind(id)
-    .bind(input.first_name.is_some())
-    .bind(blank_to_null(input.first_name.as_deref()))
-    .bind(input.last_name.is_some())
-    .bind(blank_to_null(input.last_name.as_deref()))
-    .bind(input.company_name.is_some())
-    .bind(blank_to_null(input.company_name.as_deref()))
-    .bind(input.title.is_some())
-    .bind(blank_to_null(input.title.as_deref()))
-    .bind(input.timezone.is_some())
-    .bind(blank_to_null(input.timezone.as_deref()))
-    .bind(input.custom_fields.is_some())
-    .bind(input.custom_fields.map(Value::Object))
-    .bind(iso(now()))
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row.map(weldsuite_db::js_row) else {
+    use prospects::Column;
+    let mut update = prospects::Entity::update_many();
+    for (column, value) in [
+        (Column::FirstName, &input.first_name),
+        (Column::LastName, &input.last_name),
+        (Column::CompanyName, &input.company_name),
+        (Column::Title, &input.title),
+        (Column::Timezone, &input.timezone),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(blank_to_null(Some(value))));
+        }
+    }
+    if let Some(custom_fields) = input.custom_fields {
+        update = update.col_expr(
+            Column::CustomFields,
+            Expr::value(Value::Object(custom_fields)),
+        );
+    }
+    let row = update
+        .col_expr(Column::UpdatedAt, Expr::value(now()))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(serde_json::to_value)
+        .map(js)
+        .transpose()?;
+    let Some(row) = row else {
         return Err(ReachError::not_found("Prospect", Some(id)));
     };
     emit_prospect(emit, REACH_PROSPECT_UPDATED, &row);
@@ -703,12 +792,11 @@ async fn finish_import(
         .map(|s| s.id.clone())
         .collect();
     if !fresh.is_empty() {
-        let rows: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = any($1)")
-                .bind(&fresh)
-                .fetch_all(deps.db)
-                .await?;
-        for row in js_rows(rows) {
+        let rows = prospects::Entity::find()
+            .filter(prospects::Column::Id.is_in(fresh))
+            .all(&orm(deps.db))
+            .await?;
+        for row in js_all(rows.into_iter().map(serde_json::to_value))? {
             emit_prospect(deps.emit, REACH_PROSPECT_CREATED, &row);
         }
     }

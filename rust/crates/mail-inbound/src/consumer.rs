@@ -193,7 +193,8 @@ impl BatchHandler for MailInboundSubscriber {
         Box::pin(async move {
             let mut out = Vec::with_capacity(batch.len());
             for delivery in batch {
-                out.push(self.handle_one(delivery).await);
+                // Boxed: the storage pipeline's future is large.
+                out.push(Box::pin(self.handle_one(delivery)).await);
             }
             out
         })

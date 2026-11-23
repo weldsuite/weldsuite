@@ -10,7 +10,7 @@ use sea_orm::{
 };
 use weldsuite_chat_domain::entity::{self, can_access_entity};
 use weldsuite_chat_domain::{Can, Realtime};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{chat_channel_members as members, chat_channels};
 
@@ -189,8 +189,7 @@ pub(crate) async fn default_followers_who_may_open(
     for user_id in candidates {
         let can = Can::user(db, &user_id);
         if can_access_entity(provider, db, &user_id, entity_id, &can)
-            .await
-            .map_err(orm_error)?
+            .await?
         {
             allowed.push(user_id);
         }
@@ -229,8 +228,7 @@ pub(crate) async fn follow_record_chat_on_post(
             }
             let can = Can::user(db, &user_id);
             if can_access_entity(provider, db, &user_id, entity_id, &can)
-                .await
-                .map_err(orm_error)?
+                .await?
             {
                 followers.push(user_id);
             }

@@ -36,7 +36,7 @@ use weldsuite_books_domain::tables::BANK_DEPOSITS;
 use weldsuite_catalogs::entity_events::{
     BANK_DEPOSIT_CREATED, BANK_DEPOSIT_DELETED, BANK_DEPOSIT_UPDATED,
 };
-use weldsuite_db::{OrmConn, orm, orm_error, utc_now, utc_timestamp};
+use weldsuite_db::{OrmConn, orm, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::cursor::{atob_url, btoa_url};
 use weldsuite_kit::generate_id;
@@ -49,7 +49,6 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::common::{changes, field, posting_refusal, text};
-use crate::orm_bridge::{post_failed, refused, sqlx_error};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -134,9 +133,7 @@ struct UndepositedRow {
 /// their entry's live lines on Undeposited Funds (read as a number, as the
 /// worker reads the sum's text).
 async fn list_undeposited(db: &PgPool, entity_id: &str) -> Result<Vec<Undeposited>, DbErr> {
-    let accounts = load_entity_accounts(db, entity_id)
-        .await
-        .map_err(orm_error)?;
+    let accounts = load_entity_accounts(db, entity_id).await?;
     let Some(undeposited) = account_for_role(&accounts, "undeposited_funds", &[]) else {
         return Ok(Vec::new());
     };
@@ -194,8 +191,7 @@ async fn undeposited(caller: Caller) -> Response {
             return Ok(all_rows(Vec::new()));
         };
         let rows = list_undeposited(&caller.db, &entity_id)
-            .await
-            .map_err(refused)?;
+            .await?;
         Ok(all_rows(rows.iter().map(Undeposited::to_json).collect()))
     }
     .await;
@@ -302,12 +298,10 @@ async fn list(caller: Caller) -> Response {
             .order_by_desc(bank_deposits::Column::Id)
             .limit(u64::try_from(limit + 1).unwrap_or(0))
             .all(&db)
-            .await
-            .map_err(refused)?;
+            .await?;
         let total = deposits_of(&entity_id, filters)
             .count(&db)
-            .await
-            .map_err(refused)?;
+            .await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let mut rows: Vec<Value> = rows
             .into_iter()
@@ -485,14 +479,12 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
         let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
-            .await
-            .map_err(refused)?
+            .await?
         else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
         Ok(ok(deposit_detail(&caller.db, &deposit)
-            .await
-            .map_err(refused)?))
+            .await?))
     }
     .await;
     reply(result, "Failed to fetch bank deposit")
@@ -616,8 +608,7 @@ async fn create_deposit(
         .filter(bank_accounts::Column::EntityId.eq(entity_id))
         .filter(bank_accounts::Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(post_failed)?;
+        .await?;
     let Some(bank) = bank.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(posting("Bank account not found for this accounting entity"));
     };
@@ -651,7 +642,7 @@ async fn create_deposit(
     if payment_ids.is_empty() && other_lines.is_empty() {
         return Err(posting("Pick at least one payment to deposit"));
     }
-    let candidates = list_undeposited(db, entity_id).await.map_err(post_failed)?;
+    let candidates = list_undeposited(db, entity_id).await?;
     let mut chosen: Vec<&Undeposited> = Vec::new();
     for id in &payment_ids {
         let Some(found) = candidates
@@ -802,8 +793,7 @@ async fn create_deposit(
                     .filter(payments::Column::Id.is_in(ids))
                     .filter(payments::Column::DepositId.is_null())
                     .exec(&OrmConn::new(conn))
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
             }
             Ok(())
         })
@@ -915,8 +905,7 @@ async fn update(
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
         let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
-            .await
-            .map_err(refused)?
+            .await?
         else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
@@ -930,8 +919,7 @@ async fn update(
             .col_expr(bank_deposits::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(bank_deposits::Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,
@@ -1009,7 +997,7 @@ async fn void_deposit(
     id: &str,
     user_id: Option<&str>,
 ) -> Result<Value, PostError> {
-    let Some(deposit) = find_deposit(db, entity_id, id).await.map_err(post_failed)? else {
+    let Some(deposit) = find_deposit(db, entity_id, id).await? else {
         return Err(posting("Deposit not found"));
     };
     if text(&deposit, "status") == Some("void") {
@@ -1030,7 +1018,6 @@ async fn void_deposit(
                 Box::pin(async move {
                     release(&OrmConn::new(conn), &deposit_id, at)
                         .await
-                        .map_err(sqlx_error)
                 })
             });
             reverse_journal_entry(
@@ -1049,8 +1036,7 @@ async fn void_deposit(
         None => {
             let mut tx = db.begin().await?;
             release(&OrmConn::new(&mut tx), id, at)
-                .await
-                .map_err(post_failed)?;
+                .await?;
             tx.commit().await?;
         }
     }

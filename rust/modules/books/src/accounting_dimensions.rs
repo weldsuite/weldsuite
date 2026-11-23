@@ -34,7 +34,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::accounting_dimension_values::{self, Column};
 use weldsuite_schema::tenant::{bill_items, invoice_items, journal_lines};
 
-use crate::orm_bridge::{select_flags, sqlx_error, to_json};
+use crate::orm_bridge::{select_flags, to_json};
 
 const DIMENSIONS: [&str; 2] = ["class", "location"];
 
@@ -265,8 +265,7 @@ async fn list_values(caller: &Caller, q: &Query) -> Reply {
     let total = accounting_dimension_values::Entity::find()
         .filter(filters.clone())
         .count(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let after = match q.present("cursor") {
         Some(cursor) => match decode_cursor(cursor) {
             Some(after) => Some(after),
@@ -287,14 +286,12 @@ async fn list_values(caller: &Caller, q: &Query) -> Reply {
         .order_by_asc(Column::Id)
         .limit(u64::try_from(limit + 1).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let mut rows = rows
         .into_iter()
         .map(to_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     if has_more {
         rows.truncate(usize::try_from(limit).unwrap_or(0));
@@ -311,7 +308,7 @@ async fn list_values(caller: &Caller, q: &Query) -> Reply {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find_value(&caller, &id).await.map_err(sqlx_error)? {
+        match find_value(&caller, &id).await? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Dimension value", &id)),
         }
@@ -352,8 +349,7 @@ async fn create_value(caller: &Caller, state: &BooksState, data: Map<String, Val
         .filter(|c| !c.is_empty())
     {
         let duplicate = code_holder(&orm(db), &entity_id, &dimension, code)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if duplicate.is_some() {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -365,8 +361,7 @@ async fn create_value(caller: &Caller, state: &BooksState, data: Map<String, Val
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
         && let Some(problem) = parent_error(caller, &entity_id, &dimension, parent, None)
-            .await
-            .map_err(sqlx_error)?
+            .await?
     {
         return Err(Refusal::bad_request(problem));
     }
@@ -438,7 +433,7 @@ async fn update_value(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(existing) = find_value(caller, id).await.map_err(sqlx_error)? else {
+    let Some(existing) = find_value(caller, id).await? else {
         return Err(Refusal::not_found("Dimension value", id));
     };
     let entity_id = existing["entityId"].as_str().unwrap_or_default().to_owned();
@@ -453,8 +448,7 @@ async fn update_value(
         && existing["code"].as_str() != Some(code)
     {
         let duplicate = code_holder(&orm(db), &entity_id, &dimension, code)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if duplicate.is_some_and(|dup| dup != id) {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -466,8 +460,7 @@ async fn update_value(
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
         && let Some(problem) = parent_error(caller, &entity_id, &dimension, parent, Some(id))
-            .await
-            .map_err(sqlx_error)?
+            .await?
     {
         return Err(Refusal::bad_request(problem));
     }
@@ -564,7 +557,7 @@ fn used_on_lines(id: &str, class: bool) -> Expr {
 async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
     let conn = orm(db);
-    let Some(existing) = find_value(caller, id).await.map_err(sqlx_error)? else {
+    let Some(existing) = find_value(caller, id).await? else {
         return Err(Refusal::not_found("Dimension value", id));
     };
     let child: Option<String> = accounting_dimension_values::Entity::find()
@@ -574,8 +567,7 @@ async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         .filter(Column::DeletedAt.is_null())
         .into_tuple()
         .one(&conn)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     if child.is_some() {
         return Err(Refusal::conflict(
             "This value has children — move or delete them first",
@@ -583,8 +575,7 @@ async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     }
     let dimension = existing["dimension"].as_str().unwrap_or_default();
     let [used] = select_flags(&conn, [used_on_lines(id, dimension == "class")])
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     if used {
         return Err(Refusal::conflict(format!(
             "This {dimension} is used on bookings — deactivate it instead"
@@ -597,8 +588,7 @@ async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         .col_expr(Column::UpdatedAt, Expr::value(at))
         .filter(Column::Id.eq(id))
         .exec(&conn)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     write_accounting_audit(
         caller,
         db,

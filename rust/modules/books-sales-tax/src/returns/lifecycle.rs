@@ -31,7 +31,6 @@ use super::filing::release_amended_exceptions;
 use super::periods::{PeriodRow, build_period_rows, match_period, next_period_to_open};
 use super::rows::load_filed_rows;
 use crate::common::text;
-use crate::orm_bridge::refusal;
 
 /// `tax_returns` written from a `{ column: value }` object.
 pub(crate) const RETURN_ROWS: JsonTable = JsonTable::of::<tax_returns::Entity>();
@@ -53,8 +52,7 @@ pub(crate) async fn create_return(
         ));
     }
     let returns = load_agency_returns(db, s(entity, "id"), s(agency, "id"))
-        .await
-        .map_err(refusal)?;
+        .await?;
     let period = match (period_start, period_end) {
         (Some(start), Some(end)) => match_period(agency, start, end).ok_or_else(|| {
             bad(format!(
@@ -105,11 +103,9 @@ pub(crate) async fn create_return(
     }
     RETURN_ROWS
         .insert(&orm(db), values)
-        .await
-        .map_err(refusal)?;
+        .await?;
     Ok(return_by_id(db, &id)
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or(Value::Null))
 }
 
@@ -139,12 +135,10 @@ pub(crate) async fn calculate_and_store(
             created_not_after: None,
         },
     )
-    .await
-    .map_err(refusal)?;
+    .await?;
     store_calculation(db, ret, calc, now)
-        .await
-        .map_err(refusal)?;
-    let updated = return_by_id(db, s(ret, "id")).await.map_err(refusal)?;
+        .await?;
+    let updated = return_by_id(db, s(ret, "id")).await?;
     updated
         .filter(|u| s(u, "status") == "calculated")
         .ok_or_else(|| conflict("This return was changed meanwhile; reload it and try again"))
@@ -210,8 +204,7 @@ pub(crate) async fn patch_return(
     }
     Ok(RETURN_ROWS
         .update(&orm(db), s(ret, "id"), set, false)
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or(Value::Null))
 }
 
@@ -223,18 +216,16 @@ pub(crate) async fn review_return(db: &PgPool, ret: &Value, now: &str) -> Result
         "open" => return Err(bad("Calculate the return before reviewing it")),
         other => return Err(bad(format!("A {other} return cannot be reviewed"))),
     }
-    let at = parse_instant(now).map_err(refusal)?;
+    let at = parse_instant(now)?;
     tax_returns::Entity::update_many()
         .col_expr(tax_returns::Column::Status, Expr::value("reviewed"))
         .col_expr(tax_returns::Column::UpdatedAt, Expr::value(at))
         .filter(tax_returns::Column::Id.eq(s(ret, "id")))
         .filter(tax_returns::Column::Status.eq("calculated"))
         .exec(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     Ok(return_by_id(db, s(ret, "id"))
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or(Value::Null))
 }
 
@@ -245,18 +236,16 @@ pub(crate) async fn delete_return(db: &PgPool, ret: &Value, now: &str) -> Result
             "Only an open, calculated or reviewed return can be deleted",
         ));
     }
-    let at = parse_instant(now).map_err(refusal)?;
+    let at = parse_instant(now)?;
     tax_returns::Entity::update_many()
         .col_expr(tax_returns::Column::DeletedAt, Expr::value(at))
         .col_expr(tax_returns::Column::UpdatedAt, Expr::value(at))
         .filter(tax_returns::Column::Id.eq(s(ret, "id")))
         .filter(tax_returns::Column::DeletedAt.is_null())
         .exec(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     release_amended_exceptions(db, ret, now)
-        .await
-        .map_err(refusal)?;
+        .await?;
     Ok(())
 }
 
@@ -329,11 +318,11 @@ pub(crate) async fn list_returns(
     if filter.cursor.is_some() && after.is_none() {
         return Err(bad("Invalid cursor"));
     }
-    let listed = listed_returns(entity_id, filter).map_err(refusal)?;
+    let listed = listed_returns(entity_id, filter)?;
     let mut page = listed.clone();
     if let Some((after_end, after_id)) = &after {
         // `period_end < $end or (period_end = $end and id < $id)`.
-        let end = parse_day(after_end).map_err(refusal)?;
+        let end = parse_day(after_end)?;
         page = page.add(
             Condition::any().add(Column::PeriodEnd.lt(end)).add(
                 Condition::all()
@@ -349,15 +338,13 @@ pub(crate) async fn list_returns(
         .order_by_desc(Column::Id)
         .limit(u64::try_from(filter.limit + 1).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let count = tax_returns::Entity::find()
         .filter(listed)
         .count(&db)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let count = i64::try_from(count).unwrap_or(i64::MAX);
-    let mut rows = rows_json(rows).map_err(refusal)?;
+    let mut rows = rows_json(rows)?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > filter.limit;
     if has_more {
         rows.truncate(usize::try_from(filter.limit).unwrap_or(0));

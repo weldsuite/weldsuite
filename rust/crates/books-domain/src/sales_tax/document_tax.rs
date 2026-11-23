@@ -884,6 +884,7 @@ type OriginalItem = (
 /// The live lines of the credited invoice, their amounts as Postgres prints
 /// them (`unit_price::text`, …).
 async fn original_lines(db: &PgPool, invoice_id: &str) -> Result<Vec<OriginalItem>, DbErr> {
+    use sea_orm::ExprTrait as _;
     let as_text = |column: invoice_items::Column| Expr::col(column).cast_as("text");
     invoice_items::Entity::find()
         .select_only()

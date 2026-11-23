@@ -13,7 +13,6 @@ mod credit_notes;
 mod errors;
 mod finalize;
 mod invoices;
-mod orm_bridge;
 mod payments;
 mod persist;
 mod provider_sync;

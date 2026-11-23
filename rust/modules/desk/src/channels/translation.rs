@@ -543,7 +543,7 @@ impl Failure {
     /// The credit gate's refusal (402, or 503 without a provider).
     fn gate(error: AiError) -> Self {
         match error {
-            AiError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
+            AiError::Database(error) => Self::Database(error),
             other => Self::Answer(Box::new(other.into_api_error().into_response())),
         }
     }

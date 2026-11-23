@@ -20,7 +20,6 @@ use super::common::{
     parse_instant, return_by_id, round2, s, sum_money,
 };
 use crate::common::text;
-use crate::orm_bridge::{refusal, sqlx_error};
 
 fn adjustment_label(kind: &str) -> &str {
     match kind {
@@ -48,7 +47,7 @@ impl From<sqlx::Error> for PaymentFailure {
 
 impl From<DbErr> for PaymentFailure {
     fn from(error: DbErr) -> Self {
-        Self::Refused(refusal(error))
+        Self::Refused(weldsuite_books_domain::http::Refusal::Database(error))
     }
 }
 
@@ -416,15 +415,11 @@ pub(crate) async fn record_return_payment(
                     now: &now,
                 },
             );
-            // `AlsoWrite` still speaks `sqlx::Error` (books-domain is not
-            // converted yet).
             Box::pin(async move {
                 let conn = OrmConn::new(conn);
-                update
-                    .map_err(sqlx_error)?
+                update?
                     .exec(&conn)
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
                 Ok(())
             })
         })

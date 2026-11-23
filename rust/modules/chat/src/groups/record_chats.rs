@@ -28,7 +28,7 @@ use weldsuite_chat_domain::agents::{agent_viewer_for, inaccessible_agent_ids};
 use weldsuite_chat_domain::entity::{self, Provider, can_access_entity, can_post_in_record_chat};
 use weldsuite_chat_domain::members::{AddMembers, add_channel_members, channel_row};
 use weldsuite_chat_domain::text::{mention_bodies, slugify_channel_name};
-use weldsuite_db::{orm, orm_error, utc_now, utc_timestamp};
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -284,8 +284,7 @@ async fn permitted(providers: Vec<Provider>, can: &Can<'_>) -> Result<Vec<Provid
     for provider in providers {
         if can
             .can(provider.required_permission())
-            .await
-            .map_err(orm_error)?
+            .await?
         {
             allowed.push(provider);
         }
@@ -320,8 +319,7 @@ async fn keep_visible(
                 let unique = weldsuite_chat_domain::access::unique_ids(&ids);
                 provider
                     .filter_visible(&caller.db, &caller.user_id, can, &unique)
-                    .await
-                    .map_err(orm_error)?
+                    .await?
             }
             None => HashSet::new(),
         };

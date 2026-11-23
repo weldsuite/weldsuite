@@ -31,7 +31,7 @@ pub enum AiError {
     /// The answer didn't match the requested schema, or the request was
     /// malformed.
     Invalid(String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl std::fmt::Display for AiError {
@@ -55,8 +55,8 @@ impl std::fmt::Display for AiError {
 
 impl std::error::Error for AiError {}
 
-impl From<sqlx::Error> for AiError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for AiError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -166,7 +166,7 @@ mod tests {
             StatusCode::BAD_GATEWAY
         );
         assert_eq!(
-            AiError::Database(sqlx::Error::RowNotFound)
+            AiError::Database(sea_orm::DbErr::RecordNotFound("ai_settings".to_owned()))
                 .into_api_error()
                 .status(),
             StatusCode::INTERNAL_SERVER_ERROR

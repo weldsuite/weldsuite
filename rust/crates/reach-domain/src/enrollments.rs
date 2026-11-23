@@ -2,14 +2,25 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::{Alias, Expr, OnConflict, TableRef, ValueTuple};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, IdenStatic, Iterable, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, RelationDef, Set,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    reach_campaign_mailboxes as campaign_mailboxes, reach_enrollments as enrollments,
+    reach_mailboxes, reach_prospect_list_members as members, reach_prospects,
+};
 
+use crate::lists::{CursorRow, before, member_prospect};
 use crate::schemas::is_consumer_email;
 use crate::suppressions::load_index;
-use crate::{ReachResult, field, iso, js_rows, text};
+use crate::{ReachResult, field, js, js_all, stamp, text};
 
 const CHUNK: usize = 500;
 
@@ -20,22 +31,35 @@ pub async fn bulk_set_next_send_at(
     activate: bool,
     now: OffsetDateTime,
 ) -> ReachResult<()> {
+    use enrollments::Column;
+    use sea_orm::ExprTrait as _;
+    // `update … set next_send_at = v.at … from (values (id, at), …) as v(id, at)
+    // where reach_enrollments.id = v.id`: `VALUES` names its columns
+    // `column1`, `column2`.
+    let v = Alias::new("v");
+    let db = orm(db);
     for chunk in items.chunks(CHUNK) {
-        let ids: Vec<String> = chunk.iter().map(|(id, _)| id.clone()).collect();
-        let ats: Vec<String> = chunk.iter().map(|(_, at)| iso(*at)).collect();
-        sqlx::query(
-            "update reach_enrollments set next_send_at = v.at,
-                 status = case when $3 then 'active' else reach_enrollments.status end,
-                 claimed_at = null, updated_at = $4::timestamptz
-             from (select * from unnest($1::varchar[], $2::text[]::timestamptz[])) as v(id, at)
-             where reach_enrollments.id = v.id",
-        )
-        .bind(&ids)
-        .bind(&ats)
-        .bind(activate)
-        .bind(iso(now))
-        .execute(db)
-        .await?;
+        let values: Vec<ValueTuple> = chunk
+            .iter()
+            .map(|(id, at)| ValueTuple::Two(id.clone().into(), stamp(*at).into()))
+            .collect();
+        let mut update = enrollments::Entity::update_many()
+            .col_expr(
+                Column::NextSendAt,
+                Expr::col((v.clone(), Alias::new("column2"))),
+            );
+        if activate {
+            update = update.col_expr(Column::Status, Expr::value("active"));
+        }
+        let mut update = update
+            .col_expr(Column::ClaimedAt, Expr::value(None::<OffsetDateTime>))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp(now)))
+            .filter(
+                Expr::col((enrollments::Entity, Column::Id))
+                    .equals((v.clone(), Alias::new("column1"))),
+            );
+        QueryTrait::query(&mut update).from(TableRef::ValuesList(values, v.clone().into()));
+        update.exec(&db).await?;
     }
     Ok(())
 }
@@ -87,27 +111,28 @@ async fn load_candidates(
         }
     };
     let ids = crate::unique(prospect_ids);
+    let db = orm(db);
     for chunk in ids.chunks(CHUNK) {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from reach_prospects t where t.id = any($1) and t.deleted_at is null",
-        )
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
-        for row in js_rows(rows) {
+        let rows = reach_prospects::Entity::find()
+            .filter(reach_prospects::Column::Id.is_in(chunk))
+            .filter(reach_prospects::Column::DeletedAt.is_null())
+            .all(&db)
+            .await?;
+        for row in js_all(rows.into_iter().map(serde_json::to_value))? {
             put(row);
         }
     }
     if let Some(list_id) = list_id {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(p) from reach_prospect_list_members m
-             join reach_prospects p on p.id = m.prospect_id
-             where m.list_id = $1 and p.deleted_at is null",
-        )
-        .bind(list_id)
-        .fetch_all(db)
-        .await?;
-        for row in js_rows(rows) {
+        let rows = members::Entity::find()
+            .select_only()
+            .columns(reach_prospects::Column::iter())
+            .join(JoinType::InnerJoin, member_prospect())
+            .filter(members::Column::ListId.eq(list_id))
+            .filter(reach_prospects::Column::DeletedAt.is_null())
+            .into_model::<reach_prospects::Model>()
+            .all(&db)
+            .await?;
+        for row in js_all(rows.into_iter().map(serde_json::to_value))? {
             put(row);
         }
     }
@@ -139,15 +164,21 @@ pub async fn add_prospects_to_campaign(
         .collect();
     let mut here: HashSet<String> = HashSet::new();
     let mut elsewhere: HashSet<String> = HashSet::new();
+    let conn = orm(db);
     for chunk in ids.chunks(CHUNK) {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "select prospect_id, campaign_id from reach_enrollments
-             where prospect_id = any($1) and (campaign_id = $2 or status in ('queued', 'active'))",
-        )
-        .bind(chunk)
-        .bind(campaign_id)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, String)> = enrollments::Entity::find()
+            .select_only()
+            .column(enrollments::Column::ProspectId)
+            .column(enrollments::Column::CampaignId)
+            .filter(enrollments::Column::ProspectId.is_in(chunk))
+            .filter(
+                Condition::any()
+                    .add(enrollments::Column::CampaignId.eq(campaign_id))
+                    .add(enrollments::Column::Status.is_in(["queued", "active"])),
+            )
+            .into_tuple()
+            .all(&conn)
+            .await?;
         for (prospect, campaign) in rows {
             if campaign == campaign_id {
                 here.insert(prospect);
@@ -178,16 +209,17 @@ pub async fn add_prospects_to_campaign(
     }
     let mut added_ids: Vec<String> = Vec::new();
     for chunk in eligible.chunks(CHUNK) {
-        let new_ids: Vec<String> = chunk.iter().map(|_| generate_id("renr")).collect();
-        let inserted: Vec<String> = sqlx::query_scalar(
-            "insert into reach_enrollments (id, campaign_id, prospect_id, status)
-             select id, $2, prospect_id, 'queued' from unnest($1::varchar[], $3::varchar[]) as v(id, prospect_id)
-             on conflict do nothing returning id",
-        )
-        .bind(&new_ids)
-        .bind(campaign_id)
-        .bind(chunk)
-        .fetch_all(db)
+        let inserted = enrollments::Entity::insert_many(chunk.iter().map(|prospect_id| {
+            enrollments::ActiveModel {
+                id: Set(generate_id("renr")),
+                campaign_id: Set(campaign_id.to_owned()),
+                prospect_id: Set(prospect_id.clone()),
+                status: Set("queued".to_owned()),
+                ..Default::default()
+            }
+        }))
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_with_returning_keys(&conn)
         .await?;
         added_ids.extend(inserted);
     }
@@ -227,34 +259,72 @@ pub fn to_enrollment(row: &Value, prospect: &Value, mailbox_email: Option<&str>)
     })
 }
 
+/// An enrollment with its prospect (the `p_` columns) and its mailbox's
+/// address.
+#[derive(Debug, FromQueryResult)]
+struct EnrollmentRow {
+    #[sea_orm(nested)]
+    enrollment: enrollments::Model,
+    #[sea_orm(nested(prefix = "p_"))]
+    prospect: reach_prospects::Model,
+    mailbox_email: Option<String>,
+}
+
 /// `listCampaignEnrollments(db, campaignId, options)`: (enrollment, prospect,
 /// mailbox email), newest first, `limit + 1` of them.
 pub async fn list_campaign_enrollments(
     db: &PgPool,
     campaign_id: &str,
     status: Option<&str>,
-    cursor: Option<&(String, String)>,
+    cursor: Option<&CursorRow>,
     limit: i64,
 ) -> ReachResult<Vec<(Value, Value, Option<String>)>> {
-    let rows: Vec<(Value, Value, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(e), to_jsonb(p), m.email from reach_enrollments e
-         join reach_prospects p on p.id = e.prospect_id
-         left join reach_mailboxes m on m.id = e.mailbox_id
-         where e.campaign_id = $1 and ($2::text is null or e.status = $2)
-           and ($3::timestamptz is null or e.created_at < $3::timestamptz or (e.created_at = $3::timestamptz and e.id < $4))
-         order by e.created_at desc, e.id desc limit $5",
-    )
-    .bind(campaign_id)
-    .bind(status)
-    .bind(cursor.map(|c| c.0.clone()))
-    .bind(cursor.map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(e, p, m)| (weldsuite_db::js_row(e), weldsuite_db::js_row(p), m))
-        .collect())
+    use enrollments::Column;
+    let mut select = enrollments::Entity::find();
+    for column in reach_prospects::Column::iter() {
+        select = select.column_as(column, format!("p_{}", column.as_str()));
+    }
+    let mut filters = Condition::all().add(Column::CampaignId.eq(campaign_id));
+    if let Some(status) = status {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(cursor) = cursor {
+        filters = filters.add(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let rows = select
+        .column_as(reach_mailboxes::Column::Email, "mailbox_email")
+        .join(
+            JoinType::InnerJoin,
+            enrollments::Entity::belongs_to(reach_prospects::Entity)
+                .from(Column::ProspectId)
+                .to(reach_prospects::Column::Id)
+                .into(),
+        )
+        .join(JoinType::LeftJoin, enrollment_mailbox())
+        .filter(filters)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(crate::lists::probe(limit))
+        .into_model::<EnrollmentRow>()
+        .all(&orm(db))
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok((
+                js(serde_json::to_value(row.enrollment))?,
+                js(serde_json::to_value(row.prospect))?,
+                row.mailbox_email,
+            ))
+        })
+        .collect()
+}
+
+/// `leftJoin(reachMailboxes, eq(reachMailboxes.id, reachEnrollments.mailboxId))`.
+fn enrollment_mailbox() -> RelationDef {
+    enrollments::Entity::belongs_to(reach_mailboxes::Entity)
+        .from(enrollments::Column::MailboxId)
+        .to(reach_mailboxes::Column::Id)
+        .into()
 }
 
 /// `countCampaignEnrollments(db, campaignId, status)`.
@@ -263,13 +333,13 @@ pub async fn count_campaign_enrollments(
     campaign_id: &str,
     status: Option<&str>,
 ) -> ReachResult<i64> {
-    Ok(sqlx::query_scalar(
-        "select count(*) from reach_enrollments where campaign_id = $1 and ($2::text is null or status = $2)",
-    )
-    .bind(campaign_id)
-    .bind(status)
-    .fetch_one(db)
-    .await?)
+    let mut count = enrollments::Entity::find()
+        .filter(enrollments::Column::CampaignId.eq(campaign_id));
+    if let Some(status) = status {
+        count = count.filter(enrollments::Column::Status.eq(status));
+    }
+    let n = count.count(&orm(db)).await?;
+    Ok(i64::try_from(n).unwrap_or(i64::MAX))
 }
 
 /// `removeEnrollment(db, campaignId, enrollmentId)`.
@@ -278,24 +348,28 @@ pub async fn remove_enrollment(
     campaign_id: &str,
     enrollment_id: &str,
 ) -> ReachResult<bool> {
-    let row: Option<String> = sqlx::query_scalar(
-        "delete from reach_enrollments where id = $1 and campaign_id = $2 returning id",
-    )
-    .bind(enrollment_id)
-    .bind(campaign_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.is_some())
+    let removed = enrollments::Entity::delete_many()
+        .filter(enrollments::Column::Id.eq(enrollment_id))
+        .filter(enrollments::Column::CampaignId.eq(campaign_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(removed.rows_affected > 0)
 }
 
 /// `countActiveCampaignMailboxes(db, campaignId)`.
 pub async fn count_active_campaign_mailboxes(db: &PgPool, campaign_id: &str) -> ReachResult<i64> {
-    Ok(sqlx::query_scalar(
-        "select count(*) from reach_campaign_mailboxes cm
-         join reach_mailboxes m on m.id = cm.mailbox_id
-         where cm.campaign_id = $1 and m.status = 'active' and m.deleted_at is null",
-    )
-    .bind(campaign_id)
-    .fetch_one(db)
-    .await?)
+    let n = campaign_mailboxes::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            campaign_mailboxes::Entity::belongs_to(reach_mailboxes::Entity)
+                .from(campaign_mailboxes::Column::MailboxId)
+                .to(reach_mailboxes::Column::Id)
+                .into(),
+        )
+        .filter(campaign_mailboxes::Column::CampaignId.eq(campaign_id))
+        .filter(reach_mailboxes::Column::Status.eq("active"))
+        .filter(reach_mailboxes::Column::DeletedAt.is_null())
+        .count(&orm(db))
+        .await?;
+    Ok(i64::try_from(n).unwrap_or(i64::MAX))
 }

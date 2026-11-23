@@ -52,7 +52,7 @@ use super::focus::Focus;
 use super::nfe_xml::{XmlError, parse_nfe};
 use super::settings::{client_for, environment_of, settings_of};
 use super::{FiscalError, page_of, require_entity, require_fiscal_entity, str_of};
-use crate::orm_bridge::{refused, timestamp_of_iso, to_json, to_json_rows};
+use crate::orm_bridge::{timestamp_of_iso, to_json, to_json_rows};
 
 /// `MAX_NFE_XML_BYTES`.
 const MAX_XML_BYTES: usize = 2 * 1024 * 1024;
@@ -306,9 +306,8 @@ async fn list(caller: Caller) -> Response {
                 .offset(u64::try_from((page - 1) * size).unwrap_or(0))
                 .all(&db)
                 .await
-                .and_then(to_json_rows)
-                .map_err(refused)?;
-            let total = find.count(&db).await.map_err(refused)?;
+                .and_then(to_json_rows)?;
+            let total = find.count(&db).await?;
             let total = i64::try_from(total).unwrap_or(i64::MAX);
             let rows = rows.iter().map(summary).collect();
             Ok(paged(rows, total, page * size < total, None))

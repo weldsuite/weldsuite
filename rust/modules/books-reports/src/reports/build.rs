@@ -42,8 +42,7 @@ impl From<DbErr> for BuildError {
     }
 }
 
-/// The ledger and the documents' contact names are still read with sqlx by
-/// `weldsuite-books-domain`.
+/// The SQL that stays SQL here, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for BuildError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(weldsuite_db::orm_error(error))

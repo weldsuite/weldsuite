@@ -77,7 +77,7 @@ pub async fn resolve_rate(
     db: &PgPool,
     http: Option<&OutboundHttp>,
     query: RateQuery<'_>,
-) -> Result<Option<ResolvedRate>, sqlx::Error> {
+) -> Result<Option<ResolvedRate>, sea_orm::DbErr> {
     if !is_foreign_currency(query.base_currency, Some(query.currency)) {
         return Ok(Some(ResolvedRate {
             rate: "1.000000".to_owned(),
@@ -128,7 +128,7 @@ pub async fn draft_rate(
     db: &PgPool,
     http: Option<&OutboundHttp>,
     query: RateQuery<'_>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, sea_orm::DbErr> {
     Ok(resolve_rate(db, http, query).await?.map(|r| r.rate))
 }
 

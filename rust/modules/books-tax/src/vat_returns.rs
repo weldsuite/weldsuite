@@ -41,7 +41,7 @@ use crate::filing::{
     parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
-use crate::orm_bridge::{day_of, now_and_stamp, refused, timestamp_of_iso, to_json, to_json_rows};
+use crate::orm_bridge::{day_of, now_and_stamp, timestamp_of_iso, to_json, to_json_rows};
 use weldsuite_schema::tenant::{entities, vat_returns};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -184,8 +184,7 @@ async fn list_returns(caller: &Caller) -> Reply {
         .order_by_desc(vat_returns::Column::PeriodStart)
         .all(&orm(&caller.db))
         .await
-        .and_then(to_json_rows)
-        .map_err(refused)?;
+        .and_then(to_json_rows)?;
     Ok(ok(Value::Array(
         rows.into_iter().map(nl::with_normalized).collect(),
     )))
@@ -196,7 +195,7 @@ async fn list_returns(caller: &Caller) -> Reply {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let Some(ret) = find(&caller.db, &id).await.map_err(refused)? else {
+            let Some(ret) = find(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("VAT return", &id));
             };
             Ok(ok(nl::with_normalized(ret)))
@@ -257,7 +256,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     let code = text(&entity, "jurisdictionCode");
@@ -280,8 +279,8 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
     let (start_at, end_at) = (
-        timestamp_of_iso(&start).map_err(refused)?,
-        timestamp_of_iso(&end).map_err(refused)?,
+        timestamp_of_iso(&start)?,
+        timestamp_of_iso(&end)?,
     );
     let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = vat_returns::Entity::find()
         .select_only()
@@ -294,8 +293,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
         .filter(vat_returns::Column::DeletedAt.is_null())
         .into_tuple()
         .all(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
     let periods: Vec<(String, String)> = periods
         .into_iter()
         .map(|(from, to)| (day_of(from), day_of(to)))
@@ -315,8 +313,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
         .order_by_desc(vat_returns::Column::CreatedAt)
         .one(&orm(db))
         .await
-        .and_then(|row| row.map(to_json).transpose())
-        .map_err(refused)?;
+        .and_then(|row| row.map(to_json).transpose())?;
     if let Some(existing) = &existing
         && !is_unfiled(text(existing, "status").unwrap_or_default())
     {
@@ -326,8 +323,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
     }
 
     let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await
-        .map_err(refused)?;
+        .await?;
     let calculated = compute_rubrieken(&lines.into_iter().map(|l| l.line).collect::<Vec<_>>());
     // The manual boxes (KOR reduction, estimates) belong to the return: keep them.
     let kept = existing
@@ -379,8 +375,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
                 .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
                 .filter(vat_returns::Column::Id.eq(&id))
                 .exec(&orm(db))
-                .await
-                .map_err(refused)?;
+                .await?;
             id
         }
         None => {
@@ -399,8 +394,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
                 ..Default::default()
             })
             .exec_without_returning(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
             id
         }
     };
@@ -482,7 +476,7 @@ async fn update(
 
 async fn update_return(caller: &Caller, state: &BooksState, id: &str, data: PatchBody) -> Reply {
     let db = &caller.db;
-    let Some(ret) = find(db, id).await.map_err(refused)? else {
+    let Some(ret) = find(db, id).await? else {
         return Err(Refusal::not_found("VAT return", id));
     };
     if !is_unfiled(text(&ret, "status").unwrap_or_default()) {
@@ -523,8 +517,7 @@ async fn update_return(caller: &Caller, state: &BooksState, id: &str, data: Patc
     review
         .filter(vat_returns::Column::Id.eq(id))
         .exec(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
 
     let changes = new_rubrieken.as_ref().map(|value| {
         let mut changes = Map::new();
@@ -567,7 +560,7 @@ async fn file(caller: Caller, State(state): State<BooksState>, Path(id): Path<St
 
 async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(ret) = find(db, id).await.map_err(refused)? else {
+    let Some(ret) = find(db, id).await? else {
         return Err(Refusal::not_found("VAT return", id));
     };
     let Some(rubrieken) = nl::normalize(ret.get("rubrieken")) else {
@@ -580,7 +573,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         return Err(Refusal::bad_request("VAT return has already been filed"));
     }
     let entity_id = text(&ret, "entityId").unwrap_or_default().to_owned();
-    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     let Some(btw) = btw_number(&entity) else {
@@ -619,8 +612,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
         .filter(vat_returns::Column::Id.eq(id))
         .exec(&OrmConn::new(&mut tx))
-        .await
-        .map_err(refused)?;
+        .await?;
     // A suppletie corrects an already-stamped period; only regular returns stamp rows.
     if text(&ret, "correctionOfId").is_none() {
         file_period(
@@ -631,8 +623,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
             id,
             text(&entity, "taxLockDate"),
         )
-        .await
-        .map_err(refused)?;
+        .await?;
     }
     tx.commit().await?;
 
@@ -761,7 +752,7 @@ async fn mark_filed_return(
     (reference, filed_at): (Option<String>, Option<String>),
 ) -> Reply {
     let db = &caller.db;
-    let Some(ret) = find(db, id).await.map_err(refused)? else {
+    let Some(ret) = find(db, id).await? else {
         return Err(Refusal::not_found("VAT return", id));
     };
     let Some(rubrieken) = nl::normalize(ret.get("rubrieken")) else {
@@ -774,14 +765,14 @@ async fn mark_filed_return(
         return Err(Refusal::bad_request("VAT return has already been filed"));
     }
     let entity_id = text(&ret, "entityId").unwrap_or_default().to_owned();
-    let Some(entity) = entity_row(db, &entity_id, true).await.map_err(refused)? else {
+    let Some(entity) = entity_row(db, &entity_id, true).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
 
     let reference = reference.filter(|r| !r.is_empty());
     let (now, stamp) = now_and_stamp();
     let filed_at = filed_at.unwrap_or(now);
-    let filed_stamp = timestamp_of_iso(&filed_at).map_err(refused)?;
+    let filed_stamp = timestamp_of_iso(&filed_at)?;
     let mut tx = db.begin().await?;
     vat_returns::Entity::update_many()
         .col_expr(vat_returns::Column::Status, Expr::value("filed"))
@@ -801,8 +792,7 @@ async fn mark_filed_return(
         .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
         .filter(vat_returns::Column::Id.eq(id))
         .exec(&OrmConn::new(&mut tx))
-        .await
-        .map_err(refused)?;
+        .await?;
     // A suppletie corrects an already-stamped period; only regular returns stamp rows.
     if text(&ret, "correctionOfId").is_none() {
         file_period(
@@ -813,8 +803,7 @@ async fn mark_filed_return(
             id,
             text(&entity, "taxLockDate"),
         )
-        .await
-        .map_err(refused)?;
+        .await?;
     }
     tx.commit().await?;
 
@@ -868,7 +857,7 @@ async fn suppletie(
 
 async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(original) = find(db, id).await.map_err(refused)? else {
+    let Some(original) = find(db, id).await? else {
         return Err(Refusal::not_found("VAT return", id));
     };
     if is_unfiled(text(&original, "status").unwrap_or_default()) {
@@ -885,8 +874,7 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
         .to_owned();
     let end = text(&original, "periodEnd").unwrap_or_default().to_owned();
     let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await
-        .map_err(refused)?;
+        .await?;
     let recalculated = compute_rubrieken(&lines.into_iter().map(|l| l.line).collect::<Vec<_>>());
     let filed = nl::normalize(original.get("rubrieken")).unwrap_or_default();
     let net_diff = js::math_round((recalculated.get("r5g") - filed.get("r5g")) * 100.0) / 100.0;
@@ -920,26 +908,25 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
     let notes = format!(
         "Suppletie of {of}: net difference €{diff_text} vs the filed return. Must be filed by {deadline_day} (8 weeks after discovery)."
     );
-    let stamp = timestamp_of_iso(&now).map_err(refused)?;
+    let stamp = timestamp_of_iso(&now)?;
     vat_returns::Entity::insert(vat_returns::ActiveModel {
         id: Set(suppletie_id.clone()),
         entity_id: Set(entity_id.clone()),
         period_type: Set(text(&original, "periodType").unwrap_or_default().to_owned()),
-        period_start: Set(timestamp_of_iso(&start).map_err(refused)?),
-        period_end: Set(timestamp_of_iso(&end).map_err(refused)?),
+        period_start: Set(timestamp_of_iso(&start)?),
+        period_end: Set(timestamp_of_iso(&end)?),
         period_label: Set(Some(period_label)),
         status: Set("calculated".to_owned()),
         rubrieken: Set(Some(recalculated.to_value())),
         correction_of_id: Set(Some(id.to_owned())),
-        suppletie_deadline: Set(Some(timestamp_of_iso(&deadline).map_err(refused)?)),
+        suppletie_deadline: Set(Some(timestamp_of_iso(&deadline)?)),
         notes: Set(Some(notes)),
         created_at: Set(stamp),
         updated_at: Set(stamp),
         ..Default::default()
     })
     .exec_without_returning(&orm(db))
-    .await
-    .map_err(refused)?;
+    .await?;
 
     let mut changes = Map::new();
     changes.insert(
@@ -980,7 +967,7 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
 async fn status(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let Some(ret) = find(&caller.db, &id).await.map_err(refused)? else {
+            let Some(ret) = find(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("VAT return", &id));
             };
             let Some(reference) = text(&ret, "filingReference").filter(|r| !r.is_empty()) else {
@@ -1008,7 +995,7 @@ async fn xml(caller: Caller, Path(id): Path<String>) -> Response {
 
 async fn download(caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(ret) = find(db, id).await.map_err(refused)? else {
+    let Some(ret) = find(db, id).await? else {
         return Err(Refusal::not_found("VAT return", id));
     };
     let xml = match text(&ret, "xmlContent").filter(|x| !x.is_empty()) {
@@ -1020,7 +1007,7 @@ async fn download(caller: &Caller, id: &str) -> Reply {
                 ));
             };
             let entity_id = text(&ret, "entityId").unwrap_or_default();
-            let entity = entity_row(db, entity_id, true).await.map_err(refused)?;
+            let entity = entity_row(db, entity_id, true).await?;
             let btw = entity.as_ref().and_then(btw_number);
             let (Some(entity), Some(btw)) = (entity, btw) else {
                 return Err(Refusal::bad_request(
@@ -1060,7 +1047,7 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(ret) = find(db, &id).await.map_err(refused)? else {
+            let Some(ret) = find(db, &id).await? else {
                 return Err(Refusal::not_found("VAT return", &id));
             };
             let status = text(&ret, "status").unwrap_or_default().to_owned();
@@ -1076,8 +1063,7 @@ async fn remove(
                 .filter(vat_returns::Column::Id.eq(&id))
                 .filter(vat_returns::Column::Status.ne("filed"))
                 .exec(&orm(db))
-                .await
-                .map_err(refused)?;
+                .await?;
             let mut changes = Map::new();
             changes.insert("status".into(), change(json!(status), json!("deleted")));
             write_accounting_audit(

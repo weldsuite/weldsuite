@@ -1,35 +1,15 @@
 //! What the ledger's SeaORM queries share (ADR DATA-019):
 //!
-//! - [`sqlx_error`]: the way back from SeaORM's error to sqlx's, for
-//!   `weldsuite_books_domain::http::Refusal` (`Refusal::Database` holds an
-//!   `sqlx::Error`) and the `atomically_with` closures that also run the
-//!   domain crate's table writes. It exists only until
-//!   `weldsuite-books-domain` is converted to the ORM and its `Refusal` holds
-//!   a `sea_orm::DbErr`; then it goes.
 //! - [`to_json`]: a row as Drizzle's `select()` returned it.
 //! - [`pg_date`]: a `YYYY-MM-DD` text as the old statements' `$n::date`
 //!   cast read it.
 //! - [`select_flags`]: `select exists (…), …` without a table.
 
-use std::sync::Arc;
-
 use sea_orm::sea_query::{Alias, Expr, Query};
-use sea_orm::{ConnectionTrait, DbErr, RuntimeErr};
+use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::Value;
 use time::Date;
 use time::macros::format_description;
-
-/// The `sqlx::Error` inside `error` when SeaORM ran the statement through
-/// sqlx (and nothing else holds it), else a protocol error carrying its text.
-pub(crate) fn sqlx_error(error: DbErr) -> sqlx::Error {
-    match error {
-        DbErr::Conn(RuntimeErr::SqlxError(inner))
-        | DbErr::Exec(RuntimeErr::SqlxError(inner))
-        | DbErr::Query(RuntimeErr::SqlxError(inner)) => Arc::try_unwrap(inner)
-            .unwrap_or_else(|shared| sqlx::Error::Protocol(shared.to_string())),
-        other => sqlx::Error::Protocol(other.to_string()),
-    }
-}
 
 /// A row as Drizzle's `select()` returns it: the entity's model (or a
 /// `FromQueryResult` row) serializes to that JSON, `numeric` as its text.

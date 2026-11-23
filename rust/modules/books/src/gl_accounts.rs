@@ -36,7 +36,7 @@ use weldsuite_schema::tenant::accounts::{self, Column};
 use weldsuite_schema::tenant::{entities, journal_entries, journal_lines};
 
 use crate::entity_setup::{form_1099_box_error, form_of, tax_line_error, tax_year_of};
-use crate::orm_bridge::{sqlx_error, to_json};
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -370,8 +370,7 @@ async fn tax_lines(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
         let Some(entity) = find_entity(&caller.db, &entity_id)
-            .await
-            .map_err(sqlx_error)?
+            .await?
         else {
             return Err(Refusal::not_found("Entity", &entity_id));
         };
@@ -425,8 +424,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
         let rows = list_accounts(&caller.db, &entity_id, &q)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         Ok(ok(Value::Array(rows)))
     }
     .await;
@@ -481,7 +479,7 @@ async fn list_accounts(db: &PgPool, entity_id: &str, q: &Query) -> Result<Vec<Va
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await.map_err(sqlx_error)? {
+        match find(&caller, &id).await? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Account", &id)),
         }
@@ -550,8 +548,7 @@ async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): Raw
     let result = async {
         let total = posted_lines(&id)
             .count(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let (Some(page), Some(size)) = (page, size) else {
             return Err(Refusal::Internal("page is NaN".to_owned()));
@@ -562,8 +559,7 @@ async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): Raw
             return Err(Refusal::Internal("OFFSET must not be negative".to_owned()));
         };
         let rows = ledger_lines(&caller.db, &id, limit, offset)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         Ok(paged(rows, total, page * size < total, None))
     }
     .await;
@@ -597,16 +593,14 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
     };
     let code = data["code"].as_str().unwrap_or_default().to_owned();
     let existing = code_holder(db, &entity_id, &code)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     if existing.is_some() {
         return Err(Refusal::conflict(format!(
             "Account code '{code}' already exists"
         )));
     }
     if let Some(message) = mapping_error(db, &entity_id, &data)
-        .await
-        .map_err(sqlx_error)?
+        .await?
     {
         return Err(Refusal::bad_request(message));
     }
@@ -617,8 +611,7 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
     {
         let kind = data["type"].as_str().unwrap_or_default();
         if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent)
-            .await
-            .map_err(sqlx_error)?
+            .await?
         {
             return Err(Refusal::bad_request_with(message, details));
         }
@@ -737,7 +730,7 @@ async fn update_account(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(account) = find(caller, id).await.map_err(sqlx_error)? else {
+    let Some(account) = find(caller, id).await? else {
         return Err(Refusal::not_found("Account", id));
     };
     let truthy = |key: &str| weldsuite_books_domain::js::truthy(data.get(key));
@@ -756,8 +749,7 @@ async fn update_account(
         && account["code"].as_str() != Some(code)
     {
         let dup = code_holder(db, &entity_id, code)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if dup.is_some() {
             return Err(Refusal::conflict(format!(
                 "Account code '{code}' already exists"
@@ -767,18 +759,16 @@ async fn update_account(
     if data.get("isActive") == Some(&Value::Bool(false))
         && account["isActive"] != Value::Bool(false)
         && let Some((message, details)) = deactivation_conflict(db, &account)
-            .await
-            .map_err(sqlx_error)?
+            .await?
     {
         return Err(Refusal::conflict_with(message, details));
     }
     if let Some(message) = mapping_error(db, &entity_id, &data)
-        .await
-        .map_err(sqlx_error)?
+        .await?
     {
         return Err(Refusal::bad_request(message));
     }
-    if let Some((message, details)) = tree_error(db, &account, &data).await.map_err(sqlx_error)? {
+    if let Some((message, details)) = tree_error(db, &account, &data).await? {
         return Err(Refusal::bad_request_with(message, details));
     }
     let mut set = data.clone();
@@ -825,7 +815,7 @@ async fn remove(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(account) = find(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(account) = find(&caller, &id).await? else {
             return Err(Refusal::not_found("Account", &id));
         };
         if account["isSystemAccount"].as_bool() == Some(true) {
@@ -835,8 +825,7 @@ async fn remove(
             .filter(journal_lines::Column::AccountId.eq(id.as_str()))
             .filter(journal_lines::Column::DeletedAt.is_null())
             .count(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if count > 0 {
             return Err(Refusal::bad_request(
                 "Account has bookings — deactivate it instead",
@@ -848,8 +837,7 @@ async fn remove(
             .col_expr(Column::UpdatedAt, Expr::value(at))
             .filter(Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         write_accounting_audit(
             &caller,
             db,

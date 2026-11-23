@@ -35,7 +35,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{invoice_templates, invoices};
 
 use crate::invoices::row_json;
-use crate::orm_bridge::sqlx_error;
 use crate::template_schema::{UpdateTemplate, read_create, read_update};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -222,8 +221,7 @@ async fn insert_template(
             row["entityId"].as_str().unwrap_or_default(),
             row["id"].as_str().unwrap_or_default(),
         )
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     }
     INVOICE_TEMPLATES
         .insert_raw(&mut *tx, INVOICE_TEMPLATES.values(row))
@@ -243,12 +241,10 @@ async fn list(caller: Caller) -> Response {
                 .order_by_asc(invoice_templates::Column::Name)
                 .order_by_asc(invoice_templates::Column::Id)
                 .all(&orm(&caller.db))
-                .await
-                .map_err(sqlx_error)?
+                .await?
                 .into_iter()
                 .map(|row| row_json(row).map(|row| to_template(&row)))
-                .collect::<Result<_, _>>()
-                .map_err(sqlx_error)?;
+                .collect::<Result<_, _>>()?;
             Ok(all_rows(rows))
         }
         .await,
@@ -259,7 +255,7 @@ async fn list(caller: Caller) -> Response {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            match find_template(&caller.db, &id).await.map_err(sqlx_error)? {
+            match find_template(&caller.db, &id).await? {
                 Some(row) => Ok(ok(to_template(&row))),
                 None => Err(Refusal::not_found("Invoice template", &id)),
             }
@@ -291,8 +287,7 @@ async fn create(
             let count = invoice_templates::Entity::find()
                 .filter(invoice_templates::Column::EntityId.eq(input.entity_id.as_str()))
                 .count(&orm(db))
-                .await
-                .map_err(sqlx_error)?;
+                .await?;
             let is_default = input.is_default == Some(true) || count == 0;
             let at = now();
             let id = generate_id("itpl");
@@ -331,7 +326,7 @@ async fn update(
     reply(
         async {
             let db = &caller.db;
-            let Some(existing) = find_template(db, &id).await.map_err(sqlx_error)? else {
+            let Some(existing) = find_template(db, &id).await? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             let mut tx = db.begin().await?;
@@ -343,15 +338,13 @@ async fn update(
                         existing["entityId"].as_str().unwrap_or_default(),
                         &id,
                     )
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
                 }
                 update_template(&tx, &id, &input)
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
             }
             tx.commit().await?;
-            let Some(row) = find_template(db, &id).await.map_err(sqlx_error)? else {
+            let Some(row) = find_template(db, &id).await? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             // The document is not diffed into the audit trail: it is a whole page layout.
@@ -379,7 +372,7 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(existing) = find_template(db, &id).await.map_err(sqlx_error)? else {
+            let Some(existing) = find_template(db, &id).await? else {
                 return Err(Refusal::not_found("Invoice template", &id));
             };
             let mut tx = db.begin().await?;
@@ -389,12 +382,10 @@ async fn remove(
                     .col_expr(invoices::Column::TemplateId, Expr::value(None::<String>))
                     .filter(invoices::Column::TemplateId.eq(id.as_str()))
                     .exec(&tx)
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
                 invoice_templates::Entity::delete_by_id(id.clone())
                     .exec(&tx)
-                    .await
-                    .map_err(sqlx_error)?;
+                    .await?;
             }
             tx.commit().await?;
             audit(&caller, &existing, &id, "deleted", None).await;
@@ -413,7 +404,7 @@ async fn duplicate(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(source) = find_template(db, &id).await.map_err(sqlx_error)? else {
+        let Some(source) = find_template(db, &id).await? else {
             return Err(Refusal::not_found("Invoice template", &id));
         };
         let suffix = " (copy)";

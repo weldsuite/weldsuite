@@ -213,10 +213,7 @@ pub(crate) async fn import_transactions(
     for chunk in fresh.chunks(100) {
         let mut tx = db.begin().await.map_err(orm_error)?;
         for row in chunk {
-            BANK_TRANSACTIONS
-                .insert_raw(&mut *tx, row.clone())
-                .await
-                .map_err(orm_error)?;
+            BANK_TRANSACTIONS.insert_raw(&mut *tx, row.clone()).await?;
         }
         tx.commit().await.map_err(orm_error)?;
     }

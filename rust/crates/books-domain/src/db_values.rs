@@ -37,6 +37,14 @@ pub(crate) fn now_and_stamp() -> (String, PrimitiveDateTime) {
     )
 }
 
+/// A `timestamp` as `toISOString()` (`to_char(at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`).
+pub(crate) fn iso_of(at: PrimitiveDateTime) -> String {
+    match weldsuite_schema::js::timestamp::serialize(&at, serde_json::value::Serializer) {
+        Ok(Value::String(text)) => text,
+        _ => String::new(),
+    }
+}
+
 /// `$n::date` of a `YYYY-MM-DD` day, or the failed cast's error.
 pub(crate) fn date_of(day: &str) -> Result<Date, DbErr> {
     Date::parse(day, format_description!("[year]-[month]-[day]"))
@@ -84,6 +92,10 @@ mod tests {
             Some(datetime!(2026-10-29 00:00:00))
         );
         assert!(timestamp_of("nope").is_err());
+        assert_eq!(
+            iso_of(datetime!(2026-10-29 07:00:00.123_456)),
+            "2026-10-29T07:00:00.123Z"
+        );
         assert_eq!(date_of("2026-02-28").ok(), Some(date!(2026 - 02 - 28)));
         assert!(date_of("2026-02-30").is_err());
         assert_eq!(

@@ -1098,7 +1098,6 @@ pub(crate) async fn can_assign_agent(
         &assigner.viewer,
     )
     .await
-    .map_err(orm_error)
 }
 
 /// An updated issue: the rows around the change and the team's key.

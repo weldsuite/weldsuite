@@ -25,7 +25,7 @@ use weldsuite_schema::tenant::{entities, lock_date_exceptions};
 
 use super::{find_active, serialize};
 use crate::entity_setup::today_in;
-use crate::orm_bridge::{pg_date, sqlx_error, to_json};
+use crate::orm_bridge::{pg_date, to_json};
 
 const LOCK_FIELDS: [&str; 5] = [
     "salesLockDate",
@@ -210,8 +210,7 @@ pub(crate) async fn lock_dates(
             return Ok(ok(serialize(&existing)));
         }
         let updated = write_lock_dates(&caller.db, &id, &patch)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         let Some(updated) = updated else {
             return Err(Refusal::bad_request(HARD_LOCK_FORWARD_ONLY));
         };
@@ -259,13 +258,11 @@ pub(crate) async fn list_exceptions(caller: Caller, Path(id): Path<String>) -> R
             .order_by_desc(lock_date_exceptions::Column::CreatedAt)
             .order_by_desc(lock_date_exceptions::Column::Id)
             .all(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         let rows = rows
             .into_iter()
             .map(to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(sqlx_error)?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ok(Value::Array(rows)))
     }
     .await;
@@ -419,8 +416,7 @@ pub(crate) async fn revoke_exception(
 ) -> Response {
     let result = async {
         let Some(existing) = find_exception(&caller.db, &exception_id, Some(&id))
-            .await
-            .map_err(sqlx_error)?
+            .await?
         else {
             return Err(Refusal::not_found("Lock date exception", &exception_id));
         };
@@ -440,18 +436,15 @@ pub(crate) async fn revoke_exception(
             .filter(lock_date_exceptions::Column::Id.eq(exception_id.as_str()))
             .filter(lock_date_exceptions::Column::RevokedAt.is_null())
             .exec_with_returning(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?
+            .await?
             .into_iter()
             .next()
             .map(to_json)
-            .transpose()
-            .map_err(sqlx_error)?;
+            .transpose()?;
         let Some(revoked) = revoked else {
             // Lost a race with another revoke: the row as it now stands.
             let current = find_exception(&caller.db, &exception_id, None)
-                .await
-                .map_err(sqlx_error)?;
+                .await?;
             return Ok(ok(current.unwrap_or(existing)));
         };
         let mut changes = Map::new();

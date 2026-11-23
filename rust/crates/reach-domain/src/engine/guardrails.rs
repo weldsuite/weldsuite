@@ -13,13 +13,23 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{REACH_CAMPAIGN_PAUSED, REACH_MAILBOX_UPDATED};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    reach_campaigns as campaigns, reach_enrollments as enrollments, reach_mailboxes as mailboxes,
+    reach_messages as messages,
+};
 
 use crate::schemas::sending;
-use crate::{EventSink, ReachEvent, ReachResult, iso, text_or_empty};
+use crate::{EventSink, ReachEvent, ReachResult, js, stamp, text_or_empty};
 
 /// Fewer sends than this say nothing about a rate.
 pub const CAMPAIGN_BOUNCE_MIN_SAMPLE: i64 = 20;
@@ -39,15 +49,13 @@ pub async fn mailbox_hard_bounces_last_day(
     now: OffsetDateTime,
 ) -> ReachResult<i64> {
     let since = now - time::Duration::milliseconds(DAY_MS);
-    let n: i64 = sqlx::query_scalar(
-        "select count(*) from reach_enrollments
-         where mailbox_id = $1 and status = 'bounced' and updated_at >= $2::timestamptz",
-    )
-    .bind(mailbox_id)
-    .bind(iso(since))
-    .fetch_one(db)
-    .await?;
-    Ok(n)
+    let n = enrollments::Entity::find()
+        .filter(enrollments::Column::MailboxId.eq(mailbox_id))
+        .filter(enrollments::Column::Status.eq("bounced"))
+        .filter(enrollments::Column::UpdatedAt.gte(stamp(since)))
+        .count(&orm(db))
+        .await?;
+    Ok(i64::try_from(n).unwrap_or(i64::MAX))
 }
 
 /// `pauseMailboxOnBounces`; the hook publishes `reach_mailbox:updated`
@@ -62,31 +70,47 @@ pub async fn pause_mailbox_on_bounces(
     {
         return Ok(None);
     }
-    let paused: Option<Value> = sqlx::query_scalar(
-        "update reach_mailboxes set status = 'paused', paused_reason = 'bounces', updated_at = $2::timestamptz
-         where id = $1 and status = 'active' returning to_jsonb(reach_mailboxes)",
-    )
-    .bind(mailbox_id)
-    .bind(iso(now))
-    .fetch_optional(db)
-    .await?;
-    Ok(paused.map(weldsuite_db::js_row))
+    let paused = mailboxes::Entity::update_many()
+        .col_expr(mailboxes::Column::Status, Expr::value("paused"))
+        .col_expr(mailboxes::Column::PausedReason, Expr::value("bounces"))
+        .col_expr(mailboxes::Column::UpdatedAt, Expr::value(stamp(now)))
+        .filter(mailboxes::Column::Id.eq(mailbox_id))
+        .filter(mailboxes::Column::Status.eq("active"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    Ok(paused.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `campaignBounceRate(db, campaignId)`: (sample, bounced, rate).
 pub async fn campaign_bounce_rate(db: &PgPool, campaign_id: &str) -> ReachResult<(i64, i64, f64)> {
-    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select m.enrollment_id, e.status from reach_messages m
-         left join reach_enrollments e on e.id = m.enrollment_id
-         where m.campaign_id = $1 and m.direction = 'out'
-           and (m.status = 'sent' or (m.status = 'failed' and e.status = 'bounced'))
-         order by m.created_at desc, m.id desc
-         limit $2",
-    )
-    .bind(campaign_id)
-    .bind(sending::CAMPAIGN_BOUNCE_WINDOW)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(Option<String>, Option<String>)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::EnrollmentId)
+        .column(enrollments::Column::Status)
+        .join(
+            JoinType::LeftJoin,
+            messages::Entity::belongs_to(enrollments::Entity)
+                .from(messages::Column::EnrollmentId)
+                .to(enrollments::Column::Id)
+                .into(),
+        )
+        .filter(messages::Column::CampaignId.eq(campaign_id))
+        .filter(messages::Column::Direction.eq("out"))
+        .filter(
+            Condition::any().add(messages::Column::Status.eq("sent")).add(
+                Condition::all()
+                    .add(messages::Column::Status.eq("failed"))
+                    .add(enrollments::Column::Status.eq("bounced")),
+            ),
+        )
+        .order_by_desc(messages::Column::CreatedAt)
+        .order_by_desc(messages::Column::Id)
+        .limit(u64::try_from(sending::CAMPAIGN_BOUNCE_WINDOW).unwrap_or_default())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let bounced: HashSet<Option<String>> = rows
         .iter()
         .filter(|(_, status)| status.as_deref() == Some("bounced"))
@@ -112,15 +136,17 @@ pub async fn pause_campaign_on_bounce_rate(
     if sample < CAMPAIGN_BOUNCE_MIN_SAMPLE || rate <= sending::CAMPAIGN_BOUNCE_RATE {
         return Ok(None);
     }
-    let paused: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set status = 'paused', paused_reason = 'bounce_rate', updated_at = $2::timestamptz
-         where id = $1 and status = 'active' returning to_jsonb(reach_campaigns)",
-    )
-    .bind(campaign_id)
-    .bind(iso(now))
-    .fetch_optional(db)
-    .await?;
-    Ok(paused.map(weldsuite_db::js_row))
+    let paused = campaigns::Entity::update_many()
+        .col_expr(campaigns::Column::Status, Expr::value("paused"))
+        .col_expr(campaigns::Column::PausedReason, Expr::value("bounce_rate"))
+        .col_expr(campaigns::Column::UpdatedAt, Expr::value(stamp(now)))
+        .filter(campaigns::Column::Id.eq(campaign_id))
+        .filter(campaigns::Column::Status.eq("active"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    Ok(paused.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `recordHardBounce(db, target, hooks, now)` with the send tick's hooks:

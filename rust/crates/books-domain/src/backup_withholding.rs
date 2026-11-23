@@ -11,11 +11,14 @@
 //! box and covers that whole payment. The Form 945 summary is the reports
 //! area's.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{parties, payments};
 
+use crate::db_values::{timestamp_of, to_json};
 use crate::js::{math_round, numeric};
-use crate::tables::PARTIES;
 use crate::vendor_tax::{FORM_1099_OMIT, is_allocatable_box, is_corporation_classification};
 
 /// `BACKUP_WITHHOLDING_RATE`.
@@ -178,7 +181,7 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 pub async fn compute_backup_withholding(
     db: &PgPool,
     input: ComputeBackupWithholdingInput<'_>,
-) -> Result<BackupWithholdingOutcome, sqlx::Error> {
+) -> Result<BackupWithholdingOutcome, DbErr> {
     let gross = math_round(input.gross_amount * 100.0) / 100.0;
     if gross <= 0.0 || gross.is_nan() {
         return Ok(none(gross));
@@ -191,15 +194,11 @@ pub async fn compute_backup_withholding(
     {
         return Ok(none(gross));
     }
-    let party: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(parties),
-        " from parties t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(input.party_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(party) = party.map(|row| PARTIES.js(row)) else {
+    let party = parties::Entity::find_by_id(input.party_id.to_owned())
+        .filter(parties::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(party) = party.map(to_json).transpose()? else {
         return Ok(none(gross));
     };
     if party.get("is1099Vendor").and_then(Value::as_bool) != Some(true) {
@@ -234,18 +233,12 @@ pub async fn compute_backup_withholding(
         if threshold.is_some() {
             let start = format!("{year:04}-01-01T00:00:00.000Z");
             let end = format!("{}T23:59:59.999Z", input.day);
-            let total: String = sqlx::query_scalar(
-                "select coalesce(sum(amount), 0)::text from payments \
-                 where entity_id = $1 and type = 'sent' and contact_id = $2 and deleted_at is null \
-                 and date >= $3::timestamp and date <= $4::timestamp \
-                 and coalesce(payment_method, '') not in ('credit_card', 'debit_card', 'third_party_network') \
-                 and coalesce(paid_through_payroll, false) = false",
+            let total = sent_year_to_date(
+                db,
+                input.entity_id,
+                input.party_id,
+                (&timestamp_of(&start)?, &timestamp_of(&end)?),
             )
-            .bind(input.entity_id)
-            .bind(input.party_id)
-            .bind(&start)
-            .bind(&end)
-            .fetch_one(db)
             .await?;
             year_to_date = numeric(&Value::String(total));
         }
@@ -267,6 +260,38 @@ pub async fn compute_backup_withholding(
         rate: BACKUP_WITHHOLDING_RATE,
         net: result.net,
     })
+}
+
+/// `coalesce(sum(amount), 0)::text` of the payments sent to the vendor in
+/// `[from, to]` that count towards its 1099 (not through a card, a payment
+/// network or payroll).
+async fn sent_year_to_date(
+    db: &PgPool,
+    entity_id: &str,
+    party_id: &str,
+    (from, to): (&time::PrimitiveDateTime, &time::PrimitiveDateTime),
+) -> Result<String, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use payments::Column;
+    let total = Func::coalesce([Func::sum(Expr::col(Column::Amount)).into(), Expr::val(0)])
+        .cast_as("text");
+    let method = Func::coalesce([Expr::col(Column::PaymentMethod), Expr::val("")]);
+    let payroll = Func::coalesce([Expr::col(Column::PaidThroughPayroll), Expr::val(false)]);
+    let total: Option<String> = payments::Entity::find()
+        .select_only()
+        .column_as(total, "total")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Type.eq("sent"))
+        .filter(Column::ContactId.eq(party_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Date.gte(*from))
+        .filter(Column::Date.lte(*to))
+        .filter(method.is_not_in(["credit_card", "debit_card", "third_party_network"]))
+        .filter(payroll.eq(false))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(total.unwrap_or_else(|| "0".to_owned()))
 }
 
 #[cfg(test)]

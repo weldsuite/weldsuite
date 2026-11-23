@@ -26,14 +26,25 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use weldsuite_db::Workspaces;
+use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, Workspaces, orm};
 use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynSystemMail;
 use weldsuite_reach_domain::schemas::{Limits, WELDREACH_APP_CODE, resolve_limits};
+use weldsuite_schema::master::{
+    app_catalog, users, workspace_app_access as access, workspaces,
+};
+use weldsuite_schema::tenant::workspace_installed_apps as installed;
 
 use crate::audit::{self, AuditEntry};
 use crate::staff::{Actor, checked_reason};
@@ -292,16 +303,27 @@ pub struct WorkspaceRef {
 /// The workspace `reference` names: `workspaces.id`, its slug, or the
 /// organization id in `clerk_org_id` (Zitadel's on Kubernetes).
 pub async fn find_workspace(master: &PgPool, reference: &str) -> StaffResult<WorkspaceRef> {
+    use sea_orm::ExprTrait as _;
+    use workspaces::Column;
     let reference = reference.trim();
-    let row: Option<(String, String, String, bool)> = sqlx::query_as(
-        "select id, name, slug, deleted_at is not null from workspaces
-         where id = $1 or slug = $1 or clerk_org_id = $1
-         order by (id = $1) desc, (slug = $1) desc
-         limit 1",
-    )
-    .bind(reference)
-    .fetch_optional(master)
-    .await?;
+    let col = |column: Column| Expr::col((workspaces::Entity, column));
+    let row: Option<(String, String, String, bool)> = workspaces::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column(Column::Name)
+        .column(Column::Slug)
+        .expr(col(Column::DeletedAt).is_not_null())
+        .filter(
+            Condition::any()
+                .add(Column::Id.eq(reference))
+                .add(Column::Slug.eq(reference))
+                .add(Column::ClerkOrgId.eq(reference)),
+        )
+        .order_by_desc(col(Column::Id).eq(reference))
+        .order_by_desc(col(Column::Slug).eq(reference))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     row.map(|(id, name, slug, deleted)| WorkspaceRef {
         id,
         name,
@@ -316,7 +338,7 @@ pub async fn find_workspace(master: &PgPool, reference: &str) -> StaffResult<Wor
 }
 
 /// One row of the access list (`AccessRequestSummary`).
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct AccessSummary {
     pub id: String,
     pub workspace_id: String,
@@ -330,6 +352,93 @@ pub struct AccessSummary {
     pub target_countries: Option<Value>,
     pub list_source: Option<String>,
     pub expected_daily_sends: Option<String>,
+}
+
+/// [`AccessSummary`] as read, its times not yet written out.
+#[derive(FromQueryResult)]
+struct SummaryRow {
+    id: String,
+    workspace_id: String,
+    workspace_name: String,
+    app_code: String,
+    app_name: String,
+    status: String,
+    requested_at: Option<OffsetDateTime>,
+    reviewed_at: Option<OffsetDateTime>,
+    company_name: Option<String>,
+    target_countries: Option<Value>,
+    list_source: Option<String>,
+    expected_daily_sends: Option<String>,
+}
+
+impl From<SummaryRow> for AccessSummary {
+    fn from(row: SummaryRow) -> Self {
+        Self {
+            id: row.id,
+            workspace_id: row.workspace_id,
+            workspace_name: row.workspace_name,
+            app_code: row.app_code,
+            app_name: row.app_name,
+            status: row.status,
+            requested_at: row.requested_at.and_then(utc_seconds),
+            reviewed_at: row.reviewed_at.and_then(utc_seconds),
+            company_name: row.company_name,
+            target_countries: row.target_countries,
+            list_source: row.list_source,
+            expected_daily_sends: row.expected_daily_sends,
+        }
+    }
+}
+
+/// `to_char(at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`.
+fn utc_seconds(at: OffsetDateTime) -> Option<String> {
+    let format =
+        time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z");
+    at.to_offset(time::UtcOffset::UTC).format(format).ok()
+}
+
+/// `a.request->>'<key>'`.
+fn request_text(key: &str) -> Expr {
+    PgExpr::cast_json_field(Expr::col((access::Entity, access::Column::Request)), key)
+}
+
+/// `join(workspaces, eq(workspaces.id, a.workspaceId))`.
+fn access_workspace() -> RelationDef {
+    access::Entity::belongs_to(workspaces::Entity)
+        .from(access::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
+
+/// `leftJoin(appCatalog, eq(appCatalog.code, a.appCode))`.
+fn access_app() -> RelationDef {
+    access::Entity::belongs_to(app_catalog::Entity)
+        .from(access::Column::AppCode)
+        .to(app_catalog::Column::Code)
+        .into()
+}
+
+/// The access rows with their workspace and app names (`app_name` falls back
+/// to the code).
+fn with_names() -> Select<access::Entity> {
+    access::Entity::find()
+        .select_only()
+        .column(access::Column::Id)
+        .column(access::Column::WorkspaceId)
+        .column_as(workspaces::Column::Name, "workspace_name")
+        .column(access::Column::AppCode)
+        .column_as(
+            Expr::from(Func::coalesce([
+                Expr::col((app_catalog::Entity, app_catalog::Column::Name)),
+                Expr::col((access::Entity, access::Column::AppCode)),
+            ])),
+            "app_name",
+        )
+        .column(access::Column::Status)
+        .column(access::Column::RequestedAt)
+        .column(access::Column::ReviewedAt)
+        .join(JoinType::InnerJoin, access_workspace())
+        .join(JoinType::LeftJoin, access_app())
 }
 
 /// What [`list`] narrows to.
@@ -350,32 +459,45 @@ pub async fn list(master: &PgPool, filter: &AccessFilter<'_>) -> StaffResult<Vec
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
-    let rows = sqlx::query_as(
-        "select a.id, a.workspace_id, w.name as workspace_name, a.app_code,
-                coalesce(c.name, a.app_code) as app_name, a.status,
-                to_char(a.requested_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as requested_at,
-                to_char(a.reviewed_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as reviewed_at,
-                a.request->>'companyName' as company_name,
-                a.request->'targetCountries' as target_countries,
-                a.request->>'listSource' as list_source,
-                a.request->>'expectedDailySends' as expected_daily_sends
-         from workspace_app_access a
-         join workspaces w on w.id = a.workspace_id
-         left join app_catalog c on c.code = a.app_code
-         where ($1::text is null or a.status = $1)
-           and ($2::text is null or a.app_code = $2)
-           and ($3::text is null or w.name ilike $3 or w.slug ilike $3
-                or a.request->>'companyName' ilike $3 or a.request->>'contactEmail' ilike $3)
-         order by case when $1::text = 'requested' then a.requested_at end asc, a.updated_at desc
-         limit $4",
-    )
-    .bind(filter.status)
-    .bind(filter.app_code)
-    .bind(search)
-    .bind(LIST_LIMIT)
-    .fetch_all(master)
-    .await?;
-    Ok(rows)
+    let mut filters = Condition::all();
+    if let Some(status) = filter.status {
+        filters = filters.add(access::Column::Status.eq(status));
+    }
+    if let Some(app_code) = filter.app_code {
+        filters = filters.add(access::Column::AppCode.eq(app_code));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(
+            Condition::any()
+                .add(workspaces::Column::Name.ilike(search.as_str()))
+                .add(workspaces::Column::Slug.ilike(search.as_str()))
+                .add(PgExpr::ilike(request_text("companyName"), search.as_str()))
+                .add(PgExpr::ilike(request_text("contactEmail"), search.as_str())),
+        );
+    }
+    let mut select = with_names()
+        .column_as(request_text("companyName"), "company_name")
+        .column_as(
+            PgExpr::get_json_field(
+                Expr::col((access::Entity, access::Column::Request)),
+                "targetCountries",
+            ),
+            "target_countries",
+        )
+        .column_as(request_text("listSource"), "list_source")
+        .column_as(request_text("expectedDailySends"), "expected_daily_sends")
+        .filter(filters);
+    // The oldest open request first when listing `requested`.
+    if filter.status == Some("requested") {
+        select = select.order_by_asc(access::Column::RequestedAt);
+    }
+    let rows = select
+        .order_by_desc(access::Column::UpdatedAt)
+        .limit(u64::try_from(LIST_LIMIT).unwrap_or_default())
+        .into_model::<SummaryRow>()
+        .all(&orm(master))
+        .await?;
+    Ok(rows.into_iter().map(AccessSummary::from).collect())
 }
 
 /// Everything about one workspace's access to one app (`AppAccessDetail`).
@@ -407,7 +529,7 @@ pub struct AccessDetail {
     pub billing_status: String,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct DetailRow {
     id: String,
     workspace_id: String,
@@ -420,9 +542,9 @@ struct DetailRow {
     limits: Option<Value>,
     requested_by: Option<String>,
     requested_by_email: Option<String>,
-    requested_at: Option<String>,
+    requested_at: Option<OffsetDateTime>,
     reviewed_by: Option<String>,
-    reviewed_at: Option<String>,
+    reviewed_at: Option<OffsetDateTime>,
     review_notes: Option<String>,
     rejection_reason: Option<String>,
     suspended_reason: Option<String>,
@@ -449,9 +571,9 @@ impl From<DetailRow> for AccessDetail {
             limits_unset,
             requested_by: row.requested_by,
             requested_by_email: row.requested_by_email,
-            requested_at: row.requested_at,
+            requested_at: row.requested_at.and_then(utc_seconds),
             reviewed_by: row.reviewed_by,
-            reviewed_at: row.reviewed_at,
+            reviewed_at: row.reviewed_at.and_then(utc_seconds),
             review_notes: row.review_notes,
             rejection_reason: row.rejection_reason,
             suspended_reason: row.suspended_reason,
@@ -466,25 +588,33 @@ pub async fn get(
     workspace_id: &str,
     app_code: &str,
 ) -> StaffResult<Option<AccessDetail>> {
-    let row: Option<DetailRow> = sqlx::query_as(
-        "select a.id, a.workspace_id, w.name as workspace_name, w.slug as workspace_slug,
-                a.app_code, coalesce(c.name, a.app_code) as app_name, a.status, a.request,
-                a.limits, a.requested_by, u.email as requested_by_email,
-                to_char(a.requested_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as requested_at,
-                a.reviewed_by,
-                to_char(a.reviewed_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as reviewed_at,
-                a.review_notes, a.rejection_reason, a.suspended_reason, a.billing_status
-         from workspace_app_access a
-         join workspaces w on w.id = a.workspace_id
-         left join app_catalog c on c.code = a.app_code
-         left join users u on u.id = a.requested_by
-         where a.workspace_id = $1 and a.app_code = $2
-         limit 1",
-    )
-    .bind(workspace_id)
-    .bind(app_code)
-    .fetch_optional(master)
-    .await?;
+    let row = with_names()
+        .column_as(workspaces::Column::Slug, "workspace_slug")
+        .columns([
+            access::Column::Request,
+            access::Column::Limits,
+            access::Column::RequestedBy,
+        ])
+        .column_as(users::Column::Email, "requested_by_email")
+        .columns([
+            access::Column::ReviewedBy,
+            access::Column::ReviewNotes,
+            access::Column::RejectionReason,
+            access::Column::SuspendedReason,
+            access::Column::BillingStatus,
+        ])
+        .join(
+            JoinType::LeftJoin,
+            access::Entity::belongs_to(users::Entity)
+                .from(access::Column::RequestedBy)
+                .to(users::Column::Id)
+                .into(),
+        )
+        .filter(access::Column::WorkspaceId.eq(workspace_id))
+        .filter(access::Column::AppCode.eq(app_code))
+        .into_model::<DetailRow>()
+        .one(&orm(master))
+        .await?;
     Ok(row.map(AccessDetail::from))
 }
 
@@ -599,11 +729,14 @@ async fn refusal_before_planning(
     if action != AccessAction::Approve {
         return Ok(Some(NOT_FOUND.to_owned()));
     }
-    let known: bool =
-        sqlx::query_scalar("select exists (select 1 from app_catalog where code = $1)")
-            .bind(app_code)
-            .fetch_one(master)
-            .await?;
+    let known = app_catalog::Entity::find()
+        .select_only()
+        .column(app_catalog::Column::Id)
+        .filter(app_catalog::Column::Code.eq(app_code))
+        .into_tuple::<String>()
+        .one(&orm(master))
+        .await?
+        .is_some();
     Ok((!known).then(|| format!("Unknown app \"{app_code}\".")))
 }
 
@@ -715,51 +848,98 @@ async fn write_decision(
 ) -> StaffResult<bool> {
     let limits_json = update.limits.as_ref().map(Limits::to_json);
     let mut tx = master.begin().await?;
-    let written = if let Some(current) = current {
-        sqlx::query(
-            "update workspace_app_access set
-                 status = $3, reviewed_by = $4, reviewed_at = now(),
-                 rejection_reason = $5, suspended_reason = $6,
-                 limits = coalesce($7, limits), updated_at = now()
-             where id = $1 and status = $2",
-        )
-        .bind(&current.id)
-        .bind(&current.status)
-        .bind(update.status)
-        .bind(&update.reviewed_by)
-        .bind(&update.rejection_reason)
-        .bind(&update.suspended_reason)
-        .bind(&limits_json)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected()
-    } else {
-        sqlx::query(
-            "insert into workspace_app_access
-                 (id, workspace_id, app_code, status, limits, reviewed_by, reviewed_at,
-                  rejection_reason, suspended_reason, created_at, updated_at)
-             values ($1, $2, $3, $4, coalesce($5, '{}'::jsonb), $6, now(), $7, $8, now(), now())
-             on conflict do nothing",
-        )
-        .bind(generate_id("waa"))
-        .bind(workspace_id)
-        .bind(app_code)
-        .bind(update.status)
-        .bind(&limits_json)
-        .bind(&update.reviewed_by)
-        .bind(&update.rejection_reason)
-        .bind(&update.suspended_reason)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected()
+    let db = OrmConn::new(&mut tx);
+    let written = match current {
+        Some(current) => change_access(&db, current, update, limits_json).await?,
+        None => first_access(&db, workspace_id, app_code, update, limits_json).await?,
     };
     if written == 0 {
+        drop(db);
         tx.rollback().await?;
         return Ok(false);
     }
-    audit::record_success(&mut *tx, audit_entry).await?;
+    audit::record_success(&db, audit_entry).await?;
+    drop(db);
     tx.commit().await?;
     Ok(true)
+}
+
+/// The decision on an existing row, while it still has the status it was
+/// planned from; the limits only when the update sets them. The time is the
+/// database's `now()`.
+async fn change_access<C: ConnectionTrait>(
+    db: &C,
+    current: &AccessDetail,
+    update: &AccessUpdate,
+    limits: Option<Value>,
+) -> Result<u64, DbErr> {
+    use access::Column;
+    let mut change = access::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(update.status))
+        .col_expr(Column::ReviewedBy, Expr::value(update.reviewed_by.as_str()))
+        .col_expr(Column::ReviewedAt, Expr::current_timestamp())
+        .col_expr(
+            Column::RejectionReason,
+            Expr::value(update.rejection_reason.clone()),
+        )
+        .col_expr(
+            Column::SuspendedReason,
+            Expr::value(update.suspended_reason.clone()),
+        );
+    if let Some(limits) = limits {
+        change = change.col_expr(Column::Limits, Expr::value(limits));
+    }
+    let done = change
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.eq(current.id.as_str()))
+        .filter(Column::Status.eq(current.status.as_str()))
+        .exec(db)
+        .await?;
+    Ok(done.rows_affected)
+}
+
+/// The first row of a workspace's access, approved by staff without a
+/// request (`on conflict do nothing`: a request that arrived meanwhile wins).
+async fn first_access<C: ConnectionTrait>(
+    db: &C,
+    workspace_id: &str,
+    app_code: &str,
+    update: &AccessUpdate,
+    limits: Option<Value>,
+) -> Result<u64, DbErr> {
+    use access::Column;
+    let insert = Query::insert()
+        .into_table(access::Entity)
+        .columns([
+            Column::Id,
+            Column::WorkspaceId,
+            Column::AppCode,
+            Column::Status,
+            Column::Limits,
+            Column::ReviewedBy,
+            Column::ReviewedAt,
+            Column::RejectionReason,
+            Column::SuspendedReason,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+        ])
+        .values([
+            Expr::value(generate_id("waa")),
+            Expr::value(workspace_id),
+            Expr::value(app_code),
+            Expr::value(update.status),
+            Expr::value(limits.unwrap_or_else(|| json!({}))),
+            Expr::value(update.reviewed_by.as_str()),
+            Expr::current_timestamp(),
+            Expr::value(update.rejection_reason.clone()),
+            Expr::value(update.suspended_reason.clone()),
+            Expr::current_timestamp(),
+            Expr::current_timestamp(),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .to_owned();
+    Ok(db.execute(&insert).await?.rows_affected())
 }
 
 /// Installs the app and emails the requester; returns what didn't happen.
@@ -907,41 +1087,63 @@ async fn install_in_tenant(
     }
 }
 
-async fn install(db: &PgPool, app_code: &str, installed_by: &str) -> Result<(), sqlx::Error> {
-    let existing: Option<(String, bool, bool)> = sqlx::query_as(
-        "select id, is_active, deleted_at is not null
-         from workspace_installed_apps where app_code = $1 limit 1",
-    )
-    .bind(app_code)
-    .fetch_optional(db)
-    .await?;
+async fn install(db: &PgPool, app_code: &str, installed_by: &str) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use installed::Column;
+    let db = orm(db);
+    let existing: Option<(String, bool, bool)> = installed::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column(Column::IsActive)
+        .expr(Expr::col((installed::Entity, Column::DeletedAt)).is_not_null())
+        .filter(Column::AppCode.eq(app_code))
+        .into_tuple()
+        .one(&db)
+        .await?;
     match existing {
         Some((_, true, false)) => Ok(()),
-        Some((id, _, _)) => sqlx::query(
-            "update workspace_installed_apps
-             set is_active = true, deleted_at = null, installed_at = now(),
-                 installed_by = $2, updated_at = now()
-             where id = $1",
-        )
-        .bind(id)
-        .bind(installed_by)
-        .execute(db)
-        .await
-        .map(|_| ()),
-        None => sqlx::query(
-            "insert into workspace_installed_apps
-                 (id, app_code, is_active, display_order, settings, installed_at, installed_by)
-             values ($1, $2, true,
-                     coalesce((select max(display_order) from workspace_installed_apps), -1) + 1,
-                     '{}'::jsonb, now(), $3)
-             on conflict do nothing",
-        )
-        .bind(generate_id("wia"))
-        .bind(app_code)
-        .bind(installed_by)
-        .execute(db)
-        .await
-        .map(|_| ()),
+        Some((id, _, _)) => installed::Entity::update_many()
+            .col_expr(Column::IsActive, Expr::value(true))
+            .col_expr(Column::DeletedAt, Expr::value(None::<OffsetDateTime>))
+            .col_expr(Column::InstalledAt, Expr::current_timestamp())
+            .col_expr(Column::InstalledBy, Expr::value(installed_by))
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(id))
+            .exec(&db)
+            .await
+            .map(|_| ()),
+        None => {
+            // `coalesce((select max(display_order) from workspace_installed_apps), -1) + 1`.
+            let last = Query::select()
+                .expr(Func::max(Expr::col(Column::DisplayOrder)))
+                .from(installed::Entity)
+                .to_owned();
+            let next = Func::coalesce([Expr::from(last), Expr::val(-1)]).add(1);
+            let insert = Query::insert()
+                .into_table(installed::Entity)
+                .columns([
+                    Column::Id,
+                    Column::AppCode,
+                    Column::IsActive,
+                    Column::DisplayOrder,
+                    Column::Settings,
+                    Column::InstalledAt,
+                    Column::InstalledBy,
+                ])
+                .values([
+                    Expr::value(generate_id("wia")),
+                    Expr::value(app_code),
+                    Expr::value(true),
+                    next,
+                    Expr::value(json!({})),
+                    Expr::current_timestamp(),
+                    Expr::value(installed_by),
+                ])
+                .map_err(|error| DbErr::Custom(error.to_string()))?
+                .on_conflict(OnConflict::new().do_nothing().to_owned())
+                .to_owned();
+            db.execute(&insert).await.map(|_| ())
+        }
     }
 }
 
@@ -1009,13 +1211,15 @@ pub async fn set_limits(
     }
 
     let mut tx = master.begin().await?;
-    sqlx::query("update workspace_app_access set limits = $2, updated_at = now() where id = $1")
-        .bind(&current.id)
-        .bind(after.to_json())
-        .execute(&mut *tx)
+    let db = OrmConn::new(&mut tx);
+    access::Entity::update_many()
+        .col_expr(access::Column::Limits, Expr::value(after.to_json()))
+        .col_expr(access::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(access::Column::Id.eq(current.id.as_str()))
+        .exec(&db)
         .await?;
     audit::record_success(
-        &mut *tx,
+        &db,
         &AuditEntry {
             details: Some(json!({
                 "appCode": request.app_code,
@@ -1026,6 +1230,7 @@ pub async fn set_limits(
         },
     )
     .await?;
+    drop(db);
     tx.commit().await?;
     Ok(LimitsChange {
         workspace,

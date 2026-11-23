@@ -43,15 +43,13 @@ impl From<PostError> for ImportError {
 
 impl From<sqlx::Error> for ImportError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Post(PostError::Database(error))
+        Self::Post(PostError::from(error))
     }
 }
 
-/// `PostError` (`weldsuite-books-domain`, not on the ORM yet) still holds
-/// sqlx's error.
 impl From<sea_orm::DbErr> for ImportError {
     fn from(error: sea_orm::DbErr) -> Self {
-        Self::Post(PostError::Database(crate::orm_bridge::sqlx_error(error)))
+        Self::Post(PostError::Database(error))
     }
 }
 

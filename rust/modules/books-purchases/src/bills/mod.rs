@@ -67,7 +67,6 @@ use weldsuite_schema::tenant::{
 use body::{BillBody, BillLine, read_bill, read_bill_payment};
 
 use crate::ocr::{line_items_for_bill, normalize_ocr_result};
-use crate::orm_bridge::refused;
 use crate::rows::{js, js_rows, money_text, timestamp_or_err};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -251,22 +250,20 @@ async fn list_bills(caller: &Caller, q: &Query) -> Reply {
     };
     let db = orm(&caller.db);
     let rows = bills::Entity::find()
-        .filter(listed().map_err(refused)?)
+        .filter(listed()?)
         .order_by_desc(bills::Column::IssueDate)
         .order_by_desc(bills::Column::CreatedAt)
         .order_by_desc(bills::Column::Id)
         .limit(u64::try_from(size).unwrap_or(0))
         .offset(u64::try_from((page - 1) * size).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = bills::Entity::find()
-        .filter(listed().map_err(refused)?)
+        .filter(listed()?)
         .count(&db)
-        .await
-        .map_err(refused)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = js_rows!(rows).map_err(refused)?;
+    let rows = js_rows!(rows)?;
     let rows = with_contact_names(&caller.db, rows).await?;
     Ok(paged(rows, total, page * size < total, None))
 }
@@ -276,10 +273,10 @@ async fn list_bills(caller: &Caller, q: &Query) -> Reply {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(bill) = find_bill(db, &id).await.map_err(refused)? else {
+        let Some(bill) = find_bill(db, &id).await? else {
             return Err(Refusal::not_found("Bill", &id));
         };
-        let items = live_items(db, &id, true).await.map_err(refused)?;
+        let items = live_items(db, &id, true).await?;
         // Payments that settle this bill: directly (older single-bill payments)
         // or through an allocation (a payment covering several bills).
         let allocations: Vec<(String, BigDecimal)> = payment_allocations::Entity::find()
@@ -292,8 +289,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             .filter(payment_allocations::Column::DeletedAt.is_null())
             .into_tuple()
             .all(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         // `amount::text`.
         let allocations: Vec<(String, String)> = allocations
             .into_iter()
@@ -309,10 +305,8 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             )
             .order_by_desc(payments::Column::Date)
             .all(&orm(db))
-            .await
-            .map_err(refused)?;
-        let payments: Vec<Value> = js_rows!(payments)
-            .map_err(refused)?
+            .await?;
+        let payments: Vec<Value> = js_rows!(payments)?
             .into_iter()
             .map(|mut payment| {
                 let amount = payment["id"]
@@ -414,7 +408,7 @@ async fn record_bill_payment(
     };
     let result: Reply = async {
         let db = &caller.db;
-        let Some(bill) = find_bill(db, &id).await.map_err(refused)? else {
+        let Some(bill) = find_bill(db, &id).await? else {
             return Err(Refusal::not_found("Bill", &id));
         };
         let amount = parse_float(&data.amount);
@@ -447,7 +441,7 @@ async fn record_bill_payment(
         )
         .await
         .map_err(post_refusal)?;
-        let (paid, balance, status) = paid_state(db, &id).await.map_err(refused)?;
+        let (paid, balance, status) = paid_state(db, &id).await?;
         let mut changes = Map::new();
         changes.insert(
             "amountPaid".into(),
@@ -508,8 +502,7 @@ async fn attachment(
             .filter(bills::Column::DeletedAt.is_null())
             .into_tuple()
             .one(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         let Some(keys) = keys else {
             return Err(Refusal::not_found("Bill", &id));
         };
@@ -909,8 +902,7 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
             .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(documents::Column::Id.eq(document_id))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
     }
     if let Some(contact_id) = data.contact_id.as_deref() {
         promote_accounting_role(db, contact_id, PromoteTo::Supplier).await?;
@@ -951,8 +943,7 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
 async fn from_document(caller: Caller, Path(document_id): Path<String>) -> Response {
     let result: Reply = async {
         let Some(doc) = crate::accounting_documents::find_document(&caller.db, &document_id)
-            .await
-            .map_err(refused)?
+            .await?
         else {
             return Err(Refusal::not_found("Document", &document_id));
         };
@@ -1017,8 +1008,7 @@ async fn refresh_bill_use_tax(
         .col_expr(bills::Column::UpdatedAt, Expr::value(utc_now()))
         .filter(bills::Column::Id.eq(text(bill, "id").unwrap_or_default()))
         .exec(&orm(db))
-        .await
-        .map_err(refused)?;
+        .await?;
     let mut ready = bill.clone();
     ready["taxBreakdown"] = json!(calc.tax_breakdown);
     Ok(ready)
@@ -1031,7 +1021,7 @@ async fn approve(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(bill) = find_bill(db, &id).await.map_err(refused)? else {
+        let Some(bill) = find_bill(db, &id).await? else {
             return Err(Refusal::not_found("Bill", &id));
         };
         if filled(&bill, "journalEntryId").is_some() {
@@ -1045,7 +1035,7 @@ async fn approve(
                 "A rejected bill cannot be approved. Create a new bill instead.",
             ));
         }
-        let items = live_items(db, &id, false).await.map_err(refused)?;
+        let items = live_items(db, &id, false).await?;
         let ready = refresh_bill_use_tax(db, &bill, &items, &runtime(&caller, &state)).await?;
         let user = caller.user().map(str::to_owned);
         let posted = post_bill(
@@ -1135,7 +1125,7 @@ async fn reject(
     };
     let result: Reply = async {
         let db = &caller.db;
-        let Some(bill) = find_bill(db, &id).await.map_err(refused)? else {
+        let Some(bill) = find_bill(db, &id).await? else {
             return Err(Refusal::not_found("Bill", &id));
         };
         if parse_float(text(&bill, "amountPaid").unwrap_or("0")) > 0.0 {
@@ -1429,8 +1419,7 @@ async fn apply_tax_changes(
         || data.issue_date.is_some();
     if fiscal_moves && has_document_tax_hook(db, &entity_id).await? {
         let lines: Vec<BillLine> = live_items(db, &bill_id, true)
-            .await
-            .map_err(refused)?
+            .await?
             .iter()
             .map(stored_line)
             .collect();
@@ -1442,7 +1431,7 @@ async fn apply_tax_changes(
         || data.issue_date.is_some()
         || data.contact_id.is_some();
     if use_tax_moves && uses_sales_tax(load_sales_tax_entity(db, &entity_id).await?.as_ref()) {
-        let stored = live_items(db, &bill_id, false).await.map_err(refused)?;
+        let stored = live_items(db, &bill_id, false).await?;
         if stored
             .iter()
             .any(|i| i.get("accrueUseTax").and_then(Value::as_bool) == Some(true))
@@ -1463,7 +1452,7 @@ async fn apply_tax_changes(
     }
     let gst_moves = !data.vendor_address.is_absent() || data.contact_id.is_some();
     if gst_moves && is_gst_entity(db, &entity_id).await? {
-        let stored = live_items(db, &bill_id, false).await.map_err(refused)?;
+        let stored = live_items(db, &bill_id, false).await?;
         if stored.is_empty() {
             return Ok(None);
         }
@@ -1504,7 +1493,7 @@ async fn update(
 
 async fn update_bill(caller: &Caller, state: &BooksState, id: &str, data: BillBody) -> Reply {
     let db = &caller.db;
-    let Some(bill) = find_bill(db, id).await.map_err(refused)? else {
+    let Some(bill) = find_bill(db, id).await? else {
         return Err(Refusal::not_found("Bill", id));
     };
     if text(&bill, "status") != Some("draft") {
@@ -1523,8 +1512,7 @@ async fn update_bill(caller: &Caller, state: &BooksState, id: &str, data: BillBo
             .filter(bill_items::Column::BillId.eq(id))
             .filter(bill_items::Column::DeletedAt.is_null())
             .exec(&OrmConn::new(&mut tx))
-            .await
-            .map_err(refused)?;
+            .await?;
         for item in items {
             if let Value::Object(item) = item {
                 BILL_ITEMS
@@ -1587,7 +1575,7 @@ async fn remove(
 ) -> Response {
     let result: Reply = async {
         let db = &caller.db;
-        let Some(bill) = find_bill(db, &id).await.map_err(refused)? else {
+        let Some(bill) = find_bill(db, &id).await? else {
             return Err(Refusal::not_found("Bill", &id));
         };
         if text(&bill, "status") != Some("draft") {
@@ -1599,8 +1587,7 @@ async fn remove(
             .col_expr(bills::Column::UpdatedAt, Expr::value(at))
             .filter(bills::Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             db,

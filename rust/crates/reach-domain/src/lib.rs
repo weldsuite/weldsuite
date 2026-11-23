@@ -10,10 +10,6 @@
 //! it (outbound HTTP for DNS-over-HTTPS, the SMTP transport). Refusals are
 //! [`ReachError`]s, which each route turns into the standard error envelope.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // JavaScript numbers (millisecond clocks, ratios, `Math.round`) are
 // mirrored on purpose, and the ported functions keep the TypeScript shape.
 #![allow(
@@ -131,11 +127,6 @@ pub fn epoch_ms(at: OffsetDateTime) -> i64 {
 pub fn from_epoch_ms(ms: i64) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
         .unwrap_or(OffsetDateTime::UNIX_EPOCH)
-}
-
-/// `to_jsonb` rows as Drizzle returns them (camelCase, ISO timestamps).
-pub fn js_rows(rows: Vec<Value>) -> Vec<Value> {
-    rows.into_iter().map(weldsuite_db::js_row).collect()
 }
 
 /// `serde_json::to_value(model)`: a row as Drizzle returned it, which the

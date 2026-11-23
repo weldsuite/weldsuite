@@ -43,7 +43,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{invoices, parties, payment_allocations, payments};
 
 use crate::finalize::{load_invoice, load_items};
-use crate::orm_bridge::sqlx_error;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -345,23 +344,19 @@ async fn list_invoices(caller: &Caller) -> Reply {
         .limit(limit)
         .offset(offset)
         .all(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = invoices::Entity::find()
         .filter(filters.condition(utc_now()))
         .count(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = rows
         .into_iter()
         .map(row_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let named = with_contact_names(&caller.db, rows).await?;
     let named = with_source_invoice_numbers(caller, named)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     Ok(paged(named, total, page * page_size < total, None))
 }
 
@@ -390,10 +385,10 @@ fn credit_line(item: &Value) -> CreditLine<'_> {
 )]
 async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
-    let items = load_items(db, id, true).await.map_err(sqlx_error)?;
+    let items = load_items(db, id, true).await?;
 
     // A credit memo's lines say which invoice line they credit.
     let credit_for = invoice["creditNoteForInvoiceId"]
@@ -401,7 +396,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
         .filter(|s| !s.is_empty());
     let item_rows: Vec<Value> = match credit_for {
         Some(original) if invoice["type"] == "credit_note" => {
-            let originals = load_items(db, original, false).await.map_err(sqlx_error)?;
+            let originals = load_items(db, original, false).await?;
             let credit_lines: Vec<CreditLine<'_>> = items.iter().map(credit_line).collect();
             let original_lines: Vec<OriginalLine<'_>> = originals
                 .iter()
@@ -438,8 +433,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
         .filter(payment_allocations::Column::DeletedAt.is_null())
         .into_tuple()
         .all(&orm(db))
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let allocated_ids: Vec<String> = allocations.iter().map(|(p, _)| p.clone()).collect();
     let payment_rows = payments::Entity::find()
         .filter(payments::Column::DeletedAt.is_null())
@@ -453,8 +447,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
         )
         .order_by_desc(payments::Column::Date)
         .all(&orm(db))
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let mut allocated: HashMap<String, String> = HashMap::new();
     for (payment, amount) in allocations {
         allocated.insert(payment, numeric_text::<2>(&amount));
@@ -462,8 +455,7 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
     let payments: Vec<Value> = payment_rows
         .into_iter()
         .map(row_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?
+        .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .map(|mut payment| {
             let amount = payment["id"]
@@ -497,12 +489,10 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
             .order_by_asc(invoices::Column::IssueDate)
             .into_model::<CreditNoteRow>()
             .all(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         rows.into_iter()
             .map(row_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(sqlx_error)?
+            .collect::<Result<Vec<_>, _>>()?
     };
     if let Value::Object(fields) = &mut named {
         fields.insert("items".into(), Value::Array(item_rows));
@@ -541,8 +531,7 @@ async fn attachment(
                 .filter(invoices::Column::DeletedAt.is_null())
                 .into_tuple()
                 .one(&orm(&caller.db))
-                .await
-                .map_err(sqlx_error)?;
+                .await?;
             let Some(keys) = keys else {
                 return Err(Refusal::not_found("Invoice", &id));
             };

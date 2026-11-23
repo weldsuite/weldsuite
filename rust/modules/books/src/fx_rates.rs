@@ -33,7 +33,7 @@ use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::fx_rates::{self, Column};
 
-use crate::orm_bridge::{sqlx_error, to_json};
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -109,8 +109,7 @@ async fn list_rates(caller: &Caller, q: &Query) -> Reply {
             .filter(Column::Id.eq(id))
             .into_tuple()
             .one(&db)
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         // The cursor row's `createdAt` as the worker read it back: a `Date`,
         // to the millisecond.
         cursor = row.map(|(id, created)| (weldsuite_db::utc_timestamp(created.assume_utc()), id));
@@ -144,18 +143,15 @@ async fn list_rates(caller: &Caller, q: &Query) -> Reply {
         .order_by_desc(Column::Id)
         .limit(fetch)
         .all(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = fx_rates::Entity::find()
         .filter(pair(count_from, count_to))
         .count(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let rows = rows
         .into_iter()
         .map(to_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let (rows, has_more, next) = page(rows, limit);
     Ok(paged(
         rows,
@@ -178,7 +174,7 @@ async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await.map_err(sqlx_error)? {
+        match find(&caller, &id).await? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("FX rate", &id)),
         }
@@ -242,7 +238,7 @@ async fn update(
         Err(refusal) => return refusal.respond("Failed to update fx rate"),
     };
     let result = async {
-        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(existing) = find(&caller, &id).await? else {
             return Err(Refusal::not_found("FX rate", &id));
         };
         // `{ updatedAt, ...data }`: fx_rates has no updated_at, so only the
@@ -283,14 +279,13 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        if find(&caller, &id).await.map_err(sqlx_error)?.is_none() {
+        if find(&caller, &id).await?.is_none() {
             return Err(Refusal::not_found("FX rate", &id));
         }
         fx_rates::Entity::delete_many()
             .filter(Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         caller.publish(&state, FX_RATE_DELETED, &id, json!({ "id": id }));
         Ok(no_content())
     }

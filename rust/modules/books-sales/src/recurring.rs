@@ -48,7 +48,6 @@ use crate::errors::SalesError;
 use crate::finalize::{FinalizeOptions, finalize_invoice};
 use crate::invoices::write::runtime;
 use crate::invoices::{millis_timestamp, now_stamped, row_json, timestamp_of};
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{
     Drafted, calculate_draft_tax, engine_unavailable_warning, invoice_tax_columns,
     item_tax_columns, text,
@@ -385,12 +384,10 @@ async fn list(caller: Caller) -> Response {
                 .filter(recurring_invoices::Column::EntityId.eq(entity_id))
                 .order_by_desc(recurring_invoices::Column::CreatedAt)
                 .all(&orm(&caller.db))
-                .await
-                .map_err(sqlx_error)?
+                .await?
                 .into_iter()
                 .map(row_json)
-                .collect::<Result<_, _>>()
-                .map_err(sqlx_error)?;
+                .collect::<Result<_, _>>()?;
             Ok(ok(Value::Array(rows)))
         }
         .await,
@@ -401,7 +398,7 @@ async fn list(caller: Caller) -> Response {
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            match load(&caller.db, &id).await.map_err(sqlx_error)? {
+            match load(&caller.db, &id).await? {
                 Some(row) => Ok(ok(row)),
                 None => Err(Refusal::not_found("Recurring invoice", &id)),
             }
@@ -518,7 +515,7 @@ async fn update(
     reply(
         async {
             let db = &caller.db;
-            let Some(rec) = load(db, &id).await.map_err(sqlx_error)? else {
+            let Some(rec) = load(db, &id).await? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
             // The dates after the change: a new end date or next issue date
@@ -589,7 +586,7 @@ async fn remove(
     reply(
         async {
             let db = &caller.db;
-            let Some(rec) = load(db, &id).await.map_err(sqlx_error)? else {
+            let Some(rec) = load(db, &id).await? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
             let at = utc_now();
@@ -598,8 +595,7 @@ async fn remove(
                 .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(at))
                 .filter(recurring_invoices::Column::Id.eq(id.as_str()))
                 .exec(&orm(db))
-                .await
-                .map_err(sqlx_error)?;
+                .await?;
             audit(&caller, rec["entityId"].as_str(), &id, "deleted", None).await;
             caller.publish(&state, RECURRING_INVOICE_DELETED, &id, json!({ "id": id }));
             Ok(no_content())
@@ -617,7 +613,7 @@ async fn set_status(
     action: &str,
 ) -> Reply {
     let db = &caller.db;
-    let Some(rec) = load(db, id).await.map_err(sqlx_error)? else {
+    let Some(rec) = load(db, id).await? else {
         return Err(Refusal::not_found("Recurring invoice", id));
     };
     recurring_invoices::Entity::update_many()
@@ -628,8 +624,7 @@ async fn set_status(
         )
         .filter(recurring_invoices::Column::Id.eq(id))
         .exec(&orm(db))
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let mut changes = Map::new();
     changes.insert(
         "status".into(),
@@ -716,7 +711,7 @@ async fn generate(
 
 async fn generate_route(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
-    let Some(rec) = load(db, id).await.map_err(sqlx_error)? else {
+    let Some(rec) = load(db, id).await? else {
         return Err(Refusal::not_found("Recurring invoice", id));
     };
     if text(&rec, "status") != Some("active") {

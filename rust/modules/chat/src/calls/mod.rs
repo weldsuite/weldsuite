@@ -42,7 +42,7 @@ use weldsuite_chat_domain::calls::{
 };
 use weldsuite_chat_domain::can_access_channel;
 use weldsuite_chat_domain::publish::object;
-use weldsuite_db::{PgPool, Tenant, orm, orm_error};
+use weldsuite_db::{PgPool, Tenant, orm};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, RequestEnv, generate_id};
 use weldsuite_notifications::{ApnsConfig, Notifier};
@@ -316,7 +316,6 @@ fn disabled_call_message(
 async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, DbErr> {
     weldsuite_chat_domain::access::is_member(db, channel_id, user_id)
         .await
-        .map_err(orm_error)
 }
 
 /// `(voice_calls_enabled, video_calls_enabled, type)` of the channel.

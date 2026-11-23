@@ -25,7 +25,6 @@ use weldsuite_db::orm;
 use weldsuite_schema::tenant::{exemption_certificates, fiscal_documents};
 
 use crate::finalize::{load_invoice, load_items};
-use crate::orm_bridge::sqlx_error;
 use crate::persist::{owned, text};
 use crate::templates::resolve_invoice_template;
 
@@ -165,10 +164,10 @@ async fn invoice_html(
     keyring: &weldsuite_db::Keyring,
     id: &str,
 ) -> Result<(String, String), Refusal> {
-    let Some(invoice) = load_invoice(db, id).await.map_err(sqlx_error)? else {
+    let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id));
     };
-    let items = load_items(db, id, true).await.map_err(sqlx_error)?;
+    let items = load_items(db, id, true).await?;
     let entity_id = text(&invoice, "entityId").unwrap_or_default().to_owned();
     // Extension values merged in; the bank account printed is the one chosen
     // for invoices, else `bank_details` (`loadInvoiceEntity(db, id, c.env)`).
@@ -213,8 +212,7 @@ async fn invoice_html(
             .filter(exemption_certificates::Column::Id.is_in(certificate_ids))
             .into_tuple()
             .all(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         for (cid, number) in rows {
             certificate_numbers.insert(cid, number.map_or(Value::Null, Value::String));
         }
@@ -285,12 +283,11 @@ async fn invoice_html(
         amount_paid: owned(&invoice, "amountPaid"),
         balance_due: owned(&invoice, "balanceDue"),
         tax_breakdown: breakdown,
-        fiscal_document: fiscal_document(db, &entity, id).await.map_err(sqlx_error)?,
+        fiscal_document: fiscal_document(db, &entity, id).await?,
         pix: pix_of(&entity, &invoice)?,
     };
     let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let html = match template {
         Some(template) => generate_templated_invoice_html(&template, &data, &entity),
         None => generate_invoice_html(&data, &entity),

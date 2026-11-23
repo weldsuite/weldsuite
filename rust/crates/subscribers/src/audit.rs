@@ -35,11 +35,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures_util::future::join_all;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use tokio::sync::Notify;
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
+use weldsuite_schema::tenant::{audit_logs, workspace_members};
 
 use crate::audit_streams::{
     AUDIT_STREAM_SETTLE, AuditStreamSender, FlushOptions, FlushOutcome, flush_audit_log_streams,
@@ -336,24 +339,21 @@ pub type AuditError = Box<dyn std::error::Error + Send + Sync>;
 /// lookup fails.
 async fn user_name(db: &PgPool, user_id: Option<&str>) -> Option<String> {
     let user_id = user_id?;
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await
-            .ok()?;
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .ok()?;
     name.flatten().filter(|name| !name.is_empty())
 }
 
 /// `writeAuditLogFromEvent(db, event)`. Fails when the row could not be
 /// written; the caller decides between a lock wait and a retry.
 pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> Result<AuditOutcome, AuditError> {
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from audit_logs where metadata->>'eventId' = $1 limit 1")
-            .bind(&event.id)
-            .fetch_optional(db)
-            .await?;
-    if existing.is_some() {
+    if logged_event(db, &event.id).await? {
         tracing::info!(event_id = event.id, "audit: skipping duplicate event");
         return Ok(AuditOutcome::Duplicate);
     }
@@ -398,24 +398,83 @@ pub async fn write_audit_log(db: &PgPool, event: &HubEvent) -> Result<AuditOutco
         Value::Object(translation_params),
     );
 
-    sqlx::query(
-        "insert into audit_logs (id, entity_type, entity_id, action, description, changes, data, \
-         performed_by, performed_by_name, metadata) \
-         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb)",
-    )
-    .bind(weldsuite_kit::generate_id("aud"))
-    .bind(&event.entity_type)
-    .bind(&event.entity_id)
-    .bind(&event.action)
-    .bind(description)
-    .bind(transformed.map(|changes| Value::Object(changes).to_string()))
-    .bind(event.data.as_ref().map(|raw| raw.get().to_owned()))
-    .bind(user_id)
-    .bind(user_name)
-    .bind(Value::Object(metadata).to_string())
-    .execute(db)
-    .await?;
+    let row = AuditLogRow {
+        description,
+        changes: transformed.map(Value::Object),
+        user_id,
+        user_name,
+        metadata: Value::Object(metadata),
+    };
+    insert_audit_log(db, event, row).await?;
     Ok(AuditOutcome::Written)
+}
+
+/// Whether an `audit_logs` row already carries this event id
+/// (`metadata->>'eventId'`).
+async fn logged_event(db: &PgPool, event_id: &str) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let existing: Option<String> = audit_logs::Entity::find()
+        .select_only()
+        .column(audit_logs::Column::Id)
+        .filter(
+            PgExpr::cast_json_field(
+                Expr::col((audit_logs::Entity, audit_logs::Column::Metadata)),
+                "eventId",
+            )
+            .eq(event_id),
+        )
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(existing.is_some())
+}
+
+/// What [`write_audit_log`] worked out for the row.
+struct AuditLogRow<'a> {
+    description: String,
+    changes: Option<Value>,
+    user_id: Option<&'a str>,
+    user_name: Option<String>,
+    metadata: Value,
+}
+
+/// The `audit_logs` insert. The event's `data` goes in as the text it came
+/// as (`$7::jsonb`), so Postgres reads its numbers as written.
+async fn insert_audit_log(db: &PgPool, event: &HubEvent, row: AuditLogRow<'_>) -> Result<(), DbErr> {
+    use audit_logs::Column;
+    use sea_orm::ExprTrait as _;
+    let data = event.data.as_ref().map(|raw| raw.get().to_owned());
+    let insert = Query::insert()
+        .into_table(audit_logs::Entity)
+        .columns([
+            Column::Id,
+            Column::EntityType,
+            Column::EntityId,
+            Column::Action,
+            Column::Description,
+            Column::Changes,
+            Column::Data,
+            Column::PerformedBy,
+            Column::PerformedByName,
+            Column::Metadata,
+        ])
+        .values([
+            Expr::value(weldsuite_kit::generate_id("aud")),
+            Expr::value(event.entity_type.clone()),
+            Expr::value(event.entity_id.clone()),
+            Expr::value(event.action.clone()),
+            Expr::value(row.description),
+            Expr::value(row.changes),
+            Expr::val(data).cast_as("jsonb"),
+            Expr::value(row.user_id.map(str::to_owned)),
+            Expr::value(row.user_name),
+            Expr::value(row.metadata),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .to_owned();
+    orm(db).execute(&insert).await?;
+    Ok(())
 }
 
 /// The audit subscriber.

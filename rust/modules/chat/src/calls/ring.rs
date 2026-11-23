@@ -21,7 +21,7 @@ use weldsuite_chat_domain::calls::{
     dm_call_recipients, insert_call_notice, iso_of_ms, now_ms, parse_ms, participants_of,
     ring_timed_out, room_of, teardown_room, text, truthy, was_answered,
 };
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{
     CallCancelReason, Notifier, cancel_incoming_call_push, chat as notify, create_and_deliver,
@@ -352,8 +352,7 @@ pub(crate) async fn decline_ringing_call(
         &notice,
         &now,
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     chat_calls::Entity::update_many()
         .col_expr(chat_calls::Column::EndMessageId, Expr::value(message_id))
         .filter(chat_calls::Column::Id.eq(call_id))
@@ -462,7 +461,7 @@ pub(crate) async fn cancel_ring_on_answer(
 
 /// The latest the database can tell (`call_row`), for the public decline.
 pub(crate) async fn load_call(db: &PgPool, call_id: &str) -> Result<Option<Value>, DbErr> {
-    call_row(db, call_id).await.map_err(orm_error)
+    call_row(db, call_id).await
 }
 
 #[cfg(test)]

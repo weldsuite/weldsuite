@@ -1,5 +1,6 @@
 //! What the banking groups share: their error mappings and row lookups.
 
+use sea_orm::DbErr;
 use serde_json::{Map, Value};
 use sqlx::PgPool;
 use weldsuite_books_domain::bank_accounts::{BankAccountError, NO_KEY_MESSAGE};
@@ -56,7 +57,7 @@ pub(crate) fn field(row: &Value, key: &str) -> Value {
 
 /// The live bank transaction `id` (`deleted_at is null`), as Drizzle
 /// returns it.
-pub(crate) async fn find_transaction(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn find_transaction(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     weldsuite_books_domain::tables::BANK_TRANSACTIONS
         .find_live(db, id)
         .await

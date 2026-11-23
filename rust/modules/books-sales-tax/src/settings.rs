@@ -38,7 +38,6 @@ use weldsuite_schema::tenant::{entities, sales_tax_agencies};
 
 use crate::br_fiscal;
 use crate::common::{num, refuse, text};
-use crate::orm_bridge::refusal;
 use crate::returns::common::row_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -148,13 +147,11 @@ async fn settings_payload(caller: &Caller, entity: &Value) -> Result<Value, Refu
         .order_by_asc(Column::Name)
         .into_model::<AgencySummary>()
         .all(&orm(&caller.db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     let agencies: Vec<Value> = agencies
         .into_iter()
         .map(row_json)
-        .collect::<Result<_, _>>()
-        .map_err(refusal)?;
+        .collect::<Result<_, _>>()?;
     let credentials_engine = config.get("credentialsEngine").and_then(Value::as_str);
     let has_credentials = text(entity, "salesTaxCredentialsEncrypted")
         .is_some_and(|c| !c.is_empty())
@@ -386,8 +383,7 @@ async fn update_settings(caller: &Caller, state: &BooksState, data: SettingsBody
         .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
         .filter(entities::Column::Id.eq(entity_id.as_str()))
         .exec(&orm(&caller.db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     // Release 1 mirror: the WeldBooks extension holds the same values.
     let mut mirror = Map::new();
     mirror.insert("salesTaxEngine".into(), json!(data.engine));

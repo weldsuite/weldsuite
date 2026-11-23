@@ -1,19 +1,22 @@
 //! Reading and writing books tables the way books-api's Drizzle calls do
 //! (the same model as `weldsuite-desk-domain`'s): rows as Drizzle returns them
-//! ([`Table::js`]: properties, `numeric` as text, `Date`s as
-//! `toISOString()`), and `db.insert(t).values({ id, ...data })` /
+//! (properties, `numeric` as text, `Date`s as `toISOString()`: the table's
+//! entity serializes so, and [`Table::js`] turns a `to_jsonb` row into the
+//! same), and `db.insert(t).values({ id, ...data })` /
 //! `db.update(t).set(data)`, where `data` is what the route's Zod schema let
 //! through (`.passthrough()` included: any key that is one of the table's
 //! properties reaches the statement). The body becomes a `{ column: value }`
-//! JSON object, `jsonb_populate_record` turns it into the row, and a column
-//! the object leaves out gets its database default (insert) or keeps its
-//! value (patch), as Drizzle leaves it out of the statement.
+//! JSON object that [`weldsuite_db::record`] writes through the entity, and a
+//! column the object leaves out gets its database default (insert) or keeps
+//! its value (patch), as Drizzle leaves it out of the statement.
 //!
 //! The tables are generated in [`crate::tables`] (`tools/tables.mts`).
 
-use sea_orm::DbErr;
+use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::{Map, Value};
-use weldsuite_db::{PgPool, js_timestamp};
+use sqlx::PgConnection;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, PgPool, js_timestamp, orm};
 
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
@@ -51,18 +54,60 @@ pub struct Column {
 #[derive(Debug, Clone, Copy)]
 pub struct Table {
     pub name: &'static str,
+    /// The table's entity: the statements, and the row as Drizzle returns it.
+    pub entity: JsonTable,
     pub columns: &'static [Column],
-    /// The row as Drizzle returns it, before [`js_row`]: `to_jsonb(t)`, with
-    /// `numeric` columns as text.
-    #[allow(dead_code)]
-    pub row: &'static str,
-    /// `$1`: the row as `{ column: value }`. Returns the row.
-    pub insert: &'static str,
-    /// `$1`: the changes as `{ column: value }`, `$2`: the id, `$3`: only a
-    /// live row (`deleted_at is null`). Returns the row, if one was changed.
-    pub patch: &'static str,
-    /// `$1`: the id. The live row (`deleted_at is null` where the table has it).
-    pub select_live: &'static str,
+}
+
+/// Where [`Table::insert_raw`] and [`Table::patch_raw`] write: the pool, or
+/// the connection of a transaction (`&mut *conn` inside `atomically_with`,
+/// `&mut *tx`).
+pub enum TableDb<'c> {
+    Pool(&'c PgPool),
+    Conn(&'c mut PgConnection),
+}
+
+impl<'c> From<&'c PgPool> for TableDb<'c> {
+    fn from(pool: &'c PgPool) -> Self {
+        Self::Pool(pool)
+    }
+}
+
+impl<'c> From<&'c mut PgConnection> for TableDb<'c> {
+    fn from(conn: &'c mut PgConnection) -> Self {
+        Self::Conn(conn)
+    }
+}
+
+/// The error of an `atomically_with` transaction whose statements go through
+/// the entities: a failed statement, or the transaction's own `BEGIN` /
+/// `COMMIT` (an `sqlx::Error`, through `weldsuite_db::orm_error`). `?` turns
+/// it back into the `DbErr` (or the route's [`crate::http::Refusal`]).
+#[derive(Debug)]
+pub struct TxError(pub DbErr);
+
+impl From<DbErr> for TxError {
+    fn from(error: DbErr) -> Self {
+        Self(error)
+    }
+}
+
+impl From<sqlx::Error> for TxError {
+    fn from(error: sqlx::Error) -> Self {
+        Self(weldsuite_db::orm_error(error))
+    }
+}
+
+impl From<TxError> for DbErr {
+    fn from(TxError(error): TxError) -> Self {
+        error
+    }
+}
+
+impl From<TxError> for crate::http::Refusal {
+    fn from(TxError(error): TxError) -> Self {
+        Self::Database(error)
+    }
 }
 
 /// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
@@ -167,49 +212,74 @@ impl Table {
 
     /// Insert `values` (see [`Table::values`]); `trusted` names the
     /// properties the route set itself. The row as Drizzle returns it.
-    pub async fn insert<'e>(
+    pub async fn insert(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
         values: Map<String, Value>,
         trusted: &[&str],
     ) -> Result<Value, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Value = sqlx::query_scalar(self.insert)
-            .bind(Value::Object(values))
-            .fetch_one(db)
-            .await?;
-        Ok(self.js(row))
+        let row = self.entity.insert(&orm(db), values).await?;
+        Ok(self.drizzle(row))
     }
 
     /// Insert values the route built itself (every property trusted, as
-    /// Drizzle got JavaScript values). The row as Drizzle returns it.
-    pub async fn insert_raw<'e>(
+    /// Drizzle got JavaScript values), on the pool or on a transaction's
+    /// connection. The row as Drizzle returns it.
+    pub async fn insert_raw(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: impl Into<TableDb<'_>>,
         values: Map<String, Value>,
-    ) -> Result<Value, sqlx::Error> {
-        let row: Value = sqlx::query_scalar(self.insert)
-            .bind(Value::Object(values))
-            .fetch_one(db)
-            .await?;
-        Ok(self.js(row))
+    ) -> Result<Value, DbErr> {
+        match db.into() {
+            TableDb::Pool(pool) => self.insert_raw_on(&orm(pool), values).await,
+            TableDb::Conn(conn) => self.insert_raw_on(&OrmConn::new(conn), values).await,
+        }
     }
 
-    /// [`Table::patch`] with values the route built itself.
-    pub async fn patch_raw<'e>(
+    /// [`Table::insert_raw`] on a SeaORM connection (`OrmConn` in a
+    /// transaction).
+    pub async fn insert_raw_on<C: ConnectionTrait>(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &C,
+        values: Map<String, Value>,
+    ) -> Result<Value, DbErr> {
+        let row = self.entity.insert(db, values).await?;
+        Ok(self.drizzle(row))
+    }
+
+    /// [`Table::patch`] with values the route built itself, on the pool or
+    /// on a transaction's connection.
+    pub async fn patch_raw(
+        &self,
+        db: impl Into<TableDb<'_>>,
         id: &str,
         values: Map<String, Value>,
         live_only: bool,
-    ) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.patch)
-            .bind(Value::Object(values))
-            .bind(id)
-            .bind(live_only)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+    ) -> Result<Option<Value>, DbErr> {
+        match db.into() {
+            TableDb::Pool(pool) => {
+                self.patch_raw_on(&orm(pool), id, values, live_only)
+                    .await
+            }
+            TableDb::Conn(conn) => {
+                self.patch_raw_on(&OrmConn::new(conn), id, values, live_only)
+                    .await
+            }
+        }
+    }
+
+    /// [`Table::patch_raw`] on a SeaORM connection (`OrmConn` in a
+    /// transaction).
+    pub async fn patch_raw_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        id: &str,
+        values: Map<String, Value>,
+        live_only: bool,
+    ) -> Result<Option<Value>, DbErr> {
+        let row = self.entity.update(db, id, values, live_only).await?;
+        Ok(row.map(|row| self.drizzle(row)))
     }
 
     /// Rows selected with [`crate::books_row!`] as Drizzle returns them.
@@ -219,30 +289,38 @@ impl Table {
 
     /// Update the row `id` with `values`; `live_only` adds `deleted_at is
     /// null`. The changed row, or `None` when none matched.
-    pub async fn patch<'e>(
+    pub async fn patch(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
         id: &str,
         values: Map<String, Value>,
         live_only: bool,
         trusted: &[&str],
     ) -> Result<Option<Value>, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Option<Value> = sqlx::query_scalar(self.patch)
-            .bind(Value::Object(values))
-            .bind(id)
-            .bind(live_only)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+        let row = self.entity.update(&orm(db), id, values, live_only).await?;
+        Ok(row.map(|row| self.drizzle(row)))
     }
 
-    /// The live row `id`, as Drizzle returns it.
-    pub async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.select_live)
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+    /// The live row `id` (`deleted_at is null` where the table has it), as
+    /// Drizzle returns it.
+    pub async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        let row = self.entity.find(&orm(db), id, true).await?;
+        Ok(row.map(|row| self.drizzle(row)))
+    }
+
+    /// The entity's row as Drizzle returns it for this table: the table's
+    /// properties, in its order (a column the entity has and the Drizzle
+    /// schema doesn't is left out, as it was of a `to_jsonb` row).
+    fn drizzle(&self, row: Value) -> Value {
+        let Value::Object(mut row) = row else {
+            return row;
+        };
+        let mut out = Map::with_capacity(self.columns.len());
+        for column in self.columns {
+            let value = row.remove(column.prop).unwrap_or(Value::Null);
+            out.insert(column.prop.to_owned(), value);
+        }
+        Value::Object(out)
     }
 }

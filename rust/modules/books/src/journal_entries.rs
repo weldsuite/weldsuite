@@ -45,7 +45,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::journal_entries::{self, Column};
 use weldsuite_schema::tenant::journal_lines;
 
-use crate::orm_bridge::{sqlx_error, to_json};
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -251,19 +251,16 @@ async fn list_entries(caller: &Caller, q: &Query) -> Reply {
         .limit(limit)
         .offset(offset)
         .all(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = journal_entries::Entity::find()
         .filter(filters)
         .count(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = rows
         .into_iter()
         .map(to_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?;
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(paged(rows, total, page * page_size < total, None))
 }
 
@@ -294,10 +291,10 @@ async fn entry_lines(caller: &Caller, id: &str) -> Result<Vec<Value>, DbErr> {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        let Some(mut entry) = find_entry(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(mut entry) = find_entry(&caller, &id).await? else {
             return Err(Refusal::not_found("Journal entry", &id));
         };
-        let lines = entry_lines(&caller, &id).await.map_err(sqlx_error)?;
+        let lines = entry_lines(&caller, &id).await?;
         entry["lines"] = Value::Array(lines);
         Ok(ok(entry))
     }
@@ -462,7 +459,7 @@ async fn create_entry(
             for values in line_values {
                 JOURNAL_LINES.insert_raw(&mut *conn, values).await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, Refusal>(())
         })
     })
     .await?;
@@ -536,7 +533,7 @@ async fn update_entry(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(existing) = find_entry(caller, id).await.map_err(sqlx_error)? else {
+    let Some(existing) = find_entry(caller, id).await? else {
         return Err(Refusal::not_found("Journal entry", id));
     };
     if existing["status"].as_str() != Some("draft") {
@@ -633,8 +630,7 @@ async fn post_entry(
             .filter(Column::DeletedAt.is_null())
             .into_tuple()
             .one(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if exists.is_none() {
             return Err(Refusal::not_found("Journal entry", &id));
         }
@@ -671,7 +667,7 @@ async fn reverse_entry(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(entry) = find_entry(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(entry) = find_entry(&caller, &id).await? else {
             return Err(Refusal::not_found("Journal entry", &id));
         };
         let source_type = entry["sourceType"].as_str().filter(|s| !s.is_empty());
@@ -744,7 +740,7 @@ async fn remove(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(existing) = find_entry(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(existing) = find_entry(&caller, &id).await? else {
             return Err(Refusal::not_found("Journal entry", &id));
         };
         if existing["status"].as_str() != Some("draft") {
@@ -758,8 +754,7 @@ async fn remove(
             .col_expr(Column::UpdatedAt, Expr::value(at))
             .filter(Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         write_accounting_audit(
             &caller,
             db,

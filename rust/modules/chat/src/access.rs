@@ -232,9 +232,8 @@ impl From<sea_orm::DbErr> for ChatError {
     }
 }
 
-/// SQL not converted to the ORM yet, and the crates not converted yet
-/// (`weldsuite-chat-domain`, `weldsuite-notifications`), report through
-/// `weldsuite_db::orm_error`.
+/// An `sqlx::Error` (a record chat's missing record is `RowNotFound`)
+/// reports through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for ChatError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(weldsuite_db::orm_error(error))

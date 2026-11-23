@@ -6,8 +6,16 @@
 
 use std::fmt::Write as _;
 
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    companies, crm_leads, crm_opportunities, custom_field_definitions, custom_field_values,
+    custom_object_records, custom_objects, helpdesk_articles, helpdesk_tickets, knowledge_pages,
+    knowledge_spaces, merge_issues, merge_teams, people, projects, tasks,
+};
 
 use super::chunks::compose;
 use crate::js;
@@ -136,18 +144,11 @@ async fn map_static(
     db: &PgPool,
     entity_type: &str,
     id: &str,
-) -> Result<Option<Mapped>, sqlx::Error> {
+) -> Result<Option<Mapped>, DbErr> {
+    let db = &orm(db);
     let mapped = match entity_type {
         "knowledge_page" => {
-            let row: Option<(Text, Text, Text)> = sqlx::query_as(
-                "select p.title, p.content_text, s.name from knowledge_pages p \
-                 inner join knowledge_spaces s on p.space_id = s.id \
-                 where p.deleted_at is null and s.deleted_at is null and s.kind = 'team' \
-                 and s.visibility = 'open' and p.id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            let row = knowledge_page(db, id).await?;
             row.map(|(title, text, space)| {
                 Some((
                     or(title.as_deref(), Some("Untitled"))
@@ -159,13 +160,20 @@ async fn map_static(
             })
         }
         "article" => {
-            let row: Option<(Text, Text, Text, Text)> = sqlx::query_as(
-                "select title, excerpt, content, category_name from helpdesk_articles \
-                 where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use helpdesk_articles::Column;
+            let row: Option<(Text, Text, Text, Text)> = helpdesk_articles::Entity::find()
+                .select_only()
+                .columns([
+                    Column::Title,
+                    Column::Excerpt,
+                    Column::Content,
+                    Column::CategoryName,
+                ])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(title, excerpt, content, category)| {
                 Some((
                     or(title.as_deref(), Some("Article"))
@@ -177,13 +185,20 @@ async fn map_static(
             })
         }
         "ticket" => {
-            let row: Option<(Text, Text, Text, Text)> = sqlx::query_as(
-                "select subject, description, ticket_number, customer_name from helpdesk_tickets \
-                 where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use helpdesk_tickets::Column;
+            let row: Option<(Text, Text, Text, Text)> = helpdesk_tickets::Entity::find()
+                .select_only()
+                .columns([
+                    Column::Subject,
+                    Column::Description,
+                    Column::TicketNumber,
+                    Column::CustomerName,
+                ])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(subject, description, number, customer)| {
                 let title = match subject.as_deref().filter(|s| !s.is_empty()) {
                     Some(subject) => subject.to_owned(),
@@ -206,12 +221,15 @@ async fn map_static(
             })
         }
         "project" => {
-            let row: Option<(Text, Text, Text)> = sqlx::query_as(
-                "select name, code, description from projects where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use projects::Column;
+            let row: Option<(Text, Text, Text)> = projects::Entity::find()
+                .select_only()
+                .columns([Column::Name, Column::Code, Column::Description])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(name, code, description)| {
                 Some((
                     or(name.as_deref(), Some("Project"))
@@ -223,12 +241,15 @@ async fn map_static(
             })
         }
         "task" => {
-            let row: Option<(Text, Option<i32>, Text)> = sqlx::query_as(
-                "select title, number, description from tasks where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use tasks::Column;
+            let row: Option<(Text, Option<i32>, Text)> = tasks::Entity::find()
+                .select_only()
+                .columns([Column::Title, Column::Number, Column::Description])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(title, number, description)| {
                 Some((
                     or(title.as_deref(), Some("Task"))
@@ -240,13 +261,21 @@ async fn map_static(
             })
         }
         "contact" => {
-            let row: Option<(Text, Text, Text, Text, Text)> = sqlx::query_as(
-                "select full_name, first_name, last_name, email, title from people \
-                 where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use people::Column;
+            let row: Option<(Text, Text, Text, Text, Text)> = people::Entity::find()
+                .select_only()
+                .columns([
+                    Column::FullName,
+                    Column::FirstName,
+                    Column::LastName,
+                    Column::Email,
+                    Column::Title,
+                ])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(full, first, last, email, title)| {
                 let display = person_display(
                     full.as_deref(),
@@ -264,12 +293,15 @@ async fn map_static(
             })
         }
         "customer" => {
-            let row: Option<(Text, Text, Text)> = sqlx::query_as(
-                "select name, trading_name, email from companies where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use companies::Column;
+            let row: Option<(Text, Text, Text)> = companies::Entity::find()
+                .select_only()
+                .columns([Column::Name, Column::TradingName, Column::Email])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(name, trading, email)| {
                 let display = [name.as_deref(), trading.as_deref()]
                     .into_iter()
@@ -291,13 +323,21 @@ async fn map_static(
             })
         }
         "lead" => {
-            let row: Option<(Text, Text, Text, Text, Text)> = sqlx::query_as(
-                "select full_name, first_name, last_name, company_name, email from crm_leads \
-                 where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use crm_leads::Column;
+            let row: Option<(Text, Text, Text, Text, Text)> = crm_leads::Entity::find()
+                .select_only()
+                .columns([
+                    Column::FullName,
+                    Column::FirstName,
+                    Column::LastName,
+                    Column::CompanyName,
+                    Column::Email,
+                ])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(full, first, last, company, email)| {
                 let display = person_display(
                     full.as_deref(),
@@ -315,12 +355,15 @@ async fn map_static(
             })
         }
         "opportunity" => {
-            let row: Option<(Text, Text, Text)> = sqlx::query_as(
-                "select name, customer_name, stage from crm_opportunities where deleted_at is null and id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            use crm_opportunities::Column;
+            let row: Option<(Text, Text, Text)> = crm_opportunities::Entity::find()
+                .select_only()
+                .columns([Column::Name, Column::CustomerName, Column::Stage])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Id.eq(id))
+                .into_tuple()
+                .one(db)
+                .await?;
             row.map(|(name, customer, stage)| {
                 let name = name.filter(|n| !n.is_empty())?;
                 let subtitle = or(customer.as_deref(), stage.as_deref())
@@ -331,15 +374,7 @@ async fn map_static(
             })
         }
         "merge_issue" => {
-            // Visible while neither the issue nor its team is deleted.
-            let row: Option<(Text, i32, Text, String)> = sqlx::query_as(
-                "select i.title, i.number, i.description, t.key from merge_issues i \
-                 inner join merge_teams t on t.id = i.team_id \
-                 where i.deleted_at is null and t.deleted_at is null and i.id = $1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            let row = merge_issue(db, id).await?;
             row.map(|(title, number, description, team_key)| {
                 let key = format!("{team_key}-{number}");
                 Some((
@@ -356,6 +391,61 @@ async fn map_static(
     Ok(Some(mapped.flatten()))
 }
 
+/// A knowledge page of an open team space, both live: title, text, space.
+async fn knowledge_page(
+    db: &DatabaseConnection,
+    id: &str,
+) -> Result<Option<(Text, Text, Text)>, DbErr> {
+    use knowledge_pages::Column as P;
+    use knowledge_spaces::Column as S;
+    knowledge_pages::Entity::find()
+        .select_only()
+        .columns([P::Title, P::ContentText])
+        .column(S::Name)
+        .join(
+            JoinType::InnerJoin,
+            knowledge_pages::Entity::belongs_to(knowledge_spaces::Entity)
+                .from(P::SpaceId)
+                .to(S::Id)
+                .into(),
+        )
+        .filter(P::DeletedAt.is_null())
+        .filter(S::DeletedAt.is_null())
+        .filter(S::Kind.eq("team"))
+        .filter(S::Visibility.eq("open"))
+        .filter(P::Id.eq(id))
+        .into_tuple()
+        .one(db)
+        .await
+}
+
+/// A merge issue, visible while neither the issue nor its team is deleted:
+/// title, number, description, team key.
+async fn merge_issue(
+    db: &DatabaseConnection,
+    id: &str,
+) -> Result<Option<(Text, i32, Text, String)>, DbErr> {
+    use merge_issues::Column as I;
+    use merge_teams::Column as T;
+    merge_issues::Entity::find()
+        .select_only()
+        .columns([I::Title, I::Number, I::Description])
+        .column(T::Key)
+        .join(
+            JoinType::InnerJoin,
+            merge_issues::Entity::belongs_to(merge_teams::Entity)
+                .from(I::TeamId)
+                .to(T::Id)
+                .into(),
+        )
+        .filter(I::DeletedAt.is_null())
+        .filter(T::DeletedAt.is_null())
+        .filter(I::Id.eq(id))
+        .into_tuple()
+        .one(db)
+        .await
+}
+
 /// A loader for `entity_type`: `None` when there is none (not an indexed
 /// type, or a custom object without search), else what `load` returned.
 pub enum Loaded {
@@ -370,7 +460,7 @@ pub async fn load_document(
     db: &PgPool,
     entity_type: &str,
     entity_id: &str,
-) -> Result<Loaded, sqlx::Error> {
+) -> Result<Loaded, DbErr> {
     if weldsuite_events::is_custom_object_entity_key(entity_type) {
         return load_custom_object(db, entity_type, entity_id).await;
     }
@@ -411,20 +501,78 @@ struct Definition {
     sort_order: Option<i32>,
 }
 
+/// `getDefinitionsForEntityType`: the object's live field definitions, in
+/// the table's order.
+async fn field_definitions(
+    db: &DatabaseConnection,
+    entity_key: &str,
+) -> Result<Vec<Definition>, DbErr> {
+    use custom_field_definitions::Column;
+    let rows: Vec<(String, String, String, String, Option<i32>)> =
+        custom_field_definitions::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Slug,
+                Column::Name,
+                Column::FieldType,
+                Column::SortOrder,
+            ])
+            .filter(Column::EntityType.eq(entity_key))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, slug, name, field_type, sort_order)| Definition {
+            id,
+            slug,
+            name,
+            field_type,
+            sort_order,
+        })
+        .collect())
+}
+
+/// `getValuesForEntities` for one record: field id, `value_text`,
+/// `value_json`.
+async fn field_values(
+    db: &DatabaseConnection,
+    entity_key: &str,
+    record_id: &str,
+) -> Result<Vec<(String, Text, Option<Value>)>, DbErr> {
+    use custom_field_values::Column;
+    custom_field_values::Entity::find()
+        .select_only()
+        .columns([Column::FieldId, Column::ValueText, Column::ValueJson])
+        .filter(Column::EntityType.eq(entity_key))
+        .filter(Column::EntityId.is_in([record_id]))
+        .into_tuple()
+        .all(db)
+        .await
+}
+
 async fn load_custom_object(
     db: &PgPool,
     entity_key: &str,
     entity_id: &str,
-) -> Result<Loaded, sqlx::Error> {
+) -> Result<Loaded, DbErr> {
+    let db = &orm(db);
     // `getCustomObjectByEntityKey`; a tenant without the WeldObjects tables
     // has no custom objects (`isMissingTable`).
-    let object: Option<(String, String, bool)> = match sqlx::query_as(
-        "select slug, label_singular, enable_search from custom_objects \
-         where entity_key = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_key)
-    .fetch_optional(db)
-    .await
+    let object: Option<(String, String, bool)> = match custom_objects::Entity::find()
+        .select_only()
+        .columns([
+            custom_objects::Column::Slug,
+            custom_objects::Column::LabelSingular,
+            custom_objects::Column::EnableSearch,
+        ])
+        .filter(custom_objects::Column::EntityKey.eq(entity_key))
+        .filter(custom_objects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await
     {
         Ok(object) => object,
         Err(error) if weldsuite_db::is_missing_table(&error) => return Ok(Loaded::NoLoader),
@@ -434,51 +582,31 @@ async fn load_custom_object(
         return Ok(Loaded::NoLoader);
     };
 
-    let record: Option<(String, Text)> = sqlx::query_as(
-        "select id, title from custom_object_records \
-         where id = $1 and entity_key = $2 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .bind(entity_key)
-    .fetch_optional(db)
-    .await?;
+    let record: Option<(String, Text)> = custom_object_records::Entity::find()
+        .select_only()
+        .columns([
+            custom_object_records::Column::Id,
+            custom_object_records::Column::Title,
+        ])
+        .filter(custom_object_records::Column::Id.eq(entity_id))
+        .filter(custom_object_records::Column::EntityKey.eq(entity_key))
+        .filter(custom_object_records::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((record_id, title)) = record else {
         return Ok(Loaded::Missing);
     };
 
     // `getDefinitionsForEntityType`, in the table's order, then
     // `getValuesForEntities` for the one record.
-    let definitions: Vec<(String, String, String, String, Option<i32>)> = sqlx::query_as(
-        "select id, slug, name, field_type, sort_order from custom_field_definitions \
-         where entity_type = $1 and deleted_at is null",
-    )
-    .bind(entity_key)
-    .fetch_all(db)
-    .await?;
-    let definitions: Vec<Definition> = definitions
-        .into_iter()
-        .map(|(id, slug, name, field_type, sort_order)| Definition {
-            id,
-            slug,
-            name,
-            field_type,
-            sort_order,
-        })
-        .collect();
+    let definitions = field_definitions(db, entity_key).await?;
     let Some(title) = title.as_deref().map(js::trim).filter(|t| !t.is_empty()) else {
         return Ok(Loaded::Missing);
     };
     let mut values: Vec<(String, Value)> = Vec::new();
     if !definitions.is_empty() {
-        let rows: Vec<(String, Text, Option<Value>)> = sqlx::query_as(
-            "select field_id, value_text, value_json from custom_field_values \
-             where entity_type = $1 and entity_id = any($2)",
-        )
-        .bind(entity_key)
-        .bind(vec![record_id.clone()])
-        .fetch_all(db)
-        .await?;
-        for (field_id, text, json) in rows {
+        for (field_id, text, json) in field_values(db, entity_key, &record_id).await? {
             let Some(definition) = definitions.iter().find(|d| d.id == field_id) else {
                 continue;
             };

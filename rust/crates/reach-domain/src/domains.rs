@@ -28,10 +28,10 @@ pub fn to_dto(row: &Value, mailbox_count: i64) -> Value {
 
 /// `domainMailboxCounts(db, domainIds)`.
 pub async fn mailbox_counts(db: &PgPool, domain_ids: &[String]) -> ReachResult<Vec<(String, i64)>> {
+    use reach_mailboxes::Column;
     if domain_ids.is_empty() {
         return Ok(Vec::new());
     }
-    use reach_mailboxes::Column;
     Ok(reach_mailboxes::Entity::find()
         .select_only()
         .column(Column::DomainId)

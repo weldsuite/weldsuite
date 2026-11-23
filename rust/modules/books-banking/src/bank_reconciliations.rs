@@ -57,7 +57,6 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::common::{changes, field, text};
-use crate::orm_bridge::{post_failed, refused, sqlx_error};
 
 const EPSILON: f64 = 0.005;
 
@@ -109,13 +108,13 @@ impl From<PostError> for Failure {
 
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Post(PostError::Database(error))
+        Self::Post(PostError::from(error))
     }
 }
 
 impl From<DbErr> for Failure {
     fn from(error: DbErr) -> Self {
-        Self::Post(post_failed(error))
+        Self::Post(PostError::Database(error))
     }
 }
 
@@ -858,8 +857,7 @@ async fn find(caller: &Caller, id: &str) -> Result<Value, Refusal> {
         .filter(bank_reconciliations::Column::Id.eq(id))
         .filter(bank_reconciliations::Column::EntityId.eq(entity_id.as_str()))
         .one(&orm(&caller.db))
-        .await
-        .map_err(refused)?;
+        .await?;
     row.map(|row| serde_json::to_value(row).unwrap_or_default())
         .ok_or_else(|| Refusal::not_found("Reconciliation", id))
 }
@@ -906,9 +904,8 @@ async fn list(caller: Caller) -> Response {
             .limit(u64::try_from(size).unwrap_or(0))
             .offset(u64::try_from((page - 1) * size).unwrap_or(0))
             .all(&db)
-            .await
-            .map_err(refused)?;
-        let total = of_entity().count(&db).await.map_err(refused)?;
+            .await?;
+        let total = of_entity().count(&db).await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let slim = rows
             .into_iter()
@@ -1713,7 +1710,6 @@ async fn complete_reconciliation(
                 stamp,
             )
             .await
-            .map_err(sqlx_error)
         })
     });
     let posted = post_journal_entry(
@@ -1889,7 +1885,6 @@ async fn undo_reconciliation(
                 Box::pin(async move {
                     release(&OrmConn::new(conn), &rid, at, who.as_deref())
                         .await
-                        .map_err(sqlx_error)
                 })
             });
             reverse_journal_entry(
@@ -1935,8 +1930,7 @@ async fn discard(
             .filter(bank_reconciliations::Column::Id.eq(id.as_str()))
             .filter(bank_reconciliations::Column::Status.eq("in_progress"))
             .exec(&orm(&caller.db))
-            .await
-            .map_err(refused)?;
+            .await?;
         write_accounting_audit(
             &caller,
             &caller.db,

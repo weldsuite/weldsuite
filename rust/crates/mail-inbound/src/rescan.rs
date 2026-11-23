@@ -79,8 +79,11 @@ enum Stop {
 pub async fn rescan_due(
     ctx: &RescanContext,
     now: OffsetDateTime,
-) -> Result<RescanReport, sqlx::Error> {
-    let rows = due_index::list_due(&ctx.master, RESCAN_KIND, now, WORKSPACES_PER_TICK).await?;
+) -> Result<RescanReport, sea_orm::DbErr> {
+    // The due index (`weldsuite_db::due_index`) still speaks sqlx.
+    let rows = due_index::list_due(&ctx.master, RESCAN_KIND, now, WORKSPACES_PER_TICK)
+        .await
+        .map_err(weldsuite_db::orm_error)?;
     let mut report = RescanReport::default();
     for row in rows {
         report.workspaces += 1;

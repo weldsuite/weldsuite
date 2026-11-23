@@ -8,8 +8,10 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use weldsuite_db::{PgPool, WorkspaceError, Workspaces};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, WorkspaceError, Workspaces, orm};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::master::workspaces;
 
 /// A resolved workspace.
 #[derive(Debug, Clone)]
@@ -55,8 +57,8 @@ impl From<WorkspaceError> for TenantError {
     }
 }
 
-impl From<sqlx::Error> for TenantError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for TenantError {
+    fn from(error: DbErr) -> Self {
         Self::Other(Box::new(error))
     }
 }
@@ -122,11 +124,13 @@ impl WorkspaceTenants {
         {
             return Ok(key.clone());
         }
-        let org: Option<Option<String>> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-                .bind(reference)
-                .fetch_optional(self.workspaces.master())
-                .await?;
+        let org: Option<Option<String>> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .filter(workspaces::Column::Id.eq(reference))
+            .into_tuple()
+            .one(&orm(self.workspaces.master()))
+            .await?;
         let key = org.flatten().unwrap_or_else(|| reference.to_owned());
         let mut memo = self.hub_keys.lock().unwrap_or_else(PoisonError::into_inner);
         if memo.len() >= MAX_HUB_KEYS {

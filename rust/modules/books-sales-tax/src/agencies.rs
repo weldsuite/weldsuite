@@ -49,7 +49,6 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::common::{changes, iso_date, keep, merged, refuse, text, today};
-use crate::orm_bridge::refusal;
 use crate::returns::common::rows_json;
 
 /// `sales_tax_agencies` written from a `{ column: value }` object.
@@ -495,12 +494,11 @@ async fn list_agencies(caller: &Caller, q: &Query) -> Reply {
         .limit(u64::try_from(page_size).unwrap_or(0))
         .offset(u64::try_from(offset).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refusal)?;
-    let total = select.count(&db).await.map_err(refusal)?;
+        .await?;
+    let total = select.count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows_json(rows).map_err(refusal)?;
-    let rows = with_accounts(&caller.db, rows).await.map_err(refusal)?;
+    let rows = rows_json(rows)?;
+    let rows = with_accounts(&caller.db, rows).await?;
     Ok(paged(rows, total, page * page_size < total, None))
 }
 
@@ -514,11 +512,9 @@ async fn show(caller: &Caller, id: &str) -> Reply {
     let entity = require_sales_tax_entity(caller).await?;
     let agency = require_agency(&caller.db, text(&entity, "id").unwrap_or_default(), id).await?;
     let has_lines = agency_has_tax_lines(&caller.db, id)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let mut row = with_accounts(&caller.db, vec![agency])
-        .await
-        .map_err(refusal)?
+        .await?
         .remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("hasTaxLines".into(), json!(has_lines));
@@ -586,8 +582,7 @@ async fn create_agency(caller: &Caller, state: &BooksState, data: AgencyBody) ->
         event_data(&agency),
     );
     let mut row = with_accounts(&caller.db, vec![agency])
-        .await
-        .map_err(refusal)?
+        .await?
         .remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("accountsCreated".into(), json!(accounts_created));
@@ -810,8 +805,7 @@ pub(crate) async fn create_sales_tax_agency(
 ) -> Result<(Value, usize, usize), Refusal> {
     let fields = resolve_agency_fields(input, day)?;
     let duplicate = duplicate_of(db, entity_id, &fields)
-        .await
-        .map_err(refusal)?;
+        .await?;
     if duplicate.is_some() {
         return Err(refuse(
             if fields.level == "local" {
@@ -825,7 +819,7 @@ pub(crate) async fn create_sales_tax_agency(
             409,
         ));
     }
-    let rows = chart_of(db, entity_id).await.map_err(refusal)?;
+    let rows = chart_of(db, entity_id).await?;
     let accounts: Vec<Account> = rows
         .into_iter()
         .map(
@@ -910,26 +904,22 @@ pub(crate) async fn create_sales_tax_agency(
         for account in &new_accounts {
             account_rows
                 .insert(&conn, ACCOUNTS.values(account))
-                .await
-                .map_err(refusal)?;
+                .await?;
         }
         AGENCY_ROWS
             .insert(&conn, T.values(agency.as_object().unwrap_or(&Map::new())))
-            .await
-            .map_err(refusal)?;
+            .await?;
         let rule_rows = JsonTable::of::<sales_tax_taxability_rules::Entity>();
         for rule in &rules {
             rule_rows
                 .insert(&conn, SALES_TAX_TAXABILITY_RULES.values(rule))
-                .await
-                .map_err(refusal)?;
+                .await?;
         }
     }
     tx.commit().await?;
     let row = AGENCY_ROWS
         .find(&orm(db), &agency_id, true)
-        .await
-        .map_err(refusal)?
+        .await?
         .unwrap_or(Value::Null);
     Ok((row, new_accounts.len(), rules.len()))
 }
@@ -1095,8 +1085,7 @@ async fn update_agency(caller: &Caller, state: &BooksState, id: &str, data: Agen
     }
     AGENCY_ROWS
         .update(&orm(&caller.db), id, T.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let updated = merged(&agency, &update);
     write_accounting_audit(
         caller,
@@ -1112,8 +1101,7 @@ async fn update_agency(caller: &Caller, state: &BooksState, id: &str, data: Agen
     .await;
     caller.publish(state, SALES_TAX_AGENCY_UPDATED, id, event_data(&updated));
     let row = with_accounts(&caller.db, vec![updated])
-        .await
-        .map_err(refusal)?
+        .await?
         .remove(0);
     Ok(ok(row))
 }
@@ -1189,8 +1177,7 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let instant = time::OffsetDateTime::now_utc();
     let at = weldsuite_events::iso_timestamp(instant);
     if agency_has_tax_lines(&caller.db, id)
-        .await
-        .map_err(refusal)?
+        .await?
     {
         // Tax-ledger rows point at it: the history stays, and so does the agency.
         let until = text(&agency, "registeredUntil")
@@ -1202,8 +1189,7 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         closed.insert("updatedAt".into(), json!(at));
         AGENCY_ROWS
             .update(&orm(&caller.db), id, T.values(&closed), false)
-            .await
-            .map_err(refusal)?;
+            .await?;
         let mut audit = Map::new();
         audit.insert(
             "status".into(),
@@ -1243,8 +1229,7 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         id,
         utc_timestamp(instant),
     )
-    .await
-    .map_err(refusal)?;
+    .await?;
     tx.commit().await?;
     write_accounting_audit(
         caller,

@@ -7,11 +7,6 @@
 //! plain HTTP client on Kubernetes and the harness's outbound bridge in
 //! conformance builds, so the calls both backends make are compared.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod campaigns;
 pub mod meta;
 pub mod sync;
@@ -19,8 +14,8 @@ pub mod sync_index;
 
 use std::fmt;
 
+use sea_orm::{DbErr, RuntimeErr};
 use time::OffsetDateTime;
-use weldsuite_events::iso_timestamp;
 
 /// Why a sync step failed, as the TypeScript code throws it.
 #[derive(Debug)]
@@ -29,7 +24,7 @@ pub enum AdsError {
     /// (`Campaign objective is required before syncing`).
     Message(String),
     /// A failing statement.
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl AdsError {
@@ -42,6 +37,14 @@ impl fmt::Display for AdsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Message(message) => f.write_str(message),
+            // The statement's error as sqlx words it (`error returned from
+            // database: …`), without SeaORM's `Query Error: ` in front: the
+            // OAuth callback and `sync_error` carry this text.
+            Self::Database(
+                DbErr::Conn(RuntimeErr::SqlxError(error))
+                | DbErr::Exec(RuntimeErr::SqlxError(error))
+                | DbErr::Query(RuntimeErr::SqlxError(error)),
+            ) => write!(f, "{error}"),
             Self::Database(error) => write!(f, "{error}"),
         }
     }
@@ -49,19 +52,20 @@ impl fmt::Display for AdsError {
 
 impl std::error::Error for AdsError {}
 
-impl From<sqlx::Error> for AdsError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for AdsError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds, bound as text
-/// and cast to the column's timestamp type.
-pub fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond. (`timestamp` columns take `weldsuite_db::utc_now()`.)
+pub fn now() -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(OffsetDateTime::now_utc()).assume_utc()
 }
 
 /// `new Date(Date.now() + hours)`, as [`now`] writes it.
-pub fn hours_from_now(hours: i64) -> String {
-    iso_timestamp(OffsetDateTime::now_utc() + time::Duration::hours(hours))
+pub fn hours_from_now(hours: i64) -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(OffsetDateTime::now_utc() + time::Duration::hours(hours))
+        .assume_utc()
 }

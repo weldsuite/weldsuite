@@ -10,13 +10,14 @@ use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, QueryTr
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::jurisdictions::{br, us};
+use weldsuite_books_domain::table::TxError;
 use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{
     accounts, bills, fiscal_periods, invoices, journal_entries, payments, tax_rates, vat_returns,
 };
 
-use crate::orm_bridge::{select_flags, sqlx_error, to_json};
+use crate::orm_bridge::{select_flags, to_json};
 
 /// `EntitySetupError`: the route answers 400 with the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -531,13 +532,12 @@ pub(crate) async fn apply_tax_lines(
             Box::pin(async move {
                 let tx = OrmConn::new(conn);
                 for write in writes {
-                    write.exec(&tx).await.map_err(sqlx_error)?;
+                    write.exec(&tx).await?;
                 }
-                Ok::<_, sqlx::Error>(())
+                Ok::<_, TxError>(())
             })
         })
-        .await
-        .map_err(weldsuite_db::orm_error)?;
+        .await?;
     }
     Ok(json!({
         "form": form,

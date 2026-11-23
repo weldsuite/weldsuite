@@ -5,7 +5,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_chat_domain::members::{AddMembers, NewChannel, add_channel_members, create_channel};
 use weldsuite_chat_domain::policy::merge_agent_room_policy;
-use weldsuite_db::{orm, orm_error};
+use weldsuite_db::orm;
 use weldsuite_schema::tenant::{chat_channel_members, weldagent_agents};
 
 use super::{ToolContext, ToolError, ToolSpec};
@@ -156,15 +156,13 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
         },
         &now,
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     let channel_id = created.channel["id"]
         .as_str()
         .unwrap_or_default()
         .to_owned();
     let added = match add_channel_members(&ctx.db, &channel_id, &agent_ids, "agent", &now)
-        .await
-        .map_err(orm_error)?
+        .await?
     {
         AddMembers::Added { added_user_ids } => added_user_ids.len(),
         AddMembers::Refused(message) => return Ok(json!({ "error": message })),

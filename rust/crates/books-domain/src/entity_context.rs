@@ -4,16 +4,18 @@
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_legal_entities::{
     EntityAccess, EntityTable, LegalEntityApp, LegalEntityContextLayer, LegalEntityContextOptions,
     RequestEntity, can_see_entity, legal_entity_context, load_entity_access, requested_entity_id,
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{entities, entity_number_sequences, settings};
 
 use crate::http::Caller;
-use crate::orm_bridge::sqlx_error;
 
 /// `legalEntityContext({ app: 'weldbooks', scoped: true })`'s options, as
 /// books-api mounts it on `/api/*` (`src/index.ts`): only entities WeldBooks
@@ -51,7 +53,7 @@ where
 /// `X-Accounting-Entity-Id` header, `?entityId=`, then the workspace default
 /// (`settings.defaultEntityId`); the id must name an entity of this workspace
 /// that isn't deleted.
-pub async fn resolve_entity_id(caller: &Caller) -> Result<Option<String>, sqlx::Error> {
+pub async fn resolve_entity_id(caller: &Caller) -> Result<Option<String>, DbErr> {
     caller
         .entity
         .get_or_try_init(|| resolve_uncached(caller))
@@ -59,7 +61,7 @@ pub async fn resolve_entity_id(caller: &Caller) -> Result<Option<String>, sqlx::
         .cloned()
 }
 
-async fn resolve_uncached(caller: &Caller) -> Result<Option<String>, sqlx::Error> {
+async fn resolve_uncached(caller: &Caller) -> Result<Option<String>, DbErr> {
     if let Some(request) = &caller.legal_entity {
         return Ok(request.entity_id().map(str::to_owned));
     }
@@ -75,10 +77,12 @@ async fn resolve_uncached(caller: &Caller) -> Result<Option<String>, sqlx::Error
             .await?
             .then_some(requested));
     }
-    let fallback: Option<Option<String>> =
-        sqlx::query_scalar("select default_entity_id from settings limit 1")
-            .fetch_optional(&caller.db)
-            .await?;
+    let fallback: Option<Option<String>> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::DefaultEntityId)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     match fallback.flatten().filter(|id| !id.is_empty()) {
         Some(id) => Ok(entity_exists(&caller.db, &id).await?.then_some(id)),
         None => Ok(None),
@@ -94,7 +98,7 @@ async fn resolve_uncached(caller: &Caller) -> Result<Option<String>, sqlx::Error
 pub async fn resolve_requested_entity_id(
     caller: &Caller,
     requested: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(id) = requested.filter(|id| !id.is_empty()) else {
         return resolve_entity_id(caller).await;
     };
@@ -116,7 +120,7 @@ pub async fn resolve_requested_entity_id(
 
 /// `getEntityAccess(c)`: the member's access snapshot. The layer's when it
 /// ran; otherwise loaded once from the request's (workspace) permissions.
-pub async fn entity_access(caller: &Caller) -> Result<Arc<EntityAccess>, sqlx::Error> {
+pub async fn entity_access(caller: &Caller) -> Result<Arc<EntityAccess>, DbErr> {
     if let Some(request) = &caller.legal_entity {
         return Ok(request.access_arc());
     }
@@ -130,7 +134,6 @@ pub async fn entity_access(caller: &Caller) -> Result<Arc<EntityAccess>, sqlx::E
             )
             .await
             .map(Arc::new)
-            .map_err(sqlx_error)
         })
         .await
         .cloned()
@@ -139,7 +142,7 @@ pub async fn entity_access(caller: &Caller) -> Result<Arc<EntityAccess>, sqlx::E
 /// The request as the per-entity checks see it: what `legal_entity_context`
 /// settled, or, for a request it did not settle, the member's access with no
 /// resolved entity (`getRequestEntityId(c)` is `undefined` there).
-pub async fn request_entity(caller: &Caller) -> Result<RequestEntity, sqlx::Error> {
+pub async fn request_entity(caller: &Caller) -> Result<RequestEntity, DbErr> {
     if let Some(request) = &caller.legal_entity {
         return Ok(request.clone());
     }
@@ -155,7 +158,7 @@ pub async fn request_entity(caller: &Caller) -> Result<RequestEntity, sqlx::Erro
 pub async fn record_in_request_entity(
     caller: &Caller,
     record_entity_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let request = request_entity(caller).await?;
     Ok(weldsuite_legal_entities::record_in_request_entity(
         &request,
@@ -171,24 +174,25 @@ pub async fn records_in_entity(
     caller: &Caller,
     table: &EntityTable,
     ids: &[&str],
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if caller.user().is_none() {
         return Ok(true);
     }
     let request = request_entity(caller).await?;
-    weldsuite_legal_entities::records_in_entity(&caller.db, &request, table, ids)
-        .await
-        .map_err(sqlx_error)
+    weldsuite_legal_entities::records_in_entity(&caller.db, &request, table, ids).await
 }
 
 /// `entityExists(db, id)`: an accounting entity of this workspace that isn't
 /// deleted.
-pub async fn entity_exists(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> =
-        sqlx::query_scalar("select id from entities where id = $1 and deleted_at is null limit 1")
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+pub async fn entity_exists(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
+    let row: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -196,14 +200,15 @@ pub async fn entity_exists(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::E
 pub async fn resolve_entity_base_currency(
     db: &PgPool,
     entity_id: &str,
-) -> Result<String, sqlx::Error> {
-    let currency: Option<Option<String>> =
-        sqlx::query_scalar("select base_currency from entities where id = $1 limit 1")
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<String, DbErr> {
+    let currency: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::BaseCurrency)
+        .filter(entities::Column::Id.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(currency
-        .flatten()
         .filter(|c| !c.is_empty())
         .unwrap_or_else(|| "EUR".to_owned()))
 }
@@ -252,28 +257,33 @@ pub struct EntityNumber {
 /// `nextEntityNumber(db, entityId, type)`: the next number of a per-entity
 /// sequence, allocated race-free by one upsert (gapless numbering is a legal
 /// requirement for Dutch invoices).
-pub async fn next_entity_number<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+pub async fn next_entity_number(
+    db: &PgPool,
     entity_id: &str,
     sequence: SequenceType,
-) -> Result<EntityNumber, sqlx::Error> {
-    let (next_value, prefix, padding): (i32, Option<String>, Option<i32>) = sqlx::query_as(
-        "insert into entity_number_sequences (id, entity_id, sequence_type, prefix, next_value, padding) \
-         values ($1, $2, $3, $4, 2, 4) \
-         on conflict (entity_id, sequence_type) do update \
-         set next_value = entity_number_sequences.next_value + 1, updated_at = $5::timestamp \
-         returning next_value, prefix, padding",
+) -> Result<EntityNumber, DbErr> {
+    use entity_number_sequences::{ActiveModel, Column, Entity};
+    use sea_orm::ExprTrait as _;
+    let row = Entity::insert(ActiveModel {
+        id: Set(generate_id("seq")),
+        entity_id: Set(entity_id.to_owned()),
+        sequence_type: Set(sequence.as_str().to_owned()),
+        prefix: Set(sequence.default_prefix().to_owned()),
+        next_value: Set(2),
+        padding: Set(Some(4)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::EntityId, Column::SequenceType])
+            .value(Column::NextValue, Expr::col((Entity, Column::NextValue)).add(1))
+            .value(Column::UpdatedAt, utc_now())
+            .to_owned(),
     )
-    .bind(generate_id("seq"))
-    .bind(entity_id)
-    .bind(sequence.as_str())
-    .bind(sequence.default_prefix())
-    .bind(crate::http::now())
-    .fetch_one(db)
+    .exec_with_returning(&orm(db))
     .await?;
-    let value = i64::from(next_value) - 1;
-    let prefix = prefix.unwrap_or_default();
-    let padding = i64::from(padding.unwrap_or(0));
+    let value = i64::from(row.next_value) - 1;
+    let prefix = row.prefix;
+    let padding = i64::from(row.padding.unwrap_or(0));
     let digits = value.to_string();
     let width = usize::try_from(padding).unwrap_or(0);
     let formatted = format!("{prefix}{digits:0>width$}");

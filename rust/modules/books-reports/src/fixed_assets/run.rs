@@ -28,7 +28,6 @@ use weldsuite_schema::tenant::{
 };
 
 use super::shared::{Fail, bad, from_cents, num, opt, present, text, to_cents};
-use crate::orm_bridge::sqlx_error;
 use crate::rows::{date_of, js};
 
 /// `PostedPeriod`.
@@ -414,8 +413,7 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
                     finish_assets(&tx, write_finishing, at).await
                 }
                 .await;
-                // `post_journal_entry`'s transaction still speaks sqlx.
-                written.map_err(sqlx_error)
+                written
             })
         });
         let posted = post_journal_entry(
@@ -441,7 +439,7 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
         let posted = match posted {
             Ok(posted) => posted,
             Err(PostError::Database(error)) => {
-                return Err(Fail::Database(weldsuite_db::orm_error(error)));
+                return Err(Fail::Database(error));
             }
             Err(other) => {
                 result.skipped.push(SkippedPeriod {

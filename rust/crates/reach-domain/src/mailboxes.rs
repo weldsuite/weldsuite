@@ -1,14 +1,21 @@
 //! `mailboxes.ts`: the mailbox DTO (warmup numbers from the master pool
 //! included) and the "why is it not sending yet" blocker.
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{reach_domains, reach_mailboxes as mailboxes, reach_messages};
 
 use crate::access::utc_day_start;
 use crate::warmup::{WARMUP_MIN_POOL_DOMAINS, gate};
 use crate::warmup_pool::{PoolView, active_domain_count, read_pool};
-use crate::{ReachResult, field, int, iso, text, without};
+use crate::{ReachResult, field, int, js, stamp, text, without};
 
 /// The sealed columns no response or event carries (`SENSITIVE_COLUMNS`).
 pub const SENSITIVE: &[&str] = &["smtpCredentials", "imapCredentials"];
@@ -96,18 +103,55 @@ async fn sent_today_by_mailbox(
     ids: &[String],
     now: OffsetDateTime,
 ) -> ReachResult<Vec<(String, i64)>> {
+    use reach_messages::Column;
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_as(
-        "select mailbox_id, count(*) from reach_messages
-         where mailbox_id = any($1) and direction = 'out' and status = 'sent' and sent_at >= $2::timestamptz
-         group by mailbox_id",
-    )
-    .bind(ids)
-    .bind(iso(utc_day_start(now)))
-    .fetch_all(db)
-    .await?)
+    Ok(reach_messages::Entity::find()
+        .select_only()
+        .column(Column::MailboxId)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(Column::MailboxId.is_in(ids))
+        .filter(Column::Direction.eq("out"))
+        .filter(Column::Status.eq("sent"))
+        .filter(Column::SentAt.gte(stamp(utc_day_start(now))))
+        .group_by(Column::MailboxId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
+}
+
+/// A mailbox with its domain's name (`leftJoin(reachDomains, …)`).
+#[derive(Debug, FromQueryResult)]
+struct WithDomain {
+    #[sea_orm(nested)]
+    mailbox: mailboxes::Model,
+    domain_name: Option<String>,
+}
+
+impl WithDomain {
+    /// `select({ ...mailbox, domainName: reachDomains.name })` with the left
+    /// join, to filter and order before `into_model`.
+    fn query() -> sea_orm::Select<mailboxes::Entity> {
+        mailboxes::Entity::find()
+            .column_as(reach_domains::Column::Name, "domain_name")
+            .join(
+                JoinType::LeftJoin,
+                mailboxes::Entity::belongs_to(reach_domains::Entity)
+                    .from(mailboxes::Column::DomainId)
+                    .to(reach_domains::Column::Id)
+                    .into(),
+            )
+    }
+
+    /// The row as the routes read it, without its credentials.
+    fn into_json(self) -> Result<Value, DbErr> {
+        let mut row = js(serde_json::to_value(self.mailbox))?;
+        if let Some(map) = row.as_object_mut() {
+            map.insert("domainName".to_owned(), json!(self.domain_name));
+        }
+        Ok(without_credentials(&row))
+    }
 }
 
 /// Where a request reads the warmup pool (`WarmupSource`): the master
@@ -174,22 +218,30 @@ pub async fn list(
     domain_id: Option<&str>,
     status: Option<&str>,
 ) -> ReachResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) || jsonb_build_object('domain_name', d.name) from reach_mailboxes m
-         left join reach_domains d on m.domain_id = d.id
-         where (case when $1::text = 'deleted' then m.status = 'deleted'
-                     else m.status <> 'deleted' and m.deleted_at is null and ($1::text is null or m.status = $1) end)
-           and ($2::text is null or m.domain_id = $2)
-         order by m.created_at",
-    )
-    .bind(status)
-    .bind(domain_id)
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<Value> = crate::js_rows(rows)
-        .iter()
-        .map(without_credentials)
-        .collect();
+    use mailboxes::Column;
+    let mut filters = Condition::all();
+    if status == Some("deleted") {
+        filters = filters.add(Column::Status.eq("deleted"));
+    } else {
+        filters = filters
+            .add(Column::Status.ne("deleted"))
+            .add(Column::DeletedAt.is_null());
+        if let Some(status) = status {
+            filters = filters.add(Column::Status.eq(status));
+        }
+    }
+    if let Some(domain_id) = domain_id {
+        filters = filters.add(Column::DomainId.eq(domain_id));
+    }
+    let rows = WithDomain::query()
+        .filter(filters)
+        .order_by_asc(Column::CreatedAt)
+        .into_model::<WithDomain>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(WithDomain::into_json)
+        .collect::<Result<Vec<Value>, DbErr>>()?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
@@ -201,15 +253,13 @@ pub async fn list(
 
 /// `getMailboxDto(deps, id)`: `None` for a deleted or unknown mailbox.
 pub async fn get(db: &PgPool, source: &WarmupSource<'_>, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) || jsonb_build_object('domain_name', d.name) from reach_mailboxes m
-         left join reach_domains d on m.domain_id = d.id
-         where m.id = $1 and m.status <> 'deleted' limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row.map(|r| without_credentials(&weldsuite_db::js_row(r))) else {
+    let row = WithDomain::query()
+        .filter(mailboxes::Column::Id.eq(id))
+        .filter(mailboxes::Column::Status.ne("deleted"))
+        .into_model::<WithDomain>()
+        .one(&orm(db))
+        .await?;
+    let Some(row) = row.map(WithDomain::into_json).transpose()? else {
         return Ok(None);
     };
     let sent = sent_today_by_mailbox(db, &[id.to_owned()], crate::now()).await?;

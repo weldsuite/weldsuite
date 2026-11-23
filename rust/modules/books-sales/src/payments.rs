@@ -37,7 +37,6 @@ use weldsuite_schema::tenant::{payment_allocations, payments};
 
 use crate::body::read_currency;
 use crate::invoices::{js_timestamp, page_window, row_json};
-use crate::orm_bridge::sqlx_error;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -175,19 +174,16 @@ async fn list_payments(caller: &Caller) -> Reply {
         .limit(limit)
         .offset(offset)
         .all(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = payments::Entity::find()
         .filter(filters.condition())
         .count(&db)
-        .await
-        .map_err(sqlx_error)?;
+        .await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = rows
         .into_iter()
         .map(row_json)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(sqlx_error)?;
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(paged(rows, total, page * page_size < total, None))
 }
 
@@ -198,21 +194,18 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             let payment = payments::Entity::find_by_id(id.clone())
                 .filter(payments::Column::DeletedAt.is_null())
                 .one(&db)
-                .await
-                .map_err(sqlx_error)?;
-            let Some(payment) = payment.map(row_json).transpose().map_err(sqlx_error)? else {
+                .await?;
+            let Some(payment) = payment.map(row_json).transpose()? else {
                 return Err(Refusal::not_found("Payment", &id));
             };
             let allocations = payment_allocations::Entity::find()
                 .filter(payment_allocations::Column::PaymentId.eq(id.as_str()))
                 .filter(payment_allocations::Column::DeletedAt.is_null())
                 .all(&db)
-                .await
-                .map_err(sqlx_error)?
+                .await?
                 .into_iter()
                 .map(row_json)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(sqlx_error)?;
+                .collect::<Result<Vec<_>, _>>()?;
             let mut out = payment.as_object().cloned().unwrap_or_default();
             out.insert("allocations".into(), Value::Array(allocations));
             Ok(ok(Value::Object(out)))

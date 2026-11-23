@@ -59,7 +59,7 @@ use super::settings::{
     read_credentials, register_webhooks, remove_webhooks, seal_credentials, settings_of,
 };
 use super::{FiscalError, page_of, require_entity, require_fiscal_entity, str_of};
-use crate::orm_bridge::{refused, to_json, to_json_rows};
+use crate::orm_bridge::{to_json, to_json_rows};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -558,9 +558,8 @@ async fn list(caller: Caller) -> Response {
                 .offset(u64::try_from((page - 1) * size).unwrap_or(0))
                 .all(&db)
                 .await
-                .and_then(to_json_rows)
-                .map_err(refused)?;
-            let total = find.count(&db).await.map_err(refused)?;
+                .and_then(to_json_rows)?;
+            let total = find.count(&db).await?;
             let total = i64::try_from(total).unwrap_or(i64::MAX);
             let rows = rows.into_iter().map(summary).collect();
             Ok(paged(rows, total, page * size < total, None))

@@ -20,7 +20,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Served, Task, Tier};
-use weldsuite_db::{orm, orm_error, utc_now};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::ApiError;
 use weldsuite_schema::tenant::{merge_releases, merge_repositories};
 
@@ -212,9 +212,8 @@ pub(crate) async fn generate_notes(
         Err(NotesError::Ai(error @ AiError::InsufficientCredits { .. })) => {
             return Err(error.into_api_error().into());
         }
-        // The wallet's statements are not on the entities yet.
         Err(NotesError::Ai(AiError::Database(error))) => {
-            return Err(MergeError::Db(orm_error(error)).into());
+            return Err(MergeError::Db(error).into());
         }
         Err(NotesError::Db(error)) => return Err(MergeError::Db(error).into()),
         Err(NotesError::Ai(error)) => {

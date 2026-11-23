@@ -27,7 +27,6 @@ use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_schema::tenant::entity_number_sequences::{self, Column};
 
 use super::find_active;
-use crate::orm_bridge::sqlx_error;
 
 /// `SEQUENCE_TYPES`, in the order they are listed.
 const SEQUENCE_TYPES: [SequenceType; 4] = [
@@ -122,7 +121,7 @@ pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Response {
         if find_active(&caller, &id).await?.is_none() {
             return Err(Refusal::not_found("Entity", &id));
         }
-        let sequences = list_sequences(&caller.db, &id).await.map_err(sqlx_error)?;
+        let sequences = list_sequences(&caller.db, &id).await?;
         Ok(ok(sequences_json(&sequences)))
     }
     .await;
@@ -425,8 +424,7 @@ async fn update_numbering(
         return Err(Refusal::not_found("Entity", id));
     };
     match update_sequences(&caller.db, id, updates)
-        .await
-        .map_err(sqlx_error)?
+        .await?
     {
         Ok((sequences, changes)) => {
             if !changes.is_empty() {
@@ -438,7 +436,7 @@ async fn update_numbering(
             // A document took a number mid-update: what was written before
             // that still gets its audit row and event.
             if !changes.is_empty() {
-                let sequences = list_sequences(&caller.db, id).await.map_err(sqlx_error)?;
+                let sequences = list_sequences(&caller.db, id).await?;
                 record_changes(caller, state, &entity, changes, &sequences).await;
             }
             Err(Refusal::bad_request(NEXT_VALUE_FORWARD_ONLY))

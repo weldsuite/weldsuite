@@ -65,7 +65,7 @@ async fn accessible(
     caller: &Caller,
     agent: &Value,
     viewer: &AgentViewer,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, sea_orm::DbErr> {
     can_access_agent(
         &caller.db,
         &AgentAccess {

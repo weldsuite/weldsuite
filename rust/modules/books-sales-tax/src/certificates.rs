@@ -39,7 +39,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{documents, exemption_certificates, invoices, parties, tax_lines};
 
 use crate::common::{changes, iso_date, keep, merged, refuse, text, today};
-use crate::orm_bridge::refusal;
 use crate::returns::common::{day_text, parse_day, row_json, rows_json};
 
 /// `exemption_certificates` written from a `{ column: value }` object.
@@ -207,8 +206,7 @@ async fn check_references(
             .filter(parties::Column::Id.eq(party))
             .into_tuple()
             .one(&conn)
-            .await
-            .map_err(refusal)?;
+            .await?;
         if found.is_none() {
             return Err(refuse(format!("Customer {party} not found"), 400));
         }
@@ -222,8 +220,7 @@ async fn check_references(
             .filter(invoices::Column::DeletedAt.is_null())
             .into_tuple()
             .one(&conn)
-            .await
-            .map_err(refusal)?;
+            .await?;
         if found.is_none() {
             return Err(refuse(format!("Invoice {invoice} not found"), 400));
         }
@@ -236,8 +233,7 @@ async fn check_references(
             .filter(documents::Column::DeletedAt.is_null())
             .into_tuple()
             .one(&conn)
-            .await
-            .map_err(refusal)?;
+            .await?;
         if found.is_none() {
             return Err(refuse(format!("Document {document} not found"), 400));
         }
@@ -352,11 +348,9 @@ async fn require_certificate(db: &PgPool, entity_id: &str, id: &str) -> Result<V
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| refuse(format!("Exemption certificate {id} not found"), 404))
 }
 
@@ -493,16 +487,14 @@ async fn list_certificates(caller: &Caller, state: &BooksState, q: &Query) -> Re
     let rows = select
         .order_by_desc(exemption_certificates::Column::CreatedAt)
         .all(&orm(&caller.db))
-        .await
-        .map_err(refusal)?;
-    let rows = rows_json(rows).map_err(refusal)?;
+        .await?;
+    let rows = rows_json(rows)?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
         .collect();
     let used = last_used_by_certificate(&caller.db, entity_id, &ids)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let day = today(caller, state);
     let mut presented: Vec<Value> = rows
         .iter()
@@ -547,8 +539,7 @@ async fn detail(
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let row = require_certificate(&caller.db, &entity_id, &id).await?;
             let used = last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
-                .await
-                .map_err(refusal)?;
+                .await?;
             Ok(ok(present_certificate(
                 &row,
                 last_used(&used, &id),
@@ -636,16 +627,13 @@ async fn create_certificate(caller: &Caller, state: &BooksState, data: Certifica
             &orm(&caller.db),
             T.values(row.as_object().unwrap_or(&Map::new())),
         )
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(caller, &entity_id, &id, "created", None).await;
     let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &row, &day)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let used = if linked > 0 {
         last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
-            .await
-            .map_err(refusal)?
+            .await?
     } else {
         Vec::new()
     };
@@ -735,8 +723,7 @@ async fn update_certificate(
     keep(&mut update, "notes", &data.notes);
     CERTIFICATE_ROWS
         .update(&orm(&caller.db), id, T.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(
         caller,
         &entity_id,
@@ -748,11 +735,9 @@ async fn update_certificate(
     let updated = merged(&row, &update);
     let day = today(caller, state);
     let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &updated, &day)
-        .await
-        .map_err(refusal)?;
+        .await?;
     let used = last_used_by_certificate(&caller.db, &entity_id, &[id.to_owned()])
-        .await
-        .map_err(refusal)?;
+        .await?;
     let presented = present_certificate(&updated, last_used(&used, id), &day);
     caller.publish(
         state,
@@ -783,8 +768,7 @@ async fn remove(
                 .col_expr(exemption_certificates::Column::UpdatedAt, Expr::value(at))
                 .filter(exemption_certificates::Column::Id.eq(id.as_str()))
                 .exec(&orm(&caller.db))
-                .await
-                .map_err(refusal)?;
+                .await?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(
                 &state,

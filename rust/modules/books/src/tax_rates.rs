@@ -34,7 +34,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::tax_rates::{self, Column};
 use weldsuite_schema::tenant::{entities, journal_lines};
 
-use crate::orm_bridge::{sqlx_error, to_json};
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -354,9 +354,7 @@ pub(crate) async fn ensure_standard_tax_rates(db: &PgPool, entity_id: &str) -> R
         if let Some(meta) = template.get("jurisdictionMetadata") {
             row.insert("jurisdictionMetadata".to_owned(), meta.clone());
         }
-        T.insert_raw(db, T.values(&row))
-            .await
-            .map_err(weldsuite_db::orm_error)?;
+        T.insert_raw(db, T.values(&row)).await?;
     }
     Ok(())
 }
@@ -385,12 +383,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .filter(filters)
             .order_by_asc(Column::Name)
             .all(&orm(&caller.db))
-            .await
-            .map_err(sqlx_error)?
+            .await?
             .into_iter()
             .map(to_json)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(sqlx_error)?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ok(Value::Array(rows)))
     }
     .await;
@@ -401,7 +397,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        match find(&caller, &id).await.map_err(sqlx_error)? {
+        match find(&caller, &id).await? {
             Some(row) => Ok(ok(row)),
             None => Err(Refusal::not_found("Tax rate", &id)),
         }
@@ -510,7 +506,7 @@ async fn update_rate(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let Some(existing) = find(caller, id).await.map_err(sqlx_error)? else {
+    let Some(existing) = find(caller, id).await? else {
         return Err(Refusal::not_found("Tax rate", id));
     };
     let mut set = data.clone();
@@ -564,15 +560,14 @@ async fn remove(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let Some(existing) = find(&caller, &id).await.map_err(sqlx_error)? else {
+        let Some(existing) = find(&caller, &id).await? else {
             return Err(Refusal::not_found("Tax rate", &id));
         };
         let used = journal_lines::Entity::find()
             .filter(journal_lines::Column::TaxRateId.eq(id.as_str()))
             .filter(journal_lines::Column::DeletedAt.is_null())
             .count(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         if used > 0 {
             return Err(Refusal::bad_request(
                 "Tax rate is used by bookings — deactivate it instead",
@@ -584,8 +579,7 @@ async fn remove(
             .col_expr(Column::UpdatedAt, Expr::value(at))
             .filter(Column::Id.eq(id.as_str()))
             .exec(&orm(db))
-            .await
-            .map_err(sqlx_error)?;
+            .await?;
         write_accounting_audit(
             &caller,
             db,

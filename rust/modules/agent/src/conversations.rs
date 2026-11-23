@@ -19,7 +19,7 @@ use sea_orm::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_db::{orm, orm_error};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_schema::tenant::weldagent_conversations::{self as conversations, Column};
@@ -206,8 +206,7 @@ pub(crate) async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> R
                     },
                     &caller.viewer(),
                 )
-                .await
-                .map_err(orm_error)?,
+                .await?,
                 None => false,
             };
             if !allowed {

@@ -24,7 +24,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{bank_accounts, documents, entities, invoices, payments};
 
 use crate::ordered::Json;
-use crate::orm_bridge::refused;
 use crate::reports::build::{self, BuildError, balance_in_base};
 use crate::rows::{js, js_rows, money_text, timestamp_of_millis};
 
@@ -76,7 +75,7 @@ type BankAccountRow = (
 fn refusal(error: BuildError) -> Refusal {
     match error {
         BuildError::Input(error) => Refusal::Internal(error.0),
-        BuildError::Database(error) => refused(error),
+        BuildError::Database(error) => Refusal::Database(error),
         BuildError::Internal(error) => Refusal::Internal(error),
     }
 }
@@ -98,9 +97,8 @@ async fn build_dashboard(caller: &Caller) -> Reply {
     let entity = entities::Entity::find_by_id(entity_id.clone())
         .filter(entities::Column::DeletedAt.is_null())
         .one(&orm)
-        .await
-        .map_err(refused)?;
-    let Some(entity) = entity.map(|row| js!(row)).transpose().map_err(refused)? else {
+        .await?;
+    let Some(entity) = entity.map(|row| js!(row)).transpose()? else {
         return Err(Refusal::not_found("Accounting entity", &entity_id));
     };
     let base_currency = entity
@@ -154,12 +152,11 @@ async fn build_dashboard(caller: &Caller) -> Reply {
     let issued_this_month = invoices::Entity::find()
         .filter(invoices::Column::EntityId.eq(&entity_id))
         .filter(invoices::Column::DeletedAt.is_null())
-        .filter(invoices::Column::IssueDate.gte(timestamp_of_millis(month_start).map_err(refused)?))
+        .filter(invoices::Column::IssueDate.gte(timestamp_of_millis(month_start)?))
         .filter(invoices::Column::Type.eq("standard"))
         .filter(invoices::Column::Status.is_not_in(["draft", "cancelled", "void"]))
         .count(&orm)
-        .await
-        .map_err(refused)?;
+        .await?;
     // `count(*)::int`.
     let issued_this_month = i32::try_from(issued_this_month).unwrap_or(i32::MAX);
 
@@ -209,8 +206,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .filter(bank_accounts::Column::IsActive.eq(true))
         .into_tuple()
         .all(&orm)
-        .await
-        .map_err(refused)?;
+        .await?;
 
     // Cash: the ledger balance of the money accounts. `currentBalance` above
     // moves only with bank transactions, so a payment recorded without a
@@ -231,8 +227,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .filter(bank_accounts::Column::LedgerAccountId.is_not_null())
         .into_tuple()
         .one(&orm)
-        .await
-        .map_err(refused)?;
+        .await?;
     if any_linked_bank.is_none() {
         // No bank account is linked to the ledger: payments post to the
         // chart's bank account (see `resolve_money_account`).
@@ -295,9 +290,8 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .order_by_desc(payments::Column::Date)
         .limit(10)
         .all(&orm)
-        .await
-        .map_err(refused)?;
-    let recent_payments = js_rows!(recent_payments).map_err(refused)?;
+        .await?;
+    let recent_payments = js_rows!(recent_payments)?;
 
     // Upcoming due invoices (next 30 days): posted, no credit notes, in base
     // currency.
@@ -316,15 +310,14 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .filter(invoices::Column::Type.is_not_in(["credit_note", "proforma"]))
         .filter(
             invoices::Column::DueDate
-                .lte(timestamp_of_millis(now + 30 * 24 * 60 * 60 * 1000).map_err(refused)?),
+                .lte(timestamp_of_millis(now + 30 * 24 * 60 * 60 * 1000)?),
         )
-        .filter(invoices::Column::DueDate.gte(timestamp_of_millis(now).map_err(refused)?))
+        .filter(invoices::Column::DueDate.gte(timestamp_of_millis(now)?))
         .order_by_asc(invoices::Column::DueDate)
         .limit(10)
         .all(&orm)
-        .await
-        .map_err(refused)?;
-    let upcoming = js_rows!(upcoming).map_err(refused)?;
+        .await?;
+    let upcoming = js_rows!(upcoming)?;
     let upcoming_due: Vec<Value> = upcoming
         .into_iter()
         .map(|row| {
@@ -355,8 +348,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .filter(documents::Column::DeletedAt.is_null())
         .filter(documents::Column::Status.is_in(["pending", "processing", "processed"]))
         .count(&orm)
-        .await
-        .map_err(refused)?;
+        .await?;
     // `count(*)::int`.
     let pending_documents = i32::try_from(pending_documents).unwrap_or(i32::MAX);
 

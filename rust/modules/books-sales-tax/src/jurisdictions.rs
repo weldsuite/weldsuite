@@ -47,7 +47,6 @@ use crate::common::{
     changes, fixed4, iso_date, keep, merged, num, number_of, percent, percent_refined, refuse,
     text, today,
 };
-use crate::orm_bridge::refusal;
 use crate::returns::common::{parse_day, row_json, rows_json};
 
 /// `sales_tax_jurisdictions` written from a `{ column: value }` object.
@@ -223,9 +222,8 @@ async fn load_rates(db: &PgPool, entity_id: &str, ids: &[String]) -> Result<Vec<
         .filter(Column::DeletedAt.is_null())
         .order_by_desc(Column::EffectiveFrom)
         .all(&orm(db))
-        .await
-        .map_err(refusal)?;
-    rows_json(rows).map_err(refusal)
+        .await?;
+    rows_json(rows).map_err(Refusal::Database)
 }
 
 fn rates_of(rates: &[Value], id: &str) -> Vec<Value> {
@@ -252,11 +250,9 @@ async fn require_jurisdiction(db: &PgPool, entity_id: &str, id: &str) -> Result<
         .filter(Column::EntityId.eq(entity_id))
         .filter(Column::DeletedAt.is_null())
         .one(&orm(db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     row.map(row_json)
-        .transpose()
-        .map_err(refusal)?
+        .transpose()?
         .ok_or_else(|| refuse(format!("Sales tax jurisdiction {id} not found"), 404))
 }
 
@@ -375,11 +371,10 @@ async fn list_all(caller: &Caller, state: &BooksState, q: &Query) -> Reply {
         .limit(u64::try_from(page_size).unwrap_or(0))
         .offset(u64::try_from(offset).unwrap_or(0))
         .all(&db)
-        .await
-        .map_err(refusal)?;
-    let total = select.count(&db).await.map_err(refusal)?;
+        .await?;
+    let total = select.count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    let rows = rows_json(rows).map_err(refusal)?;
+    let rows = rows_json(rows)?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
@@ -478,13 +473,11 @@ async fn create_jurisdiction(caller: &Caller, state: &BooksState, data: Jurisdic
         let conn = OrmConn::new(&mut tx);
         JURISDICTION_ROWS
             .insert(&conn, T.values(jurisdiction.as_object().unwrap_or(&empty)))
-            .await
-            .map_err(refusal)?;
+            .await?;
         if let Some(rate) = &rate {
             RATE_ROWS
                 .insert(&conn, R.values(rate.as_object().unwrap_or(&empty)))
-                .await
-                .map_err(refusal)?;
+                .await?;
         }
     }
     tx.commit().await?;
@@ -542,8 +535,7 @@ async fn update_jurisdiction(
     keep(&mut update, "isActive", &data.is_active);
     JURISDICTION_ROWS
         .update(&orm(&caller.db), id, T.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     audit(
         caller,
         &entity_id,
@@ -588,8 +580,7 @@ async fn delete_jurisdiction(caller: &Caller, state: &BooksState, id: &str) -> R
         .filter(sales_tax_zones::Column::DeletedAt.is_null())
         .into_tuple()
         .all(&orm(&caller.db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     let using: Vec<&String> = zones
         .iter()
         .filter(|(_, ids)| {
@@ -617,8 +608,7 @@ async fn delete_jurisdiction(caller: &Caller, state: &BooksState, id: &str) -> R
     let at = utc_timestamp(time::OffsetDateTime::now_utc());
     let mut tx = caller.db.begin().await?;
     delete_with_rates(&OrmConn::new(&mut tx), id, at)
-        .await
-        .map_err(refusal)?;
+        .await?;
     tx.commit().await?;
     audit(caller, &entity_id, id, "deleted", None).await;
     caller.publish(
@@ -772,8 +762,7 @@ async fn rate_create(caller: &Caller, state: &BooksState, id: &str, data: RateBo
         &rate,
         utc_timestamp(instant),
     )
-    .await
-    .map_err(refusal)?;
+    .await?;
     tx.commit().await?;
     let mut audit_changes = Map::new();
     audit_changes.insert("rate".into(), json!({ "old": null, "new": rate["rate"] }));
@@ -858,8 +847,7 @@ async fn rate_update(
     update.insert("updatedAt".into(), json!(now()));
     RATE_ROWS
         .update(&orm(&caller.db), rate_id, R.values(&update), false)
-        .await
-        .map_err(refusal)?;
+        .await?;
     write_accounting_audit(
         caller,
         &caller.db,
@@ -912,8 +900,7 @@ async fn rate_delete(caller: &Caller, state: &BooksState, id: &str, rate_id: &st
         )
         .filter(sales_tax_jurisdiction_rates::Column::Id.eq(rate_id))
         .exec(&orm(&caller.db))
-        .await
-        .map_err(refusal)?;
+        .await?;
     let mut audit_changes = Map::new();
     audit_changes.insert("rate".into(), json!({ "old": rate["rate"], "new": null }));
     write_accounting_audit(

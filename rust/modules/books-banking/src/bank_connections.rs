@@ -46,7 +46,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::entities;
 
 use crate::common::text;
-use crate::orm_bridge::refused;
 
 const ACCOUNT_TYPES: [&str; 5] = [
     "checking",
@@ -177,8 +176,7 @@ async fn providers(caller: Caller, State(state): State<BooksState>) -> Response 
                 .column(entities::Column::JurisdictionCode)
                 .into_tuple::<Option<String>>()
                 .one(&orm(&caller.db))
-                .await
-                .map_err(refused)?;
+                .await?;
             country = code.flatten().map(|c| c.to_uppercase());
         }
         let country = country.unwrap_or_else(|| "US".to_owned());

@@ -17,9 +17,17 @@
 //! after that only a superadmin adds or removes staff, as the console's
 //! roles describe (`apps/web/admin/lib/roles.ts`).
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query};
+use sea_orm::{
+    ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde_json::json;
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::enums::AdminRole;
+use weldsuite_schema::master::{admin_users, user_workspaces, users};
 
 use crate::audit::{self, AuditEntry};
 use crate::{StaffError, StaffResult};
@@ -50,6 +58,23 @@ impl StaffRole {
             "admin" => Some(Self::Admin),
             "viewer" => Some(Self::Viewer),
             _ => None,
+        }
+    }
+
+    /// The `admin_role` value.
+    fn stored(self) -> AdminRole {
+        match self {
+            Self::Superadmin => AdminRole::Superadmin,
+            Self::Admin => AdminRole::Admin,
+            Self::Viewer => AdminRole::Viewer,
+        }
+    }
+
+    fn of(role: AdminRole) -> Self {
+        match role {
+            AdminRole::Superadmin => Self::Superadmin,
+            AdminRole::Admin => Self::Admin,
+            AdminRole::Viewer => Self::Viewer,
         }
     }
 }
@@ -97,38 +122,23 @@ pub fn normalize_email(value: &str) -> StaffResult<String> {
     }
 }
 
-/// The columns of [`MemberRow`], for `concat!` (sqlx takes only static SQL).
-macro_rules! member_columns {
-    () => {
-        "id, email, name, role::text, is_active, user_id, console_subject, invited_by, \
-         to_char(invited_at, 'YYYY-MM-DD\"T\"HH24:MI:SS')"
-    };
+/// `to_char(invited_at, 'YYYY-MM-DD"T"HH24:MI:SS')`.
+fn invited_at(at: PrimitiveDateTime) -> Option<String> {
+    let format = time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
+    at.format(format).ok()
 }
 
-type MemberRow = (
-    String,
-    String,
-    Option<String>,
-    String,
-    bool,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-
-fn member(row: MemberRow) -> StaffMember {
-    let (id, email, name, role, is_active, user_id, console_subject, invited_by, invited_at) = row;
+fn member(row: admin_users::Model) -> StaffMember {
     StaffMember {
-        id,
-        email,
-        name,
-        role: StaffRole::parse(&role).unwrap_or(StaffRole::Viewer),
-        is_active,
-        user_id,
-        console_subject,
-        invited_by,
-        invited_at,
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        role: StaffRole::of(row.role),
+        is_active: row.is_active,
+        user_id: row.user_id,
+        console_subject: row.console_subject,
+        invited_by: row.invited_by,
+        invited_at: invited_at(row.invited_at),
     }
 }
 
@@ -137,21 +147,31 @@ fn member(row: MemberRow) -> StaffMember {
 /// provider into `users`, the staff organization's too, and those share the
 /// email; a staff account is in no workspace and may already be a row's
 /// `console_subject`, so neither is taken. The oldest wins if there are more.
-async fn platform_account(
-    db: impl sqlx::PgExecutor<'_>,
-    email: &str,
-) -> StaffResult<Option<String>> {
-    Ok(sqlx::query_scalar(
-        "select u.id from users u
-          where lower(u.email) = $1 and u.is_active
-            and exists (select 1 from user_workspaces m where m.user_id = u.id)
-            and not exists (select 1 from admin_users s where s.console_subject = u.id)
-          order by u.created_at, u.id
-          limit 1",
-    )
-    .bind(email)
-    .fetch_optional(db)
-    .await?)
+async fn platform_account(master: &PgPool, email: &str) -> StaffResult<Option<String>> {
+    use sea_orm::ExprTrait as _;
+    let user_id = Expr::col((users::Entity, users::Column::Id));
+    let in_a_workspace = Query::select()
+        .expr(Expr::val(1))
+        .from(user_workspaces::Entity)
+        .and_where(Expr::col((user_workspaces::Entity, user_workspaces::Column::UserId)).eq(user_id.clone()))
+        .to_owned();
+    let a_console_account = Query::select()
+        .expr(Expr::val(1))
+        .from(admin_users::Entity)
+        .and_where(Expr::col((admin_users::Entity, admin_users::Column::ConsoleSubject)).eq(user_id))
+        .to_owned();
+    Ok(users::Entity::find()
+        .select_only()
+        .column(users::Column::Id)
+        .filter(Expr::from(Func::lower(Expr::col((users::Entity, users::Column::Email)))).eq(email))
+        .filter(users::Column::IsActive.eq(true))
+        .filter(Expr::exists(in_a_workspace))
+        .filter(Expr::not_exists(a_console_account))
+        .order_by_asc(users::Column::CreatedAt)
+        .order_by_asc(users::Column::Id)
+        .into_tuple()
+        .one(&orm(master))
+        .await?)
 }
 
 /// `user_id` after [`add`]: the platform account found now, else the one the
@@ -169,25 +189,19 @@ fn kept_user_id(found: Option<String>, before: Option<&StaffMember>) -> Option<S
 
 /// Every roster row, active first.
 pub async fn list(master: &PgPool) -> StaffResult<Vec<StaffMember>> {
-    let rows: Vec<MemberRow> = sqlx::query_as(concat!(
-        "select ",
-        member_columns!(),
-        " from admin_users order by is_active desc, email"
-    ))
-    .fetch_all(master)
-    .await?;
+    let rows = admin_users::Entity::find()
+        .order_by_desc(admin_users::Column::IsActive)
+        .order_by_asc(admin_users::Column::Email)
+        .all(&orm(master))
+        .await?;
     Ok(rows.into_iter().map(member).collect())
 }
 
 async fn find(master: &PgPool, email: &str) -> StaffResult<Option<StaffMember>> {
-    let row: Option<MemberRow> = sqlx::query_as(concat!(
-        "select ",
-        member_columns!(),
-        " from admin_users where email = $1 limit 1"
-    ))
-    .bind(email)
-    .fetch_optional(master)
-    .await?;
+    let row = admin_users::Entity::find()
+        .filter(admin_users::Column::Email.eq(email))
+        .one(&orm(master))
+        .await?;
     Ok(row.map(member))
 }
 
@@ -264,20 +278,25 @@ async fn check_keeps_a_superadmin(
     if !takes_a_superadmin_away(before, stays_superadmin) {
         return Ok(());
     }
-    let superadmins: i64 = sqlx::query_scalar(
-        "select count(*) from admin_users where is_active and role = 'superadmin'",
+    let superadmins = admin_users::Entity::find()
+        .filter(admin_users::Column::IsActive.eq(true))
+        .filter(admin_users::Column::Role.eq(AdminRole::Superadmin))
+        .count(&orm(master))
+        .await?;
+    keeps_a_superadmin(
+        before,
+        stays_superadmin,
+        i64::try_from(superadmins).unwrap_or(i64::MAX),
     )
-    .fetch_one(master)
-    .await?;
-    keeps_a_superadmin(before, stays_superadmin, superadmins).map_err(StaffError::Refused)
+    .map_err(StaffError::Refused)
 }
 
 async fn active_rows(master: &PgPool) -> StaffResult<i64> {
-    Ok(
-        sqlx::query_scalar("select count(*) from admin_users where is_active")
-            .fetch_one(master)
-            .await?,
-    )
+    let n = admin_users::Entity::find()
+        .filter(admin_users::Column::IsActive.eq(true))
+        .count(&orm(master))
+        .await?;
+    Ok(i64::try_from(n).unwrap_or(i64::MAX))
 }
 
 /// A person to add, or to change the role of.
@@ -346,29 +365,24 @@ pub async fn add(
     }
 
     let mut tx = master.begin().await?;
-    let row: MemberRow = sqlx::query_as(concat!(
-        "insert into admin_users (id, email, name, role, is_active, user_id, invited_by, invited_at)
-         values ($1, $2, $3, $4::admin_role, true, $6, $5, now())
-         on conflict (email) do update set
-             role = excluded.role,
-             is_active = true,
-             name = coalesce(excluded.name, admin_users.name),
-             user_id = excluded.user_id,
-             updated_at = now()
-         returning ",
-        member_columns!()
-    ))
-    .bind(generate_id("adm"))
-    .bind(&email)
-    .bind(name)
-    .bind(staff.role.as_str())
-    .bind(actor_email)
-    .bind(user_id)
-    .fetch_one(&mut *tx)
+    let db = OrmConn::new(&mut tx);
+    // `invited_at` is the column's default, `now()`.
+    let row = admin_users::Entity::insert(admin_users::ActiveModel {
+        id: Set(generate_id("adm")),
+        email: Set(email.clone()),
+        name: Set(name.map(str::to_owned)),
+        role: Set(staff.role.stored()),
+        is_active: Set(true),
+        user_id: Set(user_id),
+        invited_by: Set(Some(actor_email.to_owned())),
+        ..Default::default()
+    })
+    .on_conflict(rejoin_on_email())
+    .exec_with_returning(&db)
     .await?;
     let after = member(row);
     audit::record_success(
-        &mut *tx,
+        &db,
         &AuditEntry {
             workspace_id: None,
             target_type: "admin_user",
@@ -384,12 +398,31 @@ pub async fn add(
         },
     )
     .await?;
+    drop(db);
     tx.commit().await?;
     Ok(RosterChange {
         before,
         after,
         applied: true,
     })
+}
+
+/// `on conflict (email) do update`: the new role, active again, the name
+/// kept when none is given, the platform account found now.
+fn rejoin_on_email() -> OnConflict {
+    use admin_users::Column;
+    OnConflict::column(Column::Email)
+        .update_columns([Column::Role, Column::UserId])
+        .value(Column::IsActive, Expr::value(true))
+        .value(
+            Column::Name,
+            Func::coalesce([
+                Expr::col((Alias::new("excluded"), Column::Name)),
+                Expr::col((admin_users::Entity, Column::Name)),
+            ]),
+        )
+        .value(Column::UpdatedAt, Expr::current_timestamp())
+        .to_owned()
 }
 
 /// Takes a person off the roster (`is_active` false; the row stays for the
@@ -421,12 +454,15 @@ pub async fn remove(
     }
 
     let mut tx = master.begin().await?;
-    sqlx::query("update admin_users set is_active = false, updated_at = now() where id = $1")
-        .bind(&before.id)
-        .execute(&mut *tx)
+    let db = OrmConn::new(&mut tx);
+    admin_users::Entity::update_many()
+        .col_expr(admin_users::Column::IsActive, Expr::value(false))
+        .col_expr(admin_users::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(admin_users::Column::Id.eq(before.id.as_str()))
+        .exec(&db)
         .await?;
     audit::record_success(
-        &mut *tx,
+        &db,
         &AuditEntry {
             workspace_id: None,
             target_type: "admin_user",
@@ -438,6 +474,7 @@ pub async fn remove(
         },
     )
     .await?;
+    drop(db);
     tx.commit().await?;
     Ok(RosterChange {
         before: Some(before),

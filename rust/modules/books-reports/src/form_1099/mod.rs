@@ -43,7 +43,6 @@ use weldsuite_schema::tenant::form_1099_filings;
 
 use filings::LinePatch;
 
-use crate::orm_bridge::refused;
 
 /// `Form1099Error` (by kind), `VendorTaxKeyError`, or a failure.
 #[derive(Debug)]
@@ -82,7 +81,7 @@ impl Fail {
             }
             Self::Conflict(message, details) => with(ApiError::conflict(message), details),
             Self::Unavailable(message) => ApiError::unavailable(message).into_response(),
-            Self::Database(error) => refused(error).respond(&format!("Failed to {what}")),
+            Self::Database(error) => Refusal::Database(error).respond(&format!("Failed to {what}")),
             Self::Internal(error) => Refusal::Internal(error).respond(&format!("Failed to {what}")),
         }
     }
@@ -94,8 +93,7 @@ impl From<DbErr> for Fail {
     }
 }
 
-/// What `weldsuite-books-domain` (not on the ORM yet) still reads and
-/// writes with sqlx.
+/// A transaction's own `BEGIN` / `COMMIT`, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(weldsuite_db::orm_error(error))

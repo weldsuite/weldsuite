@@ -12,9 +12,10 @@
 //!
 //! Used by the sales and purchases areas and by connect's ingest.
 
-use sqlx::PgPool;
-
-use crate::http::now;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::parties;
 
 /// What a contact is promoted to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,23 +52,26 @@ pub async fn promote_accounting_role(
     db: &PgPool,
     contact_id: &str,
     promote_to: PromoteTo,
-) -> Result<(), sqlx::Error> {
-    let contact: Option<Option<String>> =
-        sqlx::query_scalar("select role from parties where id = $1 limit 1")
-            .bind(contact_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<(), DbErr> {
+    let db = orm(db);
+    let contact: Option<String> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Role)
+        .filter(parties::Column::Id.eq(contact_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(role) = contact else {
         return Ok(());
     };
-    let Some(next) = promoted_role(role.as_deref(), promote_to) else {
+    let Some(next) = promoted_role(Some(&role), promote_to) else {
         return Ok(());
     };
-    sqlx::query("update parties set role = $1, updated_at = $2::timestamp where id = $3")
-        .bind(next)
-        .bind(now())
-        .bind(contact_id)
-        .execute(db)
+    parties::Entity::update_many()
+        .col_expr(parties::Column::Role, Expr::value(next))
+        .col_expr(parties::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(parties::Column::Id.eq(contact_id))
+        .exec(&db)
         .await?;
     Ok(())
 }

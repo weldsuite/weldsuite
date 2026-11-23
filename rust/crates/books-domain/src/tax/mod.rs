@@ -423,6 +423,7 @@ async fn load_entity_rates(
     entity_id: &str,
     rate_ids: &[String],
 ) -> Result<Vec<RateTableRate>, TaxError> {
+    use sea_orm::ExprTrait as _;
     if rate_ids.is_empty() {
         return Ok(Vec::new());
     }

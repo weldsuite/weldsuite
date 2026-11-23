@@ -11,8 +11,18 @@
 //! corpus again costs nothing. One failing record is logged and passed, never
 //! the end of the walk.
 
-use weldsuite_db::PgPool;
+use sea_orm::sea_query::SelectStatement;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, Select,
+};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::Embeddings;
+use weldsuite_schema::tenant::{
+    companies, crm_leads, crm_opportunities, custom_object_records, custom_objects,
+    helpdesk_articles, helpdesk_tickets, knowledge_pages, knowledge_spaces, merge_issues,
+    merge_teams, people, projects, tasks,
+};
 
 use super::documents::{INDEXED_ENTITY_TYPES, Loaded, load_document};
 use super::{BoxError, index_document};
@@ -67,53 +77,97 @@ impl BackfillProgress {
     }
 }
 
+/// Records read per page, as the `limit` of a page query.
+fn page_limit() -> u64 {
+    u64::try_from(BACKFILL_PAGE_SIZE).unwrap_or(u64::MAX)
+}
+
+/// `select id from … where deleted_at is null and ($1 is null or id > $1)
+/// order by id limit $2`.
+fn live_ids<E: EntityTrait>(
+    id: E::Column,
+    deleted_at: E::Column,
+    after_id: Option<&str>,
+) -> Select<E> {
+    let select = E::find()
+        .select_only()
+        .column(id)
+        .filter(deleted_at.is_null());
+    let select = match after_id {
+        Some(after) => select.filter(id.gt(after)),
+        None => select,
+    };
+    select.order_by_asc(id).limit(page_limit())
+}
+
 /// The visible rows of a static type, by id (each loader's `after` query,
 /// ids only: the documents are loaded one by one with `load_document`).
-fn static_page_sql(entity_type: &str) -> Option<&'static str> {
+fn static_page(entity_type: &str, after_id: Option<&str>) -> Option<SelectStatement> {
     Some(match entity_type {
         "knowledge_page" => {
-            "select p.id from knowledge_pages p \
-             inner join knowledge_spaces s on p.space_id = s.id \
-             where p.deleted_at is null and s.deleted_at is null and s.kind = 'team' \
-             and s.visibility = 'open' and ($1::text is null or p.id > $1) \
-             order by p.id limit $2"
+            use knowledge_pages::Column as P;
+            use knowledge_spaces::Column as S;
+            live_ids::<knowledge_pages::Entity>(P::Id, P::DeletedAt, after_id)
+                .join(
+                    JoinType::InnerJoin,
+                    knowledge_pages::Entity::belongs_to(knowledge_spaces::Entity)
+                        .from(P::SpaceId)
+                        .to(S::Id)
+                        .into(),
+                )
+                .filter(S::DeletedAt.is_null())
+                .filter(S::Kind.eq("team"))
+                .filter(S::Visibility.eq("open"))
+                .into_query()
         }
         "article" => {
-            "select id from helpdesk_articles where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use helpdesk_articles::Column;
+            live_ids::<helpdesk_articles::Entity>(Column::Id, Column::DeletedAt, after_id)
+                .into_query()
         }
         "ticket" => {
-            "select id from helpdesk_tickets where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use helpdesk_tickets::Column;
+            live_ids::<helpdesk_tickets::Entity>(Column::Id, Column::DeletedAt, after_id)
+                .into_query()
         }
         "project" => {
-            "select id from projects where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use projects::Column;
+            live_ids::<projects::Entity>(Column::Id, Column::DeletedAt, after_id).into_query()
         }
         "task" => {
-            "select id from tasks where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use tasks::Column;
+            live_ids::<tasks::Entity>(Column::Id, Column::DeletedAt, after_id).into_query()
         }
         "contact" => {
-            "select id from people where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use people::Column;
+            live_ids::<people::Entity>(Column::Id, Column::DeletedAt, after_id).into_query()
         }
         "customer" => {
-            "select id from companies where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use companies::Column;
+            live_ids::<companies::Entity>(Column::Id, Column::DeletedAt, after_id).into_query()
         }
         "lead" => {
-            "select id from crm_leads where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use crm_leads::Column;
+            live_ids::<crm_leads::Entity>(Column::Id, Column::DeletedAt, after_id).into_query()
         }
         "opportunity" => {
-            "select id from crm_opportunities where deleted_at is null \
-             and ($1::text is null or id > $1) order by id limit $2"
+            use crm_opportunities::Column;
+            live_ids::<crm_opportunities::Entity>(Column::Id, Column::DeletedAt, after_id)
+                .into_query()
         }
         "merge_issue" => {
-            "select i.id from merge_issues i inner join merge_teams t on t.id = i.team_id \
-             where i.deleted_at is null and t.deleted_at is null \
-             and ($1::text is null or i.id > $1) order by i.id limit $2"
+            use merge_issues::Column as I;
+            use merge_teams::Column as T;
+            live_ids::<merge_issues::Entity>(I::Id, I::DeletedAt, after_id)
+                .join(
+                    JoinType::InnerJoin,
+                    merge_issues::Entity::belongs_to(merge_teams::Entity)
+                        .from(I::TeamId)
+                        .to(T::Id)
+                        .into(),
+                )
+                .filter(T::DeletedAt.is_null())
+                .into_query()
         }
         _ => return None,
     })
@@ -121,13 +175,17 @@ fn static_page_sql(entity_type: &str) -> Option<&'static str> {
 
 /// `listSearchableCustomObjectKeys`: every object opted into search; none
 /// for a tenant without the WeldObjects tables.
-async fn searchable_custom_object_keys(db: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    match sqlx::query_scalar(
-        "select entity_key from custom_objects \
-         where enable_search = true and status = 'active' and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await
+async fn searchable_custom_object_keys(db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+    use custom_objects::Column;
+    match custom_objects::Entity::find()
+        .select_only()
+        .column(Column::EntityKey)
+        .filter(Column::EnableSearch.eq(true))
+        .filter(Column::Status.eq("active"))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await
     {
         Ok(keys) => Ok(keys),
         Err(error) if weldsuite_db::is_missing_table(&error) => Ok(Vec::new()),
@@ -137,14 +195,19 @@ async fn searchable_custom_object_keys(db: &PgPool) -> Result<Vec<String>, sqlx:
 
 /// Whether a `co_<slug>` key is an object with search on
 /// (`getCustomObjectLoader` is not null).
-async fn searchable_custom_object(db: &PgPool, entity_key: &str) -> Result<bool, sqlx::Error> {
-    match sqlx::query_scalar::<_, bool>(
-        "select enable_search from custom_objects \
-         where entity_key = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_key)
-    .fetch_optional(db)
-    .await
+async fn searchable_custom_object(
+    db: &DatabaseConnection,
+    entity_key: &str,
+) -> Result<bool, DbErr> {
+    use custom_objects::Column;
+    match custom_objects::Entity::find()
+        .select_only()
+        .column(Column::EnableSearch)
+        .filter(Column::EntityKey.eq(entity_key))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple::<bool>()
+        .one(db)
+        .await
     {
         Ok(enabled) => Ok(enabled == Some(true)),
         Err(error) if weldsuite_db::is_missing_table(&error) => Ok(false),
@@ -155,35 +218,31 @@ async fn searchable_custom_object(db: &PgPool, entity_key: &str) -> Result<bool,
 /// One page of ids of `entity_type` after `after_id`; `None` when the type
 /// has no loader.
 async fn page_ids(
-    db: &PgPool,
+    db: &DatabaseConnection,
     entity_type: &str,
     after_id: Option<&str>,
-) -> Result<Option<Vec<String>>, sqlx::Error> {
-    let limit = i64::try_from(BACKFILL_PAGE_SIZE).unwrap_or(i64::MAX);
+) -> Result<Option<Vec<String>>, DbErr> {
     if weldsuite_events::is_custom_object_entity_key(entity_type) {
+        use custom_object_records::Column;
         if !searchable_custom_object(db, entity_type).await? {
             return Ok(None);
         }
-        let ids = sqlx::query_scalar(
-            "select id from custom_object_records \
-             where entity_key = $1 and deleted_at is null and ($2::text is null or id > $2) \
-             order by id limit $3",
-        )
-        .bind(entity_type)
-        .bind(after_id)
-        .bind(limit)
-        .fetch_all(db)
-        .await?;
+        let ids = live_ids::<custom_object_records::Entity>(Column::Id, Column::DeletedAt, after_id)
+            .filter(Column::EntityKey.eq(entity_type))
+            .into_tuple()
+            .all(db)
+            .await?;
         return Ok(Some(ids));
     }
-    let Some(sql) = static_page_sql(entity_type) else {
+    let Some(page) = static_page(entity_type, after_id) else {
         return Ok(None);
     };
-    let ids = sqlx::query_scalar(sql)
-        .bind(after_id)
-        .bind(limit)
-        .fetch_all(db)
-        .await?;
+    let ids = db
+        .query_all(&page)
+        .await?
+        .iter()
+        .map(|row| row.try_get_by_index::<String>(0))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(Some(ids))
 }
 
@@ -193,9 +252,9 @@ async fn page_ids(
 /// mid-walk) restarts at the head of the custom list, which no longer holds
 /// it, so the walk can't loop.
 async fn next_entity_type(
-    db: &PgPool,
+    db: &DatabaseConnection,
     current: &str,
-) -> Result<Option<BackfillCursor>, sqlx::Error> {
+) -> Result<Option<BackfillCursor>, DbErr> {
     let start = |entity_type: &str| BackfillCursor {
         entity_type: entity_type.to_owned(),
         after_id: None,
@@ -227,11 +286,12 @@ pub async fn backfill_batch(
         cursor: next,
         ..BackfillProgress::default()
     };
-    let Some(ids) = page_ids(db, &cursor.entity_type, cursor.after_id.as_deref()).await? else {
-        return Ok(finished(next_entity_type(db, &cursor.entity_type).await?));
+    let conn = orm(db);
+    let Some(ids) = page_ids(&conn, &cursor.entity_type, cursor.after_id.as_deref()).await? else {
+        return Ok(finished(next_entity_type(&conn, &cursor.entity_type).await?));
     };
     if ids.is_empty() {
-        return Ok(finished(next_entity_type(db, &cursor.entity_type).await?));
+        return Ok(finished(next_entity_type(&conn, &cursor.entity_type).await?));
     }
 
     let mut embedded = 0;
@@ -261,7 +321,7 @@ pub async fn backfill_batch(
     // From the rows read, never the documents: a row that maps to no
     // document still moves the cursor on.
     let next = if ids.len() < BACKFILL_PAGE_SIZE {
-        next_entity_type(db, &cursor.entity_type).await?
+        next_entity_type(&conn, &cursor.entity_type).await?
     } else {
         Some(BackfillCursor {
             entity_type: cursor.entity_type.clone(),
@@ -284,9 +344,9 @@ mod tests {
     #[test]
     fn every_static_type_pages() {
         for entity_type in INDEXED_ENTITY_TYPES {
-            assert!(static_page_sql(entity_type).is_some(), "{entity_type}");
+            assert!(static_page(entity_type, None).is_some(), "{entity_type}");
         }
-        assert!(static_page_sql("product").is_none());
+        assert!(static_page("product", Some("prd_1")).is_none());
     }
 
     #[test]
