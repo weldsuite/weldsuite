@@ -960,7 +960,6 @@ async fn update_task(
             let conn = OrmConn::new(&mut tx);
             write_dependency_rows(&conn, &id, &plan, &now(), caller.session.actor()).await?;
             TASKS.patch_on(&conn, &id, &update, true, &date_props).await?;
-            drop(conn);
             tx.commit().await?;
         }
         None => {

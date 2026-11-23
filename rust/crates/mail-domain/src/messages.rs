@@ -1262,3 +1262,37 @@ pub async fn final_labels(
         .map(|(id, labels)| (id, labels_of(labels.as_ref())))
         .collect())
 }
+
+#[cfg(test)]
+mod tmp_sql_print {
+    use sea_orm::{DbBackend, EntityTrait, QueryFilter, QueryTrait};
+
+    use super::*;
+
+    #[test]
+    fn print_sql() {
+        let filters = MessageFilters {
+            is_read: Some(false),
+            thread_id: Some("t1".into()),
+            ..MessageFilters::default()
+        };
+        let values = ConditionValues {
+            account_id: Some("acc".into()),
+            accessible: Some(vec![]),
+            search: vec!["%a%".into()],
+            label: Some(LabelMatch::new("Work", &["work".into()])),
+            from: Some("%b%".into()),
+            counterparty: Some("x@y.z".into()),
+        };
+        let q = mail_messages::Entity::find()
+            .filter(filters.condition(&values))
+            .filter(before_cursor("2026-10-13T09:30:00.000Z", "msg_1"))
+            .build(DbBackend::Postgres);
+        println!("LIST: {}\n", q.to_string());
+        let q = mail_messages::Entity::update_many()
+            .col_expr(Column::Labels, Expr::value(json!(["X"])))
+            .filter(Column::Id.eq("x"))
+            .build(DbBackend::Postgres);
+        println!("UPD: {}\n", q.to_string());
+    }
+}
