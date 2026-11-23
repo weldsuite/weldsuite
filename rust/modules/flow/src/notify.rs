@@ -139,9 +139,7 @@ async fn send_assignment(
         data: push_data(&assignment.task_id, &[], assignment.project_id.as_deref()),
         ..NewNotification::default()
     };
-    create_and_deliver(&context.db, &context.notifier, &params)
-        .await
-        .map_err(orm_error)?;
+    create_and_deliver(&context.db, &context.notifier, &params).await?;
     Ok(())
 }
 

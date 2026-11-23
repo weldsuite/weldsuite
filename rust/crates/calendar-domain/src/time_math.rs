@@ -1,8 +1,7 @@
 //! JavaScript `Date` arithmetic in UTC, on time values (milliseconds as
 //! `f64`, NaN for an Invalid Date), as the scheduler uses it.
 
-use serde_json::Value;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 
 pub(crate) const DAY_MS: f64 = 86_400_000.0;
 const MAX_TIME: f64 = 8.64e15;
@@ -64,13 +63,24 @@ pub(crate) fn same_day(a: f64, b: f64) -> bool {
     }
 }
 
-/// A `timestamp` column as `to_jsonb` writes it, as a time value (UTC, as
-/// Drizzle reads it).
-pub(crate) fn from_db(value: &Value) -> Option<f64> {
-    let stamp = weldsuite_db::js_timestamp(value.as_str()?)?;
-    let at = OffsetDateTime::parse(&stamp, &time::format_description::well_known::Rfc3339).ok()?;
+/// A `timestamp` column as a time value (UTC, as Drizzle reads it; the
+/// microseconds dropped, as `Date` does).
+pub(crate) fn from_db(at: PrimitiveDateTime) -> f64 {
     #[allow(clippy::cast_precision_loss)]
-    Some((at.unix_timestamp_nanos() / 1_000_000) as f64)
+    {
+        at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000) as f64
+    }
+}
+
+/// A `timestamp` column as `Date#toISOString()` writes it.
+pub(crate) fn iso_of(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
+
+/// `new Date(ms)` (the epoch when out of range).
+pub(crate) fn instant(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 /// `Number(text)`.
@@ -80,9 +90,7 @@ pub(crate) fn js_number(text: &str) -> f64 {
 
 /// `new Date(ms).toISOString()`.
 pub fn iso(ms: i64) -> String {
-    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
-        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
-    weldsuite_events::iso_timestamp(at)
+    weldsuite_events::iso_timestamp(instant(ms))
 }
 
 /// `Date.now()`.
@@ -110,9 +118,11 @@ mod tests {
         assert!(same_day(10.0, DAY_MS - 1.0));
         assert!(!same_day(10.0, DAY_MS));
         assert_eq!(end_of_day(10.0), DAY_MS - 1.0);
-        assert_eq!(
-            from_db(&Value::String("2030-03-01T10:00:00".to_owned())),
-            Some(1_898_589_600_000.0)
+        let at = PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2030, time::Month::March, 1).expect("date"),
+            time::Time::from_hms_micro(10, 0, 0, 123_456).expect("time"),
         );
+        assert_eq!(from_db(at), 1_898_589_600_123.0);
+        assert_eq!(iso_of(at), "2030-03-01T10:00:00.123Z");
     }
 }

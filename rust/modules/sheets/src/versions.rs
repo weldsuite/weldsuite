@@ -21,7 +21,7 @@ use crate::records::{
     self, NewVersion, get_version, room_name, to_version, version_event_data, version_key_for,
 };
 use crate::routes::{XLSX_TYPE, download, editable_sheet, find_sheet};
-use crate::{Caller, Refusal, SheetsState, answer, now, validate, validate_query};
+use crate::{Caller, Refusal, SheetsState, answer, validate, validate_query};
 
 const DEFAULT_LIMIT: i64 = 50;
 
@@ -139,7 +139,7 @@ pub(crate) async fn create(
                     size: &saved["size"],
                     created_by_id: &caller.user_id,
                 },
-                &now(),
+                weldsuite_db::utc_now(),
             )
             .await?;
             caller.publish(

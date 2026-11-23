@@ -12,13 +12,18 @@
 //! that here (see the flow module's `custom_values`), until the shared
 //! `weldsuite-core-domain` value store is wired in.
 
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use weldsuite_db::js_row;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::tasks;
 
-use crate::js::{iso_from_millis, js_date, millis_of};
+use crate::js::{
+    iso_from_millis, js_date, json_text, millis_of, row as entity_row, timestamp_of_millis,
+};
 use crate::numbering::allocate_task_number;
 use crate::recurrence::{RepeatConfig, next_occurrence_date};
 use crate::stage::{normalize_task_status, stage_for_status, status_from_stage};
@@ -34,13 +39,13 @@ pub struct CreatedTask {
 /// Why a create failed.
 #[derive(Debug)]
 pub enum CreateError {
-    Database(sqlx::Error),
+    Database(DbErr),
     /// A date JavaScript cannot turn into a timestamp (`toISOString` throws).
     InvalidDate,
 }
 
-impl From<sqlx::Error> for CreateError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CreateError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -82,27 +87,57 @@ fn date_of(data: &Map<String, Value>, key: &str) -> Result<Option<String>, Creat
 
 /// `coalesce(max(position), 0) + 1` among the live tasks of the project
 /// (or of the workspace for a task without one).
-async fn next_position(db: &PgPool, project_id: Option<&str>) -> Result<i32, sqlx::Error> {
-    let max: i32 = sqlx::query_scalar(
-        "select coalesce(max(position), 0)::int from tasks
-         where ($1::text is null or project_id = $1) and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_one(db)
-    .await?;
-    Ok(max.max(0) + 1)
+async fn next_position(db: &PgPool, project_id: Option<&str>) -> Result<i32, DbErr> {
+    let mut live = Condition::all().add(tasks::Column::DeletedAt.is_null());
+    if let Some(project_id) = project_id {
+        live = live.add(tasks::Column::ProjectId.eq(project_id));
+    }
+    let max: Option<i32> = tasks::Entity::find()
+        .select_only()
+        .expr(sea_orm::ExprTrait::cast_as(
+            Func::coalesce([
+                Expr::from(Func::max(Expr::col(tasks::Column::Position))),
+                Expr::val(0),
+            ]),
+            "int",
+        ))
+        .filter(live)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(max.unwrap_or(0).max(0) + 1)
 }
 
-async fn read_back(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) || jsonb_build_object('progress', t.progress::text,
-             'estimated_hours', t.estimated_hours::text, 'actual_hours', t.actual_hours::text)
-         from tasks t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The row as the task routes return it (numerics as their text).
+async fn read_back(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = tasks::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(entity_row))
+}
+
+/// `$n::timestamp` of an ISO text (`NULL` stays `NULL`): Postgres reads it.
+fn timestamp_text(value: Option<&str>) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::val(value), "timestamp")
+}
+
+/// `($n::jsonb #>> '{}')::<type>`: a JSON value converted by Postgres, as
+/// the insert spreads it (a number or its text; `null` stays `NULL`).
+fn json_cast(value: &Value, type_name: &'static str) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::val(json_text(value)), type_name)
+}
+
+/// The `'0'` the insert writes to `progress`.
+fn zero_progress() -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::val("0"), "numeric")
+}
+
+/// Run an insert built with SeaQuery; its row count.
+async fn run_insert(
+    db: &impl ConnectionTrait,
+    insert: &sea_orm::sea_query::InsertStatement,
+) -> Result<u64, DbErr> {
+    Ok(db.execute(insert).await?.rows_affected())
 }
 
 /// `jsonb` keeps `2.0` as written; JavaScript would store `2`.
@@ -136,7 +171,7 @@ pub async fn create_task(
     // A freshly generated id is never taken.
     insert_task(db, data, project_id, user_id, None)
         .await?
-        .ok_or(CreateError::Database(sqlx::Error::RowNotFound))
+        .ok_or(CreateError::Database(DbErr::RecordNotInserted))
 }
 
 /// `createTaskOnce(db, data, { projectId, userId, id })`: `create_task` for a
@@ -165,8 +200,8 @@ async fn insert_task(
         .map(str::to_owned)
         .or_else(|| text(data, "projectId").map(str::to_owned));
     let id = fixed_id.map_or_else(|| generate_id("task"), str::to_owned);
-    let now = iso_timestamp(time::OffsetDateTime::now_utc());
-    let number = allocate_task_number(db).await?;
+    let now = utc_now();
+    let number = allocate_task_number(&orm(db)).await?;
     let stage_id = text(data, "stageId");
 
     let mut status = normalize_task_status(text(data, "status").unwrap_or("todo"));
@@ -180,12 +215,14 @@ async fn insert_task(
     if priority.as_deref().is_none_or(str::is_empty)
         && let Some(parent) = parent
     {
-        priority = sqlx::query_scalar(
-            "select priority from tasks where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(parent)
-        .fetch_optional(db)
-        .await?;
+        priority = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::Priority)
+            .filter(tasks::Column::Id.eq(parent))
+            .filter(tasks::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     }
 
     let assignee_ids: Vec<String> = match data.get("assigneeIds") {
@@ -208,61 +245,95 @@ async fn insert_task(
         .filter(|r| !r.is_empty())
         .unwrap_or(user_id);
 
-    let inserted = sqlx::query(
-        "insert into tasks (id, number, project_id, title, description, status, stage_id, priority,
-             type, assignee_id, assignee_ids, reporter_id, sprint_id, milestone_id, deliverable_id,
-             parent_task_id, start_date, due_date, estimated_hours, duration, story_points, tags,
-             labels, is_billable, customer_id, contact_id, person_id, custom_fields, depends_on,
-             blocks, repeat, position, progress, created_at, updated_at, source_type, source_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                 $17::timestamp, $18::timestamp, ($19::jsonb #>> '{}')::numeric,
-                 ($20::jsonb #>> '{}')::int, ($21::jsonb #>> '{}')::int, $22, $23,
-                 $24, $25, $26, $27, $28, $29, $30, $31, $32, '0', $33::timestamp, $33::timestamp,
-                 $34, $35)
-         on conflict (id) do nothing",
-    )
-    .bind(&id)
-    .bind(number)
-    .bind(project_id.as_deref())
-    .bind(text(data, "title"))
-    .bind(text(data, "description"))
-    .bind(&status)
-    .bind(stage_id)
-    .bind(priority.as_deref().unwrap_or("medium"))
-    .bind(kind)
-    .bind(assignee_ids.first())
-    .bind((!assignee_ids.is_empty()).then(|| json!(assignee_ids)))
-    .bind(reporter)
-    .bind(text(data, "sprintId"))
-    .bind(text(data, "milestoneId"))
-    .bind(text(data, "deliverableId"))
-    .bind(text(data, "parentTaskId"))
-    .bind(start_date)
-    .bind(due_date)
-    .bind(nullable(data, "estimatedHours"))
-    .bind(nullable(data, "duration"))
-    .bind(nullable(data, "storyPoints"))
-    .bind(json_column(data, "tags"))
-    .bind(json_column(data, "labels"))
-    .bind(
-        data.get("isBillable")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-    )
-    .bind(text(data, "customerId"))
-    .bind(text(data, "contactId"))
-    .bind(text(data, "personId"))
-    .bind(json_column(data, "customFields"))
-    .bind(json_column(data, "dependsOn"))
-    .bind(json_column(data, "blocks"))
-    .bind(json_column(data, "repeat"))
-    .bind(position)
-    .bind(&now)
-    .bind(text(data, "sourceType"))
-    .bind(text(data, "sourceId"))
-    .execute(db)
-    .await?;
-    if inserted.rows_affected() == 0 {
+    use tasks::Column as C;
+    let mut insert = Query::insert();
+    insert
+        .into_table(tasks::Entity)
+        .columns([
+            C::Id,
+            C::Number,
+            C::ProjectId,
+            C::Title,
+            C::Description,
+            C::Status,
+            C::StageId,
+            C::Priority,
+            C::Type,
+            C::AssigneeId,
+            C::AssigneeIds,
+            C::ReporterId,
+            C::SprintId,
+            C::MilestoneId,
+            C::DeliverableId,
+            C::ParentTaskId,
+            C::StartDate,
+            C::DueDate,
+            C::EstimatedHours,
+            C::Duration,
+            C::StoryPoints,
+            C::Tags,
+            C::Labels,
+            C::IsBillable,
+            C::CustomerId,
+            C::ContactId,
+            C::PersonId,
+            C::CustomFields,
+            C::DependsOn,
+            C::Blocks,
+            C::Repeat,
+            C::Position,
+            C::Progress,
+            C::CreatedAt,
+            C::UpdatedAt,
+            C::SourceType,
+            C::SourceId,
+        ])
+        .values([
+            Expr::val(&id),
+            Expr::val(number),
+            Expr::val(project_id.as_deref()),
+            Expr::val(text(data, "title")),
+            Expr::val(text(data, "description")),
+            Expr::val(&status),
+            Expr::val(stage_id),
+            Expr::val(priority.as_deref().unwrap_or("medium")),
+            Expr::val(kind),
+            Expr::val(assignee_ids.first().map(String::as_str)),
+            Expr::val((!assignee_ids.is_empty()).then(|| json!(assignee_ids))),
+            Expr::val(reporter),
+            Expr::val(text(data, "sprintId")),
+            Expr::val(text(data, "milestoneId")),
+            Expr::val(text(data, "deliverableId")),
+            Expr::val(text(data, "parentTaskId")),
+            timestamp_text(start_date.as_deref()),
+            timestamp_text(due_date.as_deref()),
+            json_cast(&nullable(data, "estimatedHours"), "numeric"),
+            json_cast(&nullable(data, "duration"), "int"),
+            json_cast(&nullable(data, "storyPoints"), "int"),
+            Expr::val(json_column(data, "tags")),
+            Expr::val(json_column(data, "labels")),
+            Expr::val(
+                data.get("isBillable")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            Expr::val(text(data, "customerId")),
+            Expr::val(text(data, "contactId")),
+            Expr::val(text(data, "personId")),
+            Expr::val(json_column(data, "customFields")),
+            Expr::val(json_column(data, "dependsOn")),
+            Expr::val(json_column(data, "blocks")),
+            Expr::val(json_column(data, "repeat")),
+            Expr::val(position),
+            zero_progress(),
+            Expr::val(now),
+            Expr::val(now),
+            Expr::val(text(data, "sourceType")),
+            Expr::val(text(data, "sourceId")),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .on_conflict(OnConflict::column(C::Id).do_nothing().to_owned());
+    if run_insert(&orm(db), &insert).await? == 0 {
         return Ok(None);
     }
 
@@ -277,26 +348,30 @@ async fn insert_task(
 async fn existing_occurrence(
     db: &PgPool,
     source: &Map<String, Value>,
-    due: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from tasks
-         where deleted_at is null
-           and (case when $1::text is null then project_id is null else project_id = $1 end)
-           and title = $2 and due_date = $3::timestamp
-           and status not in ('done', 'cancelled')
-           and assignee_id is not distinct from $4
-           and parent_task_id is not distinct from $5
-           and repeat is not null
-         limit 1",
-    )
-    .bind(text(source, "projectId").filter(|p| !p.is_empty()))
-    .bind(text(source, "title"))
-    .bind(due)
-    .bind(text(source, "assigneeId"))
-    .bind(text(source, "parentTaskId"))
-    .fetch_optional(db)
-    .await
+    due_ms: i64,
+) -> Result<Option<String>, DbErr> {
+    // `is not distinct from`: equal, or both null.
+    let same = |column: tasks::Column, value: Option<&str>| match value {
+        Some(value) => column.eq(value),
+        None => column.is_null(),
+    };
+    tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::Id)
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(same(
+            tasks::Column::ProjectId,
+            text(source, "projectId").filter(|p| !p.is_empty()),
+        ))
+        .filter(tasks::Column::Title.eq(text(source, "title")))
+        .filter(tasks::Column::DueDate.eq(timestamp_of_millis(due_ms)))
+        .filter(tasks::Column::Status.is_not_in(["done", "cancelled"]))
+        .filter(same(tasks::Column::AssigneeId, text(source, "assigneeId")))
+        .filter(same(tasks::Column::ParentTaskId, text(source, "parentTaskId")))
+        .filter(tasks::Column::Repeat.is_not_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `createNextOccurrence(db, source, now)`: a fresh `todo` copy of a
@@ -320,7 +395,7 @@ pub async fn create_next_occurrence(
     };
     let next_due_ms = next_occurrence_date(due_ms, &config, now_ms);
     let next_due = iso_from_millis(next_due_ms).ok_or(CreateError::InvalidDate)?;
-    if existing_occurrence(db, source, &next_due).await?.is_some() {
+    if existing_occurrence(db, source, next_due_ms).await?.is_some() {
         return Ok(None);
     }
     let start_ms = text(source, "startDate")
@@ -332,57 +407,94 @@ pub async fn create_next_occurrence(
     };
     let project_id = text(source, "projectId").filter(|p| !p.is_empty());
     let position = next_position(db, project_id).await?;
-    let number = allocate_task_number(db).await?;
+    let number = allocate_task_number(&orm(db)).await?;
     let stage_id = stage_for_status(db, project_id, None, "todo").await?;
     let id = generate_id("task");
-    let now = iso_from_millis(now_ms).ok_or(CreateError::InvalidDate)?;
+    let now = timestamp_of_millis(now_ms).ok_or(CreateError::InvalidDate)?;
     let or_default = |key: &str, fallback: &str| {
         text(source, key)
             .filter(|v| !v.is_empty())
             .unwrap_or(fallback)
             .to_owned()
     };
-    sqlx::query(
-        "insert into tasks (id, number, project_id, stage_id, sprint_id, milestone_id,
-             parent_task_id, customer_id, contact_id, person_id, title, description, status,
-             priority, type, assignee_id, assignee_ids, reporter_id, start_date, due_date,
-             estimated_hours, duration, story_points, tags, labels, is_billable, repeat,
-             custom_fields, position, progress, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'todo', $13, $14, $15, $16,
-                 $17, $18::timestamp, $19::timestamp, ($20::jsonb #>> '{}')::numeric,
-                 ($21::jsonb #>> '{}')::int, ($22::jsonb #>> '{}')::int, $23, $24,
-                 coalesce($25, true), $26, $27, $28, '0', $29::timestamp, $29::timestamp)",
-    )
-    .bind(&id)
-    .bind(number)
-    .bind(text(source, "projectId"))
-    .bind(stage_id)
-    .bind(text(source, "sprintId"))
-    .bind(text(source, "milestoneId"))
-    .bind(text(source, "parentTaskId"))
-    .bind(text(source, "customerId"))
-    .bind(text(source, "contactId"))
-    .bind(text(source, "personId"))
-    .bind(text(source, "title"))
-    .bind(text(source, "description"))
-    .bind(or_default("priority", "medium"))
-    .bind(or_default("type", "task"))
-    .bind(text(source, "assigneeId"))
-    .bind(json_column(source, "assigneeIds"))
-    .bind(text(source, "reporterId"))
-    .bind(next_start)
-    .bind(&next_due)
-    .bind(nullable(source, "estimatedHours"))
-    .bind(nullable(source, "duration"))
-    .bind(nullable(source, "storyPoints"))
-    .bind(json_column(source, "tags"))
-    .bind(json_column(source, "labels"))
-    .bind(source.get("isBillable").and_then(Value::as_bool))
-    .bind(whole(repeat.clone()))
-    .bind(json_column(source, "customFields"))
-    .bind(position)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    use tasks::Column as C;
+    let mut insert = Query::insert();
+    insert
+        .into_table(tasks::Entity)
+        .columns([
+            C::Id,
+            C::Number,
+            C::ProjectId,
+            C::StageId,
+            C::SprintId,
+            C::MilestoneId,
+            C::ParentTaskId,
+            C::CustomerId,
+            C::ContactId,
+            C::PersonId,
+            C::Title,
+            C::Description,
+            C::Status,
+            C::Priority,
+            C::Type,
+            C::AssigneeId,
+            C::AssigneeIds,
+            C::ReporterId,
+            C::StartDate,
+            C::DueDate,
+            C::EstimatedHours,
+            C::Duration,
+            C::StoryPoints,
+            C::Tags,
+            C::Labels,
+            C::IsBillable,
+            C::Repeat,
+            C::CustomFields,
+            C::Position,
+            C::Progress,
+            C::CreatedAt,
+            C::UpdatedAt,
+        ])
+        .values([
+            Expr::val(&id),
+            Expr::val(number),
+            Expr::val(text(source, "projectId")),
+            Expr::val(stage_id),
+            Expr::val(text(source, "sprintId")),
+            Expr::val(text(source, "milestoneId")),
+            Expr::val(text(source, "parentTaskId")),
+            Expr::val(text(source, "customerId")),
+            Expr::val(text(source, "contactId")),
+            Expr::val(text(source, "personId")),
+            Expr::val(text(source, "title")),
+            Expr::val(text(source, "description")),
+            Expr::val("todo"),
+            Expr::val(or_default("priority", "medium")),
+            Expr::val(or_default("type", "task")),
+            Expr::val(text(source, "assigneeId")),
+            Expr::val(json_column(source, "assigneeIds")),
+            Expr::val(text(source, "reporterId")),
+            timestamp_text(next_start.as_deref()),
+            timestamp_text(Some(&next_due)),
+            json_cast(&nullable(source, "estimatedHours"), "numeric"),
+            json_cast(&nullable(source, "duration"), "int"),
+            json_cast(&nullable(source, "storyPoints"), "int"),
+            Expr::val(json_column(source, "tags")),
+            Expr::val(json_column(source, "labels")),
+            Expr::val(
+                source
+                    .get("isBillable")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            Expr::val(whole(repeat.clone())),
+            Expr::val(json_column(source, "customFields")),
+            Expr::val(position),
+            zero_progress(),
+            Expr::val(now),
+            Expr::val(now),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    run_insert(&orm(db), &insert).await?;
     Ok(read_back(db, &id).await?)
 }

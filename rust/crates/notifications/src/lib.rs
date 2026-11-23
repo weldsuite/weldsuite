@@ -18,20 +18,20 @@
 //! ([`set_push_server`]): the mobile apps act on a tap only when that is the
 //! server they run against.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod preview;
 mod push;
 
 use std::sync::{Arc, OnceLock};
 
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect, Set,
+    SqlxPostgresConnector,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use weldsuite_events::iso_timestamp;
+use weldsuite_schema::tenant::{chat_user_status, notification_preferences, notifications};
 use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, OutboundHttp, PresenceReader, RealtimeMessage,
     RealtimePublisher,
@@ -41,6 +41,24 @@ pub use preview::{notification_preview, strip_markdown};
 pub use push::{
     ApnsConfig, CallCancelReason, ExpoResult, cancel_incoming_call_push, send_expo_push,
 };
+
+/// `pool` as a SeaORM connection, on its own connections (what
+/// `weldsuite_db::orm` does; this crate sits below `weldsuite-db`'s users and
+/// does not depend on it).
+pub(crate) fn orm(pool: &PgPool) -> DatabaseConnection {
+    SqlxPostgresConnector::from_sqlx_postgres_pool(pool.clone())
+}
+
+/// A moment as a `timestamp` (without time zone) column holds it: UTC.
+pub(crate) fn utc_wall_clock(at: OffsetDateTime) -> PrimitiveDateTime {
+    let at = at.to_offset(UtcOffset::UTC);
+    PrimitiveDateTime::new(at.date(), at.time())
+}
+
+/// A moment as Drizzle writes it: to the millisecond.
+pub(crate) fn to_millis(at: OffsetDateTime) -> OffsetDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
+}
 
 /// The install's public platform origin, named in every push.
 static PUSH_SERVER: OnceLock<String> = OnceLock::new();
@@ -190,15 +208,23 @@ pub async fn resolve_email_presence(
     presence: Option<&PresenceReader>,
     workspace_id: &str,
 ) -> EmailPresence {
-    let row: Result<Option<(String, bool)>, sqlx::Error> = sqlx::query_as(
-        "select status, coalesce(status_expires_at <= now() at time zone 'utc', false)
-         from chat_user_status where user_id = $1 limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await;
+    let row: Result<Option<(String, Option<PrimitiveDateTime>)>, DbErr> =
+        chat_user_status::Entity::find()
+            .select_only()
+            .columns([
+                chat_user_status::Column::Status,
+                chat_user_status::Column::StatusExpiresAt,
+            ])
+            .filter(chat_user_status::Column::UserId.eq(user_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await;
     let (stored, expired) = match row {
-        Ok(Some((status, expired))) => (Some(status), expired),
+        // `coalesce(status_expires_at <= now() at time zone 'utc', false)`.
+        Ok(Some((status, expires_at))) => (
+            Some(status),
+            expires_at.is_some_and(|at| at <= utc_wall_clock(OffsetDateTime::now_utc())),
+        ),
         Ok(None) => (None, false),
         Err(error) => {
             tracing::error!(%error, "[Notifications] Presence lookup failed, treating as absent");
@@ -241,14 +267,22 @@ pub async fn channel_preferences(
     db: &PgPool,
     user_id: &str,
     category: &str,
-) -> Result<Channels, sqlx::Error> {
-    let row: Option<(bool, Option<Value>, bool, bool, bool)> = sqlx::query_as(
-        "select do_not_disturb, module_preferences, default_in_app, default_email, default_push
-         from notification_preferences where user_id = $1 limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Channels, DbErr> {
+    use notification_preferences::Column;
+    let row: Option<(bool, Option<Value>, bool, bool, bool)> =
+        notification_preferences::Entity::find()
+            .select_only()
+            .columns([
+                Column::DoNotDisturb,
+                Column::ModulePreferences,
+                Column::DefaultInApp,
+                Column::DefaultEmail,
+                Column::DefaultPush,
+            ])
+            .filter(Column::UserId.eq(user_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     let Some((dnd, modules, in_app, email, push)) = row else {
         return Ok(Channels {
             in_app: true,
@@ -317,7 +351,7 @@ pub async fn create_and_deliver(
     db: &PgPool,
     notifier: &Notifier,
     params: &NewNotification,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let mut channels = channel_preferences(db, &params.user_id, &params.category).await?;
     if params.exclude_email {
         channels.email = false;
@@ -353,31 +387,28 @@ pub async fn create_and_deliver(
     }
 
     let id = notification_id();
-    let now = iso_timestamp(OffsetDateTime::now_utc());
-    sqlx::query(
-        "insert into notifications
-            (id, user_id, title, body, category, notification_type, entity_type, entity_id,
-             action_url, severity, actor_type, actor_id, delivered_in_app, delivered_email,
-             delivered_push, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::timestamptz)",
-    )
-    .bind(&id)
-    .bind(&params.user_id)
-    .bind(&params.title)
-    .bind(&params.body)
-    .bind(&params.category)
-    .bind(&params.notification_type)
-    .bind(&params.entity_type)
-    .bind(&params.entity_id)
-    .bind(&params.action_url)
-    .bind(&params.severity)
-    .bind(&params.actor_type)
-    .bind(&params.actor_id)
-    .bind(channels.in_app)
-    .bind(will_email)
-    .bind(channels.push)
-    .bind(&now)
-    .execute(db)
+    let at = to_millis(OffsetDateTime::now_utc());
+    let now = iso_timestamp(at);
+    notifications::Entity::insert(notifications::ActiveModel {
+        id: Set(id.clone()),
+        user_id: Set(params.user_id.clone()),
+        title: Set(params.title.clone()),
+        body: Set(Some(params.body.clone())),
+        category: Set(params.category.clone()),
+        notification_type: Set(params.notification_type.clone()),
+        entity_type: Set(Some(params.entity_type.clone())),
+        entity_id: Set(Some(params.entity_id.clone())),
+        action_url: Set(Some(params.action_url.clone())),
+        severity: Set(params.severity.clone()),
+        actor_type: Set(params.actor_type.clone()),
+        actor_id: Set(params.actor_id.clone()),
+        delivered_in_app: Set(channels.in_app),
+        delivered_email: Set(will_email),
+        delivered_push: Set(channels.push),
+        created_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
 
     if channels.in_app {

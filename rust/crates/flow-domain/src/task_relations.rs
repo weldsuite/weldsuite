@@ -2,7 +2,9 @@
 //! its sprint, milestone, deliverable, pipeline stage and parent must belong
 //! to the task's own project.
 
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{milestones, project_deliverables, project_pipeline_stages, sprints, tasks};
 
 /// The references a body may set; `None` (or empty) is "not set".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -18,16 +20,24 @@ fn set(value: Option<&String>) -> Option<&str> {
     value.map(String::as_str).filter(|id| !id.is_empty())
 }
 
-async fn exists_in_project(
+/// `select id from <table> where id = $1 and project_id = $2 and deleted_at
+/// is null limit 1` found a row. `columns` are the table's `id`,
+/// `project_id` and `deleted_at`.
+async fn exists_in_project<E: EntityTrait>(
     db: &PgPool,
-    sql: &'static str,
+    columns: [E::Column; 3],
     id: &str,
     project_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(sql)
-        .bind(id)
-        .bind(project_id)
-        .fetch_optional(db)
+) -> Result<bool, DbErr> {
+    let [id_column, project_column, deleted_column] = columns;
+    let found: Option<String> = E::find()
+        .select_only()
+        .column(id_column)
+        .filter(id_column.eq(id))
+        .filter(project_column.eq(project_id))
+        .filter(deleted_column.is_null())
+        .into_tuple()
+        .one(&orm(db))
         .await?;
     Ok(found.is_some())
 }
@@ -39,16 +49,20 @@ pub async fn find_invalid_task_reference(
     db: &PgPool,
     project_id: Option<&str>,
     refs: &TaskReferences,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if let Some(sprint_id) = set(refs.sprint_id.as_ref()) {
         let Some(project_id) = project_id.filter(|id| !id.is_empty()) else {
             return Ok(Some(
                 "A task without a project cannot be added to a sprint".to_owned(),
             ));
         };
-        if !exists_in_project(
+        if !exists_in_project::<sprints::Entity>(
             db,
-            "select id from sprints where id = $1 and project_id = $2 and deleted_at is null limit 1",
+            [
+                sprints::Column::Id,
+                sprints::Column::ProjectId,
+                sprints::Column::DeletedAt,
+            ],
             sprint_id,
             project_id,
         )
@@ -63,9 +77,13 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be added to a milestone".to_owned(),
             ));
         };
-        if !exists_in_project(
+        if !exists_in_project::<milestones::Entity>(
             db,
-            "select id from milestones where id = $1 and project_id = $2 and deleted_at is null limit 1",
+            [
+                milestones::Column::Id,
+                milestones::Column::ProjectId,
+                milestones::Column::DeletedAt,
+            ],
             milestone_id,
             project_id,
         )
@@ -82,10 +100,13 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot count toward a deliverable".to_owned(),
             ));
         };
-        if !exists_in_project(
+        if !exists_in_project::<project_deliverables::Entity>(
             db,
-            "select id from project_deliverables
-             where id = $1 and project_id = $2 and deleted_at is null limit 1",
+            [
+                project_deliverables::Column::Id,
+                project_deliverables::Column::ProjectId,
+                project_deliverables::Column::DeletedAt,
+            ],
             deliverable_id,
             project_id,
         )
@@ -102,10 +123,13 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be placed in a pipeline stage".to_owned(),
             ));
         };
-        if !exists_in_project(
+        if !exists_in_project::<project_pipeline_stages::Entity>(
             db,
-            "select id from project_pipeline_stages
-             where id = $1 and project_id = $2 and deleted_at is null limit 1",
+            [
+                project_pipeline_stages::Column::Id,
+                project_pipeline_stages::Column::ProjectId,
+                project_pipeline_stages::Column::DeletedAt,
+            ],
             stage_id,
             project_id,
         )
@@ -117,12 +141,14 @@ pub async fn find_invalid_task_reference(
         }
     }
     if let Some(parent_id) = set(refs.parent_task_id.as_ref()) {
-        let parent: Option<Option<String>> = sqlx::query_scalar(
-            "select project_id from tasks where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(parent_id)
-        .fetch_optional(db)
-        .await?;
+        let parent: Option<Option<String>> = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::ProjectId)
+            .filter(tasks::Column::Id.eq(parent_id))
+            .filter(tasks::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let Some(parent_project) = parent else {
             return Ok(Some(format!("Parent task {parent_id} not found")));
         };

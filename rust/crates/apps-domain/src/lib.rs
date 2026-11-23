@@ -5,11 +5,6 @@
 //! their content types, and the URL rules for lifecycle webhooks and preview
 //! sessions.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod adopt;
 pub mod schemas;
 pub mod scopes;

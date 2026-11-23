@@ -5,9 +5,11 @@
 //! with it. The token is used as stored, never refreshed: an expired one is
 //! no token. The merge module uses its own `member_token`, which refreshes.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{Keyring, PgPool, decrypt_field};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
 use weldsuite_kit::validation::js_date_parse;
+use weldsuite_schema::tenant::merge_provider_accounts;
 
 /// The access token of a stored credentials blob (`mergeStoredCredentialsSchema`)
 /// while it has not expired at `now_ms`.
@@ -41,17 +43,21 @@ pub async fn stored_member_github_token(
     tenant: &PgPool,
     keyring: &Keyring,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
+    use merge_provider_accounts::Column;
     if user_id.is_empty() {
         return Ok(None);
     }
-    let sealed: Option<Option<String>> = sqlx::query_scalar(
-        "select credentials from merge_provider_accounts where user_id = $1 and provider = 'github' \
-         and host is null and verified_at is not null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(tenant)
-    .await?;
+    let sealed: Option<Option<String>> = merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(Column::Credentials)
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::Host.is_null())
+        .filter(Column::VerifiedAt.is_not_null())
+        .into_tuple()
+        .one(&orm(tenant))
+        .await?;
     let Some(sealed) = sealed.flatten().filter(|s| !s.is_empty()) else {
         return Ok(None);
     };

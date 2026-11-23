@@ -10,8 +10,17 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Expr, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    accounting_entity_settings, bills, fiscal_periods, hr_employees, hr_pay_runs,
+    hr_payroll_employers, invoices, journal_entries, payments, vat_returns,
+};
 
 /// An app that extends a legal entity (`LegalEntityApp`). WeldBooks needs to
 /// be enabled per entity; WeldHR works with any entity.
@@ -77,47 +86,66 @@ impl LegalEntityApp {
         self,
         db: &PgPool,
         entity_ids: &[String],
-    ) -> Result<HashSet<String>, sqlx::Error> {
+    ) -> Result<HashSet<String>, DbErr> {
         match self {
             Self::Weldhr => Ok(entity_ids.iter().cloned().collect()),
             Self::Weldbooks => {
                 if entity_ids.is_empty() {
                     return Ok(HashSet::new());
                 }
-                let ids: Vec<String> = sqlx::query_scalar(
-                    "select entity_id from accounting_entity_settings where entity_id = any($1)",
-                )
-                .bind(entity_ids)
-                .fetch_all(db)
-                .await?;
+                let ids: Vec<String> = accounting_entity_settings::Entity::find()
+                    .select_only()
+                    .column(accounting_entity_settings::Column::EntityId)
+                    .filter(accounting_entity_settings::Column::EntityId.is_in(entity_ids))
+                    .into_tuple()
+                    .all(&orm(db))
+                    .await?;
                 Ok(ids.into_iter().collect())
             }
         }
     }
 
     /// Whether the app is enabled for one entity.
-    pub async fn is_enabled_for(self, db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
+    pub async fn is_enabled_for(self, db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
         let ids = [entity_id.to_owned()];
         Ok(self.enabled_for(db, &ids).await?.contains(entity_id))
     }
 
-    /// Whether the app holds data for the entity (`hasData`; blocks deletion).
-    pub async fn has_data(self, db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-        let sql = match self {
-            Self::Weldbooks => {
-                "select exists (select 1 from invoices where entity_id = $1
-                     union all select 1 from bills where entity_id = $1
-                     union all select 1 from journal_entries where entity_id = $1
-                     limit 1)"
-            }
-            Self::Weldhr => {
-                "select exists (select 1 from hr_employees
-                                where legal_entity_id = $1 and deleted_at is null)
-                     or exists (select 1 from hr_payroll_employers
-                                where legal_entity_id = $1 and deleted_at is null)"
-            }
+    /// Whether the app holds data for the entity (`hasData`; blocks deletion):
+    /// WeldBooks any invoice, bill or journal entry; WeldHR a live employee or
+    /// payroll employer.
+    pub async fn has_data(self, db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
+        let queries = match self {
+            Self::Weldbooks => vec![
+                rows_of(
+                    invoices::Entity,
+                    Condition::all().add(invoices::Column::EntityId.eq(entity_id)),
+                ),
+                rows_of(
+                    bills::Entity,
+                    Condition::all().add(bills::Column::EntityId.eq(entity_id)),
+                ),
+                rows_of(
+                    journal_entries::Entity,
+                    Condition::all().add(journal_entries::Column::EntityId.eq(entity_id)),
+                ),
+            ],
+            Self::Weldhr => vec![
+                rows_of(
+                    hr_employees::Entity,
+                    Condition::all()
+                        .add(hr_employees::Column::LegalEntityId.eq(entity_id))
+                        .add(hr_employees::Column::DeletedAt.is_null()),
+                ),
+                rows_of(
+                    hr_payroll_employers::Entity,
+                    Condition::all()
+                        .add(hr_payroll_employers::Column::LegalEntityId.eq(entity_id))
+                        .add(hr_payroll_employers::Column::DeletedAt.is_null()),
+                ),
+            ],
         };
-        sqlx::query_scalar(sql).bind(entity_id).fetch_one(db).await
+        any_exists(db, queries).await
     }
 
     /// Why the app forbids changing core fields its data rests on, or `None`
@@ -132,21 +160,14 @@ impl LegalEntityApp {
         db: &PgPool,
         entity_id: &str,
         change: LegalEntityCoreChange,
-    ) -> Result<Option<String>, sqlx::Error> {
+    ) -> Result<Option<String>, DbErr> {
         match self {
             Self::Weldbooks => books_locked_change(db, entity_id, change).await,
             Self::Weldhr => {
                 if !change.jurisdiction_code && !change.base_currency {
                     return Ok(None);
                 }
-                let run: bool = sqlx::query_scalar(
-                    "select exists (select 1 from hr_pay_runs r
-                     join hr_payroll_employers e on e.id = r.employer_id
-                     where e.legal_entity_id = $1)",
-                )
-                .bind(entity_id)
-                .fetch_one(db)
-                .await?;
+                let run = any_exists(db, [pay_runs_of(entity_id)]).await?;
                 Ok(run.then(|| {
                     format!(
                         "The {} of this legal entity can no longer be changed because WeldHR has pay runs for it. Create a new legal entity instead.",
@@ -158,22 +179,94 @@ impl LegalEntityApp {
     }
 }
 
+/// `select 1 from <table> where <condition>`: the rows an `exists` probes.
+fn rows_of(table: impl EntityTrait, condition: Condition) -> SelectStatement {
+    Query::select()
+        .expr(Expr::val(1))
+        .from(table)
+        .cond_where(condition)
+        .to_owned()
+}
+
+/// `select exists (a) or exists (b) …`, one statement: whether any of the
+/// queries finds a row.
+async fn any_exists(
+    db: &PgPool,
+    queries: impl IntoIterator<Item = SelectStatement>,
+) -> Result<bool, DbErr> {
+    let mut probes = queries.into_iter().map(Expr::exists);
+    let Some(first) = probes.next() else {
+        return Ok(false);
+    };
+    let any = probes.fold(first, sea_orm::ExprTrait::or);
+    let statement = Query::select().expr(any).to_owned();
+    match orm(db).query_one(&statement).await? {
+        Some(row) => row.try_get_by_index(0),
+        None => Ok(false),
+    }
+}
+
+/// WeldHR pay runs of the entity's employers (`hr_pay_runs r join
+/// hr_payroll_employers e on e.id = r.employer_id where e.legal_entity_id = $1`).
+fn pay_runs_of(entity_id: &str) -> SelectStatement {
+    Query::select()
+        .expr(Expr::val(1))
+        .from(hr_pay_runs::Entity)
+        .inner_join(
+            hr_payroll_employers::Entity,
+            sea_orm::ExprTrait::equals(
+                Expr::col((hr_payroll_employers::Entity, hr_payroll_employers::Column::Id)),
+                (hr_pay_runs::Entity, hr_pay_runs::Column::EmployerId),
+            ),
+        )
+        .cond_where(
+            Condition::all().add(hr_payroll_employers::Column::LegalEntityId.eq(entity_id)),
+        )
+        .to_owned()
+}
+
 /// Finalized WeldBooks records (`booksHasPostings`): the same definition as
 /// books-api's `entityHasPostings`, which guards WeldBooks' own PATCH.
-async fn books_has_postings(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from journal_entries
-                        where entity_id = $1 and status <> 'draft' and deleted_at is null)
-             or exists (select 1 from invoices
-                        where entity_id = $1 and status <> 'draft' and deleted_at is null)
-             or exists (select 1 from bills
-                        where entity_id = $1 and status <> 'draft' and deleted_at is null)
-             or exists (select 1 from payments where entity_id = $1 and deleted_at is null)
-             or exists (select 1 from vat_returns
-                        where entity_id = $1 and status <> 'draft' and deleted_at is null)",
+async fn books_has_postings(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
+    any_exists(
+        db,
+        [
+            rows_of(
+                journal_entries::Entity,
+                Condition::all()
+                    .add(journal_entries::Column::EntityId.eq(entity_id))
+                    .add(journal_entries::Column::Status.ne("draft"))
+                    .add(journal_entries::Column::DeletedAt.is_null()),
+            ),
+            rows_of(
+                invoices::Entity,
+                Condition::all()
+                    .add(invoices::Column::EntityId.eq(entity_id))
+                    .add(invoices::Column::Status.ne("draft"))
+                    .add(invoices::Column::DeletedAt.is_null()),
+            ),
+            rows_of(
+                bills::Entity,
+                Condition::all()
+                    .add(bills::Column::EntityId.eq(entity_id))
+                    .add(bills::Column::Status.ne("draft"))
+                    .add(bills::Column::DeletedAt.is_null()),
+            ),
+            rows_of(
+                payments::Entity,
+                Condition::all()
+                    .add(payments::Column::EntityId.eq(entity_id))
+                    .add(payments::Column::DeletedAt.is_null()),
+            ),
+            rows_of(
+                vat_returns::Entity,
+                Condition::all()
+                    .add(vat_returns::Column::EntityId.eq(entity_id))
+                    .add(vat_returns::Column::Status.ne("draft"))
+                    .add(vat_returns::Column::DeletedAt.is_null()),
+            ),
+        ],
     )
-    .bind(entity_id)
-    .fetch_one(db)
     .await
 }
 
@@ -181,7 +274,7 @@ async fn books_locked_change(
     db: &PgPool,
     entity_id: &str,
     change: LegalEntityCoreChange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if !change.any() {
         return Ok(None);
     }
@@ -201,11 +294,15 @@ async fn books_locked_change(
                 .to_owned(),
         ));
     }
-    let periods: bool = sqlx::query_scalar(
-        "select exists (select 1 from fiscal_periods where entity_id = $1 and deleted_at is null)",
+    let periods = any_exists(
+        db,
+        [rows_of(
+            fiscal_periods::Entity,
+            Condition::all()
+                .add(fiscal_periods::Column::EntityId.eq(entity_id))
+                .add(fiscal_periods::Column::DeletedAt.is_null()),
+        )],
     )
-    .bind(entity_id)
-    .fetch_one(db)
     .await?;
     Ok(periods.then(|| {
         "The fiscal year of this legal entity can no longer be changed because WeldBooks has generated fiscal periods for it."
@@ -218,7 +315,7 @@ async fn books_locked_change(
 pub async fn enabled_apps_by_entity(
     db: &PgPool,
     entity_ids: &[String],
-) -> Result<HashMap<String, Vec<LegalEntityApp>>, sqlx::Error> {
+) -> Result<HashMap<String, Vec<LegalEntityApp>>, DbErr> {
     let mut result: HashMap<String, Vec<LegalEntityApp>> = entity_ids
         .iter()
         .map(|id| (id.clone(), Vec::new()))
@@ -238,7 +335,7 @@ pub async fn locked_core_change(
     db: &PgPool,
     entity_id: &str,
     change: LegalEntityCoreChange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if !change.any() {
         return Ok(None);
     }
@@ -270,6 +367,32 @@ mod tests {
             ..LegalEntityCoreChange::default()
         };
         assert_eq!(country.changed_fields(), "country");
+    }
+
+    #[test]
+    fn probes_read_like_the_sql() {
+        use sea_orm::DbBackend;
+        let probe = |statement: &SelectStatement| DbBackend::Postgres.build(statement).sql;
+        assert_eq!(
+            probe(&pay_runs_of("ent_1")),
+            r#"SELECT $1 FROM "hr_pay_runs" INNER JOIN "hr_payroll_employers" ON "hr_payroll_employers"."id" = "hr_pay_runs"."employer_id" WHERE "hr_payroll_employers"."legal_entity_id" = $2"#
+        );
+        let rows = rows_of(
+            invoices::Entity,
+            Condition::all()
+                .add(invoices::Column::EntityId.eq("ent_1"))
+                .add(invoices::Column::Status.ne("draft")),
+        );
+        let exists = Query::select()
+            .expr(sea_orm::ExprTrait::or(
+                Expr::exists(rows.clone()),
+                Expr::exists(rows),
+            ))
+            .to_owned();
+        assert_eq!(
+            probe(&exists),
+            r#"SELECT EXISTS(SELECT $1 FROM "invoices" WHERE "invoices"."entity_id" = $2 AND "invoices"."status" <> $3) OR EXISTS(SELECT $4 FROM "invoices" WHERE "invoices"."entity_id" = $5 AND "invoices"."status" <> $6)"#
+        );
     }
 
     #[test]

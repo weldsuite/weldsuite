@@ -345,7 +345,7 @@ impl Caller {
 
     /// The caller as the Drive rules see them (`driveCaller`): workspace
     /// OWNER / ADMIN open every item.
-    pub(crate) async fn drive_caller(&self) -> Result<DriveCaller, sqlx::Error> {
+    pub(crate) async fn drive_caller(&self) -> Result<DriveCaller, sea_orm::DbErr> {
         let Some(user_id) = self.user_id.clone() else {
             return Ok(DriveCaller {
                 user_id: None,
@@ -369,7 +369,7 @@ impl Caller {
     }
 
     /// The Drive rules for this caller (`driveAccess(c)`).
-    pub(crate) async fn drive_access(&self) -> Result<DriveAccessIndex, sqlx::Error> {
+    pub(crate) async fn drive_access(&self) -> Result<DriveAccessIndex, sea_orm::DbErr> {
         load_drive_access(&self.db, self.drive_caller().await?).await
     }
 
@@ -453,7 +453,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 #[derive(Debug)]
 pub(crate) enum Fail {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Storage(PortError),
 }
 
@@ -469,9 +469,16 @@ impl From<Invalid> for Fail {
     }
 }
 
+impl From<sea_orm::DbErr> for Fail {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A call into a crate not converted to the ORM yet.
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

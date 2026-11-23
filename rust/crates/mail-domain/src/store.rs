@@ -15,8 +15,11 @@
 use std::collections::HashSet;
 use std::future::Future;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::mail_messages;
 
 /// How many of a mailbox's newest messages `recentAddresses` reads
 /// (`PostgresMailboxStore.recentAddresses`).
@@ -31,7 +34,7 @@ pub trait MailboxStore: Send + Sync {
     fn recent_addresses(
         &self,
         limit: usize,
-    ) -> impl Future<Output = Result<Vec<String>, sqlx::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<String>, DbErr>> + Send;
 }
 
 /// A workspace's mail store over its tenant database (`postgres` mode).
@@ -69,17 +72,26 @@ impl PostgresMailboxStore {
 }
 
 impl MailboxStore for PostgresMailboxStore {
-    async fn recent_addresses(&self, limit: usize) -> Result<Vec<String>, sqlx::Error> {
-        let rows: Vec<(Option<String>, Option<Value>)> = sqlx::query_as(
-            "select \"from\"->>'email', \"to\" from mail_messages
-             where account_id = $1 and deleted_at is null
-             order by sent_date desc
-             limit $2",
-        )
-        .bind(&self.account_id)
-        .bind(RECENT_ADDRESS_SAMPLE)
-        .fetch_all(&self.db)
-        .await?;
+    async fn recent_addresses(&self, limit: usize) -> Result<Vec<String>, DbErr> {
+        use mail_messages::Column;
+        // `"from"->>'email', "to"`, newest first.
+        let rows: Vec<(Option<String>, Value)> = mail_messages::Entity::find()
+            .select_only()
+            .column_as(
+                sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                    Expr::col((mail_messages::Entity, Column::From)),
+                    "email",
+                ),
+                "from_email",
+            )
+            .column(Column::To)
+            .filter(Column::AccountId.eq(&self.account_id))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_desc(Column::SentDate)
+            .limit(RECENT_ADDRESS_SAMPLE.unsigned_abs())
+            .into_tuple()
+            .all(&orm(&self.db))
+            .await?;
         let mut seen = HashSet::new();
         let mut addresses = Vec::new();
         let mut add = |email: &str| {
@@ -92,7 +104,7 @@ impl MailboxStore for PostgresMailboxStore {
             if let Some(from) = from.filter(|from| !from.is_empty()) {
                 add(&from);
             }
-            if let Some(Value::Array(recipients)) = to {
+            if let Value::Array(recipients) = to {
                 for recipient in recipients {
                     if let Some(email) = recipient
                         .get("email")

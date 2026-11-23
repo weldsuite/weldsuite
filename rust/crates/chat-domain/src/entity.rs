@@ -17,6 +17,7 @@ use weldsuite_core_domain::drive_access::{
 
 use crate::access::{Can, string_list};
 use crate::flow;
+use crate::orm_bridge::sqlx_error;
 
 /// A record type with a chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -496,7 +497,9 @@ impl Provider {
         let Some(record) = records.into_iter().next() else {
             return Ok(false);
         };
-        let index = load_drive_access_for_user(db, Some(acting_user_id)).await?;
+        let index = load_drive_access_for_user(db, Some(acting_user_id))
+            .await
+            .map_err(sqlx_error)?;
         if !can_edit(file_role(&index, &record.file)) {
             return Ok(false);
         }
@@ -819,7 +822,9 @@ async fn visible_files(
     if records.is_empty() {
         return Ok(visible);
     }
-    let index = load_drive_access_for_user(db, Some(user_id)).await?;
+    let index = load_drive_access_for_user(db, Some(user_id))
+        .await
+        .map_err(sqlx_error)?;
     let mut in_projects = Vec::new();
     for record in records {
         if file_role(&index, &record.file).is_none() {

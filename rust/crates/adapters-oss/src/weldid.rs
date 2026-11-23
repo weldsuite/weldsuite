@@ -42,15 +42,24 @@ use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL};
 use reqwest::Method;
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
+    FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use unicode_normalization::UnicodeNormalization;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, is_unique_violation, orm, orm_error, utc_now};
 use weldsuite_ports::{
     BoxFuture, FeedEvent, FeedPage, Identity, IdentityError, IdentityResult, Invitation,
     InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser, Membership, NewInvitation,
     NewMembership, NewOrganization, Organization, OrganizationChanges, OrganizationRef, Session,
     User, UserChanges, UserProfile, merge_metadata,
 };
+
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, users, workspace_invitations, workspaces};
 
 use crate::zitadel::person_name;
 use crate::zitadel_api::safe_path;
@@ -183,7 +192,7 @@ pub(crate) fn not_found() -> IdentityError {
     }
 }
 
-fn database(error: &sqlx::Error) -> IdentityError {
+fn database(error: &DbErr) -> IdentityError {
     IdentityError::Unavailable(format!("master database: {error}"))
 }
 
@@ -318,8 +327,35 @@ pub(crate) fn list(body: &Value) -> &[Value] {
         .map_or(&[], Vec::as_slice)
 }
 
+/// `(extract(epoch from <column>) * 1000)::bigint`: milliseconds since the
+/// epoch of a moment Postgres holds to the microsecond, rounded half away
+/// from zero as Postgres casts `numeric` to `bigint`.
+fn epoch_ms(at: OffsetDateTime) -> i64 {
+    let micros = at.unix_timestamp() * 1_000_000 + i64::from(at.microsecond());
+    if micros >= 0 {
+        (micros + 500) / 1000
+    } else {
+        (micros - 500) / 1000
+    }
+}
+
+/// The same for a `timestamp` column, whose epoch is taken as UTC.
+fn timestamp_epoch_ms(at: PrimitiveDateTime) -> i64 {
+    epoch_ms(at.assume_utc())
+}
+
+/// `coalesce(w.clerk_org_id, w.id)`: the organization id the session layer
+/// knows a workspace by.
+fn organization_id() -> Expr {
+    Func::coalesce([
+        Expr::col((workspaces::Entity, workspaces::Column::ClerkOrgId)),
+        Expr::col((workspaces::Entity, workspaces::Column::Id)),
+    ])
+    .into()
+}
+
 /// A workspace as the organization calls see it.
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct WorkspaceRow {
     id: String,
     org: String,
@@ -328,11 +364,11 @@ struct WorkspaceRow {
 }
 
 /// A membership with its user and workspace.
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct MemberRow {
     id: String,
     role: String,
-    created_ms: Option<i64>,
+    created_at: PrimitiveDateTime,
     user_id: String,
     email: Option<String>,
     first_name: Option<String>,
@@ -343,20 +379,45 @@ struct MemberRow {
     org_slug: Option<String>,
 }
 
-const MEMBER_COLUMNS: &str = "uw.id, uw.role,
-       (extract(epoch from uw.created_at) * 1000)::bigint as created_ms,
-       uw.user_id, u.email, u.first_name, u.last_name, u.image_url,
-       coalesce(w.clerk_org_id, w.id) as org, w.name as org_name, w.slug as org_slug
-  from user_workspaces uw
-  join workspaces w on w.id = uw.workspace_id
-  left join users u on u.id = uw.user_id";
+/// Active memberships (`user_workspaces`) with their workspace and, when
+/// WeldSuite has it, their user, oldest first.
+fn active_members() -> Select<user_workspaces::Entity> {
+    use user_workspaces::Column;
+    user_workspaces::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Role, Column::CreatedAt, Column::UserId])
+        .column_as(users::Column::Email, "email")
+        .column_as(users::Column::FirstName, "first_name")
+        .column_as(users::Column::LastName, "last_name")
+        .column_as(users::Column::ImageUrl, "image_url")
+        .column_as(organization_id(), "org")
+        .column_as(workspaces::Column::Name, "org_name")
+        .column_as(workspaces::Column::Slug, "org_slug")
+        .join(
+            JoinType::InnerJoin,
+            user_workspaces::Entity::belongs_to(workspaces::Entity)
+                .from(Column::WorkspaceId)
+                .to(workspaces::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            user_workspaces::Entity::belongs_to(users::Entity)
+                .from(Column::UserId)
+                .to(users::Column::Id)
+                .into(),
+        )
+        .filter(Column::Status.eq(MembershipStatus::ACTIVE))
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+}
 
 impl MemberRow {
     fn into_membership(self, with_organization: bool) -> Membership {
         Membership {
             id: self.id,
             role: self.role,
-            created_at: self.created_ms,
+            created_at: Some(timestamp_epoch_ms(self.created_at)),
             // Not kept: a guest is marked in the tenant database.
             public_metadata: Value::Null,
             user: MemberUser {
@@ -751,17 +812,28 @@ impl WeldIdIdentity {
     /// The workspace `org` names (its organization id or its id); a deleted
     /// one only when `deleted` asks.
     async fn workspace(&self, org: &str, deleted: bool) -> IdentityResult<Option<WorkspaceRow>> {
-        sqlx::query_as(
-            "select id, coalesce(clerk_org_id, id) as org, name, slug from workspaces
-              where (id = $1 or clerk_org_id = $1) and ($2 or deleted_at is null)
-              order by (id = $1) desc
-              limit 1",
-        )
-        .bind(org)
-        .bind(deleted)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| database(&error))
+        use sea_orm::ExprTrait as _;
+        use workspaces::Column;
+        let mut query = workspaces::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .column_as(organization_id(), "org")
+            .columns([Column::Name, Column::Slug])
+            .filter(
+                Condition::any()
+                    .add(Column::Id.eq(org))
+                    .add(Column::ClerkOrgId.eq(org)),
+            );
+        if !deleted {
+            query = query.filter(Column::DeletedAt.is_null());
+        }
+        // The workspace whose id it is before one whose organization id it is.
+        query
+            .order_by_desc(Expr::col((workspaces::Entity, Column::Id)).eq(org))
+            .into_model()
+            .one(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))
     }
 
     async fn live_workspace(&self, org: &str) -> IdentityResult<WorkspaceRow> {
@@ -788,9 +860,9 @@ impl WeldIdIdentity {
 
     async fn delete_organization_inner(&self, org: &str) -> IdentityResult<()> {
         let workspace = self.workspace(org, true).await?.ok_or_else(not_found)?;
-        sqlx::query("delete from user_workspaces where workspace_id = $1")
-            .bind(&workspace.id)
-            .execute(&self.master)
+        user_workspaces::Entity::delete_many()
+            .filter(user_workspaces::Column::WorkspaceId.eq(workspace.id.as_str()))
+            .exec(&orm(&self.master))
             .await
             .map_err(|error| database(&error))?;
         tracing::info!(
@@ -805,32 +877,29 @@ impl WeldIdIdentity {
         org: &str,
         page: ListPage,
     ) -> IdentityResult<Listing<Membership>> {
+        use user_workspaces::Column;
         let workspace = self.live_workspace(org).await?;
-        let rows: Vec<MemberRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {MEMBER_COLUMNS}
-              where uw.workspace_id = $1 and uw.status = 'ACTIVE'
-              order by uw.created_at, uw.id
-              limit $2 offset $3"
-        )))
-        .bind(&workspace.id)
-        .bind(page.limit.map(i64::from))
-        .bind(i64::from(page.offset.unwrap_or(0)))
-        .fetch_all(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from user_workspaces where workspace_id = $1 and status = 'ACTIVE'",
-        )
-        .bind(&workspace.id)
-        .fetch_one(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let db = orm(&self.master);
+        let rows: Vec<MemberRow> = active_members()
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .limit(page.limit.map(u64::from))
+            .offset(u64::from(page.offset.unwrap_or(0)))
+            .into_model()
+            .all(&db)
+            .await
+            .map_err(|error| database(&error))?;
+        let total = user_workspaces::Entity::find()
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .filter(Column::Status.eq(MembershipStatus::ACTIVE))
+            .count(&db)
+            .await
+            .map_err(|error| database(&error))?;
         Ok(Listing {
             data: rows
                 .into_iter()
                 .map(|row| row.into_membership(false))
                 .collect(),
-            total_count: u64::try_from(total).ok(),
+            total_count: Some(total),
         })
     }
 
@@ -839,17 +908,14 @@ impl WeldIdIdentity {
         user_id: &str,
         limit: u32,
     ) -> IdentityResult<Vec<Membership>> {
-        let rows: Vec<MemberRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {MEMBER_COLUMNS}
-              where uw.user_id = $1 and uw.status = 'ACTIVE' and w.deleted_at is null
-              order by uw.created_at, uw.id
-              limit $2"
-        )))
-        .bind(user_id)
-        .bind(i64::from(limit))
-        .fetch_all(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let rows: Vec<MemberRow> = active_members()
+            .filter(user_workspaces::Column::UserId.eq(user_id))
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .limit(u64::from(limit))
+            .into_model()
+            .all(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
         Ok(rows
             .into_iter()
             .map(|row| row.into_membership(true))
@@ -859,26 +925,28 @@ impl WeldIdIdentity {
     /// The master `users` row a membership hangs from, from WeldID's profile
     /// when the user never signed in to WeldSuite yet.
     async fn ensure_user_row(&self, user_id: &str) -> IdentityResult<()> {
-        let known: bool = sqlx::query_scalar("select exists (select 1 from users where id = $1)")
-            .bind(user_id)
-            .fetch_one(&self.master)
+        let db = orm(&self.master);
+        let known: Option<String> = users::Entity::find_by_id(user_id.to_owned())
+            .select_only()
+            .column(users::Column::Id)
+            .into_tuple()
+            .one(&db)
             .await
             .map_err(|error| database(&error))?;
-        if known {
+        if known.is_some() {
             return Ok(());
         }
         let profile = self.user_profile_inner(user_id).await?;
-        sqlx::query(
-            "insert into users (id, email, first_name, last_name, image_url)
-             values ($1, $2, $3, $4, $5)
-             on conflict (id) do nothing",
-        )
-        .bind(user_id)
-        .bind(profile.primary_email().unwrap_or_default())
-        .bind(&profile.first_name)
-        .bind(&profile.last_name)
-        .bind(&profile.image_url)
-        .execute(&self.master)
+        users::Entity::insert(users::ActiveModel {
+            id: Set(user_id.to_owned()),
+            email: Set(profile.primary_email().unwrap_or_default().to_owned()),
+            first_name: Set(profile.first_name.clone()),
+            last_name: Set(profile.last_name.clone()),
+            image_url: Set(profile.image_url.clone()),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned())
+        .exec_without_returning(&db)
         .await
         .map_err(|error| database(&error))
         .map(drop)
@@ -889,16 +957,18 @@ impl WeldIdIdentity {
         org: &str,
         membership: &NewMembership,
     ) -> IdentityResult<Membership> {
+        use user_workspaces::Column;
         let workspace = self.live_workspace(org).await?;
-        let status: Option<String> = sqlx::query_scalar(
-            "select status::text from user_workspaces where user_id = $1 and workspace_id = $2",
-        )
-        .bind(&membership.user_id)
-        .bind(&workspace.id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
-        if status.as_deref() == Some("ACTIVE") {
+        let status: Option<MembershipStatus> = user_workspaces::Entity::find()
+            .select_only()
+            .column(Column::Status)
+            .filter(Column::UserId.eq(membership.user_id.as_str()))
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
+        if status == Some(MembershipStatus::ACTIVE) {
             return Err(IdentityError::Rejected {
                 status: 400,
                 code: Some("already_a_member_in_organization".to_owned()),
@@ -907,22 +977,34 @@ impl WeldIdIdentity {
             });
         }
         self.ensure_user_row(&membership.user_id).await?;
-        let id: String = sqlx::query_scalar(
-            "insert into user_workspaces (id, user_id, workspace_id, role, status, joined_at)
-             values ($1, $2, $3, $4, 'ACTIVE', now())
-             on conflict (user_id, workspace_id) do update
-                set role = excluded.role, status = 'ACTIVE',
-                    joined_at = coalesce(user_workspaces.joined_at, excluded.joined_at),
-                    updated_at = now()
-             returning id",
-        )
-        .bind(weldsuite_kit::generate_id("uw"))
-        .bind(&membership.user_id)
-        .bind(&workspace.id)
-        .bind(&membership.role)
-        .fetch_one(&self.master)
+        let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+        let current = |column: Column| Expr::col((user_workspaces::Entity, column));
+        let rejoin = OnConflict::columns([Column::UserId, Column::WorkspaceId])
+            .update_column(Column::Role)
+            .value(
+                Column::Status,
+                Column::Status.save_as(Expr::value(MembershipStatus::ACTIVE)),
+            )
+            .value(
+                Column::JoinedAt,
+                Func::coalesce([current(Column::JoinedAt), excluded(Column::JoinedAt)]),
+            )
+            .value(Column::UpdatedAt, Expr::current_timestamp())
+            .to_owned();
+        let id = user_workspaces::Entity::insert(user_workspaces::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("uw")),
+            user_id: Set(membership.user_id.clone()),
+            workspace_id: Set(workspace.id.clone()),
+            role: Set(membership.role.clone()),
+            status: Set(MembershipStatus::ACTIVE),
+            joined_at: Set(Some(utc_now())),
+            ..Default::default()
+        })
+        .on_conflict(rejoin)
+        .exec_with_returning(&orm(&self.master))
         .await
-        .map_err(|error| database(&error))?;
+        .map_err(|error| database(&error))?
+        .id;
         Ok(Membership {
             id,
             role: membership.role.clone(),
@@ -942,33 +1024,33 @@ impl WeldIdIdentity {
         user_id: &str,
         role: &str,
     ) -> IdentityResult<()> {
+        use user_workspaces::Column;
         let workspace = self.live_workspace(org).await?;
-        let changed = sqlx::query(
-            "update user_workspaces set role = $3, updated_at = now()
-              where workspace_id = $1 and user_id = $2 and status = 'ACTIVE'",
-        )
-        .bind(&workspace.id)
-        .bind(user_id)
-        .bind(role)
-        .execute(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
-        if changed.rows_affected() == 0 {
+        let changed = user_workspaces::Entity::update_many()
+            .col_expr(Column::Role, Expr::value(role))
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .filter(Column::UserId.eq(user_id))
+            .filter(Column::Status.eq(MembershipStatus::ACTIVE))
+            .exec(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
+        if changed.rows_affected == 0 {
             return Err(not_found());
         }
         Ok(())
     }
 
     async fn remove_membership_inner(&self, org: &str, user_id: &str) -> IdentityResult<()> {
+        use user_workspaces::Column;
         let workspace = self.live_workspace(org).await?;
-        let removed =
-            sqlx::query("delete from user_workspaces where workspace_id = $1 and user_id = $2")
-                .bind(&workspace.id)
-                .bind(user_id)
-                .execute(&self.master)
-                .await
-                .map_err(|error| database(&error))?;
-        if removed.rows_affected() == 0 {
+        let removed = user_workspaces::Entity::delete_many()
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .filter(Column::UserId.eq(user_id))
+            .exec(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
+        if removed.rows_affected == 0 {
             return Err(not_found());
         }
         Ok(())
@@ -982,13 +1064,15 @@ impl WeldIdIdentity {
         organization: &NewOrganization,
     ) -> IdentityResult<Organization> {
         if let Some(slug) = &organization.slug {
-            let taken: bool =
-                sqlx::query_scalar("select exists (select 1 from workspaces where slug = $1)")
-                    .bind(slug)
-                    .fetch_one(&self.master)
-                    .await
-                    .map_err(|error| database(&error))?;
-            if taken {
+            let taken: Option<String> = workspaces::Entity::find()
+                .select_only()
+                .column(workspaces::Column::Id)
+                .filter(workspaces::Column::Slug.eq(slug.as_str()))
+                .into_tuple()
+                .one(&orm(&self.master))
+                .await
+                .map_err(|error| database(&error))?;
+            if taken.is_some() {
                 return Err(IdentityError::Rejected {
                     status: 422,
                     code: Some("form_identifier_exists".to_owned()),
@@ -1015,50 +1099,48 @@ impl WeldIdIdentity {
         status: Option<&str>,
         page: ListPage,
     ) -> IdentityResult<Listing<Invitation>> {
+        use sea_orm::ExprTrait as _;
+        use workspace_invitations::Column;
         let workspace = self.live_workspace(org).await?;
-        let filter =
-            format!("i.workspace_id = $1 and ($2::text is null or {INVITATION_STATUS} = $2)");
-        let rows: Vec<InvitationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {INVITATION_COLUMNS} from workspace_invitations i
-              where {filter}
-              order by i.created_at desc, i.id
-              limit $3 offset $4"
-        )))
-        .bind(&workspace.id)
-        .bind(status)
-        .bind(page.limit.map(i64::from))
-        .bind(i64::from(page.offset.unwrap_or(0)))
-        .fetch_all(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "select count(*) from workspace_invitations i where {filter}"
-        )))
-        .bind(&workspace.id)
-        .bind(status)
-        .fetch_one(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let mut filter = Condition::all().add(Column::WorkspaceId.eq(workspace.id.as_str()));
+        if let Some(status) = status {
+            filter = filter.add(invitation_status().eq(status));
+        }
+        let db = orm(&self.master);
+        let rows: Vec<InvitationRow> = invitation_rows()
+            .filter(filter.clone())
+            .order_by_desc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .limit(page.limit.map(u64::from))
+            .offset(u64::from(page.offset.unwrap_or(0)))
+            .into_model()
+            .all(&db)
+            .await
+            .map_err(|error| database(&error))?;
+        let total = workspace_invitations::Entity::find()
+            .filter(filter)
+            .count(&db)
+            .await
+            .map_err(|error| database(&error))?;
         Ok(Listing {
             data: rows
                 .into_iter()
                 .map(InvitationRow::into_invitation)
                 .collect(),
-            total_count: u64::try_from(total).ok(),
+            total_count: Some(total),
         })
     }
 
     async fn invitation_inner(&self, org: &str, invitation_id: &str) -> IdentityResult<Invitation> {
+        use workspace_invitations::Column;
         let workspace = self.live_workspace(org).await?;
-        let row: Option<InvitationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {INVITATION_COLUMNS} from workspace_invitations i
-              where i.workspace_id = $1 and i.id = $2"
-        )))
-        .bind(&workspace.id)
-        .bind(invitation_id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let row: Option<InvitationRow> = invitation_rows()
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .filter(Column::Id.eq(invitation_id))
+            .into_model()
+            .one(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
         row.map(InvitationRow::into_invitation)
             .ok_or_else(not_found)
     }
@@ -1086,55 +1168,24 @@ impl WeldIdIdentity {
             .master
             .begin()
             .await
-            .map_err(|error| database(&error))?;
-        sqlx::query(
-            "update workspace_invitations set status = 'revoked', revoked_at = now()
-              where workspace_id = $1 and email_normalized = $2
-                and status = 'pending' and expires_at <= now()",
-        )
-        .bind(&workspace.id)
-        .bind(&normalized)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| database(&error))?;
-        let inserted: Result<InvitationRow, sqlx::Error> =
-            sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "insert into workspace_invitations as i
-                 (id, workspace_id, email, email_normalized, role, public_metadata,
-                  invited_by, expires_at)
-             values ($1, $2, $3, $4, $5, $6, (select id from users where id = $7),
-                     now() + make_interval(days => $8))
-             returning {INVITATION_COLUMNS}"
-            )))
-            .bind(&id)
-            .bind(&workspace.id)
-            .bind(email)
-            .bind(&normalized)
-            .bind(&invitation.role)
-            .bind(
-                invitation
-                    .public_metadata
-                    .clone()
-                    .unwrap_or_else(|| json!({})),
-            )
-            .bind(
-                invitation
-                    .invited_by
-                    .as_deref()
-                    .or(invitation.inviter_user_id.as_deref()),
-            )
-            .bind(INVITATION_DAYS)
-            .fetch_one(&mut *tx)
-            .await;
+            .map_err(|error| database(&orm_error(error)))?;
+        let inserted = {
+            let db = OrmConn::new(&mut tx);
+            revoke_expired(&db, &workspace.id, &normalized)
+                .await
+                .map_err(|error| database(&error))?;
+            let new = NewInvitationRow {
+                id: &id,
+                workspace_id: &workspace.id,
+                email,
+                normalized: &normalized,
+                invitation,
+            };
+            insert_invitation(&db, &new).await
+        };
         let row = match inserted {
             Ok(row) => row,
-            Err(error)
-                if error
-                    .as_database_error()
-                    .and_then(sqlx::error::DatabaseError::code)
-                    .as_deref()
-                    == Some("23505") =>
-            {
+            Err(error) if is_unique_violation(&error) => {
                 return Err(refused(
                     422,
                     "duplicate_record",
@@ -1143,7 +1194,9 @@ impl WeldIdIdentity {
             }
             Err(error) => return Err(database(&error)),
         };
-        tx.commit().await.map_err(|error| database(&error))?;
+        tx.commit()
+            .await
+            .map_err(|error| database(&orm_error(error)))?;
         self.send_invitation_email(&workspace, invitation, &row)
             .await;
         Ok(row.into_invitation())
@@ -1203,11 +1256,16 @@ impl WeldIdIdentity {
         else {
             return (named, None);
         };
-        let found: Result<Option<Inviter>, _> =
-            sqlx::query_as("select first_name, last_name, email from users where id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.master)
-                .await;
+        let found: Result<Option<Inviter>, DbErr> = users::Entity::find_by_id(user_id.to_owned())
+            .select_only()
+            .columns([
+                users::Column::FirstName,
+                users::Column::LastName,
+                users::Column::Email,
+            ])
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await;
         match found {
             Ok(Some((first, last, email))) => {
                 let email = email.filter(|email| !email.is_empty());
@@ -1223,17 +1281,18 @@ impl WeldIdIdentity {
     }
 
     async fn revoke_invitation_inner(&self, org: &str, invitation_id: &str) -> IdentityResult<()> {
+        use workspace_invitations::Column;
         let workspace = self.live_workspace(org).await?;
-        let revoked = sqlx::query(
-            "update workspace_invitations set status = 'revoked', revoked_at = now()
-              where workspace_id = $1 and id = $2 and status = 'pending'",
-        )
-        .bind(&workspace.id)
-        .bind(invitation_id)
-        .execute(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
-        if revoked.rows_affected() == 0 {
+        let revoked = workspace_invitations::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("revoked"))
+            .col_expr(Column::RevokedAt, Expr::current_timestamp())
+            .filter(Column::WorkspaceId.eq(workspace.id.as_str()))
+            .filter(Column::Id.eq(invitation_id))
+            .filter(Column::Status.eq("pending"))
+            .exec(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
+        if revoked.rows_affected == 0 {
             return Err(not_found());
         }
         Ok(())
@@ -1243,17 +1302,17 @@ impl WeldIdIdentity {
         &self,
         invitation_id: &str,
     ) -> IdentityResult<(OrganizationRef, Invitation)> {
-        let found: Option<FoundInvitation> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {INVITATION_COLUMNS},
-                    coalesce(w.clerk_org_id, w.id) as org, w.name as org_name, w.slug as org_slug
-               from workspace_invitations i
-               join workspaces w on w.id = i.workspace_id and w.deleted_at is null
-              where i.id = $1"
-        )))
-        .bind(invitation_id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let found: Option<FoundInvitation> = invitation_rows()
+            .column_as(organization_id(), "org")
+            .column_as(workspaces::Column::Name, "org_name")
+            .column_as(workspaces::Column::Slug, "org_slug")
+            .join(JoinType::InnerJoin, live_workspace_of_invitation())
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .filter(workspace_invitations::Column::Id.eq(invitation_id))
+            .into_model()
+            .one(&orm(&self.master))
+            .await
+            .map_err(|error| database(&error))?;
         let found = found.ok_or_else(not_found)?;
         Ok((
             OrganizationRef {
@@ -1275,16 +1334,10 @@ impl WeldIdIdentity {
         invitation_id: &str,
         user_id: &str,
     ) -> IdentityResult<Membership> {
-        let state: Option<(String, bool, String, String)> = sqlx::query_as(
-            "select i.status, i.expires_at <= now(), i.email_normalized, i.workspace_id
-               from workspace_invitations i
-               join workspaces w on w.id = i.workspace_id and w.deleted_at is null
-              where i.id = $1",
-        )
-        .bind(invitation_id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| database(&error))?;
+        let state = self
+            .invitation_state(invitation_id)
+            .await
+            .map_err(|error| database(&error))?;
         let Some((status, expired, invited, workspace_id)) = state else {
             return Err(not_found());
         };
@@ -1315,7 +1368,73 @@ impl WeldIdIdentity {
             ));
         }
         self.ensure_user_row(user_id).await?;
-        let joined: Option<(String, String, Option<i64>)> = sqlx::query_as(
+        let joined = self
+            .claim_invitation(invitation_id, user_id)
+            .await
+            .map_err(|error| database(&error))?;
+        // Accepted, revoked or expired in the meantime.
+        let (id, role, created_at) = joined.ok_or_else(not_found)?;
+        let workspace = self.live_workspace(&workspace_id).await?;
+        tracing::info!(workspace_id, "weldid: an invitation was accepted");
+        Ok(Membership {
+            id,
+            role,
+            created_at,
+            public_metadata: Value::Null,
+            user: MemberUser {
+                user_id: user_id.to_owned(),
+                first_name: profile.first_name,
+                last_name: profile.last_name,
+                identifier: email.to_owned(),
+                image_url: profile.image_url,
+            },
+            organization: Some(OrganizationRef {
+                id: workspace.org,
+                name: workspace.name,
+                slug: workspace.slug.unwrap_or_default(),
+            }),
+        })
+    }
+
+    /// The invitation's status, whether it has expired (`expires_at <= now()`),
+    /// its address and its workspace, when the workspace is live.
+    async fn invitation_state(
+        &self,
+        invitation_id: &str,
+    ) -> Result<Option<(String, bool, String, String)>, DbErr> {
+        use sea_orm::ExprTrait as _;
+        use workspace_invitations::Column;
+        workspace_invitations::Entity::find()
+            .select_only()
+            .column(Column::Status)
+            .column_as(
+                Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
+                    .lte(Expr::current_timestamp()),
+                "expired",
+            )
+            .columns([Column::EmailNormalized, Column::WorkspaceId])
+            .join(JoinType::InnerJoin, live_workspace_of_invitation())
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .filter(Column::Id.eq(invitation_id))
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await
+    }
+
+    /// Marks the invitation accepted and makes (or reactivates) the membership
+    /// from it, in one statement: `None` when it was no longer pending and
+    /// unexpired. An active member keeps their role.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a claim: the invitation is marked accepted and the membership written \
+                  in one statement, so two acceptances can't both win"
+    )]
+    async fn claim_invitation(
+        &self,
+        invitation_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(String, String, Option<i64>)>, DbErr> {
+        sqlx::query_as(
             "with accepted as (
                update workspace_invitations
                   set status = 'accepted', accepted_by = $2, accepted_at = now()
@@ -1342,50 +1461,150 @@ impl WeldIdIdentity {
         .bind(weldsuite_kit::generate_id("uw"))
         .fetch_optional(&self.master)
         .await
-        .map_err(|error| database(&error))?;
-        // Accepted, revoked or expired in the meantime.
-        let (id, role, created_at) = joined.ok_or_else(not_found)?;
-        let workspace = self.live_workspace(&workspace_id).await?;
-        tracing::info!(workspace_id, "weldid: an invitation was accepted");
-        Ok(Membership {
-            id,
-            role,
-            created_at,
-            public_metadata: Value::Null,
-            user: MemberUser {
-                user_id: user_id.to_owned(),
-                first_name: profile.first_name,
-                last_name: profile.last_name,
-                identifier: email.to_owned(),
-                image_url: profile.image_url,
-            },
-            organization: Some(OrganizationRef {
-                id: workspace.org,
-                name: workspace.name,
-                slug: workspace.slug.unwrap_or_default(),
-            }),
-        })
+        .map_err(orm_error)
     }
+}
+
+/// Expired invitations to the address in the workspace, still `pending`,
+/// become `revoked`, so they don't block a new one.
+async fn revoke_expired(
+    db: &OrmConn<'_>,
+    workspace_id: &str,
+    normalized: &str,
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use workspace_invitations::Column;
+    workspace_invitations::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("revoked"))
+        .col_expr(Column::RevokedAt, Expr::current_timestamp())
+        .filter(Column::WorkspaceId.eq(workspace_id))
+        .filter(Column::EmailNormalized.eq(normalized))
+        .filter(Column::Status.eq("pending"))
+        .filter(
+            Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
+                .lte(Expr::current_timestamp()),
+        )
+        .exec(db)
+        .await
+        .map(drop)
+}
+
+/// What [`insert_invitation`] writes.
+struct NewInvitationRow<'a> {
+    id: &'a str,
+    workspace_id: &'a str,
+    email: &'a str,
+    normalized: &'a str,
+    invitation: &'a NewInvitation,
+}
+
+/// The new invitation, `pending`, open [`INVITATION_DAYS`] days from the
+/// database's `now()`; `invited_by` only when WeldSuite knows that user.
+async fn insert_invitation(
+    db: &OrmConn<'_>,
+    new: &NewInvitationRow<'_>,
+) -> Result<InvitationRow, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use workspace_invitations::Column;
+    let inviter = new
+        .invitation
+        .invited_by
+        .as_deref()
+        .or(new.invitation.inviter_user_id.as_deref());
+    // `(select id from users where id = $7)`.
+    let known_inviter = Query::select()
+        .column(users::Column::Id)
+        .from(users::Entity)
+        .and_where(users::Column::Id.eq(inviter.map(str::to_owned)))
+        .to_owned();
+    // `now() + make_interval(days => $8)`.
+    let expires_at = Expr::current_timestamp().add(Func::cust("make_interval").args([
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(INVITATION_DAYS),
+    ]));
+    let mut insert = Query::insert();
+    insert
+        .into_table(workspace_invitations::Entity)
+        .columns([
+            Column::Id,
+            Column::WorkspaceId,
+            Column::Email,
+            Column::EmailNormalized,
+            Column::Role,
+            Column::PublicMetadata,
+            Column::InvitedBy,
+            Column::ExpiresAt,
+        ])
+        .values([
+            Expr::val(new.id),
+            Expr::val(new.workspace_id),
+            Expr::val(new.email),
+            Expr::val(new.normalized),
+            Expr::val(new.invitation.role.as_str()),
+            Expr::val(
+                new.invitation
+                    .public_metadata
+                    .clone()
+                    .unwrap_or_else(|| json!({})),
+            ),
+            known_inviter.into(),
+            expires_at,
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .returning_all();
+    let row = db
+        .query_one(&insert)
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?;
+    // A new invitation is `pending` and open for days, so its status reads
+    // as stored (the list's `expired` doesn't apply yet).
+    InvitationRow::from_query_result(&row, "")
 }
 
 /// An inviter's first name, last name and address in `users`.
 type Inviter = (Option<String>, Option<String>, Option<String>);
 
 /// `pending` reads as `expired` once its time is up; never stored so.
-const INVITATION_STATUS: &str =
-    "(case when i.status = 'pending' and i.expires_at <= now() then 'expired' else i.status end)";
+fn invitation_status() -> Expr {
+    use sea_orm::ExprTrait as _;
+    use workspace_invitations::Column;
+    let column = |column: Column| Expr::col((workspace_invitations::Entity, column));
+    Expr::case(
+        column(Column::Status)
+            .eq("pending")
+            .and(column(Column::ExpiresAt).lte(Expr::current_timestamp())),
+        Expr::val("expired"),
+    )
+    .finally(column(Column::Status))
+    .into()
+}
 
-const INVITATION_COLUMNS: &str = "i.id, i.email, i.role,
-       (case when i.status = 'pending' and i.expires_at <= now() then 'expired' else i.status end)
-         as status,
-       i.public_metadata,
-       (extract(epoch from i.created_at) * 1000)::bigint as created_ms,
-       (extract(epoch from i.expires_at) * 1000)::bigint as expires_ms";
+/// The `workspace_invitations` columns [`InvitationRow`] reads, the status as
+/// [`invitation_status`] says.
+fn invitation_rows() -> Select<workspace_invitations::Entity> {
+    use workspace_invitations::Column;
+    workspace_invitations::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Email, Column::Role])
+        .column_as(invitation_status(), "status")
+        .columns([Column::PublicMetadata, Column::CreatedAt, Column::ExpiresAt])
+}
+
+/// `join workspaces w on w.id = i.workspace_id` (the callers add
+/// `w.deleted_at is null`).
+fn live_workspace_of_invitation() -> sea_orm::RelationDef {
+    workspace_invitations::Entity::belongs_to(workspaces::Entity)
+        .from(workspace_invitations::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
 
 /// An invitation and its workspace, for [`Identity::find_invitation`].
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct FoundInvitation {
-    #[sqlx(flatten)]
+    #[sea_orm(nested)]
     invitation: InvitationRow,
     org: String,
     org_name: String,
@@ -1393,15 +1612,15 @@ struct FoundInvitation {
 }
 
 /// A `workspace_invitations` row as the port's calls see it.
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct InvitationRow {
     id: String,
     email: String,
     role: String,
     status: String,
     public_metadata: Value,
-    created_ms: Option<i64>,
-    expires_ms: Option<i64>,
+    created_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
 }
 
 impl InvitationRow {
@@ -1412,8 +1631,8 @@ impl InvitationRow {
             role: self.role,
             status: self.status,
             public_metadata: self.public_metadata,
-            created_at: self.created_ms,
-            expires_at: self.expires_ms,
+            created_at: Some(epoch_ms(self.created_at)),
+            expires_at: Some(epoch_ms(self.expires_at)),
         }
     }
 }
@@ -1734,5 +1953,170 @@ mod tests {
             )
         );
         assert_eq!(accept_link("not a url", "inv_x", "a@b.test", "A"), None);
+    }
+}
+
+#[cfg(test)]
+mod sql_preview_tmp {
+    use super::*;
+    use sea_orm::{DbBackend, QueryTrait};
+
+    #[test]
+    fn preview() {
+        use sea_orm::ExprTrait as _;
+        let pg = DbBackend::Postgres;
+        {
+            use workspaces::Column;
+            let org = "org_1";
+            let query = workspaces::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .column_as(organization_id(), "org")
+                .columns([Column::Name, Column::Slug])
+                .filter(
+                    Condition::any()
+                        .add(Column::Id.eq(org))
+                        .add(Column::ClerkOrgId.eq(org)),
+                )
+                .filter(Column::DeletedAt.is_null())
+                .order_by_desc(Expr::col((workspaces::Entity, Column::Id)).eq(org))
+                .limit(1);
+            println!("WORKSPACE: {}\n", query.build(pg));
+        }
+        let q = active_members()
+            .filter(user_workspaces::Column::WorkspaceId.eq("ws"))
+            .limit(Some(5u64))
+            .offset(0u64);
+        println!("MEMBERS: {}\n", q.build(pg));
+        let q = active_members()
+            .filter(user_workspaces::Column::WorkspaceId.eq("ws"))
+            .limit(None::<u64>)
+            .offset(3u64);
+        println!("MEMBERS nolimit: {}\n", q.build(pg));
+        let q = user_workspaces::Entity::find()
+            .select_only()
+            .column(user_workspaces::Column::Status)
+            .filter(user_workspaces::Column::UserId.eq("u"));
+        println!("STATUS: {}\n", q.build(pg));
+        {
+            use user_workspaces::Column;
+            let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+            let current = |column: Column| Expr::col((user_workspaces::Entity, column));
+            let rejoin = OnConflict::columns([Column::UserId, Column::WorkspaceId])
+                .update_column(Column::Role)
+                .value(
+                    Column::Status,
+                    Column::Status.save_as(Expr::value(MembershipStatus::ACTIVE)),
+                )
+                .value(
+                    Column::JoinedAt,
+                    Func::coalesce([current(Column::JoinedAt), excluded(Column::JoinedAt)]),
+                )
+                .value(Column::UpdatedAt, Expr::current_timestamp())
+                .to_owned();
+            let ins = user_workspaces::Entity::insert(user_workspaces::ActiveModel {
+                id: Set("uw_1".to_owned()),
+                user_id: Set("u".to_owned()),
+                workspace_id: Set("w".to_owned()),
+                role: Set("org:member".to_owned()),
+                status: Set(MembershipStatus::ACTIVE),
+                joined_at: Set(Some(utc_now())),
+                ..Default::default()
+            })
+            .on_conflict(rejoin);
+            println!("UPSERT: {}\n", ins.build(pg));
+            let upd = user_workspaces::Entity::update_many()
+                .col_expr(Column::Role, Expr::value("r"))
+                .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+                .filter(Column::WorkspaceId.eq("w"))
+                .filter(Column::Status.eq(MembershipStatus::ACTIVE));
+            println!("SETROLE: {}\n", upd.build(pg));
+        }
+        {
+            use workspace_invitations::Column;
+            let filter = Condition::all()
+                .add(Column::WorkspaceId.eq("w"))
+                .add(invitation_status().eq("expired"));
+            let q = invitation_rows()
+                .filter(filter.clone())
+                .order_by_desc(Column::CreatedAt)
+                .order_by_asc(Column::Id)
+                .limit(Some(5u64))
+                .offset(0u64);
+            println!("INVITATIONS: {}\n", q.build(pg));
+            println!(
+                "INVCOUNT: {}\n",
+                workspace_invitations::Entity::find().filter(filter).build(pg)
+            );
+            let q = invitation_rows()
+                .column_as(organization_id(), "org")
+                .column_as(workspaces::Column::Name, "org_name")
+                .column_as(workspaces::Column::Slug, "org_slug")
+                .join(JoinType::InnerJoin, live_workspace_of_invitation())
+                .filter(workspaces::Column::DeletedAt.is_null())
+                .filter(workspace_invitations::Column::Id.eq("inv"));
+            println!("FIND: {}\n", q.build(pg));
+            let q = workspace_invitations::Entity::find()
+                .select_only()
+                .column(Column::Status)
+                .column_as(
+                    Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
+                        .lte(Expr::current_timestamp()),
+                    "expired",
+                )
+                .columns([Column::EmailNormalized, Column::WorkspaceId])
+                .join(JoinType::InnerJoin, live_workspace_of_invitation())
+                .filter(workspaces::Column::DeletedAt.is_null())
+                .filter(Column::Id.eq("inv"));
+            println!("STATE: {}\n", q.build(pg));
+            let upd = workspace_invitations::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("revoked"))
+                .col_expr(Column::RevokedAt, Expr::current_timestamp())
+                .filter(Column::WorkspaceId.eq("w"))
+                .filter(Column::Status.eq("pending"))
+                .filter(
+                    Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
+                        .lte(Expr::current_timestamp()),
+                );
+            println!("REVOKE: {}\n", upd.build(pg));
+            let inviter: Option<&str> = None;
+            let known_inviter = Query::select()
+                .column(users::Column::Id)
+                .from(users::Entity)
+                .and_where(users::Column::Id.eq(inviter.map(str::to_owned)))
+                .to_owned();
+            let expires_at = Expr::current_timestamp().add(Func::cust("make_interval").args([
+                Expr::val(0),
+                Expr::val(0),
+                Expr::val(0),
+                Expr::val(INVITATION_DAYS),
+            ]));
+            let mut insert = Query::insert();
+            insert
+                .into_table(workspace_invitations::Entity)
+                .columns([Column::Id, Column::InvitedBy, Column::ExpiresAt, Column::PublicMetadata])
+                .values([Expr::val("i"), known_inviter.into(), expires_at, Expr::val(json!({}))])
+                .unwrap()
+                .returning_all();
+            println!("INSERT: {}\n", pg.build(&insert));
+        }
+        {
+            let ins = users::Entity::insert(users::ActiveModel {
+                id: Set("u".to_owned()),
+                email: Set("e".to_owned()),
+                first_name: Set(None),
+                last_name: Set(None),
+                image_url: Set(None),
+                ..Default::default()
+            })
+            .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned());
+            println!("USERINS: {}\n", ins.build(pg));
+        }
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_500_000).unwrap()) == 2);
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_499_000).unwrap()) == 1);
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-1_500_000).unwrap()) == -2);
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-1_499_000).unwrap()) == -1);
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-500_000).unwrap()) == -1);
+        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_700_000_000_123_456_000).unwrap()) == 1_700_000_000_123);
     }
 }

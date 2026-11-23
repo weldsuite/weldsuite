@@ -8,11 +8,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use time::PrimitiveDateTime;
 use weldsuite_core_domain::files::list_document_snapshot_keys;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{BoxFuture, FileStores, Job, JobContext, JobError, StepRetry, step};
+use weldsuite_schema::tenant::{docs, document_versions, files, sheets, whiteboards};
 
 /// The job's name in the registry.
 pub const TRASH_PURGE_JOB: &str = "core.trash-cleanup";
@@ -39,6 +43,33 @@ pub struct TrashPurge {
 pub type TenantDatabases =
     Arc<dyn Fn(String) -> BoxFuture<'static, Result<PgPool, String>> + Send + Sync>;
 
+/// Deletes the file's row and those of the sheet, board or document backed
+/// by it, children first, one statement each.
+async fn delete_rows(db: &PgPool, file_id: &str) -> Result<(), DbErr> {
+    let db = &orm(db);
+    sheets::Entity::delete_many()
+        .filter(sheets::Column::FileId.eq(file_id))
+        .exec(db)
+        .await?;
+    whiteboards::Entity::delete_many()
+        .filter(whiteboards::Column::FileId.eq(file_id))
+        .exec(db)
+        .await?;
+    document_versions::Entity::delete_many()
+        .filter(document_versions::Column::FileId.eq(file_id))
+        .exec(db)
+        .await?;
+    docs::Entity::delete_many()
+        .filter(docs::Column::FileId.eq(file_id))
+        .exec(db)
+        .await?;
+    files::Entity::delete_many()
+        .filter(files::Column::Id.eq(file_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
 /// The job: register one per process (`JobRegistry::register`).
 pub struct TrashPurgeJob {
     tenants: TenantDatabases,
@@ -54,18 +85,20 @@ impl TrashPurgeJob {
         let db = (self.tenants)(job.workspace_id.clone())
             .await
             .map_err(JobError::failed)?;
-        let deleted_at: Option<Option<String>> = sqlx::query_scalar(
-            r#"select to_char(deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-                 from files where id = $1 limit 1"#,
-        )
-        .bind(&job.file_id)
-        .fetch_optional(&db)
-        .await
-        .map_err(JobError::failed)?;
+        let deleted_at: Option<Option<PrimitiveDateTime>> = files::Entity::find()
+            .select_only()
+            .column(files::Column::DeletedAt)
+            .filter(files::Column::Id.eq(&job.file_id))
+            .into_tuple()
+            .one(&orm(&db))
+            .await
+            .map_err(JobError::failed)?;
         let Some(deleted_at) = deleted_at else {
             tracing::info!(file_id = job.file_id, "trash purge: file already deleted");
             return Ok(false);
         };
+        // `to_char(deleted_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`: `toISOString()`.
+        let deleted_at = deleted_at.map(|at| iso_timestamp(at.assume_utc()));
         // Restored (no `deleted_at`) or trashed again (another one): a newer
         // job, if any, handles it.
         if deleted_at.as_deref() != Some(job.deleted_at.as_str()) {
@@ -88,19 +121,9 @@ impl TrashPurgeJob {
                 .map_err(JobError::failed)?,
         );
         self.delete_objects(&keys).await;
-        for statement in [
-            "delete from sheets where file_id = $1",
-            "delete from whiteboards where file_id = $1",
-            "delete from document_versions where file_id = $1",
-            "delete from docs where file_id = $1",
-            "delete from files where id = $1",
-        ] {
-            sqlx::query(statement)
-                .bind(&job.file_id)
-                .execute(&db)
-                .await
-                .map_err(JobError::failed)?;
-        }
+        delete_rows(&db, &job.file_id)
+            .await
+            .map_err(JobError::failed)?;
         tracing::info!(file_id = job.file_id, "trash purge: file deleted for good");
         Ok(true)
     }

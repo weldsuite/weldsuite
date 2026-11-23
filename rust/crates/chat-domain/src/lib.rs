@@ -20,6 +20,7 @@ pub mod calls;
 pub mod entity;
 mod flow;
 pub mod members;
+mod orm_bridge;
 pub mod policy;
 pub mod publish;
 pub mod system_message;

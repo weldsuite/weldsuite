@@ -2,25 +2,34 @@
 //! routing by impact, the checks on the impact, "what changes once approved",
 //! and `apply_approved_change`, which writes an approved change to the plan,
 //! the budget, the baseline and the decision log in one batch. Rows are read
-//! as `weldsuite_db::js_row` gives them; every message goes to the client as
-//! it is.
+//! as the entities serialize them (as Drizzle returned them); every message
+//! goes to the client as it is.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use sqlx::postgres::PgArguments;
-use sqlx::query::Query;
-use weldsuite_db::{atomically, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    milestones, project_baselines, project_change_requests as changes, project_decisions,
+    project_deliverables, projects, tasks,
+};
 
 use crate::approvals::{ApprovalRow, ApprovalRowInput};
 use crate::baselines::{
     PlanDeliverable, PlanState, build_snapshot, day_delta, decimal, decimal_f64, decimal_sum,
     latest_baseline, load_plan_state,
 };
-use crate::js::{iso_from_millis, js_date, js_date_millis, slice_utf16, utf16_len};
+use crate::js::{
+    cast_text, instant, js_date, js_date_millis, json_text, row, slice_utf16, utf16_len,
+};
 use crate::numbering::{NumberSequence, allocate_number, allocate_numbers};
 
 pub const OPEN_CHANGE_STATUSES: [&str; 3] = ["draft", "assessing", "awaiting_approval"];
@@ -562,33 +571,26 @@ pub fn decision_event_data(row: &Value) -> Value {
 
 // ── Database ────────────────────────────────────────────────────────────────
 
-/// `findChangeRequest(db, id)`: a live change as `js_row` reads it.
-pub async fn find_change_request(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) || jsonb_build_object('cost_delta', c.cost_delta::text)
-         from project_change_requests c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// `findChangeRequest(db, id)`: a live change (`costDelta` as its text).
+pub async fn find_change_request(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let found = changes::Entity::find_by_id(id.to_owned())
+        .filter(changes::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(found.map(row))
 }
 
 /// `listPendingChanges(db, projectId)`: assessing and awaiting approval, newest first.
-pub async fn list_pending_changes(
-    db: &PgPool,
-    project_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) || jsonb_build_object('cost_delta', c.cost_delta::text)
-         from project_change_requests c
-         where c.project_id = $1 and c.deleted_at is null and c.status in ('assessing', 'awaiting_approval')
-         order by c.created_at desc, c.id desc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+pub async fn list_pending_changes(db: &PgPool, project_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = changes::Entity::find()
+        .filter(changes::Column::ProjectId.eq(project_id))
+        .filter(changes::Column::DeletedAt.is_null())
+        .filter(changes::Column::Status.is_in(["assessing", "awaiting_approval"]))
+        .order_by_desc(changes::Column::CreatedAt)
+        .order_by_desc(changes::Column::Id)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 fn clip(text: &str) -> String {
@@ -610,30 +612,13 @@ pub struct AppliedChange {
     pub decision: Option<Value>,
 }
 
-const INSERT_DELIVERABLE: &str = "insert into project_deliverables (id, project_id, number, title, description, owner_id,
-        status, planned_start, planned_end, acceptance_criteria, position, client_visible, created_by,
-        created_at, updated_at)
-    select p.id, p.project_id, p.number, p.title, p.description, p.owner_id, p.status, p.planned_start,
-        p.planned_end, p.acceptance_criteria, p.position, p.client_visible, p.created_by, p.created_at,
-        p.updated_at
-    from jsonb_populate_record(null::project_deliverables, $1) p";
-const INSERT_BASELINE: &str = "insert into project_baselines (id, project_id, version, change_request_id, snapshot,
-        created_by, created_at)
-    select p.id, p.project_id, p.version, p.change_request_id, p.snapshot, p.created_by, p.created_at
-    from jsonb_populate_record(null::project_baselines, $1) p";
-const INSERT_DECISION: &str =
-    "insert into project_decisions (id, project_id, number, title, status, context, options,
-        consequences, decided_by, decided_at, created_by, created_at, updated_at)
-    select p.id, p.project_id, p.number, p.title, p.status, p.context, p.options, p.consequences,
-        p.decided_by, p.decided_at, p.created_by, p.created_at, p.updated_at
-    from jsonb_populate_record(null::project_decisions, $1) p";
-
-type Statement = Query<'static, sqlx::Postgres, PgArguments>;
-
-fn insert(sql: &'static str, row: Value) -> Statement {
-    sqlx::query(sql).bind(row)
+/// `int` of a number the SQL bound for an `integer` column: out of range is
+/// the statement's error.
+fn int(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
 }
 
+/// The decided decision a settled change writes to the log.
 #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn decision_row(
     change: &Value,
@@ -644,13 +629,23 @@ fn decision_row(
     options: Value,
     consequences: Vec<String>,
     actor: &str,
-    now: &str,
-) -> Value {
-    json!({
-        "id": id, "project_id": change["projectId"], "number": number, "title": title,
-        "status": "decided", "context": context, "options": options, "consequences": consequences,
-        "decided_by": actor, "decided_at": now, "created_by": change["createdBy"],
-        "created_at": now, "updated_at": now,
+    now: OffsetDateTime,
+) -> Result<project_decisions::ActiveModel, DbErr> {
+    Ok(project_decisions::ActiveModel {
+        id: Set(id.to_owned()),
+        project_id: Set(str_of(change, "projectId").to_owned()),
+        number: Set(int(number)?),
+        title: Set(title),
+        status: Set("decided".to_owned()),
+        context: Set(Some(context)),
+        options: Set(options),
+        consequences: Set(json!(consequences)),
+        decided_by: Set(Some(actor.to_owned())),
+        decided_at: Set(Some(now)),
+        created_by: Set(str_of(change, "createdBy").to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
     })
 }
 
@@ -659,22 +654,20 @@ async fn read_back(
     change_id: &str,
     baseline_id: Option<&str>,
     decision_id: &str,
-) -> Result<AppliedChange, sqlx::Error> {
+) -> Result<AppliedChange, DbErr> {
     let change = find_change_request(db, change_id).await?;
     let baseline = match baseline_id {
         Some(id) => crate::baselines::find_baseline(db, id).await?,
         None => None,
     };
-    let decision: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(d) from project_decisions d where d.id = $1")
-            .bind(decision_id)
-            .fetch_optional(db)
-            .await?;
+    let decision = project_decisions::Entity::find_by_id(decision_id.to_owned())
+        .one(&orm(db))
+        .await?;
     Ok(AppliedChange {
         applied: true,
         change,
         baseline,
-        decision: decision.map(js_row),
+        decision: decision.map(row),
     })
 }
 
@@ -687,7 +680,7 @@ pub async fn apply_approved_change(
     change_id: &str,
     actor_id: Option<&str>,
     now_ms: i64,
-) -> Result<AppliedChange, sqlx::Error> {
+) -> Result<AppliedChange, DbErr> {
     settle_claimed_change(
         db,
         change_id,
@@ -708,18 +701,18 @@ async fn settle_claimed_change(
     db: &PgPool,
     change_id: &str,
     now_ms: i64,
-    settle: impl std::future::Future<Output = Result<AppliedChange, sqlx::Error>>,
-) -> Result<AppliedChange, sqlx::Error> {
-    let now = iso_from_millis(now_ms).unwrap_or_default();
-    let claimed = sqlx::query(
-        "update project_change_requests set decided_at = $2::timestamptz
-         where id = $1 and status = 'awaiting_approval' and decided_at is null and deleted_at is null",
-    )
-    .bind(change_id)
-    .bind(&now)
-    .execute(db)
-    .await?
-    .rows_affected();
+    settle: impl std::future::Future<Output = Result<AppliedChange, DbErr>>,
+) -> Result<AppliedChange, DbErr> {
+    let now = instant(now_ms)?;
+    let claimed = changes::Entity::update_many()
+        .col_expr(changes::Column::DecidedAt, Expr::val(now))
+        .filter(changes::Column::Id.eq(change_id))
+        .filter(changes::Column::Status.eq("awaiting_approval"))
+        .filter(changes::Column::DecidedAt.is_null())
+        .filter(changes::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?
+        .rows_affected;
     if claimed == 0 {
         return Ok(AppliedChange {
             change: find_change_request(db, change_id).await?,
@@ -729,25 +722,199 @@ async fn settle_claimed_change(
     let result = settle.await;
     if result.as_ref().map_or(true, |settled| !settled.applied) {
         // A failed release keeps the original outcome; the claim then stays for an operator to clear.
-        let _released = sqlx::query(
-            "update project_change_requests set decided_at = null
-             where id = $1 and status = 'awaiting_approval' and decided_at = $2::timestamptz",
-        )
-        .bind(change_id)
-        .bind(&now)
-        .execute(db)
-        .await;
+        let _released = changes::Entity::update_many()
+            .col_expr(
+                changes::Column::DecidedAt,
+                Expr::val(Option::<OffsetDateTime>::None),
+            )
+            .filter(changes::Column::Id.eq(change_id))
+            .filter(changes::Column::Status.eq("awaiting_approval"))
+            .filter(changes::Column::DecidedAt.eq(now))
+            .exec(&orm(db))
+            .await;
     }
     result
 }
 
+/// The writes of an approved change, in the order they run.
+struct ApprovalWrites<'a> {
+    change_id: &'a str,
+    project_id: &'a str,
+    milestone_moves: &'a [(String, String)],
+    deliverable_moves: &'a [&'a Value],
+    remove_ids: &'a [String],
+    added: Vec<project_deliverables::ActiveModel>,
+    go_live: Option<String>,
+    budget_to: Option<String>,
+    baseline: Option<project_baselines::ActiveModel>,
+    decision: project_decisions::ActiveModel,
+    baseline_id: Option<String>,
+    recorded_scope: Option<Value>,
+    now: OffsetDateTime,
+}
+
+/// [`ApprovalWrites`] on one transaction.
+async fn write_approval(tx: &impl ConnectionTrait, w: ApprovalWrites<'_>) -> Result<(), DbErr> {
+    let now = w.now;
+    let wall = weldsuite_db::utc_timestamp(now);
+    for (id, to) in w.milestone_moves {
+        milestones::Entity::update_many()
+            .col_expr(
+                milestones::Column::DueDate,
+                cast_text(Some(to.as_str()), "timestamp"),
+            )
+            .col_expr(milestones::Column::UpdatedAt, Expr::val(wall))
+            .filter(milestones::Column::Id.eq(id))
+            .filter(milestones::Column::ProjectId.eq(w.project_id))
+            .filter(milestones::Column::DeletedAt.is_null())
+            .exec(tx)
+            .await?;
+    }
+    for mv in w.deliverable_moves {
+        // Only the dates the move names are written.
+        let mut update = project_deliverables::Entity::update_many();
+        if mv.get("plannedStart").is_some() {
+            update = update.col_expr(
+                project_deliverables::Column::PlannedStart,
+                cast_text(iso_of(mv.get("plannedStart")).as_deref(), "timestamptz"),
+            );
+        }
+        if mv.get("plannedEnd").is_some() {
+            update = update.col_expr(
+                project_deliverables::Column::PlannedEnd,
+                cast_text(iso_of(mv.get("plannedEnd")).as_deref(), "timestamptz"),
+            );
+        }
+        update
+            .col_expr(project_deliverables::Column::UpdatedAt, Expr::val(now))
+            .filter(project_deliverables::Column::Id.eq(str_of(mv, "deliverableId")))
+            .filter(project_deliverables::Column::ProjectId.eq(w.project_id))
+            .filter(project_deliverables::Column::DeletedAt.is_null())
+            .exec(tx)
+            .await?;
+    }
+    if !w.remove_ids.is_empty() {
+        project_deliverables::Entity::update_many()
+            .col_expr(project_deliverables::Column::DeletedAt, Expr::val(now))
+            .col_expr(project_deliverables::Column::UpdatedAt, Expr::val(now))
+            .filter(project_deliverables::Column::Id.is_in(w.remove_ids))
+            .filter(project_deliverables::Column::ProjectId.eq(w.project_id))
+            .filter(project_deliverables::Column::DeletedAt.is_null())
+            .exec(tx)
+            .await?;
+        tasks::Entity::update_many()
+            .col_expr(
+                tasks::Column::DeliverableId,
+                Expr::val(Option::<String>::None),
+            )
+            .col_expr(tasks::Column::UpdatedAt, Expr::val(wall))
+            .filter(tasks::Column::DeliverableId.is_in(w.remove_ids))
+            .exec(tx)
+            .await?;
+    }
+    for deliverable in w.added {
+        project_deliverables::Entity::insert(deliverable)
+            .exec_without_returning(tx)
+            .await?;
+    }
+    if w.go_live.is_some() || w.budget_to.is_some() {
+        // Only the fields the change moves are written.
+        let mut update = projects::Entity::update_many()
+            .col_expr(projects::Column::UpdatedAt, Expr::val(wall));
+        if let Some(go_live) = w.go_live.as_deref() {
+            update = update.col_expr(
+                projects::Column::EndDate,
+                cast_text(Some(go_live), "timestamp"),
+            );
+        }
+        if let Some(budget) = w.budget_to.as_deref() {
+            update = update.col_expr(
+                projects::Column::BudgetedAmount,
+                cast_text(Some(budget), "numeric"),
+            );
+        }
+        update
+            .filter(projects::Column::Id.eq(w.project_id))
+            .exec(tx)
+            .await?;
+    }
+    if let Some(baseline) = w.baseline {
+        project_baselines::Entity::insert(baseline)
+            .exec_without_returning(tx)
+            .await?;
+    }
+    project_decisions::Entity::insert(w.decision)
+        .exec_without_returning(tx)
+        .await?;
+    changes::Entity::update_many()
+        .col_expr(changes::Column::Status, Expr::val("approved"))
+        .col_expr(changes::Column::DecidedAt, Expr::val(now))
+        .col_expr(changes::Column::BaselineId, Expr::val(w.baseline_id))
+        .col_expr(changes::Column::ScopeChanges, Expr::val(w.recorded_scope))
+        .col_expr(changes::Column::UpdatedAt, Expr::val(now))
+        .filter(changes::Column::Id.eq(w.change_id))
+        .filter(changes::Column::Status.eq("awaiting_approval"))
+        .exec(tx)
+        .await?;
+    Ok(())
+}
+
+/// `select coalesce(max(position), 0)::int` over a project's live deliverables.
+async fn max_deliverable_position(db: &PgPool, project_id: &str) -> Result<i32, DbErr> {
+    let max: Option<i32> = project_deliverables::Entity::find()
+        .select_only()
+        .expr(sea_orm::ExprTrait::cast_as(
+            Func::coalesce([
+                Expr::from(Func::max(Expr::col(project_deliverables::Column::Position))),
+                Expr::val(0),
+            ]),
+            "int",
+        ))
+        .filter(project_deliverables::Column::ProjectId.eq(project_id))
+        .filter(project_deliverables::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(max.unwrap_or(0))
+}
+
+/// A deliverable the change adds to the scope.
+fn added_deliverable(
+    project_id: &str,
+    (id, number, item, position): &(String, i64, &Value, i64),
+    actor: &str,
+    now: OffsetDateTime,
+) -> Result<project_deliverables::ActiveModel, DbErr> {
+    let planned = |key: &str| iso_of(item.get(key)).and_then(|iso| crate::js::offset_of_iso(&iso));
+    let text = |key: &str| item.get(key).and_then(json_text);
+    Ok(project_deliverables::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project_id.to_owned()),
+        number: Set(int(*number)?),
+        title: Set(json_text(&item["title"]).ok_or_else(|| {
+            DbErr::Custom(r#"null value in column "title" violates not-null constraint"#.to_owned())
+        })?),
+        description: Set(text("description")),
+        owner_id: Set(text("ownerId")),
+        status: Set("not_started".to_owned()),
+        planned_start: Set(planned("plannedStart")),
+        planned_end: Set(planned("plannedEnd")),
+        acceptance_criteria: Set(json!([])),
+        position: Set(int(*position)?),
+        client_visible: Set(false),
+        created_by: Set(actor.to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+}
 #[allow(clippy::too_many_lines)]
 async fn write_approved_change(
     db: &PgPool,
     change_id: &str,
     actor_id: Option<&str>,
     now_ms: i64,
-) -> Result<AppliedChange, sqlx::Error> {
+) -> Result<AppliedChange, DbErr> {
     let skipped = |change: Option<Value>| AppliedChange {
         applied: false,
         change,
@@ -764,7 +931,7 @@ async fn write_approved_change(
     let Some(plan) = load_plan_state(db, &project_id).await? else {
         return Ok(skipped(Some(change)));
     };
-    let now = iso_from_millis(now_ms).unwrap_or_default();
+    let now = instant(now_ms)?;
     let actor = actor_id
         .unwrap_or_else(|| str_of(&change, "createdBy"))
         .to_owned();
@@ -802,17 +969,12 @@ async fn write_approved_change(
         .collect();
     let adds = array(&scope_changes, "add");
     let numbers = allocate_numbers(
-        db,
+        &orm(db),
         &deliverable_sequence(&project_id),
         i64::try_from(adds.len()).unwrap_or(0),
     )
     .await?;
-    let max_position: i32 = sqlx::query_scalar(
-        "select coalesce(max(position), 0)::int from project_deliverables where project_id = $1 and deleted_at is null",
-    )
-    .bind(&project_id)
-    .fetch_one(db)
-    .await?;
+    let max_position = max_deliverable_position(db, &project_id).await?;
     let added: Vec<(String, i64, &Value, i64)> = adds
         .iter()
         .enumerate()
@@ -872,7 +1034,7 @@ async fn write_approved_change(
     let previous = latest_baseline(db, &project_id).await?;
     let baseline_id = previous.as_ref().map(|_| generate_id("bsl"));
     let code = change_code(change["number"].as_i64().unwrap_or(0));
-    let decision_number = allocate_number(db, &decision_sequence(&project_id)).await?;
+    let decision_number = allocate_number(&orm(db), &decision_sequence(&project_id)).await?;
     let decision_id = generate_id("dec");
     let description = change["description"].as_str().filter(|d| !d.is_empty());
     let context = [
@@ -892,80 +1054,25 @@ async fn write_approved_change(
         json!([{"title": "Approve the change", "note": null, "chosen": true}, {"title": "Reject the change", "note": null, "chosen": false}]),
         consequence_lines(&effects),
         &actor,
-        &now,
-    );
+        now,
+    )?;
 
-    let mut statements: Vec<Statement> = Vec::new();
-    for (id, to) in &milestone_moves {
-        statements.push(
-            sqlx::query("update milestones set due_date = $2::timestamp, updated_at = $3::timestamp where id = $1 and project_id = $4 and deleted_at is null")
-                .bind(id.clone()).bind(to.clone()).bind(now.clone()).bind(project_id.clone()),
-        );
-    }
-    for mv in &deliverable_moves {
-        let (has_start, has_end) = (
-            mv.get("plannedStart").is_some(),
-            mv.get("plannedEnd").is_some(),
-        );
-        statements.push(
-            sqlx::query(
-                "update project_deliverables set
-                    planned_start = case when $2::bool then $3::timestamptz else planned_start end,
-                    planned_end = case when $4::bool then $5::timestamptz else planned_end end,
-                    updated_at = $6::timestamptz
-                 where id = $1 and project_id = $7 and deleted_at is null",
-            )
-            .bind(str_of(mv, "deliverableId").to_owned())
-            .bind(has_start)
-            .bind(iso_of(mv.get("plannedStart")))
-            .bind(has_end)
-            .bind(iso_of(mv.get("plannedEnd")))
-            .bind(now.clone())
-            .bind(project_id.clone()),
-        );
-    }
-    if !remove_ids.is_empty() {
-        statements.push(
-            sqlx::query("update project_deliverables set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = any($1) and project_id = $3 and deleted_at is null")
-                .bind(remove_ids.clone()).bind(now.clone()).bind(project_id.clone()),
-        );
-        statements.push(
-            sqlx::query("update tasks set deliverable_id = null, updated_at = $2::timestamp where deliverable_id = any($1)")
-                .bind(remove_ids.clone()).bind(now.clone()),
-        );
-    }
-    for (id, number, item, position) in &added {
-        statements.push(insert(
-            INSERT_DELIVERABLE,
-            json!({
-                "id": id, "project_id": project_id, "number": number, "title": item["title"],
-                "description": item.get("description").cloned().unwrap_or(Value::Null),
-                "owner_id": item.get("ownerId").cloned().unwrap_or(Value::Null),
-                "status": "not_started", "planned_start": iso_of(item.get("plannedStart")),
-                "planned_end": iso_of(item.get("plannedEnd")), "acceptance_criteria": [],
-                "position": position, "client_visible": false, "created_by": actor,
-                "created_at": now, "updated_at": now,
-            }),
-        ));
-    }
-    let go_live = iso_of(plan_changes.get("goLive"));
-    if go_live.is_some() || budget_to.is_some() {
-        statements.push(
-            sqlx::query("update projects set updated_at = $2::timestamp,
-                    end_date = case when $3::text is null then end_date else $3::timestamp end,
-                    budgeted_amount = case when $4::text is null then budgeted_amount else $4::numeric end
-                 where id = $1")
-                .bind(project_id.clone()).bind(now.clone()).bind(go_live).bind(budget_to),
-        );
-    }
-    if let (Some(prev), Some(id)) = (&previous, &baseline_id) {
-        statements.push(insert(INSERT_BASELINE, json!({
-            "id": id, "project_id": project_id, "version": prev["version"].as_i64().unwrap_or(0) + 1,
-            "change_request_id": change_id, "snapshot": build_snapshot(&after),
-            "created_by": actor, "created_at": now,
-        })));
-    }
-    statements.push(insert(INSERT_DECISION, decision));
+    let added_rows = added
+        .iter()
+        .map(|entry| added_deliverable(&project_id, entry, &actor, now))
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let baseline = match (&previous, &baseline_id) {
+        (Some(prev), Some(id)) => Some(project_baselines::ActiveModel {
+            id: Set(id.clone()),
+            project_id: Set(project_id.clone()),
+            version: Set(int(prev["version"].as_i64().unwrap_or(0) + 1)?),
+            change_request_id: Set(Some(change_id.to_owned())),
+            snapshot: Set(build_snapshot(&after)),
+            created_by: Set(actor.clone()),
+            created_at: Set(now),
+        }),
+        _ => None,
+    };
     let recorded_scope: Option<Value> = if change["scopeChanges"].is_null() {
         None
     } else {
@@ -987,18 +1094,25 @@ async fn write_approved_change(
         }
         Some(scope)
     };
-    statements.push(
-        sqlx::query(
-            "update project_change_requests set status = 'approved', decided_at = $2::timestamptz,
-                baseline_id = $3, scope_changes = $4::jsonb, updated_at = $2::timestamptz
-             where id = $1 and status = 'awaiting_approval'",
-        )
-        .bind(change_id.to_owned())
-        .bind(now.clone())
-        .bind(baseline_id.clone())
-        .bind(recorded_scope),
-    );
-    atomically(db, statements).await?;
+    let writes = ApprovalWrites {
+        change_id,
+        project_id: &project_id,
+        milestone_moves: &milestone_moves,
+        deliverable_moves: &deliverable_moves,
+        remove_ids: &remove_ids,
+        added: added_rows,
+        go_live: iso_of(plan_changes.get("goLive")),
+        budget_to,
+        baseline,
+        decision,
+        baseline_id: baseline_id.clone(),
+        recorded_scope,
+        now,
+    };
+    // One transaction, the statements in order (`atomically`).
+    let mut tx = db.begin().await.map_err(orm_error)?;
+    write_approval(&OrmConn::new(&mut tx), writes).await?;
+    tx.commit().await.map_err(orm_error)?;
     read_back(db, change_id, baseline_id.as_deref(), &decision_id).await
 }
 
@@ -1010,7 +1124,7 @@ pub async fn record_rejected_change(
     actor_id: Option<&str>,
     rows: &[ApprovalRow],
     now_ms: i64,
-) -> Result<AppliedChange, sqlx::Error> {
+) -> Result<AppliedChange, DbErr> {
     settle_claimed_change(
         db,
         change_id,
@@ -1026,7 +1140,7 @@ async fn write_rejected_change(
     actor_id: Option<&str>,
     rows: &[ApprovalRow],
     now_ms: i64,
-) -> Result<AppliedChange, sqlx::Error> {
+) -> Result<AppliedChange, DbErr> {
     let Some(change) = find_change_request(db, change_id).await? else {
         return Ok(AppliedChange::default());
     };
@@ -1036,7 +1150,7 @@ async fn write_rejected_change(
             ..AppliedChange::default()
         });
     }
-    let now = iso_from_millis(now_ms).unwrap_or_default();
+    let now = instant(now_ms)?;
     let project_id = str_of(&change, "projectId").to_owned();
     let rejecting = rows.iter().find(|r| r.decision == "rejected");
     let actor = rejecting
@@ -1045,7 +1159,7 @@ async fn write_rejected_change(
         .unwrap_or_else(|| str_of(&change, "createdBy"))
         .to_owned();
     let code = change_code(change["number"].as_i64().unwrap_or(0));
-    let number = allocate_number(db, &decision_sequence(&project_id)).await?;
+    let number = allocate_number(&orm(db), &decision_sequence(&project_id)).await?;
     let id = generate_id("dec");
     let note = rejecting.and_then(|r| r.note.clone());
     let reason = note
@@ -1074,18 +1188,25 @@ async fn write_rejected_change(
         json!([{"title": "Approve the change", "note": null, "chosen": false}, {"title": "Reject the change", "note": note, "chosen": true}]),
         vec!["The change was not applied.".to_owned()],
         &actor,
-        &now,
-    );
-    atomically(
-        db,
-        vec![
-            insert(INSERT_DECISION, decision),
-            sqlx::query("update project_change_requests set status = 'rejected', decided_at = $2::timestamptz,
-                    updated_at = $2::timestamptz where id = $1 and status = 'awaiting_approval'")
-                .bind(change_id.to_owned()).bind(now.clone()),
-        ],
-    )
-    .await?;
+        now,
+    )?;
+    // One transaction, the statements in order (`atomically`).
+    let mut tx = db.begin().await.map_err(orm_error)?;
+    {
+        let tx = OrmConn::new(&mut tx);
+        project_decisions::Entity::insert(decision)
+            .exec_without_returning(&tx)
+            .await?;
+        changes::Entity::update_many()
+            .col_expr(changes::Column::Status, Expr::val("rejected"))
+            .col_expr(changes::Column::DecidedAt, Expr::val(now))
+            .col_expr(changes::Column::UpdatedAt, Expr::val(now))
+            .filter(changes::Column::Id.eq(change_id))
+            .filter(changes::Column::Status.eq("awaiting_approval"))
+            .exec(&tx)
+            .await?;
+    }
+    tx.commit().await.map_err(orm_error)?;
     read_back(db, change_id, None, &id).await
 }
 

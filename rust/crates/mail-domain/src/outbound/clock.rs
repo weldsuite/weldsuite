@@ -35,6 +35,12 @@ pub fn iso(ms: i64) -> String {
     )
 }
 
+/// `new Date(ms)` as Drizzle writes it to a `timestamp` column: UTC, to the
+/// millisecond (what [`iso`] bound as `$n::timestamp` gave).
+pub fn timestamp(ms: i64) -> time::PrimitiveDateTime {
+    weldsuite_db::utc_timestamp(at(ms))
+}
+
 /// `Date.parse(text)` for ISO times; `None` for anything else.
 pub fn parse_iso(text: &str) -> Option<i64> {
     let parsed = OffsetDateTime::parse(text, &Rfc3339).ok()?;

@@ -6,36 +6,27 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, Set};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use weldsuite_db::js_row;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::orm;
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::master::{user_app_installs, user_apps, workspaces};
+use weldsuite_schema::tenant::workspace_installed_apps;
 
 use crate::scopes::{NATIVE_ONLY_APP_CODES, is_native_only, is_reserved};
-
-/// A `user_apps` row as JSON, with `price_monthly` as Drizzle reads
-/// `numeric` (a string). `a` is the table's alias.
-macro_rules! app_json {
-    () => {
-        "to_jsonb(a) || jsonb_build_object('price_monthly', a.price_monthly::text)"
-    };
-}
-
-/// A row from `to_jsonb`, as Drizzle returns it.
-fn row(value: Value) -> Value {
-    js_row(value)
-}
 
 /// A string column of a row (`''` when missing or not a string).
 fn text<'a>(row: &'a Value, key: &str) -> &'a str {
     row.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-/// `new Date().toISOString()`.
-fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: to the
+/// millisecond.
+fn now() -> OffsetDateTime {
+    weldsuite_db::utc_now().assume_utc()
 }
 
 /// A public and approved app's bundle is open to anyone.
@@ -73,30 +64,36 @@ pub async fn adopt_system_install(
     app: &Value,
     workspace_id: &str,
     installed_by: Option<&str>,
-) -> Result<Adoption, sqlx::Error> {
+) -> Result<Adoption, DbErr> {
     if !is_adoptable(app) {
         return Ok(Adoption::None);
     }
+    let (master, tenant) = (orm(master), orm(tenant));
     let app_id = text(app, "id");
-    let tenant_row: Option<(String, bool, String, Option<String>)> = sqlx::query_as(
-        "select id, is_active, app_type, user_app_id from workspace_installed_apps
-         where app_code = $1 and deleted_at is null limit 1",
-    )
-    .bind(text(app, "code"))
-    .fetch_optional(tenant)
-    .await?;
+    let tenant_row: Option<(String, bool, String, Option<String>)> = {
+        use workspace_installed_apps::Column;
+        workspace_installed_apps::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::IsActive, Column::AppType, Column::UserAppId])
+            .filter(Column::AppCode.eq(text(app, "code")))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&tenant)
+            .await?
+    };
     let Some((row_id, true, app_type, user_app_id)) = tenant_row else {
         return Ok(Adoption::None);
     };
     let linked = app_type == "user" && user_app_id.as_deref() == Some(app_id);
     if linked {
-        let status: Option<String> = sqlx::query_scalar(
-            "select status from user_app_installs where app_id = $1 and workspace_id = $2 limit 1",
-        )
-        .bind(app_id)
-        .bind(workspace_id)
-        .fetch_optional(master)
-        .await?;
+        let status: Option<String> = user_app_installs::Entity::find()
+            .select_only()
+            .column(user_app_installs::Column::Status)
+            .filter(user_app_installs::Column::AppId.eq(app_id))
+            .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+            .into_tuple()
+            .one(&master)
+            .await?;
         if status.as_deref() == Some("active") {
             return Ok(Adoption::Already);
         }
@@ -113,74 +110,88 @@ pub async fn adopt_system_install(
         .cloned()
         .unwrap_or_else(|| json!([]));
     let now = now();
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select id, status from user_app_installs where app_id = $1 and workspace_id = $2 limit 1",
-    )
-    .bind(app_id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let existing: Option<(String, String)> = user_app_installs::Entity::find()
+        .select_only()
+        .columns([
+            user_app_installs::Column::Id,
+            user_app_installs::Column::Status,
+        ])
+        .filter(user_app_installs::Column::AppId.eq(app_id))
+        .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+        .into_tuple()
+        .one(&master)
+        .await?;
     let (bump, existing_active) = match &existing {
         Some((_, status)) if status == "active" => (false, true),
         Some((install_id, _)) => {
-            sqlx::query(
-                "update user_app_installs set
-                   status = 'active', granted_scopes = $2::jsonb, pending_scopes = null,
-                   installed_by = coalesce($3, installed_by), installed_at = $4::timestamptz,
-                   revoked_at = null, updated_at = $4::timestamptz
-                 where id = $1",
-            )
-            .bind(install_id)
-            .bind(&scopes)
-            .bind(installed_by)
-            .bind(&now)
-            .execute(master)
-            .await?;
+            use user_app_installs::Column;
+            let mut update = user_app_installs::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("active"))
+                .col_expr(Column::GrantedScopes, Expr::value(scopes.clone()))
+                .col_expr(Column::PendingScopes, Expr::value(Option::<Value>::None));
+            // `coalesce($installedBy, installed_by)`.
+            if let Some(by) = installed_by {
+                update = update.col_expr(Column::InstalledBy, Expr::value(by));
+            }
+            update
+                .col_expr(Column::InstalledAt, Expr::value(now))
+                .col_expr(Column::RevokedAt, Expr::value(Option::<OffsetDateTime>::None))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(install_id))
+                .exec(&master)
+                .await?;
             (true, false)
         }
         None => {
-            sqlx::query(
-                "insert into user_app_installs
-                   (id, app_id, workspace_id, status, granted_scopes, installed_by, installed_at, created_at, updated_at)
-                 values ($1, $2, $3, 'active', $4::jsonb, $5, $6::timestamptz, $6::timestamptz, $6::timestamptz)",
-            )
-            .bind(generate_id("uai"))
-            .bind(app_id)
-            .bind(workspace_id)
-            .bind(&scopes)
-            .bind(installed_by.filter(|by| !by.is_empty()).unwrap_or("system"))
-            .bind(&now)
-            .execute(master)
+            user_app_installs::Entity::insert(user_app_installs::ActiveModel {
+                id: Set(generate_id("uai")),
+                app_id: Set(app_id.to_owned()),
+                workspace_id: Set(workspace_id.to_owned()),
+                status: Set("active".to_owned()),
+                granted_scopes: Set(Some(scopes.clone())),
+                installed_by: Set(installed_by
+                    .filter(|by| !by.is_empty())
+                    .unwrap_or("system")
+                    .to_owned()),
+                installed_at: Set(now),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&master)
             .await?;
             (true, false)
         }
     };
     let already_linked = linked && existing_active;
 
-    sqlx::query(
-        "update workspace_installed_apps set
-           app_type = 'user', user_app_id = $2, granted_scopes = $3::jsonb, is_active = true,
-           deleted_at = null, updated_at = $4::timestamptz,
-           installed_by = case when $5::text is null then installed_by else $5 end
-         where id = $1",
-    )
-    .bind(&row_id)
-    .bind(app_id)
-    .bind(&scopes)
-    .bind(&now)
-    .bind(installed_by.filter(|by| !by.is_empty()))
-    .execute(tenant)
-    .await?;
+    {
+        use workspace_installed_apps::Column;
+        let mut update = workspace_installed_apps::Entity::update_many()
+            .col_expr(Column::AppType, Expr::value("user"))
+            .col_expr(Column::UserAppId, Expr::value(app_id))
+            .col_expr(Column::GrantedScopes, Expr::value(scopes))
+            .col_expr(Column::IsActive, Expr::value(true))
+            .col_expr(Column::DeletedAt, Expr::value(Option::<OffsetDateTime>::None))
+            .col_expr(Column::UpdatedAt, Expr::value(now));
+        // `case when $installedBy is null then installed_by else $installedBy end`.
+        if let Some(by) = installed_by.filter(|by| !by.is_empty()) {
+            update = update.col_expr(Column::InstalledBy, Expr::value(by));
+        }
+        update.filter(Column::Id.eq(row_id)).exec(&tenant).await?;
+    }
 
     if bump {
-        sqlx::query(
-            "update user_apps set install_count = install_count + 1, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(app_id)
-        .bind(&now)
-        .execute(master)
-        .await?;
+        use sea_orm::ExprTrait as _;
+        user_apps::Entity::update_many()
+            .col_expr(
+                user_apps::Column::InstallCount,
+                Expr::col(user_apps::Column::InstallCount).add(1),
+            )
+            .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+            .filter(user_apps::Column::Id.eq(app_id))
+            .exec(&master)
+            .await?;
     }
     Ok(if already_linked {
         Adoption::Already
@@ -189,32 +200,30 @@ pub async fn adopt_system_install(
     })
 }
 
-/// Official public apps that could claim one of `codes` (`findOfficialAppsForCodes`).
-async fn official_apps_for_codes(
-    master: &PgPool,
-    codes: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+/// Official public apps that could claim one of `codes` (`findOfficialAppsForCodes`),
+/// as Drizzle returns their rows.
+async fn official_apps_for_codes(master: &PgPool, codes: &[String]) -> Result<Vec<Value>, DbErr> {
+    use user_apps::Column;
     if codes.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        app_json!(),
-        " from user_apps a
-         where a.visibility = 'public' and a.review_status = 'approved' and a.is_active = true
-           and a.deleted_at is null"
-    ))
-    .fetch_all(master)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(row)
-        .filter(|app| {
-            let code = text(app, "code");
-            codes.iter().any(|c| c == code)
-                && (text(app, "publisherType") == "weldsuite" || is_reserved(code))
-        })
-        .collect())
+    let apps = user_apps::Entity::find()
+        .filter(Column::Visibility.eq("public"))
+        .filter(Column::ReviewStatus.eq("approved"))
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .all(&orm(master))
+        .await?;
+    let mut out = Vec::new();
+    for app in apps {
+        let code = app.code.as_str();
+        if codes.iter().any(|c| c == code)
+            && (app.publisher_type == "weldsuite" || is_reserved(code))
+        {
+            out.push(serde_json::to_value(app).map_err(|error| DbErr::Json(error.to_string()))?);
+        }
+    }
+    Ok(out)
 }
 
 /// `adoptOfficialSystemInstallsForTenant`: on every store and installed read.
@@ -223,28 +232,33 @@ pub async fn adopt_official_system_installs(
     tenant: &PgPool,
     workspace_id: &str,
     installed_by: Option<&str>,
-) -> Result<usize, sqlx::Error> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select app_code, app_type from workspace_installed_apps
-         where is_active = true and deleted_at is null",
-    )
-    .fetch_all(tenant)
-    .await?;
+) -> Result<usize, DbErr> {
+    use workspace_installed_apps::Column;
+    let tenant_orm = orm(tenant);
+    let rows: Vec<(String, String)> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .columns([Column::AppCode, Column::AppType])
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&tenant_orm)
+        .await?;
     // A native-again module adopted onto its hosted app goes back to being
     // the built-in install.
     if rows
         .iter()
         .any(|(code, app_type)| app_type == "user" && is_native_only(code))
     {
-        sqlx::query(
-            "update workspace_installed_apps set
-               app_type = 'system', user_app_id = null, granted_scopes = null, updated_at = $1::timestamptz
-             where app_code = any($2) and app_type = 'user' and deleted_at is null",
-        )
-        .bind(now())
-        .bind(NATIVE_ONLY_APP_CODES.map(str::to_owned).to_vec())
-        .execute(tenant)
-        .await?;
+        workspace_installed_apps::Entity::update_many()
+            .col_expr(Column::AppType, Expr::value("system"))
+            .col_expr(Column::UserAppId, Expr::value(Option::<String>::None))
+            .col_expr(Column::GrantedScopes, Expr::value(Option::<Value>::None))
+            .col_expr(Column::UpdatedAt, Expr::value(now()))
+            .filter(Column::AppCode.is_in(NATIVE_ONLY_APP_CODES))
+            .filter(Column::AppType.eq("user"))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&tenant_orm)
+            .await?;
     }
     let mut codes: Vec<String> = Vec::new();
     for (code, _) in rows {
@@ -276,11 +290,13 @@ pub async fn sweep_adopt_system_installs(
     {
         return;
     }
-    let rows: Vec<(String, Option<String>)> = match sqlx::query_as(
-        "select id, clerk_org_id from workspaces where scheduled_deletion_at is null",
-    )
-    .fetch_all(&master)
-    .await
+    let rows: Vec<(String, Option<String>)> = match workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(workspaces::Column::ScheduledDeletionAt.is_null())
+        .into_tuple()
+        .all(&orm(&master))
+        .await
     {
         Ok(rows) => rows,
         Err(error) => {

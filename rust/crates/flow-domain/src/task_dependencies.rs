@@ -13,11 +13,17 @@
 //! pair that has a row keeps its type and lag, a dropped pair loses its row),
 //! and cycle detection reads the table as well as the arrays.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool};
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{task_dependencies, tasks};
 
+use crate::js::{offset_of_iso, timestamp_of_iso};
 use crate::task_tree::soft_delete_task_tree;
 
 /// Why a dependency change was refused.
@@ -164,17 +170,15 @@ pub fn id_list(value: Option<&Value>) -> Vec<String> {
 
 /// `predecessorsOf(db, taskId)`: what a task waits for, its `dependsOn`
 /// array and the predecessors of its `task_dependencies` rows (FLOW-015).
-pub async fn predecessors_of(db: &PgPool, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let depends_on: Option<Option<Value>> =
-        sqlx::query_scalar("select depends_on from tasks where id = $1 limit 1")
-            .bind(task_id)
-            .fetch_optional(db)
-            .await?;
-    let rows: Vec<String> =
-        sqlx::query_scalar("select predecessor_id from task_dependencies where successor_id = $1")
-            .bind(task_id)
-            .fetch_all(db)
-            .await?;
+pub async fn predecessors_of(db: &PgPool, task_id: &str) -> Result<Vec<String>, DbErr> {
+    let depends_on: Option<Option<Value>> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::DependsOn)
+        .filter(tasks::Column::Id.eq(task_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let rows = predecessor_rows(db, task_id).await?;
     let mut out = unique(&id_list(depends_on.flatten().as_ref()));
     for id in rows {
         if !out.contains(&id) {
@@ -184,13 +188,44 @@ pub async fn predecessors_of(db: &PgPool, task_id: &str) -> Result<Vec<String>, 
     Ok(out)
 }
 
+/// `select predecessor_id from task_dependencies where successor_id = $1`.
+async fn predecessor_rows(db: &PgPool, task_id: &str) -> Result<Vec<String>, DbErr> {
+    task_dependencies::Entity::find()
+        .select_only()
+        .column(task_dependencies::Column::PredecessorId)
+        .filter(task_dependencies::Column::SuccessorId.eq(task_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// `select id, project_id, deleted_at is not null from tasks where id = any($1)`.
+async fn tasks_by_id(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<Vec<(String, Option<String>, bool)>, DbErr> {
+    let rows: Vec<(String, Option<String>, Option<PrimitiveDateTime>)> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::Id)
+        .column(tasks::Column::ProjectId)
+        .column(tasks::Column::DeletedAt)
+        .filter(tasks::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, project_id, deleted_at)| (id, project_id, deleted_at.is_some()))
+        .collect())
+}
+
 /// `detectCycle(db, taskId, newDependsOn)`: following what each task waits
 /// for (the arrays and the table), from `new_depends_on`, reaches `task_id`.
 pub async fn detect_cycle(
     db: &PgPool,
     task_id: &str,
     new_depends_on: &[String],
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let mut visited: Vec<String> = Vec::new();
     let mut queue: std::collections::VecDeque<String> = new_depends_on.iter().cloned().collect();
     while let Some(current) = queue.pop_front() {
@@ -212,7 +247,7 @@ pub async fn would_close_cycle(
     db: &PgPool,
     predecessor_id: &str,
     successor_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     detect_cycle(db, successor_id, &[predecessor_id.to_owned()]).await
 }
 
@@ -224,12 +259,8 @@ pub async fn waits_for_after(
     task_id: &str,
     new_depends_on: &[String],
     removed_deps: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<String> =
-        sqlx::query_scalar("select predecessor_id from task_dependencies where successor_id = $1")
-            .bind(task_id)
-            .fetch_all(db)
-            .await?;
+) -> Result<Vec<String>, DbErr> {
+    let rows = predecessor_rows(db, task_id).await?;
     let mut out = unique(new_depends_on);
     for id in rows {
         if !removed_deps.contains(&id) && !out.contains(&id) {
@@ -246,7 +277,7 @@ pub async fn dependency_row_changes(
     db: &PgPool,
     self_id: &str,
     diff: &LinkDiff,
-) -> Result<DependencyRowChanges, sqlx::Error> {
+) -> Result<DependencyRowChanges, DbErr> {
     let mut linked: Vec<String> = Vec::new();
     for list in [
         &diff.added_deps,
@@ -265,12 +296,7 @@ pub async fn dependency_row_changes(
     }
     let mut wanted = vec![self_id.to_owned()];
     wanted.extend(linked);
-    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
-        "select id, project_id, deleted_at is not null from tasks where id = any($1)",
-    )
-    .bind(&wanted)
-    .fetch_all(db)
-    .await?;
+    let rows = tasks_by_id(db, &wanted).await?;
     let project_of = |id: &str| -> Option<String> {
         rows.iter()
             .find(|(row, _, _)| row == id)
@@ -324,7 +350,7 @@ async fn check_links(
     self_id: Option<&str>,
     added: &[String],
     access: &LinkAccess,
-) -> Result<Option<DependencyFailure>, sqlx::Error> {
+) -> Result<Option<DependencyFailure>, DbErr> {
     if added.is_empty() {
         return Ok(None);
     }
@@ -333,12 +359,7 @@ async fn check_links(
             "A task cannot depend on or block itself".to_owned(),
         )));
     }
-    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
-        "select id, project_id, deleted_at is not null from tasks where id = any($1)",
-    )
-    .bind(added)
-    .fetch_all(db)
-    .await?;
+    let rows = tasks_by_id(db, added).await?;
     for linked in added {
         let live = rows.iter().any(|(id, _, deleted)| id == linked && !deleted);
         if !live {
@@ -365,7 +386,7 @@ async fn any_cycle(
     db: &PgPool,
     blocked: &[String],
     depends_on: &[String],
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     for blocked_id in blocked {
         if detect_cycle(db, blocked_id, depends_on).await? {
             return Ok(true);
@@ -379,7 +400,7 @@ async fn any_cycle(
 pub async fn check_new_task_links(
     db: &PgPool,
     input: &LinkInput,
-) -> Result<Option<DependencyFailure>, sqlx::Error> {
+) -> Result<Option<DependencyFailure>, DbErr> {
     let depends_on = unique(input.depends_on.as_deref().unwrap_or_default());
     let blocks = unique(input.blocks.as_deref().unwrap_or_default());
     let mut all = depends_on.clone();
@@ -404,13 +425,16 @@ pub async fn plan_dependency_update(
     id: &str,
     input: &LinkInput,
     access: &LinkAccess,
-) -> Result<Result<DependencyPlan, DependencyFailure>, sqlx::Error> {
-    let current: Option<(Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select depends_on, blocks from tasks where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Result<DependencyPlan, DependencyFailure>, DbErr> {
+    let current: Option<(Option<Value>, Option<Value>)> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::DependsOn)
+        .column(tasks::Column::Blocks)
+        .filter(tasks::Column::Id.eq(id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((old_depends_on, old_blocks)) = current else {
         return Ok(Err(DependencyFailure::NotFound(format!(
             "Task {id} not found"
@@ -462,11 +486,15 @@ pub async fn plan_dependency_update(
     }
     let mut reciprocal = Vec::new();
     if !linked.is_empty() {
-        let rows: Vec<(String, Option<Value>, Option<Value>)> =
-            sqlx::query_as("select id, blocks, depends_on from tasks where id = any($1)")
-                .bind(&linked)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, Option<Value>, Option<Value>)> = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::Id)
+            .column(tasks::Column::Blocks)
+            .column(tasks::Column::DependsOn)
+            .filter(tasks::Column::Id.is_in(&linked))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let with_self = |ids: Vec<String>| {
             let mut ids = unique(&ids);
             if !ids.iter().any(|x| x == id) {
@@ -518,80 +546,90 @@ pub async fn plan_dependency_update(
     }))
 }
 
+/// `$n::timestamp` and `$n::timestamptz` of the `now` a writer passes (an
+/// ISO timestamp).
+fn stamps(now: &str) -> Result<(PrimitiveDateTime, time::OffsetDateTime), DbErr> {
+    match (timestamp_of_iso(now), offset_of_iso(now)) {
+        (Some(stamp), Some(stamptz)) => Ok((stamp, stamptz)),
+        _ => Err(DbErr::Type(format!("invalid input syntax for type timestamp: \"{now}\""))),
+    }
+}
+
 /// The reciprocal rows, the task's own lists and the typed rows they imply, on
 /// a transaction the caller opened (it may write the task's other columns on
 /// it too). `now` is the `updatedAt` written; `user_id` the creator of new
 /// rows (`dependencyRowStatements`).
 pub async fn write_dependency_rows(
-    conn: &mut PgConnection,
+    conn: &impl ConnectionTrait,
     id: &str,
     plan: &DependencyPlan,
     now: &str,
     user_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let (stamp, _) = stamps(now)?;
     for link in &plan.reciprocal {
-        sqlx::query(
-            "update tasks set
-                 blocks = case when $2 then $3 else blocks end,
-                 depends_on = case when $4 then $5 else depends_on end,
-                 updated_at = $6::timestamp
-             where id = $1",
-        )
-        .bind(&link.id)
-        .bind(link.blocks.is_some())
-        .bind(link.blocks.as_ref().map(|ids| serde_json::json!(ids)))
-        .bind(link.depends_on.is_some())
-        .bind(link.depends_on.as_ref().map(|ids| serde_json::json!(ids)))
-        .bind(now)
-        .execute(&mut *conn)
-        .await?;
+        // Only the side that changes is written.
+        let mut update = tasks::Entity::update_many();
+        if let Some(blocks) = &link.blocks {
+            update = update.col_expr(tasks::Column::Blocks, Expr::val(serde_json::json!(blocks)));
+        }
+        if let Some(depends_on) = &link.depends_on {
+            update = update.col_expr(
+                tasks::Column::DependsOn,
+                Expr::val(serde_json::json!(depends_on)),
+            );
+        }
+        update
+            .col_expr(tasks::Column::UpdatedAt, Expr::val(stamp))
+            .filter(tasks::Column::Id.eq(&link.id))
+            .exec(conn)
+            .await?;
     }
-    sqlx::query(
-        "update tasks set depends_on = $2, blocks = $3, updated_at = $4::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(serde_json::json!(plan.depends_on))
-    .bind(serde_json::json!(plan.blocks))
-    .bind(now)
-    .execute(&mut *conn)
-    .await?;
+    tasks::Entity::update_many()
+        .col_expr(
+            tasks::Column::DependsOn,
+            Expr::val(serde_json::json!(plan.depends_on)),
+        )
+        .col_expr(tasks::Column::Blocks, Expr::val(serde_json::json!(plan.blocks)))
+        .col_expr(tasks::Column::UpdatedAt, Expr::val(stamp))
+        .filter(tasks::Column::Id.eq(id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .exec(conn)
+        .await?;
     write_typed_rows(conn, &plan.rows, now, user_id).await
 }
 
 /// `dependencyRowStatements`: new pairs are inserted as `fs` / lag 0 and left
 /// alone when they already have a row; dropped pairs are deleted.
 pub async fn write_typed_rows(
-    conn: &mut PgConnection,
+    conn: &impl ConnectionTrait,
     changes: &DependencyRowChanges,
     now: &str,
     user_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let (_, stamptz) = stamps(now)?;
     for pair in &changes.add {
-        sqlx::query(
-            "insert into task_dependencies
-                 (id, project_id, predecessor_id, successor_id, type, lag_days, created_by,
-                  created_at, updated_at)
-             values ($1, $2, $3, $4, 'fs', 0, $5, $6::timestamptz, $6::timestamptz)
-             on conflict do nothing",
-        )
-        .bind(generate_id("tdp"))
-        .bind(&pair.project_id)
-        .bind(&pair.predecessor_id)
-        .bind(&pair.successor_id)
-        .bind(user_id)
-        .bind(now)
-        .execute(&mut *conn)
+        task_dependencies::Entity::insert(task_dependencies::ActiveModel {
+            id: Set(generate_id("tdp")),
+            project_id: Set(pair.project_id.clone()),
+            predecessor_id: Set(pair.predecessor_id.clone()),
+            successor_id: Set(pair.successor_id.clone()),
+            type_: Set("fs".to_owned()),
+            lag_days: Set(0),
+            created_by: Set(user_id.to_owned()),
+            created_at: Set(stamptz),
+            updated_at: Set(stamptz),
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(conn)
         .await?;
     }
     for pair in &changes.remove {
-        sqlx::query(
-            "delete from task_dependencies where predecessor_id = $1 and successor_id = $2",
-        )
-        .bind(&pair.predecessor_id)
-        .bind(&pair.successor_id)
-        .execute(&mut *conn)
-        .await?;
+        task_dependencies::Entity::delete_many()
+            .filter(task_dependencies::Column::PredecessorId.eq(&pair.predecessor_id))
+            .filter(task_dependencies::Column::SuccessorId.eq(&pair.successor_id))
+            .exec(conn)
+            .await?;
     }
     Ok(())
 }
@@ -603,11 +641,11 @@ pub async fn commit_dependency_update(
     id: &str,
     plan: &DependencyPlan,
     user_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let now = iso_timestamp(time::OffsetDateTime::now_utc());
-    let mut tx = db.begin().await?;
-    write_dependency_rows(&mut tx, id, plan, &now, user_id).await?;
-    tx.commit().await
+    let mut tx = db.begin().await.map_err(orm_error)?;
+    write_dependency_rows(&OrmConn::new(&mut tx), id, plan, &now, user_id).await?;
+    tx.commit().await.map_err(orm_error)
 }
 
 /// `linkCreatedTask(db, id, input)`: the links of a task just created;
@@ -618,7 +656,7 @@ pub async fn link_created_task(
     id: &str,
     input: &LinkInput,
     user_id: &str,
-) -> Result<Option<DependencyFailure>, sqlx::Error> {
+) -> Result<Option<DependencyFailure>, DbErr> {
     let planned = async {
         match plan_dependency_update(db, id, input, &LinkAccess::Unchecked).await? {
             Ok(plan) => commit_dependency_update(db, id, &plan, user_id)
@@ -647,7 +685,7 @@ pub async fn is_descendant_of(
     db: &PgPool,
     candidate_id: &str,
     ancestor_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let mut seen: Vec<String> = Vec::new();
     let mut cursor = Some(candidate_id.to_owned());
     for _ in 0..100 {
@@ -660,11 +698,13 @@ pub async fn is_descendant_of(
         if seen.contains(&current) {
             return Ok(false);
         }
-        let parent: Option<Option<String>> =
-            sqlx::query_scalar("select parent_task_id from tasks where id = $1 limit 1")
-                .bind(&current)
-                .fetch_optional(db)
-                .await?;
+        let parent: Option<Option<String>> = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::ParentTaskId)
+            .filter(tasks::Column::Id.eq(&current))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         seen.push(current);
         cursor = parent.flatten();
     }
@@ -688,7 +728,7 @@ pub async fn parent_error(
     current_parent: Option<&str>,
     project_id: Option<&str>,
     parent: &ParentChange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let ParentChange::Set(parent_id) = parent else {
         return Ok(None);
     };
@@ -698,13 +738,15 @@ pub async fn parent_error(
     if id == Some(parent_id.as_str()) {
         return Ok(Some("A task cannot be its own parent".to_owned()));
     }
-    let row: Option<(Option<String>, bool)> = sqlx::query_as(
-        "select project_id, deleted_at is not null from tasks where id = $1 limit 1",
-    )
-    .bind(parent_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((parent_project, false)) = row else {
+    let row: Option<(Option<String>, Option<PrimitiveDateTime>)> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::ProjectId)
+        .column(tasks::Column::DeletedAt)
+        .filter(tasks::Column::Id.eq(parent_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let Some((parent_project, None)) = row else {
         return Ok(Some(format!("Parent task {parent_id} not found")));
     };
     if parent_project.as_deref() != project_id {
@@ -733,7 +775,7 @@ pub async fn validate_task_relations(
     id: Option<&str>,
     project: Option<Option<&str>>,
     parent: &ParentChange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let current_project = existing.and_then(|(project, _)| project);
     if existing.is_some()
         && let Some(sent) = project

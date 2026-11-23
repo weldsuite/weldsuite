@@ -3,9 +3,12 @@
 //! repeats out). The alert email goes out from mail-api's 5-minute sweep,
 //! not from here.
 
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, DbErr, EntityTrait};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::outbound_mail_cases;
 
 use super::clock::day_stamp;
 use super::ledger_core::{CaseSeverity, LedgerSubject, TemplateSummary};
@@ -56,7 +59,7 @@ async fn insert_case(
     db: &PgPool,
     input: &OpenCase,
     now_ms: i64,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let fingerprint = input.template.as_ref().map(|t| t.fingerprint.clone());
     let dedupe: String = [
         subject_id(input.subject.as_ref()),
@@ -103,44 +106,37 @@ async fn insert_case(
         }) => (None, Some(personal_account_id.as_str())),
         None => (None, None),
     };
-    let inserted: Option<String> = sqlx::query_scalar(
-        "insert into outbound_mail_cases
-           (id, workspace_id, personal_account_id, trigger, severity, fingerprint, ai_verdict,
-            risk_score, snippet, subject, sample_domains, sources, metrics, dedupe_key)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         on conflict (dedupe_key) do nothing
-         returning id",
-    )
-    .bind(&id)
-    .bind(workspace)
-    .bind(personal)
-    .bind(&input.trigger)
-    .bind(input.severity.as_str())
-    .bind(&fingerprint)
-    .bind(verdict)
-    .bind(
-        input
+    let template = input.template.as_ref();
+    let case = outbound_mail_cases::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace.map(str::to_owned)),
+        personal_account_id: Set(personal.map(str::to_owned)),
+        trigger: Set(input.trigger.clone()),
+        severity: Set(input.severity.as_str().to_owned()),
+        fingerprint: Set(fingerprint),
+        ai_verdict: Set(verdict),
+        risk_score: Set(input
             .risk_score
-            .map(|s| i32::try_from(s).unwrap_or(i32::MAX)),
-    )
-    .bind(
-        input
-            .template
-            .as_ref()
-            .map(|t| utf16_prefix(&t.snippet, 300).to_owned()),
-    )
-    .bind(
-        input
-            .template
-            .as_ref()
-            .map(|t| utf16_prefix(&t.subject, 300).to_owned()),
-    )
-    .bind(input.template.as_ref().map(|t| json!(t.domains)))
-    .bind(input.template.as_ref().map(|t| json!(t.sources)))
-    .bind(Value::Object(metrics))
-    .bind(&dedupe_key)
-    .fetch_optional(db)
-    .await?;
+            .map(|s| i32::try_from(s).unwrap_or(i32::MAX))),
+        snippet: Set(template.map(|t| utf16_prefix(&t.snippet, 300).to_owned())),
+        subject: Set(template.map(|t| utf16_prefix(&t.subject, 300).to_owned())),
+        sample_domains: Set(template.map(|t| json!(t.domains))),
+        sources: Set(template.map(|t| json!(t.sources))),
+        metrics: Set(Value::Object(metrics)),
+        dedupe_key: Set(dedupe_key),
+        ..Default::default()
+    };
+    // `on conflict (dedupe_key) do nothing returning id`: a repeat inserts
+    // nothing.
+    let inserted = outbound_mail_cases::Entity::insert(case)
+        .on_conflict(
+            OnConflict::column(outbound_mail_cases::Column::DedupeKey)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(db))
+        .await?;
+    let inserted = (inserted > 0).then_some(id);
     let Some(case_id) = inserted else {
         return Ok(None);
     };

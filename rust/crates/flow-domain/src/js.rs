@@ -348,6 +348,69 @@ pub fn contains_pattern(term: &str) -> String {
     out
 }
 
+/// An entity row as Drizzle returned it (the entity decides the JSON shape).
+pub fn row<T: serde::Serialize>(model: T) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// `new Date(millis)` as a `timestamptz` column holds it.
+pub fn offset_of_millis(millis: i64) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()
+}
+
+/// `new Date(millis)` as a `timestamp` column holds it (UTC wall time, to
+/// the millisecond, as Drizzle writes it).
+pub fn timestamp_of_millis(millis: i64) -> Option<time::PrimitiveDateTime> {
+    offset_of_millis(millis).map(weldsuite_db::utc_timestamp)
+}
+
+/// `$n::timestamptz` of `new Date(millis).toISOString()`: an instant
+/// JavaScript cannot print is the statement's error, as Postgres refused the
+/// empty text the SQL bound for it.
+pub fn instant(millis: i64) -> Result<time::OffsetDateTime, sea_orm::DbErr> {
+    offset_of_millis(millis)
+        .filter(|_| iso_from_millis(millis).is_some())
+        .ok_or_else(|| {
+            sea_orm::DbErr::Type(
+                r#"invalid input syntax for type timestamp with time zone: """#.to_owned(),
+            )
+        })
+}
+
+/// `$n::timestamp` of `new Date(millis).toISOString()`, as [`instant`].
+pub fn wall_time(millis: i64) -> Result<time::PrimitiveDateTime, sea_orm::DbErr> {
+    instant(millis).map(weldsuite_db::utc_timestamp)
+}
+
+/// `CAST($n AS <type>)` of a text Postgres reads (a timestamp or a number
+/// as the SQL bound it): `NULL` stays `NULL`, bad text is the statement's
+/// error.
+pub fn cast_text(text: Option<&str>, type_name: &'static str) -> sea_orm::sea_query::Expr {
+    sea_orm::ExprTrait::cast_as(sea_orm::sea_query::Expr::val(text), type_name)
+}
+
+/// An ISO timestamp (as [`iso_from_millis`] writes it) as a `timestamptz`
+/// column holds it: what `$1::timestamptz` read from the text.
+pub fn offset_of_iso(iso: &str) -> Option<time::OffsetDateTime> {
+    millis_of(iso).and_then(offset_of_millis)
+}
+
+/// An ISO timestamp as a `timestamp` column holds it: what `$1::timestamp`
+/// read from the text (the UTC wall time).
+pub fn timestamp_of_iso(iso: &str) -> Option<time::PrimitiveDateTime> {
+    millis_of(iso).and_then(timestamp_of_millis)
+}
+
+/// `value #>> '{}'`: a `jsonb` value as text, a string unquoted, JSON
+/// `null` as SQL `NULL`.
+pub fn json_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
 /// JavaScript truthiness of a JSON value (`undefined` is `None`).
 pub fn truthy(value: Option<&Value>) -> bool {
     match value {

@@ -11,15 +11,21 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{FileStores, MailTransport, get_stored};
+use weldsuite_schema::tenant::{mail_accounts, mail_attachments, mail_messages};
 
 use crate::access::{has_access_to_account, is_admin_or_owner};
 use crate::contacts::{ContactAddress, upsert_mail_contacts};
 use crate::html::sanitize_email_html;
-use crate::outbound::clock::{iso, now_ms};
+use crate::outbound::clock::{iso, now_ms, timestamp};
 use crate::outbound::content_screen::ScreenAttachment;
 use crate::outbound::{
     CheckOutboundInput, MimeAttachment, OutboundGuard, OutboundKind, OutboundReservation, Refusal,
@@ -62,8 +68,8 @@ impl SendError {
     }
 }
 
-impl From<sqlx::Error> for SendError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SendError {
+    fn from(error: DbErr) -> Self {
         Self::Internal(error.to_string())
     }
 }
@@ -167,6 +173,7 @@ async fn load_sendable_account(
     user_id: &str,
     account_id: &str,
 ) -> Result<Account, SendError> {
+    use mail_accounts::Column;
     type Row = (
         String,
         String,
@@ -175,13 +182,21 @@ async fn load_sendable_account(
         Option<bool>,
         Option<Value>,
     );
-    let row: Option<Row> = sqlx::query_as(
-        "select id, email, display_name, daily_send_limit, is_shared, assigned_user_ids
-         from mail_accounts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<Row> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Email,
+            Column::DisplayName,
+            Column::DailySendLimit,
+            Column::IsShared,
+            Column::AssignedUserIds,
+        ])
+        .filter(Column::Id.eq(account_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let not_found = || SendError::mail("ACCOUNT_NOT_FOUND", "Mail account not found");
     let Some((id, email, display_name, limit, shared, assigned)) = row else {
         return Err(not_found());
@@ -212,14 +227,21 @@ async fn find_existing_sent(
     account_id: &str,
     key: &str,
 ) -> Result<Option<SendResult>, SendError> {
-    let row: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, message_id, external_message_id, subject from mail_messages
-         where account_id = $1 and idempotency_key = $2 limit 1",
-    )
-    .bind(account_id)
-    .bind(key)
-    .fetch_optional(db)
-    .await?;
+    use mail_messages::Column;
+    let row: Option<(String, String, Option<String>, Option<String>)> =
+        mail_messages::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::MessageId,
+                Column::ExternalMessageId,
+                Column::Subject,
+            ])
+            .filter(Column::AccountId.eq(account_id))
+            .filter(Column::IdempotencyKey.eq(key))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     Ok(row.map(|(id, smtp, external, subject)| SendResult {
         message_id: id,
         smtp_message_id: smtp,
@@ -254,13 +276,14 @@ async fn outbound_kind_of(
     let Some(in_reply_to) = data.in_reply_to.as_deref().filter(|v| !v.is_empty()) else {
         return Ok(OutboundKind::NewThread);
     };
-    let parent: Option<Option<String>> = sqlx::query_scalar(
-        "select source from mail_messages where account_id = $1 and message_id = $2 limit 1",
-    )
-    .bind(account_id)
-    .bind(in_reply_to)
-    .fetch_optional(db)
-    .await?;
+    let parent: Option<Option<String>> = mail_messages::Entity::find()
+        .select_only()
+        .column(mail_messages::Column::Source)
+        .filter(mail_messages::Column::AccountId.eq(account_id))
+        .filter(mail_messages::Column::MessageId.eq(in_reply_to))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match parent {
         Some(source) if source.as_deref() != Some("sent") => OutboundKind::Reply,
         _ => OutboundKind::NewThread,
@@ -565,19 +588,23 @@ async fn absorb_early_self_copy(
     account_id: &str,
     sent_id: &str,
     self_message_id: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) {
-    let result = sqlx::query(
-        "update mail_messages set deleted_at = $4::timestamp, updated_at = $4::timestamp
-         where account_id = $1 and message_id = $2 and id <> $3
-           and (source is null or source <> 'sent') and deleted_at is null",
-    )
-    .bind(account_id)
-    .bind(self_message_id)
-    .bind(sent_id)
-    .bind(now)
-    .execute(db)
-    .await;
+    use mail_messages::Column;
+    let result = mail_messages::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::AccountId.eq(account_id))
+        .filter(Column::MessageId.eq(self_message_id))
+        .filter(Column::Id.ne(sent_id))
+        .filter(
+            Condition::any()
+                .add(Column::Source.is_null())
+                .add(Column::Source.ne("sent")),
+        )
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await;
     if let Err(error) = result {
         tracing::warn!(%error, sent_id, "[mail-send] Could not remove the early self-copy");
     }
@@ -590,6 +617,7 @@ async fn resolve_thread_id(
     data: &SendInput,
     fallback: &str,
 ) -> Result<String, SendError> {
+    use mail_messages::Column;
     let mut lookup: Vec<String> = Vec::new();
     if let Some(id) = data.in_reply_to.as_deref().filter(|v| !v.is_empty()) {
         lookup.push(id.to_owned());
@@ -606,19 +634,24 @@ async fn resolve_thread_id(
         })
         .filter(|id| !id.is_empty())
         .collect();
-    let thread: Option<Option<String>> = sqlx::query_scalar(
-        "select thread_id from mail_messages
-         where account_id = $1
-           and (message_id = any($2)
-                or (cardinality($3::text[]) > 0
-                    and (external_message_id = any($3) or provider_message_id = any($3))))
-         limit 1",
-    )
-    .bind(account_id)
-    .bind(&lookup)
-    .bind(&provider)
-    .fetch_optional(db)
-    .await?;
+    // `message_id = any(lookup) or (provider ids given and (external or
+    // provider message id = any(provider)))`.
+    let mut matches = Condition::any().add(Column::MessageId.is_in(&lookup));
+    if !provider.is_empty() {
+        matches = matches.add(
+            Condition::any()
+                .add(Column::ExternalMessageId.is_in(&provider))
+                .add(Column::ProviderMessageId.is_in(&provider)),
+        );
+    }
+    let thread: Option<Option<String>> = mail_messages::Entity::find()
+        .select_only()
+        .column(Column::ThreadId)
+        .filter(Column::AccountId.eq(account_id))
+        .filter(matches)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(thread
         .flatten()
         .filter(|t| !t.is_empty())
@@ -775,7 +808,7 @@ pub async fn send_and_persist(
     let external = ids.external_message_id.clone();
     let smtp = ids.rfc_message_id.clone();
     let message_id = generate_id("msg");
-    let now = iso(now_ms());
+    let now = timestamp(now_ms());
     let thread_id = resolve_thread_id(deps.db, account_id, data, &smtp).await?;
     let mut resolved = resolved;
     resolved.extend(
@@ -804,53 +837,63 @@ pub async fn send_and_persist(
     if let Some(name) = account.display_name.as_deref().filter(|n| !n.is_empty()) {
         from_json["name"] = json!(name);
     }
-    let inserted: Option<String> = sqlx::query_scalar(
-        "insert into mail_messages
-           (id, account_id, message_id, thread_id, external_message_id, \"from\", \"to\", cc, bcc,
-            subject, preview, text_body, html_body, sent_date, is_read, labels, is_spam, is_starred,
-            is_important, is_trash, in_reply_to, \"references\", is_reply, idempotency_key,
-            delivery_status, delivery_detail, delivery_updated_at, source, has_attachments,
-            attachment_count, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::timestamp, true,
-                 '[\"SENT\"]'::jsonb, false, false, false, false, $15, $16, $17, $18, $19, $20,
-                 case when $19::text is null then null else $14::timestamp end, 'sent', $21, $22,
-                 $14::timestamp, $14::timestamp)
-         on conflict (id) do nothing
-         returning id",
-    )
-    .bind(&message_id)
-    .bind(account_id)
-    .bind(&smtp)
-    .bind(&thread_id)
-    .bind(&external)
-    .bind(&from_json)
-    .bind(addresses(&data.to))
-    .bind(data.cc.as_ref().map(|c| addresses(c)))
-    .bind(data.bcc.as_ref().map(|b| addresses(b)))
-    .bind(&subject)
-    .bind(&preview)
-    .bind(&body.1)
-    .bind(&body.0)
-    .bind(&now)
-    .bind(data.in_reply_to.as_deref())
-    .bind(data.references.as_ref().map(|r| json!(r)))
-    .bind(data.in_reply_to.as_deref().is_some_and(|v| !v.is_empty()))
-    .bind(data.idempotency_key.as_deref())
-    .bind(delivery.as_ref().map(|d| d.0))
-    .bind(
-        delivery
+    let delivery_status = delivery.as_ref().map(|d| d.0.to_owned());
+    let sent_copy = mail_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        account_id: Set(account_id.to_owned()),
+        message_id: Set(smtp.clone()),
+        thread_id: Set(Some(thread_id)),
+        external_message_id: Set(Some(external.clone())),
+        from: Set(from_json),
+        to: Set(addresses(&data.to)),
+        cc: Set(data.cc.as_ref().map(|c| addresses(c))),
+        bcc: Set(data.bcc.as_ref().map(|b| addresses(b))),
+        subject: Set(Some(subject.clone())),
+        preview: Set(Some(preview)),
+        text_body: Set(body.1.clone()),
+        html_body: Set(body.0.clone()),
+        sent_date: Set(now),
+        is_read: Set(true),
+        labels: Set(Some(json!(["SENT"]))),
+        is_spam: Set(Some(false)),
+        is_starred: Set(Some(false)),
+        is_important: Set(Some(false)),
+        is_trash: Set(Some(false)),
+        in_reply_to: Set(data.in_reply_to.clone()),
+        references: Set(data.references.as_ref().map(|r| json!(r))),
+        is_reply: Set(Some(
+            data.in_reply_to.as_deref().is_some_and(|v| !v.is_empty()),
+        )),
+        idempotency_key: Set(data.idempotency_key.clone()),
+        delivery_updated_at: Set(delivery_status.is_some().then_some(now)),
+        delivery_status: Set(delivery_status),
+        delivery_detail: Set(delivery
             .as_ref()
-            .map(|d| utf16_prefix(&d.1, 500).to_owned()),
-    )
-    .bind(!resolved.is_empty())
-    .bind(i32::try_from(resolved.len()).unwrap_or(i32::MAX))
-    .fetch_optional(deps.db)
-    .await
-    .unwrap_or_else(|error| {
-        // A concurrent send with the same key won the unique index.
-        tracing::warn!(%error, "[mail-send] SENT copy insert failed");
-        None
-    });
+            .map(|d| utf16_prefix(&d.1, 500).to_owned())),
+        source: Set(Some("sent".to_owned())),
+        has_attachments: Set(!resolved.is_empty()),
+        attachment_count: Set(Some(i32::try_from(resolved.len()).unwrap_or(i32::MAX))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    // `on conflict (id) do nothing returning id`.
+    let inserted: Option<String> = mail_messages::Entity::insert(sent_copy)
+        .on_conflict(
+            OnConflict::column(mail_messages::Column::Id)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(deps.db))
+        .await
+        .map_or_else(
+            |error| {
+                // A concurrent send with the same key won the unique index.
+                tracing::warn!(%error, "[mail-send] SENT copy insert failed");
+                None
+            },
+            |rows| (rows > 0).then(|| message_id.clone()),
+        );
     if inserted.is_none() {
         if let Some(key) = data.idempotency_key.as_deref()
             && let Some(existing) = find_existing_sent(deps.db, account_id, key).await?
@@ -859,37 +902,45 @@ pub async fn send_and_persist(
         }
         return Err(SendError::Internal("SENT copy insert failed".to_owned()));
     }
+    let conn = orm(deps.db);
     for att in &resolved {
-        sqlx::query(
-            "insert into mail_attachments
-               (id, message_id, file_name, content_type, size, storage_path, is_inline, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, false, $7::timestamp, $7::timestamp)",
-        )
-        .bind(generate_id("attach"))
-        .bind(&message_id)
-        .bind(&att.filename)
-        .bind(
-            att.content_type
-                .clone()
-                .filter(|c| !c.is_empty())
-                .unwrap_or_else(|| "application/octet-stream".to_owned()),
-        )
-        .bind(i64::try_from(att.content.len()).unwrap_or(i64::MAX))
-        .bind(&att.file_key)
-        .bind(&now)
-        .execute(deps.db)
-        .await?;
+        let row = mail_attachments::ActiveModel {
+            id: Set(generate_id("attach")),
+            message_id: Set(message_id.clone()),
+            file_name: Set(att.filename.clone()),
+            content_type: Set(Some(
+                att.content_type
+                    .clone()
+                    .filter(|c| !c.is_empty())
+                    .unwrap_or_else(|| "application/octet-stream".to_owned()),
+            )),
+            size: Set(i32::try_from(att.content.len()).unwrap_or(i32::MAX)),
+            storage_path: Set(Some(att.file_key.clone())),
+            is_inline: Set(Some(false)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        mail_attachments::Entity::insert(row)
+            .exec_without_returning(&conn)
+            .await?;
     }
     if let Some(self_id) = ids.self_message_id.as_deref() {
-        absorb_early_self_copy(deps.db, account_id, &message_id, self_id, &now).await;
+        absorb_early_self_copy(deps.db, account_id, &message_id, self_id, now).await;
     }
-    sqlx::query(
-        "update mail_accounts set sent_today = sent_today + 1, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(account_id)
-    .bind(&now)
-    .execute(deps.db)
-    .await?;
+    // The send-limit counter: one atomic `sent_today = sent_today + 1`.
+    mail_accounts::Entity::update_many()
+        .col_expr(
+            mail_accounts::Column::SentToday,
+            sea_orm::ExprTrait::add(
+                Expr::col((mail_accounts::Entity, mail_accounts::Column::SentToday)),
+                1,
+            ),
+        )
+        .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(now))
+        .filter(mail_accounts::Column::Id.eq(account_id))
+        .exec(&conn)
+        .await?;
 
     let mut contacts: Vec<ContactAddress> =
         data.to.iter().map(|e| ContactAddress::new(e)).collect();
@@ -962,35 +1013,49 @@ pub async fn reply_and_persist(
     data: &ReplyInput,
     opts: &SendOptions,
 ) -> Result<(SendResult, String), SendError> {
+    use mail_messages::Column;
     type Row = (
         String,
         Option<String>,
-        Option<Value>,
-        Option<Value>,
+        Value,
+        Value,
         Option<Value>,
         String,
         Option<Value>,
         Option<String>,
     );
-    let original: Option<Row> = sqlx::query_as(
-        "select account_id, subject, \"from\", \"to\", cc, message_id, \"references\", source
-         from mail_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(original_id)
-    .fetch_optional(deps.db)
-    .await?;
+    let conn = orm(deps.db);
+    let original: Option<Row> = mail_messages::Entity::find()
+        .select_only()
+        .columns([
+            Column::AccountId,
+            Column::Subject,
+            Column::From,
+            Column::To,
+            Column::Cc,
+            Column::MessageId,
+            Column::References,
+            Column::Source,
+        ])
+        .filter(Column::Id.eq(original_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((account_id, subject, from, to, cc, smtp_id, references, source)) = original else {
         return Err(SendError::mail(
             "ACCOUNT_NOT_FOUND",
             "Original message not found",
         ));
     };
-    let mailbox: Option<String> = sqlx::query_scalar(
-        "select email from mail_accounts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&account_id)
-    .fetch_optional(deps.db)
-    .await?;
+    let mailbox: Option<String> = mail_accounts::Entity::find()
+        .select_only()
+        .column(mail_accounts::Column::Email)
+        .filter(mail_accounts::Column::Id.eq(&account_id))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(mailbox) = mailbox else {
         return Err(SendError::mail(
             "ACCOUNT_NOT_FOUND",
@@ -999,8 +1064,8 @@ pub async fn reply_and_persist(
     };
 
     let (to_list, cc_list) = reply_recipients(
-        from.as_ref(),
-        to.as_ref(),
+        Some(&from),
+        Some(&to),
         cc.as_ref(),
         &mailbox,
         data.reply_all,

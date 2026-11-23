@@ -12,11 +12,17 @@
 
 use std::collections::BTreeMap;
 
+use sea_orm::sea_query::{Alias, Expr, Func, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::master::{mail_account_registry, workspaces};
+use weldsuite_schema::tenant::mail_messages;
 
-use super::clock::{iso, now_ms, parse_iso};
+use super::clock::{now_ms, parse_iso, timestamp};
 use super::correspondents::add_suppression;
 use super::ledger::OutboundLedger;
 use super::ledger_core::{DeliveryEventType, LedgerSubject};
@@ -122,6 +128,34 @@ fn status_rank(status: &str) -> i32 {
     }
 }
 
+/// `exists (select 1 from jsonb_array_elements(coalesce(case when
+/// jsonb_typeof("to") = 'array' then "to" end, '[]') || … cc … || … bcc …)
+/// as r where lower(r->>'email') = recipient)`: the message went to
+/// `recipient`.
+fn sent_to(recipient: &str) -> SelectStatement {
+    use mail_messages::Column;
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let line = |column: Column| -> Expr {
+        let value = || Expr::col((mail_messages::Entity, column));
+        let is_array = Expr::from(Func::cust("jsonb_typeof").arg(value())).eq("array");
+        Func::coalesce([Expr::case(is_array, value()).into(), Expr::val(json!([]))]).into()
+    };
+    let lines = PgExpr::concat(
+        PgExpr::concat(line(Column::To), line(Column::Cc)),
+        line(Column::Bcc),
+    );
+    let r = Alias::new("r");
+    Query::select()
+        .expr(Expr::val(1))
+        .from_function(Func::cust("jsonb_array_elements").arg(lines), r.clone())
+        .cond_where(
+            Expr::from(Func::lower(PgExpr::cast_json_field(Expr::col(r), "email")))
+                .eq(recipient),
+        )
+        .to_owned()
+}
+
 /// `markSentCopy(db, accountId, event)`: the delivery status on the latest
 /// SENT copy from this account to this recipient (the `postgres` store's
 /// `delivery.match`).
@@ -129,27 +163,21 @@ pub async fn mark_sent_copy(
     db: &PgPool,
     account_id: &str,
     event: &ParsedSendingEvent,
-) -> Result<bool, sqlx::Error> {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, delivery_status from mail_messages
-         where account_id = $1 and source = 'sent'
-           and sent_date >= $2::timestamp and sent_date <= $3::timestamp
-           and exists (
-             select 1 from jsonb_array_elements(
-               coalesce(case when jsonb_typeof(\"to\") = 'array' then \"to\" end, '[]'::jsonb)
-               || coalesce(case when jsonb_typeof(cc) = 'array' then cc end, '[]'::jsonb)
-               || coalesce(case when jsonb_typeof(bcc) = 'array' then bcc end, '[]'::jsonb)
-             ) as r where lower(r->>'email') = $4
-           )
-         order by sent_date desc
-         limit 1",
-    )
-    .bind(account_id)
-    .bind(iso(event.at_ms - 3 * 86_400_000))
-    .bind(iso(event.at_ms + 3_600_000))
-    .bind(&event.recipient)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    use mail_messages::Column;
+    let conn = orm(db);
+    let row: Option<(String, Option<String>)> = mail_messages::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::DeliveryStatus])
+        .filter(Column::AccountId.eq(account_id))
+        .filter(Column::Source.eq("sent"))
+        .filter(Column::SentDate.gte(timestamp(event.at_ms - 3 * 86_400_000)))
+        .filter(Column::SentDate.lte(timestamp(event.at_ms + 3_600_000)))
+        .filter(Expr::exists(sent_to(&event.recipient)))
+        .order_by_desc(Column::SentDate)
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((id, current)) = row else {
         return Ok(false);
     };
@@ -160,17 +188,13 @@ pub async fn mark_sent_copy(
     {
         return Ok(false);
     }
-    sqlx::query(
-        "update mail_messages
-         set delivery_status = $2, delivery_updated_at = $3::timestamp, delivery_detail = $4
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(next)
-    .bind(iso(event.at_ms))
-    .bind(&event.detail)
-    .execute(db)
-    .await?;
+    mail_messages::Entity::update_many()
+        .col_expr(Column::DeliveryStatus, Expr::value(next))
+        .col_expr(Column::DeliveryUpdatedAt, Expr::value(timestamp(event.at_ms)))
+        .col_expr(Column::DeliveryDetail, Expr::value(event.detail.clone()))
+        .filter(Column::Id.eq(id))
+        .exec(&conn)
+        .await?;
     Ok(true)
 }
 
@@ -188,17 +212,25 @@ struct SenderRoute {
 /// `(workspace_id, personal_account_id, account_id, clerk_org_id)`.
 type RegistryRow = (Option<String>, Option<String>, String, Option<String>);
 
-async fn resolve_sender(master: &PgPool, sender: &str) -> Result<Option<SenderRoute>, sqlx::Error> {
-    let row: Option<RegistryRow> = sqlx::query_as(
-        "select r.workspace_id, r.personal_account_id, r.account_id, w.clerk_org_id
-         from mail_account_registry r
-         left join workspaces w on w.id = r.workspace_id
-         where r.email = $1
-         limit 1",
-    )
-    .bind(sender)
-    .fetch_optional(master)
-    .await?;
+/// `leftJoin(workspaces, eq(workspaces.id, registry.workspaceId))`.
+fn registry_workspace() -> RelationDef {
+    mail_account_registry::Entity::belongs_to(workspaces::Entity)
+        .from(mail_account_registry::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
+
+async fn resolve_sender(master: &PgPool, sender: &str) -> Result<Option<SenderRoute>, DbErr> {
+    use mail_account_registry::Column;
+    let row: Option<RegistryRow> = mail_account_registry::Entity::find()
+        .select_only()
+        .columns([Column::WorkspaceId, Column::PersonalAccountId, Column::AccountId])
+        .column(workspaces::Column::ClerkOrgId)
+        .join(JoinType::LeftJoin, registry_workspace())
+        .filter(Column::Email.eq(sender))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(
         row.and_then(|(workspace, personal, account_id, clerk_org_id)| {
             if let Some(workspace_id) = workspace {

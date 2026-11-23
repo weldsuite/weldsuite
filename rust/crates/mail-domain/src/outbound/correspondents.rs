@@ -4,11 +4,14 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{mail_correspondents, mail_suppressions};
 
-use super::clock::iso;
+use super::clock::timestamp;
 
 const CHUNK: usize = 100;
 
@@ -17,16 +20,18 @@ const CHUNK: usize = 100;
 pub async fn find_known_correspondents(
     db: &PgPool,
     emails: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
+    let conn = orm(db);
     let mut known = HashSet::new();
     for batch in emails.chunks(CHUNK) {
-        let rows: Vec<String> = sqlx::query_scalar(
-            "select email from mail_correspondents
-             where email = any($1) and first_inbound_at is not null",
-        )
-        .bind(batch)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<String> = mail_correspondents::Entity::find()
+            .select_only()
+            .column(mail_correspondents::Column::Email)
+            .filter(mail_correspondents::Column::Email.is_in(batch))
+            .filter(mail_correspondents::Column::FirstInboundAt.is_not_null())
+            .into_tuple()
+            .all(&conn)
+            .await?;
         known.extend(rows);
     }
     Ok(known)
@@ -38,24 +43,41 @@ pub async fn record_outbound_correspondents(
     db: &PgPool,
     emails: &[String],
     at_ms: i64,
-) -> Result<(), sqlx::Error> {
-    let at = iso(at_ms);
+) -> Result<(), DbErr> {
+    use mail_correspondents::Column;
+    let at = timestamp(at_ms);
+    let conn = orm(db);
+    let current = |column: Column| Expr::col((mail_correspondents::Entity, column));
     for batch in emails.chunks(CHUNK) {
-        sqlx::query(
-            "insert into mail_correspondents
-               (email, first_outbound_at, last_outbound_at, outbound_count, updated_at)
-             select email, $2::timestamp, $2::timestamp, 1, $2::timestamp
-             from unnest($1::varchar[]) as email
-             on conflict (email) do update set
-               first_outbound_at = coalesce(mail_correspondents.first_outbound_at, excluded.first_outbound_at),
-               last_outbound_at = excluded.last_outbound_at,
-               outbound_count = mail_correspondents.outbound_count + 1,
-               updated_at = $2::timestamp",
-        )
-        .bind(batch)
-        .bind(&at)
-        .execute(db)
-        .await?;
+        let rows = batch.iter().map(|email| mail_correspondents::ActiveModel {
+            email: Set(email.clone()),
+            first_outbound_at: Set(Some(at)),
+            last_outbound_at: Set(Some(at)),
+            outbound_count: Set(1),
+            updated_at: Set(at),
+            ..Default::default()
+        });
+        // One statement per batch: the first contact kept, the count bumped.
+        mail_correspondents::Entity::insert_many(rows)
+            .on_conflict(
+                OnConflict::column(Column::Email)
+                    .value(
+                        Column::FirstOutboundAt,
+                        Func::coalesce([
+                            current(Column::FirstOutboundAt),
+                            Expr::col((Alias::new("excluded"), Column::FirstOutboundAt)),
+                        ]),
+                    )
+                    .update_column(Column::LastOutboundAt)
+                    .value(
+                        Column::OutboundCount,
+                        sea_orm::ExprTrait::add(current(Column::OutboundCount), 1),
+                    )
+                    .value(Column::UpdatedAt, Expr::val(at))
+                    .to_owned(),
+            )
+            .exec_without_returning(&conn)
+            .await?;
     }
     Ok(())
 }
@@ -72,14 +94,20 @@ pub struct SuppressedRecipient {
 pub async fn find_suppressed(
     db: &PgPool,
     emails: &[String],
-) -> Result<Vec<SuppressedRecipient>, sqlx::Error> {
+) -> Result<Vec<SuppressedRecipient>, DbErr> {
+    let conn = orm(db);
     let mut found = Vec::new();
     for batch in emails.chunks(CHUNK) {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("select email, reason from mail_suppressions where email = any($1)")
-                .bind(batch)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, String)> = mail_suppressions::Entity::find()
+            .select_only()
+            .columns([
+                mail_suppressions::Column::Email,
+                mail_suppressions::Column::Reason,
+            ])
+            .filter(mail_suppressions::Column::Email.is_in(batch))
+            .into_tuple()
+            .all(&conn)
+            .await?;
         found.extend(
             rows.into_iter()
                 .map(|(email, reason)| SuppressedRecipient { email, reason }),
@@ -98,35 +126,54 @@ pub async fn add_suppression(
     source: &str,
     details: Option<&Value>,
     now_ms: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use mail_suppressions::Column;
+    use sea_orm::ExprTrait as _;
     let email = crate::text::js_trim(email).to_lowercase();
     let rank: i32 = match reason {
         "complaint" => 3,
         "manual" => 2,
         _ => 1,
     };
-    let now = iso(now_ms);
-    sqlx::query(
-        "insert into mail_suppressions
-           (id, email, reason, sender_email, source, details, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $7::timestamp)
-         on conflict (email) do update set
-           reason = case when $8 >= (case mail_suppressions.reason
-                                       when 'complaint' then 3 when 'manual' then 2 else 1 end)
-                         then excluded.reason else mail_suppressions.reason end,
-           sender_email = coalesce(excluded.sender_email, mail_suppressions.sender_email),
-           details = coalesce(excluded.details, mail_suppressions.details),
-           updated_at = $7::timestamp",
-    )
-    .bind(generate_id("msup"))
-    .bind(&email)
-    .bind(reason)
-    .bind(sender_email)
-    .bind(source)
-    .bind(details)
-    .bind(&now)
-    .bind(rank)
-    .execute(db)
-    .await?;
+    let now = timestamp(now_ms);
+    let current = |column: Column| Expr::col((mail_suppressions::Entity, column));
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+    let current_rank = Expr::case(current(Column::Reason).eq("complaint"), 3)
+        .case(current(Column::Reason).eq("manual"), 2)
+        .finally(1);
+    let row = mail_suppressions::ActiveModel {
+        id: Set(generate_id("msup")),
+        email: Set(email),
+        reason: Set(reason.to_owned()),
+        sender_email: Set(sender_email.map(str::to_owned)),
+        source: Set(source.to_owned()),
+        details: Set(details.cloned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+    };
+    mail_suppressions::Entity::insert(row)
+        .on_conflict(
+            OnConflict::column(Column::Email)
+                .value(
+                    Column::Reason,
+                    Expr::case(
+                        Expr::val(rank).gte(current_rank),
+                        excluded(Column::Reason),
+                    )
+                    .finally(current(Column::Reason)),
+                )
+                .value(
+                    Column::SenderEmail,
+                    Func::coalesce([excluded(Column::SenderEmail), current(Column::SenderEmail)]),
+                )
+                .value(
+                    Column::Details,
+                    Func::coalesce([excluded(Column::Details), current(Column::Details)]),
+                )
+                .value(Column::UpdatedAt, Expr::val(now))
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }

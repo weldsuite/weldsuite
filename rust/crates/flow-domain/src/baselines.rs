@@ -2,15 +2,19 @@
 //! version freezes, the variance between two plans, and the database reads
 //! the routes and `apply_approved_change` share. Dates are ISO strings in a
 //! snapshot, money and hours decimal strings with two decimals. Rows are read
-//! as `weldsuite_db::js_row` gives them (camelCase, ISO timestamps).
+//! as the entities serialize them, as Drizzle returned them (camelCase, ISO
+//! timestamps).
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    milestones, project_baselines, project_deliverables, project_scope, projects,
+};
 
-use crate::js::{millis_of, to_fixed};
+use crate::js::{millis_of, row, to_fixed};
 
 pub mod messages {
     pub const ALREADY_BASELINED: &str = "This project already has a baseline";
@@ -328,44 +332,43 @@ pub fn compare_snapshots(from: &Value, to: &Value) -> Value {
 pub async fn load_plan_state(
     db: &PgPool,
     project_id: &str,
-) -> Result<Option<PlanState>, sqlx::Error> {
-    let project: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) || jsonb_build_object('budgeted_amount', p.budgeted_amount::text,
-             'budgeted_hours', p.budgeted_hours::text)
-         from projects p where p.id = $1 and p.deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(project) = project.map(js_row) else {
+) -> Result<Option<PlanState>, DbErr> {
+    let db = &orm(db);
+    // The entity writes the numerics as their text, as `::text` did.
+    let project = projects::Entity::find_by_id(project_id.to_owned())
+        .filter(projects::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
+    let Some(project) = project.map(row) else {
         return Ok(None);
     };
-    let milestones: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from milestones m where m.project_id = $1 and m.deleted_at is null
-         order by m.due_date asc, m.id asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let deliverables: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from project_deliverables d
-         where d.project_id = $1 and d.deleted_at is null order by d.number asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let scope: Option<String> =
-        sqlx::query_scalar("select statement from project_scope where project_id = $1 limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?
-            .flatten();
+    let milestones = milestones::Entity::find()
+        .filter(milestones::Column::ProjectId.eq(project_id))
+        .filter(milestones::Column::DeletedAt.is_null())
+        .order_by_asc(milestones::Column::DueDate)
+        .order_by_asc(milestones::Column::Id)
+        .all(db)
+        .await?;
+    let deliverables = project_deliverables::Entity::find()
+        .filter(project_deliverables::Column::ProjectId.eq(project_id))
+        .filter(project_deliverables::Column::DeletedAt.is_null())
+        .order_by_asc(project_deliverables::Column::Number)
+        .all(db)
+        .await?;
+    let scope: Option<String> = project_scope::Entity::find()
+        .select_only()
+        .column(project_scope::Column::Statement)
+        .filter(project_scope::Column::ProjectId.eq(project_id))
+        .into_tuple::<Option<String>>()
+        .one(db)
+        .await?
+        .flatten();
     let owned = |v: &Value, k: &str| text(v, k).map(str::to_owned);
     Ok(Some(PlanState {
         go_live: owned(&project, "endDate"),
         milestones: milestones
             .into_iter()
-            .map(js_row)
+            .map(row)
             .map(|m| PlanMilestone {
                 id: owned(&m, "id").unwrap_or_default(),
                 name: owned(&m, "name").unwrap_or_default(),
@@ -374,7 +377,7 @@ pub async fn load_plan_state(
             .collect(),
         deliverables: deliverables
             .into_iter()
-            .map(js_row)
+            .map(row)
             .map(|d| PlanDeliverable {
                 id: owned(&d, "id").unwrap_or_default(),
                 number: d["number"].as_i64().unwrap_or(0),
@@ -392,25 +395,21 @@ pub async fn load_plan_state(
 }
 
 /// `latestBaseline(db, projectId)`.
-pub async fn latest_baseline(db: &PgPool, project_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(b) from project_baselines b where b.project_id = $1
-         order by b.version desc limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub async fn latest_baseline(db: &PgPool, project_id: &str) -> Result<Option<Value>, DbErr> {
+    let latest = project_baselines::Entity::find()
+        .filter(project_baselines::Column::ProjectId.eq(project_id))
+        .order_by_desc(project_baselines::Column::Version)
+        .one(&orm(db))
+        .await?;
+    Ok(latest.map(row))
 }
 
 /// `findBaseline(db, id)`.
-pub async fn find_baseline(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(b) from project_baselines b where b.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+pub async fn find_baseline(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let found = project_baselines::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(found.map(row))
 }
 
 /// `presentBaseline(row, change)`: with the code and title of the change behind the version.

@@ -1,25 +1,30 @@
 //! Per-entity access management: the Restricted switch, the member list with
 //! a role per member, and the signed-in member's effective access.
 
-use serde_json::Value;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::permissions;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{entities, legal_entity_members, roles, workspace_members};
 
-use super::entities::{entity_row, require_entity_row, role_names};
+use super::entities::{require_entity_row, role_names, update_entity_row};
 use super::types::{
     EntityMemberRow, EntityRow, LegalEntityAccess, LegalEntityAccessMember,
     LegalEntityEffectiveAccess, SetEntityMember, SetEntityMemberResult,
 };
-use super::{
-    Columns, LegalEntityError, Param, insert_returning, now_iso, read_row, update_returning,
-};
+use super::{LegalEntityError, iso, read_model};
 use crate::access::{
     EntityAccess, can_see_entity, entity_access_source, entity_role_id, permissions_in_entity,
 };
 
-fn member_row(value: Value) -> Result<EntityMemberRow, LegalEntityError> {
-    Ok(read_row::<EntityMemberRow>(value)?.0)
+fn member_row(model: &legal_entity_members::Model) -> Result<EntityMemberRow, LegalEntityError> {
+    Ok(read_model::<_, EntityMemberRow>(model)?.0)
 }
 
 /// `SYSTEM_ROLES[role.toUpperCase()]?.name`.
@@ -32,17 +37,18 @@ fn system_role_name(role: &str) -> Option<String> {
 
 /// A member row of the access list: the `legal_entity_members` columns, then
 /// the workspace member's name, email, role and role id.
-type AccessRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Value,
-    Value,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+#[derive(Debug, FromQueryResult)]
+struct AccessRow {
+    user_id: String,
+    role_id: Option<String>,
+    granted_by: Option<String>,
+    created_at: PrimitiveDateTime,
+    updated_at: PrimitiveDateTime,
+    name: Option<String>,
+    email: Option<String>,
+    workspace_role: Option<String>,
+    workspace_role_id: Option<String>,
+}
 
 /// `getEntityAccessList`: the Restricted switch and the members with a row,
 /// by name, with their workspace role for context. `picture` is the account
@@ -53,23 +59,14 @@ pub async fn get_entity_access_list(
     entity_id: &str,
 ) -> Result<LegalEntityAccess, LegalEntityError> {
     let entity = require_entity_row(db, entity_id).await?;
-    let rows: Vec<AccessRow> = sqlx::query_as(
-        "select m.user_id, m.role_id, m.granted_by, to_jsonb(m.created_at), to_jsonb(m.updated_at),
-                w.name, w.email, w.role, w.role_id
-         from legal_entity_members m
-         left join workspace_members w on w.user_id = m.user_id and w.deleted_at is null
-         where m.entity_id = $1
-         order by w.name asc, m.created_at asc",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let rows = access_rows(db, entity_id).await?;
     let pictures =
-        weldsuite_db::AccountPictures::load(master, rows.iter().map(|row| row.0.as_str())).await;
+        weldsuite_db::AccountPictures::load(master, rows.iter().map(|row| row.user_id.as_str()))
+            .await;
     let mut role_ids: Vec<String> = Vec::new();
     for id in rows
         .iter()
-        .flat_map(|row| [row.1.clone(), row.8.clone()])
+        .flat_map(|row| [row.role_id.clone(), row.workspace_role_id.clone()])
         .flatten()
         .filter(|id| !id.is_empty())
     {
@@ -78,26 +75,20 @@ pub async fn get_entity_access_list(
         }
     }
     let names = role_names(db, &role_ids).await?;
-    let timestamp = |value: &Value| {
-        value
-            .as_str()
-            .and_then(weldsuite_db::js_timestamp)
-            .unwrap_or_default()
-    };
     let members = rows
         .into_iter()
         .map(
-            |(
-                user_id,
-                role_id,
-                granted_by,
-                created_at,
-                updated_at,
-                name,
-                email,
-                workspace_role,
-                workspace_role_id,
-            )| {
+            |AccessRow {
+                 user_id,
+                 role_id,
+                 granted_by,
+                 created_at,
+                 updated_at,
+                 name,
+                 email,
+                 workspace_role,
+                 workspace_role_id,
+             }| {
                 let picture = pictures.get(&user_id).map(str::to_owned);
                 let workspace_role = workspace_role.unwrap_or_default();
                 // `(id && names.get(id)) || systemRoleName(role)`: an empty
@@ -123,8 +114,8 @@ pub async fn get_entity_access_list(
                     role_id,
                     role_name,
                     granted_by,
-                    created_at: timestamp(&created_at),
-                    updated_at: timestamp(&updated_at),
+                    created_at: iso(created_at),
+                    updated_at: iso(updated_at),
                 }
             },
         )
@@ -136,6 +127,45 @@ pub async fn get_entity_access_list(
     })
 }
 
+/// The entity's member rows with the workspace member each names, by name
+/// (`legal_entity_members m left join workspace_members w on w.user_id =
+/// m.user_id and w.deleted_at is null … order by w.name, m.created_at`).
+async fn access_rows(db: &PgPool, entity_id: &str) -> Result<Vec<AccessRow>, sea_orm::DbErr> {
+    legal_entity_members::Entity::find()
+        .select_only()
+        .columns([
+            legal_entity_members::Column::UserId,
+            legal_entity_members::Column::RoleId,
+            legal_entity_members::Column::GrantedBy,
+            legal_entity_members::Column::CreatedAt,
+            legal_entity_members::Column::UpdatedAt,
+        ])
+        .column(workspace_members::Column::Name)
+        .column(workspace_members::Column::Email)
+        .column_as(workspace_members::Column::Role, "workspace_role")
+        .column_as(workspace_members::Column::RoleId, "workspace_role_id")
+        .join(
+            JoinType::LeftJoin,
+            legal_entity_members::Entity::belongs_to(workspace_members::Entity)
+                .from(legal_entity_members::Column::UserId)
+                .to(workspace_members::Column::UserId)
+                .on_condition(|_, member| {
+                    sea_orm::ExprTrait::is_null(Expr::col((
+                        member,
+                        workspace_members::Column::DeletedAt,
+                    )))
+                    .into()
+                })
+                .into(),
+        )
+        .filter(legal_entity_members::Column::EntityId.eq(entity_id))
+        .order_by_asc(workspace_members::Column::Name)
+        .order_by_asc(legal_entity_members::Column::CreatedAt)
+        .into_model()
+        .all(&orm(db))
+        .await
+}
+
 /// `setEntityRestricted`: only listed members (plus owners and access
 /// managers) see a restricted entity.
 pub async fn set_entity_restricted(
@@ -144,13 +174,16 @@ pub async fn set_entity_restricted(
     restricted: bool,
 ) -> Result<EntityRow, LegalEntityError> {
     require_entity_row(db, entity_id).await?;
-    let mut columns = Columns::default();
-    columns.set("access_restricted", Param::Bool(Some(restricted)));
-    columns.set("updated_at", Param::Timestamp(Some(now_iso())));
-    let row = update_returning(db, "entities", columns, entity_id)
-        .await?
-        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
-    entity_row(row)
+    update_entity_row(
+        db,
+        entity_id,
+        entities::ActiveModel {
+            access_restricted: Set(restricted),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 /// `setEntityMember`: add a member to an entity or change their role there.
@@ -162,13 +195,17 @@ pub async fn set_entity_member(
     args: SetEntityMember<'_>,
 ) -> Result<SetEntityMemberResult, LegalEntityError> {
     require_entity_row(db, args.entity_id).await?;
-    let member: Option<(String, Option<String>)> = sqlx::query_as(
-        "select status, member_type from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(args.user_id)
-    .fetch_optional(db)
-    .await?;
+    let member: Option<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Status,
+            workspace_members::Column::MemberType,
+        ])
+        .filter(workspace_members::Column::UserId.eq(args.user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((_, member_type)) = member.filter(|(status, _)| status == "ACTIVE") else {
         return Err(LegalEntityError::bad_request(
             "This person is not an active member of the workspace",
@@ -180,12 +217,14 @@ pub async fn set_entity_member(
         ));
     }
     if let Some(role_id) = args.role_id.filter(|id| !id.is_empty()) {
-        let role: Option<(String, bool)> = sqlx::query_as(
-            "select name, is_system from roles where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(role_id)
-        .fetch_optional(db)
-        .await?;
+        let role: Option<(String, bool)> = roles::Entity::find()
+            .select_only()
+            .columns([roles::Column::Name, roles::Column::IsSystem])
+            .filter(roles::Column::Id.eq(role_id))
+            .filter(roles::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let Some((name, is_system)) = role else {
             return Err(LegalEntityError::bad_request("Role not found"));
         };
@@ -196,37 +235,48 @@ pub async fn set_entity_member(
         }
     }
 
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from legal_entity_members where entity_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(args.entity_id)
-    .bind(args.user_id)
-    .fetch_optional(db)
-    .await?;
-    let role_id = Param::Text(args.role_id.map(str::to_owned));
+    let existing: Option<String> = legal_entity_members::Entity::find()
+        .select_only()
+        .column(legal_entity_members::Column::Id)
+        .filter(legal_entity_members::Column::EntityId.eq(args.entity_id))
+        .filter(legal_entity_members::Column::UserId.eq(args.user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let role_id = Set(args.role_id.map(str::to_owned));
+    let granted_by = Set(Some(args.granted_by.to_owned()));
     if let Some(existing) = existing {
-        let mut columns = Columns::default();
-        columns.set("role_id", role_id);
-        columns.set("granted_by", Param::Text(Some(args.granted_by.to_owned())));
-        columns.set("updated_at", Param::Timestamp(Some(now_iso())));
-        let row = update_returning(db, "legal_entity_members", columns, &existing)
+        let row = legal_entity_members::Entity::update_many()
+            .set(legal_entity_members::ActiveModel {
+                role_id,
+                granted_by,
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(legal_entity_members::Column::Id.eq(existing))
+            .exec_with_returning(&orm(db))
             .await?
+            .into_iter()
+            .next()
             .ok_or_else(|| LegalEntityError::not_found("Member not found"))?;
         return Ok(SetEntityMemberResult {
             created: false,
-            member: member_row(row)?,
+            member: member_row(&row)?,
         });
     }
-    let mut columns = Columns::default();
-    columns.set("id", Param::Text(Some(generate_id("lem"))));
-    columns.set("entity_id", Param::Text(Some(args.entity_id.to_owned())));
-    columns.set("user_id", Param::Text(Some(args.user_id.to_owned())));
-    columns.set("role_id", role_id);
-    columns.set("granted_by", Param::Text(Some(args.granted_by.to_owned())));
-    let row = insert_returning(db, "legal_entity_members", columns).await?;
+    let row = legal_entity_members::Entity::insert(legal_entity_members::ActiveModel {
+        id: Set(generate_id("lem")),
+        entity_id: Set(args.entity_id.to_owned()),
+        user_id: Set(args.user_id.to_owned()),
+        role_id,
+        granted_by,
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
+    .await?;
     Ok(SetEntityMemberResult {
         created: true,
-        member: member_row(row)?,
+        member: member_row(&row)?,
     })
 }
 
@@ -236,15 +286,14 @@ pub async fn remove_entity_member(
     entity_id: &str,
     user_id: &str,
 ) -> Result<Option<EntityMemberRow>, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "delete from legal_entity_members t where t.entity_id = $1 and t.user_id = $2
-         returning to_jsonb(t)",
-    )
-    .bind(entity_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(member_row).transpose()
+    let row = legal_entity_members::Entity::delete_many()
+        .filter(legal_entity_members::Column::EntityId.eq(entity_id))
+        .filter(legal_entity_members::Column::UserId.eq(user_id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    row.as_ref().map(member_row).transpose()
 }
 
 /// `myEffectiveAccess`: the signed-in member's effective access inside one

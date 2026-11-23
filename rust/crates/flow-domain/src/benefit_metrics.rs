@@ -15,15 +15,25 @@
 //! ```
 //!
 //! A metric answers the value as text (the numeric column's form), or `None`
-//! when the month has nothing to measure. The SQL is the TypeScript queries'
-//! (`benefit-metrics.ts`): same windows, filters and rounding, so both
-//! backends store the same text.
+//! when the month has nothing to measure. The queries are the TypeScript ones
+//! (`benefit-metrics.ts`): same windows, filters and rounding (Postgres's
+//! `round(…)::text`), so both backends store the same text.
 
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::{Date, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{bills, helpdesk_tickets, orders, tasks, time_entries};
 
-use crate::js::{civil_from_days, days_from_civil, iso_from_millis, utf16_len};
+use crate::js::{
+    civil_from_days, days_from_civil, iso_from_millis, offset_of_millis, timestamp_of_millis,
+    utf16_len,
+};
 
 /// `BENEFIT_METRICS`.
 pub const BENEFIT_METRICS: [&str; 6] = [
@@ -193,8 +203,24 @@ fn iso(ms: i64) -> String {
     iso_from_millis(ms).unwrap_or_default()
 }
 
-fn day(ms: i64) -> String {
-    iso(ms).chars().take(10).collect()
+/// `$n::timestamp` of `iso(ms)`.
+fn at(ms: i64) -> Option<PrimitiveDateTime> {
+    timestamp_of_millis(ms)
+}
+
+/// `$n::date` of `iso(ms).slice(0, 10)`.
+fn day(ms: i64) -> Option<Date> {
+    offset_of_millis(ms).map(time::OffsetDateTime::date)
+}
+
+/// `round(value, places)::text`.
+fn rounded_text(value: impl Into<Expr>, places: i32) -> Expr {
+    sea_orm::ExprTrait::cast_as(Func::round_with_precision(value.into(), places), "text")
+}
+
+/// `jsonb_column @> '["tag"]'`.
+fn tagged(column: impl sea_orm::sea_query::IntoColumnRef, tag: &str) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(Expr::col(column), json!([tag]))
 }
 
 // ── Measuring ───────────────────────────────────────────────────────────────
@@ -215,7 +241,7 @@ pub async fn measure_metric(
     metric: &str,
     params: &Value,
     period: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let range = month_range(period);
     match metric {
         "desk_tickets_by_tag" => desk_tickets_by_tag(db, params, &range).await,
@@ -231,25 +257,56 @@ async fn desk_tickets_by_tag(
     db: &PgPool,
     params: &Value,
     range: &MonthRange,
-) -> Result<Option<String>, sqlx::Error> {
-    let tag = json!([text_param(params, "tag")]).to_string();
-    sqlx::query_scalar(
-        "select count(*)::text from helpdesk_tickets
-         where deleted_at is null and created_at >= $1::timestamp
-           and created_at < $2::timestamp and tags @> $3::jsonb",
+) -> Result<Option<String>, DbErr> {
+    use helpdesk_tickets::Column;
+    // `count(*)::text`.
+    let count = helpdesk_tickets::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::CreatedAt.gte(at(range.start_ms)))
+        .filter(Column::CreatedAt.lt(at(range.end_ms)))
+        .filter(tagged(
+            (helpdesk_tickets::Entity, Column::Tags),
+            &text_param(params, "tag"),
+        ))
+        .count(&orm(db))
+        .await?;
+    Ok(Some(count.to_string()))
+}
+
+/// `exists (select 1 from orders p where p.<buyer> = orders.<buyer> and
+/// p.created_at < orders.created_at and p.deleted_at is null and p.status <>
+/// 'cancelled')`: the buyer ordered before.
+fn ordered_before(buyer: orders::Column) -> Expr {
+    use orders::Column;
+    use sea_orm::ExprTrait as _;
+    let earlier = Alias::new("p");
+    Expr::exists(
+        Query::select()
+            .expr(Expr::val(1))
+            .from_as(orders::Entity, earlier.clone())
+            .cond_where(
+                Condition::all()
+                    .add(
+                        Expr::col((earlier.clone(), buyer))
+                            .equals((orders::Entity, buyer)),
+                    )
+                    .add(
+                        Expr::col((earlier.clone(), Column::CreatedAt))
+                            .lt(Expr::col((orders::Entity, Column::CreatedAt))),
+                    )
+                    .add(Expr::col((earlier.clone(), Column::DeletedAt)).is_null())
+                    .add(Expr::col((earlier, Column::Status)).ne("cancelled")),
+            )
+            .to_owned(),
     )
-    .bind(iso(range.start_ms))
-    .bind(iso(range.end_ms))
-    .bind(tag)
-    .fetch_one(db)
-    .await
 }
 
 async fn commerce_repeat_online_share(
     db: &PgPool,
     params: &Value,
     range: &MonthRange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
+    use orders::Column;
     let sources: Vec<String> = match params.get("sources").and_then(Value::as_array) {
         Some(items) if !items.is_empty() => items
             .iter()
@@ -260,33 +317,51 @@ async fn commerce_repeat_online_share(
             .map(|source| (*source).to_owned())
             .collect(),
     };
+    // `count(*) filter (where o.source = any($3)) * 100.0 / nullif(count(*), 0)`.
+    let online = Func::count(Expr::case(Column::Source.is_in(sources), 1));
+    let all = Func::count(Expr::col(Asterisk));
+    let share = sea_orm::ExprTrait::div(
+        sea_orm::ExprTrait::mul(
+            online,
+            sea_orm::ExprTrait::cast_as(Expr::val("100.0"), "numeric"),
+        ),
+        Func::cust("nullif").arg(all).arg(0),
+    );
     // A repeat order: its buyer (the counterparty, else the legacy customer)
     // ordered before.
-    sqlx::query_scalar(
-        "select round(count(*) filter (where o.source = any($3)) * 100.0
-                      / nullif(count(*), 0), 4)::text
-         from orders o
-         where o.deleted_at is null and o.status <> 'cancelled'
-           and o.created_at >= $1::timestamp and o.created_at < $2::timestamp
-           and (
-             (o.counterparty_id is not null and exists (
-                select 1 from orders p where p.counterparty_id = o.counterparty_id
-                  and p.created_at < o.created_at and p.deleted_at is null
-                  and p.status <> 'cancelled'))
-             or (o.counterparty_id is null and o.customer_id is not null and exists (
-                select 1 from orders p where p.customer_id = o.customer_id
-                  and p.created_at < o.created_at and p.deleted_at is null
-                  and p.status <> 'cancelled'))
-           )",
-    )
-    .bind(iso(range.start_ms))
-    .bind(iso(range.end_ms))
-    .bind(sources)
-    .fetch_one(db)
-    .await
+    let repeat = Condition::any()
+        .add(
+            Condition::all()
+                .add(Column::CounterpartyId.is_not_null())
+                .add(ordered_before(Column::CounterpartyId)),
+        )
+        .add(
+            Condition::all()
+                .add(Column::CounterpartyId.is_null())
+                .add(Column::CustomerId.is_not_null())
+                .add(ordered_before(Column::CustomerId)),
+        );
+    let value: Option<Option<String>> = orders::Entity::find()
+        .select_only()
+        .expr(rounded_text(share, 4))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.ne("cancelled"))
+        .filter(Column::CreatedAt.gte(at(range.start_ms)))
+        .filter(Column::CreatedAt.lt(at(range.end_ms)))
+        .filter(repeat)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(value.flatten())
 }
 
-async fn books_days_to_pay(db: &PgPool, range: &MonthRange) -> Result<Option<String>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "an average of extract(epoch from paid_at - issue_date), which SeaQuery cannot \
+              write, in Postgres's numeric arithmetic: its rounded text is what \
+              benefit-metrics.ts stores"
+)]
+async fn books_days_to_pay(db: &PgPool, range: &MonthRange) -> Result<Option<String>, DbErr> {
     let (year, month) = year_month(range.start_ms);
     let issued_after = iso(month_start_ms(year - 1, month - 1));
     sqlx::query_scalar(
@@ -301,54 +376,85 @@ async fn books_days_to_pay(db: &PgPool, range: &MonthRange) -> Result<Option<Str
     .bind(issued_after)
     .fetch_one(db)
     .await
+    .map_err(orm_error)
 }
 
 async fn books_supplier_cost(
     db: &PgPool,
     params: &Value,
     range: &MonthRange,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
+    use bills::Column;
     let (year, month) = year_month(range.end_ms);
-    let from = iso(month_start_ms(year - 1, month - 1));
-    let statuses: Vec<String> = COST_BILL_STATUSES
-        .iter()
-        .map(|status| (*status).to_owned())
-        .collect();
-    sqlx::query_scalar(
-        "select round(coalesce(sum(total), 0)::numeric, 2)::text
-         from bills
-         where deleted_at is null and type = 'standard' and status = any($1)
-           and (contact_id = $2 or counterparty_id = $2)
-           and issue_date >= $3::timestamp and issue_date < $4::timestamp",
-    )
-    .bind(statuses)
-    .bind(text_param(params, "supplierId"))
-    .bind(from)
-    .bind(iso(range.end_ms))
-    .fetch_one(db)
-    .await
+    let from = month_start_ms(year - 1, month - 1);
+    let supplier = text_param(params, "supplierId");
+    // `round(coalesce(sum(total), 0)::numeric, 2)::text`.
+    let total = sea_orm::ExprTrait::cast_as(
+        Func::coalesce([
+            Expr::from(Func::sum(Expr::col((bills::Entity, Column::Total)))),
+            Expr::val(0),
+        ]),
+        "numeric",
+    );
+    let value: Option<Option<String>> = bills::Entity::find()
+        .select_only()
+        .expr(rounded_text(total, 2))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Type.eq("standard"))
+        .filter(Column::Status.is_in(COST_BILL_STATUSES))
+        .filter(
+            Condition::any()
+                .add(Column::ContactId.eq(supplier.as_str()))
+                .add(Column::CounterpartyId.eq(supplier.as_str())),
+        )
+        .filter(Column::IssueDate.gte(at(from)))
+        .filter(Column::IssueDate.lt(at(range.end_ms)))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(value.flatten())
 }
 
 async fn time_hours_per_week_by_tag(
     db: &PgPool,
     params: &Value,
     range: &MonthRange,
-) -> Result<Option<String>, sqlx::Error> {
-    let tag = json!([text_param(params, "tag")]).to_string();
+) -> Result<Option<String>, DbErr> {
+    use time_entries::Column;
     let days = i32::try_from(range.days).unwrap_or(30);
-    sqlx::query_scalar(
-        "select round(coalesce(sum(te.duration), 0)::numeric * 7 / (60 * $1::int), 4)::text
-         from time_entries te
-         inner join tasks t on t.id = te.task_id
-         where te.deleted_at is null and t.deleted_at is null and te.status <> 'rejected'
-           and te.date >= $2::date and te.date < $3::date and t.tags @> $4::jsonb",
-    )
-    .bind(days)
-    .bind(day(range.start_ms))
-    .bind(day(range.end_ms))
-    .bind(tag)
-    .fetch_one(db)
-    .await
+    // `round(coalesce(sum(te.duration), 0)::numeric * 7 / (60 * days), 4)::text`.
+    let minutes = sea_orm::ExprTrait::cast_as(
+        Func::coalesce([
+            Expr::from(Func::sum(Expr::col((time_entries::Entity, Column::Duration)))),
+            Expr::val(0),
+        ]),
+        "numeric",
+    );
+    let per_week = sea_orm::ExprTrait::div(
+        sea_orm::ExprTrait::mul(minutes, 7),
+        sea_orm::ExprTrait::mul(Expr::val(60), days),
+    );
+    let task = time_entries::Entity::belongs_to(tasks::Entity)
+        .from(Column::TaskId)
+        .to(tasks::Column::Id)
+        .into();
+    let value: Option<Option<String>> = time_entries::Entity::find()
+        .select_only()
+        .expr(rounded_text(per_week, 4))
+        .join(JoinType::InnerJoin, task)
+        .filter(Column::DeletedAt.is_null())
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(Column::Status.ne("rejected"))
+        .filter(Column::Date.gte(day(range.start_ms)))
+        .filter(Column::Date.lt(day(range.end_ms)))
+        .filter(tagged(
+            (tasks::Entity, tasks::Column::Tags),
+            &text_param(params, "tag"),
+        ))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(value.flatten())
 }
 
 #[cfg(test)]

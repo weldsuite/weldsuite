@@ -21,18 +21,18 @@ mod types;
 
 use std::fmt;
 
+use sea_orm::DbErr;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sqlx::postgres::PgArguments;
-use sqlx::query::QueryScalar;
-use sqlx::{AssertSqlSafe, PgPool, Postgres};
-use time::OffsetDateTime;
+use time::PrimitiveDateTime;
 use weldsuite_kit::ApiError;
 
 pub use bank_accounts::{
     create_bank_account, delete_bank_account, list_bank_accounts, reveal_bank_account_number,
     update_bank_account,
 };
+pub(crate) use entities::default_entity_id;
 pub use entities::{
     create_legal_entity, delete_legal_entity, get_default_legal_entity,
     get_default_legal_entity_row, get_legal_entity, legal_entity_usage, list_legal_entities,
@@ -84,7 +84,7 @@ pub enum LegalEntityError {
         code: LegalEntityErrorCode,
         message: String,
     },
-    Database(sqlx::Error),
+    Database(DbErr),
     /// Not a `LegalEntityError` in TypeScript: a thrown `Error`.
     Internal(String),
 }
@@ -168,21 +168,19 @@ impl fmt::Display for LegalEntityError {
 
 impl std::error::Error for LegalEntityError {}
 
-impl From<sqlx::Error> for LegalEntityError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for LegalEntityError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds, bound as text
-/// and cast (`::timestamp`).
-pub(crate) fn now_iso() -> String {
+/// A `timestamp` as the `Date` Drizzle read it prints (`toISOString()`):
+/// UTC with milliseconds.
+pub(crate) fn iso(at: PrimitiveDateTime) -> String {
     let format = time::macros::format_description!(
         "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
     );
-    OffsetDateTime::now_utc()
-        .format(&format)
-        .unwrap_or_default()
+    at.format(&format).unwrap_or_default()
 }
 
 /// `text.slice(0, end)` in UTF-16 code units, as JavaScript cuts strings.
@@ -209,129 +207,15 @@ pub(crate) fn js_truthy(value: &Value) -> bool {
     }
 }
 
-/// A `to_jsonb(t)` row as Drizzle returns it, read into `T`.
-pub(crate) fn read_row<T: DeserializeOwned>(row: Value) -> Result<(T, Value), LegalEntityError> {
-    let json = weldsuite_db::js_row(row);
-    let typed = serde_json::from_value(json.clone()).map_err(|error| {
-        LegalEntityError::Internal(format!("legal entities: unreadable row: {error}"))
-    })?;
+/// A row as Drizzle returns it (the entity's JSON), read into `T`.
+pub(crate) fn read_model<M: Serialize, T: DeserializeOwned>(
+    model: &M,
+) -> Result<(T, Value), LegalEntityError> {
+    let unreadable =
+        |error: serde_json::Error| LegalEntityError::Internal(format!("legal entities: unreadable row: {error}"));
+    let json = serde_json::to_value(model).map_err(unreadable)?;
+    let typed = serde_json::from_value(json.clone()).map_err(unreadable)?;
     Ok((typed, json))
-}
-
-/// A bound value of a statement built at run time.
-#[derive(Debug, Clone)]
-pub(crate) enum Param {
-    Text(Option<String>),
-    Json(Option<Value>),
-    Int(Option<i32>),
-    Bool(Option<bool>),
-    /// An ISO timestamp, cast to `timestamp`.
-    Timestamp(Option<String>),
-    /// `YYYY-MM-DD`, cast to `date`.
-    Date(Option<String>),
-}
-
-impl Param {
-    fn placeholder(&self, at: usize) -> String {
-        match self {
-            Self::Json(_) => format!("${at}::jsonb"),
-            Self::Timestamp(_) => format!("${at}::timestamp"),
-            Self::Date(_) => format!("${at}::date"),
-            Self::Text(_) | Self::Int(_) | Self::Bool(_) => format!("${at}"),
-        }
-    }
-}
-
-/// The columns a Drizzle `.set(patch)` or `.values(row)` writes: only those
-/// present, so the others keep their value (or take their default).
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Columns(Vec<(&'static str, Param)>);
-
-impl Columns {
-    /// Set `column`, replacing an earlier value in its place.
-    pub(crate) fn set(&mut self, column: &'static str, param: Param) {
-        if let Some(slot) = self.0.iter_mut().find(|(name, _)| *name == column) {
-            slot.1 = param;
-        } else {
-            self.0.push((column, param));
-        }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn get(&self, column: &str) -> Option<&Param> {
-        self.0
-            .iter()
-            .find(|(name, _)| *name == column)
-            .map(|(_, param)| param)
-    }
-}
-
-fn bind_all(
-    mut query: QueryScalar<'static, Postgres, Value, PgArguments>,
-    params: impl IntoIterator<Item = Param>,
-) -> QueryScalar<'static, Postgres, Value, PgArguments> {
-    for param in params {
-        query = match param {
-            Param::Text(value) | Param::Timestamp(value) | Param::Date(value) => query.bind(value),
-            Param::Json(value) => query.bind(value),
-            Param::Int(value) => query.bind(value),
-            Param::Bool(value) => query.bind(value),
-        };
-    }
-    query
-}
-
-/// `insert into <table> (...) values (...) returning *`, the row as `to_jsonb`.
-pub(crate) async fn insert_returning(
-    db: &PgPool,
-    table: &'static str,
-    columns: Columns,
-) -> Result<Value, sqlx::Error> {
-    let names: Vec<&str> = columns.0.iter().map(|(name, _)| *name).collect();
-    let placeholders: Vec<String> = columns
-        .0
-        .iter()
-        .enumerate()
-        .map(|(at, (_, param))| param.placeholder(at + 1))
-        .collect();
-    let sql = format!(
-        "insert into {table} as t ({}) values ({}) returning to_jsonb(t)",
-        names.join(", "),
-        placeholders.join(", ")
-    );
-    let query = sqlx::query_scalar(AssertSqlSafe(sql));
-    bind_all(query, columns.0.into_iter().map(|(_, param)| param))
-        .fetch_one(db)
-        .await
-}
-
-/// `update <table> set ... where id = $id returning *`, the row as
-/// `to_jsonb`; `None` when no row has the id.
-pub(crate) async fn update_returning(
-    db: &PgPool,
-    table: &'static str,
-    columns: Columns,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let assignments: Vec<String> = columns
-        .0
-        .iter()
-        .enumerate()
-        .map(|(at, (name, param))| format!("{name} = {}", param.placeholder(at + 1)))
-        .collect();
-    let sql = format!(
-        "update {table} as t set {} where t.id = ${} returning to_jsonb(t)",
-        assignments.join(", "),
-        columns.0.len() + 1
-    );
-    let query = sqlx::query_scalar(AssertSqlSafe(sql));
-    bind_all(query, columns.0.into_iter().map(|(_, param)| param))
-        .bind(id.to_owned())
-        .fetch_optional(db)
-        .await
 }
 
 #[cfg(test)]
@@ -370,9 +254,11 @@ mod tests {
     }
 
     #[test]
-    fn now_is_an_iso_timestamp_with_milliseconds() {
-        let now = now_iso();
+    fn timestamps_print_with_milliseconds() {
+        let now = iso(weldsuite_db::utc_now());
         assert_eq!(now.len(), 24);
         assert!(now.ends_with('Z'));
+        let at = time::macros::datetime!(2026-10-29 07:00:00.123456);
+        assert_eq!(iso(at), "2026-10-29T07:00:00.123Z");
     }
 }
