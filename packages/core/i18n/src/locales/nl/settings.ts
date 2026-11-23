@@ -1850,6 +1850,7 @@ export const settings = {
         channels: 'Kanalen',
         ai: 'AI',
         ticketsRouting: 'Tickets en routering',
+        reports: 'Rapportages',
       },
       chatWidgetTitle: 'Chatwidget',
       chatWidgetDescription: 'Ontwerp de livechatwidget en installeer hem op uw website.',

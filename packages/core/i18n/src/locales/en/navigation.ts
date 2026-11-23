@@ -302,7 +302,6 @@ export const navigation = {
         reportsOverview: 'Overview',
         customReports: 'Custom reports',
         reportSchedules: 'Scheduled reports',
-        biConnector: 'BI connector',
         wallboard: 'Wallboard',
         phoneReport: 'Phone',
         settings: 'WeldDesk settings',

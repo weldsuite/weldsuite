@@ -74,7 +74,7 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
   // WeldDesk's BI connector is an OData feed on that same public API, read
   // with one of those keys.
-  ['/welddesk/reports/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  ['/settings/apps/welddesk/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
   // The public help center site runs on Global only (`{slug}.welddesk.org`).
   ['/settings/apps/welddesk/help-center', { modules: ['desk'], feature: 'helpcenter-hosting' }],
   ['/settings/webhooks', { modules: ['connect'] }],

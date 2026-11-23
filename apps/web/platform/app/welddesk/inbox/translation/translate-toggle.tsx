@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
-import { Languages, Loader2 } from 'lucide-react';
+import { Languages } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
-import { Button } from '@weldsuite/ui/components/button';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import type { DeskConversation, DeskMessage } from '@/hooks/queries/use-desk-queries';
 import {
   conversationLanguage,
@@ -20,17 +19,18 @@ import {
 } from './translation-state';
 
 /**
- * The conversation header's "Translate" switch and the customer's language.
- * Turning it on translates the customer's messages into the agent's
- * language (under each message in the timeline); hidden where the edition
- * has no AI or the agent can't work the conversation.
+ * The customer's language in the conversation header, and the toast when
+ * translating fails. The switch itself is "Translate" in the header's "⋯"
+ * menu (`TranslateMenuItem`); turning it on translates the customer's
+ * messages into the agent's language under each message in the timeline.
+ * Hidden where the edition has no AI.
  */
-export function TranslateToggle({
+export function TranslateLanguageBadge({
   conversation,
 }: Readonly<{ conversation: DeskConversation & { messages?: DeskMessage[] } }>) {
   const t = getTranslations('helpdesk').translation;
   const available = useDeskTranslationAvailable();
-  const [on, setOn] = useTranslateOn(conversation.id);
+  const [on] = useTranslateOn(conversation.id);
   const ids = customerMessageIds(conversation.messages ?? []);
   const target = agentLocale();
   const query = useDeskConversationTranslations(conversation.id, target, ids, available && on);
@@ -40,36 +40,32 @@ export function TranslateToggle({
     if (query.error) toast.error(translationErrorMessage(query.error));
   }, [query.error]);
 
-  if (!available) return null;
+  if (!available || !language) return null;
   const same = sameLanguage(language, target);
 
   return (
-    <div className="flex items-center gap-1 flex-shrink-0" data-testid="desk-inbox-translate">
-      {language && (
-        <span
-          className="rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium uppercase text-muted-foreground"
-          title={same ? t.sameLanguage : t.languageBadge.replace('{language}', languageLabel(language))}
-          data-testid="desk-inbox-language-badge"
-        >
-          {language}
-        </span>
-      )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-pressed={on}
-        title={on ? t.turnOff : t.turnOn}
-        className={cn(
-          'h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary',
-          on && 'bg-muted text-foreground',
-        )}
-        onClick={() => setOn(!on)}
-        data-testid="desk-inbox-translate-toggle"
-      >
-        {on && query.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
-        <span className="hidden @3xl/desk-header:inline">{t.translate}</span>
-      </Button>
-    </div>
+    <span
+      className="rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium uppercase text-muted-foreground flex-shrink-0"
+      title={same ? t.sameLanguage : t.languageBadge.replace('{language}', languageLabel(language))}
+      data-testid="desk-inbox-language-badge"
+    >
+      {language}
+    </span>
+  );
+}
+
+/** "Translate this conversation" / "Stop translating" in the header's "⋯" menu. */
+export function TranslateMenuItem({ conversationId }: Readonly<{ conversationId: string }>) {
+  const t = getTranslations('helpdesk').translation;
+  const available = useDeskTranslationAvailable();
+  const [on, setOn] = useTranslateOn(conversationId);
+
+  if (!available) return null;
+
+  return (
+    <DropdownMenuItem onSelect={() => setOn(!on)} data-testid="desk-inbox-translate-toggle">
+      <Languages className="h-4 w-4" />
+      {on ? t.turnOff : t.turnOn}
+    </DropdownMenuItem>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { BookOpen, ExternalLink, Link2, Loader2, Search } from 'lucide-react';
 import type { DeskArticleSuggestion } from '@weldsuite/app-api-client/schemas/desk-knowledge';
 import { Button } from '@weldsuite/ui/components/button';
+import { composerIconButtonClass } from '@weldsuite/ui/components/composer';
 import { Input } from '@weldsuite/ui/components/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
@@ -124,12 +125,12 @@ export function KnowledgeButton({ conversationId, onInsert }: Readonly<Knowledge
           type="button"
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground"
+          className={composerIconButtonClass}
           title={k.button}
           aria-label={k.button}
           data-testid="desk-inbox-composer-knowledge"
         >
-          <BookOpen className="h-4 w-4" />
+          <BookOpen className="h-[18px] w-[18px]" />
         </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-[min(440px,calc(100vw-32px))] p-0">

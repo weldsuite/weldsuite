@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
@@ -13,6 +13,8 @@ import {
 } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { useDeskConversationRoom } from '@/hooks/welddesk/use-desk-live';
+import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
+import { useReportPageSidePanel } from '@/hooks/use-page-side-panel';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { ConversationHeader } from './conversation-header';
 import { MessagesTimeline } from './messages-timeline';
@@ -37,8 +39,14 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
   const room = useDeskConversationRoom(conversationId);
   const reply = useReplyToDeskConversation();
   const takeTranslation = useTakeDraftTranslation(conversationId);
+  // The panel's close button hides it for this conversation; the next one opens with it again.
+  const [panelClosedFor, setPanelClosedFor] = useState<string | null>(null);
+  // WeldAgent takes the panel's place while it is open (one side panel at a time), and the panel comes back after.
+  const [weldAgentOpen] = useWeldAgentDrawerOpen();
+  const showCustomerPanel = panelClosedFor !== conversationId && !weldAgentOpen;
 
   const conversation = data?.data;
+  useReportPageSidePanel(showCustomerPanel && Boolean(conversation));
   const messages = conversation?.messages ?? [];
   const events = new Set(messages.map((m) => m.metadata?.event).filter(Boolean));
   const liveCall =
@@ -146,7 +154,13 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
           onStopTyping={room.stopTyping}
         />
       </div>
-      <CustomerPanel conversation={conversation} members={membersData ?? []} />
+      {showCustomerPanel && (
+        <CustomerPanel
+          conversation={conversation}
+          members={membersData ?? []}
+          onClose={() => setPanelClosedFor(conversationId)}
+        />
+      )}
     </div>
   );
 }

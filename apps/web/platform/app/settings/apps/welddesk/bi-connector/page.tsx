@@ -1,13 +1,12 @@
 /**
- * WeldDesk → Reports → BI connector: the OData feed Power BI and Excel read
- * (TASK-1235). The feed itself is `/v1/odata` on the public API.
+ * Settings → Apps → WeldDesk → BI connector: the OData feed Power BI and Excel
+ * read (TASK-1235). The feed itself is `/v1/odata` on the public API.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { DashboardPage } from '@weldsuite/ui/components/page-layout';
@@ -39,12 +38,6 @@ export default function DeskBiConnectorPage() {
     },
     [],
   );
-
-  useBreadcrumbs([
-    { label: t.helpdesk.title, href: '/welddesk' },
-    { label: t.helpdesk.reports.title, href: '/welddesk/reports' },
-    { label: tb.title },
-  ]);
 
   const copy = async () => {
     try {

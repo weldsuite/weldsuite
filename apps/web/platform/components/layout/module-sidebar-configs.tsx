@@ -537,7 +537,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.phoneReport, href: '/welddesk/reports/phone', icon: Phone, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.reportSchedules, href: '/welddesk/reports/schedules', icon: CalendarClock, permission: 'settings:read' },
-          { title: t.navigation.moduleSidebar.welddesk.biConnector, href: '/welddesk/reports/bi-connector', icon: Database, permission: 'settings:read' },
         ],
       },
     ],

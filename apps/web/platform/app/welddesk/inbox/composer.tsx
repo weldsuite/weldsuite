@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, MessageSquareText, Paperclip, Send, X } from 'lucide-react';
+import { Loader2, MessageSquareText, Paperclip, Plus, StickyNote, X } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  ComposerActions,
+  ComposerFrame,
+  ComposerSendButton,
+  composerFieldClass,
+  composerIconButtonClass,
+} from '@weldsuite/ui/components/composer';
 import { Popover, PopoverAnchor, PopoverContent } from '@weldsuite/ui/components/popover';
 import {
   Command,
@@ -46,7 +53,8 @@ interface ComposerProps {
   onStopTyping?: () => void;
 }
 
-const MAX_HEIGHT_PX = 240;
+/** The shared composer field's cap (`composerFieldClass`); it scrolls past it. */
+const MAX_HEIGHT_PX = 200;
 
 /** "/" at the start of an otherwise empty box opens the saved-reply picker. */
 function slashQuery(body: string): string | null {
@@ -186,33 +194,18 @@ export function Composer({
     <div className="flex-shrink-0 px-3 md:px-4 pb-3 pt-2 bg-white dark:bg-background" data-testid="desk-inbox-composer">
       <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
         <PopoverAnchor asChild>
-          <div
-            className={cn(
-              'rounded-xl border border-gray-200 dark:border-border overflow-hidden transition-colors focus-within:border-gray-300 dark:focus-within:border-muted-foreground/40',
-              tab === 'note' && 'border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/20',
-            )}
+          <ComposerFrame
+            // An internal note keeps its amber tint, so it never reads as a reply.
+            className={cn(tab === 'note' && 'border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/20')}
+            onClick={(e) => {
+              // Clicking the empty parts of the box focuses the field, as in every composer.
+              if (!(e.target as HTMLElement).closest('button, input, textarea, a')) textareaRef.current?.focus();
+            }}
           >
-            <div className="flex items-center gap-1 px-2 pt-2">
-              {(['reply', 'note'] as const).map((value) => (
-                <Button
-                  key={value}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    'h-7 px-2.5 text-xs',
-                    tab === value ? 'bg-muted text-foreground' : 'text-muted-foreground',
-                  )}
-                  onClick={() => switchTab(value)}
-                >
-                  {value === 'reply' ? t.composer.replyTab : t.composer.noteTab}
-                </Button>
-              ))}
-            </div>
             <textarea
               ref={textareaRef}
               value={body}
-              rows={2}
+              rows={1}
               onChange={(e) => handleChange(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={() => onStopTyping?.()}
@@ -223,11 +216,11 @@ export function Composer({
                 }
               }}
               placeholder={tab === 'note' ? t.composer.notePlaceholder : t.composer.replyPlaceholder}
-              className="w-full min-h-[64px] resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
+              className={composerFieldClass}
               data-testid="desk-inbox-composer-textarea"
             />
             {files.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-3 pb-2" data-testid="desk-inbox-composer-files">
+              <div className="flex flex-wrap gap-1.5 px-[10px] pb-2" data-testid="desk-inbox-composer-files">
                 {files.map((file) => (
                   <span
                     key={file.key}
@@ -254,8 +247,8 @@ export function Composer({
                 ))}
               </div>
             )}
-            <div className="flex items-center justify-between gap-2 px-2 py-2 border-t border-border/50">
-              <div className="flex items-center gap-0.5 min-w-0">
+            <ComposerActions>
+              <div className="flex items-center gap-0 min-w-0">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -271,19 +264,19 @@ export function Composer({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground"
+                  className={composerIconButtonClass}
                   onClick={() => fileInputRef.current?.click()}
                   title={t.composer.attachFile}
                   aria-label={t.composer.attachFile}
                   data-testid="desk-inbox-composer-attach"
                 >
-                  <Paperclip className="h-4 w-4" />
+                  <Plus className="h-[18px] w-[18px]" />
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground"
+                  className={composerIconButtonClass}
                   onClick={() => {
                     setPickerSearch('');
                     setPickerOpen((open) => !open);
@@ -292,24 +285,37 @@ export function Composer({
                   aria-label={t.composer.savedReplies}
                   data-testid="desk-inbox-composer-saved-replies"
                 >
-                  <MessageSquareText className="h-4 w-4" />
+                  <MessageSquareText className="h-[18px] w-[18px]" />
                 </Button>
                 <TranslateDraftButton conversationId={conversationId} body={body} disabled={tab === 'note'} onTranslated={setBody} />
                 <KnowledgeButton conversationId={conversationId} onInsert={insertText} />
-                <span className="hidden sm:inline ml-1.5 text-xs text-muted-foreground truncate">{t.composer.sendHint}</span>
+                {/* Pressed: the message goes out as an internal note instead of a reply. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    composerIconButtonClass,
+                    tab === 'note' && 'bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground',
+                  )}
+                  onClick={() => switchTab(tab === 'note' ? 'reply' : 'note')}
+                  aria-pressed={tab === 'note'}
+                  title={t.pane.internalNote}
+                  aria-label={t.pane.internalNote}
+                  data-testid="desk-inbox-composer-note"
+                >
+                  <StickyNote className="h-[18px] w-[18px]" />
+                </Button>
               </div>
-              <Button
+              <ComposerSendButton
                 type="button"
-                size="sm"
                 onClick={handleSend}
-                disabled={!canSend}
+                canSend={canSend}
+                label={tab === 'note' ? t.composer.addNote : t.composer.sendReply}
                 data-testid="desk-inbox-composer-send"
-              >
-                <Send className="h-3.5 w-3.5 mr-1.5" />
-                {tab === 'note' ? t.composer.addNote : t.composer.sendReply}
-              </Button>
-            </div>
-          </div>
+              />
+            </ComposerActions>
+          </ComposerFrame>
         </PopoverAnchor>
         <PopoverContent
           side="top"

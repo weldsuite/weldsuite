@@ -1,6 +1,6 @@
 /**
- * WeldDesk → Rapportages → BI-koppeling: de OData-feed die Power BI en Excel lezen
- * (apps/web/platform/app/welddesk/bi-connector, TASK-1235).
+ * Instellingen → Apps → WeldDesk → BI-koppeling: de OData-feed die Power BI en
+ * Excel lezen (apps/web/platform/app/settings/apps/welddesk/bi-connector, TASK-1235).
  */
 
 export const deskBi = {

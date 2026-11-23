@@ -1,15 +1,28 @@
-import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, X } from 'lucide-react';
+import {
+  AlignLeft,
+  CalendarDays,
+  CircleChevronDown,
+  Coins,
+  Flag,
+  Hash,
+  Link2,
+  ListChecks,
+  Mail,
+  Phone,
+  Shapes,
+  Star,
+  Tag,
+  ToggleLeft,
+  Type,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Link } from '@/lib/router';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Toggle } from '@weldsuite/ui/components/toggle';
-import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   Select,
   SelectContent,
@@ -17,13 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
+import { PropertyRow, TagsPropertyRow, type PropertyRowProps } from '@/components/objects/_shared/property-row';
+import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import {
   DESK_PRIORITIES,
   useDeskAttributeOptions,
@@ -48,23 +56,6 @@ export const PRIORITY_DOT: Record<DeskPriority, string> = {
 };
 
 type T = ReturnType<typeof getTranslations<'deskInbox2'>>;
-
-export function FieldRow({ label, required, children }: Readonly<{ label: string; required?: boolean; children: React.ReactNode }>) {
-  const t = getTranslations('deskInbox2');
-  return (
-    <div className="flex items-center justify-between gap-3 py-1 text-sm">
-      <span className="text-muted-foreground flex-shrink-0 max-w-[45%] truncate" title={label}>
-        {label}
-        {required && (
-          <span className="text-destructive" title={t.ticket.required}>
-            {' '}*
-          </span>
-        )}
-      </span>
-      <div className="min-w-0 flex-1 flex justify-end">{children}</div>
-    </div>
-  );
-}
 
 export function PickOne({
   value,
@@ -107,177 +98,144 @@ export function PickOne({
   );
 }
 
-function TagEditor({
-  tags,
-  suggestions,
-  onChange,
-}: Readonly<{ tags: string[]; suggestions: string[]; onChange: (tags: string[]) => void }>) {
-  const t = getTranslations('deskInbox2');
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const lower = new Set(tags.map((tag) => tag.toLowerCase()));
-  const term = query.trim();
-  const matches = suggestions.filter(
-    (tag) => !lower.has(tag.toLowerCase()) && tag.toLowerCase().includes(term.toLowerCase()),
-  );
-  const canCreate = term.length > 0 && !lower.has(term.toLowerCase()) && !matches.some((tag) => tag.toLowerCase() === term.toLowerCase());
+const FIELD_ICON: Record<string, LucideIcon> = {
+  text: Type,
+  textarea: AlignLeft,
+  number: Hash,
+  currency: Coins,
+  rating: Star,
+  date: CalendarDays,
+  email: Mail,
+  url: Link2,
+  phone: Phone,
+  boolean: ToggleLeft,
+  single_select: CircleChevronDown,
+  multi_select: ListChecks,
+};
 
-  const add = (tag: string) => {
-    if (tags.length >= MAX_TAGS) {
-      toast.error(t.ticket.maxTags.replace('{max}', String(MAX_TAGS)));
-      return;
-    }
-    onChange([...tags, tag]);
-    setQuery('');
-    setOpen(false);
-  };
+/** The property-row editor each text-like field type gets; the rest edit as plain text. */
+const ROW_TYPE: Partial<Record<string, NonNullable<PropertyRowProps['type']>>> = {
+  textarea: 'address',
+  date: 'date',
+  email: 'email',
+  url: 'url',
+  phone: 'phone',
+};
 
-  return (
-    <div className="flex flex-wrap items-center justify-end gap-1" data-testid="desk-ticket-tags">
-      {tags.map((tag) => (
-        <span
-          key={tag}
-          className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted/50 pl-1.5 pr-0.5 py-0.5 text-xs"
-        >
-          {tag}
-          <button
-            type="button"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => onChange(tags.filter((other) => other !== tag))}
-            aria-label={t.ticket.removeTag.replace('{tag}', tag)}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
-      <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(''); }}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs text-muted-foreground">
-            <Plus className="h-3 w-3 mr-0.5" />
-            {t.ticket.addTag}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-60 p-0">
-          <Command shouldFilter={false}>
-            <CommandInput placeholder={t.ticket.tagSearch} value={query} onValueChange={setQuery} maxLength={50} />
-            <CommandList className="max-h-56">
-              {!canCreate && <CommandEmpty>{t.ticket.noTags}</CommandEmpty>}
-              {canCreate && (
-                <CommandItem value={`__create__${term}`} onSelect={() => add(term)}>
-                  <Plus className="h-3.5 w-3.5" />
-                  {t.ticket.createTag.replace('{tag}', term)}
-                </CommandItem>
-              )}
-              {matches.map((tag) => (
-                <CommandItem key={tag} value={tag} onSelect={() => add(tag)}>
-                  {tag}
-                </CommandItem>
-              ))}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
+const NUMERIC_TYPES = new Set(['number', 'currency', 'rating']);
 
-function asDraft(field: DeskTicketField, value: unknown): string {
-  if (value === null || value === undefined) return '';
+function asText(field: DeskTicketField, value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
   if (field.fieldType === 'date' && typeof value === 'string') return value.slice(0, 10);
   return String(value);
 }
 
-/** A text-like input that saves when it loses focus (or on Enter). */
-function DraftInput({
-  field,
-  value,
-  onSave,
-}: Readonly<{ field: DeskTicketField; value: unknown; onSave: (value: unknown) => void }>) {
-  const stored = asDraft(field, value);
-  const [draft, setDraft] = useState(stored);
-  useEffect(() => setDraft(stored), [stored]);
-
-  const numeric = field.fieldType === 'number' || field.fieldType === 'currency' || field.fieldType === 'rating';
-  const commit = () => {
-    if (draft === stored) return;
-    if (draft.trim() === '') onSave(null);
-    else onSave(numeric ? Number(draft) : draft);
-  };
-  const common = {
-    value: draft,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(e.target.value),
-    onBlur: commit,
-    'aria-label': field.name,
-    'data-testid': `desk-ticket-field-${field.slug}`,
-  };
-
-  if (field.fieldType === 'textarea') {
-    return <Textarea {...common} rows={2} className="min-h-0 text-sm shadow-none resize-y" />;
-  }
-  const inputType: Record<string, string> = { number: 'number', currency: 'number', rating: 'number', date: 'date', email: 'email', url: 'url', phone: 'tel' };
+/** A row in the property rows' geometry whose value is a control of its own (a switch, toggles). */
+function ControlRow({
+  icon: Icon,
+  label,
+  children,
+}: Readonly<{ icon: LucideIcon; label: string; children: React.ReactNode }>) {
   return (
-    <Input
-      {...common}
-      type={inputType[field.fieldType] ?? 'text'}
-      className="h-7 w-full max-w-[160px] text-sm shadow-none"
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-      }}
-    />
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center min-h-[32px]">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Icon className="h-4 w-4" />
+        <span className="truncate" title={label}>{label}</span>
+      </div>
+      <div className="min-w-0 py-1">{children}</div>
+      <div />
+    </div>
   );
 }
 
-function CustomFieldInput({
+/** One of the ticket type's custom fields, as a property row of the record panel. */
+function CustomFieldRow({
   field,
   value,
   onSave,
   t,
 }: Readonly<{ field: DeskTicketField; value: unknown; onSave: (value: unknown) => void; t: T }>) {
+  const icon = FIELD_ICON[field.fieldType] ?? Type;
+  const label = field.required ? `${field.name} *` : field.name;
+
   if (field.fieldType === 'boolean') {
-    return <Switch checked={value === true} onCheckedChange={(checked) => onSave(checked)} aria-label={field.name} />;
+    return (
+      <ControlRow icon={icon} label={label}>
+        <Switch checked={value === true} onCheckedChange={(checked) => onSave(checked)} aria-label={field.name} />
+      </ControlRow>
+    );
   }
   if (field.fieldType === 'single_select') {
     return (
-      <PickOne
+      <SelectPropertyRow
+        icon={icon}
+        label={label}
         value={typeof value === 'string' ? value : null}
-        noneLabel={t.ticket.choose}
-        items={(field.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
+        options={(field.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
         onChange={onSave}
-        testId={`desk-ticket-field-${field.slug}`}
+        placeholder={t.ticket.choose}
       />
     );
   }
   if (field.fieldType === 'multi_select') {
     const selected = Array.isArray(value) ? (value as string[]) : [];
     return (
-      <div className="flex flex-wrap justify-end gap-1">
-        {(field.options ?? []).map((option) => {
-          const on = selected.includes(option.value);
-          return (
-            <Toggle
-              key={option.value}
-              size="sm"
-              variant="outline"
-              pressed={on}
-              onPressedChange={() =>
-                onSave(on ? selected.filter((v) => v !== option.value) : [...selected, option.value])
-              }
-              className="h-6 px-2 text-xs shadow-none data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
-            >
-              {option.label}
-            </Toggle>
-          );
-        })}
-      </div>
+      <ControlRow icon={icon} label={label}>
+        <div className="flex flex-wrap gap-1">
+          {(field.options ?? []).map((option) => {
+            const on = selected.includes(option.value);
+            return (
+              <Toggle
+                key={option.value}
+                size="sm"
+                variant="outline"
+                pressed={on}
+                onPressedChange={() =>
+                  onSave(on ? selected.filter((v) => v !== option.value) : [...selected, option.value])
+                }
+              >
+                {option.label}
+              </Toggle>
+            );
+          })}
+        </div>
+      </ControlRow>
     );
   }
-  return <DraftInput field={field} value={value} onSave={onSave} />;
+
+  const numeric = NUMERIC_TYPES.has(field.fieldType);
+  return (
+    <PropertyRow
+      icon={icon}
+      label={label}
+      value={asText(field, value)}
+      type={ROW_TYPE[field.fieldType] ?? 'text'}
+      onSave={(next) => {
+        const trimmed = next?.trim() ?? '';
+        if (trimmed === '') {
+          onSave(null);
+          return;
+        }
+        if (numeric) {
+          const number = Number(trimmed);
+          if (!Number.isFinite(number)) {
+            toast.error(t.ticket.saveError);
+            return;
+          }
+          onSave(number);
+          return;
+        }
+        onSave(trimmed);
+      }}
+    />
+  );
 }
 
 /**
- * The conversation's ticket fields: type, priority, team, tags and the
- * type's custom fields. Each change saves on its own and lands on the
- * timeline as an internal event.
+ * The conversation's ticket fields: type, priority, impact and urgency, team,
+ * tags and the type's custom fields, as property rows of the record panel's
+ * Details tab. Each change saves on its own and lands on the timeline as an
+ * internal event.
  */
 export function TicketFields({ conversation }: Readonly<{ conversation: DeskConversation }>) {
   const t = getTranslations('deskInbox2');
@@ -295,72 +253,73 @@ export function TicketFields({ conversation }: Readonly<{ conversation: DeskConv
   );
   const values = conversation.customFields ?? {};
   const typeName = types.find((type) => type.id === conversation.ticketTypeId)?.name;
+  const knownTags = (options?.tags ?? []).map((entry) => entry.tag);
 
   return (
-    <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-ticket-fields">
-      <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.ticket.title}</p>
+    <section className="space-y-2" data-testid="desk-inbox-ticket-fields">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{t.ticket.title}</h3>
         <Link href="/settings/apps/welddesk/ticket-types" className="text-xs text-muted-foreground hover:text-foreground">
           {t.ticket.manageTypes}
         </Link>
       </div>
 
-      <FieldRow label={t.ticket.type}>
-        <PickOne
+      <div className="space-y-1">
+        <SelectPropertyRow
+          icon={Shapes}
+          label={t.ticket.type}
           value={conversation.ticketTypeId}
-          noneLabel={t.ticket.noType}
-          items={types.map((type) => ({ value: type.id, label: type.name }))}
+          options={types.map((type) => ({ value: type.id, label: type.name }))}
           onChange={(ticketTypeId) => save({ ticketTypeId })}
-          testId="desk-ticket-type"
+          placeholder={t.ticket.noType}
         />
-      </FieldRow>
-      <FieldRow label={t.ticket.priority}>
-        <PickOne
+        <SelectPropertyRow
+          icon={Flag}
+          label={t.ticket.priority}
           value={conversation.priority}
-          noneLabel={t.ticket.noPriority}
-          items={DESK_PRIORITIES.map((priority) => ({
-            value: priority,
-            label: t.ticket.priorities[priority],
-            dot: PRIORITY_DOT[priority],
-          }))}
+          options={DESK_PRIORITIES.map((priority) => ({ value: priority, label: t.ticket.priorities[priority] }))}
           onChange={(priority) => save({ priority: priority as DeskPriority | null })}
-          testId="desk-ticket-priority"
+          placeholder={t.ticket.noPriority}
         />
-      </FieldRow>
-      <ImpactUrgencyFields conversation={conversation} save={save} />
-      <FieldRow label={t.ticket.team}>
-        <PickOne
+        <ImpactUrgencyFields conversation={conversation} save={save} />
+        <SelectPropertyRow
+          icon={Users}
+          label={t.ticket.team}
           value={conversation.departmentId}
-          noneLabel={teams.length ? t.ticket.noTeam : t.ticket.noTeamsYet}
-          items={teams.map((team) => ({ value: team.id, label: team.name }))}
+          options={teams.map((team) => ({ value: team.id, label: team.name }))}
           onChange={(departmentId) => save({ departmentId })}
-          disabled={teams.length === 0 && !conversation.departmentId}
-          testId="desk-ticket-team"
+          placeholder={teams.length ? t.ticket.noTeam : t.ticket.noTeamsYet}
         />
-      </FieldRow>
-      <FieldRow label={t.ticket.tags}>
-        <TagEditor
-          tags={conversation.tags ?? []}
-          suggestions={(options?.tags ?? []).map((entry) => entry.tag)}
-          onChange={(tags) => save({ tags })}
+        <TagsPropertyRow
+          icon={Tag}
+          label={t.ticket.tags}
+          value={conversation.tags ?? []}
+          placeholder={t.ticket.addTag}
+          getSuggestions={() => knownTags}
+          onChange={(tags) => {
+            if (tags.length > MAX_TAGS) {
+              toast.error(t.ticket.maxTags.replace('{max}', String(MAX_TAGS)));
+              return;
+            }
+            save({ tags });
+          }}
         />
-      </FieldRow>
+      </div>
 
       {fields.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-border/40">
-          {typeName && <p className="text-xs text-muted-foreground mb-1">{typeName}</p>}
+        <div className="space-y-1">
+          {typeName && <p className="text-xs text-muted-foreground pt-2">{typeName}</p>}
           {fields.map((field) => (
-            <FieldRow key={field.id} label={field.name} required={field.required}>
-              <CustomFieldInput
-                field={field}
-                value={values[field.slug]}
-                onSave={(value) => save({ customFields: { [field.slug]: value } })}
-                t={t}
-              />
-            </FieldRow>
+            <CustomFieldRow
+              key={field.id}
+              field={field}
+              value={values[field.slug]}
+              onSave={(value) => save({ customFields: { [field.slug]: value } })}
+              t={t}
+            />
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

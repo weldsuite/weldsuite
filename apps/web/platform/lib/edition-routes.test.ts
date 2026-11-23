@@ -194,12 +194,12 @@ describe('route availability', () => {
   });
 
   it("offers WeldDesk's BI connector only where the public API it feeds from is named", () => {
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'] });
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(false);
-    expect(isRouteOffered('/welddesk/reports')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(false);
+    expect(isRouteOffered('/settings/apps/welddesk')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(true);
   });
 
   it('hides the help center settings where the edition hosts no help center, and only those', () => {

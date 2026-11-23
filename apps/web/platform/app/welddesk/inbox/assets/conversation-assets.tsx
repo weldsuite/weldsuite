@@ -89,9 +89,9 @@ export function ConversationAssets({ conversation }: Readonly<{ conversation: De
   };
 
   return (
-    <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-assets">
-      <div className="flex items-center justify-between mb-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.panelTitle}</p>
+    <section className="space-y-2" data-testid="desk-inbox-assets">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{t.panelTitle}</h3>
         {canEdit && (
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
@@ -155,6 +155,6 @@ export function ConversationAssets({ conversation }: Readonly<{ conversation: De
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
