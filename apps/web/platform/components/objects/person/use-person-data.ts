@@ -312,7 +312,7 @@ export function useEnsurePersonForEmail() {
           ],
         });
       }
-      qc.invalidateQueries({ queryKey: personKeys.lists() });
+      void qc.invalidateQueries({ queryKey: personKeys.lists() });
       invalidateOnboardingChecklist(qc);
     },
     onError: (err, variables) => {
