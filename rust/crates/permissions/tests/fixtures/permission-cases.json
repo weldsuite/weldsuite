@@ -2795,6 +2795,11 @@
           "commerce_channels:create",
           "commerce_channels:update",
           "commerce_channels:delete",
+          "websites:read",
+          "websites:create",
+          "websites:update",
+          "websites:delete",
+          "websites:manage",
           "weldpass:secrets:read"
         ],
         "role": "ADMIN",
@@ -3368,7 +3373,12 @@
       "commerce_channels:read",
       "commerce_channels:create",
       "commerce_channels:update",
-      "commerce_channels:delete"
+      "commerce_channels:delete",
+      "websites:read",
+      "websites:create",
+      "websites:update",
+      "websites:delete",
+      "websites:manage"
     ],
     [
       "leads:read"
