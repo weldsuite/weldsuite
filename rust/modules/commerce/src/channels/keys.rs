@@ -13,22 +13,30 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::{PgConnection, Postgres, Transaction};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     COMMERCE_CHANNEL_KEY_CREATED, COMMERCE_CHANNEL_KEY_REVOKED, COMMERCE_CHANNEL_KEY_ROTATED,
     COMMERCE_CHANNEL_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{COMMERCE_CHANNELS_READ, COMMERCE_CHANNELS_UPDATE};
+use weldsuite_db::{OrmConn, utc_now};
 use weldsuite_kit::portal::tokens::{random_token, sha256_hex};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::commerce_channel_keys;
 
 use super::registry::{NewKey, Registry};
 use super::{conflict, find};
-use crate::wire::{body_or_empty, invalid, iso};
-use crate::{Caller, CommerceState, Refusal, now, validate};
+use crate::args::{iso, iso_or_null};
+use crate::wire::{body_or_empty, invalid};
+use crate::{Caller, CommerceState, Refusal, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -179,35 +187,34 @@ fn read_origins(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<
 
 // ── presenting ──────────────────────────────────────────────────────────────
 
-const SELECT: &str = "select jsonb_build_object('id', k.id, 'channelId', k.channel_id, \
-       'kind', k.kind, 'name', coalesce(k.name, ''), 'keyPrefix', k.key_prefix, \
-       'allowedOrigins', k.allowed_origins, 'createdAt', to_jsonb(k.created_at), \
-       'lastUsedAt', to_jsonb(k.last_used_at), 'revokedAt', to_jsonb(k.revoked_at), \
-       'rotatedFromId', k.rotated_from_id) from commerce_channel_keys k";
-
-fn present(mut row: Value) -> Value {
-    for key in ["createdAt", "lastUsedAt", "revokedAt"] {
-        let stamp = iso(&row[key]);
-        row[key] = stamp;
-    }
-    row
+/// A key as the API answers it: never its hash.
+fn present(key: &commerce_channel_keys::Model) -> Value {
+    json!({
+        "id": key.id,
+        "channelId": key.channel_id,
+        "kind": key.kind,
+        "name": key.name.as_deref().unwrap_or_default(),
+        "keyPrefix": key.key_prefix,
+        "allowedOrigins": key.allowed_origins,
+        "createdAt": iso(key.created_at),
+        "lastUsedAt": iso_or_null(key.last_used_at),
+        "revokedAt": iso_or_null(key.revoked_at),
+        "rotatedFromId": key.rotated_from_id,
+    })
 }
 
-async fn find_key(
-    conn: &mut PgConnection,
+async fn find_key<C: ConnectionTrait>(
+    db: &C,
     channel_id: &str,
     key_id: &str,
     lock: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let tail = if lock { " for update of k" } else { "" };
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{SELECT} where k.id = $1 and k.channel_id = $2{tail}"
-    )))
-    .bind(key_id)
-    .bind(channel_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    Ok(row.map(present))
+) -> Result<Option<Value>, DbErr> {
+    let mut found = commerce_channel_keys::Entity::find_by_id(key_id)
+        .filter(commerce_channel_keys::Column::ChannelId.eq(channel_id));
+    if lock {
+        found = found.lock_exclusive();
+    }
+    Ok(found.one(db).await?.as_ref().map(present))
 }
 
 fn event(key: &Value) -> Value {
@@ -219,11 +226,8 @@ fn event(key: &Value) -> Value {
 }
 
 /// The channel is there and is a storefront (the only channel with keys).
-async fn storefront(
-    tx: &mut Transaction<'_, Postgres>,
-    channel_id: &str,
-) -> Result<Value, Refusal> {
-    let Some(channel) = find(tx, channel_id, false).await? else {
+async fn storefront<C: ConnectionTrait>(db: &C, channel_id: &str) -> Result<Value, Refusal> {
+    let Some(channel) = find(db, channel_id, false).await? else {
         return Err(Refusal::not_found("Channel", channel_id));
     };
     if channel["type"] != "storefront" {
@@ -246,7 +250,7 @@ fn key_revoked() -> Refusal {
 
 /// Undo what a failed sequence did to the registry, and say so when even
 /// that fails (the key is then unusable anyway: nobody holds its secret).
-fn undone(step: &str, result: Result<(), sqlx::Error>) {
+fn undone(step: &str, result: Result<(), DbErr>) {
     if let Err(error) = result {
         tracing::error!(%error, "[commerce] storefront key registry: could not undo {step}");
     }
@@ -258,17 +262,20 @@ async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to list keys";
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let channel = find(&mut tx, &id, false).await?;
+        let db = OrmConn::new(&mut tx);
+        let channel = find(&db, &id, false).await?;
         if channel.is_none() {
             return Err(Refusal::not_found("Channel", &id));
         }
-        let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "{SELECT} where k.channel_id = $1 order by k.created_at desc, k.id desc"
-        )))
-        .bind(&id)
-        .fetch_all(&mut *tx)
-        .await?;
-        let mut rows: Vec<Value> = rows.into_iter().map(present).collect();
+        let mut rows: Vec<Value> = commerce_channel_keys::Entity::find()
+            .filter(commerce_channel_keys::Column::ChannelId.eq(id.as_str()))
+            .order_by_desc(commerce_channel_keys::Column::CreatedAt)
+            .order_by_desc(commerce_channel_keys::Column::Id)
+            .all(&db)
+            .await?
+            .iter()
+            .map(present)
+            .collect();
         // The storefront records use in the registry.
         if let Ok(registry) = Registry::of(&caller) {
             match registry.last_used(&id).await {
@@ -277,8 +284,8 @@ async fn list(caller: Caller, Path(id): Path<String>) -> Response {
                         let seen = used
                             .iter()
                             .find(|(key, _)| row["id"] == key.as_str())
-                            .and_then(|(_, at)| at.as_deref())
-                            .map(|at| json!(crate::table::js_date(at)));
+                            .and_then(|(_, at)| *at)
+                            .map(|at| json!(iso(at)));
                         if let Some(seen) = seen
                             && row["lastUsedAt"]
                                 .as_str()
@@ -342,11 +349,11 @@ async fn create(
     let result = async {
         origins_fit(&body.kind, &body.origins)?;
         let mut tx = caller.db.begin().await?;
-        storefront(&mut tx, &id).await?;
+        storefront(&OrmConn::new(&mut tx), &id).await?;
         let registry = Registry::of(&caller)?;
         let key_id = generate_id("ckey");
         let secret = generate(&body.kind);
-        let stamp = now();
+        let stamp = utc_now();
         registry
             .insert(&NewKey {
                 id: &key_id,
@@ -356,24 +363,25 @@ async fn create(
                 channel_id: &id,
                 origins: &body.origins,
                 rotated_from: None,
-                at: &stamp,
+                at: stamp,
             })
             .await?;
         let written = async {
+            let db = OrmConn::new(&mut tx);
             insert_tenant(
-                &mut tx,
+                &db,
                 &key_id,
                 &id,
                 &body,
                 &secret,
                 None,
                 &caller.user_id,
-                &stamp,
+                stamp,
             )
             .await?;
-            let row = find_key(&mut tx, &id, &key_id, false).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(row)
+            let row = find_key(&db, &id, &key_id, false).await?;
+            tx.commit().await.map_err(weldsuite_db::orm_error)?;
+            Ok::<_, DbErr>(row)
         }
         .await;
         match written {
@@ -421,32 +429,31 @@ fn origins_fit(kind: &str, origins: &[String]) -> Result<(), Refusal> {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn insert_tenant(
-    tx: &mut Transaction<'_, Postgres>,
+async fn insert_tenant<C: ConnectionTrait>(
+    db: &C,
     key_id: &str,
     channel_id: &str,
     body: &NewKeyBody,
     secret: &Secret,
     rotated_from: Option<&str>,
     user_id: &str,
-    stamp: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into commerce_channel_keys (id, channel_id, kind, name, key_hash, key_prefix, \
-           allowed_origins, rotated_from_id, created_by, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(key_id)
-    .bind(channel_id)
-    .bind(&body.kind)
-    .bind(&body.name)
-    .bind(&secret.hash)
-    .bind(&secret.prefix)
-    .bind(json!(body.origins))
-    .bind(rotated_from)
-    .bind(user_id)
-    .bind(stamp)
-    .execute(&mut **tx)
+    stamp: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    commerce_channel_keys::Entity::insert(commerce_channel_keys::ActiveModel {
+        id: Set(key_id.to_owned()),
+        channel_id: Set(channel_id.to_owned()),
+        kind: Set(body.kind.clone()),
+        name: Set(Some(body.name.clone())),
+        key_hash: Set(secret.hash.clone()),
+        key_prefix: Set(secret.prefix.clone()),
+        allowed_origins: Set(json!(body.origins)),
+        rotated_from_id: Set(rotated_from.map(str::to_owned)),
+        created_by: Set(Some(user_id.to_owned())),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }
@@ -459,8 +466,8 @@ async fn rotate(
     const FAILED: &str = "Failed to rotate key";
     let result = async {
         let mut tx = caller.db.begin().await?;
-        storefront(&mut tx, &id).await?;
-        let Some(old) = find_key(&mut tx, &id, &key_id, true).await? else {
+        storefront(&OrmConn::new(&mut tx), &id).await?;
+        let Some(old) = find_key(&OrmConn::new(&mut tx), &id, &key_id, true).await? else {
             return Err(Refusal::not_found("Key", &key_id));
         };
         if revoked(&old) {
@@ -474,7 +481,7 @@ async fn rotate(
         };
         let new_id = generate_id("ckey");
         let secret = generate(&body.kind);
-        let stamp = now();
+        let stamp = utc_now();
         registry
             .rotate(
                 &key_id,
@@ -486,40 +493,39 @@ async fn rotate(
                     channel_id: &id,
                     origins: &body.origins,
                     rotated_from: Some(&key_id),
-                    at: &stamp,
+                    at: stamp,
                 },
             )
             .await?;
         let written = async {
+            let db = OrmConn::new(&mut tx);
             insert_tenant(
-                &mut tx,
+                &db,
                 &new_id,
                 &id,
                 &body,
                 &secret,
                 Some(&key_id),
                 &caller.user_id,
-                &stamp,
+                stamp,
             )
             .await?;
-            sqlx::query(
-                "update commerce_channel_keys set revoked_at = $2::timestamp, \
-                   updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&key_id)
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
-            let row = find_key(&mut tx, &id, &new_id, false).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(row)
+            commerce_channel_keys::Entity::update_many()
+                .col_expr(commerce_channel_keys::Column::RevokedAt, Expr::val(stamp))
+                .col_expr(commerce_channel_keys::Column::UpdatedAt, Expr::val(stamp))
+                .filter(commerce_channel_keys::Column::Id.eq(key_id.as_str()))
+                .exec(&db)
+                .await?;
+            let row = find_key(&db, &id, &new_id, false).await?;
+            tx.commit().await.map_err(weldsuite_db::orm_error)?;
+            Ok::<_, DbErr>(row)
         }
         .await;
         match written {
             Ok(Some(row)) => Ok((row, secret.secret, key_id.clone())),
             other => {
                 undone("a rotation", registry.delete(&new_id).await);
-                undone("a rotation", registry.unrevoke(&key_id, &stamp).await);
+                undone("a rotation", registry.unrevoke(&key_id, stamp).await);
                 match other {
                     Err(error) => Err(error.into()),
                     _ => Err(Refusal::not_found("Key", &new_id)),
@@ -571,8 +577,8 @@ async fn edit(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        storefront(&mut tx, &id).await?;
-        let Some(key) = find_key(&mut tx, &id, &key_id, true).await? else {
+        storefront(&OrmConn::new(&mut tx), &id).await?;
+        let Some(key) = find_key(&OrmConn::new(&mut tx), &id, &key_id, true).await? else {
             return Err(Refusal::not_found("Key", &key_id));
         };
         if revoked(&key) {
@@ -582,7 +588,7 @@ async fn edit(
         let old_origins = super::strings(&key["allowedOrigins"]);
         let new_origins = origins.clone().unwrap_or_else(|| old_origins.clone());
         origins_fit(&kind, &new_origins)?;
-        let stamp = now();
+        let stamp = utc_now();
         let moved = origins.is_some() && new_origins != old_origins;
         let registry = if moved {
             Some(Registry::of(&caller)?)
@@ -590,22 +596,27 @@ async fn edit(
             None
         };
         if let Some(registry) = &registry {
-            registry.set_origins(&key_id, &new_origins, &stamp).await?;
+            registry.set_origins(&key_id, &new_origins, stamp).await?;
         }
         let written = async {
-            sqlx::query(
-                "update commerce_channel_keys set name = coalesce($2, name), \
-                   allowed_origins = $3::jsonb, updated_at = $4::timestamp where id = $1",
-            )
-            .bind(&key_id)
-            .bind(name.as_deref())
-            .bind(json!(new_origins))
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
-            let row = find_key(&mut tx, &id, &key_id, false).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(row)
+            let db = OrmConn::new(&mut tx);
+            // `name = coalesce($name, name)`: a name the body left out stays.
+            let mut update = commerce_channel_keys::Entity::update_many();
+            if let Some(name) = &name {
+                update = update.col_expr(commerce_channel_keys::Column::Name, Expr::val(name.as_str()));
+            }
+            update
+                .col_expr(
+                    commerce_channel_keys::Column::AllowedOrigins,
+                    Expr::val(json!(new_origins)),
+                )
+                .col_expr(commerce_channel_keys::Column::UpdatedAt, Expr::val(stamp))
+                .filter(commerce_channel_keys::Column::Id.eq(key_id.as_str()))
+                .exec(&db)
+                .await?;
+            let row = find_key(&db, &id, &key_id, false).await?;
+            tx.commit().await.map_err(weldsuite_db::orm_error)?;
+            Ok::<_, DbErr>(row)
         }
         .await;
         match written {
@@ -614,7 +625,7 @@ async fn edit(
                 if let Some(registry) = &registry {
                     undone(
                         "an origin change",
-                        registry.set_origins(&key_id, &old_origins, &stamp).await,
+                        registry.set_origins(&key_id, &old_origins, stamp).await,
                     );
                 }
                 match other {
@@ -648,24 +659,33 @@ async fn revoke(
     const FAILED: &str = "Failed to revoke key";
     let result = async {
         let mut tx = caller.db.begin().await?;
-        storefront(&mut tx, &id).await?;
-        let Some(key) = find_key(&mut tx, &id, &key_id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        storefront(&db, &id).await?;
+        let Some(key) = find_key(&db, &id, &key_id, true).await? else {
             return Err(Refusal::not_found("Key", &key_id));
         };
         let registry = Registry::of(&caller)?;
-        let stamp = now();
+        let stamp = utc_now();
         // The registry first: from here the key is refused. If the tenant
         // write below fails, revoking again finishes the job.
-        registry.revoke(&key_id, &stamp).await?;
-        sqlx::query(
-            "update commerce_channel_keys set revoked_at = coalesce(revoked_at, $2::timestamp), \
-               updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&key_id)
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
-        let fresh = find_key(&mut tx, &id, &key_id, false).await?;
+        registry.revoke(&key_id, stamp).await?;
+        commerce_channel_keys::Entity::update_many()
+            .col_expr(
+                commerce_channel_keys::Column::RevokedAt,
+                Func::coalesce([
+                    Expr::col((
+                        commerce_channel_keys::Entity,
+                        commerce_channel_keys::Column::RevokedAt,
+                    )),
+                    Expr::val(stamp),
+                ])
+                .into(),
+            )
+            .col_expr(commerce_channel_keys::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_channel_keys::Column::Id.eq(key_id.as_str()))
+            .exec(&db)
+            .await?;
+        let fresh = find_key(&db, &id, &key_id, false).await?;
         tx.commit().await?;
         Ok((fresh.unwrap_or(key.clone()), revoked(&key)))
     }

@@ -414,3 +414,64 @@ pub(crate) fn reply_event_data(message: &Value, label: &str, label_source: &str)
         "labelSource": label_source,
     })
 }
+
+#[cfg(test)]
+mod zz_probe {
+    use sea_orm::{DbBackend, QueryTrait};
+
+    use super::*;
+
+    #[test]
+    fn zz_print_sql() {
+        use sea_orm::ExprTrait as _;
+        let key = "interested";
+        let stats = || Expr::col(reach_campaigns::Column::Stats);
+        let current = Expr::from(Func::coalesce([
+            pg::PgExpr::cast_json_field(stats(), key),
+            Expr::val("0"),
+        ]))
+        .cast_as("int");
+        let next = Func::greatest([Expr::val(0), current.add(1)]);
+        let set = Func::cust("jsonb_set")
+            .arg(stats())
+            .arg(Expr::val(format!("{{{key}}}")).cast_as("text[]"))
+            .arg(Func::cust("to_jsonb").arg(next));
+        let q = reach_campaigns::Entity::update_many()
+            .col_expr(reach_campaigns::Column::Stats, Expr::from(set))
+            .filter(reach_campaigns::Column::Id.eq("c1"));
+        println!("BUMP: {}", q.build(DbBackend::Postgres));
+        let q = stopped("replied", "x")
+            .filter(
+                reach_enrollments::Column::ProspectId.in_subquery(
+                    Query::select()
+                        .column(reach_prospects::Column::Id)
+                        .from(reach_prospects::Entity)
+                        .and_where(reach_prospects::Column::CompanyDomain.eq("d"))
+                        .and_where(reach_prospects::Column::DeletedAt.is_null())
+                        .to_owned(),
+                ),
+            )
+            .filter(reach_enrollments::Column::Status.is_in(["queued", "active", "paused"]))
+            .filter(reach_enrollments::Column::Id.ne("e"));
+        println!("STOP: {}", q.build(DbBackend::Postgres));
+        let q = reach_suppressions::Entity::insert(reach_suppressions::ActiveModel {
+            id: Set("x".into()),
+            value: Set("v".into()),
+            type_: Set("email".to_owned()),
+            reason: Set("r".to_owned()),
+            source: Set(None),
+            created_by: Set(None),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(reach_suppressions::Column::Value)
+                .do_nothing()
+                .to_owned(),
+        );
+        println!("SUP: {}", q.build(DbBackend::Postgres));
+        let q = reach_enrollments::Entity::update_many()
+            .col_expr(reach_enrollments::Column::Status, Expr::value("x"))
+            .filter(reach_enrollments::Column::Status.is_in(Vec::<String>::new()));
+        println!("EMPTY IN: {}", q.build(DbBackend::Postgres));
+    }
+}

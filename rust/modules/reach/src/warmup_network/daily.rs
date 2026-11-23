@@ -22,7 +22,6 @@ use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySele
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_db::orm;
-use weldsuite_reach_domain::epoch_ms;
 use weldsuite_reach_domain::warmup::{WARMUP_GATE_WINDOW_DAYS, WARMUP_MIN_DAYS};
 use weldsuite_schema::master::{reach_warmup_mailboxes as pool, reach_warmup_messages as messages};
 
@@ -158,7 +157,7 @@ pub async fn resume_after_cool_off(master: &PgPool, now: i64) -> Result<Vec<Stri
     let mut resumed = Vec::new();
     for (id, workspace_id, started_at, ramp_day) in waiting {
         let status = weldsuite_reach_domain::warmup_pool::unpaused_status(
-            started_at.map(epoch_ms).map(|_| ""),
+            started_at.map(|_| ""),
             i64::from(ramp_day),
         );
         let lifted = pool::Entity::update_many()
