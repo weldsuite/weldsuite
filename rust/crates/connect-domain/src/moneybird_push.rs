@@ -9,7 +9,7 @@
 use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query, SelectStatement};
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait as _, Select,
+    QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
@@ -137,7 +137,9 @@ pub(crate) fn start_date(settings: &Map<String, Value>) -> Option<String> {
 fn at_millis(millis: f64) -> PrimitiveDateTime {
     #[allow(clippy::cast_possible_truncation)]
     let nanos = (millis as i128) * 1_000_000;
-    utc_timestamp(OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH))
+    utc_timestamp(
+        OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+    )
 }
 
 /// A `timestamp` as `Date.parse` reads its text: UTC milliseconds.
@@ -276,7 +278,10 @@ pub async fn pending_payout_ids(
         .filter(bank_transactions::Column::DeletedAt.is_null())
         .filter(
             sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
-                Expr::col((bank_transactions::Entity, bank_transactions::Column::RawData)),
+                Expr::col((
+                    bank_transactions::Entity,
+                    bank_transactions::Column::RawData,
+                )),
                 "stripeLine",
             )
             .eq("payout"),
@@ -782,8 +787,7 @@ async fn contact_payload(
             };
             (
                 "company",
-                name.or(display)
-                    .unwrap_or_else(|| "Customer".to_owned()),
+                name.or(display).unwrap_or_else(|| "Customer".to_owned()),
                 None,
                 None,
                 email,
@@ -1569,7 +1573,10 @@ async fn load_payout_lines(
         .filter(bank_transactions::Column::DeletedAt.is_null())
         .filter(
             sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
-                Expr::col((bank_transactions::Entity, bank_transactions::Column::RawData)),
+                Expr::col((
+                    bank_transactions::Entity,
+                    bank_transactions::Column::RawData,
+                )),
                 "payoutId",
             )
             .eq(payout_id.as_str()),
@@ -1728,7 +1735,9 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
     };
     let mut label = payout_txn.to_owned();
     let step: Step<()> = async {
-        let Some((payout_id, currency, lines, waiting)) = load_payout_lines(pass, payout_txn).await? else {
+        let Some((payout_id, currency, lines, waiting)) =
+            load_payout_lines(pass, payout_txn).await?
+        else {
             return Err(PushError::Other("Payout lines not found".to_owned()));
         };
         label.clone_from(&payout_id);
@@ -1764,7 +1773,11 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
             )
             .await?;
         let statement_id = text_id(statement.get("id"));
-        let external = if statement_id.is_empty() { format!("statement:{payout_id}") } else { statement_id };
+        let external = if statement_id.is_empty() {
+            format!("statement:{payout_id}")
+        } else {
+            statement_id
+        };
         complete_claim(pass.db, &claim_id, &external, "posted").await?;
         pass.statements += 1;
         // `recordStatementLines`: one row per created line saying how to book it.
@@ -1781,7 +1794,8 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
                 continue;
             }
             if let Some(hit) = planned.iter().find(|p| {
-                message.contains(&format!("[{}]", p.token)) && !matched.iter().any(|(t, _)| *t == p.token)
+                message.contains(&format!("[{}]", p.token))
+                    && !matched.iter().any(|(t, _)| *t == p.token)
             }) {
                 matched.push((hit.token.clone(), id));
             }
@@ -1810,7 +1824,9 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
             recorded += 1;
         }
         if recorded < planned.len() {
-            let error = PushError::Other("Some statement lines could not be matched; book them in Moneybird".to_owned());
+            let error = PushError::Other(
+                "Some statement lines could not be matched; book them in Moneybird".to_owned(),
+            );
             pass.record(&payout_id, &error);
         }
         Ok(())

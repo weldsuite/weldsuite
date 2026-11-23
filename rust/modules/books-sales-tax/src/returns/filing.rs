@@ -186,8 +186,7 @@ pub(crate) async fn file_return(
     }
 
     let mut tx = db.begin().await?;
-    mark_filed(&OrmConn::new(&mut tx), &input, &calc, &filed_at)
-        .await?;
+    mark_filed(&OrmConn::new(&mut tx), &input, &calc, &filed_at).await?;
     tx.commit().await?;
     let updated = return_by_id(db, s(ret, "id")).await?;
     let Some(updated) = updated.filter(|u| s(u, "status") == "filed" && !u["filedAt"].is_null())
@@ -218,8 +217,8 @@ pub(crate) async fn file_return(
             }));
         }
     }
-    let returns = super::common::load_agency_returns(db, s(ret, "entityId"), s(agency, "id"))
-        .await?;
+    let returns =
+        super::common::load_agency_returns(db, s(ret, "entityId"), s(agency, "id")).await?;
     let from = add_months(s(ret, "periodStart"), -24);
     let unfiled: Vec<String> = build_period_rows(
         agency,
@@ -619,8 +618,7 @@ pub(crate) async fn carry_forward(
         return Err(bad("This return has no open exceptions to carry forward"));
     }
     let exceptions = with_resolutions(ret, &ids, "carried_forward", user_id, now, None);
-    set_exceptions(&orm(db), s(ret, "id"), exceptions, now)
-        .await?;
+    set_exceptions(&orm(db), s(ret, "id"), exceptions, now).await?;
     let updated = return_by_id(db, s(ret, "id"))
         .await?
         .unwrap_or_else(|| ret.clone());
@@ -631,8 +629,8 @@ pub(crate) async fn carry_forward(
             .filter(|i| i.tax_line_ids.iter().any(|id| ids.contains(id)))
             .map(|i| i.tax_amount),
     );
-    let later = later_calculated(db, s(ret, "entityId"), s(agency, "id"), s(ret, "periodEnd"))
-        .await?;
+    let later =
+        later_calculated(db, s(ret, "entityId"), s(agency, "id"), s(ret, "periodEnd")).await?;
     Ok((updated, ids.len(), tax_amount, later))
 }
 
@@ -780,14 +778,11 @@ pub(crate) async fn amend_return(
         RETURN_ROWS.insert(&conn, values).await?;
         if !take_ids.is_empty() {
             let marked = with_resolutions(ret, &take_ids, "amended", user_id, now, Some(&id));
-            set_exceptions(&conn, s(ret, "id"), marked, now)
-                .await?;
+            set_exceptions(&conn, s(ret, "id"), marked, now).await?;
         }
     }
     tx.commit().await?;
-    let created = return_by_id(db, &id)
-        .await?
-        .unwrap_or(Value::Null);
+    let created = return_by_id(db, &id).await?.unwrap_or(Value::Null);
     Ok((created, take_ids.len()))
 }
 

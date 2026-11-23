@@ -348,8 +348,7 @@ async fn create_value(caller: &Caller, state: &BooksState, data: Map<String, Val
         .and_then(Value::as_str)
         .filter(|c| !c.is_empty())
     {
-        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code)
-            .await?;
+        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code).await?;
         if duplicate.is_some() {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -360,8 +359,7 @@ async fn create_value(caller: &Caller, state: &BooksState, data: Map<String, Val
         .get("parentId")
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
-        && let Some(problem) = parent_error(caller, &entity_id, &dimension, parent, None)
-            .await?
+        && let Some(problem) = parent_error(caller, &entity_id, &dimension, parent, None).await?
     {
         return Err(Refusal::bad_request(problem));
     }
@@ -447,8 +445,7 @@ async fn update_value(
         .filter(|c| !c.is_empty())
         && existing["code"].as_str() != Some(code)
     {
-        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code)
-            .await?;
+        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code).await?;
         if duplicate.is_some_and(|dup| dup != id) {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -459,8 +456,8 @@ async fn update_value(
         .get("parentId")
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
-        && let Some(problem) = parent_error(caller, &entity_id, &dimension, parent, Some(id))
-            .await?
+        && let Some(problem) =
+            parent_error(caller, &entity_id, &dimension, parent, Some(id)).await?
     {
         return Err(Refusal::bad_request(problem));
     }
@@ -574,8 +571,7 @@ async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         ));
     }
     let dimension = existing["dimension"].as_str().unwrap_or_default();
-    let [used] = select_flags(&conn, [used_on_lines(id, dimension == "class")])
-        .await?;
+    let [used] = select_flags(&conn, [used_on_lines(id, dimension == "class")]).await?;
     if used {
         return Err(Refusal::conflict(format!(
             "This {dimension} is used on bookings — deactivate it instead"

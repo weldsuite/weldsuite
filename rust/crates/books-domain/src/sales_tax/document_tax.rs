@@ -480,10 +480,7 @@ async fn load_products(
         .collect())
 }
 
-async fn load_customer_use(
-    db: &PgPool,
-    contact_id: Option<&str>,
-) -> Result<Option<TaxUse>, DbErr> {
+async fn load_customer_use(db: &PgPool, contact_id: Option<&str>) -> Result<Option<TaxUse>, DbErr> {
     let Some(contact_id) = contact_id.filter(|c| !c.is_empty()) else {
         return Ok(None);
     };
@@ -888,7 +885,10 @@ async fn original_lines(db: &PgPool, invoice_id: &str) -> Result<Vec<OriginalIte
     let as_text = |column: invoice_items::Column| Expr::col(column).cast_as("text");
     invoice_items::Entity::find()
         .select_only()
-        .columns([invoice_items::Column::Id, invoice_items::Column::Description])
+        .columns([
+            invoice_items::Column::Id,
+            invoice_items::Column::Description,
+        ])
         .column_as(as_text(invoice_items::Column::UnitPrice), "unit_price")
         .column_as(as_text(invoice_items::Column::Quantity), "quantity")
         .column_as(

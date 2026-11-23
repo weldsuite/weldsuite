@@ -1246,9 +1246,7 @@ pub(crate) async fn notify_reorder(
     };
     let mut sent = 0;
     for user in users {
-        let resolved = resolve_effective_permissions(&queries, &user)
-            .await
-            .map_err(orm_error)?;
+        let resolved = resolve_effective_permissions(&queries, &user).await?;
         if !has_app_permission(&resolved, INVENTORY_MANAGE, Some("weldstash")) {
             continue;
         }

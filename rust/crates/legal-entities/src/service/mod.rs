@@ -211,8 +211,9 @@ pub(crate) fn js_truthy(value: &Value) -> bool {
 pub(crate) fn read_model<M: Serialize, T: DeserializeOwned>(
     model: &M,
 ) -> Result<(T, Value), LegalEntityError> {
-    let unreadable =
-        |error: serde_json::Error| LegalEntityError::Internal(format!("legal entities: unreadable row: {error}"));
+    let unreadable = |error: serde_json::Error| {
+        LegalEntityError::Internal(format!("legal entities: unreadable row: {error}"))
+    };
     let json = serde_json::to_value(model).map_err(unreadable)?;
     let typed = serde_json::from_value(json.clone()).map_err(unreadable)?;
     Ok((typed, json))

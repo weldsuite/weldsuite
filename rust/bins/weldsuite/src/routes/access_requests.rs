@@ -394,8 +394,14 @@ async fn resolve_request(
     let resolved_at = now_ms();
     let request = access_requests::Entity::update_many()
         .col_expr(access_requests::Column::Status, Expr::value(status))
-        .col_expr(access_requests::Column::ResolvedBy, Expr::value(resolver_id))
-        .col_expr(access_requests::Column::ResolvedAt, Expr::value(resolved_at))
+        .col_expr(
+            access_requests::Column::ResolvedBy,
+            Expr::value(resolver_id),
+        )
+        .col_expr(
+            access_requests::Column::ResolvedAt,
+            Expr::value(resolved_at),
+        )
         .col_expr(access_requests::Column::UpdatedAt, Expr::value(resolved_at))
         .filter(access_requests::Column::Id.eq(request_id))
         .exec_with_returning(&orm(db))
@@ -539,7 +545,11 @@ pub(crate) async fn my_pending(auth: AuthContext, tenant: Tenant) -> Response {
         .order_by_desc(access_requests::Column::CreatedAt)
         .all(&orm(&tenant.db))
         .await
-        .and_then(|rows| rows.into_iter().map(row_json).collect::<Result<Vec<_>, _>>());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     match rows {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);

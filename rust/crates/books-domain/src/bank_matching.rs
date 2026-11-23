@@ -345,7 +345,12 @@ pub async fn load_candidates(
         invoices::Entity::find()
             .filter(
                 Condition::all()
-                    .add(invoices::Column::Status.is_in(["sent", "finalized", "partial", "overdue"]))
+                    .add(invoices::Column::Status.is_in([
+                        "sent",
+                        "finalized",
+                        "partial",
+                        "overdue",
+                    ]))
                     .add(invoices::Column::DeletedAt.is_null())
                     .add_option(entity_id.map(|entity| invoices::Column::EntityId.eq(entity)))
                     .add_option(near(Expr::col(invoices::Column::BalanceDue), bounds)),
@@ -370,11 +375,15 @@ pub async fn load_candidates(
         Some(entity) => {
             use sea_orm::ExprTrait as _;
             // `amount::numeric - coalesce(backup_withholding_amount::numeric, 0)`
-            let net = Expr::col(payments::Column::Amount).cast_as("numeric").sub(Func::coalesce([
-                Expr::col(payments::Column::BackupWithholdingAmount).cast_as("numeric"),
-                Expr::val(0),
-            ]));
-            let check = check_number.filter(|c| !c.is_empty()).filter(|_| low.is_some());
+            let net = Expr::col(payments::Column::Amount)
+                .cast_as("numeric")
+                .sub(Func::coalesce([
+                    Expr::col(payments::Column::BackupWithholdingAmount).cast_as("numeric"),
+                    Expr::val(0),
+                ]));
+            let check = check_number
+                .filter(|c| !c.is_empty())
+                .filter(|_| low.is_some());
             let near_or_check = near(net, bounds).map(|near| {
                 Condition::any()
                     .add(near)
@@ -1122,6 +1131,7 @@ pub async fn reconcile_to_document(
 /// `reconcileBankTransactionToPayment`: tie a line to a payment recorded
 /// before it arrived; only links (a printed check becomes cleared).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
+#[allow(clippy::too_many_lines)]
 pub async fn reconcile_to_payment(
     db: &PgPool,
     txn: &Value,
@@ -1196,17 +1206,25 @@ pub async fn reconcile_to_payment(
             .col_expr(Line::Status, Expr::val("reconciled"))
             .col_expr(Line::ReconciliationType, Expr::val(PAYMENT_LINK))
             .col_expr(Line::ReconciledPaymentId, Expr::val(text(&payment, "id")))
-            .col_expr(Line::ReconciledInvoiceId, Expr::val(text(&payment, "invoiceId")))
+            .col_expr(
+                Line::ReconciledInvoiceId,
+                Expr::val(text(&payment, "invoiceId")),
+            )
             .col_expr(Line::ReconciledBillId, Expr::val(text(&payment, "billId")))
-            .col_expr(Line::JournalEntryId, Expr::val(text(&payment, "journalEntryId")))
+            .col_expr(
+                Line::JournalEntryId,
+                Expr::val(text(&payment, "journalEntryId")),
+            )
             .col_expr(Line::ContactId, Expr::val(text(&payment, "contactId")))
             .col_expr(Line::UpdatedAt, Expr::val(stamp))
             .filter(Line::Id.eq(text(txn, "id")))
             .filter(Line::Status.eq("unreconciled"))
             .exec(&conn)
             .await?;
-        let mut linked = payments::Entity::update_many()
-            .col_expr(payments::Column::BankTransactionId, Expr::val(text(txn, "id")));
+        let mut linked = payments::Entity::update_many().col_expr(
+            payments::Column::BankTransactionId,
+            Expr::val(text(txn, "id")),
+        );
         if clears_check {
             linked = linked.col_expr(payments::Column::CheckStatus, Expr::val("cleared"));
         }
@@ -1281,7 +1299,10 @@ pub async fn reconcile_to_deposit(
             .col_expr(Line::Status, Expr::val("reconciled"))
             .col_expr(Line::ReconciliationType, Expr::val(DEPOSIT_LINK))
             .col_expr(Line::DepositId, Expr::val(text(&deposit, "id")))
-            .col_expr(Line::JournalEntryId, Expr::val(text(&deposit, "journalEntryId")))
+            .col_expr(
+                Line::JournalEntryId,
+                Expr::val(text(&deposit, "journalEntryId")),
+            )
             .col_expr(Line::UpdatedAt, Expr::val(stamp))
             .filter(Line::Id.eq(text(txn, "id")))
             .filter(Line::Status.eq("unreconciled"))
@@ -1368,7 +1389,8 @@ pub async fn unreconcile(
                     Expr::val(Option::<String>::None),
                 );
                 if unclear {
-                    unlinked = unlinked.col_expr(payments::Column::CheckStatus, Expr::val("printed"));
+                    unlinked =
+                        unlinked.col_expr(payments::Column::CheckStatus, Expr::val("printed"));
                 }
                 unlinked
                     .col_expr(payments::Column::UpdatedAt, Expr::val(at))

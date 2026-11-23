@@ -197,10 +197,7 @@ pub async fn entity_exists(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> 
 }
 
 /// `resolveEntityBaseCurrency(db, entityId)`: `entity?.baseCurrency || 'EUR'`.
-pub async fn resolve_entity_base_currency(
-    db: &PgPool,
-    entity_id: &str,
-) -> Result<String, DbErr> {
+pub async fn resolve_entity_base_currency(db: &PgPool, entity_id: &str) -> Result<String, DbErr> {
     let currency: Option<String> = entities::Entity::find()
         .select_only()
         .column(entities::Column::BaseCurrency)
@@ -275,7 +272,10 @@ pub async fn next_entity_number(
     })
     .on_conflict(
         OnConflict::columns([Column::EntityId, Column::SequenceType])
-            .value(Column::NextValue, Expr::col((Entity, Column::NextValue)).add(1))
+            .value(
+                Column::NextValue,
+                Expr::col((Entity, Column::NextValue)).add(1),
+            )
             .value(Column::UpdatedAt, utc_now())
             .to_owned(),
     )

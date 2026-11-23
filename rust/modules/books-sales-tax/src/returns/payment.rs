@@ -417,9 +417,7 @@ pub(crate) async fn record_return_payment(
             );
             Box::pin(async move {
                 let conn = OrmConn::new(conn);
-                update?
-                    .exec(&conn)
-                    .await?;
+                update?.exec(&conn).await?;
                 Ok(())
             })
         })

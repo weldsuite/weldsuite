@@ -1091,8 +1091,7 @@ async fn close_acceptance_request(
     id: &str,
 ) -> Result<(), DbErr> {
     let cleared =
-        cancel_pending_approvals(&caller.db, "risk_acceptance", id, true, crate::now_ms())
-            .await?;
+        cancel_pending_approvals(&caller.db, "risk_acceptance", id, true, crate::now_ms()).await?;
     announce_approvals_cancelled(state, caller, &cleared);
     Ok(())
 }

@@ -458,7 +458,7 @@ async fn unsubscribe(caller: Caller, Path(id): Path<String>) -> Response {
             match caller.http.as_ref() {
                 Some(http) => match http.send(request).await {
                     Ok(response) if (200..400).contains(&response.status) => {
-                        method = Some("one_click")
+                        method = Some("one_click");
                     }
                     Ok(response) => {
                         last_error =

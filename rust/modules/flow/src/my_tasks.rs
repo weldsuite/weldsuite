@@ -269,8 +269,7 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
     let user = caller.user_id.clone();
     let mut bounds = [None, None, None];
     if f.due_bucket.is_some() {
-        let b = workspace_day_bounds(db, crate::now_ms())
-            .await?;
+        let b = workspace_day_bounds(db, crate::now_ms()).await?;
         bounds = [
             stamp(b.start_of_today),
             stamp(b.start_of_tomorrow),

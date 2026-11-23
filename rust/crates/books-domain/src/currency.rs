@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 use time::Date;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
-use weldsuite_schema::tenant::fx_rates;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::fx_rates;
 
 use crate::db_values::{date_of, decimal_of};
 use crate::http::now_ms;
@@ -231,11 +231,7 @@ async fn store_ecb_rates(db: &PgPool, iso_date: &str, rates: &Rates) -> Result<u
 }
 
 /// The latest stored EUR→`counter` rate on or before `iso_date`.
-async fn latest_eur(
-    db: &PgPool,
-    counter: &str,
-    iso_date: &str,
-) -> Result<Option<f64>, DbErr> {
+async fn latest_eur(db: &PgPool, counter: &str, iso_date: &str) -> Result<Option<f64>, DbErr> {
     let rate: Option<String> = fx_rates::Entity::find()
         .select_only()
         .column_as(rate_text(), "rate")

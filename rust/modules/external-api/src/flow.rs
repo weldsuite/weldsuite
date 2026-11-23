@@ -870,6 +870,7 @@ fn sync_assignees(update: &mut Map<String, Value>, data: &Map<String, Value>) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn update_task(
     State(state): S,
     caller: Caller,
@@ -959,7 +960,9 @@ async fn update_task(
             let mut tx = caller.db.begin().await?;
             let conn = OrmConn::new(&mut tx);
             write_dependency_rows(&conn, &id, &plan, &now(), caller.session.actor()).await?;
-            TASKS.patch_on(&conn, &id, &update, true, &date_props).await?;
+            TASKS
+                .patch_on(&conn, &id, &update, true, &date_props)
+                .await?;
             tx.commit().await?;
         }
         None => {

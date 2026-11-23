@@ -116,8 +116,7 @@ pub(crate) async fn apply_credit_note(
     }
 
     let note_id = text(&note, "id").unwrap_or_default().to_owned();
-    let settled = settle_both(db, &note_id, &invoice_id, amount)
-        .await?;
+    let settled = settle_both(db, &note_id, &invoice_id, amount).await?;
     if settled.len() != 2 {
         return Err(posting(
             "The credit note or the invoice changed while the credit was being applied; nothing was applied. Reload and try again.",

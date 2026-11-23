@@ -458,7 +458,8 @@ async fn moneybird_options(
         }
         Err(moneybird_push::OptionsError::Database(error)) => {
             tracing::error!(%error, "[connect-api/moneybird-push] options failed");
-            ApiError::bad_request(error.to_string()).into_response()
+            ApiError::bad_request(weldsuite_connect_domain::sync::db_error_text(&error))
+                .into_response()
         }
     }
 }

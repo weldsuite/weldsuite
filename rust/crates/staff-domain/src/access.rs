@@ -41,9 +41,7 @@ use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynSystemMail;
 use weldsuite_reach_domain::schemas::{Limits, WELDREACH_APP_CODE, resolve_limits};
-use weldsuite_schema::master::{
-    app_catalog, users, workspace_app_access as access, workspaces,
-};
+use weldsuite_schema::master::{app_catalog, users, workspace_app_access as access, workspaces};
 use weldsuite_schema::tenant::workspace_installed_apps as installed;
 
 use crate::audit::{self, AuditEntry};
@@ -1086,8 +1084,8 @@ async fn install_in_tenant(
 }
 
 async fn install(db: &PgPool, app_code: &str, installed_by: &str) -> Result<(), DbErr> {
-    use sea_orm::ExprTrait as _;
     use installed::Column;
+    use sea_orm::ExprTrait as _;
     let db = orm(db);
     let existing: Option<(String, bool, bool)> = installed::Entity::find()
         .select_only()

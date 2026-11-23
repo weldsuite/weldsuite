@@ -496,7 +496,7 @@ async fn remove(
             match kind {
                 Kind::Tags => remove_in::<task_tags::Entity>(&caller, TAGS, &id).await?,
                 Kind::Projects => {
-                    remove_in::<task_projects::Entity>(&caller, PROJECTS, &id).await?
+                    remove_in::<task_projects::Entity>(&caller, PROJECTS, &id).await?;
                 }
             }
             caller.publish(&state.flow, kind.events().2, &id, &json!({ "id": id }));

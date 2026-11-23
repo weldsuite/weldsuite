@@ -21,14 +21,14 @@ use weldsuite_books_domain::table::{Table, TableDb};
 use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
 use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
 use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
+use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
+use weldsuite_kit::generate_id;
+use weldsuite_ports::{DynFileStore, OutboundHttp, PutOptions};
 use weldsuite_schema::tenant::{
     accounting_entity_settings, bill_items, bills, companies, entities,
     integration_entity_mappings as mappings, integration_field_mappings, invoice_items, invoices,
     orders, parties, people, product_sales_channels, product_variants, settings, warehouses,
 };
-use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
-use weldsuite_kit::generate_id;
-use weldsuite_ports::{DynFileStore, OutboundHttp, PutOptions};
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::as_text;
@@ -1402,33 +1402,34 @@ async fn soft_delete_party(db: &PgPool, party_id: &str, mapping_id: &str) -> Out
     let party = party_identities(db, party_id).await?;
     let now: PrimitiveDateTime = utc_now();
     let mut tx = db.begin().await?;
-    let conn = OrmConn::new(&mut tx);
-    parties::Entity::update_many()
-        .col_expr(parties::Column::DeletedAt, Expr::value(now))
-        .col_expr(parties::Column::UpdatedAt, Expr::value(now))
-        .filter(parties::Column::Id.eq(party_id))
-        .exec(&conn)
-        .await?;
-    touch_mapping(&conn, mapping_id, None).await?;
-    if let Some((company, person)) = party {
-        if let Some(company) = company {
-            companies::Entity::update_many()
-                .col_expr(companies::Column::DeletedAt, Expr::value(now))
-                .col_expr(companies::Column::UpdatedAt, Expr::value(now))
-                .filter(companies::Column::Id.eq(company))
-                .exec(&conn)
-                .await?;
-        }
-        if let Some(person) = person {
-            people::Entity::update_many()
-                .col_expr(people::Column::DeletedAt, Expr::value(now))
-                .col_expr(people::Column::UpdatedAt, Expr::value(now))
-                .filter(people::Column::Id.eq(person))
-                .exec(&conn)
-                .await?;
+    {
+        let conn = OrmConn::new(&mut tx);
+        parties::Entity::update_many()
+            .col_expr(parties::Column::DeletedAt, Expr::value(now))
+            .col_expr(parties::Column::UpdatedAt, Expr::value(now))
+            .filter(parties::Column::Id.eq(party_id))
+            .exec(&conn)
+            .await?;
+        touch_mapping(&conn, mapping_id, None).await?;
+        if let Some((company, person)) = party {
+            if let Some(company) = company {
+                companies::Entity::update_many()
+                    .col_expr(companies::Column::DeletedAt, Expr::value(now))
+                    .col_expr(companies::Column::UpdatedAt, Expr::value(now))
+                    .filter(companies::Column::Id.eq(company))
+                    .exec(&conn)
+                    .await?;
+            }
+            if let Some(person) = person {
+                people::Entity::update_many()
+                    .col_expr(people::Column::DeletedAt, Expr::value(now))
+                    .col_expr(people::Column::UpdatedAt, Expr::value(now))
+                    .filter(people::Column::Id.eq(person))
+                    .exec(&conn)
+                    .await?;
+            }
         }
     }
-    drop(conn);
     tx.commit().await?;
     Ok(())
 }

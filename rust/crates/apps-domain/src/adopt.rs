@@ -74,7 +74,12 @@ pub async fn adopt_system_install(
         use workspace_installed_apps::Column;
         workspace_installed_apps::Entity::find()
             .select_only()
-            .columns([Column::Id, Column::IsActive, Column::AppType, Column::UserAppId])
+            .columns([
+                Column::Id,
+                Column::IsActive,
+                Column::AppType,
+                Column::UserAppId,
+            ])
             .filter(Column::AppCode.eq(text(app, "code")))
             .filter(Column::DeletedAt.is_null())
             .into_tuple()
@@ -135,7 +140,10 @@ pub async fn adopt_system_install(
             }
             update
                 .col_expr(Column::InstalledAt, Expr::value(now))
-                .col_expr(Column::RevokedAt, Expr::value(Option::<OffsetDateTime>::None))
+                .col_expr(
+                    Column::RevokedAt,
+                    Expr::value(Option::<OffsetDateTime>::None),
+                )
                 .col_expr(Column::UpdatedAt, Expr::value(now))
                 .filter(Column::Id.eq(install_id))
                 .exec(&master)
@@ -172,7 +180,10 @@ pub async fn adopt_system_install(
             .col_expr(Column::UserAppId, Expr::value(app_id))
             .col_expr(Column::GrantedScopes, Expr::value(scopes))
             .col_expr(Column::IsActive, Expr::value(true))
-            .col_expr(Column::DeletedAt, Expr::value(Option::<OffsetDateTime>::None))
+            .col_expr(
+                Column::DeletedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
             .col_expr(Column::UpdatedAt, Expr::value(now));
         // `case when $installedBy is null then installed_by else $installedBy end`.
         if let Some(by) = installed_by.filter(|by| !by.is_empty()) {

@@ -99,11 +99,13 @@ pub async fn campaign_bounce_rate(db: &PgPool, campaign_id: &str) -> ReachResult
         .filter(messages::Column::CampaignId.eq(campaign_id))
         .filter(messages::Column::Direction.eq("out"))
         .filter(
-            Condition::any().add(messages::Column::Status.eq("sent")).add(
-                Condition::all()
-                    .add(messages::Column::Status.eq("failed"))
-                    .add(enrollments::Column::Status.eq("bounced")),
-            ),
+            Condition::any()
+                .add(messages::Column::Status.eq("sent"))
+                .add(
+                    Condition::all()
+                        .add(messages::Column::Status.eq("failed"))
+                        .add(enrollments::Column::Status.eq("bounced")),
+                ),
         )
         .order_by_desc(messages::Column::CreatedAt)
         .order_by_desc(messages::Column::Id)

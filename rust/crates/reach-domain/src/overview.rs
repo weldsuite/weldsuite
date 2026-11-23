@@ -85,7 +85,11 @@ async fn count_by_local_day(
     filter: Condition,
 ) -> Result<Vec<(Option<String>, i64)>, DbErr> {
     let day = Func::cust("to_char")
-        .arg(Func::cust("timezone").arg(tz).arg(Expr::col((messages::Entity, at))))
+        .arg(
+            Func::cust("timezone")
+                .arg(tz)
+                .arg(Expr::col((messages::Entity, at))),
+        )
         .arg("YYYY-MM-DD");
     messages::Entity::find()
         .select_only()

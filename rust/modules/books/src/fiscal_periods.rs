@@ -379,8 +379,7 @@ async fn calendar_reply(
     let calendar = fiscal_calendar_for(&entity, year, quarters, whole_year)
         .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
     let entity_id = entity["id"].as_str().unwrap_or_default().to_owned();
-    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end)
-        .await?;
+    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end).await?;
     let locked_through = [&entity["periodLockDate"], &entity["hardLockDate"]]
         .into_iter()
         .filter_map(Value::as_str)
@@ -468,8 +467,7 @@ async fn generate_periods(
     let calendar = fiscal_calendar_for(&entity, year, quarters, whole_year)
         .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
     let entity_id = entity["id"].as_str().unwrap_or_default().to_owned();
-    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end)
-        .await?;
+    let existing = existing_periods(caller, &entity_id, &calendar.start, &calendar.end).await?;
     let at = now();
     let mut rows: Vec<Value> = Vec::new();
     let mut skipped: Vec<Value> = Vec::new();

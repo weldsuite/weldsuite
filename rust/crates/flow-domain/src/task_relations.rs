@@ -79,9 +79,10 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be added to a sprint".to_owned(),
             ));
         };
-        if !exists_in_project::<sprints::Entity>(db, SPRINT, sprint_id, project_id).await?
-        {
-            return Ok(Some(format!("Sprint {sprint_id} not found in this project")));
+        if !exists_in_project::<sprints::Entity>(db, SPRINT, sprint_id, project_id).await? {
+            return Ok(Some(format!(
+                "Sprint {sprint_id} not found in this project"
+            )));
         }
     }
     if let Some(milestone_id) = set(refs.milestone_id.as_ref()) {
@@ -90,8 +91,7 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be added to a milestone".to_owned(),
             ));
         };
-        if !exists_in_project::<milestones::Entity>(db, MILESTONE, milestone_id, project_id)
-            .await?
+        if !exists_in_project::<milestones::Entity>(db, MILESTONE, milestone_id, project_id).await?
         {
             return Ok(Some(format!(
                 "Milestone {milestone_id} not found in this project"

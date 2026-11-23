@@ -20,8 +20,7 @@ use time::{Date, PrimitiveDateTime};
 use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{
-    bank_accounts, bank_connections, bank_feed_pending_transactions as pending,
-    bank_transactions,
+    bank_accounts, bank_connections, bank_feed_pending_transactions as pending, bank_transactions,
 };
 
 use super::connections::{load_connection, stored_feed_accounts, stored_warnings, to_stored};
@@ -120,8 +119,11 @@ fn start_of_day(date: &str) -> String {
 /// A feed date (`YYYY-MM-DD`) as the `date` column reads it; text Postgres
 /// would not read is refused as it would refuse it.
 fn feed_day(date: &str) -> Result<Date, DbErr> {
-    Date::parse(date, time::macros::format_description!("[year]-[month]-[day]"))
-        .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{date}\"")))
+    Date::parse(
+        date,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{date}\"")))
 }
 
 /// A decimal amount as the `numeric` column reads it.
@@ -164,13 +166,11 @@ async fn acquire_lock(db: &PgPool, id: &str, at: &str) -> Result<bool, DbErr> {
             "syncLockUntil",
         )
     };
-    let free = Condition::any()
-        .add(lock_until().is_null())
-        .add(
-            lock_until()
-                .cast_as("timestamptz")
-                .lt(Expr::val(instant(at)?)),
-        );
+    let free = Condition::any().add(lock_until().is_null()).add(
+        lock_until()
+            .cast_as("timestamptz")
+            .lt(Expr::val(instant(at)?)),
+    );
     let done = bank_connections::Entity::update_many()
         .col_expr(bank_connections::Column::Metadata, Expr::expr(locked))
         .filter(
@@ -303,7 +303,9 @@ async fn feed_transactions(
     let mut condition = Condition::all()
         .add(bank_transactions::Column::BankAccountId.is_in(account_ids.iter().map(String::as_str)))
         .add(bank_transactions::Column::FeedProvider.eq(provider_id))
-        .add(bank_transactions::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)));
+        .add(
+            bank_transactions::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)),
+        );
     if live_only {
         condition = condition.add(bank_transactions::Column::DeletedAt.is_null());
     }
@@ -699,7 +701,9 @@ async fn apply_page(
         for ids in pending_deletes.chunks(ID_CHUNK) {
             pending::Entity::delete_many()
                 .filter(pending::Column::Provider.eq(provider_id))
-                .filter(pending::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)))
+                .filter(
+                    pending::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)),
+                )
                 .exec(&conn)
                 .await?;
         }
@@ -1017,7 +1021,10 @@ async fn run_sync(
         };
         if feed.get("status") != account.get("feedStatus") {
             bank_accounts::Entity::update_many()
-                .col_expr(bank_accounts::Column::FeedStatus, Expr::val(text(feed, "status")))
+                .col_expr(
+                    bank_accounts::Column::FeedStatus,
+                    Expr::val(text(feed, "status")),
+                )
                 .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
                 .filter(bank_accounts::Column::Id.eq(text(account, "id")))
                 .exec(&orm(db))
@@ -1145,13 +1152,17 @@ async fn store_sync(
             .cast_as("timestamptz")
             .gt(Expr::val(started))
     };
-    let sync_cursor = Expr::case(resynced(), Expr::val(Option::<Value>::None)).finally(Expr::val(cursor));
-    let kept = Expr::case(resynced(), metadata_or_empty())
-        .finally(metadata_or_empty().sub("resyncAt"));
+    let sync_cursor =
+        Expr::case(resynced(), Expr::val(Option::<Value>::None)).finally(Expr::val(cursor));
+    let kept =
+        Expr::case(resynced(), metadata_or_empty()).finally(metadata_or_empty().sub("resyncAt"));
     let metadata = PgExpr::concat(Expr::expr(kept).sub("syncLockUntil"), Expr::val(patch));
     let mut update = bank_connections::Entity::update_many()
         .col_expr(bank_connections::Column::Status, Expr::val(status))
-        .col_expr(bank_connections::Column::SyncCursor, Expr::expr(sync_cursor))
+        .col_expr(
+            bank_connections::Column::SyncCursor,
+            Expr::expr(sync_cursor),
+        )
         .col_expr(bank_connections::Column::LastSyncedAt, Expr::val(at))
         .col_expr(
             bank_connections::Column::LastError,
@@ -1248,7 +1259,10 @@ async fn record_failure(
     let db = &orm(&ctx.db);
     bank_connections::Entity::update_many()
         .col_expr(bank_connections::Column::Status, Expr::val(status.as_str()))
-        .col_expr(bank_connections::Column::LastError, Expr::val(message.as_str()))
+        .col_expr(
+            bank_connections::Column::LastError,
+            Expr::val(message.as_str()),
+        )
         .col_expr(
             bank_connections::Column::Metadata,
             unlocked_metadata(Value::Object(patch)),
@@ -1259,7 +1273,10 @@ async fn record_failure(
         .await?;
     if hard {
         bank_accounts::Entity::update_many()
-            .col_expr(bank_accounts::Column::FeedStatus, Expr::val(status.as_str()))
+            .col_expr(
+                bank_accounts::Column::FeedStatus,
+                Expr::val(status.as_str()),
+            )
             .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
             .filter(bank_accounts::Column::FeedConnectionId.eq(id))
             .filter(bank_accounts::Column::DeletedAt.is_null())

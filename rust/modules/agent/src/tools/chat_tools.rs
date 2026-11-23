@@ -161,9 +161,7 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    let added = match add_channel_members(&ctx.db, &channel_id, &agent_ids, "agent", &now)
-        .await?
-    {
+    let added = match add_channel_members(&ctx.db, &channel_id, &agent_ids, "agent", &now).await? {
         AddMembers::Added { added_user_ids } => added_user_ids.len(),
         AddMembers::Refused(message) => return Ok(json!({ "error": message })),
     };

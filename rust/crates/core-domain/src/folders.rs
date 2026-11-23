@@ -172,11 +172,7 @@ fn truthy(value: Option<&String>) -> Option<&str> {
 }
 
 /// Insert a folder (`createFolder`).
-pub async fn create_folder(
-    db: &PgPool,
-    folder: &NewFolder,
-    now: &str,
-) -> Result<Value, DbErr> {
+pub async fn create_folder(db: &PgPool, folder: &NewFolder, now: &str) -> Result<Value, DbErr> {
     let id = generate_id("fld");
     let text = |value: Option<&String>| truthy(value).map(str::to_owned);
     let now = timestamp_of(now)?;
@@ -249,10 +245,7 @@ pub async fn update_folder(
 
 /// The live folders under `id` (itself included) and the live files in them,
 /// with what the Drive rules read (`listLiveFolderTree`).
-pub async fn live_folder_tree(
-    db: &PgPool,
-    id: &str,
-) -> Result<(Vec<Value>, Vec<Value>), DbErr> {
+pub async fn live_folder_tree(db: &PgPool, id: &str) -> Result<(Vec<Value>, Vec<Value>), DbErr> {
     let folders = live_tree_folders(db, id).await?;
     let folder_ids: Vec<String> = folders
         .iter()
@@ -271,15 +264,17 @@ pub async fn live_folder_tree(
         .await?;
     let files = rows
         .into_iter()
-        .map(|(id, uploaded_by_id, folder_id, general_access, entity_type)| {
-            json!({
-                "id": id,
-                "uploadedById": uploaded_by_id,
-                "folderId": folder_id,
-                "generalAccess": general_access,
-                "entityType": entity_type,
-            })
-        })
+        .map(
+            |(id, uploaded_by_id, folder_id, general_access, entity_type)| {
+                json!({
+                    "id": id,
+                    "uploadedById": uploaded_by_id,
+                    "folderId": folder_id,
+                    "generalAccess": general_access,
+                    "entityType": entity_type,
+                })
+            },
+        )
         .collect();
     Ok((folders, files))
 }
@@ -465,11 +460,7 @@ pub async fn list_trashed_folders(db: &PgPool) -> Result<Vec<Value>, DbErr> {
 /// under it and the files in them trashed at the same instant. Anything
 /// trashed on its own before stays in the trash. The row as it was
 /// (`restoreFolder`).
-pub async fn restore_folder(
-    db: &PgPool,
-    id: &str,
-    now: &str,
-) -> Result<Option<Value>, DbErr> {
+pub async fn restore_folder(db: &PgPool, id: &str, now: &str) -> Result<Option<Value>, DbErr> {
     let Some(existing) = trashed_folder(db, id).await? else {
         return Ok(None);
     };
@@ -530,7 +521,15 @@ pub async fn list_files_in_folders(
     Ok(rows
         .into_iter()
         .map(
-            |(id, uploaded_by_id, folder_id, general_access, entity_type, file_key, storage_path)| {
+            |(
+                id,
+                uploaded_by_id,
+                folder_id,
+                general_access,
+                entity_type,
+                file_key,
+                storage_path,
+            )| {
                 json!({
                     "id": id,
                     "uploadedById": uploaded_by_id,
@@ -619,7 +618,10 @@ async fn delete_documents_of(db: &DatabaseConnection, files: &Condition) -> Resu
 }
 
 /// `delete from folders where id = any($1) and deleted_at is not null`.
-async fn delete_trashed_folders(db: &DatabaseConnection, folder_ids: &[String]) -> Result<(), DbErr> {
+async fn delete_trashed_folders(
+    db: &DatabaseConnection,
+    folder_ids: &[String],
+) -> Result<(), DbErr> {
     folders_table::Entity::delete_many()
         .filter(folders_table::Column::Id.is_in(folder_ids))
         .filter(folders_table::Column::DeletedAt.is_not_null())

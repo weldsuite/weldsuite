@@ -172,8 +172,7 @@ pub(crate) async fn agency_liability(
     with_items: bool,
     returns: &[Value],
 ) -> Result<AgencyLiability, DbErr> {
-    let accounts = load_entity_accounts(db, entity_id)
-        .await?;
+    let accounts = load_entity_accounts(db, entity_id).await?;
     let own: Vec<&Value> = [
         accounts.by_id(text(agency, "liabilityAccountId")),
         accounts.by_id(text(agency, "useTaxAccountId")),

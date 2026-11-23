@@ -153,17 +153,28 @@ async fn platform_account(master: &PgPool, email: &str) -> StaffResult<Option<St
     let in_a_workspace = Query::select()
         .expr(Expr::val(1))
         .from(user_workspaces::Entity)
-        .and_where(Expr::col((user_workspaces::Entity, user_workspaces::Column::UserId)).eq(user_id.clone()))
+        .and_where(
+            Expr::col((user_workspaces::Entity, user_workspaces::Column::UserId))
+                .eq(user_id.clone()),
+        )
         .to_owned();
     let a_console_account = Query::select()
         .expr(Expr::val(1))
         .from(admin_users::Entity)
-        .and_where(Expr::col((admin_users::Entity, admin_users::Column::ConsoleSubject)).eq(user_id))
+        .and_where(
+            Expr::col((admin_users::Entity, admin_users::Column::ConsoleSubject)).eq(user_id),
+        )
         .to_owned();
     Ok(users::Entity::find()
         .select_only()
         .column(users::Column::Id)
-        .filter(Expr::from(Func::lower(Expr::col((users::Entity, users::Column::Email)))).eq(email))
+        .filter(
+            Expr::from(Func::lower(Expr::col((
+                users::Entity,
+                users::Column::Email,
+            ))))
+            .eq(email),
+        )
         .filter(users::Column::IsActive.eq(true))
         .filter(Expr::exists(in_a_workspace))
         .filter(Expr::not_exists(a_console_account))

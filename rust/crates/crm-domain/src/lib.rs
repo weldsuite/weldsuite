@@ -57,15 +57,9 @@ impl CrmServices {
 #[derive(Debug)]
 pub enum DomainError {
     /// A member id field names nobody in the workspace (`InvalidMemberIdError`).
-    InvalidMemberId {
-        message: String,
-        field: String,
-    },
+    InvalidMemberId { message: String, field: String },
     /// A status the workspace doesn't define (`InvalidStatusError`).
-    InvalidStatus {
-        message: String,
-        field: String,
-    },
+    InvalidStatus { message: String, field: String },
     /// `ifVersion` no longer matches (`*VersionConflictError`).
     VersionConflict(String),
     /// An active person already has this email (`PersonDuplicateEmailError`).

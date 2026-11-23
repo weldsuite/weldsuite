@@ -1186,8 +1186,7 @@ async fn plan_links(
     input: &LinkInput,
 ) -> Result<Result<DependencyPlan, DependencyFailure>, DbErr> {
     let access = LinkAccess::Projects(caller.accessible_project_ids().await?);
-    plan_dependency_update(&caller.db, id, input, &access)
-        .await
+    plan_dependency_update(&caller.db, id, input, &access).await
 }
 
 pub(crate) async fn dependencies(
@@ -1345,9 +1344,7 @@ async fn relation_error(
         parent_task_id: None,
         ..changed
     };
-    if let Some(message) = find_invalid_task_reference(db, current_project, &refs)
-        .await?
-    {
+    if let Some(message) = find_invalid_task_reference(db, current_project, &refs).await? {
         return Ok(Some(message));
     }
     let parent = match body.get("parentTaskId") {

@@ -31,12 +31,6 @@ use weldsuite_core_domain::js::{Js, as_text};
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
-use weldsuite_schema::tenant::enums::MailAccountStatus;
-use weldsuite_schema::tenant::{
-    mail_accounts, sequence_enrollments as enrollments, workflow_error_logs,
-    workflow_execution_steps as steps, workflow_executions as executions, workflow_variables,
-    workflows,
-};
 use weldsuite_mail_domain::outbound::guard::{GuardedSendError, SubjectInput, guarded_send};
 use weldsuite_mail_domain::outbound::{
     CheckOutboundInput, DenialDetails, OutboundBindings, OutboundDenied, OutboundKind,
@@ -45,6 +39,12 @@ use weldsuite_mail_domain::outbound::{
 use weldsuite_ports::{
     BoxFuture, DynCache, DynRealtimePublisher, Job, JobContext, JobError, RealtimeMessage,
     StepRetry, step,
+};
+use weldsuite_schema::tenant::enums::MailAccountStatus;
+use weldsuite_schema::tenant::{
+    mail_accounts, sequence_enrollments as enrollments, workflow_error_logs,
+    workflow_execution_steps as steps, workflow_executions as executions, workflow_variables,
+    workflows,
 };
 
 use crate::db_message;
@@ -966,7 +966,6 @@ fn int(n: usize) -> i32 {
 fn step_text<'v>(step: &'v Value, key: &str) -> Option<&'v str> {
     step.get(key).and_then(Value::as_str)
 }
-
 
 impl ExecuteSequenceJob {
     /// `readRunGate` in a durable step.

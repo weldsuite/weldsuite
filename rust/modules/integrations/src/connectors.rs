@@ -36,7 +36,7 @@ use weldsuite_connect_domain::webhooks::{
     STRIPE_CONNECT_VERIFIED_HEADER, connection_kv_key, stripe_account_kv_key, verify,
 };
 use weldsuite_db::due_index::{SweepResult, run_sweep};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_schema::master::workspaces;
 
 use crate::connect_internal::{ConnectCall, ConnectInternal};
@@ -359,7 +359,7 @@ pub async fn catch_up_workspace(
     counts: &mut CatchupCounts,
 ) -> Result<Option<i64>, DbErr> {
     let mut next: Option<i64> = None;
-    let connections = catchup::due_connections(db).await.map_err(orm_error)?;
+    let connections = catchup::due_connections(db).await?;
     for connection in connections {
         let at = if connection.due_at <= now {
             let interval = now + connection.interval_minutes * 60_000;

@@ -9,6 +9,7 @@
 //! suffix, so runs share the database with other tests.
 
 #![allow(clippy::unwrap_used, clippy::too_many_lines)]
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
 use serde_json::{Value, json};
 use sqlx::PgPool;

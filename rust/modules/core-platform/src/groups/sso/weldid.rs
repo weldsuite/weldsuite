@@ -27,8 +27,8 @@ use http::{HeaderMap, StatusCode};
 use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
+use weldsuite_db::PgPool;
 use weldsuite_db::sso_settings::{SSO_DEFAULT_ROLES, set_sso_default_role, sso_default_role};
-use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
@@ -82,7 +82,7 @@ async fn load(
         .map_err(|error| failure(&error, Step::Read))?
         .into_iter()
         .next();
-    let default_role = sso_default_role(&caller.db).await.map_err(orm_error)?;
+    let default_role = sso_default_role(&caller.db).await?;
     Ok(Loaded {
         ctx,
         connection,
@@ -564,10 +564,8 @@ pub(super) async fn save_connection(
         }
     };
     if let Some(role) = &input.default_role {
-        set_sso_default_role(&caller.db, role, &generate_id("ws"))
-            .await
-            .map_err(orm_error)?;
-        loaded.default_role = sso_default_role(&caller.db).await.map_err(orm_error)?;
+        set_sso_default_role(&caller.db, role, &generate_id("ws")).await?;
+        loaded.default_role = sso_default_role(&caller.db).await?;
     }
     Ok(changed(state, caller, kind, &loaded))
 }

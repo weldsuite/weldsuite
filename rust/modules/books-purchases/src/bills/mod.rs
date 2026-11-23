@@ -258,10 +258,7 @@ async fn list_bills(caller: &Caller, q: &Query) -> Reply {
         .offset(u64::try_from((page - 1) * size).unwrap_or(0))
         .all(&db)
         .await?;
-    let total = bills::Entity::find()
-        .filter(listed()?)
-        .count(&db)
-        .await?;
+    let total = bills::Entity::find().filter(listed()?).count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = js_rows!(rows)?;
     let rows = with_contact_names(&caller.db, rows).await?;
@@ -942,8 +939,8 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
 
 async fn from_document(caller: Caller, Path(document_id): Path<String>) -> Response {
     let result: Reply = async {
-        let Some(doc) = crate::accounting_documents::find_document(&caller.db, &document_id)
-            .await?
+        let Some(doc) =
+            crate::accounting_documents::find_document(&caller.db, &document_id).await?
         else {
             return Err(Refusal::not_found("Document", &document_id));
         };

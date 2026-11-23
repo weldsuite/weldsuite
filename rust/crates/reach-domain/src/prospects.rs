@@ -4,21 +4,23 @@
 use std::collections::HashSet;
 
 use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query};
-use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use weldsuite_db::orm;
-use weldsuite_schema::tenant::{
-    companies, list_members, lists, people, person_companies,
-    reach_enrollments as enrollments, reach_prospect_list_members as members,
-    reach_prospects as prospects, welddata_leads, welddata_lists,
-};
 use weldsuite_catalogs::entity_events::{
     REACH_PROSPECT_CREATED, REACH_PROSPECT_DELETED, REACH_PROSPECT_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    companies, list_members, lists, people, person_companies, reach_enrollments as enrollments,
+    reach_prospect_list_members as members, reach_prospects as prospects, welddata_leads,
+    welddata_lists,
+};
 
 use crate::campaigns::complete_and_publish;
 use crate::lists::{
@@ -562,13 +564,9 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         None => None,
     };
     let list_id = query.list_id.clone().filter(|l| !l.is_empty());
-    let cursor = cursor_row::<prospects::Entity>(
-        db,
-        Column::CreatedAt,
-        Column::Id,
-        query.cursor.as_deref(),
-    )
-    .await?;
+    let cursor =
+        cursor_row::<prospects::Entity>(db, Column::CreatedAt, Column::Id, query.cursor.as_deref())
+            .await?;
     let mut filters = Condition::all().add(Column::DeletedAt.is_null());
     if let Some(search) = &search {
         filters = filters.add(
@@ -607,7 +605,10 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         .limit(probe(limit))
         .all(&conn)
         .await?;
-    let total = prospects::Entity::find().filter(filters).count(&conn).await?;
+    let total = prospects::Entity::find()
+        .filter(filters)
+        .count(&conn)
+        .await?;
     let rows = js_all(rows.into_iter().map(serde_json::to_value))?;
     Ok(page_result(
         &rows,

@@ -368,7 +368,10 @@ async fn existing_occurrence(
         .filter(tasks::Column::DueDate.eq(timestamp_of_millis(due_ms)))
         .filter(tasks::Column::Status.is_not_in(["done", "cancelled"]))
         .filter(same(tasks::Column::AssigneeId, text(source, "assigneeId")))
-        .filter(same(tasks::Column::ParentTaskId, text(source, "parentTaskId")))
+        .filter(same(
+            tasks::Column::ParentTaskId,
+            text(source, "parentTaskId"),
+        ))
         .filter(tasks::Column::Repeat.is_not_null())
         .into_tuple()
         .one(&orm(db))
@@ -396,7 +399,10 @@ pub async fn create_next_occurrence(
     };
     let next_due_ms = next_occurrence_date(due_ms, &config, now_ms);
     let next_due = iso_from_millis(next_due_ms).ok_or(CreateError::InvalidDate)?;
-    if existing_occurrence(db, source, next_due_ms).await?.is_some() {
+    if existing_occurrence(db, source, next_due_ms)
+        .await?
+        .is_some()
+    {
         return Ok(None);
     }
     let start_ms = text(source, "startDate")

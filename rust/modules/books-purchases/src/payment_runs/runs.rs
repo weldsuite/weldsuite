@@ -372,8 +372,7 @@ pub(crate) async fn has_backup_withholding_account(
     db: &PgPool,
     entity_id: &str,
 ) -> Result<bool, DbErr> {
-    let accounts = load_entity_accounts(db, entity_id)
-        .await?;
+    let accounts = load_entity_accounts(db, entity_id).await?;
     Ok(account_for_role(&accounts, "backup_withholding_payable", &["2310"]).is_some())
 }
 

@@ -23,8 +23,8 @@ use std::pin::Pin;
 
 use sea_orm::sea_query::{Expr, NullOrdering, Order, Query};
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationDef, Set,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef, Set,
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -1146,8 +1146,8 @@ pub async fn update_calendar_event_for_task(db: &PgPool, params: &EventUpdate) -
     }
     let start_at = start.flatten().map(bind_time).transpose()?;
     let end_at = end.flatten().map(bind_time).transpose()?;
-    let mut update = calendar_events::Entity::update_many()
-        .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+    let mut update =
+        calendar_events::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
     if let Some(title) = &params.title {
         update = update.col_expr(Column::Title, Expr::value(title.clone()));
     }
@@ -1343,12 +1343,10 @@ fn replannable_event_conditions() -> Condition {
         .from(UserPreferences)
         .cond_where(
             Condition::all()
-                .add(
-                    Expr::col((UserPreferences, Prefs::UserId)).equals((
-                        calendar_events::Entity,
-                        calendar_events::Column::OrganizerId,
-                    )),
-                )
+                .add(Expr::col((UserPreferences, Prefs::UserId)).equals((
+                    calendar_events::Entity,
+                    calendar_events::Column::OrganizerId,
+                )))
                 .add(Prefs::DeletedAt.is_null())
                 .add(
                     Condition::any()
@@ -1451,8 +1449,7 @@ pub async fn replan_stale_auto_scheduled_events(
         .column_as(tasks::Column::CreatedAt, "created_at")
         .join(JoinType::InnerJoin, source_task())
         .filter(
-            replannable_event_conditions()
-                .add(calendar_events::Column::StartTime.lte(utc_now())),
+            replannable_event_conditions().add(calendar_events::Column::StartTime.lte(utc_now())),
         )
         .order_by(priority_rank(), Order::Desc)
         .order_by_with_nulls(tasks::Column::DueDate, Order::Asc, NullOrdering::Last)

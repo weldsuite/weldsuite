@@ -301,9 +301,7 @@ async fn load_identities(db: &PgPool, rows: &[Value]) -> Result<Identities, DbEr
     Ok(Identities {
         companies: by_id(companies),
         people: by_id(people),
-        billing: load_billing_contacts(db, &company_ids)
-            .await
-            ?,
+        billing: load_billing_contacts(db, &company_ids).await?,
     })
 }
 
@@ -414,10 +412,7 @@ async fn list_contacts(caller: &Caller, q: &Query) -> Reply {
         .offset(u64::try_from((page - 1) * size).unwrap_or(0))
         .all(&db)
         .await?;
-    let total = parties::Entity::find()
-        .filter(listed())
-        .count(&db)
-        .await?;
+    let total = parties::Entity::find().filter(listed()).count(&db).await?;
     let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = js_rows!(rows)?;
     let identities = load_identities(&caller.db, &rows).await?;

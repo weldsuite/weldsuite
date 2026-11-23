@@ -190,8 +190,7 @@ async fn undeposited(caller: Caller) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Ok(all_rows(Vec::new()));
         };
-        let rows = list_undeposited(&caller.db, &entity_id)
-            .await?;
+        let rows = list_undeposited(&caller.db, &entity_id).await?;
         Ok(all_rows(rows.iter().map(Undeposited::to_json).collect()))
     }
     .await;
@@ -299,9 +298,7 @@ async fn list(caller: Caller) -> Response {
             .limit(u64::try_from(limit + 1).unwrap_or(0))
             .all(&db)
             .await?;
-        let total = deposits_of(&entity_id, filters)
-            .count(&db)
-            .await?;
+        let total = deposits_of(&entity_id, filters).count(&db).await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let mut rows: Vec<Value> = rows
             .into_iter()
@@ -478,13 +475,10 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
-            .await?
-        else {
+        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id).await? else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
-        Ok(ok(deposit_detail(&caller.db, &deposit)
-            .await?))
+        Ok(ok(deposit_detail(&caller.db, &deposit).await?))
     }
     .await;
     reply(result, "Failed to fetch bank deposit")
@@ -904,9 +898,7 @@ async fn update(
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id)
-            .await?
-        else {
+        let Some(deposit) = find_deposit(&caller.db, &entity_id, &id).await? else {
             return Err(Refusal::not_found("Bank deposit", &id));
         };
         let memo = memo
@@ -1015,10 +1007,7 @@ async fn void_deposit(
                 .unwrap_or_default();
             let deposit_id = id.to_owned();
             let write: AlsoWrite = Box::new(move |conn, _| {
-                Box::pin(async move {
-                    release(&OrmConn::new(conn), &deposit_id, at)
-                        .await
-                })
+                Box::pin(async move { release(&OrmConn::new(conn), &deposit_id, at).await })
             });
             reverse_journal_entry(
                 db,
@@ -1035,8 +1024,7 @@ async fn void_deposit(
         }
         None => {
             let mut tx = db.begin().await?;
-            release(&OrmConn::new(&mut tx), id, at)
-                .await?;
+            release(&OrmConn::new(&mut tx), id, at).await?;
             tx.commit().await?;
         }
     }

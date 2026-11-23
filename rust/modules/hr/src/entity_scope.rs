@@ -379,7 +379,11 @@ mod tests {
     #[test]
     fn record_lookups_join_the_employee_or_employer() {
         use sea_orm::DbBackend;
-        let sql = |lookup: RecordLookup| DbBackend::Postgres.build(&lookup.statement("x")).to_string();
+        let sql = |lookup: RecordLookup| {
+            DbBackend::Postgres
+                .build(&lookup.statement("x"))
+                .to_string()
+        };
         assert_eq!(
             sql(via_employee!(hr_absences)),
             r#"SELECT "hr_employees"."legal_entity_id" FROM "hr_absences" INNER JOIN "hr_employees" ON "hr_absences"."employee_id" = "hr_employees"."id" WHERE "hr_absences"."id" = 'x' LIMIT 1"#

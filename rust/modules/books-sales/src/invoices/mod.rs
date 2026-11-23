@@ -355,8 +355,7 @@ async fn list_invoices(caller: &Caller) -> Reply {
         .map(row_json)
         .collect::<Result<Vec<_>, _>>()?;
     let named = with_contact_names(&caller.db, rows).await?;
-    let named = with_source_invoice_numbers(caller, named)
-        .await?;
+    let named = with_source_invoice_numbers(caller, named).await?;
     Ok(paged(named, total, page * page_size < total, None))
 }
 

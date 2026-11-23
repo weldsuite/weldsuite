@@ -163,10 +163,7 @@ impl RecordLookup {
                 .column(parent_entity)
                 .join(
                     JoinType::InnerJoin,
-                    E::belongs_to(P::default())
-                        .from(key)
-                        .to(parent_id)
-                        .into(),
+                    E::belongs_to(P::default()).from(key).to(parent_id).into(),
                 )
                 .filter(id.eq(record))
                 .limit(1)
@@ -188,7 +185,11 @@ impl RecordLookup {
 impl std::fmt::Debug for RecordLookup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RecordLookup")
-            .field(&sea_orm::DbBackend::Postgres.build(&self.statement("$id")).sql)
+            .field(
+                &sea_orm::DbBackend::Postgres
+                    .build(&self.statement("$id"))
+                    .sql,
+            )
             .finish()
     }
 }
@@ -261,11 +262,7 @@ impl EntityRecordGuard {
 
     /// The record's entity: `None` when no record has this id, `Some(None)`
     /// when it has no entity.
-    async fn record_entity(
-        &self,
-        db: &PgPool,
-        id: &str,
-    ) -> Result<Option<Option<String>>, DbErr> {
+    async fn record_entity(&self, db: &PgPool, id: &str) -> Result<Option<Option<String>>, DbErr> {
         match orm(db).query_one(&self.lookup.statement(id)).await? {
             Some(row) => Ok(Some(row.try_get_by_index(0)?)),
             None => Ok(None),

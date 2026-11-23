@@ -340,8 +340,7 @@ async fn update(
                     )
                     .await?;
                 }
-                update_template(&tx, &id, &input)
-                    .await?;
+                update_template(&tx, &id, &input).await?;
             }
             tx.commit().await?;
             let Some(row) = find_template(db, &id).await? else {

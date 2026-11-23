@@ -476,9 +476,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             return Err(Refusal::not_found("Entity", &id));
         };
         let mut out = object(serialize(&entity));
-        out.extend(object(
-            lock_state(&caller.db, &id).await?,
-        ));
+        out.extend(object(lock_state(&caller.db, &id).await?));
         Ok(ok(Value::Object(out)))
     }
     .await;
@@ -938,8 +936,7 @@ async fn create_entity(caller: &Caller, state: &BooksState, body: &EntityBody) -
             .await
             .map_err(|error| legal_entity_refusal(error, Refusal::bad_request))?;
     } else if default_asked || is_default {
-        make_default_entity(db, &entity_id, &at, stamp)
-            .await?;
+        make_default_entity(db, &entity_id, &at, stamp).await?;
     }
     write_accounting_audit(
         caller,
@@ -1398,9 +1395,7 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         return Err(Refusal::bad_request(unsupported(&next)));
     }
     let is_us = next == "US";
-    if let Some((message, details)) = lock_conflict(caller, &existing, &data, &next)
-        .await?
-    {
+    if let Some((message, details)) = lock_conflict(caller, &existing, &data, &next).await? {
         return Err(Refusal::conflict_with(message, details));
     }
 
@@ -1708,8 +1703,7 @@ async fn update_entity(caller: &Caller, state: &BooksState, id: &str, body: Enti
         && let Some(classification) = patch.get("taxClassification")
         && Some(classification) != existing.get("taxClassification")
     {
-        sync_br_tax_profiles(db, id, classification.as_str())
-            .await?;
+        sync_br_tax_profiles(db, id, classification.as_str()).await?;
     }
     let mut out = object(serialize(updated.as_ref().unwrap_or(&existing)));
     out.extend(object(lock_state(db, id).await?));

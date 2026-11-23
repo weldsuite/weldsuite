@@ -19,8 +19,7 @@ use http::StatusCode;
 use http::request::Parts;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QuerySelect,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
 };
 use serde::Serialize;
 use serde_json::{Value, json};

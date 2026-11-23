@@ -43,7 +43,6 @@ use weldsuite_schema::tenant::form_1099_filings;
 
 use filings::LinePatch;
 
-
 /// `Form1099Error` (by kind), `VendorTaxKeyError`, or a failure.
 #[derive(Debug)]
 pub(crate) enum Fail {

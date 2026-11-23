@@ -314,8 +314,7 @@ fn disabled_call_message(
 }
 
 async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, DbErr> {
-    weldsuite_chat_domain::access::is_member(db, channel_id, user_id)
-        .await
+    weldsuite_chat_domain::access::is_member(db, channel_id, user_id).await
 }
 
 /// `(voice_calls_enabled, video_calls_enabled, type)` of the channel.

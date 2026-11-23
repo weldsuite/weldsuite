@@ -1379,8 +1379,7 @@ async fn quarter_revenue(
 /// 12 months before, else the settings' figure.
 async fn payroll_12m(db: &PgPool, entity: &Value, from: &str) -> Result<f64, DbErr> {
     let entity_id = entity["id"].as_str().unwrap_or_default();
-    let accounts = load_entity_accounts(db, entity_id)
-        .await?;
+    let accounts = load_entity_accounts(db, entity_id).await?;
     let ids: Vec<String> = [
         account_for_role(&accounts, "payroll_wages_expense", &[]),
         account_for_role(&accounts, "payroll_tax_expense", &[]),

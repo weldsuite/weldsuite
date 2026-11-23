@@ -209,10 +209,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     }
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
-    let (start_at, end_at) = (
-        timestamp_of_iso(&start)?,
-        timestamp_of_iso(&end)?,
-    );
+    let (start_at, end_at) = (timestamp_of_iso(&start)?, timestamp_of_iso(&end)?);
     // Declarations never overlap: the supplies of a month are declared once.
     let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = icp_declarations::Entity::find()
         .select_only()
@@ -252,8 +249,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         ));
     }
 
-    let ledger = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await?;
+    let ledger = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end)).await?;
     let mut per_vat: Vec<BuyerSupply> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
     let mut vat_of: HashMap<String, Option<NormalizedVat>> = HashMap::new();

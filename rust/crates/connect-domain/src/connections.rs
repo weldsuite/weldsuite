@@ -49,6 +49,7 @@ pub fn encrypt_credentials(
 pub use crate::clients::decrypt_credentials;
 
 /// A model that would not serialize, as the database's error.
+#[allow(clippy::needless_pass_by_value, reason = "a `map_err` target")]
 pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
     DbErr::Json(error.to_string())
 }
@@ -236,13 +237,15 @@ async fn record_labels(
 ) -> Result<Vec<(String, Option<String>)>, DbErr> {
     let db = &orm(db);
     Ok(match kind {
-        "party" => parties::Entity::find()
-            .select_only()
-            .columns([parties::Column::Id, parties::Column::DisplayName])
-            .filter(parties::Column::Id.is_in(ids))
-            .into_tuple()
-            .all(db)
-            .await?,
+        "party" => {
+            parties::Entity::find()
+                .select_only()
+                .columns([parties::Column::Id, parties::Column::DisplayName])
+                .filter(parties::Column::Id.is_in(ids))
+                .into_tuple()
+                .all(db)
+                .await?
+        }
         "product" => products::Entity::find()
             .select_only()
             .columns([products::Column::Id, products::Column::Name])

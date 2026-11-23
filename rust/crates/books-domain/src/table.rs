@@ -258,10 +258,7 @@ impl Table {
         live_only: bool,
     ) -> Result<Option<Value>, DbErr> {
         match db.into() {
-            TableDb::Pool(pool) => {
-                self.patch_raw_on(&orm(pool), id, values, live_only)
-                    .await
-            }
+            TableDb::Pool(pool) => self.patch_raw_on(&orm(pool), id, values, live_only).await,
             TableDb::Conn(conn) => {
                 self.patch_raw_on(&OrmConn::new(conn), id, values, live_only)
                     .await

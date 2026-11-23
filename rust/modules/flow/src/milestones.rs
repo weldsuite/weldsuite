@@ -235,8 +235,7 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
             .await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let (rows, has_more, cursor) = page(json_rows(rows)?, limit);
-        let counters = milestone_stats(db, &milestone_refs(&rows))
-            .await?;
+        let counters = milestone_stats(db, &milestone_refs(&rows)).await?;
         Ok(paged(
             with_milestone_stats(rows, &counters),
             total,
@@ -262,8 +261,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
                 return Err(Refusal::forbidden(PROJECT_DENIED));
             }
             let rows = vec![row];
-            let stats = milestone_stats(&caller.db, &milestone_refs(&rows))
-                .await?;
+            let stats = milestone_stats(&caller.db, &milestone_refs(&rows)).await?;
             let mut rows = with_milestone_stats(rows, &stats);
             Ok(Data(rows.remove(0)).into_response())
         }

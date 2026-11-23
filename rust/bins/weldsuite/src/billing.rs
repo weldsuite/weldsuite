@@ -729,7 +729,11 @@ impl WeldBooksIssuer {
             ));
         }
         let existing: Option<String> = query
-            .order_by_with_nulls(tax_rates::Column::IsDefault, Order::Desc, NullOrdering::Last)
+            .order_by_with_nulls(
+                tax_rates::Column::IsDefault,
+                Order::Desc,
+                NullOrdering::Last,
+            )
             .order_by_asc(tax_rates::Column::CreatedAt)
             .into_tuple()
             .one(&orm(db))

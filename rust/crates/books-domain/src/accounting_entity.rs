@@ -258,8 +258,10 @@ pub async fn load_accounting_entities(
         .order_by_asc(legal_entity_registrations::Column::Id)
         .all(&db)
         .await?;
-    let registrations: Vec<Map<String, Value>> =
-        to_json_rows(registrations)?.into_iter().map(object).collect();
+    let registrations: Vec<Map<String, Value>> = to_json_rows(registrations)?
+        .into_iter()
+        .map(object)
+        .collect();
     let entity_of = |row: &Map<String, Value>, key: &str| {
         row.get(key).and_then(Value::as_str).map(str::to_owned)
     };
@@ -358,10 +360,7 @@ fn extension() -> RelationDef {
 
 /// `date::text`: `YYYY-MM-DD`.
 fn day_text(day: Option<Date>) -> Option<String> {
-    day.and_then(|day| {
-        day.format(format_description!("[year]-[month]-[day]"))
-            .ok()
-    })
+    day.and_then(|day| day.format(format_description!("[year]-[month]-[day]")).ok())
 }
 
 /// `loadSalesTaxEngineSettings(db, entityId)`: the sales tax engine columns,

@@ -329,10 +329,7 @@ pub fn compare_snapshots(from: &Value, to: &Value) -> Value {
 // ── Database ────────────────────────────────────────────────────────────────
 
 /// `loadPlanState(db, projectId)`: the plan of a live project, or `None`.
-pub async fn load_plan_state(
-    db: &PgPool,
-    project_id: &str,
-) -> Result<Option<PlanState>, DbErr> {
+pub async fn load_plan_state(db: &PgPool, project_id: &str) -> Result<Option<PlanState>, DbErr> {
     let db = &orm(db);
     // The entity writes the numerics as their text, as `::text` did.
     let project = projects::Entity::find_by_id(project_id.to_owned())

@@ -108,7 +108,11 @@ pub(crate) fn instant(iso: &str) -> Result<OffsetDateTime, DbErr> {
         .and_then(|millis| {
             OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()
         })
-        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type timestamp: \"{iso}\"")))
+        .ok_or_else(|| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
 }
 
 /// [`instant`] as a `timestamp` column holds it (`$n::timestamp`: UTC).
@@ -328,18 +332,21 @@ impl FeedContext {
                     ..Default::default()
                 })
                 .on_conflict(
-                    OnConflict::columns([index::Column::Provider, index::Column::ProviderConnectionId])
-                        .update_columns([
-                            index::Column::ClerkOrgId,
-                            index::Column::ConnectionId,
-                            index::Column::EntityId,
-                            index::Column::SyncIntervalHours,
-                            index::Column::NextSyncAt,
-                        ])
-                        .value(index::Column::IsActive, Expr::val(true))
-                        .value(index::Column::LastError, Expr::val(Option::<String>::None))
-                        .value(index::Column::UpdatedAt, Expr::val(now))
-                        .to_owned(),
+                    OnConflict::columns([
+                        index::Column::Provider,
+                        index::Column::ProviderConnectionId,
+                    ])
+                    .update_columns([
+                        index::Column::ClerkOrgId,
+                        index::Column::ConnectionId,
+                        index::Column::EntityId,
+                        index::Column::SyncIntervalHours,
+                        index::Column::NextSyncAt,
+                    ])
+                    .value(index::Column::IsActive, Expr::val(true))
+                    .value(index::Column::LastError, Expr::val(Option::<String>::None))
+                    .value(index::Column::UpdatedAt, Expr::val(now))
+                    .to_owned(),
                 )
                 .exec_without_returning(&conn)
                 .await?;

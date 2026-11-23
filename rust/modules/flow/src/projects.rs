@@ -1146,8 +1146,7 @@ async fn gantt_milestones(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
             let rows = GanttMilestone::of_project(&caller.db, &id).await?;
-            let stats = milestone_stats(&caller.db, &milestone_refs(&rows))
-                .await?;
+            let stats = milestone_stats(&caller.db, &milestone_refs(&rows)).await?;
             Ok(Data(with_milestone_stats(rows, &stats)).into_response())
         }
         .await,

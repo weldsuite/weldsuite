@@ -165,11 +165,7 @@ fn with_live_file<E: EntityTrait>(id: E::Column, file_id: E::Column) -> Select<E
         .filter(files::Column::DeletedAt.is_null())
 }
 
-async fn load_files(
-    db: &PgPool,
-    kind: Provider,
-    ids: &[String],
-) -> Result<Vec<FileRecord>, DbErr> {
+async fn load_files(db: &PgPool, kind: Provider, ids: &[String]) -> Result<Vec<FileRecord>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -581,7 +577,10 @@ impl Provider {
                     .filter(people::Column::DeletedAt.is_null())
                     .one(&orm_db)
                     .await?;
-                let row = row.map(serde_json::to_value).transpose().map_err(json_error)?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
                 picked(row, CONTACT_DETAIL)
             }
             Self::Domain => {
@@ -589,7 +588,10 @@ impl Provider {
                     .filter(domains::Column::DeletedAt.is_null())
                     .one(&orm_db)
                     .await?;
-                let row = row.map(serde_json::to_value).transpose().map_err(json_error)?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
                 picked(row, DOMAIN_DETAIL).map(|mut row| {
                     let registrar = row
                         .get("registrar")
@@ -607,7 +609,10 @@ impl Provider {
                     .filter(tasks::Column::DeletedAt.is_null())
                     .one(&orm_db)
                     .await?;
-                let row = row.map(serde_json::to_value).transpose().map_err(json_error)?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
                 picked(row, TASK_DETAIL)
             }
             Self::Project => return project_detail(db, entity_id).await,
@@ -711,7 +716,12 @@ fn picked(row: Option<Value>, keys: &[&str]) -> Option<Map<String, Value>> {
     let row = row?;
     Some(
         keys.iter()
-            .map(|key| ((*key).to_owned(), row.get(*key).cloned().unwrap_or(Value::Null)))
+            .map(|key| {
+                (
+                    (*key).to_owned(),
+                    row.get(*key).cloned().unwrap_or(Value::Null),
+                )
+            })
             .collect(),
     )
 }
@@ -743,13 +753,19 @@ async fn project_detail(db: &PgPool, entity_id: &str) -> Result<Option<Value>, D
         .filter(projects::Column::DeletedAt.is_null())
         .one(&orm_db)
         .await?;
-    let row = row.map(serde_json::to_value).transpose().map_err(json_error)?;
+    let row = row
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(json_error)?;
     let Some(mut detail) = picked(row, PROJECT_DETAIL) else {
         return Ok(None);
     };
     let members: Vec<(String, String)> = project_members::Entity::find()
         .select_only()
-        .columns([project_members::Column::UserId, project_members::Column::Role])
+        .columns([
+            project_members::Column::UserId,
+            project_members::Column::Role,
+        ])
         .filter(project_members::Column::ProjectId.eq(entity_id))
         .filter(project_members::Column::IsActive.eq(true))
         .filter(project_members::Column::DeletedAt.is_null())

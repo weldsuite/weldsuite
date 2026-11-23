@@ -22,9 +22,9 @@ use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelec
 use serde::Serialize;
 use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys;
-use weldsuite_db::{TenantPermissionQueries, orm, orm_error};
-use weldsuite_schema::tenant::{entities, legal_entity_members};
+use weldsuite_db::{TenantPermissionQueries, orm};
 use weldsuite_permissions::{PermissionQueries, ResolvedPermissions, check_app_permission};
+use weldsuite_schema::tenant::{entities, legal_entity_members};
 
 /// The permission that sees every entity and manages who sees which.
 pub const LEGAL_ENTITIES_MANAGE: &str = permission_keys::LEGAL_ENTITIES_MANAGE;
@@ -299,7 +299,6 @@ pub async fn resolve_permissions_with_role(
         role_id,
     )
     .await
-    .map_err(orm_error)
 }
 
 /// The effective permissions inside one entity (`permissionsInEntity`): the
@@ -309,9 +308,7 @@ pub async fn permissions_in_entity(
     access: &EntityAccess,
     entity_id: &str,
 ) -> Result<ResolvedPermissions, DbErr> {
-    permissions_in_entity_with(&TenantPermissionQueries::new(db.clone()), access, entity_id)
-        .await
-        .map_err(orm_error)
+    permissions_in_entity_with(&TenantPermissionQueries::new(db.clone()), access, entity_id).await
 }
 
 /// [`permissions_in_entity`] through any [`PermissionQueries`] (a module's

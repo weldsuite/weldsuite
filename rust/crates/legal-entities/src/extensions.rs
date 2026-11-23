@@ -215,13 +215,14 @@ fn pay_runs_of(entity_id: &str) -> SelectStatement {
         .inner_join(
             hr_payroll_employers::Entity,
             sea_orm::ExprTrait::equals(
-                Expr::col((hr_payroll_employers::Entity, hr_payroll_employers::Column::Id)),
+                Expr::col((
+                    hr_payroll_employers::Entity,
+                    hr_payroll_employers::Column::Id,
+                )),
                 (hr_pay_runs::Entity, hr_pay_runs::Column::EmployerId),
             ),
         )
-        .cond_where(
-            Condition::all().add(hr_payroll_employers::Column::LegalEntityId.eq(entity_id)),
-        )
+        .cond_where(Condition::all().add(hr_payroll_employers::Column::LegalEntityId.eq(entity_id)))
         .to_owned()
 }
 

@@ -278,10 +278,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
     // with another return of the entity; recalculating the same period is fine.
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
-    let (start_at, end_at) = (
-        timestamp_of_iso(&start)?,
-        timestamp_of_iso(&end)?,
-    );
+    let (start_at, end_at) = (timestamp_of_iso(&start)?, timestamp_of_iso(&end)?);
     let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = vat_returns::Entity::find()
         .select_only()
         .column(vat_returns::Column::PeriodStart)
@@ -322,8 +319,7 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
         ));
     }
 
-    let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await?;
+    let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end)).await?;
     let calculated = compute_rubrieken(&lines.into_iter().map(|l| l.line).collect::<Vec<_>>());
     // The manual boxes (KOR reduction, estimates) belong to the return: keep them.
     let kept = existing
@@ -873,8 +869,7 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
         .unwrap_or_default()
         .to_owned();
     let end = text(&original, "periodEnd").unwrap_or_default().to_owned();
-    let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end))
-        .await?;
+    let lines = load_period_lines(db, &entity_id, &iso_day(&start), &iso_day(&end)).await?;
     let recalculated = compute_rubrieken(&lines.into_iter().map(|l| l.line).collect::<Vec<_>>());
     let filed = nl::normalize(original.get("rubrieken")).unwrap_or_default();
     let net_diff = js::math_round((recalculated.get("r5g") - filed.get("r5g")) * 100.0) / 100.0;

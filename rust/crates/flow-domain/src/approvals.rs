@@ -62,9 +62,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, NullOrdering, Order};
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
@@ -1023,7 +1021,8 @@ pub async fn decide_approval(
         .into_iter()
         .next();
     // Someone answered between the read and the update.
-    let Some(updated) = updated.and_then(|model| ApprovalRow::from_json(&entity_json(model))) else {
+    let Some(updated) = updated.and_then(|model| ApprovalRow::from_json(&entity_json(model)))
+    else {
         return refused(DecideRefusal::AlreadyDecided, messages::ALREADY_DECIDED);
     };
 

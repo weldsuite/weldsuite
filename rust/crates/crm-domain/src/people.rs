@@ -212,7 +212,13 @@ fn person_condition(scope: Option<&str>, filter: &PeopleFilter, resolved: &Resol
     }
     if let Some(search) = given(&filter.search) {
         condition = condition.add(search_match(
-            &[P::DisplayName, P::FullName, P::FirstName, P::LastName, P::Email],
+            &[
+                P::DisplayName,
+                P::FullName,
+                P::FirstName,
+                P::LastName,
+                P::Email,
+            ],
             &crate::validation::contains_pattern(&search),
         ));
     }
@@ -679,7 +685,10 @@ fn company_ids(input: &Map<String, Value>) -> Vec<String> {
 async fn add_to_crm(db: &PgPool, id: &str, owner: Option<&str>) -> DomainResult<()> {
     people::Entity::update_many()
         .col_expr(people::Column::InCrm, Expr::value(true))
-        .col_expr(people::Column::OwnerId, Expr::value(owner.map(str::to_owned)))
+        .col_expr(
+            people::Column::OwnerId,
+            Expr::value(owner.map(str::to_owned)),
+        )
         .col_expr(people::Column::UpdatedAt, Expr::value(utc_now()))
         .filter(people::Column::Id.eq(id))
         .exec(&orm(db))
@@ -1139,7 +1148,10 @@ pub async fn set_archived(
     }
     let now = utc_now();
     people::Entity::update_many()
-        .col_expr(people::Column::ArchivedAt, Expr::value(archived.then_some(now)))
+        .col_expr(
+            people::Column::ArchivedAt,
+            Expr::value(archived.then_some(now)),
+        )
         .col_expr(people::Column::UpdatedAt, Expr::value(now))
         .filter(people::Column::Id.eq(id))
         .exec(&orm(db))
@@ -1550,9 +1562,10 @@ pub async fn list_recent_correspondents(
     }
     let rows: Vec<PersonSummary> = query
         .order_by_desc(people::Column::UpdatedAt)
-        .limit(u64::try_from(limit).map_err(|_| {
-            sea_orm::DbErr::Custom("LIMIT must not be negative".to_owned())
-        })?)
+        .limit(
+            u64::try_from(limit)
+                .map_err(|_| sea_orm::DbErr::Custom("LIMIT must not be negative".to_owned()))?,
+        )
         .into_model()
         .all(&orm(db))
         .await?;

@@ -44,8 +44,8 @@ use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BAS
 use reqwest::Method;
 use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
-    FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
@@ -944,7 +944,11 @@ impl WeldIdIdentity {
             image_url: Set(profile.image_url.clone()),
             ..Default::default()
         })
-        .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned())
+        .on_conflict(
+            OnConflict::column(users::Column::Id)
+                .do_nothing()
+                .to_owned(),
+        )
         .exec_without_returning(&db)
         .await
         .map_err(|error| database(&error))

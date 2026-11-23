@@ -93,8 +93,7 @@ fn aftermath<'a>(
     info: &'a AftermathInfo,
 ) -> AftermathFuture<'a> {
     Box::pin(async move {
-        let change = find_change_request(&caller.db, &info.subject_id)
-            .await?;
+        let change = find_change_request(&caller.db, &info.subject_id).await?;
         let result = take(&info.subject_id);
         let (Some(change), Some(result)) = (change, result) else {
             return Ok(());

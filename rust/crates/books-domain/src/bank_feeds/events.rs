@@ -163,7 +163,10 @@ pub async fn apply_feed_event(
         Expr::val(json!({ "feedAccounts": updated })),
     );
     let mut update = bank_connections::Entity::update_many()
-        .col_expr(bank_connections::Column::Status, Expr::val(next_status.as_str()))
+        .col_expr(
+            bank_connections::Column::Status,
+            Expr::val(next_status.as_str()),
+        )
         .col_expr(bank_connections::Column::LastError, Expr::val(last_error));
     if let Some(expires) = expires.as_deref() {
         update = update.col_expr(
@@ -186,7 +189,10 @@ pub async fn apply_feed_event(
         .collect();
     for fa in &touched {
         bank_accounts::Entity::update_many()
-            .col_expr(bank_accounts::Column::FeedStatus, Expr::val(text(fa, "status")))
+            .col_expr(
+                bank_accounts::Column::FeedStatus,
+                Expr::val(text(fa, "status")),
+            )
             .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(timestamp))
             .filter(bank_accounts::Column::FeedConnectionId.eq(text(&row, "id")))
             .filter(bank_accounts::Column::FeedAccountId.eq(text(fa, "providerAccountId")))

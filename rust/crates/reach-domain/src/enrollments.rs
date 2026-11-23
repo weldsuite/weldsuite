@@ -43,11 +43,10 @@ pub async fn bulk_set_next_send_at(
             .iter()
             .map(|(id, at)| ValueTuple::Two(id.clone().into(), stamp(*at).into()))
             .collect();
-        let mut update = enrollments::Entity::update_many()
-            .col_expr(
-                Column::NextSendAt,
-                Expr::col((v.clone(), Alias::new("column2"))),
-            );
+        let mut update = enrollments::Entity::update_many().col_expr(
+            Column::NextSendAt,
+            Expr::col((v.clone(), Alias::new("column2"))),
+        );
         if activate {
             update = update.col_expr(Column::Status, Expr::value("active"));
         }
@@ -333,8 +332,8 @@ pub async fn count_campaign_enrollments(
     campaign_id: &str,
     status: Option<&str>,
 ) -> ReachResult<i64> {
-    let mut count = enrollments::Entity::find()
-        .filter(enrollments::Column::CampaignId.eq(campaign_id));
+    let mut count =
+        enrollments::Entity::find().filter(enrollments::Column::CampaignId.eq(campaign_id));
     if let Some(status) = status {
         count = count.filter(enrollments::Column::Status.eq(status));
     }

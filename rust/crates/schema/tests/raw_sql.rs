@@ -21,10 +21,7 @@ use std::path::{Path, PathBuf};
 const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations", "crates/mta"];
 
 /// Not converted yet. Remove a crate when its root `allow` goes; never add one.
-const NOT_CONVERTED: &[&str] = &[
-    "crates/connect-domain",
-    "crates/db",
-];
+const NOT_CONVERTED: &[&str] = &[];
 
 fn rust_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

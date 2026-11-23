@@ -155,7 +155,8 @@ pub async fn update_profile(
     first_name: Option<&str>,
     last_name: Option<&str>,
 ) -> ReachResult<()> {
-    let mut update = pool::Entity::update_many().col_expr(pool::Column::UpdatedAt, Expr::value(now()));
+    let mut update =
+        pool::Entity::update_many().col_expr(pool::Column::UpdatedAt, Expr::value(now()));
     if let Some(first_name) = first_name {
         update = update.col_expr(pool::Column::FirstName, Expr::value(first_name));
     }
@@ -179,7 +180,10 @@ pub async fn pause(
 ) -> ReachResult<()> {
     pool::Entity::update_many()
         .col_expr(pool::Column::Status, Expr::value("paused"))
-        .col_expr(pool::Column::PausedReason, Expr::value(js_slice(reason, 100)))
+        .col_expr(
+            pool::Column::PausedReason,
+            Expr::value(js_slice(reason, 100)),
+        )
         .col_expr(pool::Column::UpdatedAt, Expr::value(now()))
         .filter(pool::Column::ClerkOrgId.eq(clerk_org_id))
         .filter(pool::Column::TenantMailboxId.eq(tenant_mailbox_id))
@@ -282,20 +286,26 @@ pub struct PoolView {
 
 /// `readPoolMailboxes(master, clerkOrgId)`.
 pub async fn read_pool(master: &PgPool, clerk_org_id: &str) -> Result<Vec<PoolView>, DbErr> {
-    let rows: Vec<(String, String, i32, Option<Value>, Option<String>, Option<String>)> =
-        pool::Entity::find()
-            .select_only()
-            .column(pool::Column::TenantMailboxId)
-            .column(pool::Column::Status)
-            .column(pool::Column::RampDay)
-            .column(pool::Column::Stats)
-            .column(pool::Column::PausedReason)
-            .column(pool::Column::LastLoginError)
-            .filter(pool::Column::ClerkOrgId.eq(clerk_org_id))
-            .filter(pool::Column::Status.ne("removed"))
-            .into_tuple()
-            .all(&orm(master))
-            .await?;
+    let rows: Vec<(
+        String,
+        String,
+        i32,
+        Option<Value>,
+        Option<String>,
+        Option<String>,
+    )> = pool::Entity::find()
+        .select_only()
+        .column(pool::Column::TenantMailboxId)
+        .column(pool::Column::Status)
+        .column(pool::Column::RampDay)
+        .column(pool::Column::Stats)
+        .column(pool::Column::PausedReason)
+        .column(pool::Column::LastLoginError)
+        .filter(pool::Column::ClerkOrgId.eq(clerk_org_id))
+        .filter(pool::Column::Status.ne("removed"))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     Ok(rows
         .into_iter()
         .map(

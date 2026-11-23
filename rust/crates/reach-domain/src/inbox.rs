@@ -122,8 +122,8 @@ fn from_latest() -> SelectStatement {
 /// The thread filters over [`latest_inbound`]; the state is `unread`, `open`
 /// or `handled` (anything else filters nothing).
 fn inbox_filters(filter: &InboxFilter, state: &str) -> Condition {
-    use sea_orm::ExprTrait as _;
     use messages::Column;
+    use sea_orm::ExprTrait as _;
     let mut filters = Condition::all();
     for (column, value) in [
         (Column::Label, &filter.label),
@@ -333,8 +333,8 @@ async fn thread_ids(
     cursor: Option<&(String, String)>,
     limit: i64,
 ) -> Result<Vec<String>, DbErr> {
-    use sea_orm::ExprTrait as _;
     use messages::Column;
+    use sea_orm::ExprTrait as _;
     let mut filters = inbox_filters(filter, state);
     if let Some((at, id)) = cursor {
         let at: Option<OffsetDateTime> = crate::parse_iso(at);
@@ -429,12 +429,13 @@ pub async fn load_thread(db: &PgPool, thread_key: &str) -> ReachResult<Option<Th
             .transpose()?,
         None => None,
     };
-    let mailbox = reach_mailboxes::Entity::find_by_id(text(&latest, "mailboxId").unwrap_or_default())
-        .one(&conn)
-        .await?
-        .map(serde_json::to_value)
-        .map(js)
-        .transpose()?;
+    let mailbox =
+        reach_mailboxes::Entity::find_by_id(text(&latest, "mailboxId").unwrap_or_default())
+            .one(&conn)
+            .await?
+            .map(serde_json::to_value)
+            .map(js)
+            .transpose()?;
     Ok(Some(ThreadContext {
         thread_key: thread_key.to_owned(),
         messages,

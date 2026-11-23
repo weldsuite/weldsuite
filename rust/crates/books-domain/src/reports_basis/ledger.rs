@@ -377,8 +377,7 @@ fn stamp(millis: i64) -> Result<PrimitiveDateTime, DbErr> {
 /// `floor(extract(epoch from at) * 1000)`: a `timestamp` read as UTC, in
 /// epoch milliseconds.
 fn epoch_millis(at: PrimitiveDateTime) -> i64 {
-    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
-        .unwrap_or(i64::MAX)
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or(i64::MAX)
 }
 
 /// The source types whose entries cash basis leaves out: the documents and

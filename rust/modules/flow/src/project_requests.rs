@@ -400,6 +400,7 @@ fn overlaps<C: ColumnTrait>(start: C, end: C, from: &str, to: &str) -> Condition
         )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn build_roadmap(caller: &Caller, from: &str, to: &str, tentative: bool) -> Reply {
     use projects::Column as Project;
 

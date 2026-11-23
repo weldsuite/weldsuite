@@ -45,9 +45,7 @@ async fn update_registration_row(
 /// region = $5`).
 fn in_region(region: Option<&str>) -> Condition {
     match region.filter(|region| !region.is_empty()) {
-        Some(region) => {
-            Condition::all().add(legal_entity_registrations::Column::Region.eq(region))
-        }
+        Some(region) => Condition::all().add(legal_entity_registrations::Column::Region.eq(region)),
         None => Condition::all(),
     }
 }
@@ -236,9 +234,7 @@ fn date_param(field: &Field<String>) -> Result<Option<Date>, LegalEntityError> {
         .filter(|day| day.year() > 0)
         .map(Some)
         .ok_or_else(|| {
-            LegalEntityError::Internal(format!(
-                "invalid input syntax for type date: \"{text}\""
-            ))
+            LegalEntityError::Internal(format!("invalid input syntax for type date: \"{text}\""))
         })
 }
 

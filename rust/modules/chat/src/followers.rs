@@ -188,9 +188,7 @@ pub(crate) async fn default_followers_who_may_open(
     let mut allowed = Vec::new();
     for user_id in candidates {
         let can = Can::user(db, &user_id);
-        if can_access_entity(provider, db, &user_id, entity_id, &can)
-            .await?
-        {
+        if can_access_entity(provider, db, &user_id, entity_id, &can).await? {
             allowed.push(user_id);
         }
     }
@@ -227,9 +225,7 @@ pub(crate) async fn follow_record_chat_on_post(
                 continue;
             }
             let can = Can::user(db, &user_id);
-            if can_access_entity(provider, db, &user_id, entity_id, &can)
-                .await?
-            {
+            if can_access_entity(provider, db, &user_id, entity_id, &can).await? {
                 followers.push(user_id);
             }
         }

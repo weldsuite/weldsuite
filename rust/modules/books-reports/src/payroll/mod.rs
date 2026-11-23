@@ -283,9 +283,7 @@ async fn save_csv_mapping(
     let flat = mapping.flatten();
     let (now, stamp) = crate::rows::now_and_stamp();
     let db = orm(&caller.db);
-    if let Some(mut existing) = load_csv_connection(caller, entity_id)
-        .await?
-    {
+    if let Some(mut existing) = load_csv_connection(caller, entity_id).await? {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
         payroll_connections::Entity::update_many()
             .col_expr(

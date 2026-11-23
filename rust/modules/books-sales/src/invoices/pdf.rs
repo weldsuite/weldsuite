@@ -286,8 +286,7 @@ async fn invoice_html(
         fiscal_document: fiscal_document(db, &entity, id).await?,
         pix: pix_of(&entity, &invoice)?,
     };
-    let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id)
-        .await?;
+    let template = resolve_invoice_template(db, text(&invoice, "templateId"), &entity_id).await?;
     let html = match template {
         Some(template) => generate_templated_invoice_html(&template, &data, &entity),
         None => generate_invoice_html(&data, &entity),

@@ -286,7 +286,9 @@ async fn master_database(config: &Config) -> Check {
     reason = "a connectivity probe: `select 1` reads no table, and its error is shown as sqlx words it"
 )]
 async fn ping(pool: &weldsuite_db::PgPool) -> Result<i32, sqlx::Error> {
-    sqlx::query_scalar::<_, i32>("select 1").fetch_one(pool).await
+    sqlx::query_scalar::<_, i32>("select 1")
+        .fetch_one(pool)
+        .await
 }
 
 /// The AI checks: the install provider, each key the install holds, and,

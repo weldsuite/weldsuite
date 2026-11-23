@@ -346,9 +346,7 @@ async fn process(
         let Some(doc) = find_document(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        if is_tax_form_document(&caller.db, &doc)
-            .await?
-        {
+        if is_tax_form_document(&caller.db, &doc).await? {
             return Err(Refusal::bad_request(
                 "Tax forms such as W-9s and exemption certificates are never sent to OCR.",
             ));
@@ -357,13 +355,11 @@ async fn process(
         let Some(ai) = caller.ai(&state) else {
             return Err(AiError::Unavailable.into_api_error().into());
         };
-        set_status(&caller.db, &id, "processing")
-            .await?;
+        set_status(&caller.db, &id, "processing").await?;
         match read_and_store(&caller, &state, &ai, &doc, &id).await {
             Ok(response) => Ok(response),
             Err(failure) => {
-                set_status(&caller.db, &id, "failed")
-                    .await?;
+                set_status(&caller.db, &id, "failed").await?;
                 Err(failure.into_api_error().into())
             }
         }

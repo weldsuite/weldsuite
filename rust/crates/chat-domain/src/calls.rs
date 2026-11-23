@@ -142,7 +142,9 @@ pub async fn call_row(db: &PgPool, call_id: &str) -> Result<Option<Value>, DbErr
     let row = chat_calls::Entity::find_by_id(call_id)
         .one(&orm(db))
         .await?;
-    row.map(serde_json::to_value).transpose().map_err(json_error)
+    row.map(serde_json::to_value)
+        .transpose()
+        .map_err(json_error)
 }
 
 /// `call.participants ?? []`.
@@ -649,7 +651,10 @@ pub async fn end_chat_call(
     )
     .await?;
     chat_calls::Entity::update_many()
-        .col_expr(chat_calls::Column::EndMessageId, Expr::value(message_id.as_str()))
+        .col_expr(
+            chat_calls::Column::EndMessageId,
+            Expr::value(message_id.as_str()),
+        )
         .filter(chat_calls::Column::Id.eq(call_id))
         .exec(&orm(db))
         .await?;

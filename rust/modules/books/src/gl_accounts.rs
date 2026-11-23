@@ -369,9 +369,7 @@ async fn tax_lines(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let Some(entity) = find_entity(&caller.db, &entity_id)
-            .await?
-        else {
+        let Some(entity) = find_entity(&caller.db, &entity_id).await? else {
             return Err(Refusal::not_found("Entity", &entity_id));
         };
         if entity["jurisdictionCode"].as_str() != Some("US") {
@@ -423,8 +421,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let Some(entity_id) = resolve_entity_id(&caller).await? else {
             return Err(Refusal::bad_request("No accounting entity resolved"));
         };
-        let rows = list_accounts(&caller.db, &entity_id, &q)
-            .await?;
+        let rows = list_accounts(&caller.db, &entity_id, &q).await?;
         Ok(ok(Value::Array(rows)))
     }
     .await;
@@ -546,9 +543,7 @@ async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): Raw
     let page = parse_int(q.present("page").unwrap_or("1")).map(|n| n.max(1));
     let size = parse_int(q.present("pageSize").unwrap_or("25")).map(|n| n.clamp(1, 100));
     let result = async {
-        let total = posted_lines(&id)
-            .count(&orm(&caller.db))
-            .await?;
+        let total = posted_lines(&id).count(&orm(&caller.db)).await?;
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let (Some(page), Some(size)) = (page, size) else {
             return Err(Refusal::Internal("page is NaN".to_owned()));
@@ -558,8 +553,7 @@ async fn transactions(caller: Caller, Path(id): Path<String>, RawQuery(raw): Raw
         else {
             return Err(Refusal::Internal("OFFSET must not be negative".to_owned()));
         };
-        let rows = ledger_lines(&caller.db, &id, limit, offset)
-            .await?;
+        let rows = ledger_lines(&caller.db, &id, limit, offset).await?;
         Ok(paged(rows, total, page * size < total, None))
     }
     .await;
@@ -592,16 +586,13 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
     let code = data["code"].as_str().unwrap_or_default().to_owned();
-    let existing = code_holder(db, &entity_id, &code)
-        .await?;
+    let existing = code_holder(db, &entity_id, &code).await?;
     if existing.is_some() {
         return Err(Refusal::conflict(format!(
             "Account code '{code}' already exists"
         )));
     }
-    if let Some(message) = mapping_error(db, &entity_id, &data)
-        .await?
-    {
+    if let Some(message) = mapping_error(db, &entity_id, &data).await? {
         return Err(Refusal::bad_request(message));
     }
     if let Some(parent) = data
@@ -610,9 +601,7 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Map<String, V
         .filter(|p| !p.is_empty())
     {
         let kind = data["type"].as_str().unwrap_or_default();
-        if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent)
-            .await?
-        {
+        if let Some((message, details)) = parent_error(db, None, &entity_id, kind, parent).await? {
             return Err(Refusal::bad_request_with(message, details));
         }
     }
@@ -748,8 +737,7 @@ async fn update_account(
         .filter(|c| !c.is_empty())
         && account["code"].as_str() != Some(code)
     {
-        let dup = code_holder(db, &entity_id, code)
-            .await?;
+        let dup = code_holder(db, &entity_id, code).await?;
         if dup.is_some() {
             return Err(Refusal::conflict(format!(
                 "Account code '{code}' already exists"
@@ -758,14 +746,11 @@ async fn update_account(
     }
     if data.get("isActive") == Some(&Value::Bool(false))
         && account["isActive"] != Value::Bool(false)
-        && let Some((message, details)) = deactivation_conflict(db, &account)
-            .await?
+        && let Some((message, details)) = deactivation_conflict(db, &account).await?
     {
         return Err(Refusal::conflict_with(message, details));
     }
-    if let Some(message) = mapping_error(db, &entity_id, &data)
-        .await?
-    {
+    if let Some(message) = mapping_error(db, &entity_id, &data).await? {
         return Err(Refusal::bad_request(message));
     }
     if let Some((message, details)) = tree_error(db, &account, &data).await? {

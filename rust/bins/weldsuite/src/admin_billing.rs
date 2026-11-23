@@ -237,7 +237,10 @@ async fn grant_comp(
     // `comp_ends_at = $3::timestamp`: the end as the text the details show.
     let ends = Func::cast_as(Expr::val(ends), Alias::new("timestamp"));
     let mut update = Entity::update_many()
-        .col_expr(Column::CompGrantedAt, Expr::value(utc_timestamp(granted_at)))
+        .col_expr(
+            Column::CompGrantedAt,
+            Expr::value(utc_timestamp(granted_at)),
+        )
         .col_expr(Column::CompEndsAt, ends.into())
         .col_expr(Column::CompGrantedBy, Expr::value(granted_by))
         .col_expr(Column::CompReason, Expr::value(reason));
@@ -372,19 +375,24 @@ pub(crate) async fn execute(
                     billing_accounts::Column::DunningRemindedAt,
                     Expr::value(Option::<time::PrimitiveDateTime>::None),
                 )
-                .col_expr(billing_accounts::Column::UpdatedAt, Expr::current_timestamp())
+                .col_expr(
+                    billing_accounts::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
                 .filter(billing_accounts::Column::WorkspaceId.eq(&found.id))
                 .exec(&db)
                 .await?;
             workspaces::Entity::update_many()
-                .col_expr(workspaces::Column::SubscriptionStatus, Expr::value("active"))
+                .col_expr(
+                    workspaces::Column::SubscriptionStatus,
+                    Expr::value("active"),
+                )
                 .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
                 .filter(workspaces::Column::Id.eq(&found.id))
                 .filter(workspaces::Column::SubscriptionStatus.eq("past_due"))
                 .exec(&db)
                 .await?;
             record_success(&db, &entry).await?;
-            drop(db);
             tx.commit().await?;
             Ok(format!("Comped {} ({}): {details}\n", found.name, found.id))
         }
@@ -437,7 +445,6 @@ pub(crate) async fn execute(
                 .exec(&db)
                 .await?;
             record_success(&db, &entry).await?;
-            drop(db);
             tx.commit().await?;
             if paying {
                 return Ok(format!(
@@ -571,12 +578,14 @@ pub(crate) async fn execute(
                         i32::try_from(amount).unwrap_or(i32::MAX),
                     ),
                 )
-                .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                .col_expr(
+                    billing_payments::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
                 .filter(billing_payments::Column::Id.eq(&row_id))
                 .exec(&db)
                 .await?;
             record_success(&db, &entry).await?;
-            drop(db);
             tx.commit().await?;
             Ok(format!(
                 "Refund {} ({}) started for {} cents of {payment_id}. Make the credit note in WeldBooks, in the issuer workspace.\n",

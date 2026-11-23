@@ -16,10 +16,10 @@ use sea_orm::{
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_db::{Keyring, PgPool, orm, utc_now};
-use weldsuite_schema::tenant::{connector_connections as connections, connector_sync_runs as runs};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, OutboundHttp};
+use weldsuite_schema::tenant::{connector_connections as connections, connector_sync_runs as runs};
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::{ConnectorError, Kind, decrypt_credentials};
@@ -338,8 +338,9 @@ pub async fn mark_connection_error(
 }
 
 /// A database error's text as sqlx wrote it (SeaORM's wrapper adds a
-/// prefix of its own): what a failed run records and logs.
-pub(crate) fn db_error_text(error: &DbErr) -> String {
+/// prefix of its own): what a failed run records, and what an answer that
+/// carries the error says.
+pub fn db_error_text(error: &DbErr) -> String {
     match error {
         DbErr::Conn(RuntimeErr::SqlxError(inner))
         | DbErr::Exec(RuntimeErr::SqlxError(inner))

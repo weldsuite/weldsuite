@@ -108,8 +108,7 @@ async fn liability(
             if !is_iso_date_text(&as_of) {
                 return Err(bad("asOf must be a YYYY-MM-DD date"));
             }
-            Ok(ok(liability_report(&caller.db, &entity, &as_of)
-                .await?))
+            Ok(ok(liability_report(&caller.db, &entity, &as_of).await?))
         }
         .await,
         "Failed to fetch the sales tax liability",
@@ -981,8 +980,9 @@ async fn expiring(
                 .unwrap_or(60)
                 .clamp(1, 730);
             let today = today_of(&caller, &state, &entity);
-            Ok(ok(expiring_certificates(&caller.db, &entity, days, &today)
-                .await?))
+            Ok(ok(
+                expiring_certificates(&caller.db, &entity, days, &today).await?
+            ))
         }
         .await,
         "Failed to fetch expiring certificates",
@@ -1197,8 +1197,7 @@ async fn provider_reconciliation(
                 return Err(bad("from and to must be YYYY-MM-DD dates"));
             }
             let all = matches!(q.get("all"), Some("1" | "true"));
-            Ok(ok(reconcile(&caller.db, &entity, &from, &to, all)
-                .await?))
+            Ok(ok(reconcile(&caller.db, &entity, &from, &to, all).await?))
         }
         .await,
         "Failed to reconcile the tax provider",

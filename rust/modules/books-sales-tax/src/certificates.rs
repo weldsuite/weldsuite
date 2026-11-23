@@ -493,8 +493,7 @@ async fn list_certificates(caller: &Caller, state: &BooksState, q: &Query) -> Re
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
         .collect();
-    let used = last_used_by_certificate(&caller.db, entity_id, &ids)
-        .await?;
+    let used = last_used_by_certificate(&caller.db, entity_id, &ids).await?;
     let day = today(caller, state);
     let mut presented: Vec<Value> = rows
         .iter()
@@ -538,8 +537,8 @@ async fn detail(
             let entity = require_sales_tax_entity(&caller).await?;
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let row = require_certificate(&caller.db, &entity_id, &id).await?;
-            let used = last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
-                .await?;
+            let used =
+                last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id)).await?;
             Ok(ok(present_certificate(
                 &row,
                 last_used(&used, &id),
@@ -629,11 +628,9 @@ async fn create_certificate(caller: &Caller, state: &BooksState, data: Certifica
         )
         .await?;
     audit(caller, &entity_id, &id, "created", None).await;
-    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &row, &day)
-        .await?;
+    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &row, &day).await?;
     let used = if linked > 0 {
-        last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id))
-            .await?
+        last_used_by_certificate(&caller.db, &entity_id, std::slice::from_ref(&id)).await?
     } else {
         Vec::new()
     };
@@ -734,10 +731,8 @@ async fn update_certificate(
     .await;
     let updated = merged(&row, &update);
     let day = today(caller, state);
-    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &updated, &day)
-        .await?;
-    let used = last_used_by_certificate(&caller.db, &entity_id, &[id.to_owned()])
-        .await?;
+    let linked = link_certificate_to_earlier_sales(&caller.db, &entity_id, &updated, &day).await?;
+    let used = last_used_by_certificate(&caller.db, &entity_id, &[id.to_owned()]).await?;
     let presented = present_certificate(&updated, last_used(&used, id), &day);
     caller.publish(
         state,

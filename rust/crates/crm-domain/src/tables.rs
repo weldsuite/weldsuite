@@ -116,7 +116,10 @@ pub(crate) fn update_statement<E: EntityTrait>(
         }
     }
     update
-        .from(TableRef::FunctionCall(record, Alias::new(RECORD).into_iden()))
+        .from(TableRef::FunctionCall(
+            record,
+            Alias::new(RECORD).into_iden(),
+        ))
         .cond_where(condition)
         .returning(Query::returning().expr(Expr::col((
             Alias::new(entity.table_name()),

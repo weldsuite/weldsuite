@@ -271,10 +271,10 @@ async fn sent_year_to_date(
     party_id: &str,
     (from, to): (&time::PrimitiveDateTime, &time::PrimitiveDateTime),
 ) -> Result<String, DbErr> {
-    use sea_orm::ExprTrait as _;
     use payments::Column;
-    let total = Func::coalesce([Func::sum(Expr::col(Column::Amount)).into(), Expr::val(0)])
-        .cast_as("text");
+    use sea_orm::ExprTrait as _;
+    let total =
+        Func::coalesce([Func::sum(Expr::col(Column::Amount)).into(), Expr::val(0)]).cast_as("text");
     let method = Func::coalesce([Expr::col(Column::PaymentMethod), Expr::val("")]);
     let payroll = Func::coalesce([Expr::col(Column::PaidThroughPayroll), Expr::val(false)]);
     let total: Option<String> = payments::Entity::find()

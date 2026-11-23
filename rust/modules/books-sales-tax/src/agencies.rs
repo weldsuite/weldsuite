@@ -511,11 +511,8 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 async fn show(caller: &Caller, id: &str) -> Reply {
     let entity = require_sales_tax_entity(caller).await?;
     let agency = require_agency(&caller.db, text(&entity, "id").unwrap_or_default(), id).await?;
-    let has_lines = agency_has_tax_lines(&caller.db, id)
-        .await?;
-    let mut row = with_accounts(&caller.db, vec![agency])
-        .await?
-        .remove(0);
+    let has_lines = agency_has_tax_lines(&caller.db, id).await?;
+    let mut row = with_accounts(&caller.db, vec![agency]).await?.remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("hasTaxLines".into(), json!(has_lines));
     }
@@ -581,9 +578,7 @@ async fn create_agency(caller: &Caller, state: &BooksState, data: AgencyBody) ->
         &agency_id,
         event_data(&agency),
     );
-    let mut row = with_accounts(&caller.db, vec![agency])
-        .await?
-        .remove(0);
+    let mut row = with_accounts(&caller.db, vec![agency]).await?.remove(0);
     if let Some(map) = row.as_object_mut() {
         map.insert("accountsCreated".into(), json!(accounts_created));
         map.insert("rulesSeeded".into(), json!(rules_seeded));
@@ -804,8 +799,7 @@ pub(crate) async fn create_sales_tax_agency(
     day: &str,
 ) -> Result<(Value, usize, usize), Refusal> {
     let fields = resolve_agency_fields(input, day)?;
-    let duplicate = duplicate_of(db, entity_id, &fields)
-        .await?;
+    let duplicate = duplicate_of(db, entity_id, &fields).await?;
     if duplicate.is_some() {
         return Err(refuse(
             if fields.level == "local" {
@@ -902,9 +896,7 @@ pub(crate) async fn create_sales_tax_agency(
         let conn = OrmConn::new(&mut tx);
         let account_rows = JsonTable::of::<accounts::Entity>();
         for account in &new_accounts {
-            account_rows
-                .insert(&conn, ACCOUNTS.values(account))
-                .await?;
+            account_rows.insert(&conn, ACCOUNTS.values(account)).await?;
         }
         AGENCY_ROWS
             .insert(&conn, T.values(agency.as_object().unwrap_or(&Map::new())))
@@ -1100,9 +1092,7 @@ async fn update_agency(caller: &Caller, state: &BooksState, id: &str, data: Agen
     )
     .await;
     caller.publish(state, SALES_TAX_AGENCY_UPDATED, id, event_data(&updated));
-    let row = with_accounts(&caller.db, vec![updated])
-        .await?
-        .remove(0);
+    let row = with_accounts(&caller.db, vec![updated]).await?.remove(0);
     Ok(ok(row))
 }
 
@@ -1176,9 +1166,7 @@ async fn delete_agency(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let agency = require_agency(&caller.db, &entity_id, id).await?;
     let instant = time::OffsetDateTime::now_utc();
     let at = weldsuite_events::iso_timestamp(instant);
-    if agency_has_tax_lines(&caller.db, id)
-        .await?
-    {
+    if agency_has_tax_lines(&caller.db, id).await? {
         // Tax-ledger rows point at it: the history stays, and so does the agency.
         let until = text(&agency, "registeredUntil")
             .filter(|u| !u.is_empty())

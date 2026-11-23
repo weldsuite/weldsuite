@@ -607,8 +607,7 @@ async fn delete_jurisdiction(caller: &Caller, state: &BooksState, id: &str) -> R
     }
     let at = utc_timestamp(time::OffsetDateTime::now_utc());
     let mut tx = caller.db.begin().await?;
-    delete_with_rates(&OrmConn::new(&mut tx), id, at)
-        .await?;
+    delete_with_rates(&OrmConn::new(&mut tx), id, at).await?;
     tx.commit().await?;
     audit(caller, &entity_id, id, "deleted", None).await;
     caller.publish(

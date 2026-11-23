@@ -827,8 +827,8 @@ async fn write_approval(tx: &impl ConnectionTrait, w: ApprovalWrites<'_>) -> Res
     }
     if w.go_live.is_some() || w.budget_to.is_some() {
         // Only the fields the change moves are written.
-        let mut update = projects::Entity::update_many()
-            .col_expr(projects::Column::UpdatedAt, Expr::val(wall));
+        let mut update =
+            projects::Entity::update_many().col_expr(projects::Column::UpdatedAt, Expr::val(wall));
         if let Some(go_live) = w.go_live.as_deref() {
             update = update.col_expr(
                 projects::Column::EndDate,

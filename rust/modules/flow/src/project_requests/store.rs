@@ -74,8 +74,7 @@ pub(crate) async fn list_subject_approvals(
     db: &PgPool,
     subject_id: &str,
 ) -> Result<Vec<ApprovalRow>, DbErr> {
-    core_list_subject_approvals(db, "project_request", subject_id)
-        .await
+    core_list_subject_approvals(db, "project_request", subject_id).await
 }
 
 /// What the board decided on a project request (`settleProjectRequest`): an
@@ -90,9 +89,9 @@ impl ApprovalSubjectHandler for RequestHandler {
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
     ) -> ApprovalFuture<'a, Result<(), DbErr>> {
-        Box::pin(async move {
-            settle_project_request(db, subject_id, outcome, context.now_ms).await
-        })
+        Box::pin(
+            async move { settle_project_request(db, subject_id, outcome, context.now_ms).await },
+        )
     }
 }
 
@@ -162,7 +161,6 @@ pub(crate) async fn request_approvals(
 /// `cancelPendingApprovals(db, { includeDecided: true })`: clear every live
 /// row of a subject (soft delete).
 pub(crate) async fn clear_approvals(db: &PgPool, subject_id: &str) -> Result<(), DbErr> {
-    cancel_pending_approvals(db, "project_request", subject_id, true, crate::now_ms())
-        .await?;
+    cancel_pending_approvals(db, "project_request", subject_id, true, crate::now_ms()).await?;
     Ok(())
 }

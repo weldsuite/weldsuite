@@ -123,6 +123,7 @@ async fn save(
     )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn save_settings(
     state: &FlowState,
     caller: &Caller,

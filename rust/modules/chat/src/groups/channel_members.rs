@@ -149,16 +149,12 @@ async fn add_member_denial(
     is_self_add: bool,
 ) -> Result<Option<&'static str>, DbErr> {
     if !is_self_add {
-        if is_channel_moderator(&caller.db, channel_id, &caller.user_id)
-            .await?
-        {
+        if is_channel_moderator(&caller.db, channel_id, &caller.user_id).await? {
             return Ok(None);
         }
         return Ok(Some("Only a channel admin can add members"));
     }
-    if can_access_channel(&caller.db, channel_id, &caller.user_id, None)
-        .await?
-    {
+    if can_access_channel(&caller.db, channel_id, &caller.user_id, None).await? {
         return Ok(None);
     }
     let kind: Option<String> = chat_channels::Entity::find()
@@ -188,8 +184,7 @@ async fn cap_granted_role(
     if requested != "owner" {
         return Ok(requested.to_owned());
     }
-    let role = get_channel_role(&caller.db, channel_id, &caller.user_id)
-        .await?;
+    let role = get_channel_role(&caller.db, channel_id, &caller.user_id).await?;
     Ok(if role.as_deref() == Some("owner") {
         "owner".to_owned()
     } else {

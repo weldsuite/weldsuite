@@ -317,7 +317,11 @@ async fn desk_teammates(db: &PgPool) -> Result<Vec<String>, DbErr> {
         .filter(W::Status.eq("ACTIVE"))
         .filter(upper(W::MemberType.into_expr()).eq("INTERNAL"))
         .filter(
-            upper(Expr::expr(Func::coalesce([W::Role.into_expr(), Expr::val("")]))).ne("VIEWER"),
+            upper(Expr::expr(Func::coalesce([
+                W::Role.into_expr(),
+                Expr::val(""),
+            ])))
+            .ne("VIEWER"),
         )
         .limit(MAX_RECIPIENTS)
         .into_tuple()
@@ -946,7 +950,11 @@ pub async fn process_accounting_inbox(
                         "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
                     )
                 );
-                let kind = if mime == "application/pdf" { "purchase_invoice" } else { "receipt" };
+                let kind = if mime == "application/pdf" {
+                    "purchase_invoice"
+                } else {
+                    "receipt"
+                };
                 documents::Entity::insert(documents::ActiveModel {
                     id: Set(id.clone()),
                     type_: Set(kind.to_owned()),

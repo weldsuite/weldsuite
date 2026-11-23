@@ -212,8 +212,9 @@ impl<'a> TitleAccess<'a> {
             return Ok(*answer);
         }
         let answer = match record_type {
-            "chat_channel" => can_access_channel(self.db, record_id, self.user_id, Some(&self.can))
-                .await?,
+            "chat_channel" => {
+                can_access_channel(self.db, record_id, self.user_id, Some(&self.can)).await?
+            }
             "desk_ticket" => self.can.can(TICKETS_READ).await?,
             "crm_company" => self.can.can(COMPANIES_READ).await?,
             _ => false,

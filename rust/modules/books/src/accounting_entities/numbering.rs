@@ -423,9 +423,7 @@ async fn update_numbering(
     let Some(entity) = find_active(caller, id).await? else {
         return Err(Refusal::not_found("Entity", id));
     };
-    match update_sequences(&caller.db, id, updates)
-        .await?
-    {
+    match update_sequences(&caller.db, id, updates).await? {
         Ok((sequences, changes)) => {
             if !changes.is_empty() {
                 record_changes(caller, state, &entity, changes, &sequences).await;

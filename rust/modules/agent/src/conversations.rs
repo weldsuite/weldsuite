@@ -197,16 +197,18 @@ pub(crate) async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> R
         if let Some(agent_id) = data.agent_id.as_deref().filter(|a| !a.is_empty()) {
             let agent = crate::agents::get_agent(&caller.db, agent_id).await?;
             let allowed = match &agent {
-                Some(agent) => crate::access::can_access_agent(
-                    &caller.db,
-                    &AgentAccess {
-                        id: agent_id,
-                        owner_id: agent["ownerId"].as_str(),
-                        visibility: agent["visibility"].as_str().unwrap_or("workspace"),
-                    },
-                    &caller.viewer(),
-                )
-                .await?,
+                Some(agent) => {
+                    crate::access::can_access_agent(
+                        &caller.db,
+                        &AgentAccess {
+                            id: agent_id,
+                            owner_id: agent["ownerId"].as_str(),
+                            visibility: agent["visibility"].as_str().unwrap_or("workspace"),
+                        },
+                        &caller.viewer(),
+                    )
+                    .await?
+                }
                 None => false,
             };
             if !allowed {

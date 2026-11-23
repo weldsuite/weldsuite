@@ -164,7 +164,10 @@ impl ShareRow {
         row.insert("userId".to_owned(), json!(self.user_id));
         row.insert("role".to_owned(), json!(self.role));
         row.insert("sharedBy".to_owned(), json!(self.shared_by));
-        row.insert("createdAt".to_owned(), json!(iso_timestamp(self.created_at)));
+        row.insert(
+            "createdAt".to_owned(),
+            json!(iso_timestamp(self.created_at)),
+        );
         row.insert("name".to_owned(), json!(self.name));
         row.insert("email".to_owned(), json!(self.email));
         row.insert("picture".to_owned(), Value::Null);
@@ -554,11 +557,8 @@ mod tests {
         let share = |role: &str, at: &str| ShareOf {
             role: role.to_owned(),
             shared_by: "u".to_owned(),
-            created_at: OffsetDateTime::parse(
-                at,
-                &time::format_description::well_known::Rfc3339,
-            )
-            .expect("a timestamp"),
+            created_at: OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
+                .expect("a timestamp"),
         };
         let items = shared_items(vec![
             share("viewer", "2026-10-29T07:00:00+00:00").item(json!({ "id": "a" })),

@@ -79,8 +79,7 @@ impl ApprovalSweepResult {
 async fn is_actionable(db: &PgPool, row: &ApprovalRow) -> Result<bool, DbErr> {
     Ok(is_step_active(
         row,
-        &list_subject_approvals(db, &row.subject_type, &row.subject_id)
-            .await?,
+        &list_subject_approvals(db, &row.subject_type, &row.subject_id).await?,
     ))
 }
 

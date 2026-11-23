@@ -575,7 +575,10 @@ impl CnpgProvisioner {
             .add(1)
             .gte(Expr::col(Column::MaxDatabases));
         let claimed = neon_shared_projects::Entity::update_many()
-            .col_expr(Column::DatabaseCount, Expr::col(Column::DatabaseCount).add(1))
+            .col_expr(
+                Column::DatabaseCount,
+                Expr::col(Column::DatabaseCount).add(1),
+            )
             .col_expr(
                 Column::Status,
                 Expr::case(
@@ -601,13 +604,11 @@ impl CnpgProvisioner {
     async fn release_capacity(&self, shard_id: &str) -> Result<(), ProvisionError> {
         use neon_shared_projects::Column;
         use sea_orm::ExprTrait as _;
-        let reopened = Column::Status
-            .eq(NeonSharedProjectStatus::Full)
-            .and(
-                Expr::col(Column::DatabaseCount)
-                    .sub(1)
-                    .lt(Expr::col(Column::MaxDatabases)),
-            );
+        let reopened = Column::Status.eq(NeonSharedProjectStatus::Full).and(
+            Expr::col(Column::DatabaseCount)
+                .sub(1)
+                .lt(Expr::col(Column::MaxDatabases)),
+        );
         neon_shared_projects::Entity::update_many()
             .col_expr(
                 Column::DatabaseCount,
@@ -645,10 +646,16 @@ impl CnpgProvisioner {
             use workspaces::Column;
             workspaces::Entity::update_many()
                 .col_expr(Column::NeonProjectId, Expr::value(key.as_str()))
-                .col_expr(Column::NeonDatabaseName, Expr::value(database_name.as_str()))
+                .col_expr(
+                    Column::NeonDatabaseName,
+                    Expr::value(database_name.as_str()),
+                )
                 .col_expr(Column::NeonBranchId, Expr::value(Option::<String>::None))
                 .col_expr(Column::NeonRoleName, Expr::value(role_name.as_str()))
-                .col_expr(Column::NeonRegion, Expr::value(self.options.region.as_str()))
+                .col_expr(
+                    Column::NeonRegion,
+                    Expr::value(self.options.region.as_str()),
+                )
                 .col_expr(Column::SharedProjectId, Expr::value(shard_id.as_str()))
                 .col_expr(Column::UpdatedAt, utc_now_sql())
                 .filter(Column::Id.eq(request.workspace_id.as_str()))
@@ -709,13 +716,14 @@ impl CnpgProvisioner {
         shard: &CnpgShard,
         placement: &Placement,
     ) -> Result<Option<String>, ProvisionError> {
-        let stored: Option<Option<String>> = workspaces::Entity::find_by_id(workspace_id.to_owned())
-            .select_only()
-            .column(workspaces::Column::DatabaseUrl)
-            .into_tuple()
-            .one(&orm(&self.master))
-            .await
-            .map_err(master_error)?;
+        let stored: Option<Option<String>> =
+            workspaces::Entity::find_by_id(workspace_id.to_owned())
+                .select_only()
+                .column(workspaces::Column::DatabaseUrl)
+                .into_tuple()
+                .one(&orm(&self.master))
+                .await
+                .map_err(master_error)?;
         Ok(stored
             .flatten()
             .and_then(|stored| {
@@ -806,7 +814,11 @@ impl CnpgProvisioner {
                 .await?;
             } else {
                 if !powers.superuser && powers.server_version >= 160_000 {
-                    execute(admin, "SET createrole_self_grant = 'set, inherit'".to_owned()).await?;
+                    execute(
+                        admin,
+                        "SET createrole_self_grant = 'set, inherit'".to_owned(),
+                    )
+                    .await?;
                 }
                 execute(
                     admin,

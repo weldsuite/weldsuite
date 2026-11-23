@@ -97,8 +97,7 @@ pub(crate) async fn sync_invoice_with_provider(
     let Some(entity) = entity else {
         return Ok(ProviderSync::status("not_applicable"));
     };
-    let items = load_items(db, invoice_id, false)
-        .await?;
+    let items = load_items(db, invoice_id, false).await?;
     let credit_memo = text(&invoice, "type") == Some("credit_note");
     // Anything that goes wrong is kept on the invoice, never thrown.
     let outcome = provider_call(db, &invoice, &items, &entity, runtime, credit_memo).await;

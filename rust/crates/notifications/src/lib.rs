@@ -31,11 +31,11 @@ use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use weldsuite_events::iso_timestamp;
-use weldsuite_schema::tenant::{chat_user_status, notification_preferences, notifications};
 use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, OutboundHttp, PresenceReader, RealtimeMessage,
     RealtimePublisher,
 };
+use weldsuite_schema::tenant::{chat_user_status, notification_preferences, notifications};
 
 pub use preview::{notification_preview, strip_markdown};
 pub use push::{

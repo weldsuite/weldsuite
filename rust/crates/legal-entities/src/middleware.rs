@@ -45,12 +45,12 @@ use sqlx::PgPool;
 use tower::{Layer, Service};
 use weldsuite_auth::AuthContext;
 use weldsuite_db::{Tenant, orm};
-use weldsuite_schema::tenant::settings;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{js_trim, query_values};
 use weldsuite_permissions::{
     PermissionGate, PermissionQueries, Permissions, PresetPermissions, ResolvedPermissions,
 };
+use weldsuite_schema::tenant::settings;
 
 use crate::access::{
     EntityAccess, can_see_entity, entity_role_id, load_entity_access, permissions_in_entity_with,

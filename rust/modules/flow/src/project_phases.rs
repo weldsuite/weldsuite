@@ -427,8 +427,7 @@ fn present_approval(row: &ApprovalRow) -> Value {
 }
 
 async fn phase_summary(db: &PgPool, row: &Value, gate_number: usize) -> Result<Value, DbErr> {
-    let approvals = list_subject_approvals(db, "gate", text(row, "id"))
-        .await?;
+    let approvals = list_subject_approvals(db, "gate", text(row, "id")).await?;
     let mut out = present_phase(row);
     out["gateNumber"] = json!(gate_number);
     out["criteriaCount"] = json!(criteria_of(row).len());
@@ -669,8 +668,7 @@ async fn publish_gate_resolution(
         }
         return Ok(());
     }
-    let rows = list_subject_approvals(db, "gate", phase_id)
-        .await?;
+    let rows = list_subject_approvals(db, "gate", phase_id).await?;
     let rejected = rows.iter().find(|row| row.decision == "rejected");
     publish_phase(
         state,

@@ -862,8 +862,8 @@ async fn reserve(
     now: i64,
     last_sent_at: Option<&str>,
 ) -> Result<bool, DbErr> {
-    use sea_orm::ExprTrait as _;
     use mailboxes::Column;
+    use sea_orm::ExprTrait as _;
     let unchanged = match last_sent_at {
         None => Column::LastSentAt.is_null(),
         Some(at) => Expr::from(

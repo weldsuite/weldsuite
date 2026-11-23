@@ -308,10 +308,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             "written_off",
         ]))
         .filter(invoices::Column::Type.is_not_in(["credit_note", "proforma"]))
-        .filter(
-            invoices::Column::DueDate
-                .lte(timestamp_of_millis(now + 30 * 24 * 60 * 60 * 1000)?),
-        )
+        .filter(invoices::Column::DueDate.lte(timestamp_of_millis(now + 30 * 24 * 60 * 60 * 1000)?))
         .filter(invoices::Column::DueDate.gte(timestamp_of_millis(now)?))
         .order_by_asc(invoices::Column::DueDate)
         .limit(10)

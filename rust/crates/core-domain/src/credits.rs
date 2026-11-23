@@ -117,7 +117,10 @@ fn period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     (start, end)
 }
 
-async fn current_balance(db: &DatabaseConnection, workspace_id: &str) -> Result<Option<i32>, DbErr> {
+async fn current_balance(
+    db: &DatabaseConnection,
+    workspace_id: &str,
+) -> Result<Option<i32>, DbErr> {
     workspace_credits::Entity::find()
         .select_only()
         .column(workspace_credits::Column::CurrentBalance)
@@ -275,7 +278,8 @@ async fn change_balance(
     use sea_orm::ExprTrait as _;
 
     let balance = workspace_credits::Column::CurrentBalance;
-    let mut condition = Condition::all().add(workspace_credits::Column::WorkspaceId.eq(workspace_id));
+    let mut condition =
+        Condition::all().add(workspace_credits::Column::WorkspaceId.eq(workspace_id));
     if let Some(at_least) = guard {
         condition = condition.add(balance.gte(at_least));
     }

@@ -10,17 +10,17 @@ use sea_orm::{
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_catalogs::entity_events::{
+    EventName, REACH_CAMPAIGN_COMPLETED, REACH_CAMPAIGN_CREATED, REACH_CAMPAIGN_DELETED,
+    REACH_CAMPAIGN_LAUNCHED, REACH_CAMPAIGN_PAUSED, REACH_CAMPAIGN_UPDATED,
+};
 use weldsuite_db::{OrmConn, orm};
+use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{
     reach_campaign_mailboxes as campaign_mailboxes, reach_campaign_steps as steps,
     reach_campaigns as campaigns, reach_enrollments as enrollments, reach_mailboxes,
     reach_messages as messages, reach_prospects, reach_settings,
 };
-use weldsuite_catalogs::entity_events::{
-    EventName, REACH_CAMPAIGN_COMPLETED, REACH_CAMPAIGN_CREATED, REACH_CAMPAIGN_DELETED,
-    REACH_CAMPAIGN_LAUNCHED, REACH_CAMPAIGN_PAUSED, REACH_CAMPAIGN_UPDATED,
-};
-use weldsuite_kit::generate_id;
 
 use crate::enrollments::{
     add_prospects_to_campaign, bulk_set_next_send_at, count_active_campaign_mailboxes,
@@ -34,8 +34,8 @@ use crate::render::{
 };
 use crate::send_window::{SendSchedule, is_valid_time_zone, parse_hhmm, spread_send_times};
 use crate::{
-    DuePort, EventSink, ReachError, ReachEvent, ReachResult, epoch_ms, field, int, js, js_all,
-    now, stamp, text,
+    DuePort, EventSink, ReachError, ReachEvent, ReachResult, epoch_ms, field, int, js, js_all, now,
+    stamp, text,
 };
 
 const CAMPAIGN_STATUSES: &[&str] = &["draft", "active", "paused", "completed", "archived"];
@@ -425,13 +425,9 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         .as_deref()
         .filter(|s| !crate::text::js_trim(s).is_empty())
         .map(like_pattern);
-    let cursor = cursor_row::<campaigns::Entity>(
-        db,
-        Column::CreatedAt,
-        Column::Id,
-        query.cursor.as_deref(),
-    )
-    .await?;
+    let cursor =
+        cursor_row::<campaigns::Entity>(db, Column::CreatedAt, Column::Id, query.cursor.as_deref())
+            .await?;
     let mut filters = Condition::all().add(Column::DeletedAt.is_null());
     if let Some(status) = &status {
         filters = filters.add(Column::Status.eq(status.as_str()));
@@ -453,7 +449,10 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         .limit(probe(limit))
         .all(&conn)
         .await?;
-    let total = campaigns::Entity::find().filter(filters).count(&conn).await?;
+    let total = campaigns::Entity::find()
+        .filter(filters)
+        .count(&conn)
+        .await?;
     let rows = js_all(rows.into_iter().map(serde_json::to_value))?;
     Ok(page_result(
         &rows,
@@ -1110,33 +1109,32 @@ pub async fn preview(db: &PgPool, id: &str, input: &PreviewInput) -> ReachResult
             }
         }
     };
-    let prospect: Option<Value> = if let Some(prospect_id) =
-        input.prospect_id.as_deref().filter(|p| !p.is_empty())
-    {
-        let row = reach_prospects::Entity::find_by_id(prospect_id)
-            .filter(reach_prospects::Column::DeletedAt.is_null())
-            .one(&orm(db))
-            .await?;
-        match row {
-            Some(row) => Some(js(serde_json::to_value(row))?),
-            None => return Err(ReachError::not_found("Prospect", Some(prospect_id))),
-        }
-    } else {
-        let row = reach_prospects::Entity::find()
-            .join(
-                JoinType::InnerJoin,
-                reach_prospects::Entity::belongs_to(enrollments::Entity)
-                    .from(reach_prospects::Column::Id)
-                    .to(enrollments::Column::ProspectId)
-                    .into(),
-            )
-            .filter(enrollments::Column::CampaignId.eq(id))
-            .filter(reach_prospects::Column::DeletedAt.is_null())
-            .order_by_asc(enrollments::Column::CreatedAt)
-            .one(&orm(db))
-            .await?;
-        row.map(serde_json::to_value).map(js).transpose()?
-    };
+    let prospect: Option<Value> =
+        if let Some(prospect_id) = input.prospect_id.as_deref().filter(|p| !p.is_empty()) {
+            let row = reach_prospects::Entity::find_by_id(prospect_id)
+                .filter(reach_prospects::Column::DeletedAt.is_null())
+                .one(&orm(db))
+                .await?;
+            match row {
+                Some(row) => Some(js(serde_json::to_value(row))?),
+                None => return Err(ReachError::not_found("Prospect", Some(prospect_id))),
+            }
+        } else {
+            let row = reach_prospects::Entity::find()
+                .join(
+                    JoinType::InnerJoin,
+                    reach_prospects::Entity::belongs_to(enrollments::Entity)
+                        .from(reach_prospects::Column::Id)
+                        .to(enrollments::Column::ProspectId)
+                        .into(),
+                )
+                .filter(enrollments::Column::CampaignId.eq(id))
+                .filter(reach_prospects::Column::DeletedAt.is_null())
+                .order_by_asc(enrollments::Column::CreatedAt)
+                .one(&orm(db))
+                .await?;
+            row.map(serde_json::to_value).map(js).transpose()?
+        };
     let mailbox_ids = load_mailbox_ids(db, id).await?;
     let mailbox: Option<(String, String, Option<String>)> = if mailbox_ids.is_empty() {
         None

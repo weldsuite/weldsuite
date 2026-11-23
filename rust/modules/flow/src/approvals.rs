@@ -602,8 +602,7 @@ pub(crate) async fn decide_and_announce(
     note: Option<String>,
 ) -> Result<DecideApprovalResult, DbErr> {
     let db = &caller.db;
-    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id)
-        .await?;
+    let before = list_subject_approvals(db, &row.subject_type, &row.subject_id).await?;
     let result = decide_approval(
         db,
         &DecideApprovalInput {

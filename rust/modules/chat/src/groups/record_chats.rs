@@ -282,10 +282,7 @@ fn publish_channel_event(
 async fn permitted(providers: Vec<Provider>, can: &Can<'_>) -> Result<Vec<Provider>, DbErr> {
     let mut allowed = Vec::new();
     for provider in providers {
-        if can
-            .can(provider.required_permission())
-            .await?
-        {
+        if can.can(provider.required_permission()).await? {
             allowed.push(provider);
         }
     }

@@ -8609,6 +8609,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+ "weldsuite-schema",
 ]
 
 [[package]]

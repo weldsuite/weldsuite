@@ -105,7 +105,9 @@ async fn bank_accounts_on_the_real_schema() {
     assert_eq!(row["subtype"], json!("bank"));
     assert_eq!(row["taxLine"], json!("bs_cash"));
     assert_eq!(row["parentAccountId"], Value::Null);
-    insert_ledger_account(&orm(&db), &row).await.expect("insert");
+    insert_ledger_account(&orm(&db), &row)
+        .await
+        .expect("insert");
     let stored: Option<String> = sqlx::query_scalar("select code from accounts where id = $1")
         .bind(row["id"].as_str())
         .fetch_optional(&db)

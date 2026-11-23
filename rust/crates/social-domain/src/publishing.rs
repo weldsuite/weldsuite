@@ -128,12 +128,13 @@ pub fn now() -> String {
 /// `$n::timestamp` of a `toISOString()`: Postgres reads its date and time
 /// and ignores the zone. A text Postgres can't read is the failed cast.
 fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
-    let at = OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
-        .map_err(|_| {
+    let at = OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).map_err(
+        |_| {
             DbErr::Type(format!(
                 "invalid input syntax for type timestamp: \"{iso}\""
             ))
-        })?;
+        },
+    )?;
     Ok(PrimitiveDateTime::new(at.date(), at.time()))
 }
 
@@ -614,7 +615,10 @@ async fn claim_publish_slot(
         )
         .col_expr(social_posts::Column::UpdatedAt, Expr::value(now));
     if let Some(at) = schedule {
-        claim = claim.col_expr(social_posts::Column::ScheduledAt, Expr::value(timestamp_of(at)?));
+        claim = claim.col_expr(
+            social_posts::Column::ScheduledAt,
+            Expr::value(timestamp_of(at)?),
+        );
     }
     if let Some(timezone) = timezone {
         claim = claim.col_expr(social_posts::Column::Timezone, Expr::value(timezone));
@@ -990,7 +994,10 @@ pub async fn publish_post(
         social_posts::Column::Status.save_as(Expr::val(post_status(status)?)),
     );
     if let Some(postpeer_id) = postpeer_post_id.as_ref().map(id_text) {
-        done = done.col_expr(social_posts::Column::PostpeerPostId, Expr::value(postpeer_id));
+        done = done.col_expr(
+            social_posts::Column::PostpeerPostId,
+            Expr::value(postpeer_id),
+        );
     }
     done.col_expr(
         social_posts::Column::PlatformContent,
@@ -1000,7 +1007,10 @@ pub async fn publish_post(
         social_posts::Column::PublishedAt,
         Expr::value((status == "published").then_some(now)),
     )
-    .col_expr(social_posts::Column::LastPublishError, Expr::value(last_error))
+    .col_expr(
+        social_posts::Column::LastPublishError,
+        Expr::value(last_error),
+    )
     .col_expr(
         social_posts::Column::CreditsConsumed,
         Expr::value(int_of(if transaction.is_some() {
@@ -1364,9 +1374,18 @@ pub async fn reconcile_from_webhook(
             Expr::value(Value::Array(merged)),
         )
         .col_expr(social_posts::Column::PublishedAt, Expr::value(published_at))
-        .col_expr(social_posts::Column::LastPublishError, Expr::value(last_error))
-        .col_expr(social_posts::Column::CreditsConsumed, Expr::value(int_of(consumed)?))
-        .col_expr(social_posts::Column::UpdatedAt, Expr::value(utc_timestamp(now_at)))
+        .col_expr(
+            social_posts::Column::LastPublishError,
+            Expr::value(last_error),
+        )
+        .col_expr(
+            social_posts::Column::CreditsConsumed,
+            Expr::value(int_of(consumed)?),
+        )
+        .col_expr(
+            social_posts::Column::UpdatedAt,
+            Expr::value(utc_timestamp(now_at)),
+        )
         .filter(social_posts::Column::Id.eq(post_id))
         .exec(&orm(db))
         .await?;

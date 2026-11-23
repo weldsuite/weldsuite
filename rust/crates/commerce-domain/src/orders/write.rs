@@ -409,9 +409,7 @@ async fn insert_item(
     let mut values = item_values(order_id, line, amounts, properties, now);
     put(&mut values, &ORDER_ITEMS, "id", json!(generate_id("oitm")));
     put(&mut values, &ORDER_ITEMS, "createdAt", json!(now));
-    ORDER_ITEMS
-        .insert_raw(&mut *conn, values)
-        .await?;
+    ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
     Ok(())
 }
 
@@ -1617,9 +1615,7 @@ pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), 
     } else {
         header.insert("id".to_owned(), json!(import.id));
         let columns = ORDERS.values(&header);
-        ORDERS
-            .insert_raw(&mut *conn, columns)
-            .await?;
+        ORDERS.insert_raw(&mut *conn, columns).await?;
     }
     import_items(conn, import, &now).await?;
     if let Some(person_id) = import.person_id {
@@ -1728,9 +1724,7 @@ async fn import_items(
             );
         }
         put(&mut values, t, "createdAt", json!(now));
-        ORDER_ITEMS
-            .insert_raw(&mut *conn, values)
-            .await?;
+        ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
     }
 
     let vanished: Vec<String> = existing

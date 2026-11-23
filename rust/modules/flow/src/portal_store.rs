@@ -266,10 +266,7 @@ pub(crate) async fn pending_reviews(
     };
     let mut lists = Vec::new();
     for contact_id in contact_ids {
-        lists.push(
-            list_pending_for_approver(db, contact_id, &filters, now)
-                .await?,
-        );
+        lists.push(list_pending_for_approver(db, contact_id, &filters, now).await?);
     }
     let mut seen = HashSet::new();
     let mut reviews: Vec<CorePendingReview> = lists

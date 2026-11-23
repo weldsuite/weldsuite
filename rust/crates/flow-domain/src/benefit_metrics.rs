@@ -21,8 +21,7 @@
 
 use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, Query};
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
-    QuerySelect,
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QuerySelect,
 };
 use serde_json::{Map, Value, json};
 use time::{Date, PrimitiveDateTime};
@@ -286,10 +285,7 @@ fn ordered_before(buyer: orders::Column) -> Expr {
             .from_as(orders::Entity, earlier.clone())
             .cond_where(
                 Condition::all()
-                    .add(
-                        Expr::col((earlier.clone(), buyer))
-                            .equals((orders::Entity, buyer)),
-                    )
+                    .add(Expr::col((earlier.clone(), buyer)).equals((orders::Entity, buyer)))
                     .add(
                         Expr::col((earlier.clone(), Column::CreatedAt))
                             .lt(Expr::col((orders::Entity, Column::CreatedAt))),
@@ -425,7 +421,10 @@ async fn time_hours_per_week_by_tag(
     // `round(coalesce(sum(te.duration), 0)::numeric * 7 / (60 * days), 4)::text`.
     let minutes = sea_orm::ExprTrait::cast_as(
         Func::coalesce([
-            Expr::from(Func::sum(Expr::col((time_entries::Entity, Column::Duration)))),
+            Expr::from(Func::sum(Expr::col((
+                time_entries::Entity,
+                Column::Duration,
+            )))),
             Expr::val(0),
         ]),
         "numeric",

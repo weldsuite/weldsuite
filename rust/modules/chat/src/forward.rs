@@ -70,10 +70,7 @@ pub(crate) async fn forward_message(
         .into_tuple()
         .one(&orm_db)
         .await?;
-    if member.is_none()
-        || !can_access_channel(db, source_channel_id, user_id, None)
-            .await?
-    {
+    if member.is_none() || !can_access_channel(db, source_channel_id, user_id, None).await? {
         return Ok(Err((
             403,
             "You do not have access to this message".to_owned(),
@@ -213,8 +210,7 @@ pub(crate) async fn forward_message(
         .filter(|id| kind_of(id) == Some("entity"))
         .cloned()
         .collect();
-    let unreadable = unreadable_record_chat_ids(db, user_id, &record_targets, None)
-        .await?;
+    let unreadable = unreadable_record_chat_ids(db, user_id, &record_targets, None).await?;
     if !unreadable.is_empty() {
         return Ok(Err((
             403,

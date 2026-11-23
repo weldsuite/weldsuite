@@ -24,8 +24,8 @@ use weldsuite_schema::tenant::{
 
 use crate::tables::{COMPANIES, PARTIES, insert_row, update_rows};
 use crate::validation::{
-    StatusLookup, assert_valid_member_fields, assert_valid_status, compute_changes,
-    before_row, contains_pattern, count, decode_list_cursor, encode_list_cursor, load_status_lookup,
+    StatusLookup, assert_valid_member_fields, assert_valid_status, before_row, compute_changes,
+    contains_pattern, count, decode_list_cursor, encode_list_cursor, load_status_lookup,
     probe_limit, search_match, sort_order, sort_value,
 };
 use crate::{DomainError, DomainResult, js_date, now, to_iso};
@@ -198,7 +198,11 @@ pub async fn resolve_filter(
 /// `buildCompanyConditions`'s `where` of a company list or export: live,
 /// within the owner scope, the search and column filters, the list members
 /// and the custom-field filter.
-fn company_condition(scope: Option<&str>, filter: &CompanyFilter, resolved: &Resolved) -> Condition {
+fn company_condition(
+    scope: Option<&str>,
+    filter: &CompanyFilter,
+    resolved: &Resolved,
+) -> Condition {
     use companies::Column as C;
     let given = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
     let mut condition = Condition::all().add(C::DeletedAt.is_null());
@@ -207,7 +211,13 @@ fn company_condition(scope: Option<&str>, filter: &CompanyFilter, resolved: &Res
     }
     if let Some(search) = given(&filter.search) {
         condition = condition.add(search_match(
-            &[C::DisplayName, C::Name, C::TradingName, C::Email, C::VatNumber],
+            &[
+                C::DisplayName,
+                C::Name,
+                C::TradingName,
+                C::Email,
+                C::VatNumber,
+            ],
             &contains_pattern(&search),
         ));
     }
@@ -244,9 +254,12 @@ fn custom_field_match(entity_type: &str, custom: &CustomFilter) -> SelectStateme
     use sea_orm::ExprTrait as _;
     let matches = match custom.kind {
         "number" => V::ValueNumber.eq(custom.number),
-        "date" => V::ValueDate.into_expr().cast_as("date").eq(Expr::val(custom.date.clone())
-            .cast_as("timestamp")
-            .cast_as("date")),
+        "date" => V::ValueDate
+            .into_expr()
+            .cast_as("date")
+            .eq(Expr::val(custom.date.clone())
+                .cast_as("timestamp")
+                .cast_as("date")),
         "bool" => V::ValueBool.eq(custom.flag),
         "json" => sea_orm::sea_query::extension::postgres::PgExpr::contains(
             V::ValueJson.into_expr(),
@@ -543,8 +556,8 @@ pub async fn raw_company(
     id: &str,
     scope: Option<&str>,
 ) -> DomainResult<Option<Value>> {
-    let mut query = companies::Entity::find_by_id(id.to_owned())
-        .filter(companies::Column::DeletedAt.is_null());
+    let mut query =
+        companies::Entity::find_by_id(id.to_owned()).filter(companies::Column::DeletedAt.is_null());
     if let Some(owner) = scope {
         query = query.filter(companies::Column::OwnerId.eq(owner));
     }
@@ -768,9 +781,8 @@ pub async fn update_company(
     }
     let mut written = Condition::all().add(companies::Column::Id.eq(id));
     if expected.is_some() {
-        written = written.add(
-            companies::Column::Version.eq(i32::try_from(version).unwrap_or(i32::MAX)),
-        );
+        written =
+            written.add(companies::Column::Version.eq(i32::try_from(version).unwrap_or(i32::MAX)));
     }
     let written = update_rows::<companies::Entity>(&orm(db), &COMPANIES, &updates, written).await?;
     if written.is_empty() {

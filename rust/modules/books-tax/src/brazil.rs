@@ -57,9 +57,7 @@ async fn br_entity(caller: &Caller, feature: &str) -> Result<Value, Refusal> {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let Some(entity) = entity_row(&caller.db, &entity_id, false)
-        .await?
-    else {
+    let Some(entity) = entity_row(&caller.db, &entity_id, false).await? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
     if !has_feature(entity["jurisdictionCode"].as_str(), feature) {

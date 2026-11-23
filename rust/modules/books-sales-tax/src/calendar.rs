@@ -361,8 +361,7 @@ async fn calendar(
                 return Err(Refusal::bad_request("year must be between 2000 and 2100"));
             };
             let today = today_in(&caller, &state, text(&entity, "timezone"));
-            Ok(ok(entity_calendar(&caller.db, &entity, year, &today)
-                .await?))
+            Ok(ok(entity_calendar(&caller.db, &entity, year, &today).await?))
         }
         .await,
         "Failed to fetch the tax calendar",
@@ -434,8 +433,7 @@ async fn mark_done(caller: &Caller, data: CompleteBody) -> Reply {
     }
     let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
     let user = caller.user().map(str::to_owned);
-    let row = complete_deadline(&caller.db, &entity_id, &data, user)
-        .await?;
+    let row = complete_deadline(&caller.db, &entity_id, &data, user).await?;
     let mut changes = Map::new();
     changes.insert("deadlineKey".into(), change(Value::Null, json!(data.key)));
     write_accounting_audit(

@@ -21,7 +21,6 @@ use weldsuite_legal_entities::service::{
     get_registration, update_registration,
 };
 
-
 /// `/^\d{2}-\d{7}$/`.
 fn is_ein(value: &str) -> bool {
     let bytes = value.as_bytes();

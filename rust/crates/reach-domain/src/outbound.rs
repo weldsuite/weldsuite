@@ -191,7 +191,10 @@ pub async fn send_from_mailbox(
         mailbox_id: Set(text(&mailbox, "id").unwrap_or_default().to_owned()),
         prospect_id: Set(input.prospect_id.clone()),
         thread_key: Set(Some(
-            input.thread_key.clone().unwrap_or_else(|| message_id.clone()),
+            input
+                .thread_key
+                .clone()
+                .unwrap_or_else(|| message_id.clone()),
         )),
         message_id_header: Set(message_id.clone()),
         in_reply_to: Set(input.in_reply_to.clone()),

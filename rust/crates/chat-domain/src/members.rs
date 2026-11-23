@@ -216,7 +216,9 @@ pub async fn create_channel(
 /// `select * from chat_channels where id = $1` as Drizzle returns it.
 pub async fn channel_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let row = chat_channels::Entity::find_by_id(id).one(&orm(db)).await?;
-    row.map(serde_json::to_value).transpose().map_err(json_error)
+    row.map(serde_json::to_value)
+        .transpose()
+        .map_err(json_error)
 }
 
 /// ACTIVE, live INTERNAL members of the workspace.

@@ -308,7 +308,11 @@ pub async fn company_attributes(
         .select_only()
         .distinct_on([(parties::Entity, parties::Column::CompanyId)])
         .column(parties::Column::CompanyId)
-        .columns([tasks::Column::Id, tasks::Column::Title, tasks::Column::DueDate])
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::Title,
+            tasks::Column::DueDate,
+        ])
         .join(
             JoinType::InnerJoin,
             live_party(

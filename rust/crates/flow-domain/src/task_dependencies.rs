@@ -382,11 +382,7 @@ async fn check_links(
     Ok(None)
 }
 
-async fn any_cycle(
-    db: &PgPool,
-    blocked: &[String],
-    depends_on: &[String],
-) -> Result<bool, DbErr> {
+async fn any_cycle(db: &PgPool, blocked: &[String], depends_on: &[String]) -> Result<bool, DbErr> {
     for blocked_id in blocked {
         if detect_cycle(db, blocked_id, depends_on).await? {
             return Ok(true);
@@ -551,7 +547,9 @@ pub async fn plan_dependency_update(
 fn stamps(now: &str) -> Result<(PrimitiveDateTime, time::OffsetDateTime), DbErr> {
     match (timestamp_of_iso(now), offset_of_iso(now)) {
         (Some(stamp), Some(stamptz)) => Ok((stamp, stamptz)),
-        _ => Err(DbErr::Type(format!("invalid input syntax for type timestamp: \"{now}\""))),
+        _ => Err(DbErr::Type(format!(
+            "invalid input syntax for type timestamp: \"{now}\""
+        ))),
     }
 }
 
@@ -590,7 +588,10 @@ pub async fn write_dependency_rows(
             tasks::Column::DependsOn,
             Expr::val(serde_json::json!(plan.depends_on)),
         )
-        .col_expr(tasks::Column::Blocks, Expr::val(serde_json::json!(plan.blocks)))
+        .col_expr(
+            tasks::Column::Blocks,
+            Expr::val(serde_json::json!(plan.blocks)),
+        )
         .col_expr(tasks::Column::UpdatedAt, Expr::val(stamp))
         .filter(tasks::Column::Id.eq(id))
         .filter(tasks::Column::DeletedAt.is_null())

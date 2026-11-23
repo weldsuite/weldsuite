@@ -947,6 +947,7 @@ fn is_reserved_domain(domain: &str) -> bool {
             .is_some_and(|tld| RESERVED_TLDS.contains(&tld))
 }
 
+#[allow(clippy::too_many_lines)]
 async fn external(
     State(state): State<HostState>,
     caller: Caller,
@@ -2225,6 +2226,7 @@ async fn update_zone(db: &PgPool, zone_id: &str, row: dns_zones::ActiveModel) ->
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 async fn refresh_zone_status(
     State(state): State<HostState>,
     caller: Caller,

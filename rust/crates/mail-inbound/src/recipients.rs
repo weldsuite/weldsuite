@@ -66,10 +66,7 @@ pub struct RegistryRow {
 type RawRegistryRow = (String, String, String, Option<String>, Option<String>);
 
 /// `selectRegistryRows(masterDb, emails)`: active rows for the addresses.
-pub async fn registry_rows(
-    master: &PgPool,
-    emails: &[String],
-) -> Result<Vec<RegistryRow>, DbErr> {
+pub async fn registry_rows(master: &PgPool, emails: &[String]) -> Result<Vec<RegistryRow>, DbErr> {
     use registry::Column as R;
     if emails.is_empty() {
         return Ok(Vec::new());

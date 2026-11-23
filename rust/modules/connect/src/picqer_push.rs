@@ -25,7 +25,7 @@ use weldsuite_connect_domain::clients::{
 use weldsuite_connect_domain::connections::get_connection;
 use weldsuite_connect_domain::js::number_value;
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_ports::OutboundHttp;
@@ -320,9 +320,7 @@ async fn load<'a>(
     caller: &'a Caller,
     connection_id: &'a str,
 ) -> Result<Target<'a>, PushError> {
-    let connection = get_connection(&caller.db, connection_id)
-        .await
-        .map_err(orm_error)?;
+    let connection = get_connection(&caller.db, connection_id).await?;
     let Some(connection) = connection.filter(|c| c["provider"] == "picqer") else {
         return Err(permanent("Picqer connection not found", 404));
     };

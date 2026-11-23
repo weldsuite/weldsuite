@@ -86,8 +86,7 @@ async fn load_worksheet(caller: &Caller, start: &str, end: &str) -> Reply {
             "This entity's jurisdiction has no GST return.",
         ));
     }
-    let input = load_input(db, &entity, &entity_id, start, end)
-        .await?;
+    let input = load_input(db, &entity, &entity_id, start, end).await?;
     Ok(ok(compute(&input)))
 }
 

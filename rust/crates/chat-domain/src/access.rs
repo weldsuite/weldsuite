@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{PgPool, TenantPermissionQueries, orm, orm_error};
+use weldsuite_db::{PgPool, TenantPermissionQueries, orm};
 use weldsuite_permissions::{
     Permissions, ResolvedPermissions, has_app_permission, resolve_effective_permissions,
 };
@@ -63,9 +63,7 @@ impl Can<'_> {
                     resolved
                 } else {
                     let queries = TenantPermissionQueries::new(user.db.clone());
-                    let resolved = resolve_effective_permissions(&queries, &user.user_id)
-                        .await
-                        .map_err(orm_error)?;
+                    let resolved = resolve_effective_permissions(&queries, &user.user_id).await?;
                     *user
                         .resolved
                         .lock()

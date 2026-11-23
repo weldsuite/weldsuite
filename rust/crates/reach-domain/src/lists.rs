@@ -297,13 +297,9 @@ pub async fn remove_from_list(
 pub async fn list_lists(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
     use lists::Column;
     let limit = parse_limit(query.limit.as_deref());
-    let cursor = cursor_row::<lists::Entity>(
-        db,
-        Column::CreatedAt,
-        Column::Id,
-        query.cursor.as_deref(),
-    )
-    .await?;
+    let cursor =
+        cursor_row::<lists::Entity>(db, Column::CreatedAt, Column::Id, query.cursor.as_deref())
+            .await?;
     let conn = orm(db);
     let mut page = Condition::all().add(Column::DeletedAt.is_null());
     if let Some(cursor) = &cursor {

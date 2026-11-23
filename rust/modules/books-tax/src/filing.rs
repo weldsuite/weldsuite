@@ -217,8 +217,7 @@ pub(crate) async fn file_period(
         // Release 1 mirror: the WeldBooks extension holds the lock date too.
         let mut mirror = serde_json::Map::new();
         mirror.insert("taxLockDate".into(), json!(end_day));
-        upsert_accounting_entity_settings(&mut *tx, entity_id, &mirror)
-            .await?;
+        upsert_accounting_entity_settings(&mut *tx, entity_id, &mirror).await?;
     }
     Ok(())
 }

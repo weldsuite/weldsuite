@@ -656,7 +656,10 @@ fn payment_statements(w: PaymentWrite) -> AlsoWrite {
                     allocation.insert(key.to_owned(), value);
                 }
                 PAYMENT_ALLOCATIONS
-                    .insert_raw_on(&OrmConn::new(&mut *conn), PAYMENT_ALLOCATIONS.values(&allocation))
+                    .insert_raw_on(
+                        &OrmConn::new(&mut *conn),
+                        PAYMENT_ALLOCATIONS.values(&allocation),
+                    )
                     .await?;
             }
             for a in &w.allocations {

@@ -108,7 +108,11 @@ struct GroupRow {
 }
 
 /// `workspace_id = … and project_id = …` on a table's own two columns.
-fn in_project<C: ColumnTrait>(workspace_id: C, project_id: C, project: ProjectRef<'_>) -> Condition {
+fn in_project<C: ColumnTrait>(
+    workspace_id: C,
+    project_id: C,
+    project: ProjectRef<'_>,
+) -> Condition {
     Condition::all()
         .add(workspace_id.eq(project.workspace_id))
         .add(project_id.eq(project.project_id))
@@ -139,7 +143,7 @@ fn at(now: &str) -> Expr {
 }
 
 /// A SeaQuery statement the builder refused (a column without its value).
-fn built(error: sea_orm::sea_query::error::Error) -> DbErr {
+fn built(error: &sea_orm::sea_query::error::Error) -> DbErr {
     DbErr::Custom(error.to_string())
 }
 
@@ -180,14 +184,10 @@ fn group_select() -> Select<panel_groups::Entity> {
 /// time per project, the object's single thread
 /// (`select pg_advisory_xact_lock(hashtextextended($1, 0))`).
 pub(crate) async fn lock(conn: &mut PgConnection, project: ProjectRef<'_>) -> Result<(), DbErr> {
-    let key = format!(
-        "weldpanel:{}:{}",
-        project.workspace_id, project.project_id
-    );
+    let key = format!("weldpanel:{}:{}", project.workspace_id, project.project_id);
     let mut lock = Query::select();
     lock.expr(
-        Func::cust("pg_advisory_xact_lock")
-            .arg(Func::cust("hashtextextended").arg(key).arg(0_i64)),
+        Func::cust("pg_advisory_xact_lock").arg(Func::cust("hashtextextended").arg(key).arg(0_i64)),
     );
     OrmConn::new(conn).execute(&lock).await.map(|_| ())
 }
@@ -357,7 +357,7 @@ async fn insert_person(
             at(now),
             at(now),
         ])
-        .map_err(built)?;
+        .map_err(|error| built(&error))?;
     OrmConn::new(conn).execute(&insert).await.map(|_| ())
 }
 
@@ -754,7 +754,7 @@ pub(crate) async fn erase(
                 Expr::val(id),
                 at(now),
             ])
-            .map_err(built)?
+            .map_err(|error| built(&error))?
             .on_conflict(
                 OnConflict::columns([Column::WorkspaceId, Column::ProjectId, Column::ErasedId])
                     .do_nothing()
@@ -862,7 +862,10 @@ pub(crate) async fn group_types(
         .all(&OrmConn::new(conn))
         .await?;
     slots.sort();
-    Ok(slots.into_iter().map(|(_, group_type)| group_type).collect())
+    Ok(slots
+        .into_iter()
+        .map(|(_, group_type)| group_type)
+        .collect())
 }
 
 /// `takeGroupTypes`: each new valid type gets the next slot while fewer than
@@ -911,7 +914,7 @@ pub(crate) async fn take_group_types(
                 Expr::from(position),
                 at(now),
             ])
-            .map_err(built)?;
+            .map_err(|error| built(&error))?;
         OrmConn::new(&mut *conn).execute(&insert).await?;
     }
     Ok((current, changed))
@@ -1013,7 +1016,7 @@ async fn insert_group(
             at(now),
             at(now),
         ])
-        .map_err(built)?;
+        .map_err(|error| built(&error))?;
     OrmConn::new(conn).execute(&insert).await.map(|_| ())
 }
 

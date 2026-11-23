@@ -28,12 +28,12 @@ use weldsuite_schema::tenant::{
     journal_lines, payments, tax_lines, tax_rates,
 };
 
+use crate::db_values::to_json_rows;
 use crate::document_posting::{
     PaymentAllocationInput, PaymentPostingInput, PostInvoiceOptions, amount_of, build_bill_posting,
     build_invoice_posting, build_payment_posting, filled, owned, post_bill, post_invoice, text,
     update_with_entry,
 };
-use crate::db_values::to_json_rows;
 use crate::guards::{PostingCheck, PostingLockKind, assert_posting_allowed};
 use crate::http::now;
 use crate::js::{math_round, numeric, to_fixed};
@@ -211,10 +211,7 @@ async fn insert_tax_rows(db: &PgPool, rows: &[Map<String, Value>]) -> Result<(),
     .await
 }
 
-async fn journal_entries_with_tax_lines(
-    db: &PgPool,
-    ids: &[String],
-) -> Result<Vec<String>, DbErr> {
+async fn journal_entries_with_tax_lines(db: &PgPool, ids: &[String]) -> Result<Vec<String>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -260,10 +257,7 @@ fn text_of(column: impl sea_orm::sea_query::IntoColumnRef) -> Expr {
 }
 
 /// Was this credit note posted like an invoice (receivable debited)?
-async fn credit_note_has_invoice_sign(
-    db: &PgPool,
-    journal_entry_id: &str,
-) -> Result<bool, DbErr> {
+async fn credit_note_has_invoice_sign(db: &PgPool, journal_entry_id: &str) -> Result<bool, DbErr> {
     let db = orm(db);
     let entry: Option<(Option<String>, Option<String>)> = journal_entries::Entity::find()
         .select_only()

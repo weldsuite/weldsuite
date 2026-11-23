@@ -1882,10 +1882,9 @@ async fn undo_reconciliation(
         Some(entry) => {
             let (rid, who) = (id.clone(), user.clone());
             let write: AlsoWrite = Box::new(move |conn, _| {
-                Box::pin(async move {
-                    release(&OrmConn::new(conn), &rid, at, who.as_deref())
-                        .await
-                })
+                Box::pin(
+                    async move { release(&OrmConn::new(conn), &rid, at, who.as_deref()).await },
+                )
             });
             reverse_journal_entry(
                 db,

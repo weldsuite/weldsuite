@@ -17,12 +17,12 @@ use sqlx::PgConnection;
 use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_schema::tenant::{invoices, journal_entries, tax_lines};
 
+use crate::db_values::{decimal_of, to_json_rows};
 use crate::document_posting::{
     Meta, TaxArgs, ToBase, amount_of, base_converter, breakdown_to_tax_line, fallback, filled,
     label, load_entity, load_tax_rates, mark_uncollectible, number, owned, post_invoice_write_off,
     require_account, tax_account_for, text, write_off_description, write_off_tax_rows,
 };
-use crate::db_values::{decimal_of, to_json_rows};
 use crate::guards::PostingLockKind;
 use crate::http::now;
 use crate::js::{round_money, to_fixed};
@@ -526,7 +526,9 @@ pub async fn settle_written_off(
         .col_expr(Column::BalanceDue, Expr::val(0))
         .col_expr(
             Column::Status,
-            Expr::case(settled(), "paid").finally("uncollectible").into(),
+            Expr::case(settled(), "paid")
+                .finally("uncollectible")
+                .into(),
         )
         .col_expr(
             Column::PaidAt,

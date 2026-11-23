@@ -8,7 +8,9 @@ use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::{PermissionSubject, has_app_permission, has_permission};
-use weldsuite_schema::tenant::{weldagent_agent_members as agent_members, weldagent_agents as agents};
+use weldsuite_schema::tenant::{
+    weldagent_agent_members as agent_members, weldagent_agents as agents,
+};
 
 /// `AgentViewer`: the person looking at agents, and whether they manage every agent.
 #[derive(Debug, Clone, PartialEq, Eq)]

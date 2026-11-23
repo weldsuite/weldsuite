@@ -69,9 +69,7 @@ pub async fn measure_due_benefits(db: &PgPool, now_ms: i64) -> Result<usize, DbE
     let now = iso_from_millis(now_ms).unwrap_or_default();
     let mut measured = 0;
     for (id, project_id, metric, params) in open_measured_benefits(db, None).await? {
-        let Some(value) = measure_metric(db, &metric, &params, &period)
-            .await?
-        else {
+        let Some(value) = measure_metric(db, &metric, &params, &period).await? else {
             continue;
         };
         upsert_measurement(db, &id, &project_id, &period, &value, None, &now).await?;

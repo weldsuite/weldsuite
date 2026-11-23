@@ -184,19 +184,16 @@ pub async fn claim_github_installation_index(
     use merge_provider_index::Column;
     // `do update … where merge_provider_index.workspace_id = excluded.workspace_id`:
     // a row naming another workspace is neither inserted nor updated.
-    let claimed = merge_provider_index::Entity::insert(index_row(
-        installation_id,
-        workspace_id,
-        now(),
-    ))
-    .on_conflict(
-        on_index_key()
-            .update_column(Column::UpdatedAt)
-            .action_and_where(Column::WorkspaceId.eq(workspace_id))
-            .to_owned(),
-    )
-    .exec_without_returning(&orm(master))
-    .await?;
+    let claimed =
+        merge_provider_index::Entity::insert(index_row(installation_id, workspace_id, now()))
+            .on_conflict(
+                on_index_key()
+                    .update_column(Column::UpdatedAt)
+                    .action_and_where(Column::WorkspaceId.eq(workspace_id))
+                    .to_owned(),
+            )
+            .exec_without_returning(&orm(master))
+            .await?;
     Ok(claimed > 0)
 }
 
@@ -303,7 +300,10 @@ async fn refresh(
     };
     let mut update = merge_connections::Entity::update_many()
         .col_expr(Column::AppSlug, Expr::value(input.app_slug.clone()))
-        .col_expr(Column::AccountLogin, Expr::value(input.account_login.clone()))
+        .col_expr(
+            Column::AccountLogin,
+            Expr::value(input.account_login.clone()),
+        )
         .col_expr(
             Column::AccountType,
             Expr::value(github_account_type(&input.account_type)),
@@ -313,7 +313,10 @@ async fn refresh(
             Expr::value(input.status.as_deref().unwrap_or("active")),
         )
         .col_expr(Column::InstalledAt, Expr::value(now))
-        .col_expr(Column::RevokedAt, Expr::value(Option::<OffsetDateTime>::None))
+        .col_expr(
+            Column::RevokedAt,
+            Expr::value(Option::<OffsetDateTime>::None),
+        )
         .col_expr(Column::UpdatedAt, Expr::value(now));
     // `case when $scopesSent then $scopes else scopes end`.
     if let Some(scopes) = &input.scopes {
@@ -324,7 +327,12 @@ async fn refresh(
         update = update.col_expr(Column::WebhookSecret, Expr::value(secret));
     }
     let row = update
-        .filter(Column::Id.eq(existing.get("id").and_then(Value::as_str).unwrap_or_default()))
+        .filter(
+            Column::Id.eq(existing
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()),
+        )
         .exec_with_returning(&orm(tenant))
         .await?
         .into_iter()

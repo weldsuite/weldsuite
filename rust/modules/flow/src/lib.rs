@@ -354,8 +354,7 @@ impl Caller {
 
     /// `resolveProjectAccess(c, projectId)`.
     pub(crate) async fn access(&self, project_id: &str) -> Result<ProjectAccess, sea_orm::DbErr> {
-        resolve_project_access(&self.db, self.user(), self.scope_all(), project_id)
-            .await
+        resolve_project_access(&self.db, self.user(), self.scope_all(), project_id).await
     }
 
     /// `canAccessProject`.
@@ -388,9 +387,7 @@ impl Caller {
         let Some(user) = self.user() else {
             return Ok(Some(Vec::new()));
         };
-        member_project_ids(&self.db, user)
-            .await
-            .map(Some)
+        member_project_ids(&self.db, user).await.map(Some)
     }
 
     /// `c.get('userId')`, `None` when empty.

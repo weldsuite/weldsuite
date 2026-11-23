@@ -62,7 +62,7 @@ use sea_orm::{
 use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{
     DatabaseProvisioner, FeedEvent, Identity, IdentityChange, IdentityError, ListPage, Membership,
     Teardown, UserProfile,
@@ -448,7 +448,7 @@ impl IdentitySync {
             (None, Some(master)) => display_role(master).to_owned(),
             (None, None) => match weldsuite_db::sso_settings::sso_default_role(&tenant).await {
                 Ok(role) => role.to_owned(),
-                Err(error) => return orm_error(error).into(),
+                Err(error) => return error.into(),
             },
         };
         let person = match self.sso_person(&join.user_id).await {

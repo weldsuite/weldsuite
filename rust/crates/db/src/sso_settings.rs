@@ -12,7 +12,16 @@
 //! Only `ADMIN`, `MEMBER` and `VIEWER` are offered: nobody becomes an owner
 //! by signing in. Anything else stored reads as [`SSO_DEFAULT_ROLE`].
 
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{self, Expr, ExprTrait as _, Func, Order, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde_json::json;
 use sqlx::PgPool;
+use weldsuite_schema::tenant::workspace_settings;
+
+use crate::orm::orm;
 
 /// The roles an SSO member may get.
 pub const SSO_DEFAULT_ROLES: [&str; 3] = ["ADMIN", "MEMBER", "VIEWER"];
@@ -36,61 +45,107 @@ pub fn sso_default_role_of(role: Option<&str>) -> &'static str {
 /// # Errors
 ///
 /// The tenant database's.
-pub async fn sso_default_role(tenant: &PgPool) -> Result<&'static str, sqlx::Error> {
-    let stored: Option<Option<String>> = sqlx::query_scalar(
-        "select custom_settings -> 'sso' ->> 'defaultRole' from workspace_settings
-          where deleted_at is null and custom_settings ? 'sso'
-          order by created_at, id limit 1",
-    )
-    .fetch_optional(tenant)
-    .await?;
+pub async fn sso_default_role(tenant: &PgPool) -> Result<&'static str, DbErr> {
+    let stored: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column_as(
+            PgExpr::cast_json_field(sso(), "defaultRole"),
+            "default_role",
+        )
+        .filter(workspace_settings::Column::DeletedAt.is_null())
+        .filter(sea_query::ExprTrait::is_not_null(sso()))
+        .order_by_asc(workspace_settings::Column::CreatedAt)
+        .order_by_asc(workspace_settings::Column::Id)
+        .limit(1)
+        .into_tuple()
+        .one(&orm(tenant))
+        .await?;
     Ok(sso_default_role_of(stored.flatten().as_deref()))
+}
+
+/// `custom_settings -> 'sso'`: SQL null when the settings have no `sso` key
+/// (`custom_settings ? 'sso'` is false), as they are always an object.
+fn sso() -> Expr {
+    PgExpr::get_json_field(Expr::col(workspace_settings::Column::CustomSettings), "sso")
+}
+
+/// `case when jsonb_typeof(value) = 'object' then value else '{}' end`.
+fn object_or_empty(value: Expr) -> Expr {
+    Expr::case(
+        sea_query::ExprTrait::eq(
+            Expr::from(Func::cust("jsonb_typeof").arg(value.clone())),
+            "object",
+        ),
+        value,
+    )
+    .finally(Expr::val(json!({})).cast_as("jsonb"))
+    .into()
 }
 
 /// Sets the default role, merged into `custom_settings.sso` of the
 /// workspace's settings row (created when there is none). `id` names a new
-/// row.
+/// row. One statement each way, so a concurrent write of another settings
+/// key is never overwritten.
 ///
 /// # Errors
 ///
 /// The tenant database's; a role outside [`SSO_DEFAULT_ROLES`] is stored as
 /// [`SSO_DEFAULT_ROLE`].
-pub async fn set_sso_default_role(
-    tenant: &PgPool,
-    role: &str,
-    id: &str,
-) -> Result<(), sqlx::Error> {
+pub async fn set_sso_default_role(tenant: &PgPool, role: &str, id: &str) -> Result<(), DbErr> {
     let role = sso_default_role_of(Some(role));
-    let updated: Option<String> = sqlx::query_scalar(
-        "update workspace_settings w
-            set custom_settings = jsonb_set(
-                  case when jsonb_typeof(w.custom_settings) = 'object'
-                       then w.custom_settings else '{}'::jsonb end,
-                  '{sso}',
-                  case when jsonb_typeof(w.custom_settings -> 'sso') = 'object'
-                       then w.custom_settings -> 'sso' else '{}'::jsonb end
-                    || jsonb_build_object('defaultRole', $1::text),
-                  true),
-                updated_at = now()
-          where w.id = (select id from workspace_settings
-                         where deleted_at is null
-                         order by (custom_settings ? 'sso') desc, created_at, id
-                         limit 1)
-          returning w.id",
-    )
-    .bind(role)
-    .fetch_optional(tenant)
-    .await?;
-    if updated.is_none() {
-        sqlx::query(
-            "insert into workspace_settings (id, custom_settings, created_at, updated_at)
-             values ($1, jsonb_build_object('sso', jsonb_build_object('defaultRole', $2::text)),
-                     now(), now())",
+    let db = orm(tenant);
+    let merged = Func::cust("jsonb_set")
+        .arg(object_or_empty(Expr::col(
+            workspace_settings::Column::CustomSettings,
+        )))
+        .arg(Expr::val("{sso}").cast_as("text[]"))
+        .arg(PgExpr::concat(
+            object_or_empty(sso()),
+            Expr::val(json!({ "defaultRole": role })).cast_as("jsonb"),
+        ))
+        .arg(true);
+    // The row the read above would pick, preferring one that has `sso`.
+    let target = Query::select()
+        .column(workspace_settings::Column::Id)
+        .from(workspace_settings::Entity)
+        .and_where(sea_query::ExprTrait::is_null(Expr::col(
+            workspace_settings::Column::DeletedAt,
+        )))
+        .order_by_expr(sea_query::ExprTrait::is_not_null(sso()), Order::Desc)
+        .order_by(workspace_settings::Column::CreatedAt, Order::Asc)
+        .order_by(workspace_settings::Column::Id, Order::Asc)
+        .limit(1)
+        .to_owned();
+    let updated = workspace_settings::Entity::update_many()
+        .col_expr(
+            workspace_settings::Column::CustomSettings,
+            Expr::from(merged),
         )
-        .bind(id)
-        .bind(role)
-        .execute(tenant)
+        .col_expr(
+            workspace_settings::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(workspace_settings::Column::Id.in_subquery(target))
+        .exec(&db)
         .await?;
+    if updated.rows_affected == 0 {
+        let now = Expr::current_timestamp();
+        let insert = Query::insert()
+            .into_table(workspace_settings::Entity)
+            .columns([
+                workspace_settings::Column::Id,
+                workspace_settings::Column::CustomSettings,
+                workspace_settings::Column::CreatedAt,
+                workspace_settings::Column::UpdatedAt,
+            ])
+            .values_panic([
+                Expr::val(id),
+                Expr::val(json!({ "sso": { "defaultRole": role } })).cast_as("jsonb"),
+                now.clone(),
+                now,
+            ])
+            .to_owned();
+        db.execute(&insert).await?;
     }
     Ok(())
 }

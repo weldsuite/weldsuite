@@ -424,8 +424,7 @@ async fn overview(
             let as_of = as_of_of(&q)?;
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
-            Ok(ok(nexus_overview(&caller.db, s(&entity, "id"), &day)
-                .await?))
+            Ok(ok(nexus_overview(&caller.db, s(&entity, "id"), &day).await?))
         }
         .await,
         "Failed to fetch the nexus monitor",
@@ -444,9 +443,7 @@ async fn detail(
             let as_of = as_of_of(&q)?;
             let entity = us_entity_of(&caller).await?;
             let day = day_of(&caller, &state, &entity, as_of)?;
-            match nexus_detail(&caller.db, s(&entity, "id"), &code, &day)
-                .await?
-            {
+            match nexus_detail(&caller.db, s(&entity, "id"), &code, &day).await? {
                 Some(detail) => Ok(ok(detail)),
                 None => Ok((
                     StatusCode::NOT_FOUND,

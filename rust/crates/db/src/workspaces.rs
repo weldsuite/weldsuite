@@ -18,9 +18,19 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use sea_orm::sea_query::{self, Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QuerySelect, Select,
+};
 use serde_json::Value;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use weldsuite_schema::master::{
+    partners, workspace_database_moves, workspace_licences, workspaces,
+};
+
+use crate::orm::{db_error_text, orm, orm_error};
 
 use crate::crypto::{DecryptError, Keyring, resolve_database_url};
 use crate::restrictions::{
@@ -38,19 +48,61 @@ pub const WRITE_BLOCKING_DATABASE_MOVE_STATUSES: [&str; 6] = [
     "cancelling",
 ];
 
-const SELECT_WORKSPACE: &str = "
-    select w.id, w.clerk_org_id, w.database_url, w.is_active, w.billing_mode,
-           l.status as licence_status, l.allowed_apps as licence_apps,
-           p.status as partner_status,
-           exists (
-               select 1 from workspace_database_moves m
-               where m.workspace_id = w.id and m.status = any($2)
-           ) as database_move_in_progress
-    from workspaces w
-    left join workspace_licences l on l.workspace_id = w.id
-    left join partners p on p.id = w.partner_id
-    where w.id = $1 or w.clerk_org_id = $1
-    limit 1";
+/// One master query: the row by either identifier, its licence, its partner
+/// and whether a database move blocks writes.
+fn select_workspace(reference: &str) -> Select<workspaces::Entity> {
+    let moving = Query::select()
+        .expr(Expr::val(1))
+        .from(workspace_database_moves::Entity)
+        .and_where(sea_query::ExprTrait::equals(
+            Expr::col((
+                workspace_database_moves::Entity,
+                workspace_database_moves::Column::WorkspaceId,
+            )),
+            (workspaces::Entity, workspaces::Column::Id),
+        ))
+        .and_where(sea_query::ExprTrait::is_in(
+            Expr::col((
+                workspace_database_moves::Entity,
+                workspace_database_moves::Column::Status,
+            )),
+            WRITE_BLOCKING_DATABASE_MOVE_STATUSES,
+        ))
+        .to_owned();
+    workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::Id,
+            workspaces::Column::ClerkOrgId,
+            workspaces::Column::DatabaseUrl,
+            workspaces::Column::IsActive,
+            workspaces::Column::BillingMode,
+        ])
+        .column_as(workspace_licences::Column::Status, "licence_status")
+        .column_as(workspace_licences::Column::AllowedApps, "licence_apps")
+        .column_as(partners::Column::Status, "partner_status")
+        .column_as(Expr::exists(moving), "database_move_in_progress")
+        .join(
+            JoinType::LeftJoin,
+            workspaces::Entity::belongs_to(workspace_licences::Entity)
+                .from(workspaces::Column::Id)
+                .to(workspace_licences::Column::WorkspaceId)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            workspaces::Entity::belongs_to(partners::Entity)
+                .from(workspaces::Column::PartnerId)
+                .to(partners::Column::Id)
+                .into(),
+        )
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(reference))
+                .add(workspaces::Column::ClerkOrgId.eq(reference)),
+        )
+        .limit(1)
+}
 
 /// Tuning for [`Workspaces`].
 ///
@@ -110,7 +162,7 @@ pub enum WorkspaceError {
     Decrypt(DecryptError),
     /// A database URL that is not a usable Postgres URL.
     BadDatabaseUrl,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl fmt::Display for WorkspaceError {
@@ -120,16 +172,22 @@ impl fmt::Display for WorkspaceError {
             Self::NoDatabase => f.write_str("no database configured for the workspace"),
             Self::Decrypt(error) => write!(f, "cannot open the workspace database URL: {error}"),
             Self::BadDatabaseUrl => f.write_str("the database URL is not a Postgres URL"),
-            Self::Database(error) => write!(f, "master database: {error}"),
+            Self::Database(error) => write!(f, "master database: {}", db_error_text(error)),
         }
     }
 }
 
 impl std::error::Error for WorkspaceError {}
 
+impl From<DbErr> for WorkspaceError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for WorkspaceError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(orm_error(error))
     }
 }
 
@@ -252,6 +310,10 @@ impl Workspaces {
     }
 
     /// `select 1` on the master database, for readiness.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "a connectivity probe, not a query of any table"
+    )]
     pub async fn ping_master(&self) -> Result<(), sqlx::Error> {
         sqlx::query("select 1")
             .execute(&self.master)
@@ -318,14 +380,9 @@ impl Workspaces {
     }
 
     async fn resolve(&self, reference: &str) -> Result<Resolved, WorkspaceError> {
-        let statuses: Vec<String> = WRITE_BLOCKING_DATABASE_MOVE_STATUSES
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
-        let row: Option<WorkspaceRow> = sqlx::query_as(SELECT_WORKSPACE)
-            .bind(reference)
-            .bind(statuses)
-            .fetch_optional(&self.master)
+        let row: Option<WorkspaceRow> = select_workspace(reference)
+            .into_model()
+            .one(&orm(&self.master))
             .await?;
         let row = row.ok_or(WorkspaceError::NotFound)?;
         let stored = row
@@ -421,7 +478,7 @@ pub(crate) fn string_array(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct WorkspaceRow {
     id: String,
     clerk_org_id: Option<String>,

@@ -366,11 +366,7 @@ pub async fn update_file(
 }
 
 /// Trash a live file; the row as it was, or `None` (`softDeleteFile`).
-pub async fn soft_delete_file(
-    db: &PgPool,
-    id: &str,
-    now: &str,
-) -> Result<Option<Value>, DbErr> {
+pub async fn soft_delete_file(db: &PgPool, id: &str, now: &str) -> Result<Option<Value>, DbErr> {
     let Some(existing) = live_file(db, id).await? else {
         return Ok(None);
     };
@@ -397,7 +393,10 @@ pub async fn touch_file_size(
             files_table::Column::FileSize,
             Expr::value(self::file_size(file_size)?),
         )
-        .col_expr(files_table::Column::UpdatedAt, Expr::value(timestamp_of(now)?))
+        .col_expr(
+            files_table::Column::UpdatedAt,
+            Expr::value(timestamp_of(now)?),
+        )
         .filter(files_table::Column::Id.eq(id))
         .exec(&db)
         .await?;
@@ -405,18 +404,17 @@ pub async fn touch_file_size(
 }
 
 /// Flip a live file's star; the new value and the row with it (`toggleStar`).
-pub async fn toggle_star(
-    db: &PgPool,
-    id: &str,
-    now: &str,
-) -> Result<Option<(bool, Value)>, DbErr> {
+pub async fn toggle_star(db: &PgPool, id: &str, now: &str) -> Result<Option<(bool, Value)>, DbErr> {
     let Some(mut existing) = live_file(db, id).await? else {
         return Ok(None);
     };
     let next = !existing["isStarred"].as_bool().unwrap_or(false);
     files_table::Entity::update_many()
         .col_expr(files_table::Column::IsStarred, Expr::value(next))
-        .col_expr(files_table::Column::UpdatedAt, Expr::value(timestamp_of(now)?))
+        .col_expr(
+            files_table::Column::UpdatedAt,
+            Expr::value(timestamp_of(now)?),
+        )
         .filter(files_table::Column::Id.eq(id))
         .exec(&orm(db))
         .await?;
@@ -499,7 +497,10 @@ pub async fn move_file(
             files_table::Column::FolderId,
             Expr::value(folder_id.map(str::to_owned)),
         )
-        .col_expr(files_table::Column::UpdatedAt, Expr::value(timestamp_of(now)?))
+        .col_expr(
+            files_table::Column::UpdatedAt,
+            Expr::value(timestamp_of(now)?),
+        )
         .filter(files_table::Column::Id.eq(id))
         .exec(&db)
         .await?;
@@ -543,7 +544,10 @@ pub async fn restore_file(db: &PgPool, id: &str, now: &str) -> Result<Option<Val
             files_table::Column::DeletedAt,
             Expr::value(None::<PrimitiveDateTime>),
         )
-        .col_expr(files_table::Column::UpdatedAt, Expr::value(timestamp_of(now)?))
+        .col_expr(
+            files_table::Column::UpdatedAt,
+            Expr::value(timestamp_of(now)?),
+        )
         .filter(files_table::Column::Id.eq(id))
         .exec(&orm(db))
         .await?;
@@ -593,7 +597,10 @@ pub async fn list_document_snapshot_keys(
 }
 
 /// `select snapshot_key from sheets where file_id = any($1)`.
-async fn sheet_keys(db: &DatabaseConnection, file_ids: &[String]) -> Result<Vec<Option<String>>, DbErr> {
+async fn sheet_keys(
+    db: &DatabaseConnection,
+    file_ids: &[String],
+) -> Result<Vec<Option<String>>, DbErr> {
     sheets::Entity::find()
         .select_only()
         .column(sheets::Column::SnapshotKey)
@@ -604,7 +611,10 @@ async fn sheet_keys(db: &DatabaseConnection, file_ids: &[String]) -> Result<Vec<
 }
 
 /// `select snapshot_key from docs where file_id = any($1)`.
-async fn doc_keys(db: &DatabaseConnection, file_ids: &[String]) -> Result<Vec<Option<String>>, DbErr> {
+async fn doc_keys(
+    db: &DatabaseConnection,
+    file_ids: &[String],
+) -> Result<Vec<Option<String>>, DbErr> {
     docs::Entity::find()
         .select_only()
         .column(docs::Column::SnapshotKey)
@@ -679,7 +689,10 @@ async fn converted_from_keys(
 }
 
 /// `select snapshot_key from whiteboards where file_id = any($1)`.
-async fn board_keys(db: &DatabaseConnection, file_ids: &[String]) -> Result<Vec<Option<String>>, DbErr> {
+async fn board_keys(
+    db: &DatabaseConnection,
+    file_ids: &[String],
+) -> Result<Vec<Option<String>>, DbErr> {
     whiteboards::Entity::find()
         .select_only()
         .column(whiteboards::Column::SnapshotKey)

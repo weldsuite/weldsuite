@@ -90,9 +90,7 @@ pub async fn load_stage(db: &PgPool, stage_id: &str) -> DomainResult<Option<Stag
 
 /// `column is null or column = false`.
 fn not_set(column: stages::Column) -> Condition {
-    Condition::any()
-        .add(column.is_null())
-        .add(column.eq(false))
+    Condition::any().add(column.is_null()).add(column.eq(false))
 }
 
 /// `findFirstOpenStage(db, pipeline)`: the lowest live stage that is

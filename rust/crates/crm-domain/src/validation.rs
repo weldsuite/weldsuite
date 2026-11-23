@@ -163,7 +163,11 @@ pub(crate) fn sort_value<C: ColumnTrait>(column: C, family: &str) -> Expr {
 /// `(created_at, id) < (select created_at, id from <table> where id =
 /// cursor)`: past the cursor row, newest first; nothing when that row is
 /// gone.
-pub(crate) fn before_row<E: EntityTrait>(created_at: E::Column, id: E::Column, cursor: &str) -> Expr {
+pub(crate) fn before_row<E: EntityTrait>(
+    created_at: E::Column,
+    id: E::Column,
+    cursor: &str,
+) -> Expr {
     use sea_orm::ExprTrait as _;
     let row = Alias::new("c");
     let cursor_row = Query::select()

@@ -51,8 +51,7 @@ pub(crate) async fn create_return(
             "The agency is only being monitored for nexus; register it before preparing a return",
         ));
     }
-    let returns = load_agency_returns(db, s(entity, "id"), s(agency, "id"))
-        .await?;
+    let returns = load_agency_returns(db, s(entity, "id"), s(agency, "id")).await?;
     let period = match (period_start, period_end) {
         (Some(start), Some(end)) => match_period(agency, start, end).ok_or_else(|| {
             bad(format!(
@@ -101,12 +100,8 @@ pub(crate) async fn create_return(
     ] {
         values.insert(key.to_owned(), value);
     }
-    RETURN_ROWS
-        .insert(&orm(db), values)
-        .await?;
-    Ok(return_by_id(db, &id)
-        .await?
-        .unwrap_or(Value::Null))
+    RETURN_ROWS.insert(&orm(db), values).await?;
+    Ok(return_by_id(db, &id).await?.unwrap_or(Value::Null))
 }
 
 /// `calculateAndStore(db, { entity, agency, ret })`.
@@ -136,8 +131,7 @@ pub(crate) async fn calculate_and_store(
         },
     )
     .await?;
-    store_calculation(db, ret, calc, now)
-        .await?;
+    store_calculation(db, ret, calc, now).await?;
     let updated = return_by_id(db, s(ret, "id")).await?;
     updated
         .filter(|u| s(u, "status") == "calculated")
@@ -224,9 +218,7 @@ pub(crate) async fn review_return(db: &PgPool, ret: &Value, now: &str) -> Result
         .filter(tax_returns::Column::Status.eq("calculated"))
         .exec(&orm(db))
         .await?;
-    Ok(return_by_id(db, s(ret, "id"))
-        .await?
-        .unwrap_or(Value::Null))
+    Ok(return_by_id(db, s(ret, "id")).await?.unwrap_or(Value::Null))
 }
 
 /// `deleteReturn(db, ret)`: soft-deletes a return that is not filed.
@@ -244,8 +236,7 @@ pub(crate) async fn delete_return(db: &PgPool, ret: &Value, now: &str) -> Result
         .filter(tax_returns::Column::DeletedAt.is_null())
         .exec(&orm(db))
         .await?;
-    release_amended_exceptions(db, ret, now)
-        .await?;
+    release_amended_exceptions(db, ret, now).await?;
     Ok(())
 }
 

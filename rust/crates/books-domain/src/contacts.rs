@@ -181,10 +181,7 @@ pub async fn set_billing_contact(
 
 /// `clearBillingContact(db, companyId)`: who lost the role (they stay
 /// linked).
-pub async fn clear_billing_contact(
-    db: &PgPool,
-    company_id: &str,
-) -> Result<Vec<String>, DbErr> {
+pub async fn clear_billing_contact(db: &PgPool, company_id: &str) -> Result<Vec<String>, DbErr> {
     use person_companies::Column;
     let cleared = person_companies::Entity::update_many()
         .col_expr(Column::Role, Expr::value(Option::<String>::None))
@@ -323,10 +320,7 @@ pub async fn with_contact_email(db: &PgPool, mut row: Value) -> Result<Value, Db
 
 /// `withContactNames(db, rows)`: `contactName` filled on documents stored
 /// without one, from their contacts' current names (one query for the lot).
-pub async fn with_contact_names(
-    db: &PgPool,
-    mut rows: Vec<Value>,
-) -> Result<Vec<Value>, DbErr> {
+pub async fn with_contact_names(db: &PgPool, mut rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     let missing = |row: &Value| -> Option<String> {
         let name_set = row["contactName"].as_str().is_some_and(|n| !n.is_empty());
         if name_set {
