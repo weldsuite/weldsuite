@@ -1,7 +1,8 @@
 /**
  * Create and edit form for a storefront key: its kind (publishable keys go in
  * the shop's browser code and name the origins allowed to use them; private
- * keys are for servers), a name, and the origins. A new key's secret comes
+ * keys are for servers; deploy keys upload a shop the merchant builds
+ * themselves, and have no origins), a name, and the origins. A new key's secret comes
  * back from the create call and goes to `onCreated`; an edit changes only the
  * name and the origins.
  */
@@ -40,6 +41,7 @@ import { errorMessage } from '@/app/weldcommerce/lib/text';
 function KindField({ disabled }: Readonly<{ disabled: boolean }>) {
   const t = getTranslations('commerce').channels.keys.form;
   const form = useFormContext<KeyFormValues>();
+  const KIND_HINTS: Record<KeyFormValues['kind'], string> = { publishable: t.publishableHint, private: t.privateHint, deploy: t.deployHint };
   return (
     <FormField
       control={form.control}
@@ -61,7 +63,7 @@ function KindField({ disabled }: Readonly<{ disabled: boolean }>) {
               ))}
             </SelectContent>
           </Select>
-          <FormDescription>{field.value === 'publishable' ? t.publishableHint : t.privateHint}</FormDescription>
+          <FormDescription>{KIND_HINTS[field.value]}</FormDescription>
           <FormMessage />
         </FormItem>
       )}

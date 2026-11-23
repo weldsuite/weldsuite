@@ -149,6 +149,7 @@ export const navigation = {
         categories: 'Categorieën',
         orders: 'Orders',
         discounts: 'Kortingen',
+        onlineStore: 'Webwinkel',
       },
       weldstash: {
         overview: 'Overzicht',
