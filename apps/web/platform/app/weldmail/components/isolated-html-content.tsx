@@ -3,6 +3,9 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { isFeatureAvailable } from '@/lib/edition';
+import { parseWorkspacePath } from '@/lib/workspace-url';
+import { protectAnchor, type LinkProtectionContext } from '../lib/link-protection';
 
 /** Link schemes we're willing to open from email content. */
 const SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
@@ -27,6 +30,13 @@ export function isSafeHref(href: string): boolean {
 interface IsolatedHtmlContentProps {
   html: string;
   className?: string;
+  /**
+   * Click-time link protection for a received message (edition feature
+   * `mail-threat-protection`): every http(s) link is rewritten to the
+   * `/weldmail/link` interstitial, which checks the destination before
+   * forwarding the reader. Ignored where the edition lacks the feature.
+   */
+  linkProtection?: { messageId: string };
 }
 
 /**
@@ -59,7 +69,7 @@ function getAttributes(el: Element): [string, string][] {
   return Array.from(el.attributes).map((attr) => [attr.name, attr.value]);
 }
 
-function normalizeEmailHtml(html: string): NormalizedEmail {
+function normalizeEmailHtml(html: string, protection?: LinkProtectionContext): NormalizedEmail {
   try {
     const parsed = new DOMParser().parseFromString(html, 'text/html');
 
@@ -79,6 +89,7 @@ function normalizeEmailHtml(html: string): NormalizedEmail {
       }
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
+      if (protection) protectAnchor(a, protection);
     });
 
     // Preserve the email's own <style>/<head> content (many emails style their
@@ -333,13 +344,15 @@ function useAppDarkMode(): boolean {
  *   - `width=device-width` lets responsive emails (media queries) reflow to the
  *     pane width, so the frame is responsive on mobile and narrow panes.
  */
-export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlContentProps>) {
+export function IsolatedHtmlContent({ html, className, linkProtection }: Readonly<IsolatedHtmlContentProps>) {
   const t = useTranslations();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(40);
   const isDark = useAppDarkMode();
   const [showOriginalColors, setShowOriginalColors] = useState(false);
   const adaptToDark = isDark && !showOriginalColors;
+  const protectedMessageId =
+    linkProtection && isFeatureAvailable('mail-threat-protection') ? linkProtection.messageId : null;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -418,7 +431,16 @@ export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlCo
       </style>
     `;
 
-    const normalized = normalizeEmailHtml(html);
+    const normalized = normalizeEmailHtml(
+      html,
+      protectedMessageId
+        ? {
+            messageId: protectedMessageId,
+            origin: window.location.origin,
+            workspaceRef: parseWorkspacePath(window.location.pathname)?.ref ?? null,
+          }
+        : undefined,
+    );
 
     // Write the HTML content to the iframe
     doc.open();
@@ -538,7 +560,7 @@ export function IsolatedHtmlContent({ html, className }: Readonly<IsolatedHtmlCo
       resizeObserver.disconnect();
       timers.forEach(clearTimeout);
     };
-  }, [html, adaptToDark]);
+  }, [html, adaptToDark, protectedMessageId]);
 
   // When the original (light) colors are shown in dark mode, the rounded border
   // makes the white email read as an intentional "card" rather than a glitch.

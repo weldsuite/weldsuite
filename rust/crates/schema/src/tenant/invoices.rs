@@ -1,0 +1,410 @@
+//! `invoices`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "invoices")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "invoiceNumber")]
+    pub invoice_number: Option<String>,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "contactId")]
+    pub contact_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "contactName")]
+    pub contact_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "contactEmail")]
+    pub contact_email: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "counterpartyId")]
+    pub counterparty_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "personId")]
+    pub person_id: Option<String>,
+    #[serde(rename = "issueDate", with = "crate::js::timestamp")]
+    pub issue_date: TimeDateTime,
+    #[serde(rename = "dueDate", with = "crate::js::timestamp")]
+    pub due_date: TimeDateTime,
+    #[serde(rename = "paidAt", with = "crate::js::timestamp::option")]
+    pub paid_at: Option<TimeDateTime>,
+    #[serde(rename = "sentAt", with = "crate::js::timestamp::option")]
+    pub sent_at: Option<TimeDateTime>,
+    #[serde(rename = "viewedAt", with = "crate::js::timestamp::option")]
+    pub viewed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((12, 6)))")]
+    #[serde(
+        rename = "exchangeRate",
+        serialize_with = "crate::js::Numeric::<6>::serialize_option"
+    )]
+    pub exchange_rate: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "subtotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub subtotal: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "discountTotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub discount_total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "taxTotal",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub tax_total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "total",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub total: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "amountPaid",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub amount_paid: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "balanceDue",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub balance_due: Option<BigDecimal>,
+    #[serde(rename = "paymentTermsDays")]
+    pub payment_terms_days: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "reference")]
+    pub reference: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "internalNotes")]
+    pub internal_notes: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "billingAddress")]
+    pub billing_address: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "shippingAddress")]
+    pub shipping_address: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "revenueAccountId")]
+    pub revenue_account_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "creditNoteForInvoiceId")]
+    pub credit_note_for_invoice_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "originalInvoiceId")]
+    pub original_invoice_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "recurringInvoiceId")]
+    pub recurring_invoice_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "commerceOrderId")]
+    pub commerce_order_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "attachmentKeys")]
+    pub attachment_keys: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "emailHistory")]
+    pub email_history: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "taxBreakdown")]
+    pub tax_breakdown: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "shipFromAddress")]
+    pub ship_from_address: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "taxEngine")]
+    pub tax_engine: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "taxEngineRef")]
+    pub tax_engine_ref: Option<String>,
+    #[serde(rename = "taxCalculatedAt", with = "crate::js::timestamp::option")]
+    pub tax_calculated_at: Option<TimeDateTime>,
+    #[serde(rename = "taxCommittedAt", with = "crate::js::timestamp::option")]
+    pub tax_committed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "taxWarnings")]
+    pub tax_warnings: Option<Json>,
+    #[serde(rename = "marketplaceFacilitated")]
+    pub marketplace_facilitated: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(2))")]
+    #[serde(rename = "placeOfSupply")]
+    pub place_of_supply: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "contactTaxNumber")]
+    pub contact_tax_number: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "fiscalData")]
+    pub fiscal_data: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "paymentLink")]
+    pub payment_link: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "templateId")]
+    pub template_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "journalEntryId")]
+    pub journal_entry_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "invoices",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'standard'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'draft'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'EUR'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "exchange_rate",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'1'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "subtotal",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "discount_total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "tax_total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "amount_paid",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "balance_due",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "marketplace_facilitated",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_invoices_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_number_idx",
+            columns: &[IndexColumn {
+                expression: "invoice_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_contact_idx",
+            columns: &[IndexColumn {
+                expression: "contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_counterparty_idx",
+            columns: &[IndexColumn {
+                expression: "counterparty_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_person_idx",
+            columns: &[IndexColumn {
+                expression: "person_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_issue_date_idx",
+            columns: &[IndexColumn {
+                expression: "issue_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_due_date_idx",
+            columns: &[IndexColumn {
+                expression: "due_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_invoices_type_idx",
+            columns: &[IndexColumn {
+                expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

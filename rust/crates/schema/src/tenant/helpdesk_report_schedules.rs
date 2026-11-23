@@ -1,0 +1,188 @@
+//! `helpdesk_report_schedules`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "helpdesk_report_schedules")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reportId")]
+    pub report_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "range")]
+    pub range: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "frequency")]
+    pub frequency: String,
+    #[serde(rename = "dayOfWeek")]
+    pub day_of_week: Option<i32>,
+    #[serde(rename = "dayOfMonth")]
+    pub day_of_month: Option<i32>,
+    #[serde(rename = "hour")]
+    pub hour: i32,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "timezone")]
+    pub timezone: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "recipients")]
+    pub recipients: Json,
+    #[serde(rename = "attachCsv")]
+    pub attach_csv: bool,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "locale")]
+    pub locale: String,
+    #[serde(rename = "enabled")]
+    pub enabled: bool,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdById")]
+    pub created_by_id: Option<String>,
+    #[serde(rename = "nextRunAt", with = "crate::js::timestamp::option")]
+    pub next_run_at: Option<TimeDateTime>,
+    #[serde(rename = "lastRunAt", with = "crate::js::timestamp::option")]
+    pub last_run_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "lastStatus")]
+    pub last_status: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastError")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "helpdesk_report_schedules",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "range",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'last_7_days'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "hour",
+            sql_type: None,
+            default: Some(DdlDefault::Number("8")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "timezone",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'UTC'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "recipients",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "attach_csv",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "locale",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'en'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "helpdesk_report_schedules_due_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "enabled",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "next_run_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "helpdesk_report_schedules_report_idx",
+            columns: &[IndexColumn {
+                expression: "report_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

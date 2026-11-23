@@ -9,6 +9,11 @@
 //! database is shared: rows are created with fresh ids and nothing is
 //! truncated or assumed empty.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -56,10 +61,13 @@ impl PermissionQueries for NoQueries {
 
 fn app(db: PgPool, permissions: &[&str]) -> Router {
     let state = CommerceState {
+        mail: None,
         events: EntityEventPublisher::new(
             Some(Arc::new(RecordingEventBus::new()) as Arc<dyn DynEventBus>),
             TaskTracker::new(),
         ),
+        http: None,
+        payments: weldsuite_commerce::PaymentsConfig::default(),
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {
@@ -124,7 +132,7 @@ fn tenant() -> Option<PgPool> {
         eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
         return None;
     };
-    Some(master_pool(&url, 4).expect("tenant pool"))
+    Some(master_pool(&url, 1).expect("tenant pool"))
 }
 
 fn fresh(prefix: &str) -> String {

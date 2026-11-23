@@ -1,0 +1,177 @@
+//! `merge_repositories`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "merge_repositories")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "provider")]
+    pub provider: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "externalId")]
+    pub external_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "fullName")]
+    pub full_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "defaultBranch")]
+    pub default_branch: Option<String>,
+    #[serde(rename = "private")]
+    pub private: bool,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "url")]
+    pub url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "teamId")]
+    pub team_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "issueSync")]
+    pub issue_sync: String,
+    #[serde(rename = "prSync")]
+    pub pr_sync: bool,
+    #[serde(rename = "lastSyncedAt", with = "crate::js::timestamptz::option")]
+    pub last_synced_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "externalProject")]
+    pub external_project: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "webhookId")]
+    pub webhook_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "webhookKey")]
+    pub webhook_key: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "webhookSecret")]
+    pub webhook_secret: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdByUserId")]
+    pub created_by_user_id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "merge_repositories",
+    columns: &[
+        DdlColumn {
+            name: "private",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "issue_sync",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'off'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "pr_sync",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "merge_repositories_external_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "connection_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "external_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: Some("\"merge_repositories\".\"deleted_at\" IS NULL"),
+        },
+        Index {
+            name: "merge_repositories_external_lookup_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "provider",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "external_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "merge_repositories_webhook_key_idx",
+            columns: &[IndexColumn {
+                expression: "webhook_key",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some("\"merge_repositories\".\"webhook_key\" IS NOT NULL"),
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

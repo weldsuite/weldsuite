@@ -796,6 +796,13 @@ export const common = {
         managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
         openAccount: 'Inloggen en beveiliging beheren',
         invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
+        weldId: {
+          managedTitle: 'Beheerd in WeldID',
+          managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies beheer je in je WeldID-account, het account waarmee je inlogt bij WeldSuite.',
+          openAccount: 'WeldID-account openen',
+          invitationIncompleteTitle: 'Uitnodigingslink onvolledig',
+          invitationIncomplete: 'Deze link verwijst niet naar een uitnodiging. Open de link in je uitnodigingsmail opnieuw, of vraag een beheerder van de werkruimte om je opnieuw uit te nodigen.',
+        },
         accountLocked: 'Dit account is geblokkeerd. Probeer het later opnieuw of neem contact op met je beheerder.',
         tooManyAttempts: 'Te veel pogingen. Wacht een paar minuten en probeer het opnieuw.',
         emailTaken: 'Er bestaat al een account met dit e-mailadres. Log in met dat account.',

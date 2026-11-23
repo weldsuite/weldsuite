@@ -34,6 +34,7 @@ import {
   Laptop,
   Route,
   Sparkles,
+  Globe,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon, resolveAppCode } from '@/lib/apps/app-registry';
@@ -69,6 +70,7 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'weldforms', title: 'WeldForms', href: '/settings/apps/weldforms' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+  { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldstash', title: 'WeldStash', href: '/settings/apps/weldstash' },
   { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
   { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
@@ -143,8 +145,13 @@ export function useSettingsSidebarItems(enabled: boolean) {
     const appsItems = [
       WELDSUITE_SETTINGS_ITEM,
       ...APP_SETTINGS_ITEMS
-        // WeldStash's settings (replenishment) exist on the Kubernetes editions only.
-        .filter((item) => installedAppCodes.has(item.appCode) && (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')))
+        // WeldStash's settings (replenishment) exist on the Kubernetes editions only, WeldCommerce is Rust-only.
+        .filter(
+          (item) =>
+            installedAppCodes.has(item.appCode) &&
+            (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')) &&
+            (item.appCode !== 'weldcommerce' || isFeatureAvailable('commerce')),
+        )
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title,
           href,
@@ -177,6 +184,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
           // Kubernetes editions with AI configured (hidden elsewhere by the edition check below).
           ...(canManageAi ? [{ title: ts.menu.ai, href: '/settings/ai', icon: Sparkles }] : []),
+          // The EU edition only (ADR OPS-026; hidden elsewhere by the edition check below).
+          { title: ts.menu.outsideEu, href: '/settings/outside-eu', icon: Globe },
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },

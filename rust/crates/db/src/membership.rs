@@ -33,8 +33,11 @@ use std::time::{Duration, Instant};
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use weldsuite_auth::{AuthContext, WORKSPACE_HEADER};
 use weldsuite_kit::ApiError;
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, workspaces};
 
 use crate::workspaces::{WorkspaceError, Workspaces};
 
@@ -55,6 +58,20 @@ pub type MembershipFuture<'a> =
 pub type MembershipsFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<String>, WorkspaceError>> + Send + 'a>>;
 
+/// What [`MembershipLookup::member_workspace_list`] answers.
+pub type MemberWorkspacesFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<MemberWorkspace>, WorkspaceError>> + Send + 'a>>;
+
+/// A live workspace a user is an active member of, as a person picks one:
+/// by its name, selected by its slug (or id).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberWorkspace {
+    /// `workspaces.id`.
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
 /// Whether a user may use a workspace.
 pub trait MembershipLookup: Send + Sync {
     /// The organization reference (`clerk_org_id`, else `id`) of the live
@@ -66,6 +83,15 @@ pub trait MembershipLookup: Send + Sync {
     /// The organization references of the live workspaces `user_id` is an
     /// active member of, at most `limit` of them.
     fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a>;
+
+    /// The live workspaces `user_id` is an active member of, by name, at
+    /// most `limit` of them: what they pick from when a request names none
+    /// and they have several (an MCP client on a plain `/mcp`).
+    fn member_workspace_list<'a>(
+        &'a self,
+        user_id: &'a str,
+        limit: u64,
+    ) -> MemberWorkspacesFuture<'a>;
 }
 
 /// What [`WorkspaceSelector::sole_workspace`] found.
@@ -104,6 +130,46 @@ const SELECT_MEMBER_WORKSPACES: &str = "
     limit $2";
 
 impl MembershipLookup for Workspaces {
+    fn member_workspace_list<'a>(
+        &'a self,
+        user_id: &'a str,
+        limit: u64,
+    ) -> MemberWorkspacesFuture<'a> {
+        Box::pin(async move {
+            let db = crate::orm(self.master());
+            let ids: Vec<String> = user_workspaces::Entity::find()
+                .select_only()
+                .column(user_workspaces::Column::WorkspaceId)
+                .filter(user_workspaces::Column::UserId.eq(user_id))
+                .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+                .into_tuple()
+                .all(&db)
+                .await?;
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            let rows: Vec<(String, String, String)> = workspaces::Entity::find()
+                .select_only()
+                .columns([
+                    workspaces::Column::Id,
+                    workspaces::Column::Slug,
+                    workspaces::Column::Name,
+                ])
+                .filter(workspaces::Column::Id.is_in(ids))
+                .filter(workspaces::Column::DeletedAt.is_null())
+                .order_by_asc(workspaces::Column::Name)
+                .order_by_asc(workspaces::Column::Id)
+                .limit(limit)
+                .into_tuple()
+                .all(&db)
+                .await?;
+            Ok(rows
+                .into_iter()
+                .map(|(id, slug, name)| MemberWorkspace { id, slug, name })
+                .collect())
+        })
+    }
+
     fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a> {
         Box::pin(async move {
             sqlx::query_scalar(SELECT_MEMBER_WORKSPACES)
@@ -242,6 +308,20 @@ impl WorkspaceSelector {
         })
     }
 
+    /// The live workspaces the user is an active member of, by name, at most
+    /// `limit` of them, for a request that names none while they have
+    /// several ([`SoleWorkspace::Several`]) to offer the choice. Never cached.
+    pub async fn member_workspace_list(
+        &self,
+        user_id: &str,
+        limit: u64,
+    ) -> Result<Vec<MemberWorkspace>, WorkspaceError> {
+        self.inner
+            .lookup
+            .member_workspace_list(user_id, limit)
+            .await
+    }
+
     fn remember(&self, key: (String, String), org: &str) {
         if !self.inner.ttl.is_zero() {
             let mut granted = self
@@ -366,6 +446,31 @@ mod tests {
                     .iter()
                     .find(|(user, r, _)| *user == user_id && *r == reference)
                     .map(|(_, _, org)| (*org).to_owned()))
+            };
+            Box::pin(std::future::ready(result))
+        }
+
+        fn member_workspace_list<'a>(
+            &'a self,
+            user_id: &'a str,
+            limit: u64,
+        ) -> MemberWorkspacesFuture<'a> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let result = if self.fail {
+                Err(WorkspaceError::NoDatabase)
+            } else {
+                let mut listed: Vec<MemberWorkspace> = Vec::new();
+                for (user, reference, org) in &self.granted {
+                    if *user == user_id && !listed.iter().any(|known| known.id == *org) {
+                        listed.push(MemberWorkspace {
+                            id: (*org).to_owned(),
+                            slug: (*reference).to_owned(),
+                            name: (*reference).to_owned(),
+                        });
+                    }
+                }
+                listed.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+                Ok(listed)
             };
             Box::pin(std::future::ready(result))
         }

@@ -288,7 +288,7 @@ async fn article_detail(caller: Caller, Path(id): Path<String>) -> Response {
     match HELPDESK_ARTICLES.find_live(&caller.db, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Article", &id).respond(MESSAGE),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -425,7 +425,7 @@ async fn update_article(
     let existing = match table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let now = now();
     let mut values = Map::new();
@@ -458,7 +458,7 @@ async fn update_article(
             }
         }
         Ok(None) => {}
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     let existing_status = existing["status"].as_str().unwrap_or_default().to_owned();
     let mut new_status: Option<String> = None;
@@ -515,7 +515,7 @@ async fn delete_article(
     match HELPDESK_ARTICLES.find_live(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
     if let Err(error) = soft_delete(&caller.db, &HELPDESK_ARTICLES, &id).await {
         return write_failed(&error, MESSAGE);
@@ -584,7 +584,7 @@ async fn locale_change(
 
 /// `originalOf(db, id)`: the original of the family `id` belongs to, `None`
 /// when either is gone.
-async fn original_of(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn original_of(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
     let Some(found) = HELPDESK_ARTICLES.find_live(db, id).await? else {
         return Ok(None);
     };
@@ -599,7 +599,7 @@ async fn list_translations(caller: Caller, Path(id): Path<String>) -> Response {
     let original = match original_of(&caller.db, &id).await {
         Ok(Some(original)) => original,
         Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
         "select to_jsonb(t) from helpdesk_articles t
@@ -611,7 +611,7 @@ async fn list_translations(caller: Caller, Path(id): Path<String>) -> Response {
     .await;
     let rows = match rows {
         Ok(rows) => rows,
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let data: Vec<Value> = rows
         .into_iter()
@@ -662,14 +662,14 @@ async fn create_translation(
     let original = match original_of(&caller.db, &id).await {
         Ok(Some(original)) => original,
         Ok(None) => return Refusal::not_found("Article", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let original_id = original["id"].as_str().unwrap_or_default().to_owned();
     let locale = normalize_locale(data.get("locale").and_then(Value::as_str));
     match locale_conflict(&caller.db, "", Some(&original_id), locale.as_deref()).await {
         Ok(Some(conflict)) => return ApiError::conflict(conflict).into_response(),
         Ok(None) => {}
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
 
     let new_id = generate_id("art");
@@ -811,7 +811,7 @@ async fn search_canned(caller: Caller, RawQuery(query): RawQuery) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to search canned responses"),
+        Err(error) => Refusal::from(error).respond("Failed to search canned responses"),
     }
 }
 
@@ -851,7 +851,7 @@ async fn canned_categories(caller: Caller) -> Response {
             categories.sort_by(|a, b| locale_compare(a, b));
             Data(json!(categories)).into_response()
         }
-        Err(error) => Refusal::Database(error).respond("Failed to fetch categories"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch categories"),
     }
 }
 
@@ -966,7 +966,7 @@ async fn use_canned(
     let row = match HELPDESK_CANNED_RESPONSES.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Canned response", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let content = interpolate(row["content"].as_str().unwrap_or_default(), &variables);
     let subject = match row["subject"].as_str() {
@@ -983,7 +983,7 @@ async fn use_canned(
     .execute(&caller.db)
     .await;
     if let Err(error) = bumped {
-        return Refusal::Database(error).respond(MESSAGE);
+        return Refusal::from(error).respond(MESSAGE);
     }
     let actions = match &row["actions"] {
         Value::Null => json!([]),
@@ -1126,7 +1126,7 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         .await;
     let (rows, total) = match (rows, total) {
         (Ok(rows), Ok(total)) => (rows, total),
-        (Err(error), _) | (_, Err(error)) => return Refusal::Database(error).respond(MESSAGE),
+        (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows: Vec<Value> = rows
         .into_iter()
@@ -1215,7 +1215,7 @@ async fn helpdesk_stats(caller: Caller) -> Response {
             "highPriorityTickets": high,
         }))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch helpdesk stats"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch helpdesk stats"),
     }
 }
 

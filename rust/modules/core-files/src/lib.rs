@@ -21,6 +21,11 @@
 //! - the 30-day purge of trashed files, a job ([`TrashPurgeJob`]) that
 //!   `DELETE /api/files/:id` starts with a delay.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod drive;
 mod files;
 mod folders;
@@ -250,8 +255,9 @@ pub(crate) struct Caller {
     files: Option<FileStores>,
     /// What the storage routes read from the request (conformance builds).
     pub(crate) storage: storage::Overrides,
-    /// The request's AI and master database (conformance builds).
+    /// The request's AI (conformance builds).
     ai: Option<weldsuite_ai::Ai>,
+    /// The master database: account pictures, and the AI wallet in conformance builds.
     master: Option<PgPool>,
     /// `c.get('workspaceId')`: `workspaces.id`.
     pub(crate) workspace_id: String,
@@ -313,6 +319,13 @@ impl Caller {
             event = event.with_changes(changes);
         }
         state.events.publish(&self.events, event);
+    }
+
+    /// The master database for account pictures (ADR SEC-020): the request's,
+    /// when there is one (the app's behind `workspace_db`, the test's in
+    /// conformance). [`master`](Self::master) also falls back to the state's.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
     }
 
     /// The request's buckets (conformance mode), else the app's.

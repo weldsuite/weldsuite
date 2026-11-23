@@ -531,6 +531,9 @@ export const weldpanelAnalytics = {
     emptyTitle: 'Nog geen cohorten',
     emptyDescription: 'Een cohort is een regel zoals “de laatste 30 dagen aangemeld en niet geüpgraded”.',
     loadFailed: 'De cohorten konden niet worden geladen.',
+    search: 'Cohorten zoeken',
+    noMatchTitle: 'Geen cohorten gevonden',
+    noMatchDescription: 'Probeer een andere zoekterm of filter.',
     columns: {
       name: 'Naam',
       rule: 'Regel',

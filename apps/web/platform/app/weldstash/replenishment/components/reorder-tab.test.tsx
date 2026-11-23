@@ -119,7 +119,7 @@ beforeEach(() => {
   env.queryArgs.mockReset();
   env.toast.success.mockReset();
   env.toast.error.mockReset();
-  env.permissions = new Set(['orders:create', 'inventory:update']);
+  env.permissions = new Set(['purchase_orders:create', 'inventory:update']);
   env.dismiss.mockReset().mockResolvedValue({});
   env.create.mockReset().mockResolvedValue({ purchaseOrders: [], skipped: [] });
 });
@@ -280,7 +280,7 @@ describe('ReorderTab selection, quantities and snoozing', () => {
   });
 
   it('offers no snooze without the update permission', () => {
-    env.permissions = new Set(['orders:create']);
+    env.permissions = new Set(['purchase_orders:create']);
     env.plans = [plan()];
     render(<ReorderTab onOpenPlan={noop} onOpenSettings={noop} />);
     expect(screen.queryByRole('button', { name: 'Open row actions' })).not.toBeInTheDocument();

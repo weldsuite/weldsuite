@@ -17,7 +17,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Label } from '@weldsuite/ui/components/label';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { EditorPanelSection } from '@weldsuite/ui/components/editor-side-panel';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
@@ -25,17 +25,17 @@ import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-gr
 import { useWeldPanelFunnelCorrelation } from '@/hooks/queries/use-weldpanel-analysis-queries';
 import { useWeldPanelFunnel } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { BreakdownPicker, BreakdownsPicker, completeBreakdowns, isBreakdownComplete } from '../components/breakdown-picker';
 import { ChartCard } from '../components/chart-card';
 import { ClampedNumberInput } from '../components/clamped-number-input';
-import { DateRangePicker } from '../components/date-range-picker';
 import { PanelDefinitionsProvider } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { AggregateByPicker, EventPicker, useHasGroupTypes } from '../components/pickers';
-import { ReportActions } from '../components/report-actions';
+import { ReportSaveButtons, ReportTools } from '../components/report-actions';
+import { ReportLayout } from '../components/report-layout';
 import { CorrelationResultView } from '../components/results/correlation-result';
 import { FunnelResultView } from '../components/results/funnel-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
@@ -154,212 +154,252 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   const csvName = saved.report?.name ?? tf.title;
 
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ReportActions projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.steps[1]?.event ?? draft.steps[0]?.event)} onSaved={saved.open} />
-        <DateRangePicker value={range} onChange={setRange} />
-      </div>
-      <SavedReportNotices saved={saved} />
-
-      <SectionCard title={tf.steps}>
-        <ol className="grid gap-3">
-          {draft.steps.map((step, index) => {
-            const n = index + 1;
-            const canBeOptional = order !== 'any' && index > 0 && index < lastStep;
-            return (
-              <li key={index} className="grid gap-2 rounded-lg border p-3" aria-label={tf.stepN.replace('{n}', String(n))}>
-                <div className="flex items-end gap-2">
-                  <span className="mb-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold" aria-hidden>
-                    {n}
-                  </span>
-                  <LabeledField label={tf.stepN.replace('{n}', String(n))} htmlFor={`weldpanel-step-${index}`} className="min-w-0 flex-1">
-                    <EventPicker id={`weldpanel-step-${index}`} projectId={projectId} value={step.event} onChange={(event) => updateStep(index, { event })} ariaLabel={tf.stepN.replace('{n}', String(n))} />
-                  </LabeledField>
-                  <div className="flex shrink-0 gap-0.5">
-                    <Button type="button" variant="ghost" size="icon" className="size-8" disabled={index === 0} aria-label={tf.moveUp.replace('{n}', String(n))} onClick={() => moveStep(index, -1)}>
-                      <ArrowUp />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" className="size-8" disabled={index === lastStep} aria-label={tf.moveDown.replace('{n}', String(n))} onClick={() => moveStep(index, 1)}>
-                      <ArrowDown />
-                    </Button>
-                    {draft.steps.length > 2 && (
-                      <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={tf.removeStep.replace('{n}', String(n))} onClick={() => removeStep(index)}>
-                        <X />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-start justify-between gap-3 pl-8">
-                  <div className="grid gap-1">
-                    <p className="text-xs text-muted-foreground">{tf.stepFilters}</p>
-                    <FilterBuilder compact projectId={projectId} filters={step.filters ?? []} onChange={(filters: PanelFilter[]) => updateStep(index, { filters })} />
-                  </div>
-                  {canBeOptional && (
-                    <div className="flex items-center gap-2" title={tx.optionalHint}>
-                      <Switch id={`weldpanel-step-${index}-optional`} checked={step.optional ?? false} onCheckedChange={(optional) => updateStep(index, { optional })} />
-                      <Label htmlFor={`weldpanel-step-${index}-optional`} className="text-sm font-normal">
-                        {tx.optional}
-                      </Label>
-                    </div>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-        {draft.steps.length < MAX_STEPS && (
-          <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setDraft((d) => ({ ...d, steps: [...d.steps, { event: '', filters: [] }] }))}>
-            <Plus />
-            {tf.addStep}
-          </Button>
-        )}
-      </SectionCard>
-
-      <SectionCard title={tx.exclusions.title}>
-        <div className="grid gap-3">
-          <p className="text-xs text-muted-foreground">{tx.exclusions.hint}</p>
-          {order === 'any' && exclusions.length > 0 && <InfoBanner variant="warning">{tx.exclusions.needOrder}</InfoBanner>}
-          {exclusions.map((exclusion, index) => {
-            const n = index + 1;
-            return (
-              <div key={index} className="grid gap-3 rounded-lg border p-3" role="group" aria-label={`${tx.exclusions.title} ${n}`}>
-                <div className="flex items-end gap-2">
-                  <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-3">
-                    <LabeledField label={tx.exclusions.event} htmlFor={`weldpanel-exclusion-${index}-event`}>
-                      <EventPicker id={`weldpanel-exclusion-${index}-event`} projectId={projectId} value={exclusion.event} onChange={(event) => updateExclusion(index, { event })} ariaLabel={`${tx.exclusions.event} ${n}`} />
-                    </LabeledField>
-                    <LabeledField label={tx.exclusions.from} htmlFor={`weldpanel-exclusion-${index}-from`}>
-                      <Select value={String(exclusion.fromStep)} onValueChange={(next) => updateExclusion(index, { fromStep: Number(next), toStep: Math.max(Number(next) + 1, exclusion.toStep) })}>
-                        <SelectTrigger id={`weldpanel-exclusion-${index}-from`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {draft.steps.slice(0, -1).map((_, i) => (
-                            <SelectItem key={i} value={String(i)}>
-                              {format(tx.exclusions.stepOption, { n: i + 1 })}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </LabeledField>
-                    <LabeledField label={tx.exclusions.to} htmlFor={`weldpanel-exclusion-${index}-to`}>
-                      <Select value={String(exclusion.toStep)} onValueChange={(next) => updateExclusion(index, { toStep: Number(next) })}>
-                        <SelectTrigger id={`weldpanel-exclusion-${index}-to`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {draft.steps.map((_, i) =>
-                            i > exclusion.fromStep ? (
-                              <SelectItem key={i} value={String(i)}>
-                                {format(tx.exclusions.stepOption, { n: i + 1 })}
-                              </SelectItem>
-                            ) : null,
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </LabeledField>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 shrink-0"
-                    aria-label={format(tx.exclusions.remove, { n })}
-                    onClick={() => setDraft((d) => ({ ...d, exclusions: (d.exclusions ?? []).filter((_, i) => i !== index) }))}
-                  >
-                    <X />
-                  </Button>
-                </div>
-                <div className="grid gap-1">
-                  <p className="text-xs text-muted-foreground">{tf.stepFilters}</p>
-                  <FilterBuilder compact projectId={projectId} filters={exclusion.filters ?? []} onChange={(filters) => updateExclusion(index, { filters })} />
-                </div>
-              </div>
-            );
-          })}
-          {exclusions.length < MAX_EXCLUSIONS && order !== 'any' && (
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setDraft((d) => ({ ...d, exclusions: [...(d.exclusions ?? []), { event: '', filters: [], fromStep: 0, toStep: d.steps.length - 1 }] }))}
-              >
-                <Plus />
-                {tx.exclusions.add}
-              </Button>
-            </div>
-          )}
-        </div>
-      </SectionCard>
-
-      <SectionCard title={tf.globalFilters}>
-        <div className="grid gap-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <LabeledField label={tf.window} htmlFor="weldpanel-funnel-window" hint={tf.windowHint}>
-              <div className="flex gap-2">
-                <ClampedNumberInput
-                  id="weldpanel-funnel-window"
-                  aria-label={tf.window}
-                  className="w-24"
-                  min={1}
-                  max={366}
-                  value={conversionWindow.value}
-                  onCommit={(value) => setDraft((d) => ({ ...d, window: { ...conversionWindow, value } }))}
-                />
-                <Select value={conversionWindow.unit} onValueChange={(unit) => setDraft((d) => ({ ...d, window: { ...conversionWindow, unit: unit as (typeof PANEL_WINDOW_UNITS)[number] } }))}>
-                  <SelectTrigger aria-label={tf.window} className="w-32">
+    <Tabs value={tab} onValueChange={(next) => setTab(next as 'funnel' | 'correlation')} className="h-full gap-0">
+    <ReportLayout
+      title={tf.title}
+      actions={
+        <>
+          <TabsList className="h-8 shrink-0">
+            <TabsTrigger value="funnel">{tx.tabs.funnel}</TabsTrigger>
+            <TabsTrigger value="correlation">{tx.tabs.correlation}</TabsTrigger>
+          </TabsList>
+          {tab === 'funnel' && (
+            <div className="flex shrink-0 items-center gap-2">
+              <ToggleGroup type="single" variant="outline" size="sm" className="shrink-0" value={display} onValueChange={(next) => next && setDraft((d) => ({ ...d, display: next as PanelFunnelDisplay }))} aria-label={tx.display.label}>
+                {PANEL_FUNNEL_DISPLAYS.map((d) => (
+                  <ToggleGroupItem key={d} value={d} className="flex-none px-2.5 text-xs">
+                    {tx.display[d]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              {display === 'trends' && (
+                <Select value={draft.interval ?? fallbackInterval} onValueChange={(interval) => setDraft((d) => ({ ...d, interval: interval as PanelInterval }))}>
+                  <SelectTrigger size="sm" className="h-8 w-auto min-w-24" aria-label={tx.trendInterval}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PANEL_WINDOW_UNITS.map((unit) => (
-                      <SelectItem key={unit} value={unit}>
-                        {tf.windowUnits[unit]}
+                    {PANEL_INTERVALS.map((i) => (
+                      <SelectItem key={i} value={i}>
+                        {t.weldpanel.analytics.insights.intervals[i]}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+            </div>
+          )}
+          <ReportTools projectId={projectId} report={saved.wrongKindPath ? null : saved.report} />
+        </>
+      }
+      controls={<ReportSaveButtons projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.steps[1]?.event ?? draft.steps[0]?.event)} onSaved={saved.open} />}
+      dateRange={{ value: range, onChange: setRange }}
+      sidebar={{
+        title: t.common.labels.settings,
+        content: (
+          <div className="grid gap-5">
+            <EditorPanelSection title={tf.steps} className="border-t-0 pt-0">
+              <ol className="grid gap-3">
+                {draft.steps.map((step, index) => {
+                  const n = index + 1;
+                  const canBeOptional = order !== 'any' && index > 0 && index < lastStep;
+                  return (
+                    <li key={index} className="grid gap-2 rounded-lg border p-3" aria-label={tf.stepN.replace('{n}', String(n))}>
+                      <div className="flex items-end gap-2">
+                        <span className="mb-1.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold" aria-hidden>
+                          {n}
+                        </span>
+                        <LabeledField label={tf.stepN.replace('{n}', String(n))} htmlFor={`weldpanel-step-${index}`} className="min-w-0 flex-1">
+                          <EventPicker id={`weldpanel-step-${index}`} projectId={projectId} value={step.event} onChange={(event) => updateStep(index, { event })} ariaLabel={tf.stepN.replace('{n}', String(n))} />
+                        </LabeledField>
+                        <div className="flex shrink-0 gap-0.5">
+                          <Button type="button" variant="ghost" size="icon" className="size-8" disabled={index === 0} aria-label={tf.moveUp.replace('{n}', String(n))} onClick={() => moveStep(index, -1)}>
+                            <ArrowUp />
+                          </Button>
+                          <Button type="button" variant="ghost" size="icon" className="size-8" disabled={index === lastStep} aria-label={tf.moveDown.replace('{n}', String(n))} onClick={() => moveStep(index, 1)}>
+                            <ArrowDown />
+                          </Button>
+                          {draft.steps.length > 2 && (
+                            <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={tf.removeStep.replace('{n}', String(n))} onClick={() => removeStep(index)}>
+                              <X />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-start justify-between gap-3 pl-8">
+                        <div className="grid gap-1">
+                          <p className="text-xs text-muted-foreground">{tf.stepFilters}</p>
+                          <FilterBuilder compact projectId={projectId} filters={step.filters ?? []} onChange={(filters: PanelFilter[]) => updateStep(index, { filters })} />
+                        </div>
+                        {canBeOptional && (
+                          <div className="flex items-center gap-2" title={tx.optionalHint}>
+                            <Switch id={`weldpanel-step-${index}-optional`} checked={step.optional ?? false} onCheckedChange={(optional) => updateStep(index, { optional })} />
+                            <Label htmlFor={`weldpanel-step-${index}-optional`} className="text-sm font-normal">
+                              {tx.optional}
+                            </Label>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {draft.steps.length < MAX_STEPS && (
+                <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setDraft((d) => ({ ...d, steps: [...d.steps, { event: '', filters: [] }] }))}>
+                  <Plus />
+                  {tf.addStep}
+                </Button>
+              )}
+            </EditorPanelSection>
+            <EditorPanelSection title={tx.exclusions.title}>
+              <div className="grid gap-3">
+                <p className="text-xs text-muted-foreground">{tx.exclusions.hint}</p>
+                {order === 'any' && exclusions.length > 0 && <InfoBanner variant="warning">{tx.exclusions.needOrder}</InfoBanner>}
+                {exclusions.map((exclusion, index) => {
+                  const n = index + 1;
+                  return (
+                    <div key={index} className="grid gap-3 rounded-lg border p-3" role="group" aria-label={`${tx.exclusions.title} ${n}`}>
+                      <div className="flex items-end gap-2">
+                        <div className="grid min-w-0 flex-1 gap-3">
+                          <LabeledField label={tx.exclusions.event} htmlFor={`weldpanel-exclusion-${index}-event`}>
+                            <EventPicker id={`weldpanel-exclusion-${index}-event`} projectId={projectId} value={exclusion.event} onChange={(event) => updateExclusion(index, { event })} ariaLabel={`${tx.exclusions.event} ${n}`} />
+                          </LabeledField>
+                          <div className="grid grid-cols-2 gap-3">
+                          <LabeledField label={tx.exclusions.from} htmlFor={`weldpanel-exclusion-${index}-from`}>
+                            <Select value={String(exclusion.fromStep)} onValueChange={(next) => updateExclusion(index, { fromStep: Number(next), toStep: Math.max(Number(next) + 1, exclusion.toStep) })}>
+                              <SelectTrigger id={`weldpanel-exclusion-${index}-from`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {draft.steps.slice(0, -1).map((_, i) => (
+                                  <SelectItem key={i} value={String(i)}>
+                                    {format(tx.exclusions.stepOption, { n: i + 1 })}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </LabeledField>
+                          <LabeledField label={tx.exclusions.to} htmlFor={`weldpanel-exclusion-${index}-to`}>
+                            <Select value={String(exclusion.toStep)} onValueChange={(next) => updateExclusion(index, { toStep: Number(next) })}>
+                              <SelectTrigger id={`weldpanel-exclusion-${index}-to`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {draft.steps.map((_, i) =>
+                                  i > exclusion.fromStep ? (
+                                    <SelectItem key={i} value={String(i)}>
+                                      {format(tx.exclusions.stepOption, { n: i + 1 })}
+                                    </SelectItem>
+                                  ) : null,
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </LabeledField>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 shrink-0"
+                          aria-label={format(tx.exclusions.remove, { n })}
+                          onClick={() => setDraft((d) => ({ ...d, exclusions: (d.exclusions ?? []).filter((_, i) => i !== index) }))}
+                        >
+                          <X />
+                        </Button>
+                      </div>
+                      <div className="grid gap-1">
+                        <p className="text-xs text-muted-foreground">{tf.stepFilters}</p>
+                        <FilterBuilder compact projectId={projectId} filters={exclusion.filters ?? []} onChange={(filters) => updateExclusion(index, { filters })} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {exclusions.length < MAX_EXCLUSIONS && order !== 'any' && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDraft((d) => ({ ...d, exclusions: [...(d.exclusions ?? []), { event: '', filters: [], fromStep: 0, toStep: d.steps.length - 1 }] }))}
+                    >
+                      <Plus />
+                      {tx.exclusions.add}
+                    </Button>
+                  </div>
+                )}
               </div>
-            </LabeledField>
-            <LabeledField label={tf.order} hint={orderHint}>
-              <ToggleGroup type="single" variant="outline" value={order} onValueChange={(next) => next && setDraft((d) => ({ ...d, order: next as FunnelOrder }))} aria-label={tf.order}>
-                {PANEL_FUNNEL_ORDERS.map((o) => (
-                  <ToggleGroupItem key={o} value={o}>
-                    {orderLabel(o)}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </LabeledField>
-            {hasGroupTypes && (
-              <LabeledField label={t.weldpanel.explore.countBy.label} htmlFor="weldpanel-funnel-count-by" hint={t.weldpanel.explore.countBy.hint}>
-                <AggregateByPicker id="weldpanel-funnel-count-by" value={draft.aggregateBy} onChange={(aggregateBy) => setDraft((d) => ({ ...d, aggregateBy }))} />
-              </LabeledField>
-            )}
+            </EditorPanelSection>
+            <EditorPanelSection title={tf.globalFilters}>
+              <div className="grid gap-5">
+                <div className="grid gap-4">
+                  <LabeledField label={tf.window} htmlFor="weldpanel-funnel-window" hint={tf.windowHint}>
+                    <div className="flex gap-2">
+                      <ClampedNumberInput
+                        id="weldpanel-funnel-window"
+                        aria-label={tf.window}
+                        className="w-24"
+                        min={1}
+                        max={366}
+                        value={conversionWindow.value}
+                        onCommit={(value) => setDraft((d) => ({ ...d, window: { ...conversionWindow, value } }))}
+                      />
+                      <Select value={conversionWindow.unit} onValueChange={(unit) => setDraft((d) => ({ ...d, window: { ...conversionWindow, unit: unit as (typeof PANEL_WINDOW_UNITS)[number] } }))}>
+                        <SelectTrigger aria-label={tf.window} className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PANEL_WINDOW_UNITS.map((unit) => (
+                            <SelectItem key={unit} value={unit}>
+                              {tf.windowUnits[unit]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </LabeledField>
+                  <LabeledField label={tf.order} hint={orderHint}>
+                    <ToggleGroup type="single" variant="outline" value={order} onValueChange={(next) => next && setDraft((d) => ({ ...d, order: next as FunnelOrder }))} aria-label={tf.order}>
+                      {PANEL_FUNNEL_ORDERS.map((o) => (
+                        <ToggleGroupItem key={o} value={o}>
+                          {orderLabel(o)}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </LabeledField>
+                  {hasGroupTypes && (
+                    <LabeledField label={t.weldpanel.explore.countBy.label} htmlFor="weldpanel-funnel-count-by" hint={t.weldpanel.explore.countBy.hint}>
+                      <AggregateByPicker id="weldpanel-funnel-count-by" value={draft.aggregateBy} onChange={(aggregateBy) => setDraft((d) => ({ ...d, aggregateBy }))} />
+                    </LabeledField>
+                  )}
+                </div>
+                <div className="grid gap-1.5">
+                  <p className="text-sm font-medium">{t.weldpanel.analytics.retention.globalFilters}</p>
+                  <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+                </div>
+                <BreakdownsPicker projectId={projectId} value={draft.breakdowns ?? []} onChange={(breakdowns) => setDraft((d) => ({ ...d, breakdowns }))} idPrefix="weldpanel-funnel-breakdown" stacked />
+                <div className="grid gap-1">
+                  <BreakdownPicker
+                    projectId={projectId}
+                    value={draft.holdConstant}
+                    onChange={(holdConstant) => setDraft((d) => ({ ...d, holdConstant }))}
+                    idPrefix="weldpanel-funnel-hold"
+                    label={tx.holdConstant.label}
+                    allowBuckets={false}
+                    stacked
+                  />
+                  <p className="text-xs text-muted-foreground">{tx.holdConstant.hint}</p>
+                </div>
+              </div>
+            </EditorPanelSection>
           </div>
-          <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
-          <BreakdownsPicker projectId={projectId} value={draft.breakdowns ?? []} onChange={(breakdowns) => setDraft((d) => ({ ...d, breakdowns }))} idPrefix="weldpanel-funnel-breakdown" />
-          <div className="grid gap-1">
-            <BreakdownPicker
-              projectId={projectId}
-              value={draft.holdConstant}
-              onChange={(holdConstant) => setDraft((d) => ({ ...d, holdConstant }))}
-              idPrefix="weldpanel-funnel-hold"
-              label={tx.holdConstant.label}
-              allowBuckets={false}
-            />
-            <p className="text-xs text-muted-foreground">{tx.holdConstant.hint}</p>
-          </div>
-        </div>
-      </SectionCard>
-
-      <Tabs value={tab} onValueChange={(next) => setTab(next as 'funnel' | 'correlation')} className="gap-4">
-        <TabsList>
-          <TabsTrigger value="funnel">{tx.tabs.funnel}</TabsTrigger>
-          <TabsTrigger value="correlation">{tx.tabs.correlation}</TabsTrigger>
-        </TabsList>
+        ),
+      }}
+    >
+      <SavedReportNotices saved={saved} />
 
         <TabsContent value="funnel">
           <ChartCard
+            bare
             title={t.weldpanel.analytics.insights.resultsTitle}
             loading={ready && isLoading}
             error={ready ? error : undefined}
@@ -367,31 +407,6 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
             empty={!ready}
             emptyText={tf.completeHint}
             csv={funnelCsvExport(data?.result, display, csvName)}
-            actions={
-              <div className="flex flex-wrap items-center gap-3">
-                <ToggleGroup type="single" variant="outline" size="sm" value={display} onValueChange={(next) => next && setDraft((d) => ({ ...d, display: next as PanelFunnelDisplay }))} aria-label={tx.display.label}>
-                  {PANEL_FUNNEL_DISPLAYS.map((d) => (
-                    <ToggleGroupItem key={d} value={d} className="px-2.5 text-xs">
-                      {tx.display[d]}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-                {display === 'trends' && (
-                  <Select value={draft.interval ?? fallbackInterval} onValueChange={(interval) => setDraft((d) => ({ ...d, interval: interval as PanelInterval }))}>
-                    <SelectTrigger size="sm" className="h-8 w-auto min-w-24" aria-label={tx.trendInterval}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PANEL_INTERVALS.map((i) => (
-                        <SelectItem key={i} value={i}>
-                          {t.weldpanel.analytics.insights.intervals[i]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            }
           >
             {data && (
               <div className="grid gap-4">
@@ -404,6 +419,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
 
         <TabsContent value="correlation">
           <ChartCard
+            bare
             title={tx.correlation.title}
             loading={ready && correlation.isLoading}
             error={ready ? correlation.error : undefined}
@@ -421,8 +437,8 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
             )}
           </ChartCard>
         </TabsContent>
-      </Tabs>
-    </div>
+    </ReportLayout>
+    </Tabs>
   );
 }
 
@@ -430,12 +446,12 @@ export default function FunnelsPage() {
   const { t } = useI18n();
   const tf = t.weldpanel.analytics.funnels;
   return (
-    <AnalyticsPage title={tf.title} description={tf.description}>
+    <AnalyticsListPage title={tf.title}>
       {(project) => (
         <PanelDefinitionsProvider key={project.id} projectId={project.id}>
           <Builder projectId={project.id} />
         </PanelDefinitionsProvider>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

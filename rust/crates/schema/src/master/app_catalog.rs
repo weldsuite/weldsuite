@@ -1,0 +1,254 @@
+//! `app_catalog`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "app_catalog")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "code")]
+    pub code: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "icon")]
+    pub icon: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "category")]
+    pub category: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "path")]
+    pub path: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "overview")]
+    pub overview: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "features")]
+    pub features: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "howItWorks")]
+    pub how_it_works: Option<Json>,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+    #[serde(rename = "isPublished")]
+    pub is_published: bool,
+    #[serde(rename = "isBeta")]
+    pub is_beta: bool,
+    #[serde(rename = "requiresApproval")]
+    pub requires_approval: bool,
+    #[serde(rename = "sortOrder")]
+    pub sort_order: i32,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "version")]
+    pub version: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "provider")]
+    pub provider: Option<String>,
+    #[serde(rename = "verified")]
+    pub verified: bool,
+    #[serde(rename = "releasedAt", with = "crate::js::timestamptz::option")]
+    pub released_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "websiteUrl")]
+    pub website_url: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "documentationUrl")]
+    pub documentation_url: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "contactUrl")]
+    pub contact_url: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "app_catalog",
+    columns: &[
+        DdlColumn {
+            name: "features",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "how_it_works",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_active",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_published",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_beta",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "requires_approval",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sort_order",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "version",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'1.0.0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'WeldSuite'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "verified",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "app_catalog_code_idx",
+            columns: &[IndexColumn {
+                expression: "code",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "app_catalog_category_idx",
+            columns: &[IndexColumn {
+                expression: "category",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "app_catalog_is_active_idx",
+            columns: &[IndexColumn {
+                expression: "is_active",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "app_catalog_is_published_idx",
+            columns: &[IndexColumn {
+                expression: "is_published",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "app_catalog_sort_order_idx",
+            columns: &[IndexColumn {
+                expression: "sort_order",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[Unique {
+        name: "app_catalog_code_unique",
+        columns: &["code"],
+        nulls_not_distinct: false,
+    }],
+    checks: &[],
+};

@@ -82,10 +82,8 @@ pub(super) fn read_query<T>(
 }
 
 /// `isDeskSchemaMissing(err)`.
-fn schema_missing(error: &sqlx::Error) -> bool {
-    let code = error
-        .as_database_error()
-        .and_then(|e| e.code().map(std::borrow::Cow::into_owned));
+fn schema_missing(error: &(dyn std::error::Error + 'static)) -> bool {
+    let code = weldsuite_db::pg_error_code(error);
     if matches!(code.as_deref(), Some("42P01" | "42703")) {
         return true;
     }
@@ -228,14 +226,14 @@ async fn detail(ctx: Ctx, Path(id): Path<String>, RawQuery(query): RawQuery) -> 
     let db = &ctx.caller.db;
     let found = match webchat::get(db, &id, with_messages).await {
         Ok(found) => found,
-        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to fetch conversation"),
     };
     let Some((mut conversation, messages)) = found else {
         return ApiError::not_found("Conversation", Some(&id)).into_response();
     };
     let custom_fields = match attributes::custom_fields(db, &conversation).await {
         Ok(fields) => fields,
-        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to fetch conversation"),
     };
     if let Some(object) = conversation.as_object_mut() {
         object.insert("customFields".to_owned(), Value::Object(custom_fields));
@@ -404,8 +402,12 @@ async fn update_attributes(
             crate::routing::reroute_after_attributes(&state, caller, message).await
         {
             for step in &routed.steps {
-                let authors =
-                    load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
+                let authors = load_author(
+                    &caller.db,
+                    caller.master.as_ref().map(|master| &master.0),
+                    step.conversation["assigneeId"].as_str(),
+                )
+                .await;
                 publish_change(
                     &state,
                     &caller.clerk_org_id,
@@ -642,20 +644,25 @@ async fn upload(
 
 // ── realtime ──────────────────────────────────────────────────────────────────
 
-/// `loadAuthor(db, userId)`: the member's first name and picture.
-pub(super) async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
+/// `loadAuthor(db, userId)`: the member's first name and account picture
+/// (`master`), not the member row's copy.
+pub(super) async fn load_author(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    user_id: Option<&str>,
+) -> HashMap<String, Author> {
     let mut authors = HashMap::new();
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
     };
-    #[allow(clippy::type_complexity)] // name and picture
-    let member: Result<Option<(Option<String>, Option<String>)>, sqlx::Error> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let member: Result<Option<Option<String>>, sqlx::Error> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
             .fetch_optional(db)
             .await;
     match member {
-        Ok(Some((name, picture))) => {
+        Ok(Some(name)) => {
+            let picture = weldsuite_db::load_account_picture(master, user_id).await;
             authors.insert(
                 user_id.to_owned(),
                 webchat::author_from_member(name.as_deref(), picture.as_deref()),
@@ -957,7 +964,12 @@ async fn reply(
         &conversation,
         &message,
     );
-    let authors = load_author(&caller.db, Some(&caller.user_id)).await;
+    let authors = load_author(
+        &caller.db,
+        caller.master.as_ref().map(|master| &master.0),
+        Some(&caller.user_id),
+    )
+    .await;
     publish_change(
         &state,
         &caller.clerk_org_id,
@@ -967,6 +979,9 @@ async fn reply(
     );
     if conversation["channel"] == "email" && data.kind == "message" {
         send_email_reply(&ctx, &state, &conversation, &message).await;
+    }
+    if data.kind == "message" {
+        crate::crm::auto_add_requester(&state, caller, &conversation).await;
     }
     Created(json!({ "conversation": conversation, "message": message })).into_response()
 }
@@ -1305,7 +1320,7 @@ async fn manage(
             .await;
     let before = match before {
         Ok(before) => before.flatten(),
-        Err(error) => return Refusal::Database(error).respond("Failed to update conversation"),
+        Err(error) => return Refusal::from(error).respond("Failed to update conversation"),
     };
     let (event_type, assignee, is_assign) = match &action {
         Action::Close(_) => ("closed", None, false),
@@ -1376,7 +1391,12 @@ async fn manage(
     };
     if children.is_empty() {
         publish_events(&ctx, &state, event, &conversation, &message);
-        let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
+        let authors = load_author(
+            &caller.db,
+            caller.master.as_ref().map(|master| &master.0),
+            conversation["assigneeId"].as_str(),
+        )
+        .await;
         publish_change(
             &state,
             &caller.clerk_org_id,

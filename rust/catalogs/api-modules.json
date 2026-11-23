@@ -39,6 +39,7 @@
       "/api/object-templates",
       "/api/objects",
       "/api/onboarding",
+      "/api/outside-eu-services",
       "/api/partner",
       "/api/prepaid-seats",
       "/api/push-tokens",
@@ -82,6 +83,7 @@
       "/api/companies",
       "/api/company-logos",
       "/api/crm-analytics",
+      "/api/crm-settings",
       "/api/customer-sequences",
       "/api/customer-statuses",
       "/api/leads",
@@ -302,7 +304,15 @@
     "devPort": 8806,
     "id": "commerce",
     "prefixes": [
-      "/api/commerce"
+      "/api/categories",
+      "/api/commerce",
+      "/api/commerce-buyers",
+      "/api/commerce-channels",
+      "/api/commerce-company-settings",
+      "/api/commerce-payments",
+      "/api/commerce-settings",
+      "/api/discounts",
+      "/api/orders"
     ],
     "rust": true,
     "rustOnly": true,
@@ -310,7 +320,8 @@
   },
   {
     "apps": [
-      "weldstash"
+      "weldstash",
+      "weldcommerce"
     ],
     "binding": "STASH_API",
     "devPort": 8807,

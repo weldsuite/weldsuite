@@ -1,0 +1,164 @@
+//! `ad_campaigns`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "ad_campaigns")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "adAccountId")]
+    pub ad_account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "platformCampaignId")]
+    pub platform_campaign_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "objective")]
+    pub objective: Option<String>,
+    #[serde(rename = "dailyBudget")]
+    pub daily_budget: Option<i32>,
+    #[serde(rename = "lifetimeBudget")]
+    pub lifetime_budget: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metrics")]
+    pub metrics: Option<Json>,
+    #[serde(rename = "metricsSyncedAt", with = "crate::js::timestamp::option")]
+    pub metrics_synced_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "contentHash")]
+    pub content_hash: Option<String>,
+    #[serde(rename = "syncStatus")]
+    pub sync_status: super::enums::AdCampaignSyncStatus,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "syncError")]
+    pub sync_error: Option<String>,
+    #[serde(rename = "lastSyncedAt", with = "crate::js::timestamp::option")]
+    pub last_synced_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "ad_campaigns",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "sync_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'local'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "ad_campaigns_account_platform_campaign_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "ad_account_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "platform_campaign_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_campaigns_ad_account_idx",
+            columns: &[IndexColumn {
+                expression: "ad_account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_campaigns_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_campaigns_sync_status_idx",
+            columns: &[IndexColumn {
+                expression: "sync_status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "ad_campaigns_ad_account_id_ad_accounts_id_fk",
+        columns: &["ad_account_id"],
+        references: "ad_accounts",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

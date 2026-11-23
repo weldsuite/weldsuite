@@ -59,6 +59,12 @@ spec:
               env:
                 {{- include "weldsuite.env" $ | nindent 16 }}
                 {{- with include "weldsuite.mta.clientEnv" $ }}{{ . | nindent 16 }}{{- end }}
+                {{- if eq $name "mail-attachment-scan" }}
+                {{- with include "weldsuite.mailInbound.rescanEnv" $ }}{{ . | trim | nindent 16 }}{{- end }}
+                {{- end }}
+                {{- if eq $name "mail-threat-feeds" }}
+                {{- with include "weldsuite.mailInbound.threatFeedsEnv" $ }}{{ . | trim | nindent 16 }}{{- end }}
+                {{- end }}
               envFrom:
                 {{- include "weldsuite.envFrom" $ | nindent 16 }}
               securityContext:

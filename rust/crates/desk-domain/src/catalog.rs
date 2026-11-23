@@ -32,16 +32,27 @@
 #[path = "catalog_tables.rs"]
 mod tables;
 
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, js_trim};
+use weldsuite_schema::tenant::{
+    desk_catalog_items as items, desk_conversations as conversations, desk_messages,
+    desk_request_approvals as approvals, helpdesk_departments, helpdesk_ticket_types, tasks,
+    workspace_members,
+};
 
 use crate::attributes::PRIORITIES;
 use crate::escalation::member_user_id;
 use crate::table::WriteError;
-use crate::webchat::{self, Append, AppendError, Appended, DESK_CONVERSATIONS};
+use crate::webchat::{self, Append, AppendError, Appended};
+use crate::{row, upper_is};
 pub use tables::{DESK_CATALOG_ITEMS, DESK_REQUEST_APPROVALS};
 
 /// `DESK_CATALOG_APPROVER_TYPES`.
@@ -82,8 +93,8 @@ pub enum CatalogError {
     Write(WriteError),
 }
 
-impl From<sqlx::Error> for CatalogError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CatalogError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -191,30 +202,34 @@ fn text_column(field: &Field<String>) -> Option<Value> {
 }
 
 /// `activeMemberUserId(db, userId)`: an active internal member, by user id.
-async fn active_member_user_id(db: &PgPool, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select user_id from workspace_members
-          where user_id = $1 and deleted_at is null
-            and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-          limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+async fn active_member_user_id(db: &PgPool, user_id: &str) -> Result<Option<String>, DbErr> {
+    use workspace_members::Column;
+    workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(upper_is(Column::Status, "ACTIVE"))
+        .filter(upper_is(Column::MemberType, "INTERNAL"))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `assertTicketType(db, id)`: the form is an active customer ticket type
 /// (`isCustomerType`).
 async fn assert_ticket_type(db: &PgPool, id: &str) -> Result<(), CatalogError> {
-    let usable: Option<bool> = sqlx::query_scalar(
-        "select (is_active is distinct from false) and deleted_at is null
-                and coalesce(category, 'customer') = 'customer'
-           from helpdesk_ticket_types where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    if usable == Some(true) {
+    use helpdesk_ticket_types::Column;
+    let found: Option<(bool, Option<time::PrimitiveDateTime>, Option<String>)> =
+        helpdesk_ticket_types::Entity::find_by_id(id)
+            .select_only()
+            .columns([Column::IsActive, Column::DeletedAt, Column::Category])
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    if let Some((true, None, category)) = found
+        && category.as_deref().unwrap_or("customer") == "customer"
+    {
         return Ok(());
     }
     Err(rejected(
@@ -225,14 +240,15 @@ async fn assert_ticket_type(db: &PgPool, id: &str) -> Result<(), CatalogError> {
 
 /// `assertTeam(db, id, field)`: the team exists, is active and not deleted.
 async fn assert_team(db: &PgPool, id: &str, field: &'static str) -> Result<(), CatalogError> {
-    let usable: Option<bool> = sqlx::query_scalar(
-        "select (is_active is distinct from false) and deleted_at is null
-           from helpdesk_departments where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    if usable == Some(true) {
+    use helpdesk_departments::Column;
+    let found: Option<(bool, Option<time::PrimitiveDateTime>)> =
+        helpdesk_departments::Entity::find_by_id(id)
+            .select_only()
+            .columns([Column::IsActive, Column::DeletedAt])
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    if let Some((true, None)) = found {
         return Ok(());
     }
     Err(rejected(field, "This team does not exist or is not active"))
@@ -421,23 +437,22 @@ async fn item_columns(
 /// `listDeskCatalogItems(db, { activeOnly })`: the catalogue in the
 /// settings' order (sort order, then name); `active_only` leaves out
 /// switched-off items.
-pub async fn list_items(db: &PgPool, active_only: bool) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_catalog_items t
-          where (not $1::boolean or t.is_active = true)
-          order by t.sort_order asc, t.name asc, t.id asc",
-    )
-    .bind(active_only)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| DESK_CATALOG_ITEMS.js(row))
-        .collect())
+pub async fn list_items(db: &PgPool, active_only: bool) -> Result<Vec<Value>, DbErr> {
+    let mut list = items::Entity::find();
+    if active_only {
+        list = list.filter(items::Column::IsActive.eq(true));
+    }
+    let rows = list
+        .order_by_asc(items::Column::SortOrder)
+        .order_by_asc(items::Column::Name)
+        .order_by_asc(items::Column::Id)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 /// `getDeskCatalogItem(db, id)`.
-pub async fn get_item(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn get_item(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     DESK_CATALOG_ITEMS.find_live(db, id).await
 }
 
@@ -487,15 +502,13 @@ pub async fn update_item(
 
 /// `countPendingRequests(db, itemId)`: how many requests made from an item
 /// wait for approval.
-async fn count_pending_requests(db: &PgPool, item_id: &str) -> Result<i64, sqlx::Error> {
-    let count: i32 = sqlx::query_scalar(
-        "select count(*)::int from desk_conversations
-          where catalog_item_id = $1 and approval_status = 'pending'",
-    )
-    .bind(item_id)
-    .fetch_one(db)
-    .await?;
-    Ok(i64::from(count))
+async fn count_pending_requests(db: &PgPool, item_id: &str) -> Result<i64, DbErr> {
+    let count = conversations::Entity::find()
+        .filter(conversations::Column::CatalogItemId.eq(item_id))
+        .filter(conversations::Column::ApprovalStatus.eq("pending"))
+        .count(&orm(db))
+        .await?;
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
 }
 
 /// `deleteDeskCatalogItem(db, id)`: delete an item. Refused
@@ -512,18 +525,19 @@ pub async fn delete_item(db: &PgPool, id: &str) -> Result<Option<Value>, Catalog
     }
     // The condition again in the delete itself: a request that started a
     // moment ago keeps its item.
-    let row: Option<Value> = sqlx::query_scalar(
-        "delete from desk_catalog_items t
-          where t.id = $1
-            and not exists (select 1 from desk_conversations c
-                             where c.catalog_item_id = $1 and c.approval_status = 'pending')
-          returning to_jsonb(t)",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    if let Some(row) = row {
-        return Ok(Some(DESK_CATALOG_ITEMS.js(row)));
+    let pending_request = Query::select()
+        .column(conversations::Column::Id)
+        .from(conversations::Entity)
+        .and_where(conversations::Column::CatalogItemId.eq(id))
+        .and_where(conversations::Column::ApprovalStatus.eq("pending"))
+        .to_owned();
+    let deleted = items::Entity::delete_many()
+        .filter(items::Column::Id.eq(id))
+        .filter(Condition::all().add(Expr::exists(pending_request)).not())
+        .exec_with_returning(&orm(db))
+        .await?;
+    if let Some(deleted) = deleted.into_iter().next() {
+        return Ok(Some(row(deleted)));
     }
     let started = count_pending_requests(db, id).await?;
     if started > 0 {
@@ -557,7 +571,7 @@ async fn resolve_approver(
     db: &PgPool,
     step: &Value,
     conversation: &Value,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if step["approverType"] == "member" {
         return match truthy_text(step, "approverId") {
             Some(approver) => active_member_user_id(db, approver).await,
@@ -569,13 +583,13 @@ async fn resolve_approver(
     else {
         return Ok(None);
     };
-    let manager: Option<Option<String>> = sqlx::query_scalar(
-        "select manager_id from helpdesk_departments
-          where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(team_id)
-    .fetch_optional(db)
-    .await?;
+    let manager: Option<Option<String>> = helpdesk_departments::Entity::find_by_id(team_id)
+        .select_only()
+        .column(helpdesk_departments::Column::ManagerId)
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     member_user_id(db, manager.flatten().as_deref()).await
 }
 
@@ -677,12 +691,16 @@ struct PlannedSteps {
 /// claimed request without steps, and a second start at the same moment (its
 /// claim finds the item set) writes nothing. The steps in order; none when
 /// the conversation was taken.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one statement on purpose: the claim and its steps are written together or not at all"
+)]
 async fn claim_with_steps(
     db: &PgPool,
     conversation_id: &str,
     item_id: &str,
     steps: &PlannedSteps,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "with claimed as (
            update desk_conversations
@@ -712,7 +730,8 @@ async fn claim_with_steps(
     .bind(&steps.approvers)
     .bind(&steps.statuses)
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(rows
         .into_iter()
         .map(|row| DESK_REQUEST_APPROVALS.js(row))
@@ -740,18 +759,21 @@ pub async fn start_request(
 
     if steps.is_empty() {
         // Claim the conversation: a second start at the same moment finds it taken.
-        let claimed: Option<Value> = sqlx::query_scalar(
-            "update desk_conversations t
-                set catalog_item_id = $2, approval_status = null, updated_at = $3::timestamp
-              where t.id = $1 and t.catalog_item_id is null
-              returning to_jsonb(t)",
-        )
-        .bind(&id)
-        .bind(item_id)
-        .bind(webchat::now())
-        .fetch_optional(db)
-        .await?;
-        let Some(claimed) = claimed.map(|row| DESK_CONVERSATIONS.js(row)) else {
+        let claimed = conversations::Entity::update_many()
+            .col_expr(
+                conversations::Column::CatalogItemId,
+                Expr::value(item_id.to_owned()),
+            )
+            .col_expr(
+                conversations::Column::ApprovalStatus,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(conversations::Column::Id.eq(id.as_str()))
+            .filter(conversations::Column::CatalogItemId.is_null())
+            .exec_with_returning(&orm(db))
+            .await?;
+        let Some(claimed) = claimed.into_iter().next().map(row) else {
             return Err(refused("already_request", ALREADY_REQUEST));
         };
         return Ok(Started {
@@ -826,17 +848,14 @@ async fn first_step(
     db: &PgPool,
     conversation_id: &str,
     status: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_request_approvals t
-          where t.conversation_id = $1 and t.status = $2
-          order by t.step_index asc limit 1",
-    )
-    .bind(conversation_id)
-    .bind(status)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_REQUEST_APPROVALS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    let step = approvals::Entity::find()
+        .filter(approvals::Column::ConversationId.eq(conversation_id))
+        .filter(approvals::Column::Status.eq(status))
+        .order_by_asc(approvals::Column::StepIndex)
+        .one(&orm(db))
+        .await?;
+    Ok(step.map(row))
 }
 
 /// A rejection and everything that follows from it, in one statement: the
@@ -890,12 +909,16 @@ const APPROVE: &str = "with decided as (
 /// ([`REJECT`], [`APPROVE`]): all of it happens or none of it. The decided
 /// step and the step that opened; `None` when the step was decided a moment
 /// ago (nothing is written then).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one statement on purpose: a decision and what follows from it are written together or not at all"
+)]
 async fn write_decision(
     db: &PgPool,
     pending: &Value,
     input: &Decide<'_>,
     comment: Option<&str>,
-) -> Result<Option<(Value, Option<Value>)>, sqlx::Error> {
+) -> Result<Option<(Value, Option<Value>)>, DbErr> {
     let statement = if input.decision == "rejected" {
         REJECT
     } else {
@@ -908,7 +931,8 @@ async fn write_decision(
         .bind(comment)
         .bind(pending["conversationId"].as_str())
         .fetch_one(db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
     let js = |row: Value| DESK_REQUEST_APPROVALS.js(row);
     Ok(decided.map(|decided| (js(decided), next.map(js))))
 }
@@ -939,11 +963,17 @@ pub async fn decide(db: &PgPool, input: Decide<'_>) -> Result<Decided, CatalogEr
         return Err(refused("not_pending", "This approval was already decided"));
     };
 
-    let item_name: Option<String> =
-        sqlx::query_scalar("select name from desk_catalog_items where id = $1 limit 1")
-            .bind(decided["catalogItemId"].as_str())
-            .fetch_optional(db)
-            .await?;
+    let item_name: Option<String> = match decided["catalogItemId"].as_str() {
+        Some(item_id) => {
+            items::Entity::find_by_id(item_id)
+                .select_only()
+                .column(items::Column::Name)
+                .into_tuple()
+                .one(&orm(db))
+                .await?
+        }
+        None => None,
+    };
     let item_name = json!(item_name);
     let author = ("agent", Some(input.user_id));
     let decision = Decision {
@@ -1028,40 +1058,47 @@ fn approval_view(row: &Value) -> Value {
 pub async fn conversation_request(
     db: &PgPool,
     conversation_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
+    let orm_db = orm(db);
     #[allow(clippy::type_complexity)] // the item and the approval state
-    let conversation: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select catalog_item_id, approval_status from desk_conversations where id = $1 limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
+    let conversation: Option<(Option<String>, Option<String>)> =
+        conversations::Entity::find_by_id(conversation_id)
+            .select_only()
+            .columns([
+                conversations::Column::CatalogItemId,
+                conversations::Column::ApprovalStatus,
+            ])
+            .into_tuple()
+            .one(&orm_db)
+            .await?;
     let Some((Some(item_id), approval_status)) = conversation else {
         return Ok(None);
     };
     if item_id.is_empty() {
         return Ok(None);
     }
-    let item: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'name', name, 'category', category, 'icon', icon,
-                                   'deliveryEstimate', delivery_estimate,
-                                   'fulfilmentTaskCount', jsonb_array_length(fulfilment_tasks))
-           from desk_catalog_items where id = $1 limit 1",
-    )
-    .bind(&item_id)
-    .fetch_optional(db)
-    .await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_request_approvals t
-          where t.conversation_id = $1
-          order by t.step_index asc, t.id asc",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await?;
+    let item = items::Entity::find_by_id(item_id.as_str())
+        .one(&orm_db)
+        .await?
+        .map(|item| {
+            json!({
+                "id": item.id,
+                "name": item.name,
+                "category": item.category,
+                "icon": item.icon,
+                "deliveryEstimate": item.delivery_estimate,
+                "fulfilmentTaskCount": item.fulfilment_tasks.as_array().map(Vec::len),
+            })
+        });
+    let rows = approvals::Entity::find()
+        .filter(approvals::Column::ConversationId.eq(conversation_id))
+        .order_by_asc(approvals::Column::StepIndex)
+        .order_by_asc(approvals::Column::Id)
+        .all(&orm_db)
+        .await?;
     let approvals: Vec<Value> = rows
         .into_iter()
-        .map(|row| approval_view(&DESK_REQUEST_APPROVALS.js(row)))
+        .map(|step| approval_view(&row(step)))
         .collect();
     Ok(Some(json!({
         "item": item,
@@ -1078,25 +1115,49 @@ pub async fn pending_approvals(
     db: &PgPool,
     approver_id: Option<&str>,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<(Value, Value, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(a), to_jsonb(c), i.name
-           from desk_request_approvals a
-          inner join desk_conversations c on c.id = a.conversation_id
-           left join desk_catalog_items i on i.id = a.catalog_item_id
-          where a.status = 'pending' and ($1::text is null or a.approver_id = $1)
-          order by a.updated_at asc, a.id asc
-          limit $2",
-    )
-    .bind(approver_id.filter(|id| !id.is_empty()))
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Value>, DbErr> {
+    let orm_db = orm(db);
+    let conversation = approvals::Entity::belongs_to(conversations::Entity)
+        .from(approvals::Column::ConversationId)
+        .to(conversations::Column::Id)
+        .into();
+    let mut pending = approvals::Entity::find()
+        .join(JoinType::InnerJoin, conversation)
+        .select_also(conversations::Entity)
+        .filter(approvals::Column::Status.eq("pending"));
+    if let Some(approver_id) = approver_id.filter(|id| !id.is_empty()) {
+        pending = pending.filter(approvals::Column::ApproverId.eq(approver_id));
+    }
+    let rows = pending
+        .order_by_asc(approvals::Column::UpdatedAt)
+        .order_by_asc(approvals::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm_db)
+        .await?;
+    let item_ids: Vec<String> = rows
+        .iter()
+        .map(|(approval, _)| approval.catalog_item_id.clone())
+        .collect();
+    let item_names: std::collections::HashMap<String, String> = if item_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        items::Entity::find()
+            .select_only()
+            .columns([items::Column::Id, items::Column::Name])
+            .filter(items::Column::Id.is_in(item_ids))
+            .into_tuple::<(String, String)>()
+            .all(&orm_db)
+            .await?
+            .into_iter()
+            .collect()
+    };
     Ok(rows
         .into_iter()
-        .map(|(approval, conversation, item_name)| {
-            let approval = DESK_REQUEST_APPROVALS.js(approval);
-            let conversation = DESK_CONVERSATIONS.js(conversation);
+        .filter_map(|(approval, conversation)| Some((approval, conversation?)))
+        .map(|(approval, conversation)| {
+            let item_name = item_names.get(&approval.catalog_item_id).cloned();
+            let approval = row(approval);
+            let conversation = row(conversation);
             // `name ?? email ?? null`.
             let requester = if conversation["name"].is_null() {
                 &conversation["email"]
@@ -1125,16 +1186,23 @@ pub async fn pending_approvals(
 
 /// `hasDeskFulfilmentStarted(db, conversationId)`: whether the request's
 /// tasks were created already (a `fulfilment_started` event exists).
-pub async fn fulfilment_started(db: &PgPool, conversation_id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from desk_messages
-          where conversation_id = $1 and kind = 'event'
-            and metadata->>'eventType' = 'fulfilment_started'
-          limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn fulfilment_started(db: &PgPool, conversation_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = desk_messages::Entity::find()
+        .select_only()
+        .column(desk_messages::Column::Id)
+        .filter(desk_messages::Column::ConversationId.eq(conversation_id))
+        .filter(desk_messages::Column::Kind.eq("event"))
+        .filter(sea_orm::ExprTrait::eq(
+            // `PgExpr` and `ExprTrait` stay unimported: they would shadow `Vec::contains`.
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col(desk_messages::Column::Metadata),
+                "eventType",
+            ),
+            "fulfilment_started",
+        ))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -1144,15 +1212,17 @@ pub async fn fulfilment_started(db: &PgPool, conversation_id: &str) -> Result<bo
 pub async fn request_tasks(
     db: &PgPool,
     conversation_id: &str,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, title from tasks
-          where source_type = 'desk_conversation' and source_id = $1
-          order by created_at asc, id asc",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await
+) -> Result<Vec<(String, String)>, DbErr> {
+    tasks::Entity::find()
+        .select_only()
+        .columns([tasks::Column::Id, tasks::Column::Title])
+        .filter(tasks::Column::SourceType.eq("desk_conversation"))
+        .filter(tasks::Column::SourceId.eq(conversation_id))
+        .order_by_asc(tasks::Column::CreatedAt)
+        .order_by_asc(tasks::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `loadDeskFulfilmentRetry(db, conversationId)`: the request and its item,

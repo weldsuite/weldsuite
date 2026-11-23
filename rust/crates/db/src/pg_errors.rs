@@ -57,13 +57,35 @@ fn chain<'a>(
     .take(MAX_DEPTH)
 }
 
+/// The sqlx error of one link: an `sqlx::Error`, or the one inside a SeaORM
+/// error (`RuntimeErr` holds it without exposing it as a source).
+fn sqlx_of<'a>(link: &'a (dyn StdError + 'static)) -> Option<&'a sqlx::Error> {
+    if let Some(error) = link.downcast_ref::<sqlx::Error>() {
+        return Some(error);
+    }
+    match link.downcast_ref::<sea_orm::RuntimeErr>() {
+        Some(sea_orm::RuntimeErr::SqlxError(error)) => Some(error),
+        _ => None,
+    }
+}
+
 /// The SQLSTATE of one link, when it is a database error.
 fn code_of<'a>(link: &'a (dyn StdError + 'static)) -> Option<Cow<'a, str>> {
-    if let Some(sqlx::Error::Database(database)) = link.downcast_ref::<sqlx::Error>() {
+    if let Some(sqlx::Error::Database(database)) = sqlx_of(link) {
         return database.code();
     }
     link.downcast_ref::<PgDatabaseError>()
         .map(|database| Cow::Borrowed(database.code()))
+}
+
+/// The constraint (or unique index) a database error in `err`'s chain names.
+pub fn pg_constraint(err: &(dyn StdError + 'static)) -> Option<String> {
+    chain(err).find_map(|link| match sqlx_of(link) {
+        Some(sqlx::Error::Database(database)) => database.constraint().map(str::to_owned),
+        _ => link
+            .downcast_ref::<PgDatabaseError>()
+            .and_then(|database| database.constraint().map(str::to_owned)),
+    })
 }
 
 /// The first SQLSTATE in `err`'s chain.

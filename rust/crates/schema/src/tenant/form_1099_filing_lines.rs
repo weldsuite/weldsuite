@@ -1,0 +1,166 @@
+//! `form_1099_filing_lines`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "form_1099_filing_lines")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "filingId")]
+    pub filing_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "partyId")]
+    pub party_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "recipient")]
+    pub recipient: Option<Json>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "recipientTinEncrypted")]
+    pub recipient_tin_encrypted: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "boxes")]
+    pub boxes: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "adjustments")]
+    pub adjustments: Option<Json>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "federalWithheld",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub federal_withheld: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(2))")]
+    #[serde(rename = "stateCode")]
+    pub state_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "stateIdNumber")]
+    pub state_id_number: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "stateIncome",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub state_income: Option<BigDecimal>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "stateWithheld",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub state_withheld: Option<BigDecimal>,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "excludedReason")]
+    pub excluded_reason: Option<String>,
+    #[serde(rename = "isCorrected")]
+    pub is_corrected: bool,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "correctionOfLineId")]
+    pub correction_of_line_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "deliveryMethod")]
+    pub delivery_method: Option<String>,
+    #[serde(rename = "deliveredAt", with = "crate::js::timestamp::option")]
+    pub delivered_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "form_1099_filing_lines",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "federal_withheld",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'included'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_corrected",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_1099_lines_filing_idx",
+            columns: &[IndexColumn {
+                expression: "filing_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_1099_lines_party_idx",
+            columns: &[IndexColumn {
+                expression: "party_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

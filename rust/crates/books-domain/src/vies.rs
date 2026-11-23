@@ -10,6 +10,7 @@
 //! unavailable.
 
 use serde_json::{Value, json};
+use sqlx::PgConnection;
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
@@ -227,9 +228,21 @@ fn from_cache(cached: &Cached, vat_number: &str) -> ViesResult {
 }
 
 /// `checkVatNumber(db, raw)`: an EU VAT number against VIES, through the
-/// tenant's cache.
+/// tenant's cache. Takes a connection of the pool for the call.
 pub async fn check_vat_number(
     db: &PgPool,
+    http: Option<&OutboundHttp>,
+    raw: &str,
+) -> Result<ViesResult, sqlx::Error> {
+    let mut conn = db.acquire().await?;
+    check_vat_number_on(&mut conn, http, raw).await
+}
+
+/// [`check_vat_number`] on the caller's connection: for a caller inside a
+/// transaction, which must not ask the pool for a second connection (a tenant
+/// pool may hold just one).
+pub async fn check_vat_number_on(
+    conn: &mut PgConnection,
     http: Option<&OutboundHttp>,
     raw: &str,
 ) -> Result<ViesResult, sqlx::Error> {
@@ -254,7 +267,7 @@ pub async fn check_vat_number(
          from vies_checks where vat_number = $1 limit 1",
     )
     .bind(&normalized.full)
-    .fetch_optional(db)
+    .fetch_optional(&mut *conn)
     .await?;
     if let Some(cached) = &cached {
         let age = now_ms() - iso_millis(&cached.checked_at).unwrap_or(0);
@@ -319,7 +332,7 @@ pub async fn check_vat_number(
     .bind(&trader_address)
     .bind(&consultation_number)
     .bind(&checked_now)
-    .execute(db)
+    .execute(&mut *conn)
     .await?;
 
     Ok(ViesResult {

@@ -18,6 +18,11 @@
 //! the tenant pool and answer [`LegalEntityError`] with TypeScript's codes and
 //! messages.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod access;
 pub mod extensions;
 pub mod guard;

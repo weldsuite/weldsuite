@@ -1,0 +1,246 @@
+//! `cycle_counts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "cycle_counts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "countNumber")]
+    pub count_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "warehouseId")]
+    pub warehouse_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "zoneId")]
+    pub zone_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "locationIds")]
+    pub location_ids: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "countType")]
+    pub count_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "scheduledDate", with = "crate::js::timestamp::option")]
+    pub scheduled_date: Option<TimeDateTime>,
+    #[serde(rename = "startedAt", with = "crate::js::timestamp::option")]
+    pub started_at: Option<TimeDateTime>,
+    #[serde(rename = "completedAt", with = "crate::js::timestamp::option")]
+    pub completed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "assignedTo")]
+    pub assigned_to: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "assignedToName")]
+    pub assigned_to_name: Option<String>,
+    #[serde(rename = "totalLocations")]
+    pub total_locations: Option<i32>,
+    #[serde(rename = "countedLocations")]
+    pub counted_locations: Option<i32>,
+    #[serde(rename = "totalProducts")]
+    pub total_products: Option<i32>,
+    #[serde(rename = "countedProducts")]
+    pub counted_products: Option<i32>,
+    #[serde(rename = "varianceCount")]
+    pub variance_count: Option<i32>,
+    #[serde(rename = "totalVarianceQuantity")]
+    pub total_variance_quantity: Option<i32>,
+    #[serde(rename = "requiresApproval")]
+    pub requires_approval: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "approvalStatus")]
+    pub approval_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "approvedBy")]
+    pub approved_by: Option<String>,
+    #[serde(rename = "approvedAt", with = "crate::js::timestamp::option")]
+    pub approved_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "cycle_counts",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "count_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'full'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'scheduled'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_locations",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "counted_locations",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_products",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "counted_products",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "variance_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_variance_quantity",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "requires_approval",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "approval_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "cycle_counts_number_idx",
+            columns: &[IndexColumn {
+                expression: "count_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "cycle_counts_warehouse_idx",
+            columns: &[IndexColumn {
+                expression: "warehouse_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "cycle_counts_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "cycle_counts_scheduled_idx",
+            columns: &[IndexColumn {
+                expression: "scheduled_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

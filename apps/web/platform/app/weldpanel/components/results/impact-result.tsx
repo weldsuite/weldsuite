@@ -36,7 +36,7 @@ export function ImpactResultView({ result, math, compact = false }: Readonly<Imp
     if (v === null || v === 0) return undefined;
     return v > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive';
   };
-  const data = result.adoption.map((p) => ({ label: formatBucket(p.bucket, 'day', language), rate: p.rate }));
+  const data = result.adoption.map((p) => ({ label: formatBucket(p.bucket, 'day', language), bucket: p.bucket, rate: p.rate }));
 
   return (
     <div className="grid gap-5">

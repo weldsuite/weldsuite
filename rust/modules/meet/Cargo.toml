@@ -14,6 +14,7 @@ weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-chat-domain = { workspace = true }
 weldsuite-core-domain = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }

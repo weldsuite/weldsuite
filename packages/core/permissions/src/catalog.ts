@@ -211,7 +211,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // a literal `*`, so without these keys the routes are grantable to nobody
   // but Owner.
   objectPermissions('inventory',     'Inventory',            ['read', 'create', 'update', 'delete', 'manage']),
+  // Sales orders (WeldCommerce; WeldStash fulfils them). WeldStash's purchase
+  // orders to suppliers have their own object, `purchase_orders`.
   objectPermissions('orders',        'Orders'),
+  objectPermissions('purchase_orders', 'Purchase Orders'),
   objectPermissions('picklists',     'Pick Lists'),
   objectPermissions('locations',     'Locations'),
   objectPermissions('warehouses',    'Warehouses',           ['read', 'create', 'update', 'delete', 'manage']),
@@ -251,6 +254,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('lists',         'Lists'),
   objectPermissions('discounts',     'Discounts'),
   objectPermissions('categories',    'Categories'),
+  // WeldCommerce settings: order numbering and the default currency.
+  objectPermissions('commerce_settings', 'Commerce settings', ['read', 'update']),
+  // WeldCommerce sales channels, their storefront keys and shipping rates.
+  objectPermissions('commerce_channels', 'Sales channels', ['read', 'create', 'update', 'delete']),
   objectPermissions('websites',      'Websites',             ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Accounting (WeldBooks) ────────────────────────────────────────────
@@ -994,6 +1001,12 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
   'reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete',
   'reach_settings:read', 'reach_settings:update',
+  // WeldCommerce — its own objects; products, orders, companies and people
+  // come with the lines above. Without these an admin can't open its settings.
+  'categories:read', 'categories:create', 'categories:update', 'categories:delete',
+  'discounts:read', 'discounts:create', 'discounts:update', 'discounts:delete',
+  'commerce_settings:read', 'commerce_settings:update',
+  'commerce_channels:read', 'commerce_channels:create', 'commerce_channels:update', 'commerce_channels:delete',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -1019,6 +1032,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldstash:products:read', 'weldstash:products:create', 'weldstash:products:update',
   'weldstash:inventory:read', 'weldstash:inventory:update',
   'weldstash:orders:read', 'weldstash:orders:create', 'weldstash:orders:update',
+  'weldstash:purchase_orders:read', 'weldstash:purchase_orders:create', 'weldstash:purchase_orders:update',
   'weldstash:picklists:read', 'weldstash:picklists:create', 'weldstash:picklists:update',
   'weldstash:locations:read',
   'weldstash:warehouses:read',
@@ -1140,6 +1154,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
   'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
   'reach_mailboxes:read', 'reach_settings:read',
+  // WeldCommerce — keep the catalogue's categories; discount codes, sales
+  // channels (and their keys) and the settings are read-only
+  'categories:read', 'categories:create', 'categories:update',
+  'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -1176,6 +1194,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'merge_issues:read', 'merge_pull_requests:read', 'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
+  // WeldCommerce — read-only
+  'categories:read', 'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {

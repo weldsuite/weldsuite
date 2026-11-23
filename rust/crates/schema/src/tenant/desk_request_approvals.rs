@@ -1,0 +1,128 @@
+//! `desk_request_approvals`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "desk_request_approvals")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "catalogItemId")]
+    pub catalog_item_id: String,
+    #[serde(rename = "stepIndex")]
+    pub step_index: i32,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "stepName")]
+    pub step_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "approverId")]
+    pub approver_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "decidedAt", with = "crate::js::timestamp::option")]
+    pub decided_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "decidedById")]
+    pub decided_by_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "comment")]
+    pub comment: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "desk_request_approvals",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'waiting'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "desk_request_approvals_conversation_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "conversation_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "step_index",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "desk_request_approvals_approver_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "approver_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "status",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

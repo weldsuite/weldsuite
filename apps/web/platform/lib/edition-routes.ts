@@ -43,6 +43,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
   ['/settings/ai', { ai: true }],
+  // The EU edition's opt-in for services outside the EU (ADR OPS-026).
+  ['/settings/outside-eu', { feature: 'outside-eu-services' }],
   ['/settings/plans', { feature: 'billing' }],
   // Billing, or on the Kubernetes editions just the credit balance and its
   // top-up (Mollie).
@@ -53,10 +55,20 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/apps/phone-numbers', { modules: ['call'] }],
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
+  // The click-time link check (`POST /api/mail-messages/:id/link-check`), Rust only.
+  ['/weldmail/link', { modules: ['mail'], feature: 'mail-threat-protection' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
-  // MCP servers are WeldAgent's tools. Every other integration syncs or
-  // takes webhooks through workers the Kubernetes editions don't run yet.
+  // MCP servers are WeldAgent's tools.
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
+  // WeldConnect's store and accounting connectors: `/api/connectors`, their
+  // webhooks, the catch-up and the Moneybird push run on both backends.
+  // Shopify and WooCommerce also feed WeldCommerce's order hub.
+  ['/settings/integrations/woocommerce', { modules: ['connect'] }],
+  ['/settings/integrations/shopify', { modules: ['connect'] }],
+  ['/settings/integrations/moneybird', { modules: ['connect'] }],
+  ['/settings/integrations/picqer', { modules: ['connect'] }],
+  // The other integrations (CRM sync, Slack, Discord, GitHub, Google
+  // Calendar) need `integration-sync`, which the Kubernetes editions lack.
   ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
   ['/settings/integrations', { modules: ['connect'] }],
   // The public API (external-api) has no Kubernetes port yet: keys need the

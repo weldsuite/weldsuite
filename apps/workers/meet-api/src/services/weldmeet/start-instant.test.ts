@@ -29,7 +29,13 @@ describe('startInstantMeeting', () => {
     const kv = fakeKv();
     const result = await startInstantMeeting(
       db,
-      { CF_ACCOUNT_ID: 'acc', CF_REALTIME_APP_ID: 'app', CF_REALTIME_APP_SECRET: 'secret', WORKSPACE_CACHE: kv },
+      {
+        CF_ACCOUNT_ID: 'acc',
+        CF_REALTIME_APP_ID: 'app',
+        CF_REALTIME_APP_SECRET: 'secret',
+        WORKSPACE_CACHE: kv,
+        DATABASE_URL_MASTER: 'postgres://test',
+      },
       { waitUntil: (p: Promise<unknown>) => void p },
       {
         userId: 'user_instant',

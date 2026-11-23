@@ -1,0 +1,155 @@
+//! `workspace_licences`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "workspace_licences")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "partnerId")]
+    pub partner_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "packageId")]
+    pub package_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "allowedApps")]
+    pub allowed_apps: Json,
+    #[serde(rename = "monthlyCredits")]
+    pub monthly_credits: i32,
+    #[serde(rename = "creditRolloverCap")]
+    pub credit_rollover_cap: i32,
+    #[serde(rename = "maxSeats")]
+    pub max_seats: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "featurePlanId")]
+    pub feature_plan_id: Option<String>,
+    #[serde(rename = "storageGb")]
+    pub storage_gb: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "resalePricing")]
+    pub resale_pricing: Json,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "startsAt", with = "crate::js::timestamptz")]
+    pub starts_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "endsAt", with = "crate::js::timestamptz::option")]
+    pub ends_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "updatedBy")]
+    pub updated_by: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "workspace_licences",
+    columns: &[
+        DdlColumn {
+            name: "allowed_apps",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "monthly_credits",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "credit_rollover_cap",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "starts_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "workspace_licences_partner_idx",
+        columns: &[IndexColumn {
+            expression: "partner_id",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[ForeignKey {
+        name: "workspace_licences_partner_id_partners_id_fk",
+        columns: &["partner_id"],
+        references: "partners",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[Unique {
+        name: "workspace_licences_workspace_id_unique",
+        columns: &["workspace_id"],
+        nulls_not_distinct: false,
+    }],
+    checks: &[],
+};

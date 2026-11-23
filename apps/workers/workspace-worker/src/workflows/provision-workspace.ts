@@ -35,11 +35,14 @@ import { seedSampleData } from './seed-data';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+/**
+ * The workspace's first member (the OWNER). No picture: a person's avatar is
+ * their account picture (master `users.image_url`), never a member-row copy.
+ */
 export interface InitialMember {
   userId: string;
   email?: string;
   name?: string;
-  picture?: string;
   clerkMembershipId?: string;
 }
 
@@ -173,7 +176,6 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
           userId: initialMember.userId,
           email: initialMember.email,
           name: initialMember.name,
-          picture: initialMember.picture,
           role: 'OWNER',
           status: 'ACTIVE',
           clerkMembershipId: initialMember.clerkMembershipId,

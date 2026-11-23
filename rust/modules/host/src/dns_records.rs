@@ -30,8 +30,8 @@ use crate::weldreach::{
     domain_name_for_zone, duplicates_record, is_managed_record, mark_records, record_managed,
 };
 use crate::{
-    Caller, DnsProvider, HostState, Providers, ZoneDns, internal, json_response, now, validate,
-    validate_query,
+    Caller, DnsProvider, HostState, Providers, ZoneDns, dns_allowed, internal, json_response, now,
+    validate, validate_query,
 };
 
 const TYPES: [&str; 10] = [
@@ -119,6 +119,9 @@ enum Ready {
     NotFound,
     NoCfZone,
     Misconfigured(DnsProvider),
+    /// The zone's host is outside the EU and the workspace hasn't switched
+    /// it on (ADR OPS-026): the 403 to answer.
+    OutsideEu(Response),
     Ok {
         domain: Value,
         zone_id: String,
@@ -155,7 +158,17 @@ async fn ready_by_domain(
         return Ok(Ready::NotFound);
     };
     let zone = live_zone_of_domain(db, domain_id).await?;
-    Ok(readiness(domain, zone.as_ref(), providers))
+    Ok(allowed(db, readiness(domain, zone.as_ref(), providers)).await)
+}
+
+/// [`Ready::Ok`] only when its DNS host may be called for the workspace.
+async fn allowed(db: &PgPool, ready: Ready) -> Ready {
+    if let Ready::Ok { provider, .. } = &ready
+        && let Err(refusal) = dns_allowed(db, *provider).await
+    {
+        return Ready::OutsideEu(refusal);
+    }
+    ready
 }
 
 /// `resolveCloudflareReadyByZone(db, zoneId, token)`.
@@ -170,7 +183,7 @@ async fn ready_by_zone(
     let Some(domain) = live_domain(db, text(&zone, "domainId").unwrap_or_default()).await? else {
         return Ok(Ready::NotFound);
     };
-    Ok(readiness(domain, Some(&zone), providers))
+    Ok(allowed(db, readiness(domain, Some(&zone), providers)).await)
 }
 
 /// `listDnsRecordsByZone`: the local records, synced first when the zone
@@ -187,8 +200,11 @@ async fn list_by_zone(
     let summary = |zone: &Value| json!({ "id": zone["id"], "syncedAt": zone["syncedAt"], "syncError": zone["syncError"] });
     let mut synced = summary(&zone);
     let providers = caller.providers(state);
-    if let ZoneDns::Ready(_, dns) = providers.zone_dns(Some(&zone))
+    // Listing never calls a host the workspace hasn't switched on (ADR
+    // OPS-026): the local records are answered as they are.
+    if let ZoneDns::Ready(provider, dns) = providers.zone_dns(Some(&zone))
         && (records.is_empty() || zone["syncedAt"].is_null())
+        && dns_allowed(&caller.db, provider).await.is_ok()
     {
         let external = text(&zone, "externalZoneId").unwrap_or_default();
         records = sync_zone(&caller.db, &dns, zone_id, Some(external))
@@ -287,6 +303,7 @@ async fn sync(
                 }
                 Ready::NoCfZone => return Ok(not_managed(&providers)),
                 Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
+                Ready::OutsideEu(refusal) => return Ok(refusal),
                 Ready::Ok {
                     zone_id,
                     external,
@@ -491,6 +508,7 @@ async fn import(
                 }
                 Ready::NoCfZone => return Ok(no_zone_yet(&providers)),
                 Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
+                Ready::OutsideEu(refusal) => return Ok(refusal),
                 Ready::Ok {
                     domain,
                     zone_id,
@@ -568,6 +586,7 @@ async fn create(
                 }
                 Ready::NoCfZone => return Ok(no_zone_yet(&providers)),
                 Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
+                Ready::OutsideEu(refusal) => return Ok(refusal),
                 Ready::Ok {
                     zone_id,
                     external,
@@ -671,6 +690,9 @@ async fn guard(
         ZoneDns::Unconfigured(provider) => return Ok(Err(unconfigured(provider))),
         ZoneDns::Ready(provider, dns) => (provider, dns),
     };
+    if let Err(refusal) = dns_allowed(db, provider).await {
+        return Ok(Err(refusal));
+    }
     let external = text(&zone, "externalZoneId").unwrap_or_default().to_owned();
     let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
     if let Some(reach) = domain_name_for_zone(db, &zone_id).await? {

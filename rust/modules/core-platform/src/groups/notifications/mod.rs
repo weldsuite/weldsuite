@@ -230,7 +230,8 @@ async fn page(
         None
     };
 
-    // The actor's name and picture, for notifications a member triggered.
+    // The actor's name and picture, for notifications a member triggered:
+    // the name from the member row, the picture from the account.
     let mut actor_ids: Vec<String> = Vec::new();
     for row in &rows {
         if let Some(id) = user_actor(row)
@@ -239,24 +240,28 @@ async fn page(
             actor_ids.push(id.to_owned());
         }
     }
-    let mut actors: HashMap<String, (Value, Value)> = HashMap::new();
+    let mut names: HashMap<String, Value> = HashMap::new();
     if !actor_ids.is_empty() {
-        let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, picture from workspace_members where user_id = any($1)",
-        )
-        .bind(&actor_ids)
-        .fetch_all(&caller.db)
-        .await?;
+        let members: Vec<(String, Option<String>)> =
+            sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
+                .bind(&actor_ids)
+                .fetch_all(&caller.db)
+                .await?;
         // `new Map(entries)`: a later row for the same user wins.
-        for (user_id, name, picture) in members {
-            actors.insert(user_id, (json!(name), json!(picture)));
+        for (user_id, name) in members {
+            names.insert(user_id, json!(name));
         }
     }
+    let pictures = weldsuite_db::AccountPictures::load(caller.request_master(), &actor_ids).await;
     let data: Vec<Value> = rows
         .into_iter()
         .map(|mut row| {
-            let actor = user_actor(&row).and_then(|id| actors.get(id)).cloned();
-            let (name, picture) = actor.unwrap_or((Value::Null, Value::Null));
+            let actor = user_actor(&row);
+            let name = actor
+                .and_then(|id| names.get(id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let picture = pictures.value(actor);
             if let Value::Object(fields) = &mut row {
                 fields.insert("actorName".to_owned(), name);
                 fields.insert("actorAvatar".to_owned(), picture);

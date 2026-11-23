@@ -1,0 +1,136 @@
+//! `ad_accounts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "ad_accounts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "platformAccountId")]
+    pub platform_account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "currency")]
+    pub currency: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "timezone")]
+    pub timezone: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[serde(rename = "isSelected")]
+    pub is_selected: bool,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "ad_accounts",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_selected",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "ad_accounts_connection_platform_account_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "connection_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "platform_account_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_accounts_connection_idx",
+            columns: &[IndexColumn {
+                expression: "connection_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_accounts_is_selected_idx",
+            columns: &[IndexColumn {
+                expression: "is_selected",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "ad_accounts_connection_id_ad_platform_connections_id_fk",
+        columns: &["connection_id"],
+        references: "ad_platform_connections",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

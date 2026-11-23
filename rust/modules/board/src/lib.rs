@@ -26,6 +26,11 @@
 //! `/internal/boards/*` (the `BoardsInternal` entrypoint for the agent tools
 //! and the MCP server, whose callers are not ported).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod agent;
 mod ai;
 mod links;
@@ -176,8 +181,9 @@ pub(crate) struct Caller {
     links: Option<OutboundHttp>,
     /// `workspaces.id`: the AI actions' wallet and settings.
     pub(crate) workspace_id: String,
-    /// The request's own AI and master database (conformance).
+    /// The request's own AI (conformance).
     ai: Option<weldsuite_ai::Ai>,
+    /// The master database: account pictures, and the AI wallet in conformance.
     master: Option<PgPool>,
 }
 

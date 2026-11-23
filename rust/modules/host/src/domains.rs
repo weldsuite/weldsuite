@@ -41,8 +41,8 @@ use crate::rows::{
 };
 use crate::weldreach::{changes_nameservers, connected_domain_ids, domain_in_use, is_domain_used};
 use crate::{
-    Caller, DnsProvider, HostState, Providers, ZoneDns, error_response, internal, json_response,
-    now, validate, validate_query,
+    Caller, DnsProvider, HostState, Providers, ZoneDns, dns_allowed, error_response, internal,
+    json_response, now, validate, validate_query,
 };
 
 const STATUSES: [&str; 5] = ["active", "pending", "expired", "suspended", "cancelled"];
@@ -145,6 +145,9 @@ enum Failure {
     Cf(RegistrarError),
     Db(sqlx::Error),
     Other(String),
+    /// Cloudflare is outside the EU and the workspace hasn't switched it on
+    /// (ADR OPS-026).
+    OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
 impl std::fmt::Display for Failure {
@@ -154,8 +157,17 @@ impl std::fmt::Display for Failure {
             Self::Cf(error) => error.fmt(f),
             Self::Db(error) => error.fmt(f),
             Self::Other(message) => f.write_str(message),
+            Self::OutsideEu(error) => error.fmt(f),
         }
     }
+}
+
+/// The legacy Cloudflare Registrar is Cloudflare too: a workspace's
+/// domains go to it only once Cloudflare is switched on (ADR OPS-026).
+async fn cloudflare_registrar_allowed(db: &PgPool) -> Result<(), Failure> {
+    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Cloudflare)
+        .await
+        .map_err(Failure::OutsideEu)
 }
 
 impl From<sqlx::Error> for Failure {
@@ -182,6 +194,9 @@ fn bad_gateway(code: &str, message: &str) -> Response {
 
 /// `registrarFailure(c, scope, err, fallback)`.
 fn registrar_failure(scope: &str, failure: &Failure, fallback: &str) -> Response {
+    if let Failure::OutsideEu(error) = failure {
+        return error.to_api_error().into_response();
+    }
     tracing::error!(%failure, "[app-api/domains] {scope} failed");
     match failure {
         Failure::Rtr(error) => match error.status {
@@ -1572,6 +1587,7 @@ async fn toggle_auto_renew(
                 let cf = providers
                     .cf_registrar()
                     .ok_or_else(|| Failure::Other("Cloudflare Registrar is not configured".to_owned()))?;
+                cloudflare_registrar_allowed(&caller.db).await?;
                 cf.update_domain(full, Some(enabled), None).await?;
             }
             _ => {}
@@ -1679,6 +1695,7 @@ async fn toggle_lock(
                 let cf = providers
                     .cf_registrar()
                     .ok_or_else(|| Failure::Other("Cloudflare Registrar is not configured".to_owned()))?;
+                cloudflare_registrar_allowed(&caller.db).await?;
                 cf.update_domain(full, None, Some(locked)).await?;
             }
             _ => {}
@@ -1765,6 +1782,7 @@ async fn sync_status(
     if registrar == Some("cloudflare")
         && let Some(cf) = providers.cf_registrar()
     {
+        cloudflare_registrar_allowed(db).await?;
         let remote = cf.get_domain(&full).await?;
         let expires = remote
             .expires_at
@@ -1828,6 +1846,7 @@ async fn sync(State(state): State<HostState>, caller: Caller, Path(id): Path<Str
             Data(public_domain(updated)).into_response()
         }
         Ok(None) => ApiError::not_found("Domain", Some(&id)).into_response(),
+        Err(Failure::OutsideEu(error)) => error.to_api_error().into_response(),
         Err(failure) => internal(&failure, "Domain sync failed"),
     }
 }
@@ -1999,6 +2018,9 @@ async fn verify_ownership(
                 ))
                 .into_response());
         };
+        if let Err(refusal) = dns_allowed(&caller.db, provider).await {
+            return Ok(refusal);
+        }
         let label = provider.label();
         let zone = match dns.create_zone(&account, &full).await {
             Ok(zone) => zone,
@@ -2099,6 +2121,7 @@ async fn verify_ownership(
     result.unwrap_or_else(|error| internal(&error, "Failed to verify ownership"))
 }
 
+#[allow(clippy::too_many_lines)] // the zone, the outside-EU check, the read and the writes
 async fn refresh_zone_status(
     State(state): State<HostState>,
     caller: Caller,
@@ -2125,6 +2148,9 @@ async fn refresh_zone_status(
                 .into_response());
             }
         };
+        if let Err(refusal) = dns_allowed(&caller.db, provider).await {
+            return Ok(refusal);
+        }
         let label = provider.label();
         let external = text(&zone, "externalZoneId").unwrap_or_default().to_owned();
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();

@@ -90,7 +90,7 @@ macro_rules! recipient_equals {
 }
 
 /// `buildMessageConditions(filters, labelNames)` over `mail_messages m`,
-/// parameters `$1`–`$14` (see [`MessageFilters::bind`]).
+/// parameters `$1`–`$16` (see [`MessageFilters::bind`]).
 macro_rules! message_conditions {
     () => {
         concat!(
@@ -122,7 +122,9 @@ macro_rules! message_conditions {
             recipient_equals!("m.cc", "$14"),
             " or ",
             recipient_equals!("m.bcc", "$14"),
-            "))"
+            "))
+             and (not $15::bool or not coalesce(m.labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb)
+             and (not $16::bool or not coalesce(m.labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb)"
         )
     };
 }
@@ -137,10 +139,13 @@ macro_rules! in_trash_or_spam {
 }
 
 /// The list columns (`wideListColumns`): every column but the bodies, raw
-/// MIME, headers, custom fields and clicked links.
+/// MIME, headers, custom fields and clicked links. Here and in every other
+/// `mail_messages` read, `threats` (EU and self-hosted only, ADR MAIL-014)
+/// is left out while null, so a message without threats reads exactly as
+/// the TypeScript worker's, whose schema has no such column.
 macro_rules! wide_row {
     () => {
-        "(to_jsonb(m) - 'text_body' - 'html_body' - 'raw_message' - 'headers'
+        "(to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) - 'text_body' - 'html_body' - 'raw_message' - 'headers'
            - 'custom_fields' - 'clicked_links')"
     };
 }
@@ -160,6 +165,10 @@ pub struct MessageFilters {
     pub label: Option<String>,
     pub from: Option<String>,
     pub counterparty: Option<String>,
+    /// `excludeTrash`: leave out trashed messages (by their label).
+    pub exclude_trash: bool,
+    /// `excludeSpam`: leave out spam (by its label).
+    pub exclude_spam: bool,
     /// `cursorValue`: `(sentDate as an ISO string, id)`.
     pub cursor: Option<(String, String)>,
 }
@@ -227,6 +236,8 @@ macro_rules! bind_conditions {
             .bind(label.important)
             .bind($values.from.clone())
             .bind($values.counterparty.clone())
+            .bind($filters.exclude_trash)
+            .bind($filters.exclude_spam)
     }};
 }
 
@@ -253,9 +264,9 @@ pub async fn list_messages_wide(
             wide_row!(),
             " from mail_messages m where ",
             message_conditions!(),
-            " and ($15::timestamp is null or (m.sent_date < $15::timestamp
-                   or (m.sent_date = $15::timestamp and m.id < $16)))
-             order by m.sent_date desc, m.id desc limit $17"
+            " and ($17::timestamp is null or (m.sent_date < $17::timestamp
+                   or (m.sent_date = $17::timestamp and m.id < $18)))
+             order by m.sent_date desc, m.id desc limit $19"
         )),
         values,
         filters
@@ -448,7 +459,7 @@ pub fn message_record(mut row: Value, bodies: bool) -> Value {
 /// has attachments, its attachment rows (deleted ones included).
 pub async fn get_message(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
+        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
     )
     .bind(id)
     .fetch_optional(db)
@@ -477,6 +488,14 @@ pub fn public_attachment(mut row: Value) -> Value {
     if let Some(object) = row.as_object_mut() {
         object.remove("storagePath");
         object.remove("downloadUrl");
+        // The virus scan's columns (EU and self-hosted only, ADR MAIL-014)
+        // are left out while unset, so an unscanned row reads exactly as the
+        // TypeScript worker's, whose schema has no such columns.
+        for key in ["scanStatus", "scanSignature", "scannedAt"] {
+            if object.get(key).is_some_and(Value::is_null) {
+                object.remove(key);
+            }
+        }
     }
     row
 }
@@ -526,7 +545,7 @@ pub async fn thread_of_message(
     let (thread_id, rows): (String, Vec<Value>) = match thread_id {
         None => {
             let rows = sqlx::query_scalar(
-                "select to_jsonb(m) from mail_messages m
+                "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
                  where m.id = $1 and m.deleted_at is null limit 1",
             )
             .bind(message_id)
@@ -536,7 +555,7 @@ pub async fn thread_of_message(
         }
         Some(thread_id) => {
             let rows = sqlx::query_scalar(
-                "select to_jsonb(m) from mail_messages m
+                "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
                  where m.thread_id = $1 and m.account_id = $2 and m.deleted_at is null
                  order by m.sent_date asc, m.id asc",
             )

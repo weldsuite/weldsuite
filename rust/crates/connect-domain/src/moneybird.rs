@@ -80,6 +80,15 @@ pub struct TaxRate {
 }
 
 /// A binary download (`MoneybirdBinaryDownload`).
+/// A webhook as `GET /webhooks` lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredWebhook {
+    pub id: String,
+    pub url: String,
+    /// `deactivated_at` is empty.
+    pub active: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Download {
     pub bytes: Vec<u8>,
@@ -736,6 +745,29 @@ impl Moneybird {
         }])
     }
 
+    /// The administration's webhooks (`GET /webhooks`): each one's id, URL
+    /// and whether Moneybird deactivated it.
+    pub async fn list_webhooks(
+        &self,
+        http: Option<&OutboundHttp>,
+    ) -> Result<Vec<RegisteredWebhook>, ConnectorError> {
+        let (data, _) = self
+            .request(http, "GET", "webhooks", &[], None, false)
+            .await?;
+        Ok(data
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .map(|row| RegisteredWebhook {
+                        id: text_id(row.get("id")),
+                        url: string(row.get("url")).unwrap_or_default().to_owned(),
+                        active: row.get("deactivated_at").is_none_or(Value::is_null),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     /// `client.deleteWebhook(id)`.
     pub async fn delete_webhook(
         &self,
@@ -850,6 +882,72 @@ impl Moneybird {
             .collect())
     }
 
+    /// `getRecord(path)`: one record, `None` when Moneybird has no such
+    /// record (404).
+    async fn get_record(
+        &self,
+        http: Option<&OutboundHttp>,
+        path: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        match self.get(http, path, &[]).await {
+            Ok(value) => Ok(value.is_object().then_some(value)),
+            Err(error) if error.status == 404 => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `client.getSalesInvoice(id)`.
+    pub async fn get_sales_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("sales_invoices/{id}")).await
+    }
+
+    /// `client.getPurchaseInvoice(id)`.
+    pub async fn get_purchase_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("documents/purchase_invoices/{id}"))
+            .await
+    }
+
+    /// `client.getReceipt(id)`.
+    pub async fn get_receipt(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("documents/receipts/{id}"))
+            .await
+    }
+
+    /// `client.getFinancialMutations(ids)`: through the synchronisation API
+    /// (the plain list can't read one).
+    pub async fn get_financial_mutations(
+        &self,
+        http: Option<&OutboundHttp>,
+        ids: &[String],
+    ) -> Result<Vec<Value>, ConnectorError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (data, _) = self
+            .request(
+                http,
+                "POST",
+                "financial_mutations/synchronization",
+                &[],
+                Some(&json!({ "ids": ids })),
+                false,
+            )
+            .await?;
+        Ok(array(&data))
+    }
+
     /// Contacts matching a free-text query.
     pub async fn search_contacts(
         &self,
@@ -889,6 +987,249 @@ impl Moneybird {
     ) -> Result<Value, ConnectorError> {
         self.post(http, "POST", "contacts", &json!({ "contact": contact }))
             .await
+    }
+
+    // ── two-way writes (ADR INT-013) ─────────────────────────────────────────
+
+    /// One record, or `None` when Moneybird no longer has it.
+    pub async fn get_contact(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("contacts/{id}")).await
+    }
+
+    pub async fn update_contact(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+        contact: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "PATCH",
+            &format!("contacts/{id}"),
+            &json!({ "contact": contact }),
+        )
+        .await
+    }
+
+    /// Moneybird archives a contact that is still in use instead.
+    pub async fn delete_contact(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
+        self.delete_path(http, &format!("contacts/{id}")).await
+    }
+
+    pub async fn archive_contact(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
+        self.request(
+            http,
+            "PATCH",
+            &format!("contacts/{id}/archive"),
+            &[],
+            Some(&json!({})),
+            false,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub async fn get_product(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("products/{id}")).await
+    }
+
+    pub async fn create_product(
+        &self,
+        http: Option<&OutboundHttp>,
+        product: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(http, "POST", "products", &json!({ "product": product }))
+            .await
+    }
+
+    pub async fn update_product(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+        product: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "PATCH",
+            &format!("products/{id}"),
+            &json!({ "product": product }),
+        )
+        .await
+    }
+
+    /// Moneybird deactivates a product that is still in use instead.
+    pub async fn delete_product(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
+        self.delete_path(http, &format!("products/{id}")).await
+    }
+
+    /// Changes a sales invoice; Moneybird accepts most fields in draft only.
+    pub async fn update_sales_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+        invoice: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "PATCH",
+            &format!("sales_invoices/{id}"),
+            &json!({ "sales_invoice": invoice }),
+        )
+        .await
+    }
+
+    pub async fn delete_sales_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
+        self.delete_path(http, &format!("sales_invoices/{id}"))
+            .await
+    }
+
+    /// Sends a draft without Moneybird delivering it (`Manual`): WeldBooks
+    /// does the sending.
+    pub async fn send_sales_invoice_manually(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "PATCH",
+            &format!("sales_invoices/{id}/send_invoice"),
+            &json!({ "sales_invoice_sending": { "delivery_method": "Manual" } }),
+        )
+        .await
+    }
+
+    pub async fn mark_sales_invoice_uncollectible(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+        date: &str,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "PATCH",
+            &format!("sales_invoices/{id}/mark_as_uncollectible"),
+            &json!({ "uncollectible_date": date }),
+        )
+        .await
+    }
+
+    pub async fn create_purchase_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        invoice: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "POST",
+            "documents/purchase_invoices",
+            &json!({ "purchase_invoice": invoice }),
+        )
+        .await
+    }
+
+    /// `documents/purchase_invoices` or `documents/receipts`, by `receipt`.
+    pub async fn update_document(
+        &self,
+        http: Option<&OutboundHttp>,
+        receipt: bool,
+        id: &str,
+        document: Value,
+    ) -> Result<Value, ConnectorError> {
+        let (path, key) = if receipt {
+            ("receipts", "receipt")
+        } else {
+            ("purchase_invoices", "purchase_invoice")
+        };
+        self.post(
+            http,
+            "PATCH",
+            &format!("documents/{path}/{id}"),
+            &json!({ key: document }),
+        )
+        .await
+    }
+
+    pub async fn delete_document(
+        &self,
+        http: Option<&OutboundHttp>,
+        receipt: bool,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
+        let path = if receipt {
+            "receipts"
+        } else {
+            "purchase_invoices"
+        };
+        self.delete_path(http, &format!("documents/{path}/{id}"))
+            .await
+    }
+
+    /// A payment on a document (`base` is `sales_invoices`,
+    /// `external_sales_invoices`, `documents/purchase_invoices` or
+    /// `documents/receipts`).
+    pub async fn create_payment(
+        &self,
+        http: Option<&OutboundHttp>,
+        base: &str,
+        document_id: &str,
+        payment: Value,
+    ) -> Result<Value, ConnectorError> {
+        self.post(
+            http,
+            "POST",
+            &format!("{base}/{document_id}/payments"),
+            &json!({ "payment": payment }),
+        )
+        .await
+    }
+
+    pub async fn delete_payment(
+        &self,
+        http: Option<&OutboundHttp>,
+        base: &str,
+        document_id: &str,
+        payment_id: &str,
+    ) -> Result<(), ConnectorError> {
+        self.delete_path(http, &format!("{base}/{document_id}/payments/{payment_id}"))
+            .await
+    }
+
+    /// A `DELETE`; a record Moneybird no longer has counts as deleted.
+    async fn delete_path(
+        &self,
+        http: Option<&OutboundHttp>,
+        path: &str,
+    ) -> Result<(), ConnectorError> {
+        match self.request(http, "DELETE", path, &[], None, false).await {
+            Ok(_) => Ok(()),
+            Err(error) if error.status == 404 => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn create_external_sales_invoice(

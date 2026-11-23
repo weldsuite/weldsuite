@@ -35,4 +35,6 @@ export const CRM_ENTITY_EVENTS = {
   call: ['created', 'updated', 'deleted'],
   transcription: ['created', 'updated', 'deleted'],
   customer_status: ['created', 'updated', 'deleted'],
+  /** WeldCRM's workspace settings (`/api/crm-settings`, Rust only): auto-add. */
+  crm_settings: ['updated'],
 } as const;

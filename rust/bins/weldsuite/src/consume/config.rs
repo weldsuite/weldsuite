@@ -51,6 +51,11 @@ pub(crate) const PORTED: [&str; 6] = [
     "realtime",
 ];
 
+/// The Moneybird two-way sync (ADR INT-013): a consumer of its own on the
+/// hub, Rust only (not in the TypeScript registry), when WeldConnect is
+/// served.
+pub(crate) const MONEYBIRD_SYNC: &str = "moneybird-sync";
+
 /// The inbound mail subscriber (MAIL-010): not on the hub but on its own
 /// stream, which Haraka publishes to.
 pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
@@ -148,12 +153,58 @@ pub(crate) struct MailInboundConfig {
     /// `REACH_INBOUND_DOMAIN`: WeldReach's reply domain, whose
     /// `reply+<token>@` recipients go to WeldReach (when it is served).
     pub(crate) reach_domain: Option<String>,
+    /// `CLAMD_ADDRESS` (`host:port`, the chart's `clamav` Service): the
+    /// virus scanner for attachments (`weldsuite_mail_inbound::threats`).
+    /// Unset: nothing is scanned.
+    pub(crate) clamd: Option<ClamdConfig>,
+}
+
+/// Where clamd listens and how long one scan may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClamdConfig {
+    pub(crate) address: String,
+    /// `CLAMD_TIMEOUT_SECONDS`, default 120.
+    pub(crate) timeout: Duration,
+}
+
+impl ClamdConfig {
+    pub(crate) fn scanner(&self) -> std::sync::Arc<dyn weldsuite_ports::VirusScanner> {
+        std::sync::Arc::new(weldsuite_adapters_oss::ClamdScanner::new(
+            self.address.clone(),
+            self.timeout,
+        ))
+    }
+
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let address = lookup("CLAMD_ADDRESS").filter(|a| !a.trim().is_empty())?;
+        if !address.contains(':') {
+            problems.push("CLAMD_ADDRESS must be host:port".to_owned());
+        }
+        let timeout = match lookup("CLAMD_TIMEOUT_SECONDS") {
+            None => 120,
+            Some(raw) => match raw.parse::<u64>() {
+                Ok(value) if value > 0 => value,
+                _ => {
+                    problems
+                        .push("CLAMD_TIMEOUT_SECONDS must be a positive whole number".to_owned());
+                    120
+                }
+            },
+        };
+        Some(Self {
+            address: address.trim().to_owned(),
+            timeout: Duration::from_secs(timeout),
+        })
+    }
 }
 
 impl MailInboundConfig {
     /// `S3_BUCKET_MAIL` set, the subscriber's settings (the S3 ones then
-    /// required).
-    fn from_lookup(
+    /// required). The `mail-attachment-scan` cron reads the same.
+    pub(crate) fn from_lookup(
         lookup: &impl Fn(&str) -> Option<String>,
         problems: &mut Vec<String>,
     ) -> Option<Self> {
@@ -190,6 +241,7 @@ impl MailInboundConfig {
             dead_letter_stream: lookup("NATS_MAIL_INBOUND_DLQ_STREAM")
                 .unwrap_or_else(|| "MAIL_INBOUND_DLQ".to_owned()),
             reach_domain: lookup("REACH_INBOUND_DOMAIN").filter(|d| !d.trim().is_empty()),
+            clamd: ClamdConfig::from_lookup(lookup, problems),
             mail,
         })
     }
@@ -223,6 +275,12 @@ fn mail_served() -> bool {
     weldsuite_catalogs::api_modules()
         .iter()
         .any(|m| m.id == "mail" && m.rust)
+}
+
+fn connect_served() -> bool {
+    weldsuite_catalogs::api_modules()
+        .iter()
+        .any(|m| m.id == "connect" && m.rust)
 }
 
 #[derive(Clone)]
@@ -447,6 +505,7 @@ impl ConsumeConfig {
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
                 .chain(mail_served().then_some(MAIL_SENDING_EVENTS))
+                .chain(connect_served().then_some(MONEYBIRD_SYNC))
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
@@ -481,6 +540,7 @@ impl ConsumeConfig {
                 continue;
             }
             if id == MAIL_SENDING_EVENTS
+                || id == MONEYBIRD_SYNC
                 || id == REACH_SEND
                 || id == REACH_WARMUP_SEND
                 || id == REACH_WARMUP_ENGAGE
@@ -670,6 +730,9 @@ mod tests {
         let mut expected: Vec<&str> = PORTED.to_vec();
         if mail_served() {
             expected.push(MAIL_SENDING_EVENTS);
+        }
+        if connect_served() {
+            expected.push(MONEYBIRD_SYNC);
         }
         assert_eq!(config.subscribers, expected);
         assert_eq!(config.stream, "ENTITY_EVENTS");

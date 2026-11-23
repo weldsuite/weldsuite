@@ -11,6 +11,10 @@
 //! with `pnpm rust:connect-engine-fixtures`.
 
 #![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+#![allow(
     clippy::unwrap_used,
     clippy::too_many_lines,
     clippy::many_single_char_names

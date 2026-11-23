@@ -2,19 +2,32 @@
  * DB-backed integration tests for /api/channels (WeldChat).
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { channelsRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
+// Member avatars are account pictures, read from the master `users` table.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
+import { channelsRoutes } from './index';
+
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
 }, 60_000);
 
 describe('/api/channels · pglite integration', () => {
@@ -685,5 +698,58 @@ describe('/api/channels · pglite integration', () => {
       const res = await asMember()(`/api/channels/${channelId}/agents/${member}`, { method: 'DELETE' });
       expect(res.status).toBe(400);
     });
+  });
+});
+
+describe('/api/channels · member avatars', () => {
+  it('GET /:id and GET /:channelId/members show account pictures, not the member-row copy', async () => {
+    const now = new Date();
+    const owner = 'user_ch_avatar_owner';
+    const mate = 'user_ch_avatar_mate';
+    const nobody = 'user_ch_avatar_noaccount';
+    const channelId = generateId('ch');
+    await db.insert(schema.workspaceMembers).values([
+      { id: generateId('wm'), userId: owner, email: 'owner@example.com', name: 'Owner', role: 'MEMBER', createdAt: now, updatedAt: now },
+      { id: generateId('wm'), userId: mate, email: 'mate@example.com', name: 'Mate', picture: 'https://stale.example.com/mate.png', role: 'MEMBER', createdAt: now, updatedAt: now },
+      { id: generateId('wm'), userId: nobody, email: 'nobody@example.com', name: 'Nobody', picture: 'https://stale.example.com/nobody.png', role: 'MEMBER', createdAt: now, updatedAt: now },
+    ] as (typeof schema.workspaceMembers.$inferInsert)[]);
+    await master
+      .insert(users)
+      .values([
+        { id: owner, email: 'owner@example.com', imageUrl: 'https://img.clerk.test/ch-owner.png' },
+        { id: mate, email: 'mate@example.com', imageUrl: 'https://img.clerk.test/ch-mate.png' },
+      ])
+      .onConflictDoNothing();
+    await db.insert(schema.chatChannels).values({
+      id: channelId,
+      name: 'avatars',
+      slug: `avatars-${channelId}`,
+      type: 'public',
+      memberCount: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.chatChannelMembers).values(
+      [owner, mate, nobody].map((userId) => ({ id: generateId('chm'), channelId, userId, role: 'member', createdAt: now, joinedAt: now })),
+    );
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: owner, permissions: permissions('channels:read'), tenantDb: db, masterDb: master },
+    });
+    type Member = { userId: string; picture: string | null };
+    const pictures = (members: Member[]) => Object.fromEntries(members.map((m) => [m.userId, m.picture]));
+    const expected = {
+      [owner]: 'https://img.clerk.test/ch-owner.png',
+      [mate]: 'https://img.clerk.test/ch-mate.png',
+      [nobody]: null,
+    };
+
+    const channel = await request(`/api/channels/${channelId}`);
+    expect(channel.status).toBe(200);
+    expect(pictures(((await channel.json()) as { data: { members: Member[] } }).data.members)).toEqual(expected);
+
+    const members = await request(`/api/channels/${channelId}/members`);
+    expect(members.status).toBe(200);
+    expect(pictures(((await members.json()) as { data: Member[] }).data)).toEqual(expected);
   });
 });

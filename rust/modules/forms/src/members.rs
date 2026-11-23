@@ -1,25 +1,27 @@
 //! Member profiles for the DTOs (`services/members.ts`): who owns a form, who
-//! published a version.
+//! published a version. The name and email come from the member row; the
+//! picture is the person's account picture (master `users.image_url`, ADR
+//! SEC-020), never the `workspace_members.picture` copy.
 
 use std::collections::HashMap;
 
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use weldsuite_db::AccountPictures;
 
-use crate::common::FormsResult;
+use crate::common::{Ctx, FormsResult};
 
 /// `{ userId, name, email, imageUrl }` without a member row.
 pub(crate) fn bare_ref(user_id: &str) -> Value {
     json!({ "userId": user_id, "name": null, "email": null, "imageUrl": null })
 }
 
-/// `user_id`, `name`, `email`, `picture` of a `workspace_members` row.
-type MemberRow = (String, Option<String>, Option<String>, Option<String>);
+/// `user_id`, `name`, `email` of a `workspace_members` row.
+type MemberRow = (String, Option<String>, Option<String>);
 
-/// `memberRefs(db, userIds)`: profiles by user id; a user without a member
+/// `memberRefs(ctx, userIds)`: profiles by user id; a user without a member
 /// row (removed, or from another system) gets a bare ref.
 pub(crate) async fn member_refs(
-    db: &PgPool,
+    ctx: &Ctx,
     user_ids: &[String],
 ) -> FormsResult<HashMap<String, Value>> {
     let mut ids: Vec<String> = Vec::new();
@@ -31,17 +33,19 @@ pub(crate) async fn member_refs(
     let mut refs = HashMap::new();
     if !ids.is_empty() {
         let rows: Vec<MemberRow> = sqlx::query_as(
-            "select user_id, name, email, picture from workspace_members \
+            "select user_id, name, email from workspace_members \
              where user_id = any($1) and deleted_at is null",
         )
         .bind(&ids)
-        .fetch_all(db)
+        .fetch_all(&ctx.db)
         .await?;
-        for (user_id, name, email, picture) in rows {
+        let pictures = AccountPictures::load(ctx.master.as_ref(), &ids).await;
+        for (user_id, name, email) in rows {
             // `row.name || row.email || null`
             let display = name
                 .filter(|name| !name.is_empty())
                 .or_else(|| email.clone().filter(|email| !email.is_empty()));
+            let picture = pictures.value(Some(&user_id));
             refs.insert(
                 user_id.clone(),
                 json!({ "userId": user_id, "name": display, "email": email, "imageUrl": picture }),
@@ -54,9 +58,9 @@ pub(crate) async fn member_refs(
     Ok(refs)
 }
 
-/// `memberRef(db, userId)`.
-pub(crate) async fn member_ref(db: &PgPool, user_id: &str) -> FormsResult<Value> {
-    Ok(member_refs(db, &[user_id.to_owned()])
+/// `memberRef(ctx, userId)`.
+pub(crate) async fn member_ref(ctx: &Ctx, user_id: &str) -> FormsResult<Value> {
+    Ok(member_refs(ctx, &[user_id.to_owned()])
         .await?
         .remove(user_id)
         .unwrap_or_else(|| bare_ref(user_id)))

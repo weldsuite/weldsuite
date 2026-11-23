@@ -16,7 +16,7 @@ use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{FileStores, MailTransport, get_stored};
 
-use crate::access::{has_access_to_account, is_admin_or_owner};
+use crate::access::{MailPrincipal, principal_has_access, principal_is_admin};
 use crate::contacts::{ContactAddress, upsert_mail_contacts};
 use crate::html::sanitize_email_html;
 use crate::outbound::clock::{iso, now_ms};
@@ -68,6 +68,12 @@ impl From<sqlx::Error> for SendError {
     }
 }
 
+impl From<sea_orm::DbErr> for SendError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Internal(error.to_string())
+    }
+}
+
 /// `SendAttachmentInput`: an uploaded file, by storage key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendAttachmentInput {
@@ -115,6 +121,21 @@ pub struct SendDeps<'a> {
     pub mx: &'a MxLookup,
     /// `R2_PUBLIC_URL`, for contact avatars.
     pub public_url: Option<&'a str>,
+    /// Runs once the message is sent and stored: WeldCRM's auto-add, which
+    /// the caller supplies (the CRM crate depends on this one). `None` for
+    /// sends that are no conversation (unsubscribe mail, release notes).
+    pub after_send: Option<&'a dyn AfterSend>,
+}
+
+/// What a send tells [`SendDeps::after_send`]: the member who sent it and the
+/// addresses it reached (To, Cc and Bcc; on a partial send, those it reached).
+pub trait AfterSend: Send + Sync {
+    fn sent<'a>(
+        &'a self,
+        db: &'a PgPool,
+        user_id: &'a str,
+        recipients: Vec<String>,
+    ) -> weldsuite_ports::BoxFuture<'a, ()>;
 }
 
 /// `SendOptions.outbound` (and the source/kind a reply or forward sets).
@@ -128,6 +149,40 @@ pub struct SendOptions {
     /// originals, a generated `.eml`), sent after the uploaded ones and
     /// stored under the sent copy.
     pub extra_attachments: Vec<ExtraAttachment>,
+    /// The caller is the workspace, not a person (`MailPrincipal`'s
+    /// `workspace`: a public-API key or app token): it may send from shared
+    /// mailboxes only.
+    pub as_workspace: bool,
+    /// `enforceDailyLimit`: refuse once the account has sent
+    /// `dailySendLimit` messages since UTC midnight (`DAILY_LIMIT_REACHED`),
+    /// counted from the sent copies. The public API sets it.
+    pub enforce_daily_limit: bool,
+    /// `requireVerifiedDomain`: refuse an address that is not on a verified
+    /// WeldMail domain of the workspace (`SENDER_DOMAIN_NOT_VERIFIED`), so
+    /// mail from `@gmail.com` never goes out failing SPF and DMARC. The
+    /// public API sets it.
+    pub require_verified_domain: bool,
+}
+
+impl SendOptions {
+    /// The same caller and policies with another source, kind and files: a
+    /// reply's or a forward's send.
+    pub(crate) fn derived(
+        &self,
+        source: &str,
+        kind: Option<OutboundKind>,
+        extra_attachments: Vec<ExtraAttachment>,
+    ) -> Self {
+        Self {
+            source: Some(self.source.clone().unwrap_or_else(|| source.to_owned())),
+            kind,
+            workspace_id: self.workspace_id.clone(),
+            extra_attachments,
+            as_workspace: self.as_workspace,
+            enforce_daily_limit: self.enforce_daily_limit,
+            require_verified_domain: self.require_verified_domain,
+        }
+    }
 }
 
 /// `InlineAttachment`: a file with its bytes.
@@ -146,11 +201,13 @@ struct Account {
 }
 
 /// `loadSendableAccount(db, caller, accountId)`: missing and not allowed
-/// look alike.
+/// look alike. The workspace (`as_workspace`) may send from shared
+/// mailboxes only.
 async fn load_sendable_account(
     db: &PgPool,
     user_id: &str,
     account_id: &str,
+    as_workspace: bool,
 ) -> Result<Account, SendError> {
     type Row = (
         String,
@@ -180,7 +237,13 @@ async fn load_sendable_account(
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect(),
     };
-    if !has_access_to_account(&access, user_id, is_admin_or_owner(db, user_id).await?) {
+    let principal = if as_workspace {
+        MailPrincipal::Workspace
+    } else {
+        MailPrincipal::User(user_id.to_owned())
+    };
+    let admin = principal_is_admin(db, &principal).await?;
+    if !principal_has_access(&access, &principal, admin) {
         return Err(not_found());
     }
     Ok(Account {
@@ -189,6 +252,82 @@ async fn load_sendable_account(
         display_name,
         daily_send_limit: limit.map(i64::from),
     })
+}
+
+/// `utcDayStart()`: the start of the current UTC day, the window the daily
+/// send limit counts over.
+fn utc_day_start(now_ms: i64) -> i64 {
+    now_ms - now_ms.rem_euclid(86_400_000)
+}
+
+/// `countSentToday` through the store (`countSentSince`): what the account
+/// sent since `since_ms`, deleted copies included. Scheduled copies count
+/// once they went out (`sendStatus` `sent`).
+async fn count_sent_since(db: &PgPool, account_id: &str, since_ms: i64) -> Result<u64, SendError> {
+    use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+    use weldsuite_schema::tenant::mail_messages::{Column, Entity};
+    let since = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(since_ms) * 1_000_000)
+        .map_err(|error| SendError::Internal(error.to_string()))?;
+    Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::AccountId.eq(account_id))
+        .filter(Column::Source.eq("sent"))
+        .filter(
+            Condition::any()
+                .add(Column::SendStatus.is_null())
+                .add(Column::SendStatus.eq("sent")),
+        )
+        .filter(Column::SentDate.gte(weldsuite_db::utc_timestamp(since)))
+        .count(&weldsuite_db::orm(db))
+        .await
+        .map_err(|error| SendError::Internal(error.to_string()))
+}
+
+/// `assertSendPolicy(db, store, account, opts)`: the opt-in policies, after
+/// the idempotency short-circuit so a replay of a send that went out never
+/// fails on the limit.
+async fn assert_send_policy(
+    db: &PgPool,
+    account: &Account,
+    opts: &SendOptions,
+) -> Result<(), SendError> {
+    if opts.require_verified_domain
+        && !crate::accounts::is_sender_domain_verified(db, &account.email)
+            .await
+            .map_err(|error| SendError::Internal(error.to_string()))?
+    {
+        return Err(SendError::mail(
+            "SENDER_DOMAIN_NOT_VERIFIED",
+            format!(
+                "This account's address ({}) is not on a verified WeldMail domain, so it can't send through the API.",
+                account.email
+            ),
+        ));
+    }
+    if opts.enforce_daily_limit {
+        let limit = account.daily_send_limit.unwrap_or(500);
+        let start = utc_day_start(now_ms());
+        let sent = count_sent_since(db, &account.id, start).await?;
+        if i64::try_from(sent).unwrap_or(i64::MAX) >= limit {
+            return Err(SendError::with(
+                "DAILY_LIMIT_REACHED",
+                format!("This account reached its daily send limit of {limit}."),
+                json!({ "limit": limit, "sent": sent, "resetsAt": iso(start + 86_400_000) }),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `findSentByIdempotencyKey(db, accountId, key)`: the send a key already
+/// made, rebuilt as its result, so a replay answers without sending again.
+pub async fn find_sent_by_idempotency_key(
+    db: &PgPool,
+    account_id: &str,
+    key: &str,
+) -> Result<Option<SendResult>, SendError> {
+    find_existing_sent(db, account_id, key).await
 }
 
 /// `findSentByIdempotencyKey`, through the store.
@@ -626,12 +765,13 @@ pub async fn send_and_persist(
             "Outbound mail is not configured for this environment (SEND_EMAIL binding missing).",
         ));
     };
-    let account = load_sendable_account(deps.db, user_id, account_id).await?;
+    let account = load_sendable_account(deps.db, user_id, account_id, opts.as_workspace).await?;
     if let Some(key) = data.idempotency_key.as_deref()
         && let Some(existing) = find_existing_sent(deps.db, account_id, key).await?
     {
         return Ok(existing);
     }
+    assert_send_policy(deps.db, &account, opts).await?;
     let body = prepare_body(data);
     let cc = data.cc.clone().unwrap_or_default();
     let bcc = data.bcc.clone().unwrap_or_default();
@@ -882,6 +1022,14 @@ pub async fn send_and_persist(
     contacts.extend(bcc.iter().map(|e| ContactAddress::new(e)));
     let public = deps.files.and_then(|f| f.public.clone());
     upsert_mail_contacts(deps.db, org, &contacts, public.as_ref(), deps.public_url).await;
+    if let Some(after_send) = deps.after_send {
+        let reached: Vec<String> = contacts
+            .into_iter()
+            .map(|c| c.email)
+            .filter(|email| partial.as_ref().is_none_or(|p| !p.failed.contains(email)))
+            .collect();
+        after_send.sent(deps.db, user_id, reached).await;
+    }
 
     if let Some(partial) = partial {
         let total = partial.sent.len() + partial.failed.len();
@@ -1006,18 +1154,67 @@ pub async fn reply_and_persist(
         attachments: data.attachments.clone(),
         idempotency_key: data.idempotency_key.clone(),
     };
-    let options = SendOptions {
-        source: Some(opts.source.clone().unwrap_or_else(|| "reply".to_owned())),
-        kind: Some(if source.as_deref() == Some("sent") {
-            OutboundKind::NewThread
-        } else {
-            OutboundKind::Reply
-        }),
-        workspace_id: opts.workspace_id.clone(),
-        extra_attachments: Vec::new(),
+    let kind = if source.as_deref() == Some("sent") {
+        OutboundKind::NewThread
+    } else {
+        OutboundKind::Reply
     };
+    let options = opts.derived("reply", Some(kind), Vec::new());
     let result = send_and_persist(deps, org, user_id, &account_id, &input, &options).await?;
     Ok((result, original_id.to_owned()))
+}
+
+/// `sendDraftAndPersist(env, db, orgId, caller, draftId, extra, opts)`: the
+/// draft sent as it is (uploaded `attachments` in place of its own ids),
+/// then deleted.
+pub async fn send_draft_and_persist(
+    deps: &SendDeps<'_>,
+    org: &str,
+    user_id: &str,
+    draft_id: &str,
+    attachments: Vec<SendAttachmentInput>,
+    idempotency_key: Option<String>,
+    opts: &SendOptions,
+) -> Result<SendResult, SendError> {
+    let Some(draft) = crate::drafts::draft_row(deps.db, draft_id).await? else {
+        return Err(SendError::mail("DRAFT_NOT_FOUND", "Draft not found"));
+    };
+    let strings = |value: Option<&Value>| -> Option<Vec<String>> {
+        value.and_then(Value::as_array).map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect()
+        })
+    };
+    let to = strings(draft.to.as_ref()).unwrap_or_default();
+    if to.is_empty() {
+        return Err(SendError::with(
+            "INVALID_RECIPIENTS",
+            "The draft has no recipients",
+            json!({ "invalidFormat": [], "unreachableDomains": [] }),
+        ));
+    }
+    let input = SendInput {
+        to,
+        cc: strings(draft.cc.as_ref()),
+        bcc: strings(draft.bcc.as_ref()),
+        subject: draft.subject.clone(),
+        body: draft.body.clone(),
+        html_body: draft.html_body.clone(),
+        reply_to: strings(draft.reply_to.as_ref()).and_then(|list| list.into_iter().next()),
+        in_reply_to: draft.in_reply_to.clone(),
+        references: draft
+            .in_reply_to
+            .clone()
+            .filter(|id| !id.is_empty())
+            .map(|id| vec![id]),
+        attachments,
+        idempotency_key,
+    };
+    let result = send_and_persist(deps, org, user_id, &draft.account_id, &input, opts).await?;
+    crate::drafts::soft_delete_draft(deps.db, draft_id).await?;
+    Ok(result)
 }
 
 /// `replyRecipients(original, mailbox, replyAll)`: who a reply goes to, as

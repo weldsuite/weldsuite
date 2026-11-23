@@ -59,7 +59,7 @@ pub(crate) async fn dtos(
         .map(str::to_owned)
         .collect();
     let files = files_of(&ctx.db, &ids).await?;
-    let refs = member_refs(&ctx.db, &respondents).await?;
+    let refs = member_refs(ctx, &respondents).await?;
     let now = ctx.now_ms();
     Ok(rows
         .iter()

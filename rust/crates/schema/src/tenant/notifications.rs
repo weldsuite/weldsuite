@@ -1,0 +1,227 @@
+//! `notifications`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "notifications")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "userId")]
+    pub user_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "body")]
+    pub body: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "category")]
+    pub category: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "notificationType")]
+    pub notification_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "entityType")]
+    pub entity_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "actionUrl")]
+    pub action_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "actorType")]
+    pub actor_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "actorId")]
+    pub actor_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "icon")]
+    pub icon: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "severity")]
+    pub severity: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "data")]
+    pub data: Option<Json>,
+    #[serde(rename = "isRead")]
+    pub is_read: bool,
+    #[serde(rename = "readAt", with = "crate::js::timestamptz::option")]
+    pub read_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "deliveredInApp")]
+    pub delivered_in_app: bool,
+    #[serde(rename = "deliveredEmail")]
+    pub delivered_email: bool,
+    #[serde(rename = "deliveredPush")]
+    pub delivered_push: bool,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "expiresAt", with = "crate::js::timestamptz::option")]
+    pub expires_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "notifications",
+    columns: &[
+        DdlColumn {
+            name: "category",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'system'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "notification_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'custom'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "severity",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'info'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_read",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "delivered_in_app",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "delivered_email",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "delivered_push",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "notifications_user_idx",
+            columns: &[IndexColumn {
+                expression: "user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "notifications_user_unread_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "user_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "is_read",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "notifications_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "notifications_category_idx",
+            columns: &[IndexColumn {
+                expression: "category",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "notifications_entity_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "entity_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "entity_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

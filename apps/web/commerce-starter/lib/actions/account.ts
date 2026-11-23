@@ -1,0 +1,205 @@
+'use server';
+
+import { isStorefrontError } from '@weldsuite/commerce-sdk';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+
+import { emailLocale, requestOptions, storefront } from '../commerce';
+import { getSessionToken } from '../data';
+import { describeError } from '../errors';
+import { clearShopperToken, getCartToken, getShopperToken, setCartToken, setShopperToken } from '../session';
+import { problemRows, safePath, text, type FormState, type ProblemRow } from './state';
+
+export interface SignInState extends FormState {
+  step: 'email' | 'code';
+  email?: string;
+  next?: string;
+}
+
+/** Something like name@example.com: one @, no spaces, a dot inside the domain. */
+function looksLikeEmail(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1 || at !== value.lastIndexOf('@')) return false;
+  // A dot with something before and after it.
+  return value.slice(at + 2, -1).includes('.');
+}
+
+function wrongCodeMessage(attemptsLeft: unknown, error: unknown): string {
+  if (typeof attemptsLeft !== 'number') return describeError(error);
+  const tries = attemptsLeft === 1 ? 'try' : 'tries';
+  return `That code is not right. ${attemptsLeft} ${tries} left.`;
+}
+
+/**
+ * Passwordless sign-in, one action for both steps: without a `code` it
+ * emails one, with a `code` it checks it.
+ */
+export async function signInAction(prev: SignInState, form: FormData): Promise<SignInState> {
+  if (form.has('code')) return await verifyCode(prev, form);
+  return await requestCode(prev, form);
+}
+
+/** Sign-in step 1: email a code. The email stays in the form, not in the URL. */
+async function requestCode(_prev: SignInState, form: FormData): Promise<SignInState> {
+  const email = text(form, 'email');
+  const next = safePath(text(form, 'next'), '/account');
+  if (!looksLikeEmail(email)) {
+    return { status: 'error', step: 'email', next, message: 'Enter your email address.', fieldErrors: { email: 'Enter an email address like name@example.com' } };
+  }
+  try {
+    await storefront().auth.requestCode(email, { locale: emailLocale(), ...(await requestOptions()) });
+    return { status: 'success', step: 'code', email, next, message: `We sent a 6-digit code to ${email}.` };
+  } catch (error) {
+    return { status: 'error', step: 'email', email, next, message: describeError(error) };
+  }
+}
+
+/** Sign-in step 2: check the code and keep the session in a cookie. */
+async function verifyCode(_prev: SignInState, form: FormData): Promise<SignInState> {
+  const email = text(form, 'email');
+  const code = text(form, 'code').replace(/\s/g, '');
+  const next = safePath(text(form, 'next'), '/account');
+  if (!/^\d{6}$/.test(code)) {
+    return { status: 'error', step: 'code', email, next, message: 'Enter the 6 digits from the email.', fieldErrors: { code: 'Six digits' } };
+  }
+  try {
+    const session = await storefront().auth.verify(email, code, await requestOptions());
+    await setShopperToken(session.sessionToken, session.expiresAt);
+    // Reading the cart with the session attaches it to the shopper.
+    const cartToken = await getCartToken();
+    if (cartToken) {
+      await storefront()
+        .cart.get(cartToken, { ...(await requestOptions()), shopperToken: session.sessionToken })
+        .catch(() => undefined);
+    }
+  } catch (error) {
+    if (isStorefrontError(error, 'INVALID_CODE')) {
+      return {
+        status: 'error',
+        step: 'code',
+        email,
+        next,
+        message: wrongCodeMessage(error.details?.attemptsLeft, error),
+        fieldErrors: { code: 'Not right' },
+      };
+    }
+    if (isStorefrontError(error, 'CODE_EXPIRED')) {
+      return { status: 'error', step: 'email', email, next, message: describeError(error) };
+    }
+    return { status: 'error', step: 'code', email, next, message: describeError(error) };
+  }
+  revalidatePath('/', 'layout');
+  redirect(next);
+}
+
+export async function signOutAction(): Promise<void> {
+  const token = await getShopperToken();
+  if (token) await storefront().auth.signOut(token, await requestOptions()).catch(() => undefined);
+  await clearShopperToken();
+  revalidatePath('/', 'layout');
+  redirect('/');
+}
+
+async function requireSession(): Promise<string> {
+  const token = await getSessionToken();
+  if (!token) redirect('/account/sign-in');
+  return token;
+}
+
+export async function updateProfileAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const token = await requireSession();
+  try {
+    await storefront().account.update(
+      token,
+      {
+        firstName: text(form, 'firstName') || null,
+        lastName: text(form, 'lastName') || null,
+        phone: text(form, 'phone') || null,
+      },
+      await requestOptions(),
+    );
+    revalidatePath('/account');
+    return { status: 'success', message: 'Your details are saved.' };
+  } catch (error) {
+    return { status: 'error', message: describeError(error) };
+  }
+}
+
+export async function selectCompanyAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const token = await requireSession();
+  const companyId = text(form, 'companyId');
+  if (!companyId) return { status: 'error', message: 'Choose a company.' };
+  try {
+    await storefront().account.selectCompany(token, companyId, await requestOptions());
+    revalidatePath('/', 'layout');
+    return { status: 'success', message: 'You are now buying for this company.' };
+  } catch (error) {
+    return { status: 'error', message: describeError(error) };
+  }
+}
+
+export interface ReorderState extends FormState {
+  problems?: ProblemRow[];
+}
+
+/** Order page: put the order's lines in the cart again. */
+export async function reorderAction(_prev: ReorderState, form: FormData): Promise<ReorderState> {
+  const token = await requireSession();
+  const orderId = text(form, 'orderId');
+  let goToCart = false;
+  try {
+    const options = await requestOptions();
+    const cartToken = await getCartToken();
+    let result;
+    try {
+      result = await storefront().orders.reorder(token, orderId, { ...options, cartToken });
+    } catch (error) {
+      if (!cartToken || !isStorefrontError(error, 'CART_NOT_FOUND', 'CART_NOT_OPEN')) throw error;
+      result = await storefront().orders.reorder(token, orderId, options);
+    }
+    if (result.cartToken) await setCartToken(result.cartToken);
+    revalidatePath('/', 'layout');
+    if (result.problems.length > 0) {
+      const rows = problemRows(result.problems);
+      const allAdded = rows.every((row) => row.added);
+      return {
+        status: allAdded ? 'success' : 'error',
+        message: allAdded
+          ? 'Added to your cart. Some items have fewer in stock than you ordered.'
+          : 'Some items could not be added again. The rest are in your cart.',
+        problems: rows,
+      };
+    }
+    goToCart = true;
+  } catch (error) {
+    return { status: 'error', message: describeError(error) };
+  }
+  if (goToCart) redirect('/cart');
+  return { status: 'idle' };
+}
+
+/** Approvals: approve or reject a company order. */
+export async function decideApprovalAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const token = await requireSession();
+  const orderId = text(form, 'orderId');
+  const decision = text(form, 'decision');
+  const comment = text(form, 'comment') || undefined;
+  if (decision !== 'approve' && decision !== 'reject') return { status: 'error', message: 'Choose approve or reject.' };
+  const query = new URLSearchParams();
+  try {
+    const options = { comment, ...(await requestOptions()) };
+    const order =
+      decision === 'approve'
+        ? await storefront().approvals.approve(token, orderId, options)
+        : await storefront().approvals.reject(token, orderId, options);
+    query.set(decision === 'approve' ? 'approved' : 'rejected', order.orderNumber);
+    // An approved Mollie order got its payment: the buyer is emailed the link.
+    if (order.payment) query.set('payment', 'sent');
+  } catch (error) {
+    return { status: 'error', message: describeError(error) };
+  }
+  // The order leaves the list, so the confirmation goes on the page.
+  revalidatePath('/account/approvals');
+  redirect(`/account/approvals?${query.toString()}`);
+}

@@ -309,7 +309,7 @@ async fn detail_inner(caller: &Caller, id: &str) -> ChatResult<Response> {
                 'joinedAt', chat_channel_members.joined_at, 'isMuted', chat_channel_members.is_muted,
                 'notificationPreference', chat_channel_members.notification_preference,
                 'name', workspace_members.name, 'email', workspace_members.email,
-                'picture', workspace_members.picture)
+                'picture', null)
          from chat_channel_members
          left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
          where chat_channel_members.channel_id = $1",
@@ -317,7 +317,10 @@ async fn detail_inner(caller: &Caller, id: &str) -> ChatResult<Response> {
     .bind(id)
     .fetch_all(&caller.db)
     .await?;
-    let members: Vec<Value> = members.into_iter().map(weldsuite_db::js_row).collect();
+    let mut members: Vec<Value> = members.into_iter().map(weldsuite_db::js_row).collect();
+    // Avatars are account pictures, not the member row's copy.
+    weldsuite_db::overlay_account_pictures(caller.master(), &mut members, "userId", "picture")
+        .await;
     let is_muted = members
         .iter()
         .find(|m| m["userId"].as_str() == Some(caller.user_id.as_str()))
@@ -992,7 +995,7 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
                     'lastReadAt', chat_channel_members.last_read_at,
                     'lastReadMessageId', chat_channel_members.last_read_message_id,
                     'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', workspace_members.picture,
+                    'picture', null,
                     'workspaceMemberType', workspace_members.member_type)
              from chat_channel_members
              left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
@@ -1001,7 +1004,10 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
         .bind(&id)
         .fetch_all(&caller.db)
         .await?;
-        let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let mut rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        // Avatars are account pictures, not the member row's copy.
+        weldsuite_db::overlay_account_pictures(caller.master(), &mut rows, "userId", "picture")
+            .await;
         let agent_ids: Vec<String> = rows
             .iter()
             .filter(|r| r["memberType"] == "agent")
@@ -1396,21 +1402,25 @@ async fn read_receipts(caller: Caller, Path(id): Path<String>) -> Response {
         Err(error) => return unhandled(error.into()),
     }
     let result = async {
-        let rows: Vec<(String, String, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as(
-                "select chat_message_reads.message_id, chat_message_reads.user_id,
-                        chat_message_reads.read_at::text, workspace_members.name,
-                        workspace_members.picture
-                 from chat_message_reads
-                 left join workspace_members on chat_message_reads.user_id = workspace_members.user_id
-                 where chat_message_reads.channel_id = $1
-                 order by chat_message_reads.read_at desc",
-            )
-            .bind(&id)
-            .fetch_all(&caller.db)
-            .await?;
+        let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
+            "select chat_message_reads.message_id, chat_message_reads.user_id,
+                    chat_message_reads.read_at::text, workspace_members.name
+             from chat_message_reads
+             left join workspace_members on chat_message_reads.user_id = workspace_members.user_id
+             where chat_message_reads.channel_id = $1
+             order by chat_message_reads.read_at desc",
+        )
+        .bind(&id)
+        .fetch_all(&caller.db)
+        .await?;
+        let pictures = weldsuite_db::AccountPictures::load(
+            caller.master(),
+            rows.iter().map(|(_, user_id, _, _)| user_id.as_str()),
+        )
+        .await;
         let mut grouped = Map::new();
-        for (message_id, user_id, read_at, name, picture) in rows {
+        for (message_id, user_id, read_at, name) in rows {
+            let picture = pictures.value(Some(&user_id));
             let entry = grouped
                 .entry(message_id)
                 .or_insert_with(|| Value::Array(Vec::new()));
@@ -1547,13 +1557,13 @@ async fn mark_read(
         let realtime = Caller::realtime(&state);
         realtime.unread_update(&org, &caller.user_id, &id, 0).await;
         if let Some(last_read) = result["lastReadMessageId"].as_str() {
-            let reader: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-                "select name, picture from workspace_members where user_id = $1 limit 1",
-            )
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let (name, avatar) = reader.unwrap_or((None, None));
+            let name: Option<Option<String>> =
+                sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
+                    .bind(&caller.user_id)
+                    .fetch_optional(&caller.db)
+                    .await?;
+            let name = name.flatten();
+            let avatar = weldsuite_db::load_account_picture(caller.master(), &caller.user_id).await;
             realtime
                 .read_updated(
                     &id,

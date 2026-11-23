@@ -62,6 +62,7 @@ import { hideAppSplash } from '@/utils/splash';
 import { firstParam, stubEmailFromTarget } from '@/utils/notification-target';
 import { getNextVisibleMessageId } from '@/utils/next-email';
 import CloseArchiveButtons from '@/components/CloseArchiveButtons';
+import UnsubscribeSenderChip from '@/components/UnsubscribeSenderChip';
 
 // Icon component per attachment kind (see utils/attachment-visual).
 const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
@@ -951,6 +952,12 @@ function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, curr
           colors={colors}
           onOpenContact={openContact}
           onToggleDetails={() => setShowEmailDetails(!showEmailDetails)}
+        />
+
+        <UnsubscribeSenderChip
+          accountId={email?.emailAccountId || email?.accountId}
+          senderEmail={senderEmail}
+          style={styles.unsubscribeRow}
         />
 
         {showEmailDetails && (

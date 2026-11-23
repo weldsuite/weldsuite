@@ -23,6 +23,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
 import {
   publishMeetingChatMessage,
   publishMeetingChatMessageDeleted,
@@ -218,11 +219,16 @@ app.post(
         .limit(1);
       if (!meeting) return error.notFound(c, 'Meeting', data.meetingId);
 
-      const [author] = await db
-        .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.userId, userId))
-        .limit(1);
+      const [[member], picture] = await Promise.all([
+        db
+          .select({ name: workspaceMembers.name })
+          .from(workspaceMembers)
+          .where(eq(workspaceMembers.userId, userId))
+          .limit(1),
+        loadAccountPicture(c.env, userId),
+      ]);
+      // The name comes from the member row, the avatar from the account.
+      const author = { name: member?.name ?? null, picture };
 
       const id = generateId('mmsg');
       const now = new Date();

@@ -14,11 +14,17 @@
 //! see it ([`merge_follow_up_target`], which [`webchat::append`] follows).
 //! Callers publish each change, in order.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{desk_conversations as conversations, desk_visitors};
 
+use crate::row;
 use crate::table::WriteError;
-use crate::webchat::{self, Append, AppendError, Appended, DESK_CONVERSATIONS};
+use crate::webchat::{self, Append, AppendError, Appended};
 
 /// A merge chain longer than this is a data error; the last one reached is used.
 const MAX_MERGE_HOPS: usize = 10;
@@ -40,8 +46,8 @@ pub enum LinkError {
     Write(WriteError),
 }
 
-impl From<sqlx::Error> for LinkError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for LinkError {
+    fn from(error: DbErr) -> Self {
         Self::Write(WriteError::Database(error))
     }
 }
@@ -88,16 +94,14 @@ pub struct MergeResult {
 /// rules), else the duplicate itself.
 pub async fn merge_follow_up_target(
     db: &PgPool,
-    conversation: Value,
-) -> Result<Value, sqlx::Error> {
+    conversation: conversations::Model,
+) -> Result<conversations::Model, DbErr> {
     let target = merge_target(db, conversation.clone()).await?;
-    if target["id"] == conversation["id"] {
+    if target.id == conversation.id {
         return Ok(conversation);
     }
-    let visitor = conversation["visitor_id"]
-        .as_str()
-        .filter(|v| !v.is_empty());
-    if visitor.is_some() && target["visitor_id"].as_str() == visitor {
+    let visitor = conversation.visitor_id.as_deref().filter(|v| !v.is_empty());
+    if visitor.is_some() && target.visitor_id.as_deref() == visitor {
         return Ok(target);
     }
     let writer = verified_emails(db, &conversation).await?;
@@ -114,52 +118,53 @@ pub async fn merge_follow_up_target(
 
 /// The verified addresses a conversation's customer writes from: the sender of
 /// an email conversation, and its visitor's verified email.
-async fn verified_emails(db: &PgPool, conversation: &Value) -> Result<Vec<String>, sqlx::Error> {
+async fn verified_emails(
+    db: &PgPool,
+    conversation: &conversations::Model,
+) -> Result<Vec<String>, DbErr> {
     let mut emails = Vec::new();
-    if conversation["channel"].as_str() == Some("email")
-        && let Some(email) = conversation["email"].as_str()
+    if conversation.channel == "email"
+        && let Some(email) = &conversation.email
     {
         emails.push(email.trim().to_lowercase());
     }
-    if let Some(visitor) = conversation["visitor_id"]
-        .as_str()
-        .filter(|v| !v.is_empty())
+    if let Some(visitor) = conversation.visitor_id.as_deref().filter(|v| !v.is_empty())
+        && let Some(Some(email)) = visitor_verified_email(db, visitor).await?
     {
-        let verified: Option<Option<String>> =
-            sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
-                .bind(visitor)
-                .fetch_optional(db)
-                .await?;
-        if let Some(Some(email)) = verified {
-            emails.push(email.trim().to_lowercase());
-        }
+        emails.push(email.trim().to_lowercase());
     }
     Ok(emails)
 }
 
-/// `deskMergeTarget(db, conversation)`, on a raw `to_jsonb` row as
-/// [`webchat::append`] reads it: the conversation it was (finally) merged
-/// into, or itself.
-pub async fn merge_target(db: &PgPool, conversation: Value) -> Result<Value, sqlx::Error> {
+/// A visitor's verified email: `None` without the visitor, `Some(None)`
+/// when it has none.
+async fn visitor_verified_email(db: &PgPool, id: &str) -> Result<Option<Option<String>>, DbErr> {
+    desk_visitors::Entity::find_by_id(id)
+        .select_only()
+        .column(desk_visitors::Column::VerifiedEmail)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// `deskMergeTarget(db, conversation)`, on the row as [`webchat::append`]
+/// reads it: the conversation it was (finally) merged into, or itself.
+pub async fn merge_target(
+    db: &PgPool,
+    conversation: conversations::Model,
+) -> Result<conversations::Model, DbErr> {
     let mut current = conversation;
-    let mut seen = vec![current["id"].as_str().unwrap_or_default().to_owned()];
+    let mut seen = vec![current.id.clone()];
     for _ in 0..MAX_MERGE_HOPS {
-        let Some(next_id) = current["merged_into_id"]
-            .as_str()
-            .filter(|id| !id.is_empty())
-            .map(str::to_owned)
-        else {
+        let Some(next_id) = current.merged_into_id.clone().filter(|id| !id.is_empty()) else {
             break;
         };
         if seen.contains(&next_id) {
             break;
         }
-        let next: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1",
-        )
-        .bind(&next_id)
-        .fetch_optional(db)
-        .await?;
+        let next = conversations::Entity::find_by_id(next_id.as_str())
+            .one(&orm(db))
+            .await?;
         let Some(next) = next else { break };
         seen.push(next_id);
         current = next;
@@ -169,7 +174,7 @@ pub async fn merge_target(db: &PgPool, conversation: Value) -> Result<Value, sql
 
 // ── rows ──────────────────────────────────────────────────────────────────────
 
-async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     Ok(webchat::get(db, id, false).await?.map(|(row, _)| row))
 }
 
@@ -181,30 +186,31 @@ async fn load(db: &PgPool, id: &str) -> Result<Value, LinkError> {
 
 /// A conversation's children by number; `open_only` leaves out closed and
 /// merged ones.
-async fn children_of(db: &PgPool, id: &str, open_only: bool) -> Result<Vec<Value>, sqlx::Error> {
-    let sql = if open_only {
-        "select to_jsonb(t) from desk_conversations t
-          where t.parent_conversation_id = $1 and t.state = 'open' and t.merged_into_id is null
-          order by t.conversation_number asc, t.id asc"
-    } else {
-        "select to_jsonb(t) from desk_conversations t
-          where t.parent_conversation_id = $1
-          order by t.conversation_number asc, t.id asc"
-    };
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(id).fetch_all(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| DESK_CONVERSATIONS.js(row))
-        .collect())
+async fn children_of(db: &PgPool, id: &str, open_only: bool) -> Result<Vec<Value>, DbErr> {
+    let mut children =
+        conversations::Entity::find().filter(conversations::Column::ParentConversationId.eq(id));
+    if open_only {
+        children = children
+            .filter(conversations::Column::State.eq("open"))
+            .filter(conversations::Column::MergedIntoId.is_null());
+    }
+    let rows = children
+        .order_by_asc(conversations::Column::ConversationNumber)
+        .order_by_asc(conversations::Column::Id)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
-async fn has_children(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists(select 1 from desk_conversations where parent_conversation_id = $1)",
-    )
-    .bind(id)
-    .fetch_one(db)
-    .await
+async fn has_children(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let child: Option<String> = conversations::Entity::find()
+        .select_only()
+        .column(conversations::Column::Id)
+        .filter(conversations::Column::ParentConversationId.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(child.is_some())
 }
 
 /// One link column, with `updatedAt`.
@@ -214,26 +220,21 @@ enum Column {
     MergedInto(String),
 }
 
-async fn write_column(db: &PgPool, id: &str, column: Column) -> Result<(), sqlx::Error> {
-    let now = webchat::now();
-    let query = match column {
-        Column::Parent(parent) => sqlx::query(
-            "update desk_conversations set parent_conversation_id = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(parent),
-        Column::Incident(flag) => sqlx::query(
-            "update desk_conversations set is_major_incident = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(flag),
-        Column::MergedInto(target) => sqlx::query(
-            "update desk_conversations set merged_into_id = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(target),
+async fn write_column(db: &PgPool, id: &str, column: Column) -> Result<(), DbErr> {
+    let (column, value) = match column {
+        Column::Parent(parent) => (
+            conversations::Column::ParentConversationId,
+            Expr::value(parent),
+        ),
+        Column::Incident(flag) => (conversations::Column::IsMajorIncident, Expr::value(flag)),
+        Column::MergedInto(target) => (conversations::Column::MergedIntoId, Expr::value(target)),
     };
-    query.bind(now).execute(db).await?;
+    conversations::Entity::update_many()
+        .col_expr(column, value)
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -316,7 +317,7 @@ pub(crate) fn summary(row: &Value) -> Value {
 
 /// `getDeskConversationLinks(db, id)`: the parent, children and merges;
 /// `None` when the conversation doesn't exist.
-pub async fn links(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn links(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(conversation) = find(db, id).await? else {
         return Ok(None);
     };
@@ -329,20 +330,19 @@ pub async fn links(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> 
         None => None,
     };
     let children = children_of(db, id, false).await?;
-    let merged_from: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t where t.merged_into_id = $1
-          order by t.conversation_number asc, t.id asc",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let merged_from = conversations::Entity::find()
+        .filter(conversations::Column::MergedIntoId.eq(id))
+        .order_by_asc(conversations::Column::ConversationNumber)
+        .order_by_asc(conversations::Column::Id)
+        .all(&orm(db))
+        .await?;
     Ok(Some(json!({
         "parent": parent.as_ref().map_or(Value::Null, summary),
         "children": children.iter().map(summary).collect::<Vec<_>>(),
         "mergedInto": merged_into.as_ref().map_or(Value::Null, summary),
         "mergedFrom": merged_from
             .into_iter()
-            .map(|row| summary(&DESK_CONVERSATIONS.js(row)))
+            .map(|model| summary(&row(model)))
             .collect::<Vec<_>>(),
     })))
 }
@@ -418,13 +418,14 @@ async fn assert_linkable(db: &PgPool, child: &Value, parent: &Value) -> Result<(
             "This ticket has child tickets, so it can't become a child ticket",
         ));
     }
-    let count: i64 = sqlx::query_scalar(
-        "select count(*) from desk_conversations where parent_conversation_id = $1",
-    )
-    .bind(parent["id"].as_str().unwrap_or_default())
-    .fetch_one(db)
-    .await?;
-    if count >= MAX_CHILDREN {
+    let count = conversations::Entity::find()
+        .filter(
+            conversations::Column::ParentConversationId
+                .eq(parent["id"].as_str().unwrap_or_default()),
+        )
+        .count(&orm(db))
+        .await?;
+    if i64::try_from(count).unwrap_or(i64::MAX) >= MAX_CHILDREN {
         return Err(rejected(
             "too_many_children",
             format!("Ticket #{number} already has {MAX_CHILDREN} linked tickets"),
@@ -657,17 +658,13 @@ fn email_of(value: Option<&str>) -> Option<String> {
 
 /// The emails a conversation's customer is known by: its own and its
 /// visitor's verified one.
-async fn customer_emails(db: &PgPool, row: &Value) -> Result<Vec<String>, sqlx::Error> {
+async fn customer_emails(db: &PgPool, row: &Value) -> Result<Vec<String>, DbErr> {
     let mut emails = Vec::new();
     if let Some(own) = email_of(row["email"].as_str()) {
         emails.push(own);
     }
     if let Some(visitor) = text(row, "visitorId") {
-        let verified: Option<Option<String>> =
-            sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
-                .bind(visitor)
-                .fetch_optional(db)
-                .await?;
+        let verified = visitor_verified_email(db, visitor).await?;
         if let Some(email) = email_of(verified.flatten().as_deref()) {
             emails.push(email);
         }
@@ -677,7 +674,7 @@ async fn customer_emails(db: &PgPool, row: &Value) -> Result<Vec<String>, sqlx::
 
 /// `isSameDeskCustomer(db, a, b)`: the same visitor, the same CRM person, or
 /// an email in common (own or verified).
-pub async fn same_customer(db: &PgPool, a: &Value, b: &Value) -> Result<bool, sqlx::Error> {
+pub async fn same_customer(db: &PgPool, a: &Value, b: &Value) -> Result<bool, DbErr> {
     if text(a, "visitorId").is_some() && a["visitorId"] == b["visitorId"] {
         return Ok(true);
     }

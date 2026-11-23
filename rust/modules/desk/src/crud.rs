@@ -312,7 +312,7 @@ impl ListError {
     pub(crate) fn respond(self, message: &str) -> Response {
         match self {
             Self::Cursor => ApiError::internal().into_response(),
-            Self::Database(error) => Refusal::Database(error).respond(message),
+            Self::Database(error) => Refusal::from(error).respond(message),
         }
     }
 }
@@ -466,7 +466,7 @@ async fn detail(crud: Handler, caller: Caller, Path(id): Path<String>) -> Respon
     match crud.table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found(crud.resource, &id).respond(crud.messages.fetch),
-        Err(error) => Refusal::Database(error).respond(crud.messages.fetch),
+        Err(error) => Refusal::from(error).respond(crud.messages.fetch),
     }
 }
 
@@ -547,7 +547,7 @@ async fn update(
     let existing = match crud.table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found(crud.resource, &id).respond(crud.messages.update),
-        Err(error) => return Refusal::Database(error).respond(crud.messages.update),
+        Err(error) => return Refusal::from(error).respond(crud.messages.update),
     };
     let table = crud.table;
     let mut values = Map::new();
@@ -608,7 +608,7 @@ async fn remove(
     match crud.table.find_live(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found(crud.resource, &id).respond(crud.messages.delete),
-        Err(error) => return Refusal::Database(error).respond(crud.messages.delete),
+        Err(error) => return Refusal::from(error).respond(crud.messages.delete),
     }
     if let Err(error) = soft_delete(&caller.db, crud.table, &id).await {
         return write_failed(&error, crud.messages.delete);

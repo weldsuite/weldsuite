@@ -1,0 +1,94 @@
+//! `panel_annotations`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "panel_annotations")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "reportId")]
+    pub report_id: Option<String>,
+    #[serde(rename = "occurredAt", with = "crate::js::timestamptz")]
+    pub occurred_at: TimeDateTimeWithTimeZone,
+    #[sea_orm(column_type = "String(StringLen::N(200))")]
+    #[serde(rename = "label")]
+    pub label: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdByUserId")]
+    pub created_by_user_id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "panel_annotations",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "panel_annotations_project_idx",
+        columns: &[
+            IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            },
+            IndexColumn {
+                expression: "occurred_at",
+                is_expression: false,
+                asc: true,
+            },
+        ],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

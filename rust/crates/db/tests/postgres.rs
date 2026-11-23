@@ -6,6 +6,11 @@
 //! `packages/core/db/src/schema/`; master and tenant tables share the one
 //! database, since their names don't collide.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use weldsuite_db::{
     Keyring, ReadOnlyReason, TenantPermissionQueries, WorkspaceConfig, WorkspaceError, Workspaces,
     master_pool,

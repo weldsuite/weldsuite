@@ -1,0 +1,432 @@
+//! `meetings`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "meetings")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "calendarEventId")]
+    pub calendar_event_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "organizerId")]
+    pub organizer_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "attendees")]
+    pub attendees: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "meetingType")]
+    pub meeting_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "accessType")]
+    pub access_type: String,
+    #[serde(rename = "waitingRoom")]
+    pub waiting_room: Option<bool>,
+    #[serde(rename = "allowRecording")]
+    pub allow_recording: Option<bool>,
+    #[serde(rename = "maxParticipants")]
+    pub max_participants: Option<i32>,
+    #[serde(rename = "hostManagement")]
+    pub host_management: Option<bool>,
+    #[serde(rename = "allowScreenShare")]
+    pub allow_screen_share: Option<bool>,
+    #[serde(rename = "allowMicrophone")]
+    pub allow_microphone: Option<bool>,
+    #[serde(rename = "allowVideo")]
+    pub allow_video: Option<bool>,
+    #[serde(rename = "allowHandRaise")]
+    pub allow_hand_raise: Option<bool>,
+    #[serde(rename = "allowReactions")]
+    pub allow_reactions: Option<bool>,
+    #[serde(rename = "allowAnnotations")]
+    pub allow_annotations: Option<bool>,
+    #[serde(rename = "allowVirtualBackgrounds")]
+    pub allow_virtual_backgrounds: Option<bool>,
+    #[serde(rename = "allowParticipantRecord")]
+    pub allow_participant_record: Option<bool>,
+    #[serde(rename = "allowThirdPartyAccess")]
+    pub allow_third_party_access: Option<bool>,
+    #[serde(rename = "noiseCancellation")]
+    pub noise_cancellation: Option<bool>,
+    #[serde(rename = "enableCaptions")]
+    pub enable_captions: Option<bool>,
+    #[serde(rename = "autoRecord")]
+    pub auto_record: Option<bool>,
+    #[serde(rename = "hostMustJoinFirst")]
+    pub host_must_join_first: Option<bool>,
+    #[serde(rename = "lockAfterStart")]
+    pub lock_after_start: Option<bool>,
+    #[serde(rename = "autoEndOnInactivity")]
+    pub auto_end_on_inactivity: Option<bool>,
+    #[serde(rename = "autoEndInactivityMinutes")]
+    pub auto_end_inactivity_minutes: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "joinCode")]
+    pub join_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "chatChannelId")]
+    pub chat_channel_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "activeSessionId")]
+    pub active_session_id: Option<String>,
+    #[serde(rename = "scheduledStart", with = "crate::js::timestamp::option")]
+    pub scheduled_start: Option<TimeDateTime>,
+    #[serde(rename = "scheduledEnd", with = "crate::js::timestamp::option")]
+    pub scheduled_end: Option<TimeDateTime>,
+    #[serde(rename = "isRecurring")]
+    pub is_recurring: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "recurrenceRule")]
+    pub recurrence_rule: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "parentMeetingId")]
+    pub parent_meeting_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "meetings",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "attendees",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "meeting_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'video'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'scheduled'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "access_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'workspace'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "waiting_room",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_recording",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "host_management",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_screen_share",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_microphone",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_video",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_hand_raise",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_reactions",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_annotations",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_virtual_backgrounds",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_participant_record",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "allow_third_party_access",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "noise_cancellation",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "enable_captions",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_record",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "host_must_join_first",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "lock_after_start",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_end_on_inactivity",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_end_inactivity_minutes",
+            sql_type: None,
+            default: Some(DdlDefault::Number("10")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_recurring",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "meetings_organizer_idx",
+            columns: &[IndexColumn {
+                expression: "organizer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_calendar_event_idx",
+            columns: &[IndexColumn {
+                expression: "calendar_event_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_join_code_idx",
+            columns: &[IndexColumn {
+                expression: "join_code",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_active_session_idx",
+            columns: &[IndexColumn {
+                expression: "active_session_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_scheduled_start_idx",
+            columns: &[IndexColumn {
+                expression: "scheduled_start",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_deleted_at_idx",
+            columns: &[IndexColumn {
+                expression: "deleted_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meetings_parent_meeting_idx",
+            columns: &[IndexColumn {
+                expression: "parent_meeting_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

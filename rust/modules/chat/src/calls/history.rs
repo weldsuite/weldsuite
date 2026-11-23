@@ -285,8 +285,8 @@ async fn load_dm_people(
     if dm_channels.is_empty() {
         return Ok((by_channel, people));
     }
-    let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select m.channel_id, m.user_id, wm.name, wm.picture
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "select m.channel_id, m.user_id, wm.name
          from chat_channel_members m
          left join workspace_members wm on wm.user_id = m.user_id
          where m.channel_id = any($1) and m.user_id <> $2",
@@ -295,14 +295,14 @@ async fn load_dm_people(
     .bind(viewer)
     .fetch_all(&caller.db)
     .await?;
-    for (channel, user, name, picture) in rows {
-        people.insert(user.clone(), (name.clone(), picture.clone()));
+    for (channel, user, name) in rows {
+        people.insert(user.clone(), (name.clone(), None));
         let list = by_channel.entry(channel).or_default();
         if !list.iter().any(|m| m.user_id == user) {
             list.push(Person {
                 user_id: user,
                 name,
-                avatar: picture,
+                avatar: None,
             });
         }
     }
@@ -322,14 +322,26 @@ async fn load_dm_people(
         }
     }
     if !missing.is_empty() {
-        let extra: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, picture from workspace_members where user_id = any($1)",
-        )
-        .bind(&missing)
-        .fetch_all(&caller.db)
-        .await?;
-        for (user, name, picture) in extra {
-            people.insert(user, (name, picture));
+        let extra: Vec<(String, Option<String>)> =
+            sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
+                .bind(&missing)
+                .fetch_all(&caller.db)
+                .await?;
+        for (user, name) in extra {
+            people.insert(user, (name, None));
+        }
+    }
+    // Avatars are the account's (master `users.image_url`, ADR SEC-020), in one
+    // lookup for everyone named above; the member row keeps no copy.
+    let pictures =
+        weldsuite_db::AccountPictures::load(caller.master(), people.keys().map(String::as_str))
+            .await;
+    for (user, (_, picture)) in &mut people {
+        *picture = pictures.get(user).map(str::to_owned);
+    }
+    for list in by_channel.values_mut() {
+        for person in list.iter_mut() {
+            person.avatar = pictures.get(&person.user_id).map(str::to_owned);
         }
     }
     Ok((by_channel, people))

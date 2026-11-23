@@ -1,0 +1,149 @@
+//! `social_campaigns`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "social_campaigns")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "color")]
+    pub color: Option<String>,
+    #[serde(rename = "status")]
+    pub status: super::enums::SocialCampaignStatus,
+    #[serde(rename = "startDate", with = "crate::js::timestamp::option")]
+    pub start_date: Option<TimeDateTime>,
+    #[serde(rename = "endDate", with = "crate::js::timestamp::option")]
+    pub end_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "targetAccountIds")]
+    pub target_account_ids: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "goals")]
+    pub goals: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "performance")]
+    pub performance: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "tags")]
+    pub tags: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "labels")]
+    pub labels: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdByUserId")]
+    pub created_by_user_id: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "social_campaigns",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'draft'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "social_campaigns_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_campaigns_start_date_idx",
+            columns: &[IndexColumn {
+                expression: "start_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_campaigns_end_date_idx",
+            columns: &[IndexColumn {
+                expression: "end_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_campaigns_created_by_idx",
+            columns: &[IndexColumn {
+                expression: "created_by_user_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

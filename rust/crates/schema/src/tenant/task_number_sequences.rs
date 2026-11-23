@@ -1,0 +1,100 @@
+//! `task_number_sequences`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "task_number_sequences")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(300))")]
+    #[serde(rename = "scope")]
+    pub scope: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "prefix")]
+    pub prefix: String,
+    #[serde(rename = "nextValue")]
+    pub next_value: i32,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "task_number_sequences",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "scope",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'task'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "prefix",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'TASK-'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "next_value",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "task_number_sequences_scope_unique",
+        columns: &[IndexColumn {
+            expression: "scope",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: true,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

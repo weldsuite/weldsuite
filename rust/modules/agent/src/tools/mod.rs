@@ -435,8 +435,8 @@ pub enum ToolError {
     UnknownTool(String),
     /// The arguments do not match the tool's schema.
     InvalidArguments(String),
-    /// The tenant database failed.
-    Database(sqlx::Error),
+    /// The tenant database failed (logged when it happened).
+    Database(String),
     /// The tool could not do what was asked, in words for the model.
     Failed(String),
 }
@@ -456,7 +456,14 @@ impl ToolError {
 impl From<sqlx::Error> for ToolError {
     fn from(error: sqlx::Error) -> Self {
         tracing::error!(%error, "[weldagent/tools] database error");
-        Self::Database(error)
+        Self::Database(error.to_string())
+    }
+}
+
+impl From<sea_orm::DbErr> for ToolError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        tracing::error!(%error, "[weldagent/tools] database error");
+        Self::Database(error.to_string())
     }
 }
 
@@ -482,7 +489,9 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
         id if visual_tools::is_visual_tool_id(id) => visual_tools::execute(id, &args),
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
         id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
-        id if id.starts_with("tickets.") => ticket_tools::execute(ctx, id, &args).await,
+        // Boxed: the desk writers behind these tools make a large future, and
+        // every caller (an agent run, inline in a dispatch) would carry it.
+        id if id.starts_with("tickets.") => Box::pin(ticket_tools::execute(ctx, id, &args)).await,
         id if id.starts_with("sheets.") => sheet_tools::execute(ctx, id, &args).await,
         id if id.starts_with("boards.") => board_tools::execute(ctx, id, &args).await,
         id if id.starts_with("merge.") => merge_tools::execute(ctx, id, &args).await,

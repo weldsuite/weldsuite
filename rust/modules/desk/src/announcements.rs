@@ -55,7 +55,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     match ANNOUNCEMENTS.table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found(ANNOUNCEMENTS.resource, &id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -165,7 +165,7 @@ async fn update(
     let existing = match table.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found(ANNOUNCEMENTS.resource, &id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let now = now();
     let mut values = Map::new();
@@ -206,7 +206,7 @@ async fn remove(
     match ANNOUNCEMENTS.table.find_live(&caller.db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found(ANNOUNCEMENTS.resource, &id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     if let Err(error) = soft_delete(&caller.db, ANNOUNCEMENTS.table, &id).await {
         return write_failed(&error, message);

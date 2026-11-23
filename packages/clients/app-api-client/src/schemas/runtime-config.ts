@@ -50,6 +50,13 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
     organizationScope: z.string().nullish(),
     accountUrl: z.string().url().nullish(),
     /**
+     * `weldid` when the provider is WeldID, WeldSuite's own (`IDENTITY_PROVIDER=weldid`,
+     * ADR SEC-019): the account lives at WeldID, not with the customer's own
+     * provider. Null, absent or a value this build doesn't know: some other
+     * provider.
+     */
+    identityProvider: z.enum(['weldid']).nullish().catch(undefined),
+    /**
      * Who shows the sign-in screens on the web (`OIDC_SIGN_IN`, ADR SEC-016):
      * `platform` = WeldSuite's own over the backend's `/api/sign-in`, absent or
      * `provider` = the provider's pages. A value this build doesn't know reads

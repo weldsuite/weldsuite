@@ -9,17 +9,22 @@
  * renderer must now only honour that prefix on rows whose `type` is `system`,
  * and `type` can no longer be set through the public create routes.
  *
- * Pure of Hono — takes the tenant `db` and the realtime binding + secret.
+ * Pure of Hono — takes the tenant `db` and the realtime binding + secret
+ * (plus the master database URL, for the pinner's account picture).
  */
 
 import { and, eq, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
 import type { Env } from '../../types';
 
-/** What publishing to the realtime-worker takes: the service binding and its internal secret. */
-type RealtimeEnv = Pick<Env, 'REALTIME' | 'REALTIME_INTERNAL_SECRET'>;
+/**
+ * What publishing to the realtime-worker takes (the service binding and its
+ * internal secret), and the master database URL the author's picture is read from.
+ */
+type RealtimeEnv = Pick<Env, 'REALTIME' | 'REALTIME_INTERNAL_SECRET' | 'DATABASE_URL_MASTER'>;
 
 export interface PinNotice {
   id: string;
@@ -46,11 +51,14 @@ export async function postPinNotice(
   const { chatMessages, chatChannels, chatChannelMembers, workspaceMembers } = schema;
   const { channelId, pinnedMessageId, userId } = params;
 
-  const [author] = await db
-    .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
-    .limit(1);
+  const [[author], authorPicture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, userId))
+      .limit(1),
+    loadAccountPicture(realtime, userId),
+  ]);
   const authorName = author?.name ?? 'Unknown';
 
   const id = generateId('msg');
@@ -62,7 +70,7 @@ export async function postPinNotice(
     channelId,
     authorId: userId,
     authorName,
-    authorAvatar: author?.picture ?? null,
+    authorAvatar: authorPicture,
     content,
     type: 'system',
     createdAt: now,
@@ -97,7 +105,7 @@ export async function postPinNotice(
         content,
         senderId: userId,
         senderName: authorName,
-        senderAvatar: author?.picture ?? undefined,
+        senderAvatar: authorPicture ?? undefined,
         authorType: 'user',
         messageType: 'system',
         ts: Date.now(),

@@ -21,6 +21,7 @@
 //! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
 //! | [`ImapConnector`] | `@weldsuite/imap` over `cloudflare:sockets` (the WeldReach warmup network) | [`MemoryImap`] |
 //! | [`SsoDirectory`] | Clerk's SAML connections (ADR SEC-010); on Kubernetes WeldID's SSO connections (SEC-019) | [`MemorySsoDirectory`] |
+//! | [`VirusScanner`] | nothing (Global never scanned attachments); clamd on Kubernetes | [`FakeScanner`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
@@ -53,6 +54,7 @@ pub mod sign_in;
 pub mod sso;
 pub mod transport;
 pub mod video_rooms;
+pub mod virus_scan;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use collab::{CollabError, CollabRooms, RequestCollab};
@@ -110,6 +112,7 @@ pub use sso::{
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,
 };
+pub use virus_scan::{EICAR, FakeScanner, ScanVerdict, VirusScanner};
 
 /// A boxed, sendable future: what the `Dyn*` port traits return.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

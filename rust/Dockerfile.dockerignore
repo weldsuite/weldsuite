@@ -32,6 +32,7 @@
 !rust/crates
 !rust/modules
 !rust/bins
+!rust/migrations
 !rust/docker
 
 # Never: installs, build output, local state, tests.
@@ -44,13 +45,10 @@
 **/.env.*
 **/.dev.vars
 rust/**/tests
-# The Drizzle migrations (~290 MB, nearly all of it snapshots): only their SQL
-# and journals, which `weldsuite migrate` embeds (crates/migrations/build.rs).
+# The migrations: only their SQL and journals, which `weldsuite migrate`
+# embeds (crates/migrations/build.rs), not the snapshots (2 MB each).
+rust/migrations/*/meta/*_snapshot.json
 packages/core/db/drizzle
-!packages/core/db/drizzle/master-migrations/*.sql
-!packages/core/db/drizzle/master-migrations/meta/_journal.json
-!packages/core/db/drizzle/tenant-migrations/*.sql
-!packages/core/db/drizzle/tenant-migrations/meta/_journal.json
 !packages/core/db/drizzle/personal-migrations/*.sql
 !packages/core/db/drizzle/personal-migrations/meta/_journal.json
 apps/web/platform/docs

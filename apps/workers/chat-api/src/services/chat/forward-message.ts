@@ -17,6 +17,11 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import {
+  accountPicture,
+  loadAccountPictures,
+  type AccountPictureEnv,
+} from '@weldsuite/worker-kit/account-pictures';
 import { buildMessagePreview } from '@weldsuite/chat-domain/message-preview';
 import { canAccessChannel, unreadableRecordChatIds } from './channel-access';
 
@@ -88,6 +93,7 @@ async function autoJoinPublicChannels(
 
 export async function forwardMessage(
   db: Database,
+  env: AccountPictureEnv,
   params: { sourceChannelId: string; sourceMessageId: string; userId: string },
   input: ForwardMessageInput,
 ): Promise<ForwardMessageResult> {
@@ -127,6 +133,11 @@ export async function forwardMessage(
     .where(eq(chatChannels.id, sourceChannelId))
     .limit(1);
 
+  // The forwarder's account picture, and the original author's when this
+  // forward snapshots a person's message (an agent's avatar is its icon, kept).
+  const snapshotsPerson = !source.forwardedFrom && source.authorType !== 'agent';
+  const pictures = await loadAccountPictures(env, [userId, snapshotsPerson ? source.authorId : null]);
+
   // Forwarding a forward points at the ORIGINAL, never the intermediate hop
   // (matches Slack/Teams).
   const forwardedFrom: NonNullable<typeof source.forwardedFrom> = source.forwardedFrom ?? {
@@ -136,7 +147,9 @@ export async function forwardMessage(
     channelType: (sourceChannel?.type as 'public' | 'private' | 'dm' | undefined) ?? 'public',
     authorId: source.authorId,
     authorName: source.authorName,
-    authorAvatar: source.authorAvatar ?? undefined,
+    // A person's account picture; the message's stored avatar when the lookup
+    // finds none (failed, or an account that is gone) and for an agent's icon.
+    authorAvatar: (snapshotsPerson ? accountPicture(pictures, source.authorId) : null) ?? source.authorAvatar ?? undefined,
     content: source.content,
     htmlContent: source.htmlContent ?? undefined,
     createdAt: source.createdAt.toISOString(),
@@ -144,12 +157,12 @@ export async function forwardMessage(
   };
 
   const [author] = await db
-    .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
+    .select({ name: workspaceMembers.name })
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, userId))
     .limit(1);
   const authorName = author?.name ?? 'Unknown';
-  const authorAvatar = author?.picture ?? null;
+  const authorAvatar = accountPicture(pictures, userId);
 
   const uniqueTargets = Array.from(new Set(input.targetChannelIds));
   if (uniqueTargets.length === 0) {

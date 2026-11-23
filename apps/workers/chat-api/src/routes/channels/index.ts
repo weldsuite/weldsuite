@@ -15,6 +15,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures, withAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { postChatMessage, ChatFeatureError } from '../../services/chat/post-message';
 import { setChannelMuted } from '../../services/chat/dm-membership';
 import { canAccessChannel, isChannelModerator, unreadableRecordChatIds } from '../../services/chat/channel-access';
@@ -289,8 +290,9 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
       return error.notFound(c, 'Channel', id);
     }
     // Hydrate members with workspace member info so the channel header /
-    // member list have name/email/picture without a second round-trip.
-    const members = await db
+    // member list have name/email/picture without a second round-trip. The
+    // picture is the member's account picture (master `users.image_url`).
+    const memberRows = await db
       .select({
         id: schema.chatChannelMembers.id,
         userId: schema.chatChannelMembers.userId,
@@ -300,7 +302,6 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
         notificationPreference: schema.chatChannelMembers.notificationPreference,
         name: schema.workspaceMembers.name,
         email: schema.workspaceMembers.email,
-        picture: schema.workspaceMembers.picture,
       })
       .from(schema.chatChannelMembers)
       .leftJoin(
@@ -308,6 +309,7 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
         eq(schema.chatChannelMembers.userId, schema.workspaceMembers.userId),
       )
       .where(eq(schema.chatChannelMembers.channelId, id));
+    const members = await withAccountPictures(c.env, memberRows);
     // The caller's own mute flag at the top level (the per-member flags in
     // `members` are every member's, not necessarily the caller's).
     const isMuted = members.find((m) => m.userId === userId)?.isMuted === true;
@@ -695,12 +697,17 @@ app.get('/:channelId/members', requirePermission('channels:read'), async (c) => 
         lastReadMessageId: chatChannelMembers.lastReadMessageId,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
         workspaceMemberType: workspaceMembers.memberType,
       })
       .from(chatChannelMembers)
       .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
       .where(eq(chatChannelMembers.channelId, channelId));
+
+    // People show their account picture; agents have none (below).
+    const pictures = await loadAccountPictures(
+      c.env,
+      rows.filter((r) => r.memberType !== 'agent').map((r) => r.userId),
+    );
 
     const agentIds = rows.filter((r) => r.memberType === 'agent').map((r) => r.userId);
     const agentById = new Map<
@@ -734,7 +741,7 @@ app.get('/:channelId/members', requirePermission('channels:read'), async (c) => 
           agentDescription: agent?.description ?? null,
         };
       }
-      return r;
+      return { ...r, picture: accountPicture(pictures, r.userId) };
     });
 
     return success(c, members);
@@ -1123,7 +1130,7 @@ app.get('/:channelId/read-receipts', requirePermission('channels:read'), async (
   }
 
   try {
-    return success(c, await getChannelReadReceipts(db, channelId));
+    return success(c, await getChannelReadReceipts(db, c.env, channelId));
   } catch (err) {
     console.error('[app-api/channels] read receipts failed:', err);
     return error.internal(c, 'Failed to fetch read receipts');
@@ -1193,6 +1200,7 @@ app.post(
     try {
       const result = await forwardMessage(
         db,
+        c.env,
         {
           sourceChannelId: c.req.param('channelId'),
           sourceMessageId: c.req.param('messageId'),
@@ -1288,7 +1296,7 @@ app.post('/:channelId/read', requirePermission('channels:read'), async (c) => {
     // …and the channel gets a read receipt so senders see "seen by".
     if (result.lastReadMessageId) {
       try {
-        const reader = await getReaderProfile(db, userId);
+        const reader = await getReaderProfile(db, c.env, userId);
         await publishChatReadUpdated(c.env, channelId, {
           channelId,
           userId,

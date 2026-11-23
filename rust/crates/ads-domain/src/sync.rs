@@ -149,6 +149,30 @@ pub async fn sync_selected_accounts(
     platform_account_id: Option<&str>,
     platform_campaign_id: Option<&str>,
 ) -> Result<SyncResult, AdsError> {
+    // Meta is outside the EU (ADR OPS-026): on the EU edition a workspace
+    // that hasn't switched it on is skipped (the check logs it) and nothing
+    // is sent to Meta. Its metrics sync comes round again as after a pull,
+    // so the sweep doesn't ask every tick. The member's own sync route
+    // answers 403 before it gets here.
+    if !weldsuite_outside_eu::allowed(
+        target.db,
+        weldsuite_outside_eu::ServiceId::Meta,
+        &format!("ads sync {workspace_id} {connection_id}"),
+    )
+    .await
+    {
+        if matches!(scope, SyncScope::Pull | SyncScope::Full) {
+            touch_ad_sync_index_after_metrics_sync(target.master, workspace_id, connection_id)
+                .await?;
+        }
+        return Ok(SyncResult {
+            synced_campaigns: 0,
+            written_campaigns: 0,
+            pushed: 0,
+            failed: 0,
+            pulled: 0,
+        });
+    }
     let counts = sync_ad_connection(
         target.db,
         target.http,

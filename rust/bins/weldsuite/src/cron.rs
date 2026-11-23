@@ -118,6 +118,17 @@
 //!   `weldsuite_stash::replenishment::run_replenishment_sweep`). The runs go
 //!   to Restate when it is configured; otherwise they run in this process,
 //!   which waits for them. Nothing while stash is not served.
+//! - `mail-attachment-scan` (every 5 minutes): WeldMail's attachments the
+//!   virus scanner couldn't take at delivery, for the workspaces the
+//!   `mail_attachment_scan` due index lists
+//!   (`weldsuite_mail_inbound::rescan`): cleared ones move from the mail
+//!   bucket's quarantine to `STORAGE`, infected ones send their message to
+//!   Spam. Nothing without `S3_BUCKET_MAIL`, `S3_BUCKET_PUBLIC` and
+//!   `CLAMD_ADDRESS`.
+//! - `mail-threat-feeds` (hourly, at :35): downloads the threat feeds in
+//!   `MAIL_THREAT_FEEDS` into master `mail_threat_indicators`, for
+//!   WeldMail's link checks (`weldsuite_mail_domain::threat_feeds`), and
+//!   prunes what no feed lists any more. Master database only.
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -261,7 +272,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
                 domain_auto_renew();
                 Ok(())
             }
-            "desk-sla-sweep" => desk_sla_sweep(config).await,
+            "desk-sla-sweep" => Box::pin(desk_sla_sweep(config)).await,
             "desk-report-sweep" => desk_report_sweep(config).await,
             "asset-import-sweep" => asset_import_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
@@ -283,6 +294,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             "stash-replenishment" => stash_replenishment(config).await,
+            "mail-attachment-scan" => mail_attachment_scan(config).await,
+            "mail-threat-feeds" => mail_threat_feeds(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -800,6 +813,107 @@ async fn sandbox_cleanup(config: Config) -> Result<(), Box<dyn std::error::Error
 /// workspace the `stash_replenishment` due index lists, with replenishment
 /// on (`run_replenishment_sweep`). With Restate the runs are jobs in
 /// `serve`; without it they run here, and the job waits for them.
+/// `mail-attachment-scan`: one tick of `weldsuite_mail_inbound::rescan`.
+async fn mail_attachment_scan(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let skipped = |why: &str| {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "mail-attachment-scan", "result": { "skipped": why } })
+        );
+        Ok(())
+    };
+    let mut problems = Vec::new();
+    let inbound = crate::consume::MailInboundConfig::from_lookup(
+        &|name| std::env::var(name).ok().filter(|v| !v.trim().is_empty()),
+        &mut problems,
+    );
+    if !problems.is_empty() {
+        return Err(problems.join("; ").into());
+    }
+    let Some(inbound) = inbound else {
+        return skipped("S3_BUCKET_MAIL is not set");
+    };
+    let (Some(clamd), Some(public)) = (&inbound.clamd, &inbound.public) else {
+        return skipped("CLAMD_ADDRESS or S3_BUCKET_PUBLIC is not set");
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let ctx = weldsuite_mail_inbound::rescan::RescanContext {
+        master,
+        tenants: Arc::new(weldsuite_mail_inbound::WorkspaceDbs(workspaces)),
+        scanner: clamd.scanner(),
+        mail_storage: Arc::new(weldsuite_adapters_oss::S3FileStore::new(
+            &inbound.mail,
+            client.clone(),
+        )?),
+        storage: Arc::new(weldsuite_adapters_oss::S3FileStore::new(public, client)?),
+        public_url: inbound.public_url.clone(),
+    };
+    let started = std::time::Instant::now();
+    let report =
+        weldsuite_mail_inbound::rescan::rescan_due(&ctx, time::OffsetDateTime::now_utc()).await?;
+    weldsuite_ports::record_job_run(
+        "mail.attachment_scan",
+        !report.scanner_unavailable,
+        started.elapsed(),
+    );
+    println!(
+        "{}",
+        serde_json::json!({ "job": "mail-attachment-scan", "result": {
+            "workspaces": report.workspaces,
+            "clean": report.clean,
+            "infected": report.infected,
+            "unscannable": report.unscannable,
+            "missing": report.missing,
+            "scannerUnavailable": report.scanner_unavailable,
+        } })
+    );
+    Ok(())
+}
+
+/// `mail-threat-feeds`: one sync of `weldsuite_mail_domain::threat_feeds`.
+async fn mail_threat_feeds(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let feeds = weldsuite_mail_domain::threat_feeds::parse_feeds(
+        &std::env::var("MAIL_THREAT_FEEDS").unwrap_or_default(),
+    )?;
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let http = weldsuite_ports::OutboundHttp(Arc::new(
+        weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(120))?,
+    ));
+    let started = std::time::Instant::now();
+    let report = weldsuite_mail_domain::threat_feeds::sync_feeds(
+        &master,
+        &http,
+        &feeds,
+        time::OffsetDateTime::now_utc(),
+    )
+    .await?;
+    weldsuite_ports::record_job_run(
+        "mail.threat_feeds",
+        report.failed.is_empty(),
+        started.elapsed(),
+    );
+    println!(
+        "{}",
+        serde_json::json!({ "job": "mail-threat-feeds", "result": {
+            "synced": report.synced.iter().map(|(name, n)| serde_json::json!({ "feed": name, "entries": n })).collect::<Vec<_>>(),
+            "failed": report.failed.iter().map(|(name, e)| serde_json::json!({ "feed": name, "error": e })).collect::<Vec<_>>(),
+            "pruned": report.pruned,
+        } })
+    );
+    Ok(())
+}
+
 async fn stash_replenishment(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if !crate::routes::mounts("stash") {
         println!(

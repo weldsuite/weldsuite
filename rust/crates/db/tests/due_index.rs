@@ -3,6 +3,11 @@
 //! Runs when `WELDSUITE_TEST_MASTER_URL` is set (`scripts/rust-test-db.ts`
 //! builds the database; CI's `Rust · checks` sets it), and skips otherwise.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use weldsuite_db::due_index::{list_due, mark_due, run_sweep, set_due, settle};

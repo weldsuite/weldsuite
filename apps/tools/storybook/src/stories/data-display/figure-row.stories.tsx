@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { fn } from '@storybook/test';
 
 import { FigureRow } from '@weldsuite/ui/components/figure-row';
 
@@ -54,3 +55,27 @@ export const TwoInANarrowColumn: Story = {
 };
 
 export const Loading: Story = { args: { loading: true } };
+
+/** Figures that pick a signal: the picked one is underlined on the line under the row. */
+export const Picking: Story = {
+  args: {
+    columns: 5,
+    selected: 'dead',
+    onSelect: fn(),
+    label: 'Signals',
+    items: [
+      { key: 'rage', label: 'Rage clicks', value: '1,049', note: '+12% vs the period before', warn: true },
+      { key: 'dead', label: 'Dead clicks', value: '2,562', note: '−4% vs the period before' },
+      { key: 'quickback', label: 'Quick backs', value: '1,442', note: '+3% vs the period before', warn: true },
+      { key: 'scroll', label: 'Excessive scrolling', value: '670', note: 'None the period before' },
+      { key: 'errors', label: 'Errors', value: '860', note: '−18% vs the period before' },
+    ],
+  },
+  decorators: [
+    (Story) => (
+      <div className="border-b px-4 pt-4">
+        <Story />
+      </div>
+    ),
+  ],
+};

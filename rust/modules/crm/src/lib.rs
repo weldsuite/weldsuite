@@ -10,6 +10,11 @@
 //! TypeScript worker's; its tests run against this crate in the `crm`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod activities;
 mod companies;
 mod companies_more;
@@ -27,6 +32,7 @@ mod pipelines;
 mod record_chat;
 mod schema;
 mod sequences;
+mod settings;
 
 use std::sync::Arc;
 
@@ -250,6 +256,15 @@ where
         .route(
             "/customer-sequences/{customerId}",
             get(sequences::customer_sequences).route_layer(need(keys::CONTACTS_READ)),
+        )
+        // CRM settings (Rust only: auto-add)
+        .route(
+            "/crm-settings",
+            get(settings::read).route_layer(need(keys::PEOPLE_READ)),
+        )
+        .route(
+            "/crm-settings",
+            put(settings::update).route_layer(need(keys::SETTINGS_MANAGE)),
         )
         // Customer statuses
         .route(

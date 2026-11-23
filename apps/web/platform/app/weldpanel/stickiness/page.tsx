@@ -3,19 +3,18 @@
 import { useMemo, useState } from 'react';
 import type { PanelStickinessSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useWeldPanelStickiness } from '@/hooks/queries/use-weldpanel-analysis-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ChartCard } from '../components/chart-card';
-import { DateRangePicker } from '../components/date-range-picker';
 import { PanelDefinitionsProvider } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { AggregateByPicker, EventPicker, useHasGroupTypes } from '../components/pickers';
-import { ReportActions } from '../components/report-actions';
+import { ReportSaveButtons, ReportTools } from '../components/report-actions';
+import { ReportLayout } from '../components/report-layout';
 import { StickinessResultView } from '../components/results/stickiness-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
@@ -50,16 +49,15 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   if (saved.isLoading) return <PageLoader fullScreen={false} label={t.weldpanel.analytics.insights.loadingReport} />;
 
   return (
-    <div className="grid gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <ReportActions projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.event)} onSaved={saved.open} />
-        <DateRangePicker value={range} onChange={setRange} />
-      </div>
-      <SavedReportNotices saved={saved} />
-
-      <SectionCard title={tx.title}>
-        <div className="grid gap-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <ReportLayout
+      title={tx.title}
+      actions={<ReportTools projectId={projectId} report={saved.wrongKindPath ? null : saved.report} />}
+      controls={<ReportSaveButtons projectId={projectId} spec={ready ? spec : null} report={saved.wrongKindPath ? null : saved.report} defaultName={defaultReportName(draft.event)} onSaved={saved.open} />}
+      dateRange={{ value: range, onChange: setRange }}
+      sidebar={{
+        title: t.common.labels.settings,
+        content: (
+          <div className="grid gap-5">
             <LabeledField label={tx.event} htmlFor="weldpanel-stickiness-event">
               <EventPicker id="weldpanel-stickiness-event" projectId={projectId} value={draft.event} onChange={(event) => setDraft((d) => ({ ...d, event }))} ariaLabel={tx.event} />
             </LabeledField>
@@ -77,34 +75,39 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                 </SelectContent>
               </Select>
             </LabeledField>
-            <LabeledField label={tx.interval} htmlFor="weldpanel-stickiness-interval">
-              <Select value={draft.interval ?? 'day'} onValueChange={(next) => setDraft((d) => ({ ...d, interval: next as StickinessDraft['interval'] }))}>
-                <SelectTrigger id="weldpanel-stickiness-interval">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(['day', 'week'] as const).map((i) => (
-                    <SelectItem key={i} value={i}>
-                      {tx.intervals[i]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
-            {hasGroupTypes && (
-              <LabeledField label={t.weldpanel.explore.countBy.label} htmlFor="weldpanel-stickiness-count-by">
-                <AggregateByPicker id="weldpanel-stickiness-count-by" value={draft.aggregateBy} onChange={(aggregateBy) => setDraft((d) => ({ ...d, aggregateBy }))} />
+            <div className="grid grid-cols-2 gap-4">
+              <LabeledField label={tx.interval} htmlFor="weldpanel-stickiness-interval">
+                <Select value={draft.interval ?? 'day'} onValueChange={(next) => setDraft((d) => ({ ...d, interval: next as StickinessDraft['interval'] }))}>
+                  <SelectTrigger id="weldpanel-stickiness-interval">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['day', 'week'] as const).map((i) => (
+                      <SelectItem key={i} value={i}>
+                        {tx.intervals[i]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </LabeledField>
-            )}
+              {hasGroupTypes && (
+                <LabeledField label={t.weldpanel.explore.countBy.label} htmlFor="weldpanel-stickiness-count-by">
+                  <AggregateByPicker id="weldpanel-stickiness-count-by" value={draft.aggregateBy} onChange={(aggregateBy) => setDraft((d) => ({ ...d, aggregateBy }))} />
+                </LabeledField>
+              )}
+            </div>
+            <div className="grid gap-1.5">
+              <p className="text-sm font-medium">{t.weldpanel.analytics.retention.globalFilters}</p>
+              <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
+            </div>
           </div>
-          <div className="grid gap-1">
-            <p className="text-xs text-muted-foreground">{t.weldpanel.analytics.retention.globalFilters}</p>
-            <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={(filters) => setDraft((d) => ({ ...d, filters }))} />
-          </div>
-        </div>
-      </SectionCard>
+        ),
+      }}
+    >
+      <SavedReportNotices saved={saved} />
 
       <ChartCard
+        bare
         title={t.weldpanel.analytics.insights.resultsTitle}
         loading={ready && isLoading}
         error={ready ? error : undefined}
@@ -120,7 +123,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
           </div>
         )}
       </ChartCard>
-    </div>
+    </ReportLayout>
   );
 }
 
@@ -128,12 +131,12 @@ export default function StickinessPage() {
   const { t } = useI18n();
   const tx = t.weldpanel.explore.stickiness;
   return (
-    <AnalyticsPage title={tx.title} description={tx.description}>
+    <AnalyticsListPage title={tx.title}>
       {(project) => (
         <PanelDefinitionsProvider key={project.id} projectId={project.id}>
           <Builder projectId={project.id} />
         </PanelDefinitionsProvider>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

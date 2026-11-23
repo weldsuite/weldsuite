@@ -26,7 +26,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import {
   getSelfProfile,
-  updateSelfAvatar,
+  saveAccountPicture,
   updateSelfProfile,
 } from '../../services/settings-profile';
 import { updateProfileSchema } from '../../services/settings-profile-schema';
@@ -60,17 +60,29 @@ function decodeBase64(b64: string): Uint8Array {
 }
 
 /**
- * Build the public URL for an object. On localhost the mapped R2 domain serves
- * the *remote* bucket and cannot see Miniflare's local objects, so point at the
- * worker's own passthrough instead. Mirrors `resolvePublicUrl` in routes/storage.
+ * Set the user's Clerk profile image and return its new URL, or null when
+ * Clerk refuses it. Clerk answers with the updated user object.
  */
-function resolvePublicUrl(reqUrl: string, r2PublicUrl: string | undefined, fileKey: string): string {
-  const origin = new URL(reqUrl).origin;
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
-    return `${origin}/api/storage/public/${fileKey}`;
+async function setClerkProfileImage(
+  secretKey: string,
+  userId: string,
+  bytes: Uint8Array,
+  mime: string,
+  ext: string,
+): Promise<string | null> {
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: mime }), `avatar.${ext}`);
+  const resp = await fetch(`https://api.clerk.com/v1/users/${encodeURIComponent(userId)}/profile_image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey}` },
+    body: form,
+  });
+  if (!resp.ok) {
+    console.error('[app-api/settings-profile] Clerk profile image update failed:', resp.status);
+    return null;
   }
-  const base = r2PublicUrl || 'https://weldsuite-storage-test.weldsuite.org';
-  return `${base}/${fileKey}`;
+  const user = (await resp.json().catch(() => null)) as { image_url?: string | null } | null;
+  return user?.image_url || null;
 }
 
 // ============================================================================
@@ -79,7 +91,7 @@ function resolvePublicUrl(reqUrl: string, r2PublicUrl: string | undefined, fileK
 
 app.get('/', requirePermission('general:read'), async (c) => {
   try {
-    const profile = await getSelfProfile(c.get('tenantDb'), c.get('userId'));
+    const profile = await getSelfProfile(c.get('tenantDb'), c.env, c.get('userId'));
     return success(c, profile);
   } catch (err) {
     console.error('[app-api/settings-profile] failed to fetch profile:', err);
@@ -93,7 +105,7 @@ app.get('/', requirePermission('general:read'), async (c) => {
 
 app.put('/', requirePermission('general:read'), zValidator('json', updateProfileSchema), async (c) => {
   try {
-    const profile = await updateSelfProfile(c.get('tenantDb'), c.get('userId'), c.req.valid('json'));
+    const profile = await updateSelfProfile(c.get('tenantDb'), c.env, c.get('userId'), c.req.valid('json'));
     return success(c, profile);
   } catch (err) {
     console.error('[app-api/settings-profile] failed to update profile:', err);
@@ -106,22 +118,17 @@ app.put('/', requirePermission('general:read'), zValidator('json', updateProfile
 // ============================================================================
 
 /**
- * Accepts a base64 data URL, stores the bytes in R2 and saves the resulting
- * public URL on the workspace member row.
- *
- * NOTE — this is the one place the port intentionally diverges from legacy.
- * The legacy handler wrote the raw data URL straight into
- * `workspace_members.picture`, which is `varchar(500)`; a data URL for any real
- * image is orders of magnitude longer, so that write always overflowed and the
- * endpoint 500'd for every non-trivial upload. Storing to R2 keeps the same
- * destination column and the same response shape while producing a ~130-char
- * URL that actually fits.
+ * Accepts a base64 data URL and makes it the caller's ACCOUNT picture: it is
+ * sent to Clerk as the user's profile image, and the URL Clerk answers with is
+ * written to the master `users.image_url` straight away (the `user.updated`
+ * webhook writes the same value shortly after). A picture belongs to the
+ * person, not to one workspace, so nothing is stored on `workspace_members`
+ * and nothing in R2: every workspace shows the new picture
+ * (@weldsuite/worker-kit/account-pictures).
  */
 app.put('/avatar', requirePermission('general:read'), zValidator('json', avatarSchema), async (c) => {
   try {
     const { file, contentType } = c.req.valid('json');
-
-    if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
 
     const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(file);
     if (!match?.[2]) {
@@ -147,35 +154,13 @@ app.put('/avatar', requirePermission('general:read'), zValidator('json', avatarS
       return error.badRequest(c, `Avatar exceeds the ${MAX_AVATAR_BYTES / (1024 * 1024)}MB limit`);
     }
 
-    // Key is derived from the authenticated user + workspace, never from the
-    // client-supplied fileName, so a caller cannot traverse or overwrite
-    // another user's object.
-    // R2 keys stay under the Clerk org id until phase 3 (workspace-id plan).
-    const orgId = c.get('clerkOrgId');
+    // Identity comes from the session, never from the body: a caller can only
+    // ever change their own picture.
     const userId = c.get('userId');
-    const fileKey = `workspaces/${orgId}/avatars/${userId}_${Date.now()}.${ext}`;
+    const imageUrl = await setClerkProfileImage(c.env.CLERK_SECRET_KEY, userId, bytes, mime, ext);
+    if (!imageUrl) return error.internal(c, 'Failed to update avatar');
 
-    await c.env.STORAGE.put(fileKey, bytes, { httpMetadata: { contentType: mime } });
-
-    const imageUrl = resolvePublicUrl(c.req.url, c.env.R2_PUBLIC_URL, fileKey);
-
-    // The object exists but nothing references it until the row below lands.
-    // If that write fails, roll the object back — otherwise it is orphaned for
-    // good: `picture` still points at the previous avatar, so no code path will
-    // ever read or clean up this key. The delete is best-effort and must not
-    // mask the original DB error, which is what the caller needs to see.
-    try {
-      await updateSelfAvatar(c.get('tenantDb'), userId, imageUrl);
-    } catch (err) {
-      await c.env.STORAGE.delete(fileKey).catch((cleanupErr) => {
-        console.error(
-          '[app-api/settings-profile] failed to clean up orphaned avatar:',
-          fileKey,
-          cleanupErr,
-        );
-      });
-      throw err;
-    }
+    await saveAccountPicture(c.env, userId, imageUrl);
 
     return success(c, { imageUrl });
   } catch (err) {

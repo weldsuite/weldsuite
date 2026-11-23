@@ -90,9 +90,9 @@ use weldsuite_subscribers::{
     filter_subject, run_webhook_retry_sweep, subscriber,
 };
 
-pub(crate) use config::ConsumeConfig;
+pub(crate) use config::{ConsumeConfig, MailInboundConfig};
 use config::{
-    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, PANEL_STATE,
+    MAIL_INBOUND, MAIL_SENDING_EVENTS, MONEYBIRD_SYNC, MailSendingEventsConfig, PANEL_STATE,
     PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
 };
 
@@ -175,6 +175,65 @@ pub(crate) fn consumer_spec(sub: &Subscriber, config: &ConsumeConfig) -> Consume
     }
 }
 
+/// How the `moneybird-sync` subscriber consumes the hub (ADR INT-013): new
+/// events only (a first start replays nothing), one worker so a
+/// workspace's passes don't race, and a long acknowledgement window (a pass
+/// talks to Moneybird, up to its request budget per connection).
+pub(crate) fn moneybird_sync_spec(config: &ConsumeConfig) -> ConsumerSpec {
+    ConsumerSpec {
+        stream: config.stream.clone(),
+        durable: MONEYBIRD_SYNC.to_owned(),
+        description: "WeldSuite Moneybird two-way sync (INT-013, Rust only)".to_owned(),
+        filter_subject: filter_subject(
+            weldsuite_connect::MONEYBIRD_SYNC_TOPICS,
+            &config.subject_prefix,
+        ),
+        deliver_new_only: true,
+        max_retries: 3,
+        max_deferrals: 0,
+        retry_backoff: RETRY_BACKOFF.to_vec(),
+        ack_wait: Duration::from_secs(600),
+        batch_size: 10,
+        batch_wait: Duration::from_secs(2),
+        workers: 1,
+        dead_letter_subject: format!("{}-dlq.{MONEYBIRD_SYNC}", config.subject_prefix),
+        dedupe_capacity: DEDUPE_CAPACITY,
+    }
+}
+
+/// The `moneybird-sync` subscriber, narrowed to its topics.
+fn moneybird_sync_handler(
+    config: &ConsumeConfig,
+    tenants: &Arc<dyn Tenants>,
+    master: &PgPool,
+    services: &Services,
+) -> Arc<dyn BatchHandler> {
+    let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+    let events = weldsuite_events::EntityEventPublisher::new(
+        Some(bus),
+        weldsuite_events::TaskTracker::new(),
+    )
+    .with_subject_prefix(&config.subject_prefix);
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(30))
+        .ok()
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)));
+    let stripe_secret_key = std::env::var("STRIPE_SECRET_KEY")
+        .ok()
+        .filter(|key| !key.is_empty());
+    let subscriber = weldsuite_connect::MoneybirdSyncSubscriber::new(
+        Arc::clone(tenants),
+        config.keyring.clone(),
+        http,
+        events,
+        stripe_secret_key,
+        Some(master.clone()),
+    );
+    Arc::new(Routed::new(
+        weldsuite_connect::MONEYBIRD_SYNC_TOPICS,
+        Arc::new(subscriber),
+    ))
+}
+
 /// How the `mail-inbound` subscriber consumes its stream: one message at a
 /// time per worker (a message can be large and fan out to many
 /// mailboxes), a long acknowledgement window, retries with backoff for a
@@ -240,7 +299,12 @@ fn mail_inbound_handler(
         assignment_router: Some(crate::routes::desk_assignment_router()),
         // The auto-labels (feature `mail`); without AI they label nothing.
         ai: services.ai.clone(),
+        // Attachments through clamd (`CLAMD_ADDRESS`); without it, none.
+        scanner: inbound.clamd.as_ref().map(config::ClamdConfig::scanner),
     };
+    if ctx.scanner.is_none() {
+        tracing::info!("mail-inbound: CLAMD_ADDRESS is not set; attachments are not scanned");
+    }
     if !ctx.fan_out.books {
         tracing::info!(
             "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"
@@ -880,6 +944,16 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         )),
         _ => None,
     };
+    let moneybird_sync = config
+        .subscribers
+        .iter()
+        .any(|s| s == MONEYBIRD_SYNC)
+        .then(|| {
+            (
+                moneybird_sync_spec(&config),
+                moneybird_sync_handler(&config, &tenants, &master, &services),
+            )
+        });
     let mail_sending_events = if config.subscribers.iter().any(|s| s == MAIL_SENDING_EVENTS) {
         Some((
             mail_sending_events_spec(&config.mail_sending_events),
@@ -985,6 +1059,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(MAIL_INBOUND.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = moneybird_sync {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(MONEYBIRD_SYNC.to_owned());
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

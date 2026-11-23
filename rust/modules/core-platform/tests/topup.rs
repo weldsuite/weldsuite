@@ -8,6 +8,11 @@
 //! Runs when `WELDSUITE_TEST_MASTER_URL` is set; otherwise every test
 //! returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
@@ -112,6 +117,8 @@ fn paid(id: &str, workspace: &str, checkout: &str, status: PaymentStatus) -> Pay
         details: weldsuite_core_platform::topup::mollie::MethodDetails::default(),
         paid_at: None,
         failure_reason: None,
+        expires_at: None,
+        raw: Value::Null,
     }
 }
 

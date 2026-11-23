@@ -114,7 +114,9 @@ import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
 import { useCompanyDeleteGuard } from './use-company-delete-guard';
 import { logoDomainForCompany, useCompanyLogo } from '@/lib/crm/company-logo';
-import { COMPANY_TABS, type CompanyTab } from './company-tabs';
+import { type CompanyTab } from './company-tabs';
+import { useCompanyTabList } from './use-company-tab-list';
+import { CompanyBuyersTab } from './company-buyers-tab';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 
 const COMPANY_PANEL_WIDTH = 400;
@@ -284,21 +286,23 @@ function CompanyPanelTabsBar({
   setActiveTab,
   peopleCount,
   isTabVisible,
+  tabList,
 }: Readonly<{
   activeTab: CompanyTab['id'];
   setActiveTab: (id: CompanyTab['id']) => void;
   peopleCount: number;
   isTabVisible: (id: string) => boolean;
+  tabList: CompanyTab[];
 }>) {
   const tabs = useMemo(
     () =>
-      COMPANY_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
+      tabList.filter((t) => isTabVisible(t.id)).map((t) => ({
         id: t.id,
         label: t.label,
         icon: t.icon,
         count: t.id === 'people' ? peopleCount : undefined,
       })),
-    [isTabVisible, peopleCount],
+    [isTabVisible, peopleCount, tabList],
   );
 
   return (
@@ -694,12 +698,13 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [company, deleteMut, confirmCompanyDelete, onClose, st]);
 
+  const panelTabs = useCompanyTabList();
   const initial: CompanyTab['id'] = useMemo(() => {
-    if (initialTab && COMPANY_TABS.some((t) => t.id === initialTab)) {
+    if (initialTab && panelTabs.some((t) => t.id === initialTab)) {
       return initialTab as CompanyTab['id'];
     }
     return 'overview';
-  }, [initialTab]);
+  }, [initialTab, panelTabs]);
   const [activeTab, setActiveTab] = useState<CompanyTab['id']>(initial);
 
   // Tab visibility config — lifted here so the "Configure tabs" control can
@@ -707,7 +712,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   // presentational consumer.
   const tabConfigEntries = useMemo<TabConfigEntry[]>(
     () =>
-      COMPANY_TABS.map((t) => ({
+      panelTabs.map((t) => ({
         id: t.id,
         label: t.label,
         required: t.required,
@@ -716,7 +721,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
             ? (t.defaultVisibleInPanel ?? false)
             : (t.defaultVisibleInFullscreen ?? false),
       })),
-    [mode],
+    [mode, panelTabs],
   );
 
   const {
@@ -731,9 +736,9 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   useEffect(() => {
     if (isTabVisible(activeTab)) return;
-    const fallback = COMPANY_TABS.find((t) => isTabVisible(t.id));
+    const fallback = panelTabs.find((t) => isTabVisible(t.id));
     if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isTabVisible]);
+  }, [activeTab, isTabVisible, panelTabs]);
 
   const chatSidebar = (
     <CompanyChat companyId={id} companyName={company?.displayName} />
@@ -776,6 +781,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
           setActiveTab={setActiveTab}
           peopleCount={employments.length}
           isTabVisible={isTabVisible}
+          tabList={panelTabs}
         />
       }
       sidebar={chatSidebar}
@@ -845,6 +851,9 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
       )}
       {company && activeTab === 'audit' && (
         <AuditTab entityId={company.id} entityKind="company" />
+      )}
+      {company && activeTab === 'buyers' && (
+        <CompanyBuyersTab companyId={company.id} companyName={company.displayName} />
       )}
       {companyDeleteDialog}
     </EntityDetailView>

@@ -187,6 +187,14 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   // Connect
   'webhooks',
   'workflows',
+  // WeldMail
+  'mail-accounts',
+  'mail-messages',
+  'mail-threads',
+  'mail-labels',
+  'mail-folders',
+  'mail-drafts',
+  'mail-attachments',
   // Books
   'accounting-contacts',
   'accounting-documents',

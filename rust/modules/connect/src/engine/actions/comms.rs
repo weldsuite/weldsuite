@@ -284,6 +284,9 @@ pub(super) async fn send_sms(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>) -
     let Some(key) = ctx.deps.env.get("TELNYX_API_KEY").filter(|k| !k.is_empty()) else {
         return Err(ActionError::plain("TELNYX_API_KEY not configured"));
     };
+    // Telnyx is outside the EU (ADR OPS-026): on the EU edition the step
+    // fails until the workspace switched it on.
+    ActionError::outside_eu(ctx.db, "telnyx").await?;
     let mut payload = json!({ "to": to, "text": body });
     if let Some(from) = inputs.get("from").filter(|v| truthy(v)) {
         payload["from"] = json!(as_text(Some(from)));

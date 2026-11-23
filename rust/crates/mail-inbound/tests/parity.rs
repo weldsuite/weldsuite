@@ -9,6 +9,11 @@
 //! built by `scripts/rust-test-db.ts`) and skip without it. Regenerate the
 //! fixtures with `pnpm rust:mail-inbound-fixtures`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -652,6 +657,7 @@ async fn storage_writes_the_rows_the_worker_writes() {
         },
         assignment_router: None,
         ai: None,
+        scanner: None,
     };
     let a = &f["account"];
     let account = RecipientAccount {
@@ -678,7 +684,16 @@ async fn storage_writes_the_rows_the_worker_writes() {
             .map(|a| a.file_name.clone())
             .filter(|n| !n.is_empty())
             .collect();
-        let stored = store_email(&ctx, &db, &account, &email, &names, &attachments).await;
+        let stored = store_email(
+            &ctx,
+            &db,
+            &account,
+            &email,
+            &names,
+            &attachments,
+            &weldsuite_mail_inbound::threats::MessageThreats::default(),
+        )
+        .await;
         let mut marked_spam = Value::Null;
         if let Some(stored) = &stored
             && name == "rules"

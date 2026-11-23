@@ -302,7 +302,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .unwrap_or_default()
         .split(',')
         .any(|part| part.trim() == "lastSession");
-    match decorate(db, &rows, include_last).await {
+    match decorate(db, caller.request_master(), &rows, include_last).await {
         Ok(items) => page_of(items, limit, total),
         Err(error) => internal(&error, "Failed to list meetings"),
     }
@@ -324,6 +324,7 @@ const COUNT_SQL_JSON: &str = "select to_jsonb(c.n) from (select count(*) as n fr
 /// with `?include=lastSession`, its newest session.
 async fn decorate(
     db: &PgPool,
+    master: Option<&PgPool>,
     rows: &[Value],
     include_last: bool,
 ) -> Result<Vec<Value>, sqlx::Error> {
@@ -337,13 +338,16 @@ async fn decorate(
     }
     let mut organizers: HashMap<String, Value> = HashMap::new();
     if !organizer_ids.is_empty() {
-        let members: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, email, picture from workspace_members where user_id = any($1)",
+        let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "select user_id, name, email from workspace_members where user_id = any($1)",
         )
         .bind(&organizer_ids)
         .fetch_all(db)
         .await?;
-        for (user, name, email, picture) in members {
+        // Avatars are account pictures, not the member row's copy.
+        let pictures = weldsuite_db::AccountPictures::load(master, &organizer_ids).await;
+        for (user, name, email) in members {
+            let picture = pictures.value(Some(&user));
             organizers.entry(user.clone()).or_insert_with(|| {
                 let display = name
                     .filter(|n| !n.is_empty())
@@ -660,14 +664,16 @@ async fn instant(
     started: i64,
 ) -> Result<Response, String> {
     let db = &caller.db;
-    let member: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email, picture from workspace_members where user_id = $1 limit 1",
-    )
-    .bind(&caller.user_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let (name, email, picture) = member.unwrap_or((None, None, None));
+    let member: Option<(Option<String>, Option<String>)> =
+        sqlx::query_as("select name, email from workspace_members where user_id = $1 limit 1")
+            .bind(&caller.user_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| e.to_string())?;
+    let (name, email) = member.unwrap_or((None, None));
+    // The avatar is the account picture, not the member row's copy.
+    let picture =
+        weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id).await;
     let user_name = name.unwrap_or_else(|| "Unknown".to_owned());
 
     let t0 = now_ms();
@@ -1026,6 +1032,7 @@ async fn invite_people(
             json!({ "meetingId": id, "title": existing["title"] }),
         )
         .await;
+        crate::crm::auto_add_invitees(state, caller, db, &added).await;
     }
     let people: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "select wm.user_id, wm.name, wm.email, up.timezone from workspace_members wm
@@ -1624,7 +1631,7 @@ async fn create(
         .iter()
         .find(|(k, _)| *k == "title")
         .map_or(Value::Null, |(_, v)| v.clone());
-    let result: Result<(), String> = async {
+    let result: Result<Vec<attendees::Attendee>, String> = async {
         let workspace_key = caller
             .org_id
             .clone()
@@ -1644,10 +1651,14 @@ async fn create(
             ),
             None => None,
         };
-        let list =
-            attendees::with_organizer(db, resolved.clone().unwrap_or_default(), &organizer_id)
-                .await
-                .map_err(|e| e.to_string())?;
+        let list = attendees::with_organizer(
+            db,
+            caller.request_master(),
+            resolved.clone().unwrap_or_default(),
+            &organizer_id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let table = &MEETINGS;
         let mut values = writable(&body, resolved.as_deref());
         let now = now();
@@ -1666,19 +1677,21 @@ async fn create(
         table
             .insert(db, values, TRUSTED)
             .await
-            .map(|_| ())
+            .map(|_| resolved.unwrap_or_default())
             .map_err(|e| e.to_string())
     }
     .await;
-    if let Err(error) = result {
-        return internal(&error, "Failed to create meeting");
-    }
+    let invited = match result {
+        Ok(invited) => invited,
+        Err(error) => return internal(&error, "Failed to create meeting"),
+    };
     caller.publish(
         &state,
         MEETING_CREATED,
         &id,
         &json!({ "id": id, "title": title, "status": "scheduled", "hostId": organizer_id }),
     );
+    crate::crm::auto_add_invitees(&state, &caller, db, &invited).await;
     Created(json!({ "id": id, "joinCode": join_code })).into_response()
 }
 
@@ -1745,6 +1758,9 @@ async fn update(
             &id,
             &json!({ "id": id, "title": title, "status": existing["status"], "hostId": existing["organizerId"] }),
         );
+        if let Some(invited) = &resolved {
+            crate::crm::auto_add_invitees(&state, &caller, db, invited).await;
+        }
         Ok(Data(json!({ "id": id })).into_response())
     }
     .await;

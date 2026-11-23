@@ -131,7 +131,7 @@ macro_rules! tenant_or_answer {
     };
 }
 
-fn internal(scope: &str, error: &sqlx::Error, message: &str) -> Response {
+fn internal(scope: &str, error: &dyn std::fmt::Display, message: &str) -> Response {
     tracing::error!(%error, "[app-api/public-helpcenter] {scope} failed");
     ApiError::internal().with_message(message).into_response()
 }

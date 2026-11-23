@@ -4,19 +4,20 @@
 //! route's Zod schema let through (`.passthrough()` included: any key that is
 //! one of the table's properties reaches the statement).
 //!
-//! The tables (`weldsuite-desk`'s generated `tables`, and the webchat tables
-//! in [`crate::webchat`]) carry the statements: the body becomes a
-//! `{ column: value }` JSON object, `jsonb_populate_record` turns it into the
-//! row, and a column the object leaves out gets its database default
-//! (insert) or keeps its value (patch), as Drizzle leaves it out of the
-//! statement.
+//! A [`Table`] maps Drizzle's properties onto the columns of its entity; the
+//! body becomes a `{ column: value }` JSON object that
+//! [`weldsuite_db::record`] writes through the entity, and a column the object
+//! leaves out gets its database default (insert) or keeps its value (patch),
+//! as Drizzle leaves it out of the statement.
 //!
 //! Here rather than in the desk crate because the webchat inbox's writer
 //! ([`crate::webchat::append_desk_message`]) is shared with the helpdesk
 //! widget API.
 
+use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::{Map, Value};
-use weldsuite_db::{PgPool, js_timestamp};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, js_timestamp, orm};
 
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
@@ -54,18 +55,9 @@ pub struct Column {
 #[derive(Debug, Clone, Copy)]
 pub struct Table {
     pub name: &'static str,
+    /// The table's entity: the statements, and the row as Drizzle returns it.
+    pub entity: JsonTable,
     pub columns: &'static [Column],
-    /// The row as Drizzle returns it, before [`js_row`]: `to_jsonb(t)`, with
-    /// `numeric` columns as text.
-    #[allow(dead_code)]
-    pub row: &'static str,
-    /// `$1`: the row as `{ column: value }`. Returns the row.
-    pub insert: &'static str,
-    /// `$1`: the changes as `{ column: value }`, `$2`: the id, `$3`: only a
-    /// live row (`deleted_at is null`). Returns the row, if one was changed.
-    pub patch: &'static str,
-    /// `$1`: the id. The live row (`deleted_at is null` where the table has it).
-    pub select_live: &'static str,
 }
 
 /// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
@@ -83,12 +75,20 @@ pub enum WriteError {
     /// A `date`-mode timestamp got a value that is not a `Date`: Drizzle's
     /// `toISOString` throws before the statement runs (the route's 500).
     NotADate(&'static str),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for WriteError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// For the callers still writing SQL around a [`Table`] write (the desk
+/// crate, until its queries move to the entities).
 impl From<sqlx::Error> for WriteError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -101,9 +101,20 @@ impl std::fmt::Display for WriteError {
     }
 }
 
+impl WriteError {
+    /// A Postgres unique violation (`23505`), of `constraint` when given.
+    pub fn is_unique_violation(&self, constraint: Option<&str>) -> bool {
+        let Self::Database(error) = self else {
+            return false;
+        };
+        weldsuite_db::is_unique_violation(error)
+            && constraint.is_none_or(|c| weldsuite_db::pg_constraint(error).as_deref() == Some(c))
+    }
+}
+
 impl Table {
-    /// A `row` (`to_jsonb(t)`) as Drizzle's `select()` returns it: the
-    /// schema's property names (`relatedFAQs`, not `relatedFaqs`), `Date`s as
+    /// A `to_jsonb(t)` row as Drizzle's `select()` returns it: the schema's
+    /// property names (`relatedFAQs`, not `relatedFaqs`), `Date`s as
     /// `toISOString()`, and only the schema's columns.
     pub fn js(&self, row: Value) -> Value {
         let Value::Object(mut row) = row else {
@@ -163,46 +174,90 @@ impl Table {
 
     /// Insert `values` (see [`Table::values`]); `trusted` names the
     /// properties the route set itself. The row as Drizzle returns it.
-    pub async fn insert<'e>(
+    pub async fn insert(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
+        values: Map<String, Value>,
+        trusted: &[&str],
+    ) -> Result<Value, WriteError> {
+        self.insert_on(&orm(db), values, trusted).await
+    }
+
+    /// [`Table::insert`] on a SeaORM connection (`OrmConn` in a transaction).
+    pub async fn insert_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
         values: Map<String, Value>,
         trusted: &[&str],
     ) -> Result<Value, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Value = sqlx::query_scalar(self.insert)
-            .bind(Value::Object(values))
-            .fetch_one(db)
-            .await?;
-        Ok(self.js(row))
+        Ok(self.entity.insert(db, values).await?)
     }
 
     /// Update the row `id` with `values`; `live_only` adds `deleted_at is
     /// null`. The changed row, or `None` when none matched.
-    pub async fn patch<'e>(
+    pub async fn patch(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
+        id: &str,
+        values: Map<String, Value>,
+        live_only: bool,
+        trusted: &[&str],
+    ) -> Result<Option<Value>, WriteError> {
+        self.patch_on(&orm(db), id, values, live_only, trusted)
+            .await
+    }
+
+    /// [`Table::patch`] on a SeaORM connection (`OrmConn` in a transaction).
+    pub async fn patch_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
         id: &str,
         values: Map<String, Value>,
         live_only: bool,
         trusted: &[&str],
     ) -> Result<Option<Value>, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Option<Value> = sqlx::query_scalar(self.patch)
-            .bind(Value::Object(values))
-            .bind(id)
-            .bind(live_only)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+        Ok(self.entity.update(db, id, values, live_only).await?)
     }
 
-    /// The live row `id`, as Drizzle returns it.
-    pub async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.select_live)
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+    /// The columns this table names that its entity lacks, and the entity's
+    /// columns it leaves out: both empty while the two agree.
+    pub fn entity_drift(&self) -> (Vec<&'static str>, Vec<&'static str>) {
+        let entity = self.entity.columns();
+        let missing = self
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .filter(|name| !entity.contains(name))
+            .collect();
+        let extra = entity
+            .into_iter()
+            .filter(|name| !self.columns.iter().any(|column| column.name == *name))
+            .collect();
+        (missing, extra)
+    }
+
+    /// The live row `id` (`deleted_at is null` where the table has it), as
+    /// Drizzle returns it.
+    pub async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        self.entity.find(&orm(db), id, true).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_tables_match_their_entities() {
+        for table in [
+            &crate::webchat::DESK_CONVERSATIONS,
+            &crate::webchat::DESK_MESSAGES,
+            &crate::webchat::DESK_VISITORS,
+            &crate::catalog::DESK_CATALOG_ITEMS,
+            &crate::catalog::DESK_REQUEST_APPROVALS,
+            &crate::problems::DESK_PROBLEMS,
+        ] {
+            assert_eq!(table.entity_drift(), (vec![], vec![]), "{}", table.name);
+        }
     }
 }

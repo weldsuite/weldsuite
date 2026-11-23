@@ -275,7 +275,7 @@ export async function createInvitations(
   for (const r of rows) await registerToken(ctx, form.id, r.id, tokens.get(r.id)!);
 
   const mail = await sendInvitationMails(
-    { ...ctx, form, definition: null, senderEmail: (await memberRef(ctx.db, userId)).email, closesAt: settingsOf(form).closesAt },
+    { ...ctx, form, definition: null, senderEmail: (await memberRef(ctx, userId)).email, closesAt: settingsOf(form).closesAt },
     rows.map((r): InviteMail => ({ email: r.email, name: r.name, locale: r.locale, url: invitationUrl(ctx.env, form.publicId!, tokens.get(r.id)!), subject: r.subject, message: r.message })),
     { reservation },
   );
@@ -435,7 +435,7 @@ async function remindBatch(
   const sentTo = new Set<string>();
   for (const [sender, group] of groupBySender(rows, opts.replyToUserId)) {
     const mail = await sendInvitationMails(
-      { ...ctx, form, definition: null, senderEmail: (await memberRef(ctx.db, sender)).email, closesAt: settings.closesAt },
+      { ...ctx, form, definition: null, senderEmail: (await memberRef(ctx, sender)).email, closesAt: settings.closesAt },
       group.map((r): InviteMail => ({ email: r.email, name: r.name, locale: r.locale, url: invitationUrl(ctx.env, form.publicId!, tokens.get(r.id)!), subject: r.subject, message: r.message })),
       { reminder: true, reservation: null },
     );

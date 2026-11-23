@@ -1,0 +1,230 @@
+//! `pick_list_items`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "pick_list_items")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "pickListId")]
+    pub pick_list_id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "orderId")]
+    pub order_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "orderItemId")]
+    pub order_item_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "variantId")]
+    pub variant_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "sku")]
+    pub sku: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "locationId")]
+    pub location_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "locationCode")]
+    pub location_code: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "inventoryId")]
+    pub inventory_id: Option<String>,
+    #[serde(rename = "quantityRequired")]
+    pub quantity_required: i32,
+    #[serde(rename = "quantityPicked")]
+    pub quantity_picked: Option<i32>,
+    #[serde(rename = "quantityShort")]
+    pub quantity_short: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "lotNumber")]
+    pub lot_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "batchNumber")]
+    pub batch_number: Option<String>,
+    #[serde(rename = "expiryDate", with = "crate::js::timestamp::option")]
+    pub expiry_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[serde(rename = "pickSequence")]
+    pub pick_sequence: Option<i32>,
+    #[serde(rename = "pickedAt", with = "crate::js::timestamp::option")]
+    pub picked_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "pickedBy")]
+    pub picked_by: Option<String>,
+    #[serde(rename = "isSubstituted")]
+    pub is_substituted: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "originalProductId")]
+    pub original_product_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "substitutionReason")]
+    pub substitution_reason: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "notes")]
+    pub notes: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "pick_list_items",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_required",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_picked",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "quantity_short",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "pick_sequence",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_substituted",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "pick_list_items_list_idx",
+            columns: &[IndexColumn {
+                expression: "pick_list_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "pick_list_items_order_idx",
+            columns: &[IndexColumn {
+                expression: "order_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "pick_list_items_product_idx",
+            columns: &[IndexColumn {
+                expression: "product_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "pick_list_items_location_idx",
+            columns: &[IndexColumn {
+                expression: "location_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "pick_list_items_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

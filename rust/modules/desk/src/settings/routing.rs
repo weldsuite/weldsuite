@@ -48,7 +48,7 @@ const PRIORITIES: [&str; 4] = ["low", "medium", "high", "urgent"];
 async fn read(caller: Caller) -> Response {
     match routing::settings(&caller.db).await {
         Ok((_, rules)) => Data(routing::rules_json(&rules)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load routing rules"),
+        Err(error) => Refusal::from(error).respond("Failed to load routing rules"),
     }
 }
 
@@ -146,7 +146,7 @@ async fn save(
     };
     let rules = match routing::save(&caller.db, &data).await {
         Ok(rules) => rules,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let answer = routing::rules_json(&rules);
     match routing::settings(&caller.db).await {
@@ -157,7 +157,7 @@ async fn save(
             &json!({ "deskRouting": answer }),
         ),
         Ok((None, _)) => {}
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     Data(answer).into_response()
 }

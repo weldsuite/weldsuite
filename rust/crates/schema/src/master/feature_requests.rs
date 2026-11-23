@@ -1,0 +1,176 @@
+//! `feature_requests`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "feature_requests")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: String,
+    #[sea_orm(column_name = "type")]
+    #[serde(rename = "type")]
+    pub type_: super::enums::FeatureType,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "submitterId")]
+    pub submitter_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "submitterName")]
+    pub submitter_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "submitterEmail")]
+    pub submitter_email: String,
+    #[serde(rename = "status")]
+    pub status: super::enums::FeatureStatus,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "adminNotes")]
+    pub admin_notes: Option<String>,
+    #[serde(rename = "voteCount")]
+    pub vote_count: i32,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "voters")]
+    pub voters: Option<Json>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "completedAt", with = "crate::js::timestamptz::option")]
+    pub completed_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "feature_requests",
+    columns: &[
+        DdlColumn {
+            name: "type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'feature'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'open'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "vote_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "voters",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "feature_requests_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "feature_requests_type_idx",
+            columns: &[IndexColumn {
+                expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "feature_requests_vote_count_idx",
+            columns: &[IndexColumn {
+                expression: "vote_count",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "feature_requests_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "feature_requests_submitter_idx",
+            columns: &[IndexColumn {
+                expression: "submitter_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

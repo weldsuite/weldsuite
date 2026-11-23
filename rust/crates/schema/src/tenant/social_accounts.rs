@@ -1,0 +1,221 @@
+//! `social_accounts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "social_accounts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[serde(rename = "platform")]
+    pub platform: super::enums::SocialPlatform,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "platformAccountId")]
+    pub platform_account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "postpeerIntegrationId")]
+    pub postpeer_integration_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "postpeerProfileId")]
+    pub postpeer_profile_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "username")]
+    pub username: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "profileUrl")]
+    pub profile_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "avatarUrl")]
+    pub avatar_url: Option<String>,
+    #[serde(rename = "accountType")]
+    pub account_type: Option<super::enums::SocialAccountType>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "accessToken")]
+    pub access_token: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "refreshToken")]
+    pub refresh_token: Option<String>,
+    #[serde(rename = "tokenExpiresAt", with = "crate::js::timestamp::option")]
+    pub token_expires_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "scopes")]
+    pub scopes: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "platformSettings")]
+    pub platform_settings: Option<Json>,
+    #[serde(rename = "status")]
+    pub status: super::enums::SocialAccountStatus,
+    #[serde(rename = "lastSyncAt", with = "crate::js::timestamp::option")]
+    pub last_sync_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastError")]
+    pub last_error: Option<String>,
+    #[serde(rename = "errorCount")]
+    pub error_count: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "rateLimits")]
+    pub rate_limits: Option<Json>,
+    #[serde(rename = "followerCount")]
+    pub follower_count: Option<i32>,
+    #[serde(rename = "followingCount")]
+    pub following_count: Option<i32>,
+    #[serde(rename = "postCount")]
+    pub post_count: Option<i32>,
+    #[serde(rename = "statsUpdatedAt", with = "crate::js::timestamp::option")]
+    pub stats_updated_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "connectedByUserId")]
+    pub connected_by_user_id: String,
+    #[serde(rename = "isDefault")]
+    pub is_default: Option<bool>,
+    #[serde(rename = "autoPublish")]
+    pub auto_publish: Option<bool>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "social_accounts",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "account_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'business'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "error_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_default",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_publish",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "social_accounts_platform_idx",
+            columns: &[IndexColumn {
+                expression: "platform",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_accounts_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_accounts_postpeer_integration_idx",
+            columns: &[IndexColumn {
+                expression: "postpeer_integration_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "social_accounts_platform_account_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "platform",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "platform_account_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

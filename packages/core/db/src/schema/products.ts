@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -8,6 +9,7 @@ import {
   text,
   numeric,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // Shared products table (Commerce, WMS, etc.)
@@ -78,6 +80,13 @@ export const products = pgTable('products', {
   // Tax
   taxable: boolean('taxable').default(true),
   taxClass: varchar('tax_class', { length: 50 }),
+  /**
+   * EU VAT category (WeldBooks `tax::eu_vat`, ADR COM-014): `standard` |
+   * `reduced` | `super_reduced` | `zero` | `exempt`. The rate per destination
+   * country comes from the versioned rate table, not from a tax-rate row.
+   * US entities keep `taxClass`.
+   */
+  vatCategory: varchar('vat_category', { length: 20 }).notNull().default('standard'),
 
   // Shipping
   requiresShipping: boolean('requires_shipping').default(true),
@@ -109,6 +118,14 @@ export const products = pgTable('products', {
   index('products_sku_idx').on(table.sku),
   index('products_status_idx').on(table.status),
   index('products_product_type_idx').on(table.productType),
+  // sku is unique among live rows of this table (uniqueness across products and variants is checked in code).
+  uniqueIndex('products_sku_uidx')
+    .on(table.sku)
+    .where(sql`${table.sku} IS NOT NULL AND ${table.sku} <> '' AND ${table.deletedAt} IS NULL`),
+  // barcode is unique among live rows of this table (uniqueness across products and variants is checked in code).
+  uniqueIndex('products_barcode_uidx')
+    .on(table.barcode)
+    .where(sql`${table.barcode} IS NOT NULL AND ${table.barcode} <> '' AND ${table.deletedAt} IS NULL`),
 ]);
 
 export type Product = typeof products.$inferSelect;

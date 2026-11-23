@@ -190,6 +190,8 @@ pub async fn list_connection_records(
              'internalEntityId', m.internal_entity_id, 'lastSyncedAt', m.last_synced_at,
              'updatedAt', m.updated_at)
          from integration_entity_mappings m where m.connection_id = $1
+           and m.external_entity_type not like 'moneybird\\_baseline\\_%'
+           and m.external_entity_type not in ('moneybird_payment', 'moneybird_pushed_bill')
          order by m.updated_at desc limit $2",
     )
     .bind(connection_id)

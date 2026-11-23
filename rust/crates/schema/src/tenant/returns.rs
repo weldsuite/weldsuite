@@ -1,0 +1,220 @@
+//! `returns`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "returns")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "returnNumber")]
+    pub return_number: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "originalOrderId")]
+    pub original_order_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "originalTrackingNumber")]
+    pub original_tracking_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerName")]
+    pub customer_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerEmail")]
+    pub customer_email: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "customerPhone")]
+    pub customer_phone: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "reason")]
+    pub reason: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "reasonDetails")]
+    pub reason_details: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "condition")]
+    pub condition: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "items")]
+    pub items: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "returnParcelId")]
+    pub return_parcel_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "returnTrackingNumber")]
+    pub return_tracking_number: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "returnLabelUrl")]
+    pub return_label_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "returnCarrier")]
+    pub return_carrier: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "returnMethod")]
+    pub return_method: Option<String>,
+    #[serde(rename = "receivedAt", with = "crate::js::timestamp::option")]
+    pub received_at: Option<TimeDateTime>,
+    #[serde(rename = "inspectedAt", with = "crate::js::timestamp::option")]
+    pub inspected_at: Option<TimeDateTime>,
+    #[serde(rename = "processedAt", with = "crate::js::timestamp::option")]
+    pub processed_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "resolution")]
+    pub resolution: Option<Json>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "refundAmount")]
+    pub refund_amount: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "replacementOrderId")]
+    pub replacement_order_id: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "customerNotes")]
+    pub customer_notes: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "internalNotes")]
+    pub internal_notes: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "approvalStatus")]
+    pub approval_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "approvedBy")]
+    pub approved_by: Option<String>,
+    #[serde(rename = "approvedAt", with = "crate::js::timestamp::option")]
+    pub approved_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "returns",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'requested'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "return_method",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'label'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "approval_status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "returns_return_number_idx",
+            columns: &[IndexColumn {
+                expression: "return_number",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "returns_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "returns_customer_id_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "returns_original_order_id_idx",
+            columns: &[IndexColumn {
+                expression: "original_order_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "returns_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

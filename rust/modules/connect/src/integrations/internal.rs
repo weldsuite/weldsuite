@@ -181,7 +181,13 @@ async fn resolve(
                 .fetch_optional(&master)
                 .await
                 .map_err(|error| internal_error(&error, "Failed to resolve workspace"))?;
-        clerk_org_id = found.flatten();
+        // A workspace without a Clerk organization (every one made on this
+        // backend) is named by its own id, which the tenant lookup takes too.
+        clerk_org_id = found.map(|clerk| {
+            clerk
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| workspace.to_owned())
+        });
     }
     let Some(clerk_org_id) = clerk_org_id else {
         return Err(ApiError::bad_request(
@@ -277,9 +283,25 @@ async fn connector_catch_up(
     if row["status"] == "paused" {
         return ApiError::bad_request("Connection is paused").into_response();
     }
+    // The catch-up is also when a connection's lost or never-made webhooks
+    // are put back, so live updates resume without anyone reconnecting.
+    let workspace_id = internal.workspace_id(&state).await.unwrap_or_default();
+    if !workspace_id.is_empty() {
+        crate::connector_auth::spawn_ensure_webhooks(
+            &state,
+            &internal.overrides,
+            internal.db.clone(),
+            row.clone(),
+            workspace_id.clone(),
+        );
+    }
     let job = crate::connector_sync::Background {
         db: internal.db.clone(),
-        env: crate::connector_sync::sync_env(&internal.overrides, &state),
+        env: if workspace_id.is_empty() {
+            crate::connector_sync::sync_env(&internal.overrides, &state)
+        } else {
+            crate::connector_sync::sync_env_for(&internal.overrides, &state, &workspace_id)
+        },
         connection: row.clone(),
         owner_id: "system".to_owned(),
         workspace_id: internal.clerk_org_id.clone(),
@@ -324,11 +346,34 @@ async fn connector_event(
         Ok(None) => return ApiError::not_found("Connection", Some(&id)).into_response(),
         Err(error) => return internal_error(&error, "Failed to ingest connector webhook"),
     };
+    // A store outside the EU (Stripe, Shopify) the workspace has switched off
+    // is not followed up (ADR OPS-026): the delivery is acknowledged, so the
+    // store doesn't retry it, and skipped.
+    if let Some(service) = weldsuite_outside_eu::ServiceId::for_integration(
+        row["provider"].as_str().unwrap_or_default(),
+    ) && !weldsuite_outside_eu::allowed(
+        &internal.db,
+        service,
+        &format!("connector webhook {id}"),
+    )
+    .await
+    {
+        return axum::Json(
+            json!({ "data": { "message": "Skipped: switched off outside the EU" } }),
+        )
+        .into_response();
+    }
     let workspace = headers
         .get("x-internal-workspace-id")
         .and_then(|v| v.to_str().ok())
         .map_or_else(|| internal.clerk_org_id.clone(), str::to_owned);
-    let env = crate::connector_sync::sync_env(&internal.overrides, &state);
+    // With the workspace's due index row, so a Moneybird push the delivery
+    // starts can leave a backlog for the cron.
+    let due_workspace = match internal.workspace_id(&state).await {
+        Ok(id) => id,
+        Err(_) => workspace.clone(),
+    };
+    let env = crate::connector_sync::sync_env_for(&internal.overrides, &state, &due_workspace);
     let raw = String::from_utf8_lossy(&body).into_owned();
     match weldsuite_connect_domain::webhooks::process_connector_webhook(
         &internal.db,

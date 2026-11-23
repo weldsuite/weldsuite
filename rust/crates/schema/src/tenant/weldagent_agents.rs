@@ -1,0 +1,288 @@
+//! `weldagent_agents`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "weldagent_agents")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "icon")]
+    pub icon: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "systemPrompt")]
+    pub system_prompt: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "temperature")]
+    pub temperature: String,
+    #[serde(rename = "maxTokens")]
+    pub max_tokens: i32,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "permissions")]
+    pub permissions: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "enabledTools")]
+    pub enabled_tools: Json,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "eventSubscriptions")]
+    pub event_subscriptions: Json,
+    #[serde(rename = "maxIterations")]
+    pub max_iterations: i32,
+    #[serde(rename = "maxTotalTokens")]
+    pub max_total_tokens: i32,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "visibility")]
+    pub visibility: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "subagentIds")]
+    pub subagent_ids: Json,
+    #[serde(rename = "delegateToSelf")]
+    pub delegate_to_self: bool,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "anthropicAgentId")]
+    pub anthropic_agent_id: Option<String>,
+    #[serde(rename = "anthropicAgentVersion")]
+    pub anthropic_agent_version: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "anthropicConfigHash")]
+    pub anthropic_config_hash: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "anthropicWorkerAgentId")]
+    pub anthropic_worker_agent_id: Option<String>,
+    #[serde(rename = "anthropicWorkerAgentVersion")]
+    pub anthropic_worker_agent_version: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "anthropicWorkerConfigHash")]
+    pub anthropic_worker_config_hash: Option<String>,
+    #[serde(rename = "totalRuns")]
+    pub total_runs: i32,
+    #[serde(rename = "successfulRuns")]
+    pub successful_runs: i32,
+    #[serde(rename = "failedRuns")]
+    pub failed_runs: i32,
+    #[serde(rename = "lastRunAt", with = "crate::js::timestamptz::option")]
+    pub last_run_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "lastRunStatus")]
+    pub last_run_status: Option<String>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "weldagent_agents",
+    columns: &[
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'draft'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "system_prompt",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("''")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "model_id",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'claude-opus-5-5'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "temperature",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0.70'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_tokens",
+            sql_type: None,
+            default: Some(DdlDefault::Number("2048")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "permissions",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "enabled_tools",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "event_subscriptions",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_iterations",
+            sql_type: None,
+            default: Some(DdlDefault::Number("10")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_total_tokens",
+            sql_type: None,
+            default: Some(DdlDefault::Number("20000")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "visibility",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'workspace'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "subagent_ids",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "delegate_to_self",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "total_runs",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "successful_runs",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "failed_runs",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "weldagent_agents_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "weldagent_agents_deleted_at_idx",
+            columns: &[IndexColumn {
+                expression: "deleted_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

@@ -127,6 +127,12 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
             "/connections/{id}/moneybird/push",
             post(crate::connector_push::push_now).route_layer(update()),
         )
+        // Rust only (ADR INT-013): register a Moneybird connection's webhooks
+        // again when live updates are off.
+        .route(
+            "/connections/{id}/live-updates",
+            post(crate::connector_auth::repair_live_updates).route_layer(update()),
+        )
 }
 
 /// `keyringFromEnv(c.env)`.
@@ -346,6 +352,11 @@ async fn test(
     };
     if get_connector(&provider).is_none() {
         return ApiError::bad_request(format!("Unknown connector '{provider}'")).into_response();
+    }
+    // ADR OPS-026: not even a test against a store outside the EU the
+    // workspace has switched off.
+    if let Err(error) = weldsuite_outside_eu::require_integration(&caller.db, &provider).await {
+        return error.to_api_error().into_response();
     }
     let http = caller.overrides.http(&state);
     let tested = test_connector_credentials(&provider, &creds, http.as_ref())

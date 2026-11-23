@@ -6,7 +6,7 @@ import { en } from '@weldsuite/i18n/locales/en';
 import { makeCohort, makeLexicon } from '../analytics-fixtures';
 import { resetCurrentProjectChoice } from '../lib/use-current-project';
 import { makeProject } from '../test-fixtures';
-import CohortsPage from './page';
+import CohortsPage, { matchesCohortFilter, matchesCohortSearch } from './page';
 
 const state = vi.hoisted(() => ({
   allowed: new Set<string>(),
@@ -43,6 +43,28 @@ Element.prototype.setPointerCapture ??= () => undefined;
 Element.prototype.releasePointerCapture ??= () => undefined;
 
 const tc = en.weldpanel.analytics.cohorts;
+
+describe('cohort filters', () => {
+  const cohort = makeCohort({
+    name: 'Pro users',
+    description: 'Paying teams',
+    filter: { match: 'any', conditions: [{ type: 'performed', event: 'Upgraded', filters: [], withinDays: 30, minCount: 1, negate: false }] },
+  });
+
+  it('keeps cohorts by match and by the kind of condition they use', () => {
+    expect(matchesCohortFilter(cohort, { id: '1', field: 'match', operator: 'is', value: 'any' })).toBe(true);
+    expect(matchesCohortFilter(cohort, { id: '2', field: 'match', operator: 'is', value: 'all' })).toBe(false);
+    expect(matchesCohortFilter(cohort, { id: '3', field: 'condition', operator: 'is', value: 'performed' })).toBe(true);
+    expect(matchesCohortFilter(cohort, { id: '4', field: 'condition', operator: 'is not', value: 'performed' })).toBe(false);
+    expect(matchesCohortFilter(cohort, { id: '5', field: 'condition', operator: 'is', value: '' })).toBe(true);
+  });
+
+  it('searches the name and description', () => {
+    expect(matchesCohortSearch(cohort, 'pro')).toBe(true);
+    expect(matchesCohortSearch(cohort, 'PAYING')).toBe(true);
+    expect(matchesCohortSearch(cohort, 'trial')).toBe(false);
+  });
+});
 
 describe('Cohorts', () => {
   beforeEach(() => {

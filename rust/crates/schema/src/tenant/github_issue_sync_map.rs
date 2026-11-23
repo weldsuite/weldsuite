@@ -1,0 +1,149 @@
+//! `github_issue_sync_map`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "github_issue_sync_map")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "projectLinkId")]
+    pub project_link_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "taskId")]
+    pub task_id: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "projectItemNodeId")]
+    pub project_item_node_id: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "issueNodeId")]
+    pub issue_node_id: Option<String>,
+    #[serde(rename = "issueNumber")]
+    pub issue_number: i32,
+    #[serde(rename = "repoId")]
+    pub repo_id: Option<i64>,
+    #[serde(
+        rename = "lastSyncedTaskUpdatedAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub last_synced_task_updated_at: Option<TimeDateTime>,
+    #[serde(
+        rename = "lastSyncedIssueUpdatedAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub last_synced_issue_updated_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastWriterSide")]
+    pub last_writer_side: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "github_issue_sync_map",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "github_issue_sync_map_workspace_id_idx",
+            columns: &[IndexColumn {
+                expression: "workspace_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "github_issue_sync_map_project_link_id_idx",
+            columns: &[IndexColumn {
+                expression: "project_link_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "github_issue_sync_map_link_item_unique",
+            columns: &[
+                IndexColumn {
+                    expression: "project_link_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "project_item_node_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "github_issue_sync_map_task_id_unique",
+            columns: &[IndexColumn {
+                expression: "task_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "github_issue_sync_map_project_link_id_github_project_links_id_fk",
+        columns: &["project_link_id"],
+        references: "github_project_links",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

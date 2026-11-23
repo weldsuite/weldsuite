@@ -14,14 +14,22 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_core_domain::js::number_value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage};
+use weldsuite_schema::tenant::{
+    helpdesk_agents as agents, helpdesk_articles as articles,
+    helpdesk_conversation_messages as messages, helpdesk_conversations as conversations,
+    helpdesk_satisfaction_surveys as surveys,
+};
 
 use super::shared::{
     Scope, as_text, evaluate_condition, is_customer_facing, is_interactive_step, js_number,
@@ -101,7 +109,9 @@ fn now_text() -> String {
     iso_timestamp(OffsetDateTime::now_utc())
 }
 
-fn in_ms(ms: f64) -> Result<String, Thrown> {
+/// `new Date(Date.now() + ms)` as Drizzle writes it to a `timestamp`
+/// column.
+fn in_ms(ms: f64) -> Result<PrimitiveDateTime, Thrown> {
     if !ms.is_finite() {
         return Err("Invalid time value".to_owned());
     }
@@ -110,7 +120,53 @@ fn in_ms(ms: f64) -> Result<String, Thrown> {
     let at = OffsetDateTime::now_utc()
         .checked_add(time::Duration::nanoseconds_i128(nanos))
         .ok_or_else(|| "Invalid time value".to_owned())?;
-    Ok(iso_timestamp(at))
+    Ok(utc_timestamp(at))
+}
+
+/// A bot, system or note entry on a conversation (`helpdesk_conversation_messages`).
+struct NewMessage<'a> {
+    id: &'a str,
+    conversation_id: &'a str,
+    content: String,
+    author: (&'a str, &'a str, &'a str),
+    kind: &'a str,
+    is_public: bool,
+    is_internal: Option<bool>,
+    is_read: Option<bool>,
+    metadata: Option<Value>,
+}
+
+async fn insert_message(db: &PgPool, message: NewMessage<'_>) -> Result<(), Thrown> {
+    let now = utc_now();
+    let (author_type, author_id, author_name) = message.author;
+    let mut row = messages::ActiveModel {
+        id: Set(message.id.to_owned()),
+        conversation_id: Set(message.conversation_id.to_owned()),
+        content: Set(message.content),
+        author_type: Set(author_type.to_owned()),
+        author_id: Set(Some(author_id.to_owned())),
+        author_name: Set(author_name.to_owned()),
+        type_: Set(message.kind.to_owned()),
+        is_public: Set(message.is_public),
+        status: Set(Some("sent".to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    if let Some(is_internal) = message.is_internal {
+        row.is_internal = Set(Some(is_internal));
+    }
+    if let Some(is_read) = message.is_read {
+        row.is_read = Set(is_read);
+    }
+    if let Some(metadata) = message.metadata {
+        row.metadata = Set(Some(metadata));
+    }
+    messages::Entity::insert(row)
+        .exec_without_returning(&orm(db))
+        .await
+        .map_err(thrown)?;
+    Ok(())
 }
 
 async fn publish(deps: &StepDeps, message: RealtimeMessage) {
@@ -301,21 +357,21 @@ async fn create_bot_message(
     metadata: Value,
 ) -> Result<String, Thrown> {
     let id = generate_id("msg");
-    sqlx::query(
-        "insert into helpdesk_conversation_messages
-           (id, conversation_id, content, author_type, author_id, author_name, type, is_public,
-            is_internal, status, is_read, metadata, created_at, updated_at)
-         values ($1, $2, $3, 'agent', 'workflow', 'Bot', 'message', true, false, 'sent', false, $4,
-            $5::timestamp, $5::timestamp)",
+    insert_message(
+        db,
+        NewMessage {
+            id: &id,
+            conversation_id,
+            content: content.to_owned(),
+            author: ("agent", "workflow", "Bot"),
+            kind: "message",
+            is_public: true,
+            is_internal: Some(false),
+            is_read: Some(false),
+            metadata: Some(metadata),
+        },
     )
-    .bind(&id)
-    .bind(conversation_id)
-    .bind(content)
-    .bind(metadata)
-    .bind(now_text())
-    .execute(db)
-    .await
-    .map_err(thrown)?;
+    .await?;
     Ok(id)
 }
 
@@ -443,17 +499,25 @@ async fn suggest_articles(ctx: &Ctx<'_>) -> Map<String, Value> {
     }
     #[allow(clippy::cast_possible_truncation)] // whole and finite
     let limit = limit as i64;
-    let count: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from helpdesk_articles
-         where status = 'published' and deleted_at is null and visibility = 'public'
-           and ($1 = '' or title ilike $2 or excerpt ilike $2)
-         limit $3",
-    )
-    .bind(&query)
-    .bind(format!("%{}%", escape_like(&query)))
-    .bind(limit)
-    .fetch_all(&ctx.deps.db)
-    .await;
+    let mut found = articles::Entity::find()
+        .select_only()
+        .column(articles::Column::Id)
+        .filter(articles::Column::Status.eq("published"))
+        .filter(articles::Column::DeletedAt.is_null())
+        .filter(articles::Column::Visibility.eq("public"));
+    if !query.is_empty() {
+        let pattern = format!("%{}%", escape_like(&query));
+        found = found.filter(
+            Condition::any()
+                .add(crate::list::ilike(articles::Column::Title, &pattern))
+                .add(crate::list::ilike(articles::Column::Excerpt, &pattern)),
+        );
+    }
+    let count: Result<Vec<String>, sea_orm::DbErr> = found
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(&ctx.deps.db))
+        .await;
     match count {
         Ok(rows) => object(json!({ "success": true, "articleCount": rows.len() })),
         Err(error) => {
@@ -466,20 +530,21 @@ async fn suggest_articles(ctx: &Ctx<'_>) -> Map<String, Value> {
 async fn add_internal_note(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
     let message_id = generate_id("msg");
-    sqlx::query(
-        "insert into helpdesk_conversation_messages
-           (id, conversation_id, content, author_type, author_id, author_name, type, is_public,
-            is_internal, status, created_at, updated_at)
-         values ($1, $2, $3, 'agent', 'system', 'System', 'note', false, true, 'sent',
-            $4::timestamp, $4::timestamp)",
+    insert_message(
+        &ctx.deps.db,
+        NewMessage {
+            id: &message_id,
+            conversation_id: &conversation_id,
+            content: ctx.text("content"),
+            author: ("agent", "system", "System"),
+            kind: "note",
+            is_public: false,
+            is_internal: Some(true),
+            is_read: None,
+            metadata: None,
+        },
     )
-    .bind(&message_id)
-    .bind(&conversation_id)
-    .bind(ctx.text("content"))
-    .bind(now_text())
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    .await?;
     Ok(object(json!({
         "success": true,
         "messageId": message_id,
@@ -505,37 +570,48 @@ async fn pick_agent_by_load(
     round_robin: bool,
     department_id: Option<&str>,
 ) -> Result<Result<Assignment, String>, Thrown> {
-    let sql = if round_robin {
-        "select id, user_id, name from helpdesk_agents
-         where status = 'active' and deleted_at is null
-           and ($1::text is null or department_id = $1)
-         order by tickets_assigned asc limit 1"
+    use agents::Column;
+    let orm_db = orm(db);
+    let mut available = agents::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::UserId, Column::Name])
+        .filter(Column::Status.eq("active"))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(department_id) = department_id {
+        available = available.filter(Column::DepartmentId.eq(department_id));
+    }
+    let load = if round_robin {
+        Column::TicketsAssigned
     } else {
-        "select id, user_id, name from helpdesk_agents
-         where status = 'active' and deleted_at is null
-           and ($1::text is null or department_id = $1)
-         order by current_active_tickets asc limit 1"
+        Column::CurrentActiveTickets
     };
-    let agent: Option<(String, String, String)> = sqlx::query_as(sql)
-        .bind(department_id)
-        .fetch_optional(db)
+    let agent: Option<(String, String, String)> = available
+        .order_by_asc(load)
+        .into_tuple()
+        .one(&orm_db)
         .await
         .map_err(thrown)?;
     let Some((id, user_id, name)) = agent else {
         return Ok(Err("No available agents found".to_owned()));
     };
-    sqlx::query(
-        "update helpdesk_agents set
-           tickets_assigned = coalesce(tickets_assigned, 0) + 1,
-           current_active_tickets = coalesce(current_active_tickets, 0) + 1,
-           updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now_text())
-    .execute(db)
-    .await
-    .map_err(thrown)?;
+    // `coalesce(column, 0) + 1`.
+    let plus_one = |column: Column| {
+        sea_orm::ExprTrait::add(
+            Expr::from(Func::coalesce([Expr::col(column), Expr::val(0)])),
+            1,
+        )
+    };
+    agents::Entity::update_many()
+        .col_expr(Column::TicketsAssigned, plus_one(Column::TicketsAssigned))
+        .col_expr(
+            Column::CurrentActiveTickets,
+            plus_one(Column::CurrentActiveTickets),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(id.as_str()))
+        .exec(&orm_db)
+        .await
+        .map_err(thrown)?;
     Ok(Ok(Assignment {
         assignee_id: Some(user_id),
         assignee_name: Some(name),
@@ -553,21 +629,21 @@ async fn announce_handoff(
     let agent_name = assignee_name.unwrap_or("an agent");
     let content = format!("{agent_name} has joined the conversation.");
     let message_id = generate_id("msg");
-    let now = now_text();
-    sqlx::query(
-        "insert into helpdesk_conversation_messages
-           (id, conversation_id, content, author_type, author_id, author_name, type, is_public,
-            status, created_at, updated_at)
-         values ($1, $2, $3, 'system', 'system', 'System', 'message', true, 'sent',
-            $4::timestamp, $4::timestamp)",
+    insert_message(
+        &ctx.deps.db,
+        NewMessage {
+            id: &message_id,
+            conversation_id,
+            content: content.clone(),
+            author: ("system", "system", "System"),
+            kind: "message",
+            is_public: true,
+            is_internal: None,
+            is_read: None,
+            metadata: None,
+        },
     )
-    .bind(&message_id)
-    .bind(conversation_id)
-    .bind(&content)
-    .bind(&now)
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    .await?;
     publish(
         ctx.deps,
         conversation_message(
@@ -640,32 +716,35 @@ async fn assign_conversation(ctx: &Ctx<'_>) -> HandlerResult {
         Ok(fields) => fields,
         Err(error) => return Ok(object(json!({ "success": false, "error": error }))),
     };
-    let updated_at = now_iso();
+    let at = OffsetDateTime::now_utc();
+    let updated_at = iso_timestamp(at);
+    let orm_db = orm(&ctx.deps.db);
     let previous: Option<Option<String>> =
-        sqlx::query_scalar("select assignee_id from helpdesk_conversations where id = $1 limit 1")
-            .bind(&conversation_id)
-            .fetch_optional(&ctx.deps.db)
+        conversations::Entity::find_by_id(conversation_id.as_str())
+            .select_only()
+            .column(conversations::Column::AssigneeId)
+            .into_tuple()
+            .one(&orm_db)
             .await
             .map_err(thrown)?;
-    sqlx::query(
-        "update helpdesk_conversations set
-           updated_at = $2::timestamp,
-           assignee_id = case when $3 then $4 else assignee_id end,
-           assignee_name = case when $5 then $6 else assignee_name end,
-           department_id = case when $7 then $8 else department_id end
-         where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(&updated_at)
-    .bind(fields.assignee_id.is_some())
-    .bind(&fields.assignee_id)
-    .bind(fields.assignee_name.is_some())
-    .bind(&fields.assignee_name)
-    .bind(fields.department_id.is_some())
-    .bind(&fields.department_id)
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    let mut update = conversations::Entity::update_many().col_expr(
+        conversations::Column::UpdatedAt,
+        Expr::value(utc_timestamp(at)),
+    );
+    for (column, value) in [
+        (conversations::Column::AssigneeId, &fields.assignee_id),
+        (conversations::Column::AssigneeName, &fields.assignee_name),
+        (conversations::Column::DepartmentId, &fields.department_id),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    update
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm_db)
+        .await
+        .map_err(thrown)?;
 
     if let Some(assignee) = &fields.assignee_id
         && previous.flatten().as_deref() != Some(assignee.as_str())
@@ -717,16 +796,16 @@ async fn assign_conversation(ctx: &Ctx<'_>) -> HandlerResult {
 
 async fn unassign_conversation(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
-    sqlx::query(
-        "update helpdesk_conversations set assignee_id = null, assignee_name = null,
-           assignee_avatar = null, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(now_text())
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    let none = || Expr::value(Option::<String>::None);
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::AssigneeId, none())
+        .col_expr(conversations::Column::AssigneeName, none())
+        .col_expr(conversations::Column::AssigneeAvatar, none())
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm(&ctx.deps.db))
+        .await
+        .map_err(thrown)?;
     Ok(object(
         json!({ "success": true, "conversationId": conversation_id }),
     ))
@@ -738,16 +817,15 @@ async fn unassign_conversation(ctx: &Ctx<'_>) -> HandlerResult {
 
 async fn close_conversation(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
-    sqlx::query(
-        "update helpdesk_conversations set status = 'closed', closed_at = $2::timestamp,
-           updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(now_text())
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    let now = utc_now();
+    conversations::Entity::update_many()
+        .col_expr(conversations::Column::Status, Expr::value("closed"))
+        .col_expr(conversations::Column::ClosedAt, Expr::value(now))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(now))
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm(&ctx.deps.db))
+        .await
+        .map_err(thrown)?;
     Ok(object(
         json!({ "success": true, "conversationId": conversation_id }),
     ))
@@ -756,14 +834,11 @@ async fn close_conversation(ctx: &Ctx<'_>) -> HandlerResult {
 /// The `system:conversation_state_changed` snapshot, when the conversation
 /// exists.
 async fn publish_state(ctx: &Ctx<'_>, conversation_id: &str) -> Result<(), Thrown> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_conversations t where t.id = $1 limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
-    let Some(row) = row.map(js_row) else {
+    let found = conversations::Entity::find_by_id(conversation_id)
+        .one(&orm(&ctx.deps.db))
+        .await
+        .map_err(thrown)?;
+    let Some(row) = found.map(crate::row) else {
         return Ok(());
     };
     let mut state = Map::new();
@@ -803,7 +878,7 @@ async fn publish_state(ctx: &Ctx<'_>, conversation_id: &str) -> Result<(), Throw
 async fn change_status(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
     let status = js_string(ctx.input("status"));
-    let now = now_text();
+    let now = utc_now();
     let snoozed_until = if status == "snoozed" && truthy(ctx.input("snoozeDurationMinutes")) {
         Some(in_ms(
             js_number(ctx.input("snoozeDurationMinutes")) * 60_000.0,
@@ -811,21 +886,27 @@ async fn change_status(ctx: &Ctx<'_>) -> HandlerResult {
     } else {
         None
     };
-    sqlx::query(
-        "update helpdesk_conversations set
-           status = $2, updated_at = $3::timestamp,
-           snoozed_until = case when $4::text is null then snoozed_until else $4::timestamp end,
-           resolved_at = case when $2 = 'resolved' then $3::timestamp else resolved_at end,
-           closed_at = case when $2 = 'closed' then $3::timestamp else closed_at end
-         where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(&status)
-    .bind(&now)
-    .bind(&snoozed_until)
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    let mut update = conversations::Entity::update_many()
+        .col_expr(conversations::Column::Status, Expr::value(status.clone()))
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(now));
+    if let Some(snoozed_until) = snoozed_until {
+        update = update.col_expr(
+            conversations::Column::SnoozedUntil,
+            Expr::value(snoozed_until),
+        );
+    }
+    match status.as_str() {
+        "resolved" => {
+            update = update.col_expr(conversations::Column::ResolvedAt, Expr::value(now));
+        }
+        "closed" => update = update.col_expr(conversations::Column::ClosedAt, Expr::value(now)),
+        _ => {}
+    }
+    update
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm(&ctx.deps.db))
+        .await
+        .map_err(thrown)?;
 
     if status == "closed" || status == "resolved" {
         publish(
@@ -861,15 +942,16 @@ async fn change_status(ctx: &Ctx<'_>) -> HandlerResult {
 async fn change_priority(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
     let priority = js_string(ctx.input("priority"));
-    sqlx::query(
-        "update helpdesk_conversations set priority = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(&priority)
-    .bind(now_text())
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    conversations::Entity::update_many()
+        .col_expr(
+            conversations::Column::Priority,
+            Expr::value(priority.clone()),
+        )
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm(&ctx.deps.db))
+        .await
+        .map_err(thrown)?;
     publish_state(ctx, &conversation_id).await?;
     Ok(object(json!({
         "success": true,
@@ -910,10 +992,13 @@ async fn tag_conversation(ctx: &Ctx<'_>) -> HandlerResult {
         Some(Value::Array(tags)) => tags.iter().map(|t| json!(js_string(Some(t)))).collect(),
         _ => Vec::new(),
     };
+    let orm_db = orm(&ctx.deps.db);
     let current: Option<Option<Value>> =
-        sqlx::query_scalar("select tags from helpdesk_conversations where id = $1 limit 1")
-            .bind(&conversation_id)
-            .fetch_optional(&ctx.deps.db)
+        conversations::Entity::find_by_id(conversation_id.as_str())
+            .select_only()
+            .column(conversations::Column::Tags)
+            .into_tuple()
+            .one(&orm_db)
             .await
             .map_err(thrown)?;
     let current: Vec<Value> = match current.flatten() {
@@ -928,15 +1013,16 @@ async fn tag_conversation(ctx: &Ctx<'_>) -> HandlerResult {
         "replace" => input_tags,
         _ => unique(current.into_iter().chain(input_tags).collect()),
     };
-    sqlx::query(
-        "update helpdesk_conversations set tags = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&conversation_id)
-    .bind(Value::Array(tags.clone()))
-    .bind(now_text())
-    .execute(&ctx.deps.db)
-    .await
-    .map_err(thrown)?;
+    conversations::Entity::update_many()
+        .col_expr(
+            conversations::Column::Tags,
+            Expr::value(Value::Array(tags.clone())),
+        )
+        .col_expr(conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(conversations::Column::Id.eq(conversation_id.as_str()))
+        .exec(&orm_db)
+        .await
+        .map_err(thrown)?;
     Ok(object(json!({
         "success": true,
         "conversationId": conversation_id,
@@ -949,13 +1035,14 @@ async fn trigger_csat(ctx: &Ctx<'_>) -> HandlerResult {
     let conversation_id = ctx.conversation_id();
     let mut customer_id = "unknown".to_owned();
     if !conversation_id.is_empty() {
-        let contact: Option<Option<String>> = sqlx::query_scalar(
-            "select contact_id from helpdesk_conversations where id = $1 limit 1",
-        )
-        .bind(&conversation_id)
-        .fetch_optional(&ctx.deps.db)
-        .await
-        .map_err(thrown)?;
+        let contact: Option<Option<String>> =
+            conversations::Entity::find_by_id(conversation_id.as_str())
+                .select_only()
+                .column(conversations::Column::ContactId)
+                .into_tuple()
+                .one(&orm(&ctx.deps.db))
+                .await
+                .map_err(thrown)?;
         if let Some(contact) = contact.flatten().filter(|c| !c.is_empty()) {
             customer_id = contact;
         }
@@ -966,17 +1053,19 @@ async fn trigger_csat(ctx: &Ctx<'_>) -> HandlerResult {
     } else {
         conversation_id.as_str()
     };
-    sqlx::query(
-        "insert into helpdesk_satisfaction_surveys
-           (id, ticket_id, customer_id, status, sent_at, expires_at, created_at, updated_at)
-         values ($1, $2, $3, 'pending', $4::timestamp, $5::timestamp, $4::timestamp, $4::timestamp)",
-    )
-    .bind(&survey_id)
-    .bind(ticket_id)
-    .bind(&customer_id)
-    .bind(now_text())
-    .bind(in_ms(7.0 * 24.0 * 60.0 * 60.0 * 1000.0)?)
-    .execute(&ctx.deps.db)
+    let now = utc_now();
+    surveys::Entity::insert(surveys::ActiveModel {
+        id: Set(survey_id.clone()),
+        ticket_id: Set(ticket_id.to_owned()),
+        customer_id: Set(customer_id.clone()),
+        status: Set("pending".to_owned()),
+        sent_at: Set(now),
+        expires_at: Set(Some(in_ms(7.0 * 24.0 * 60.0 * 60.0 * 1000.0)?)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&ctx.deps.db))
     .await
     .map_err(thrown)?;
     Ok(object(json!({

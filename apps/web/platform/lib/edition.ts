@@ -163,11 +163,12 @@ export const EDITION_FEATURES = [
    */
   'panel-analytics',
   /**
-   * Third-party integrations whose syncs and webhooks run in
-   * integration-sync-worker and integration-webhook-worker (CRM, e-commerce,
-   * accounting and shipping connectors, Slack, Discord, GitHub, Google
-   * Calendar): the Kubernetes editions don't run them yet. Their entries
-   * under Settings › Integrations are hidden.
+   * The third-party integrations the Kubernetes editions don't offer yet: the
+   * CRM sync (Attio, HubSpot, Salesforce), Slack, Discord, GitHub and Google
+   * Calendar. Their entries under Settings › Integrations are hidden. Not
+   * WeldConnect's store and accounting connectors (WooCommerce, Shopify,
+   * Moneybird, Picqer): the Rust backend runs their syncs, webhooks,
+   * catch-up and Moneybird push, so their pages stay (`lib/edition-routes.ts`).
    */
   'integration-sync',
   /**
@@ -180,10 +181,43 @@ export const EDITION_FEATURES = [
    */
   'stash-replenishment',
   /**
+   * Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
+   * EU edition each is off until a workspace admin switches it on under
+   * Settings › Services outside the EU, and the integrations that use one
+   * carry a "Leaves the EU" label. A self-hosted install lists it as
+   * unavailable (its operator decides), and Global has it in
+   * `GLOBAL_UNAVAILABLE_FEATURES` (nothing changes there).
+   */
+  'outside-eu-services',
+  /**
    * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */
   'commerce',
+  /**
+   * Adding people and companies to WeldCRM automatically, from email,
+   * WeldMeet and WeldDesk (`/api/crm-settings`, the Auto-add tab of
+   * Settings → Apps → WeldCRM). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the tab.
+   */
+  'crm-auto-add',
+  /**
+   * WeldMail threat protection: virus scanning of inbound attachments (ClamAV)
+   * and dangerous-link protection (a threat feed plus URL heuristics, checked
+   * at click time through `POST /api/mail-messages/:id/link-check`). Built only
+   * in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`. Every Kubernetes install
+   * offers the link check (it needs no scanner); attachment verdicts appear only
+   * where the chart runs clamd (`mailInbound.clamav`).
+   */
+  'mail-threat-protection',
+  /**
+   * Two-way Moneybird sync (ADR INT-013): live webhook updates and sending
+   * contacts, products, invoices and bills made in WeldBooks to Moneybird, per
+   * object direction. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the Moneybird connection screen
+   * keeps its one-way import.
+   */
+  'moneybirdTwoWay',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

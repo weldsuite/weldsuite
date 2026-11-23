@@ -7,13 +7,22 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { Env } from '../../types';
 import type { CallHistoryItem } from '../../services/chat/call-history';
+
+// Avatars are account pictures, read from the master `users` table.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
 import { chatCallsRoutes } from './index';
 
 // The decline tests go through POST /:callId/decline, which tears the room down
@@ -31,9 +40,13 @@ vi.mock('@weldsuite/notifications', async (importOriginal) => ({
 }));
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
 }, 60_000);
 
 const env = () =>
@@ -43,7 +56,7 @@ const env = () =>
 
 function appFor(userId: string) {
   const app = createTestApp('/api/chat-calls', chatCallsRoutes, {
-    context: { userId, permissions: permissions('channels:read'), tenantDb: db },
+    context: { userId, permissions: permissions('channels:read'), tenantDb: db, masterDb: master },
     env: env(),
   });
   app.executionCtx.waitUntil = () => {};
@@ -61,7 +74,10 @@ async function history(userId: string, query = ''): Promise<HistoryBody> {
   return (await res.json()) as HistoryBody;
 }
 
-/** Workspace members with ids unique to the calling test. */
+/**
+ * Workspace members with ids unique to the calling test, each with an account
+ * picture. Their member rows carry a stale copy that must never show.
+ */
 async function people<N extends string>(...names: N[]): Promise<Record<N, string>> {
   const now = new Date();
   const ids = {} as Record<N, string>;
@@ -73,13 +89,16 @@ async function people<N extends string>(...names: N[]): Promise<Record<N, string
       userId,
       email: `${userId}@example.com`,
       name,
-      picture: `https://img.example.com/${name}.png`,
+      picture: `https://stale.example.com/${name}.png`,
       role: 'MEMBER',
       createdAt: now,
       updatedAt: now,
     };
   });
   await db.insert(schema.workspaceMembers).values(rows as (typeof schema.workspaceMembers.$inferInsert)[]);
+  await master.insert(users).values(
+    rows.map((row) => ({ id: row.userId, email: row.email, imageUrl: `https://img.example.com/${row.name}.png` })),
+  );
   return ids;
 }
 

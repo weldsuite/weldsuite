@@ -95,13 +95,14 @@ impl<'a> DriveItem<'a> {
 }
 
 /// The people an item is shared with directly, oldest first
-/// (`listItemShares`).
+/// (`listItemShares`). `picture` is null here: avatars are account pictures,
+/// which [`describe_sharing`] resolves.
 pub async fn list_item_shares(db: &PgPool, item: DriveItem<'_>) -> Result<Vec<Value>, sqlx::Error> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object(
                 'userId', ds.user_id, 'role', ds.role, 'sharedBy', ds.shared_by,
                 'createdAt', ds.created_at, 'name', wm.name, 'email', wm.email,
-                'picture', wm.picture)
+                'picture', null)
          from drive_shares ds
          left join workspace_members wm on wm.user_id = ds.user_id and wm.deleted_at is null
          where ($1::text is null or ds.file_id = $1) and ($2::text is null or ds.folder_id = $2)
@@ -115,7 +116,8 @@ pub async fn list_item_shares(db: &PgPool, item: DriveItem<'_>) -> Result<Vec<Va
 }
 
 /// The people who reach an item through a share on a folder above it
-/// (`listInheritedShares`).
+/// (`listInheritedShares`). `picture` is null here, as in
+/// [`list_item_shares`].
 pub async fn list_inherited_shares(
     db: &PgPool,
     folder_ids: &[String],
@@ -127,7 +129,7 @@ pub async fn list_inherited_shares(
         "select jsonb_build_object(
                 'userId', ds.user_id, 'role', ds.role, 'sharedBy', ds.shared_by,
                 'createdAt', ds.created_at, 'name', wm.name, 'email', wm.email,
-                'picture', wm.picture, 'folderId', ds.folder_id, 'folderName', f.name)
+                'picture', null, 'folderId', ds.folder_id, 'folderName', f.name)
          from drive_shares ds
          join folders f on f.id = ds.folder_id
          left join workspace_members wm on wm.user_id = ds.user_id and wm.deleted_at is null
@@ -231,32 +233,51 @@ pub struct SharingTarget<'a> {
 }
 
 async fn member_person(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
-    let member: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email, picture from workspace_members
+    let member: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "select name, email from workspace_members
          where user_id = $1 and deleted_at is null limit 1",
     )
     .bind(user_id)
     .fetch_optional(db)
     .await?;
-    let (name, email, picture) = member.unwrap_or_default();
-    Ok(json!({ "userId": user_id, "name": name, "email": email, "picture": picture }))
+    let (name, email) = member.unwrap_or_default();
+    Ok(json!({ "userId": user_id, "name": name, "email": email, "picture": null }))
 }
 
 /// Who an item is open to, for a caller whose role on it is `access_role`
-/// (`describeSharing`).
+/// (`describeSharing`). Everyone's `picture` is their account picture,
+/// read from `master` in one lookup.
 pub async fn describe_sharing(
     db: &PgPool,
+    master: Option<&PgPool>,
     index: &DriveAccessIndex,
     target: SharingTarget<'_>,
     access_role: DriveRole,
 ) -> Result<Value, sqlx::Error> {
-    let shares = list_item_shares(db, target.item).await?;
-    let inherited =
+    let mut shares = list_item_shares(db, target.item).await?;
+    let mut inherited =
         list_inherited_shares(db, &ancestor_folder_ids(index, target.parent_id)).await?;
-    let owner = match target.owner_id.filter(|id| !id.is_empty()) {
+    let mut owner = match target.owner_id.filter(|id| !id.is_empty()) {
         Some(owner_id) => member_person(db, owner_id).await?,
         None => Value::Null,
     };
+    let pictures = weldsuite_db::AccountPictures::load(
+        master,
+        shares
+            .iter()
+            .chain(&inherited)
+            .chain(std::iter::once(&owner))
+            .filter_map(|person| person["userId"].as_str()),
+    )
+    .await;
+    pictures.apply_all(
+        shares.iter_mut().chain(inherited.iter_mut()),
+        "userId",
+        "picture",
+    );
+    if owner.is_object() {
+        pictures.apply(&mut owner, "userId", "picture");
+    }
     let effective = effective_general_access(index, target.general_access, target.parent_id);
     Ok(json!({
         "owner": owner,

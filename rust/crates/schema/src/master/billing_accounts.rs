@@ -1,0 +1,165 @@
+//! `billing_accounts`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "billing_accounts")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "provider")]
+    pub provider: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "mandateId")]
+    pub mandate_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "mandateMethod")]
+    pub mandate_method: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "mandateLabel")]
+    pub mandate_label: Option<String>,
+    #[serde(rename = "unitAmount")]
+    pub unit_amount: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "currency")]
+    pub currency: String,
+    #[serde(rename = "anchorDay")]
+    pub anchor_day: Option<i16>,
+    #[serde(rename = "nextChargeAt", with = "crate::js::timestamp::option")]
+    pub next_charge_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "scheduledPlanId")]
+    pub scheduled_plan_id: Option<String>,
+    #[serde(rename = "scheduledSeats")]
+    pub scheduled_seats: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "scheduledCycle")]
+    pub scheduled_cycle: Option<String>,
+    #[serde(rename = "pastDueSince", with = "crate::js::timestamp::option")]
+    pub past_due_since: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "pastDuePaymentId")]
+    pub past_due_payment_id: Option<String>,
+    /// While past due: when the billing owners were reminded halfway through
+    /// the grace period. Before that: the renewal (period end) they were
+    /// warned about for want of a payment method, one email per renewal
+    /// (`weldsuite-core-billing`); going past due clears it.
+    #[serde(rename = "dunningRemindedAt", with = "crate::js::timestamp::option")]
+    pub dunning_reminded_at: Option<TimeDateTime>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "billing_accounts",
+    columns: &[
+        DdlColumn {
+            name: "provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'mollie'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "currency",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'EUR'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "billing_accounts_next_charge_at_idx",
+            columns: &[IndexColumn {
+                expression: "next_charge_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "billing_accounts_past_due_since_idx",
+            columns: &[IndexColumn {
+                expression: "past_due_since",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "billing_accounts_customer_id_idx",
+            columns: &[IndexColumn {
+                expression: "customer_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "billing_accounts_workspace_id_workspaces_id_fk",
+        columns: &["workspace_id"],
+        references: "workspaces",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[Unique {
+        name: "billing_accounts_workspace_id_unique",
+        columns: &["workspace_id"],
+        nulls_not_distinct: false,
+    }],
+    checks: &[],
+};

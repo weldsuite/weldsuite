@@ -10,6 +10,7 @@ pub(crate) mod credits;
 pub(crate) mod dashboard;
 pub(crate) mod feature_requests;
 pub(crate) mod notifications;
+pub(crate) mod outside_eu;
 pub(crate) mod sso;
 pub(crate) mod support;
 pub(crate) mod workspace_api_keys;

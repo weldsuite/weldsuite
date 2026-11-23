@@ -1,7 +1,7 @@
 
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
-import { isWorkspaceScopedPath } from '@/lib/workspace-url';
+import { isWorkspaceScopedPath, stripWorkspacePrefix } from '@/lib/workspace-url';
 import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
 import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@/lib/auth';
@@ -36,6 +36,7 @@ import { PlatformShell } from '@/components/layout/platform-shell';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
 import { ManagedWorkspaceBanner } from '@/components/partner/managed-workspace-banner';
+import { PaymentMethodNeededNotice } from '@/components/billing/payment-method-needed-banner';
 import { ActiveCallProvider } from '@/contexts/active-call-context';
 import { ReloadHoldDuringCalls } from '@/components/reload-hold-during-calls';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
@@ -120,6 +121,13 @@ function detectEmbeddedRoute(): boolean {
   }
   return isEmbedded;
 }
+
+/**
+ * Workspace pages that render bare (no sidebar, no overlays) but still after
+ * sign-in and workspace activation: WeldMail's link interstitial opens in its
+ * own tab and calls the API as the signed-in member.
+ */
+const CHROMELESS_WORKSPACE_PATHS: ReadonlySet<string> = new Set(['/weldmail/link']);
 
 /** Routes rendered without PlatformShell (no sidebar). */
 function isMinimalPath(pathname: string): boolean {
@@ -272,7 +280,17 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
     return null;
   }
 
-  // Full platform shell with module-specific providers
+  return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
+}
+
+/**
+ * A workspace page once signed in and activated: bare for the chromeless
+ * pages, otherwise the full platform shell with the module-specific
+ * providers and global overlays.
+ */
+function WorkspaceShell({ pathname, children }: Readonly<AppShellClientProps & { pathname: string }>) {
+  if (CHROMELESS_WORKSPACE_PATHS.has(stripWorkspacePrefix(pathname))) return <>{children}</>;
+
   return (
     <ComposeProvider>
       <PinnedNoteProvider>
@@ -301,6 +319,9 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                       <DesktopNotificationBridge />
                       {/* Read-only / partner past-due notice for managed workspaces. */}
                       <ManagedWorkspaceBanner />
+                      {/* Mollie: a paid plan with no payment method to renew on
+                          (workspaces that moved from Global), for billing managers. */}
+                      <PaymentMethodNeededNotice />
                       <PlatformShell>
                         {children}
                         <Suspense fallback={null}>

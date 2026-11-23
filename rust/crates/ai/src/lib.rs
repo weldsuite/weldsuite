@@ -42,6 +42,11 @@
 //! // answer.text, answer.served.meta() → `meta.ai` in the response
 //! ```
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod billing;
 pub mod catalog;
 pub mod config;

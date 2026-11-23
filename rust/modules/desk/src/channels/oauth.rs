@@ -126,6 +126,26 @@ async fn workspace_id(
     id.ok_or_else(|| format!("Workspace not found: {reference}"))
 }
 
+/// ADR OPS-026: whether the workspace has `service` off, so the callback
+/// stops before the code is exchanged. Only with enforcement on (the EU
+/// edition) does this open the tenant database; elsewhere the flow runs as
+/// before.
+async fn switched_off(
+    ctx: &PublicCtx,
+    state: &PublicState,
+    org: &str,
+    service: weldsuite_outside_eu::ServiceId,
+) -> Result<bool, String> {
+    if !weldsuite_outside_eu::enforced() {
+        return Ok(false);
+    }
+    let db = ctx.tenant_db(state, org).await?;
+    Ok(
+        !weldsuite_outside_eu::allowed(&db, service, &format!("desk {service} callback {org}"))
+            .await,
+    )
+}
+
 // ── Discord ───────────────────────────────────────────────────────────────────
 
 async fn discord_callback(
@@ -208,6 +228,9 @@ async fn discord_flow(
     let (Some(client_id), Some(client_secret)) = (client_id, client_secret) else {
         return Ok(redirect(&page("error=config_error")));
     };
+    if switched_off(ctx, state, &org, weldsuite_outside_eu::ServiceId::Discord).await? {
+        return Ok(redirect(&page("error=outside_eu_service_off")));
+    }
 
     let http = ctx.http(state);
     let tokens = providers::exchange_code(
@@ -386,6 +409,9 @@ async fn slack_flow(
     let (Some(client_id), Some(client_secret)) = (client_id, client_secret) else {
         return Ok(redirect(&page("error=config_error")));
     };
+    if switched_off(ctx, state, &org, weldsuite_outside_eu::ServiceId::Slack).await? {
+        return Ok(redirect(&page("error=outside_eu_service_off")));
+    }
     let form = form_encode(&[
         ("client_id", &client_id),
         ("client_secret", &client_secret),

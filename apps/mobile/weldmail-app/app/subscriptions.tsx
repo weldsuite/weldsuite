@@ -15,7 +15,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { MailX, RefreshCw } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -37,21 +36,12 @@ import {
   type TenantSubscription,
 } from '@/services/mail-tenant';
 import { formatMessageDate } from '@/utils/email-format';
+import { canUnsubscribe, senderLabel, unsubscribeConfirmMessage } from '@/utils/unsubscribe';
+import { announceUnsubscribe } from '@/components/UnsubscribeSenderChip';
 
 type StatusFilter = 'active' | 'unsubscribed';
 type ThemeColors = ReturnType<typeof useTheme>['colors'];
 type Toast = ReturnType<typeof useToast>;
-
-function senderLabel(sub: TenantSubscription): string {
-  return sub.senderName || sub.senderEmail;
-}
-
-function confirmMessage(sub: TenantSubscription): string {
-  const sender = senderLabel(sub);
-  if (sub.oneClick && sub.unsubscribeUrl) return `WeldMail will ask ${sender} to stop sending email to this mailbox.`;
-  if (sub.unsubscribeMailto) return `WeldMail will send an unsubscribe request from this mailbox to ${sender}.`;
-  return `The unsubscribe page of ${sender} opens in your browser. Finish the steps there.`;
-}
 
 /** `q` is the already trimmed + lower-cased search text. */
 function matchesQuery(s: TenantSubscription, q: string): boolean {
@@ -142,15 +132,6 @@ async function performScan(account: TenantMailAccount, toast: Toast, reload: () 
   }
 }
 
-async function announceUnsubscribe(toast: Toast, method: string, url: string | null, sender: string): Promise<void> {
-  if (method === 'one_click') toast.success(`Unsubscribed from ${sender}`);
-  else if (method === 'mailto') toast.success(`Unsubscribe request sent to ${sender}`);
-  else if (url) {
-    toast.info(`Finish unsubscribing on the page of ${sender}`, 5000);
-    await WebBrowser.openBrowserAsync(url);
-  }
-}
-
 function markUnsubscribed(items: TenantSubscription[], id: string): TenantSubscription[] {
   return items.map((s) =>
     s.id === id ? { ...s, status: 'unsubscribed', unsubscribedAt: new Date().toISOString() } : s,
@@ -175,10 +156,10 @@ async function performUnsubscribe(
   }
 }
 
-function RowStatus({ item, sender, canUnsubscribe, stillSending, colors, onUnsubscribe }: Readonly<{
+function RowStatus({ item, sender, unsubscribable, stillSending, colors, onUnsubscribe }: Readonly<{
   item: TenantSubscription;
   sender: string;
-  canUnsubscribe: boolean;
+  unsubscribable: boolean;
   stillSending: boolean;
   colors: ThemeColors;
   onUnsubscribe: (item: TenantSubscription) => void;
@@ -190,7 +171,7 @@ function RowStatus({ item, sender, canUnsubscribe, stillSending, colors, onUnsub
       </Text>
     );
   }
-  if (canUnsubscribe) {
+  if (unsubscribable) {
     return (
       <Button
         title="Unsubscribe"
@@ -210,7 +191,6 @@ function SubscriptionRow({ item, colors, onUnsubscribe }: Readonly<{
   onUnsubscribe: (item: TenantSubscription) => void;
 }>) {
   const sender = senderLabel(item);
-  const canUnsubscribe = !!item.unsubscribeUrl || !!item.unsubscribeMailto;
   const stillSending =
     item.status === 'unsubscribed' &&
     !!item.unsubscribedAt &&
@@ -238,7 +218,7 @@ function SubscriptionRow({ item, colors, onUnsubscribe }: Readonly<{
       <RowStatus
         item={item}
         sender={sender}
-        canUnsubscribe={canUnsubscribe}
+        unsubscribable={canUnsubscribe(item)}
         stillSending={stillSending}
         colors={colors}
         onUnsubscribe={onUnsubscribe}
@@ -365,7 +345,7 @@ function UnsubscribeConfirm({ pending, unsubscribing, onConfirm, onCancel }: Rea
     <ConfirmModal
       visible={!!pending}
       title={pending ? `Unsubscribe from ${senderLabel(pending)}?` : ''}
-      message={pending ? confirmMessage(pending) : undefined}
+      message={pending ? unsubscribeConfirmMessage(pending) : undefined}
       confirmText={pending && isLinkOnlySubscription(pending) ? 'Open page' : 'Unsubscribe'}
       variant="destructive"
       loading={unsubscribing}

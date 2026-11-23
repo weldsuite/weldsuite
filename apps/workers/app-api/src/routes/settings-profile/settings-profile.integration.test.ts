@@ -1,40 +1,31 @@
 /**
- * /api/settings/profile against a real pglite tenant DB: the composed profile,
- * the merging writes into `user_preferences.ui_preferences`, validation, the
- * permission gate, and the avatar upload to the public bucket. Runs in the
- * Rust conformance suite too (`rust/conformance/suites.json`).
+ * /api/settings/profile against a real pglite tenant DB: the composed profile
+ * (its picture is the ACCOUNT picture, master `users.image_url`), the merging
+ * writes into `user_preferences.ui_preferences`, validation, the permission
+ * gate, and the avatar upload's refusals. Runs in the Rust conformance suite
+ * too (`rust/conformance/suites.json`). A successful upload sets the identity
+ * provider's picture, which differs by edition (Clerk on Global), so it is
+ * tested in settings-profile-avatar.test.ts, outside the suite.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
 import { settingsProfileRoutes } from './index';
 
 let db: Database;
-
-/** In-memory stand-in for an R2 bucket. */
-function memoryBucket() {
-  const objects = new Map<string, { bytes: Uint8Array; contentType?: string }>();
-  const bucket = {
-    async put(key: string, value: Uint8Array, options?: { httpMetadata?: { contentType?: string } }) {
-      objects.set(key, { bytes: new Uint8Array(value), contentType: options?.httpMetadata?.contentType });
-      return {};
-    },
-    async get(key: string) {
-      const object = objects.get(key);
-      return object ? { body: new Blob([object.bytes]).stream(), httpMetadata: { contentType: object.contentType } } : null;
-    },
-    async delete(keys: string | string[]) {
-      for (const key of Array.isArray(keys) ? keys : [keys]) objects.delete(key);
-    },
-  };
-  return { bucket: bucket as unknown as R2Bucket, objects };
-}
-
-const publicBucket = memoryBucket();
-const privateBucket = memoryBucket();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 const ALICE = 'user_sp_alice';
 const BOB = 'user_sp_bob';
@@ -42,8 +33,11 @@ const CAROL = 'user_sp_carol';
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
   const now = new Date('2026-01-01T10:00:00.000Z');
   await db.insert(schema.workspaceMembers).values([
+    // Alice's member row still carries a stale per-workspace picture: never shown.
     { id: 'mbr_sp_alice', userId: ALICE, email: 'alice@acme.test', name: 'Alice', picture: 'https://cdn.test/a.png', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
     { id: 'mbr_sp_bob', userId: BOB, email: 'bob@acme.test', name: 'Bob', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
     { id: 'mbr_sp_carol', userId: CAROL, email: 'carol@acme.test', name: 'Carol', role: 'VIEWER', status: 'ACTIVE', createdAt: now, updatedAt: now },
@@ -56,12 +50,17 @@ beforeAll(async () => {
     createdAt: now,
     updatedAt: now,
   });
+  await master.delete(users);
+  await master.insert(users).values([
+    { id: ALICE, email: 'alice@acme.test', imageUrl: 'https://img.clerk.test/alice.png' },
+    { id: BOB, email: 'bob@acme.test', imageUrl: 'https://img.clerk.test/bob-default.png' },
+  ]);
 }, 60_000);
 
 function app(userId: string, keys: string[] = ['general:read']) {
   return createTestApp('/api/settings/profile', settingsProfileRoutes, {
-    context: { tenantDb: db, userId, permissions: permissions(...keys) },
-    env: { STORAGE: publicBucket.bucket, PRIVATE_STORAGE: privateBucket.bucket, R2_PUBLIC_URL: 'https://files.acme.test' } as never,
+    context: { tenantDb: db, masterDb: master, userId, permissions: permissions(...keys) },
+    env: { CLERK_SECRET_KEY: 'sk_test_profile' } as never,
   });
 }
 
@@ -88,7 +87,8 @@ describe('GET /api/settings/profile', () => {
       email: 'alice@acme.test',
       name: 'Alice',
       nickname: 'Al',
-      picture: 'https://cdn.test/a.png',
+      // The account picture, not the member row's stale copy.
+      picture: 'https://img.clerk.test/alice.png',
       phone: '',
       company: 'Acme',
       jobTitle: '',
@@ -104,6 +104,7 @@ describe('GET /api/settings/profile', () => {
     expect(body.data.id).toBe('user_sp_nobody');
     expect(body.data.timezone).toBe('UTC');
     expect(body.data.email).toBe('');
+    expect(body.data.picture).toBe('');
   });
 
   it('needs general:read', async () => {
@@ -183,34 +184,36 @@ describe('PUT /api/settings/profile', () => {
 });
 
 describe('PUT /api/settings/profile/avatar', () => {
-  // Hono builds the URL as http://localhost; the Rust server, behind an
-  // ingress, reads the original host from X-Forwarded-Host.
-  const local = { 'X-Forwarded-Host': 'localhost' };
+  /** What the Clerk stub was sent: the multipart upload, as the TypeScript run sees it. */
+  let uploads: Array<{ url: string; auth: string | null; file: File | null }>;
+  let clerkStatus: number;
 
-  it('stores the image in the public bucket and saves its URL', async () => {
-    const res = await app(BOB).request(
-      '/api/settings/profile/avatar',
-      put({ file: 'data:image/png;base64,iVBORw0KGgo=', fileName: 'me.png' }, local),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { imageUrl: string } };
-    expect(body.data.imageUrl).toMatch(
-      /^http:\/\/localhost\/api\/storage\/public\/workspaces\/org_test_default\/avatars\/user_sp_bob_\d+\.png$/,
-    );
-    const key = body.data.imageUrl.replace('http://localhost/api/storage/public/', '');
-    expect(publicBucket.objects.get(key)?.bytes.byteLength).toBe(8);
-    const [member] = await db.select().from(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, BOB));
-    expect(member?.picture).toBe(body.data.imageUrl);
+  beforeEach(() => {
+    uploads = [];
+    clerkStatus = 200;
+    // Answers by URL and method: in conformance mode it answers the Rust run too.
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const match = /^https:\/\/api\.clerk\.com\/v1\/users\/([^/]+)\/profile_image$/.exec(url);
+      if (init?.method === 'POST' && match) {
+        const form = init.body instanceof FormData ? init.body : null;
+        // workers-types types `get()` as string-only; at runtime the upload is a File.
+        const file: unknown = form?.get('file');
+        uploads.push({
+          url,
+          auth: new Headers(init.headers).get('Authorization'),
+          file: file instanceof File ? file : null,
+        });
+        if (clerkStatus !== 200) return Response.json({ errors: [{ message: 'nope' }] }, { status: clerkStatus });
+        const userId = decodeURIComponent(match[1]!);
+        return Response.json({ id: userId, image_url: `https://img.clerk.test/${userId}-uploaded.png` });
+      }
+      return Response.json({}, { status: 404 });
+    }));
   });
 
-  it('takes the media type from contentType when the data URL has none', async () => {
-    const res = await app(BOB).request(
-      '/api/settings/profile/avatar',
-      put({ file: 'data:;base64,iVBORw0KGgo=', contentType: 'IMAGE/JPEG' }, local),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { imageUrl: string } };
-    expect(body.data.imageUrl).toMatch(/\.jpg$/);
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it.each([
@@ -220,29 +223,30 @@ describe('PUT /api/settings/profile/avatar', () => {
     ['broken base64', { file: 'data:image/png;base64,a$b=' }, 'Avatar is not valid base64'],
     ['an empty image', { file: 'data:image/png;base64,' }, 'Avatar is empty'],
   ])('refuses %s', async (_name, body, message) => {
-    const res = await app(BOB).request('/api/settings/profile/avatar', put(body, local));
+    const res = await app(BOB).request('/api/settings/profile/avatar', put(body));
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { message: string } };
     expect(json.error.message).toBe(message);
+    expect(uploads).toHaveLength(0);
   });
 
   it('refuses an image over 5 MB', async () => {
     const big = Buffer.alloc(5 * 1024 * 1024 + 1).toString('base64');
-    const res = await app(BOB).request('/api/settings/profile/avatar', put({ file: `data:image/png;base64,${big}` }, local));
+    const res = await app(BOB).request('/api/settings/profile/avatar', put({ file: `data:image/png;base64,${big}` }));
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { message: string } };
     expect(json.error.message).toBe('Avatar exceeds the 5MB limit');
   });
 
   it('refuses a body without a file', async () => {
-    const res = await app(BOB).request('/api/settings/profile/avatar', put({ file: '' }, local));
+    const res = await app(BOB).request('/api/settings/profile/avatar', put({ file: '' }));
     expect(res.status).toBe(400);
   });
 
   it('needs general:read', async () => {
     const res = await app(BOB, []).request(
       '/api/settings/profile/avatar',
-      put({ file: 'data:image/png;base64,iVBORw0KGgo=' }, local),
+      put({ file: 'data:image/png;base64,iVBORw0KGgo=' }),
     );
     expect(res.status).toBe(403);
   });

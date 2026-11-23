@@ -11,6 +11,7 @@ use http::request::Parts;
 use weldsuite_auth::AuthContext;
 use weldsuite_kit::ApiError;
 
+use crate::MasterDb;
 use crate::workspaces::{Tenant, WorkspaceError, Workspaces};
 
 /// Middleware: `axum::middleware::from_fn_with_state(workspaces, workspace_db)`,
@@ -56,7 +57,13 @@ pub async fn workspace_db(
         .into_response();
     }
 
-    request.extensions_mut().insert(tenant);
+    let extensions = request.extensions_mut();
+    extensions.insert(tenant);
+    // The master database for routes that read it off the request (account
+    // pictures, `crate::account_pictures`), as conformance hands in the test's.
+    if extensions.get::<MasterDb>().is_none() {
+        extensions.insert(MasterDb(workspaces.master().clone()));
+    }
     next.run(request).await
 }
 

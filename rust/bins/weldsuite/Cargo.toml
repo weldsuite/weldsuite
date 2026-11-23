@@ -11,7 +11,7 @@ publish.workspace = true
 [features]
 # Test-only: /api takes the test's context from a header instead of a session
 # token (src/conformance.rs). Never in a release image.
-conformance = ["dep:form_urlencoded", "reqwest/query"]
+conformance = ["dep:form_urlencoded", "reqwest/query", "weldsuite-crm/conformance"]
 
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
@@ -73,6 +73,7 @@ weldsuite-forms = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-staff-domain = { workspace = true }
 weldsuite-reach = { workspace = true }

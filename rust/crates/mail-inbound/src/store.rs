@@ -5,9 +5,11 @@
 //! attachment rows, the subscription upsert) and the raw MIME to the mail
 //! bucket.
 
+use sea_orm::{ActiveValue::Set, EntityTrait};
 use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::tenant::mail_attachments;
 
 use crate::context::InboundContext;
 use crate::parsed::{ParsedAttachment, ParsedEmail};
@@ -18,6 +20,7 @@ use crate::thread_match::{
     bare_subject, conversation_subjects, has_reply_prefix, involves_address, message_id_variants,
     provider_message_ids,
 };
+use crate::threats::{AttachmentScan, MessageThreats};
 use crate::unsubscribe::{SubscriptionValues, subscription_values};
 
 /// `StoreEmailResult`.
@@ -224,22 +227,80 @@ pub(crate) fn sanitize_file_name(name: &str) -> String {
 
 /// One attachment row of the ingest.
 struct AttachmentInput {
+    /// Which parsed attachment it is.
+    index: usize,
     id: String,
     file_name: String,
     content_type: String,
     size: usize,
-    storage_path: String,
-    download_url: String,
+    /// `None` for an infected file, which is never stored.
+    storage_path: Option<String>,
+    /// `None` for a file that is not served from the public bucket.
+    download_url: Option<String>,
+    scan: AttachmentScan,
+}
+
+/// Where a pending attachment waits for the rescan: the private mail
+/// bucket, next to the message's raw MIME, never the public one.
+pub fn quarantine_key(
+    workspace_id: &str,
+    account_id: &str,
+    message_id: &str,
+    index: usize,
+    file_name: &str,
+) -> String {
+    format!(
+        "mail/{workspace_id}/{account_id}/{message_id}/quarantine/{}_{}",
+        index + 1,
+        sanitize_file_name(file_name)
+    )
+}
+
+/// A pending attachment into the mail bucket at `key`: the key when it is
+/// there, `None` (logged) when it could not be put anywhere. The row is
+/// written either way; the rescan marks one without a copy `error`.
+async fn quarantine(
+    ctx: &InboundContext,
+    key: String,
+    att: &ParsedAttachment,
+    content_type: String,
+    index: usize,
+) -> Option<String> {
+    let Some(bucket) = &ctx.mail_storage else {
+        tracing::error!(
+            index = index + 1,
+            "[Store] No mail bucket to quarantine an attachment in"
+        );
+        return None;
+    };
+    match bucket
+        .put_boxed(
+            &key,
+            att.content.clone(),
+            &PutOptions::content_type(content_type),
+        )
+        .await
+    {
+        Ok(_) => Some(key),
+        Err(error) => {
+            tracing::error!(%error, index = index + 1, "[Store] Failed to quarantine attachment");
+            None
+        }
+    }
 }
 
 /// `buildWorkspaceAttachmentInputs`: each attachment to `STORAGE`, its row,
-/// and the `cid:` map for the HTML.
+/// and the `cid:` map for the HTML. An infected file goes nowhere and a
+/// pending one to [`quarantine_key`] ([`crate::threats`]); neither gets a
+/// `cid:` mapping.
 async fn build_attachment_inputs(
     ctx: &InboundContext,
-    workspace_id: &str,
+    account: &RecipientAccount,
     message_id: &str,
     attachments: &[ParsedAttachment],
+    threats: &MessageThreats,
 ) -> (Vec<AttachmentInput>, Vec<(String, String)>) {
+    let workspace_id = account.workspace_id.as_str();
     let mut inputs = Vec::new();
     let mut cids: Vec<(String, String)> = Vec::new();
     let Some(storage) = &ctx.storage else {
@@ -252,6 +313,37 @@ async fn build_attachment_inputs(
         } else {
             att.content_type.clone()
         };
+        let scan = threats.attachment(i).clone();
+        let mut input = AttachmentInput {
+            index: i,
+            id: weldsuite_kit::generate_id("attach"),
+            file_name: att.file_name.clone(),
+            content_type: content_type.clone(),
+            size: att.content.len(),
+            storage_path: None,
+            download_url: None,
+            scan: scan.clone(),
+        };
+        match scan {
+            AttachmentScan::Infected { .. } => {
+                tracing::warn!(index = i + 1, file = %att.file_name, "[Store] Infected attachment not stored");
+                inputs.push(input);
+                continue;
+            }
+            AttachmentScan::Pending => {
+                let key = quarantine_key(
+                    workspace_id,
+                    &account.account_id,
+                    message_id,
+                    i,
+                    &att.file_name,
+                );
+                input.storage_path = quarantine(ctx, key, att, content_type, i).await;
+                inputs.push(input);
+                continue;
+            }
+            _ => {}
+        }
         let key = format!(
             "workspaces/{workspace_id}/mail/attachments/{message_id}/{}_{}",
             i + 1,
@@ -284,14 +376,9 @@ async fn build_attachment_inputs(
                 cids.push((cid, download_url.clone()));
             }
         }
-        inputs.push(AttachmentInput {
-            id: weldsuite_kit::generate_id("attach"),
-            file_name: att.file_name.clone(),
-            content_type,
-            size: att.content.len(),
-            storage_path: key,
-            download_url,
-        });
+        input.storage_path = Some(key);
+        input.download_url = Some(download_url);
+        inputs.push(input);
     }
     (inputs, cids)
 }
@@ -377,6 +464,7 @@ async fn ingest(
     labels: &[String],
     is_spam: bool,
     attachments: &[AttachmentInput],
+    threats: Option<&Value>,
     subscription: Option<&SubscriptionValues>,
     received_ms: i64,
 ) -> Result<String, sqlx::Error> {
@@ -403,11 +491,11 @@ async fn ingest(
              text_body, html_body, sent_date, received_date, is_read, labels, is_spam,
              is_starred, is_important, is_trash, in_reply_to, \"references\", is_reply,
              spf_status, dkim_status, dmarc_status, source, has_attachments, attachment_count,
-             created_at, updated_at)
+             created_at, updated_at, threats)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamp, $13::timestamp,
                  false, $14, $15, $16, $17, $18, $19, $20, $21,
                  $22::mail_security_status, $23::mail_security_status, $24::mail_security_status,
-                 'inbound', $25, $26, $13::timestamp, $27::timestamp)
+                 'inbound', $25, $26, $13::timestamp, $27::timestamp, $28)
          on conflict (id) do nothing
          returning id, thread_id",
     )
@@ -438,6 +526,7 @@ async fn ingest(
     .bind(!attachments.is_empty())
     .bind(i32::try_from(attachments.len()).unwrap_or(i32::MAX))
     .bind(&now)
+    .bind(threats)
     .fetch_optional(db)
     .await?;
     let Some((id, thread)) = inserted else {
@@ -448,33 +537,67 @@ async fn ingest(
                 .await?;
         return Ok(existing.flatten().unwrap_or_else(|| message_id.to_owned()));
     };
-    for att in attachments {
-        sqlx::query(
-            "insert into mail_attachments
-                (id, message_id, file_name, content_type, size, storage_path, download_url,
-                 is_inline, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, false, $8::timestamp, $8::timestamp)",
-        )
-        .bind(&att.id)
-        .bind(&id)
-        .bind(&att.file_name)
-        .bind(&att.content_type)
-        .bind(i32::try_from(att.size).unwrap_or(i32::MAX))
-        .bind(&att.storage_path)
-        .bind(&att.download_url)
-        .bind(&now)
-        .execute(db)
-        .await?;
-    }
+    insert_attachment_rows(db, &id, attachments, received_ms).await?;
     if let Some(values) = subscription {
         upsert_subscription(db, account_id, values, &now).await?;
     }
     Ok(thread.unwrap_or(id))
 }
 
+/// `ms` since the epoch as the timestamp columns take it (UTC).
+pub(crate) fn timestamp(ms: i64) -> time::PrimitiveDateTime {
+    let at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    time::PrimitiveDateTime::new(at.date(), at.time())
+}
+
+/// An ORM error where the pipeline speaks sqlx's.
+fn db_err(error: &sea_orm::DbErr) -> sqlx::Error {
+    sqlx::Error::Protocol(format!("orm: {error}"))
+}
+
+/// The ingest's attachment rows, with their scan.
+async fn insert_attachment_rows(
+    db: &PgPool,
+    message_id: &str,
+    attachments: &[AttachmentInput],
+    at_ms: i64,
+) -> Result<(), sqlx::Error> {
+    if attachments.is_empty() {
+        return Ok(());
+    }
+    let at = timestamp(at_ms);
+    let rows = attachments.iter().map(|att| mail_attachments::ActiveModel {
+        id: Set(att.id.clone()),
+        message_id: Set(message_id.to_owned()),
+        file_name: Set(att.file_name.clone()),
+        content_type: Set(Some(att.content_type.clone())),
+        size: Set(i32::try_from(att.size).unwrap_or(i32::MAX)),
+        is_inline: Set(Some(false)),
+        storage_path: Set(att.storage_path.clone()),
+        download_url: Set(att.download_url.clone()),
+        scan_status: Set(att.scan.status().map(str::to_owned)),
+        scan_signature: Set(att.scan.signature().map(str::to_owned)),
+        scanned_at: Set((!matches!(
+            att.scan,
+            AttachmentScan::NotScanned | AttachmentScan::Pending
+        ))
+        .then_some(at)),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    });
+    mail_attachments::Entity::insert_many(rows)
+        .exec_without_returning(&weldsuite_db::orm(db))
+        .await
+        .map_err(|error| db_err(&error))?;
+    Ok(())
+}
+
 /// `storeEmail(env, account, email, attachmentNames, attachments, mailbox)`
 /// for a workspace mailbox: the stored message, or `None` for a duplicate
-/// (or a failure, which is logged, as the worker does).
+/// (or a failure, which is logged, as the worker does). `threats` is what
+/// [`crate::threats::inspect`] found in the message.
 pub async fn store_email(
     ctx: &InboundContext,
     db: &PgPool,
@@ -482,8 +605,19 @@ pub async fn store_email(
     email: &ParsedEmail,
     attachment_names: &[String],
     attachments: &[ParsedAttachment],
+    threats: &MessageThreats,
 ) -> Option<Stored> {
-    match store(ctx, db, account, email, attachment_names, attachments).await {
+    match store(
+        ctx,
+        db,
+        account,
+        email,
+        attachment_names,
+        attachments,
+        threats,
+    )
+    .await
+    {
         Ok(stored) => stored,
         Err(error) => {
             tracing::error!(%error, account = %account.account_id, "[Store] Failed to store email");
@@ -500,6 +634,7 @@ async fn store(
     email: &ParsedEmail,
     attachment_names: &[String],
     attachments: &[ParsedAttachment],
+    threats: &MessageThreats,
 ) -> Result<Option<Stored>, sqlx::Error> {
     let resolved = resolve_inbound(db, &account.account_id, email).await?;
     if resolved.duplicate {
@@ -538,7 +673,14 @@ async fn store(
         reasons = %spam.reasons.join(", "),
         "[Spam] scored"
     );
-    let is_promotion = if spam.is_spam {
+    // An infected file or a malicious link sends the message to Spam,
+    // whatever its spam score (`crate::threats`).
+    let dangerous = threats.is_dangerous();
+    if dangerous && !spam.is_spam {
+        tracing::info!(message_id, reasons = %threats.reasons().join(", "), "[Threats] moved to Spam");
+    }
+    let is_spam = spam.is_spam || dangerous;
+    let is_promotion = if is_spam {
         false
     } else {
         let promotion = classify_promotion(
@@ -564,14 +706,21 @@ async fn store(
     let mut inputs = Vec::new();
     if email.has_attachments && !attachments.is_empty() && ctx.storage.is_some() {
         let (built, cids) =
-            build_attachment_inputs(ctx, &account.workspace_id, &message_id, attachments).await;
+            build_attachment_inputs(ctx, account, &message_id, attachments, threats).await;
         inputs = built;
         if let Some(rewritten) = rewrite_cid_references(email.html_body.as_deref(), &cids) {
             html = Some(rewritten);
         }
     }
-    let labels = inbound_labels(spam.is_spam, is_promotion);
-    let subscription = if spam.is_spam {
+    let mut ids: Vec<Option<String>> = vec![None; attachments.len()];
+    for input in &inputs {
+        if let Some(slot) = ids.get_mut(input.index) {
+            *slot = Some(input.id.clone());
+        }
+    }
+    let threats_json = threats.to_json(attachments, &ids);
+    let labels = inbound_labels(is_spam, is_promotion);
+    let subscription = if is_spam {
         None
     } else {
         subscription_values(email)
@@ -585,13 +734,25 @@ async fn store(
         email,
         html.as_deref(),
         &labels,
-        spam.is_spam,
+        is_spam,
         &inputs,
+        threats_json.as_ref(),
         subscription.as_ref(),
         received_ms,
     )
     .await?;
     tracing::info!(message_id, thread_id, account = %account.account_id, "[Store] Saved email");
+    if inputs.iter().any(|i| i.scan == AttachmentScan::Pending) {
+        // The rescan picks the pending files up once the scanner is back.
+        let due = time::OffsetDateTime::now_utc() + crate::rescan::FIRST_RETRY;
+        weldsuite_db::due_index::mark_due(
+            &ctx.master,
+            crate::rescan::RESCAN_KIND,
+            &account.workspace_id,
+            due,
+        )
+        .await;
+    }
 
     if let Some(bucket) = &ctx.mail_storage
         && !email.raw.is_empty()
@@ -614,7 +775,7 @@ async fn store(
     Ok(Some(Stored {
         message_id,
         thread_id,
-        is_spam: spam.is_spam,
+        is_spam,
         is_promotion,
     }))
 }

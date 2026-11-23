@@ -211,6 +211,7 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
     cancelBrowserSignIn: session.signsInThroughBrowser ? () => session.cancelSignIn() : undefined,
     completeSignIn: () => session.completeSignIn(),
     accountUrl: session.accountUrl,
+    identityProvider: config.identityProvider ?? undefined,
     platformSignIn: config.signIn === 'platform',
     getActiveOrgId: () => session.getSnapshot().activeOrgId,
     // Header mode lists WeldSuite's directory, keyed by `workspaces.id`.

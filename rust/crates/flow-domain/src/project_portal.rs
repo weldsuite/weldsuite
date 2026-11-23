@@ -19,120 +19,79 @@ use weldsuite_kit::validation::js_trim;
 use crate::js::{millis_of, number_value};
 
 // ── Sign-in ─────────────────────────────────────────────────────────────────
+//
+// The code, session and limit machinery is the kit's (`weldsuite_kit::portal::
+// signin`), shared with the WeldCommerce storefront; what is the project
+// portal's own is its cache namespace and the subject of its records: the
+// CRM contacts of the address.
+
+use weldsuite_kit::portal::signin::{self, Namespace};
+
+pub use weldsuite_kit::portal::signin::messages;
+pub use weldsuite_kit::portal::workspace::PortalSlugEntry;
+
+/// The project portal's cache keys: `pportal:code:…`, `pportal:sess:…`,
+/// `pportal:slug:…`.
+pub const NAMESPACE: Namespace = Namespace("pportal");
 
 /// A sign-in code lives 15 minutes.
-pub const PORTAL_CODE_TTL_SECONDS: u64 = 15 * 60;
+pub const PORTAL_CODE_TTL_SECONDS: u64 = signin::CODE_TTL_SECONDS;
 /// A session lives 30 days from its last use.
-pub const PORTAL_SESSION_TTL_SECONDS: u64 = 30 * 24 * 60 * 60;
-/// The session record is written again when it was last used more than a day ago.
-pub const PORTAL_SESSION_REFRESH_AFTER_SECONDS: i64 = 24 * 60 * 60;
+pub const PORTAL_SESSION_TTL_SECONDS: u64 = signin::SESSION_TTL_SECONDS;
 /// Wrong guesses a code survives before it is thrown away.
-pub const PORTAL_MAX_VERIFY_ATTEMPTS: u32 = 8;
-/// Code requests per 15 minutes, per address and per workspace.
-pub const PORTAL_REQUEST_LIMIT_EMAIL: u32 = 5;
-pub const PORTAL_REQUEST_LIMIT_WORKSPACE: u32 = 200;
-pub const PORTAL_REQUEST_WINDOW_SECONDS: u64 = 15 * 60;
-/// Failed verifies per 15 minutes, per address and per workspace.
-pub const PORTAL_VERIFY_LIMIT_EMAIL: u32 = 20;
-pub const PORTAL_VERIFY_LIMIT_WORKSPACE: u32 = 200;
+pub const PORTAL_MAX_VERIFY_ATTEMPTS: u32 = signin::MAX_VERIFY_ATTEMPTS;
 /// The workspace lookup by slug is cached this long.
-pub const PORTAL_SLUG_TTL_SECONDS: u64 = 300;
-
-/// `PORTAL_MESSAGES`: the refusals, sent to the client as they are.
-pub mod messages {
-    pub const INVALID_CODE: &str = "Invalid or expired code";
-    pub const TOO_MANY_ATTEMPTS: &str = "Too many attempts, try again later";
-    pub const SIGN_IN_UNAVAILABLE: &str = "Sign-in is temporarily unavailable, try again shortly";
-    pub const SIGN_IN_REQUIRED: &str = "Sign in required";
-    pub const SESSION_EXPIRED: &str = "Session expired";
-    pub const ACCESS_REVOKED: &str = "Access revoked";
-}
+pub const PORTAL_SLUG_TTL_SECONDS: u64 = weldsuite_kit::portal::workspace::SLUG_TTL_SECONDS;
 
 /// `email.trim().toLowerCase()`.
 pub fn normalize_portal_email(email: &str) -> String {
-    js_trim(email).to_lowercase()
+    signin::normalize_email(email)
 }
 
-/// The text hashed for a code: salted with the workspace and the address, so a
-/// leaked record cannot be searched for 6-digit codes with a table that works
-/// for every workspace (`portalCodeHash` hashes it with SHA-256).
-pub fn portal_code_input(workspace_id: &str, email: &str, code: &str) -> String {
-    format!("{workspace_id}:{}:{code}", normalize_portal_email(email))
-}
-
-/// A pending sign-in code (KV, 15 minutes). Fields in the order
-/// `JSON.stringify` writes them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// What the portal resolved for an address: the CRM contacts with this
+/// address that hold portal access.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PortalChallenge {
-    pub code_hash: String,
-    pub email: String,
-    pub workspace_id: String,
-    /// The CRM contacts with this address that hold portal access.
+pub struct ContactSubject {
     #[serde(default)]
     pub contact_ids: Vec<String>,
-    #[serde(default)]
-    pub attempts: u32,
 }
+
+/// A pending sign-in code (KV, 15 minutes).
+pub type PortalChallenge = signin::Challenge<ContactSubject>;
 
 /// A signed-in session (KV, 30 days from the last use), keyed by the SHA-256
 /// of its token.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PortalSessionRecord {
-    pub workspace_id: String,
-    /// The Clerk org id the tenant database is opened with; null when only
-    /// `workspaces.id` is known.
-    pub clerk_org_id: Option<String>,
-    pub workspace_slug: String,
-    pub workspace_name: String,
-    pub email: String,
-    pub contact_ids: Vec<String>,
-    /// ISO.
-    pub created_at: String,
-    /// ISO; moves forward when the record is written again.
-    pub last_seen_at: String,
-}
-
-/// The workspace lookup cached under [`portal_slug_key`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PortalSlugEntry {
-    pub workspace_id: String,
-    pub clerk_org_id: String,
-    pub name: String,
-}
+pub type PortalSessionRecord = signin::SessionRecord<ContactSubject>;
 
 pub fn portal_code_key(workspace_id: &str, email: &str) -> String {
-    format!(
-        "pportal:code:{workspace_id}:{}",
-        normalize_portal_email(email)
-    )
+    NAMESPACE.code_key(workspace_id, email)
 }
 
 pub fn portal_session_key(token_hash: &str) -> String {
-    format!("pportal:sess:{token_hash}")
+    NAMESPACE.session_key(token_hash)
 }
 
 pub fn portal_slug_key(slug: &str) -> String {
-    format!("pportal:slug:{slug}")
+    NAMESPACE.slug_key(slug)
 }
 
 /// True when the session was last written more than a day ago.
 pub fn session_needs_refresh(last_seen_at: &str, now_millis: i64) -> bool {
-    match millis_of(last_seen_at) {
-        Some(seen) => now_millis - seen > PORTAL_SESSION_REFRESH_AFTER_SECONDS * 1000,
-        None => true,
-    }
+    signin::session_needs_refresh(last_seen_at, now_millis)
 }
 
 /// When a session last used at `last_seen_at` lapses (ISO); `now_millis` stands
 /// in when it does not parse.
 pub fn session_expires_at(last_seen_at: &str, now_millis: i64) -> String {
-    let seen = millis_of(last_seen_at).unwrap_or(now_millis);
-    let ttl = i64::try_from(PORTAL_SESSION_TTL_SECONDS).unwrap_or(0) * 1000;
-    crate::js::iso_from_millis(seen + ttl).unwrap_or_default()
+    signin::session_expires_at(last_seen_at, now_millis)
 }
+
+/// Code requests per 15 minutes, per address and per workspace; failed
+/// verifies likewise (the kit's limits).
+pub const PORTAL_REQUEST_LIMIT_EMAIL: u32 = signin::REQUEST_LIMIT_EMAIL;
+/// A code is this many digits.
+pub const PORTAL_CODE_LENGTH: usize = signin::CODE_LENGTH;
 
 // ── Visibility ──────────────────────────────────────────────────────────────
 
@@ -147,9 +106,6 @@ pub const PORTAL_DECISIONS: [&str; 3] = ["approved", "rejected", "info_requested
 
 /// `PORTAL_LOCALES`.
 pub const PORTAL_LOCALES: [&str; 2] = ["en", "nl"];
-
-/// Digits in the emailed sign-in code.
-pub const PORTAL_CODE_LENGTH: usize = 6;
 
 /// The subjects of approvals the portal shows.
 pub fn is_portal_approval_subject(subject_type: &str) -> bool {
@@ -608,55 +564,30 @@ mod tests {
     }
 
     #[test]
-    fn keys_and_hash_input() {
+    fn keys_and_records_are_the_ones_the_worker_writes() {
         assert_eq!(
             portal_code_key("ws_1", " Femke@Client.test "),
             "pportal:code:ws_1:femke@client.test"
         );
         assert_eq!(portal_session_key("abc"), "pportal:sess:abc");
         assert_eq!(portal_slug_key("acme"), "pportal:slug:acme");
-        assert_eq!(
-            portal_code_input("ws_1", "A@B.c", "123456"),
-            "ws_1:a@b.c:123456"
-        );
-    }
-
-    #[test]
-    fn records_serialise_in_the_order_the_worker_writes_them() {
         let challenge = PortalChallenge {
             code_hash: "h".into(),
             email: "a@b.c".into(),
             workspace_id: "ws".into(),
-            contact_ids: vec!["pe_1".into()],
+            subject: ContactSubject {
+                contact_ids: vec!["pe_1".into()],
+            },
             attempts: 0,
         };
         assert_eq!(
             serde_json::to_string(&challenge).expect("json"),
             r#"{"codeHash":"h","email":"a@b.c","workspaceId":"ws","contactIds":["pe_1"],"attempts":0}"#
         );
-        let session = PortalSessionRecord {
-            workspace_id: "ws".into(),
-            clerk_org_id: None,
-            workspace_slug: "acme".into(),
-            workspace_name: "Acme".into(),
-            email: "a@b.c".into(),
-            contact_ids: vec![],
-            created_at: "2026-11-01T08:00:00.000Z".into(),
-            last_seen_at: "2026-11-01T08:00:00.000Z".into(),
-        };
-        assert_eq!(
-            serde_json::to_string(&session).expect("json"),
-            r#"{"workspaceId":"ws","clerkOrgId":null,"workspaceSlug":"acme","workspaceName":"Acme","email":"a@b.c","contactIds":[],"createdAt":"2026-11-01T08:00:00.000Z","lastSeenAt":"2026-11-01T08:00:00.000Z"}"#
-        );
-    }
-
-    #[test]
-    fn sessions_refresh_after_a_day_and_expire_after_thirty() {
         let seen = "2026-11-01T08:00:00.000Z";
         let seen_ms = millis_of(seen).expect("ms");
         assert!(!session_needs_refresh(seen, seen_ms + 86_400_000));
         assert!(session_needs_refresh(seen, seen_ms + 86_400_001));
-        assert!(session_needs_refresh("nope", seen_ms));
         assert_eq!(
             session_expires_at(seen, seen_ms),
             "2026-12-01T08:00:00.000Z"

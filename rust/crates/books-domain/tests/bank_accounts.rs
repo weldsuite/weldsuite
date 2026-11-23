@@ -6,6 +6,11 @@
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use serde_json::{Value, json};
 use weldsuite_books_domain::bank_accounts::{
     BankAccountError, BankLedgerPlan, create_ledger_account_for_bank, insert_ledger_account,

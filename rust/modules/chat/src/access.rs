@@ -34,6 +34,7 @@ struct Overrides {
     buckets: Option<StorageBuckets>,
     http: Option<OutboundHttp>,
     presence: Option<PresenceReader>,
+    master: Option<PgPool>,
 }
 
 /// A signed-in member in a workspace.
@@ -105,6 +106,12 @@ impl Caller {
         }
     }
 
+    /// The master database (account pictures): the request's, when there is
+    /// one (the app's behind `workspace_db`, the test's in conformance).
+    pub fn master(&self) -> Option<&PgPool> {
+        self.overrides.master.as_ref()
+    }
+
     /// Live presence.
     pub fn presence(&self, state: &ChatState) -> Option<PresenceReader> {
         self.overrides
@@ -164,6 +171,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     buckets: parts.extensions.get::<StorageBuckets>().cloned(),
                     http: parts.extensions.get::<OutboundHttp>().cloned(),
                     presence: parts.extensions.get::<PresenceReader>().cloned(),
+                    master: parts
+                        .extensions
+                        .get::<weldsuite_db::MasterDb>()
+                        .map(|master| master.0.clone()),
                 },
             })
         } else {

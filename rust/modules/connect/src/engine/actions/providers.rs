@@ -149,6 +149,8 @@ pub(super) async fn resolve_integration(
             &format!("Integration {selector} is not connected (status: {status})"),
         ));
     }
+    let stored = js_string(row.get("type"));
+    ActionError::outside_eu(ctx.db, if stored.is_empty() { kind } else { &stored }).await?;
     Ok(row)
 }
 

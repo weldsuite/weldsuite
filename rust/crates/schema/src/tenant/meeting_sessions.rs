@@ -1,0 +1,272 @@
+//! `meeting_sessions`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "meeting_sessions")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "meetingId")]
+    pub meeting_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "sessionType")]
+    pub session_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "cfAppId")]
+    pub cf_app_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "startedBy")]
+    pub started_by: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "startedByName")]
+    pub started_by_name: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "participants")]
+    pub participants: Option<Json>,
+    #[serde(rename = "startedAt", with = "crate::js::timestamp::option")]
+    pub started_at: Option<TimeDateTime>,
+    #[serde(rename = "endedAt", with = "crate::js::timestamp::option")]
+    pub ended_at: Option<TimeDateTime>,
+    #[serde(rename = "duration")]
+    pub duration: Option<i32>,
+    #[serde(rename = "maxParticipants")]
+    pub max_participants: i32,
+    #[serde(rename = "recordingEnabled")]
+    pub recording_enabled: Option<bool>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "recordingUrl")]
+    pub recording_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "recordingKey")]
+    pub recording_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "rtkSessionId")]
+    pub rtk_session_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "recordingStatus")]
+    pub recording_status: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "recordingRtkId")]
+    pub recording_rtk_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "recordingVideoKey")]
+    pub recording_video_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "recordingAudioKey")]
+    pub recording_audio_key: Option<String>,
+    #[serde(rename = "recordingSizeBytes")]
+    pub recording_size_bytes: Option<i64>,
+    #[serde(rename = "recordingDurationSeconds")]
+    pub recording_duration_seconds: Option<i32>,
+    #[serde(rename = "recordingReadyAt", with = "crate::js::timestamp::option")]
+    pub recording_ready_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "recordingError")]
+    pub recording_error: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "recordingParts")]
+    pub recording_parts: Option<Json>,
+    #[serde(rename = "aiTranscribeRequested")]
+    pub ai_transcribe_requested: Option<bool>,
+    #[serde(rename = "aiSummarizeRequested")]
+    pub ai_summarize_requested: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "aiLanguage")]
+    pub ai_language: Option<String>,
+    #[serde(rename = "transcriptionCreditsCharged")]
+    pub transcription_credits_charged: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "summaryStatus")]
+    pub summary_status: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "summaryText")]
+    pub summary_text: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "summaryFormat")]
+    pub summary_format: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "summarySource")]
+    pub summary_source: Option<String>,
+    #[serde(rename = "summaryGeneratedAt", with = "crate::js::timestamp::option")]
+    pub summary_generated_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "summaryError")]
+    pub summary_error: Option<String>,
+    #[serde(rename = "summaryCreditsCharged")]
+    pub summary_credits_charged: Option<i32>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "meeting_sessions",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "session_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'video'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'waiting'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "participants",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "max_participants",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "recording_enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "ai_transcribe_requested",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "ai_summarize_requested",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "meeting_sessions_meeting_idx",
+            columns: &[IndexColumn {
+                expression: "meeting_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meeting_sessions_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meeting_sessions_started_by_idx",
+            columns: &[IndexColumn {
+                expression: "started_by",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meeting_sessions_created_at_idx",
+            columns: &[IndexColumn {
+                expression: "created_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "meeting_sessions_recording_status_idx",
+            columns: &[IndexColumn {
+                expression: "recording_status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "meeting_sessions_meeting_id_meetings_id_fk",
+        columns: &["meeting_id"],
+        references: "meetings",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

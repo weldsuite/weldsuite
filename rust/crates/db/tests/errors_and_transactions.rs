@@ -7,6 +7,11 @@
 //! superuser, which the CI database's user is. Each test uses its own tables,
 //! since the tests of one file run in parallel.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::str::FromStr;
 
 use http::StatusCode;

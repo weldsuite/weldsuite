@@ -2185,6 +2185,7 @@
         "packages/domains/books/src/jurisdictions/us/tax-codes.ts",
         "apps/workers/stash-api/src/types.ts",
         "rust/modules/stash/",
+        "rust/modules/commerce/",
         "rust/crates/books-domain/src/sales_tax/tax_codes.rs"
       ]
     },
@@ -3098,6 +3099,21 @@
       ],
       "tests": [
         "src/test/social-posts.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: mail",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/",
+        "packages/domains/mail/src/",
+        "rust/crates/mail-domain/"
+      ],
+      "tests": [
+        "src/test/mail.test.ts",
+        "src/test/mail-outbound.test.ts"
       ]
     },
     {

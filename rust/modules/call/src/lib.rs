@@ -35,6 +35,11 @@
 //! TypeScript worker's; its tests run against this crate in the `call`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod calls;
 mod credits;
 mod crm;
@@ -90,6 +95,7 @@ use weldsuite_db::{MasterDb, PgPool, Tenant};
 use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
+use weldsuite_outside_eu::ServiceId;
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{
     BoxFuture, DynCache, DynFileStore, DynOutboundHttp, DynRealtimePublisher, HttpRequest,
@@ -147,9 +153,28 @@ impl std::fmt::Debug for CallState {
     }
 }
 
+/// Telnyx is outside the EU (ADR OPS-026): on the EU edition a route that
+/// calls it for the workspace answers 403 `OUTSIDE_EU_SERVICE_OFF` until a
+/// workspace admin switches Telnyx on. Without enforcement (self-hosted,
+/// conformance builds) it passes every request straight through. Layered
+/// inside the route's permission check, so a caller without the permission
+/// is refused by that first.
+async fn telnyx_switch(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    if weldsuite_outside_eu::enforced() {
+        let db = request.extensions().get::<Tenant>().map(|t| t.db.clone());
+        if let Some(db) = db
+            && let Err(error) = weldsuite_outside_eu::require(&db, ServiceId::Telnyx).await
+        {
+            return error.to_api_error().into_response();
+        }
+    }
+    next.run(request).await
+}
+
 /// call-api's routes, relative to `/api`, to merge behind the session,
 /// tenant database, licence and flag layers. Each route carries its
-/// `requirePermission` from `gate`.
+/// `requirePermission` from `gate`; the ones that call Telnyx also its
+/// outside-EU switch ([`telnyx_switch`]).
 #[allow(clippy::too_many_lines)] // one route per line, as the worker registers them
 pub fn router<S, Q>(state: CallState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -165,6 +190,7 @@ where
     let settings_manage = || gate.require([SETTINGS_MANAGE]);
     let conversations_read = || gate.require([CONVERSATIONS_READ]);
     let conversations_update = || gate.require([CONVERSATIONS_UPDATE]);
+    let telnyx = || axum::middleware::from_fn(telnyx_switch);
     let calls = Router::new()
         .route("/", get(calls::list).route_layer(activities_read()))
         .route("/", post(calls::create).route_layer(activities_create()))
@@ -197,7 +223,9 @@ where
         )
         .route(
             "/token",
-            post(intelligence::token).route_layer(activities_read()),
+            post(intelligence::token)
+                .route_layer(telnyx())
+                .route_layer(activities_read()),
         )
         .route(
             "/stats",
@@ -222,7 +250,9 @@ where
         )
         .route(
             "/agents",
-            post(desk_phone::create_agent).route_layer(settings_manage()),
+            post(desk_phone::create_agent)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/agents/{id}",
@@ -230,11 +260,15 @@ where
         )
         .route(
             "/agents/{id}",
-            patch(desk_phone::update_agent).route_layer(settings_manage()),
+            patch(desk_phone::update_agent)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/agents/{id}",
-            delete(desk_phone::delete_agent).route_layer(settings_manage()),
+            delete(desk_phone::delete_agent)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/routes",
@@ -246,7 +280,9 @@ where
         )
         .route(
             "/forward-live",
-            post(desk_phone::forward_live).route_layer(conversations_update()),
+            post(desk_phone::forward_live)
+                .route_layer(telnyx())
+                .route_layer(conversations_update()),
         )
         .route(
             "/softphone",
@@ -254,11 +290,15 @@ where
         )
         .route(
             "/softphone",
-            put(desk_phone_softphone::set_available).route_layer(conversations_update()),
+            put(desk_phone_softphone::set_available)
+                .route_layer(telnyx())
+                .route_layer(conversations_update()),
         )
         .route(
             "/softphone/token",
-            post(desk_phone_softphone::token).route_layer(conversations_update()),
+            post(desk_phone_softphone::token)
+                .route_layer(telnyx())
+                .route_layer(conversations_update()),
         )
         .route(
             "/queue",
@@ -266,7 +306,9 @@ where
         )
         .route(
             "/queue/{call_id}/pickup",
-            post(desk_phone_queue_routes::pickup).route_layer(conversations_update()),
+            post(desk_phone_queue_routes::pickup)
+                .route_layer(telnyx())
+                .route_layer(conversations_update()),
         )
         .route(
             "/sip-trunks",
@@ -274,17 +316,22 @@ where
         )
         .route(
             "/sip-trunks",
-            post(sip_trunk_routes::create).route_layer(settings_manage()),
+            post(sip_trunk_routes::create)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/sip-trunks/{id}",
             patch(sip_trunk_routes::update)
                 .delete(sip_trunk_routes::remove)
+                .route_layer(telnyx())
                 .route_layer(settings_manage()),
         )
         .route(
             "/sip-trunks/{id}/rotate-password",
-            post(sip_trunk_routes::rotate_password).route_layer(settings_manage()),
+            post(sip_trunk_routes::rotate_password)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/sip-trunks/{id}/numbers",
@@ -296,11 +343,15 @@ where
         )
         .route(
             "/sip-trunks/{id}/numbers/{number_id}/verification",
-            post(sip_trunk_routes::start_verification).route_layer(settings_manage()),
+            post(sip_trunk_routes::start_verification)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/sip-trunks/{id}/numbers/{number_id}/verification/confirm",
-            post(sip_trunk_routes::confirm_verification).route_layer(settings_manage()),
+            post(sip_trunk_routes::confirm_verification)
+                .route_layer(telnyx())
+                .route_layer(settings_manage()),
         )
         .route(
             "/calls/{call_id}/translation",
@@ -314,25 +365,41 @@ where
                 .route_layer(conversations_update()),
         );
     let porting = Router::new()
-        .route("/preflight", post(porting::preflight))
-        .route("/", post(porting::create).get(porting::list))
+        .route("/preflight", post(porting::preflight).route_layer(telnyx()))
+        .route(
+            "/",
+            post(porting::create)
+                .route_layer(telnyx())
+                .get(porting::list),
+        )
         .route(
             "/{id}",
             patch(porting::update)
-                .get(porting::detail)
-                .delete(porting::cancel),
+                .delete(porting::cancel)
+                .route_layer(telnyx())
+                .get(porting::detail),
         )
-        .route("/{id}/loa-template", post(porting::loa_template))
+        .route(
+            "/{id}/loa-template",
+            post(porting::loa_template).route_layer(telnyx()),
+        )
         .route(
             "/{id}/loa",
-            post(porting::upload_loa).layer(porting::upload_limit()),
+            post(porting::upload_loa)
+                .layer(porting::upload_limit())
+                .route_layer(telnyx()),
         )
         .route(
             "/{id}/bill-copy",
-            post(porting::upload_bill_copy).layer(porting::upload_limit()),
+            post(porting::upload_bill_copy)
+                .layer(porting::upload_limit())
+                .route_layer(telnyx()),
         )
         .route("/{id}/submit", post(porting::submit))
-        .route("/{id}/refresh", post(porting::refresh))
+        .route(
+            "/{id}/refresh",
+            post(porting::refresh).route_layer(telnyx()),
+        )
         .route_layer(telephony_manage());
     let telephony = Router::new()
         .route(
@@ -341,15 +408,21 @@ where
         )
         .route(
             "/phone-numbers/search",
-            post(telephony::search).route_layer(telephony_manage()),
+            post(telephony::search)
+                .route_layer(telnyx())
+                .route_layer(telephony_manage()),
         )
         .route(
             "/phone-numbers/provision",
-            post(telephony::provision).route_layer(telephony_manage()),
+            post(telephony::provision)
+                .route_layer(telnyx())
+                .route_layer(telephony_manage()),
         )
         .route(
             "/phone-numbers/sync",
-            post(telephony::sync).route_layer(telephony_manage()),
+            post(telephony::sync)
+                .route_layer(telnyx())
+                .route_layer(telephony_manage()),
         )
         .route(
             "/phone-numbers/{id}",
@@ -363,19 +436,27 @@ where
         )
         .route(
             "/phone-numbers/{id}/regulatory-requirements",
-            get(telephony::order_requirements).route_layer(telephony_read()),
+            get(telephony::order_requirements)
+                .route_layer(telnyx())
+                .route_layer(telephony_read()),
         )
         .route(
             "/phone-numbers/{id}/regulatory-requirements",
-            post(telephony::submit_order_requirements).route_layer(telephony_manage()),
+            post(telephony::submit_order_requirements)
+                .route_layer(telnyx())
+                .route_layer(telephony_manage()),
         )
         .route(
             "/addresses",
-            get(telephony::addresses).route_layer(telephony_read()),
+            get(telephony::addresses)
+                .route_layer(telnyx())
+                .route_layer(telephony_read()),
         )
         .route(
             "/addresses",
-            post(telephony::create_address).route_layer(telephony_manage()),
+            post(telephony::create_address)
+                .route_layer(telnyx())
+                .route_layer(telephony_manage()),
         )
         .route(
             "/bundles",
@@ -383,12 +464,15 @@ where
         )
         .route(
             "/requirements",
-            get(telephony::requirements).route_layer(telephony_read()),
+            get(telephony::requirements)
+                .route_layer(telnyx())
+                .route_layer(telephony_read()),
         )
         .route(
             "/documents",
             post(telephony::upload_document)
                 .layer(porting::upload_limit())
+                .route_layer(telnyx())
                 .route_layer(telephony_manage()),
         )
         .route(

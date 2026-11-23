@@ -1,0 +1,232 @@
+//! `flow_approvals`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "flow_approvals")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "subjectType")]
+    pub subject_type: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "subjectId")]
+    pub subject_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "approverKind")]
+    pub approver_kind: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "approverId")]
+    pub approver_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "roleLabel")]
+    pub role_label: Option<String>,
+    #[serde(rename = "step")]
+    pub step: i32,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "rule")]
+    pub rule: Json,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "decision")]
+    pub decision: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "note")]
+    pub note: Option<String>,
+    #[serde(rename = "dueAt", with = "crate::js::timestamptz::option")]
+    pub due_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "decidedAt", with = "crate::js::timestamptz::option")]
+    pub decided_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "decidedBy")]
+    pub decided_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "delegatedFrom")]
+    pub delegated_from: Option<String>,
+    #[serde(rename = "remindedAt", with = "crate::js::timestamptz::option")]
+    pub reminded_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "overdueNotifiedAt", with = "crate::js::timestamptz::option")]
+    pub overdue_notified_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "flow_approvals",
+    columns: &[
+        DdlColumn {
+            name: "approver_kind",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'member'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "step",
+            sql_type: None,
+            default: Some(DdlDefault::Number("1")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "decision",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "flow_approvals_approver_decision_due_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "approver_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "decision",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "due_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "flow_approvals_subject_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "subject_type",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "subject_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "flow_approvals_project_decision_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "decision",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "flow_approvals_decision_due_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "decision",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "due_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "flow_approvals_project_id_projects_id_fk",
+        columns: &["project_id"],
+        references: "projects",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[
+        Check {
+            name: "flow_approvals_subject_type_check",
+            expression: "\"flow_approvals\".\"subject_type\" in ('change_request', 'gate', 'deliverable', 'decision', 'risk_acceptance', 'project_request', 'project_close')",
+        },
+        Check {
+            name: "flow_approvals_approver_kind_check",
+            expression: "\"flow_approvals\".\"approver_kind\" in ('member', 'contact')",
+        },
+        Check {
+            name: "flow_approvals_decision_check",
+            expression: "\"flow_approvals\".\"decision\" in ('pending', 'approved', 'approved_with_conditions', 'rejected', 'info_requested')",
+        },
+        Check {
+            name: "flow_approvals_step_check",
+            expression: "\"flow_approvals\".\"step\" >= 1",
+        },
+    ],
+};

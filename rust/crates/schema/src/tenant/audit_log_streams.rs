@@ -1,0 +1,129 @@
+//! `audit_log_streams`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "audit_log_streams")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_name = "type", column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "url")]
+    pub url: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "tokenEncrypted")]
+    pub token_encrypted: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "settings")]
+    pub settings: Option<Json>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "cursorCreatedAt", with = "crate::js::timestamp::option")]
+    pub cursor_created_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "cursorId")]
+    pub cursor_id: Option<String>,
+    #[serde(rename = "lastDeliveredAt", with = "crate::js::timestamp::option")]
+    pub last_delivered_at: Option<TimeDateTime>,
+    #[serde(rename = "lastAttemptAt", with = "crate::js::timestamp::option")]
+    pub last_attempt_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "lastError")]
+    pub last_error: Option<String>,
+    #[serde(rename = "consecutiveFailures")]
+    pub consecutive_failures: i32,
+    #[serde(rename = "deliveredCount")]
+    pub delivered_count: i32,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdById")]
+    pub created_by_id: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "audit_log_streams",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "consecutive_failures",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "delivered_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[Index {
+        name: "audit_log_streams_status_idx",
+        columns: &[IndexColumn {
+            expression: "status",
+            is_expression: false,
+            asc: true,
+        }],
+        unique: false,
+        method: "btree",
+        filter: None,
+    }],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

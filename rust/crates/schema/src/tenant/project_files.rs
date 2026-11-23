@@ -1,0 +1,214 @@
+//! `project_files`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "project_files")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(255))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "parentId")]
+    pub parent_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "originalName")]
+    pub original_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "fileSize")]
+    pub file_size: i32,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "storagePath")]
+    pub storage_path: String,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "fileKey")]
+    pub file_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "bucket")]
+    pub bucket: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "url")]
+    pub url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "thumbnailUrl")]
+    pub thumbnail_url: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "storageProvider")]
+    pub storage_provider: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "uploadedById")]
+    pub uploaded_by_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "fileType")]
+    pub file_type: String,
+    #[serde(rename = "isFolder")]
+    pub is_folder: bool,
+    #[serde(rename = "isPublic")]
+    pub is_public: bool,
+    #[serde(rename = "expiresAt", with = "crate::js::timestamp::option")]
+    pub expires_at: Option<TimeDateTime>,
+    #[serde(rename = "clientVisible")]
+    pub client_visible: bool,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "project_files",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "storage_provider",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'r2'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "file_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'file'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_folder",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_public",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "client_visible",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "project_files_project_idx",
+            columns: &[IndexColumn {
+                expression: "project_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_files_uploaded_by_idx",
+            columns: &[IndexColumn {
+                expression: "uploaded_by_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_files_file_type_idx",
+            columns: &[IndexColumn {
+                expression: "file_type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_files_parent_idx",
+            columns: &[IndexColumn {
+                expression: "parent_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[
+        ForeignKey {
+            name: "project_files_project_id_projects_id_fk",
+            columns: &["project_id"],
+            references: "projects",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+        ForeignKey {
+            name: "project_files_parent_id_project_files_id_fk",
+            columns: &["parent_id"],
+            references: "project_files",
+            referenced_columns: &["id"],
+            on_delete: "set null",
+            on_update: "no action",
+        },
+    ],
+    uniques: &[],
+    checks: &[],
+};

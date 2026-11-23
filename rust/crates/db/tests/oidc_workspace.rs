@@ -13,6 +13,11 @@
 //! Runs when `WELDSUITE_TEST_DATABASE_URL` points at a throwaway database;
 //! otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -29,10 +34,13 @@ use weldsuite_db::{
 
 const SCHEMA: &str = "
 drop table if exists workspaces, workspace_licences, partners, workspace_database_moves, user_workspaces cascade;
+drop type if exists membership_status;
+create type membership_status as enum ('ACTIVE', 'PENDING');
 create table partners (id varchar(30) primary key, status varchar(20) not null default 'active');
 create table workspaces (
     id varchar(255) primary key,
     clerk_org_id varchar(255) unique,
+    name varchar(255) not null default '',
     slug varchar(255) not null unique,
     database_url text,
     is_active boolean not null default true,
@@ -45,7 +53,7 @@ create table user_workspaces (
     user_id varchar(255) not null,
     workspace_id varchar(255) not null references workspaces (id) on delete cascade,
     role varchar(50) not null default 'org:member',
-    status varchar(20) not null default 'ACTIVE',
+    status membership_status not null default 'ACTIVE',
     unique (user_id, workspace_id)
 );
 create table workspace_licences (
@@ -179,6 +187,7 @@ async fn a_zitadel_session_reaches_its_workspace() {
     // What a client naming no workspace (MCP) falls back to: the only one.
     let only = workspaces.member_workspaces(user, 2).await.expect("list");
     assert_eq!(only, [org.to_owned()]);
+    the_picker_lists_live_active_memberships_by_name(&workspaces, &master, user).await;
     for reference in ["ws_eu", "eu", org] {
         let (status, body) = call(&header_mode, token, Some(reference)).await;
         assert_eq!(status, 200, "{reference}: {body}");
@@ -188,4 +197,58 @@ async fn a_zitadel_session_reaches_its_workspace() {
     let (status, body) = call(&header_mode, token, None).await;
     assert_eq!(status, 403, "{body}");
     assert!(body.contains("ORG_REQUIRED"), "{body}");
+}
+
+/// What an MCP client naming no workspace picks from when `user` has
+/// several (the MCP server's workspace picker), through the ORM: live,
+/// active memberships only, by name. `user` is an active member of `ws_eu`;
+/// the memberships added here are removed again.
+async fn the_picker_lists_live_active_memberships_by_name(
+    workspaces: &Workspaces,
+    master: &sqlx::PgPool,
+    user: &str,
+) {
+    for statement in [
+        "update workspaces set name = 'Zeta EU' where id = 'ws_eu'",
+        "insert into workspaces (id, name, slug) values ('ws_acme', 'Acme', 'acme'), ('ws_gone', 'Gone', 'gone'), ('ws_asked', 'Asked', 'asked')",
+        "update workspaces set deleted_at = now() where id = 'ws_gone'",
+    ] {
+        sqlx::query(statement)
+            .execute(master)
+            .await
+            .expect(statement);
+    }
+    sqlx::query(
+        "insert into user_workspaces (id, user_id, workspace_id, status) values ('uw_2', $1, 'ws_acme', 'ACTIVE'), ('uw_3', $1, 'ws_gone', 'ACTIVE'), ('uw_4', $1, 'ws_asked', 'PENDING')",
+    )
+    .bind(user)
+    .execute(master)
+    .await
+    .expect("memberships");
+    let listed = workspaces
+        .member_workspace_list(user, 50)
+        .await
+        .expect("listed");
+    let listed: Vec<(&str, &str, &str)> = listed
+        .iter()
+        .map(|w| (w.id.as_str(), w.slug.as_str(), w.name.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [("ws_acme", "acme", "Acme"), ("ws_eu", "eu", "Zeta EU")]
+    );
+    let first = workspaces
+        .member_workspace_list(user, 1)
+        .await
+        .expect("one");
+    assert_eq!(first.len(), 1);
+    let nobody = workspaces
+        .member_workspace_list("nobody", 50)
+        .await
+        .expect("none");
+    assert_eq!(nobody.len(), 0);
+    sqlx::query("delete from user_workspaces where id in ('uw_2', 'uw_3', 'uw_4')")
+        .execute(master)
+        .await
+        .expect("cleanup");
 }

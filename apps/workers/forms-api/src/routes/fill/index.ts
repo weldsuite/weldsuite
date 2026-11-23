@@ -51,7 +51,7 @@ async function identityOf(ctx: WorkspaceCtx, entry: PublicCacheEntry, userId: st
   if (entry.settings.hideMemberIdentity) {
     return { email: null, userId: null, hash: await keyedHash(ctx.env, `member:${entry.formId}`, userId), invitationId: null };
   }
-  const profile = await memberRef(ctx.db, userId);
+  const profile = await memberRef(ctx, userId);
   return { email: profile.email?.toLowerCase() ?? null, userId, hash: null, invitationId: null };
 }
 

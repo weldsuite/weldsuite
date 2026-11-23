@@ -260,7 +260,7 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
             .map(|(_, project)| project.clone().unwrap_or(Value::Null))
             .collect();
         let tasks: Vec<Value> = rows.into_iter().map(|(task, _)| js_row(task)).collect();
-        let enriched = enrich(state, db, tasks).await?;
+        let enriched = enrich(state, db, caller.request_master(), tasks).await?;
         let mut data: Vec<Value> = enriched
             .into_iter()
             .zip(projects)
@@ -272,7 +272,7 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
             })
             .collect();
         if f.include_subtasks {
-            attach_tree_across_projects(state, db, &mut data).await?;
+            attach_tree_across_projects(state, db, caller.request_master(), &mut data).await?;
         }
         Ok(crate::paged(data, total, has_more, None))
     }

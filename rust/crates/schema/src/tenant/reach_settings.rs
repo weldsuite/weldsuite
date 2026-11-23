@@ -1,0 +1,137 @@
+//! `reach_settings`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "reach_settings")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(200))")]
+    #[serde(rename = "senderCompanyName")]
+    pub sender_company_name: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "senderAddress")]
+    pub sender_address: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "optOutText")]
+    pub opt_out_text: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "defaultTimezone")]
+    pub default_timezone: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "defaultSendDays")]
+    pub default_send_days: Json,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "defaultWindowStart")]
+    pub default_window_start: String,
+    #[sea_orm(column_type = "String(StringLen::N(5))")]
+    #[serde(rename = "defaultWindowEnd")]
+    pub default_window_end: String,
+    #[serde(rename = "defaultMailboxDailyCap")]
+    pub default_mailbox_daily_cap: i32,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "stopOnReplyScope")]
+    pub stop_on_reply_scope: String,
+    #[serde(
+        rename = "onboardingCompletedAt",
+        with = "crate::js::timestamptz::option"
+    )]
+    pub onboarding_completed_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "reach_settings",
+    columns: &[
+        DdlColumn {
+            name: "default_timezone",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'Europe/Amsterdam'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "default_send_days",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[1,2,3,4,5]'::jsonb")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "default_window_start",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'09:00'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "default_window_end",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'17:00'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "default_mailbox_daily_cap",
+            sql_type: None,
+            default: Some(DdlDefault::Number("30")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "stop_on_reply_scope",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'prospect'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

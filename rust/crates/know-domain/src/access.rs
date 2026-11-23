@@ -19,15 +19,32 @@
 //! reaches open teamspaces only, and acts in them as an owner would. know-api
 //! always has a user.
 
+use std::collections::HashMap;
+
+use sea_orm::sea_query::{Expr, OnConflict, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    knowledge_space_members as members, knowledge_spaces as spaces, workspace_members as people,
+};
 
-use crate::KnowError;
+use crate::{KnowError, row};
 
-// Who a teamspace can be shared with, in every query below: workspace members
-// that are ACTIVE, INTERNAL and not deleted. sqlx takes literal SQL only, so
-// the condition is written out each time.
+/// Who a teamspace can be shared with, in every query below: workspace
+/// members that are ACTIVE, INTERNAL and not deleted.
+fn shareable() -> sea_orm::Condition {
+    sea_orm::Condition::all()
+        .add(people::Column::Status.eq("ACTIVE"))
+        .add(people::Column::MemberType.eq("INTERNAL"))
+        .add(people::Column::DeletedAt.is_null())
+}
 
 /// What the caller may do to one space.
 #[derive(Debug, Clone)]
@@ -123,24 +140,24 @@ pub async fn require_space(
     space_id: &str,
     can_manage_all: bool,
 ) -> Result<SpaceAccess, KnowError> {
-    let space: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from knowledge_spaces s where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(space_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(space) = space.map(js_row) else {
+    let db = orm(db);
+    let space = spaces::Entity::find_by_id(space_id.to_owned())
+        .filter(spaces::Column::DeletedAt.is_null())
+        .one(&db)
+        .await?;
+    let Some(space) = space.map(row) else {
         return Err(KnowError::not_found("Space", space_id));
     };
     let role = if let (true, Some(user_id)) = (text(&space, "kind") == "team", user_id) {
-        sqlx::query_scalar(
-            "select role from knowledge_space_members
-             where space_id = $1 and user_id = $2 and left_at is null limit 1",
-        )
-        .bind(space_id)
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?
+        members::Entity::find()
+            .select_only()
+            .column(members::Column::Role)
+            .filter(members::Column::SpaceId.eq(space_id))
+            .filter(members::Column::UserId.eq(user_id))
+            .filter(members::Column::LeftAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
+            .await?
     } else {
         None
     };
@@ -192,21 +209,35 @@ pub async fn list_spaces(
     user_id: Option<&str>,
     can_manage_all: bool,
 ) -> Result<Vec<Value>, KnowError> {
-    // A key (no user) is in no teamspace: the join finds no role.
-    let rows: Vec<(Value, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(s), m.role
-         from knowledge_spaces s
-         left join knowledge_space_members m
-           on $1::text is not null and m.space_id = s.id and m.user_id = $1 and m.left_at is null
-         where s.deleted_at is null
-         order by s.sort_order asc, s.created_at asc",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let rows = spaces::Entity::find()
+        .filter(spaces::Column::DeletedAt.is_null())
+        .order_by_asc(spaces::Column::SortOrder)
+        .order_by_asc(spaces::Column::CreatedAt)
+        .all(&db)
+        .await?;
+    // The caller's active roles; a key (no user) is in no teamspace. A person
+    // is in a space once (`knowledge_space_members_space_user_idx`).
+    let roles: HashMap<String, String> = match user_id {
+        Some(user_id) => members::Entity::find()
+            .select_only()
+            .column(members::Column::SpaceId)
+            .column(members::Column::Role)
+            .filter(members::Column::UserId.eq(user_id))
+            .filter(members::Column::LeftAt.is_null())
+            .into_tuple::<(String, String)>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .collect(),
+        None => HashMap::new(),
+    };
     let visible: Vec<SpaceAccess> = rows
         .into_iter()
-        .filter_map(|(space, role)| access_for(js_row(space), role, user_id, can_manage_all))
+        .filter_map(|space| {
+            let role = roles.get(&space.id).cloned();
+            access_for(row(space), role, user_id, can_manage_all)
+        })
         .collect();
 
     let teams: Vec<String> = visible
@@ -217,13 +248,16 @@ pub async fn list_spaces(
     let counts: Vec<(String, i64)> = if teams.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select space_id, count(*) from knowledge_space_members
-             where space_id = any($1) and left_at is null group by space_id",
-        )
-        .bind(&teams)
-        .fetch_all(db)
-        .await?
+        members::Entity::find()
+            .select_only()
+            .column(members::Column::SpaceId)
+            .column_as(members::Column::Id.count(), "count")
+            .filter(members::Column::SpaceId.is_in(teams))
+            .filter(members::Column::LeftAt.is_null())
+            .group_by(members::Column::SpaceId)
+            .into_tuple()
+            .all(&db)
+            .await?
     };
 
     Ok(visible
@@ -283,84 +317,118 @@ async fn space_ids_where(
 
 // ── Personal space and default teamspaces ──────────────────────────────────
 
+/// `ON CONFLICT DO NOTHING`: any unique index may refuse the row.
+fn on_any_conflict_do_nothing() -> OnConflict {
+    OnConflict::new().do_nothing().to_owned()
+}
+
 /// The caller's personal space, created on first use. Two tabs can race
 /// here; the partial unique index on the owner lets one insert win.
-pub async fn ensure_personal_space(db: &PgPool, user_id: &str, now: &str) -> Result<(), KnowError> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from knowledge_spaces
-         where kind = 'personal' and owner_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn ensure_personal_space(
+    db: &PgPool,
+    user_id: &str,
+    now: PrimitiveDateTime,
+) -> Result<(), KnowError> {
+    let db = orm(db);
+    let existing = spaces::Entity::find()
+        .select_only()
+        .column(spaces::Column::Id)
+        .filter(spaces::Column::Kind.eq("personal"))
+        .filter(spaces::Column::OwnerId.eq(user_id))
+        .filter(spaces::Column::DeletedAt.is_null())
+        .into_tuple::<String>()
+        .one(&db)
+        .await?;
     if existing.is_some() {
         return Ok(());
     }
-    sqlx::query(
-        "insert into knowledge_spaces
-             (id, name, kind, owner_id, visibility, sort_order, created_by, created_at, updated_at)
-         values ($1, 'Private', 'personal', $2, 'private', -1, $2, $3::timestamp, $3::timestamp)
-         on conflict do nothing",
-    )
-    .bind(generate_id("kspc"))
-    .bind(user_id)
-    .bind(now)
-    .execute(db)
+    spaces::Entity::insert(spaces::ActiveModel {
+        id: Set(generate_id("kspc")),
+        name: Set("Private".to_owned()),
+        kind: Set("personal".to_owned()),
+        owner_id: Set(Some(user_id.to_owned())),
+        visibility: Set("private".to_owned()),
+        sort_order: Set(-1),
+        created_by: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(on_any_conflict_do_nothing())
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
 
-/// Add an editor membership; an existing row (even a left one) wins.
-async fn insert_editor(
-    db: &PgPool,
+/// A new membership row; an existing one (even a left one) wins.
+async fn insert_member(
+    db: &sea_orm::DatabaseConnection,
     space_id: &str,
     user_id: &str,
+    role: &str,
     added_by: Option<&str>,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), KnowError> {
-    sqlx::query(
-        "insert into knowledge_space_members
-             (id, space_id, user_id, role, added_by, created_at, updated_at)
-         values ($1, $2, $3, 'editor', $4, $5::timestamp, $5::timestamp)
-         on conflict do nothing",
-    )
-    .bind(generate_id("kspm"))
-    .bind(space_id)
-    .bind(user_id)
-    .bind(added_by)
-    .bind(now)
-    .execute(db)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(generate_id("kspm")),
+        space_id: Set(space_id.to_owned()),
+        user_id: Set(user_id.to_owned()),
+        role: Set(role.to_owned()),
+        added_by: Set(added_by.map(str::to_owned)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(on_any_conflict_do_nothing())
+    .exec_without_returning(db)
     .await?;
     Ok(())
+}
+
+/// The user, when they are someone a teamspace can be shared with.
+async fn shareable_person(
+    db: &sea_orm::DatabaseConnection,
+    user_id: &str,
+) -> Result<Option<String>, KnowError> {
+    Ok(people::Entity::find()
+        .select_only()
+        .column(people::Column::UserId)
+        .filter(people::Column::UserId.eq(user_id))
+        .filter(shareable())
+        .into_tuple::<String>()
+        .one(db)
+        .await?)
 }
 
 /// Add the caller to every default teamspace they have never been in
 /// (`joinDefaultSpaces`). Someone who left keeps their `left_at` row and is
 /// not pulled back; only shareable members are added.
-pub async fn join_default_spaces(db: &PgPool, user_id: &str, now: &str) -> Result<(), KnowError> {
-    let eligible: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = $1 and status = 'ACTIVE' and member_type = 'INTERNAL' and deleted_at is null
-         limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    if eligible.is_none() {
+pub async fn join_default_spaces(
+    db: &PgPool,
+    user_id: &str,
+    now: PrimitiveDateTime,
+) -> Result<(), KnowError> {
+    let db = orm(db);
+    if shareable_person(&db, user_id).await?.is_none() {
         return Ok(());
     }
-    let missing: Vec<String> = sqlx::query_scalar(
-        "select s.id from knowledge_spaces s
-         where s.kind = 'team' and s.is_default = true and s.deleted_at is null
-           and not exists (
-             select 1 from knowledge_space_members m where m.space_id = s.id and m.user_id = $1
-           )",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+    let ever_in = Query::select()
+        .column(members::Column::SpaceId)
+        .from(members::Entity)
+        .and_where(members::Column::UserId.eq(user_id))
+        .to_owned();
+    let missing: Vec<String> = spaces::Entity::find()
+        .select_only()
+        .column(spaces::Column::Id)
+        .filter(spaces::Column::Kind.eq("team"))
+        .filter(spaces::Column::IsDefault.eq(true))
+        .filter(spaces::Column::DeletedAt.is_null())
+        .filter(spaces::Column::Id.not_in_subquery(ever_in))
+        .into_tuple()
+        .all(&db)
+        .await?;
     for space_id in missing {
-        insert_editor(db, &space_id, user_id, None, now).await?;
+        insert_member(&db, &space_id, user_id, "editor", None, now).await?;
     }
     Ok(())
 }
@@ -371,54 +439,121 @@ pub async fn add_everyone_to_space(
     db: &PgPool,
     space_id: &str,
     added_by: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), KnowError> {
-    let people: Vec<String> = sqlx::query_scalar(
-        "select wm.user_id from workspace_members wm
-         where wm.status = 'ACTIVE' and wm.member_type = 'INTERNAL' and wm.deleted_at is null
-           and not exists (
-             select 1 from knowledge_space_members m where m.space_id = $1 and m.user_id = wm.user_id
-           )",
-    )
-    .bind(space_id)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let ever_in = Query::select()
+        .column(members::Column::UserId)
+        .from(members::Entity)
+        .and_where(members::Column::SpaceId.eq(space_id))
+        .to_owned();
+    let people: Vec<String> = people::Entity::find()
+        .select_only()
+        .column(people::Column::UserId)
+        .filter(shareable())
+        .filter(people::Column::UserId.not_in_subquery(ever_in))
+        .into_tuple()
+        .all(&db)
+        .await?;
     for user_id in people {
-        insert_editor(db, space_id, &user_id, Some(added_by), now).await?;
+        insert_member(&db, space_id, &user_id, "editor", Some(added_by), now).await?;
     }
     Ok(())
 }
 
 // ── Members ────────────────────────────────────────────────────────────────
 
-/// People a teamspace can be shared with (`listTeammates`).
-pub async fn list_teammates(db: &PgPool) -> Result<Vec<Value>, KnowError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', user_id, 'name', name, 'email', email, 'picture', picture)
-         from workspace_members
-         where status = 'ACTIVE' and member_type = 'INTERNAL' and deleted_at is null
-         order by name asc, email asc",
-    )
-    .fetch_all(db)
-    .await?;
+/// One person a teamspace can be shared with.
+#[derive(Serialize)]
+struct Teammate {
+    #[serde(rename = "userId")]
+    user_id: String,
+    name: Option<String>,
+    email: Option<String>,
+    picture: Option<String>,
+}
+
+/// People a teamspace can be shared with (`listTeammates`), with their
+/// account pictures (`master`).
+pub async fn list_teammates(db: &PgPool, master: Option<&PgPool>) -> Result<Vec<Value>, KnowError> {
+    let found: Vec<(String, Option<String>, Option<String>)> = people::Entity::find()
+        .select_only()
+        .column(people::Column::UserId)
+        .column(people::Column::Name)
+        .column(people::Column::Email)
+        .filter(shareable())
+        .order_by_asc(people::Column::Name)
+        .order_by_asc(people::Column::Email)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let mut rows: Vec<Value> = found
+        .into_iter()
+        .map(|(user_id, name, email)| {
+            row(Teammate {
+                user_id,
+                name,
+                email,
+                picture: None,
+            })
+        })
+        .collect();
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
     Ok(rows)
 }
 
-/// A teamspace's active members with their names (`listSpaceMembers`).
-pub async fn list_space_members(db: &PgPool, space_id: &str) -> Result<Vec<Value>, KnowError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                  'userId', m.user_id, 'role', m.role, 'name', wm.name, 'email', wm.email,
-                  'picture', wm.picture, 'addedBy', m.added_by, 'createdAt', m.created_at)
-         from knowledge_space_members m
-         left join workspace_members wm on wm.user_id = m.user_id
-         where m.space_id = $1 and m.left_at is null
-         order by wm.name asc, m.created_at asc",
-    )
-    .bind(space_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// One active member of a teamspace, with their name.
+#[derive(FromQueryResult, Serialize)]
+struct SpaceMember {
+    #[serde(rename = "userId")]
+    user_id: String,
+    role: String,
+    name: Option<String>,
+    email: Option<String>,
+    #[serde(rename = "addedBy")]
+    added_by: Option<String>,
+    #[serde(rename = "createdAt", with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+}
+
+/// A teamspace's active members with their names (`listSpaceMembers`) and
+/// account pictures (`master`).
+pub async fn list_space_members(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    space_id: &str,
+) -> Result<Vec<Value>, KnowError> {
+    let person = members::Entity::belongs_to(people::Entity)
+        .from(members::Column::UserId)
+        .to(people::Column::UserId)
+        .into();
+    let found: Vec<SpaceMember> = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .column(members::Column::Role)
+        .column_as(people::Column::Name, "name")
+        .column_as(people::Column::Email, "email")
+        .column(members::Column::AddedBy)
+        .column(members::Column::CreatedAt)
+        .join(JoinType::LeftJoin, person)
+        .filter(members::Column::SpaceId.eq(space_id))
+        .filter(members::Column::LeftAt.is_null())
+        .order_by_asc(people::Column::Name)
+        .order_by_asc(members::Column::CreatedAt)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let mut rows: Vec<Value> = found
+        .into_iter()
+        .map(|member| {
+            let mut member = row(member);
+            // Filled in from the account pictures, when there are any.
+            member["picture"] = Value::Null;
+            member
+        })
+        .collect();
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
+    Ok(rows)
 }
 
 /// Add a teammate (or bring back someone who left), or change their role if
@@ -429,62 +564,43 @@ pub async fn add_space_member(
     user_id: &str,
     role: &str,
     added_by: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<bool, KnowError> {
-    let teammate: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = $1 and status = 'ACTIVE' and member_type = 'INTERNAL' and deleted_at is null
-         limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    if teammate.is_none() {
+    let orm_db = orm(db);
+    if shareable_person(&orm_db, user_id).await?.is_none() {
         return Err(KnowError::not_found("Teammate", user_id));
     }
 
-    let existing: Option<(String, bool)> = sqlx::query_as(
-        "select id, left_at is not null from knowledge_space_members
-         where space_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(space_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, Option<PrimitiveDateTime>)> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Id)
+        .column(members::Column::LeftAt)
+        .filter(members::Column::SpaceId.eq(space_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
     match existing {
-        Some((_, false)) => {
+        Some((_, None)) => {
             set_space_member_role(db, space_id, user_id, role, now).await?;
             Ok(false)
         }
-        Some((id, true)) => {
-            sqlx::query(
-                "update knowledge_space_members
-                 set role = $2, left_at = null, added_by = $3, updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(id)
-            .bind(role)
-            .bind(added_by)
-            .bind(now)
-            .execute(db)
-            .await?;
+        Some((id, Some(_))) => {
+            members::Entity::update_many()
+                .col_expr(members::Column::Role, Expr::value(role))
+                .col_expr(
+                    members::Column::LeftAt,
+                    Expr::value(None::<PrimitiveDateTime>),
+                )
+                .col_expr(members::Column::AddedBy, Expr::value(added_by))
+                .col_expr(members::Column::UpdatedAt, Expr::value(now))
+                .filter(members::Column::Id.eq(id))
+                .exec(&orm_db)
+                .await?;
             Ok(true)
         }
         None => {
-            sqlx::query(
-                "insert into knowledge_space_members
-                     (id, space_id, user_id, role, added_by, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6::timestamp, $6::timestamp)
-                 on conflict do nothing",
-            )
-            .bind(generate_id("kspm"))
-            .bind(space_id)
-            .bind(user_id)
-            .bind(role)
-            .bind(added_by)
-            .bind(now)
-            .execute(db)
-            .await?;
+            insert_member(&orm_db, space_id, user_id, role, Some(added_by), now).await?;
             Ok(true)
         }
     }
@@ -492,34 +608,38 @@ pub async fn add_space_member(
 
 /// The active membership row: its id and role, or a 404.
 async fn require_membership(
-    db: &PgPool,
+    db: &sea_orm::DatabaseConnection,
     space_id: &str,
     user_id: &str,
 ) -> Result<(String, String), KnowError> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "select id, role from knowledge_space_members
-         where space_id = $1 and user_id = $2 and left_at is null limit 1",
-    )
-    .bind(space_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(String, String)> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Id)
+        .column(members::Column::Role)
+        .filter(members::Column::SpaceId.eq(space_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::LeftAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     row.ok_or_else(|| KnowError::not_found("Member", user_id))
 }
 
 /// A teamspace always keeps one owner, or nobody in it could manage it again.
 async fn assert_not_last_owner(
-    db: &PgPool,
+    db: &sea_orm::DatabaseConnection,
     space_id: &str,
     user_id: &str,
 ) -> Result<(), KnowError> {
-    let owners: Vec<String> = sqlx::query_scalar(
-        "select user_id from knowledge_space_members
-         where space_id = $1 and role = 'owner' and left_at is null",
-    )
-    .bind(space_id)
-    .fetch_all(db)
-    .await?;
+    let owners: Vec<String> = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .filter(members::Column::SpaceId.eq(space_id))
+        .filter(members::Column::Role.eq("owner"))
+        .filter(members::Column::LeftAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     if owners.len() == 1 && owners[0] == user_id {
         return Err(KnowError::Conflict(
             "This is the teamspace\u{2019}s only owner. Make someone else an owner first.",
@@ -533,20 +653,19 @@ pub async fn set_space_member_role(
     space_id: &str,
     user_id: &str,
     role: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), KnowError> {
-    let (id, previous) = require_membership(db, space_id, user_id).await?;
+    let db = orm(db);
+    let (id, previous) = require_membership(&db, space_id, user_id).await?;
     if previous == "owner" && role != "owner" {
-        assert_not_last_owner(db, space_id, user_id).await?;
+        assert_not_last_owner(&db, space_id, user_id).await?;
     }
-    sqlx::query(
-        "update knowledge_space_members set role = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(role)
-    .bind(now)
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::Role, Expr::value(role))
+        .col_expr(members::Column::UpdatedAt, Expr::value(now))
+        .filter(members::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
     Ok(())
 }
 
@@ -555,20 +674,19 @@ pub async fn remove_space_member(
     db: &PgPool,
     space_id: &str,
     user_id: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), KnowError> {
-    let (id, role) = require_membership(db, space_id, user_id).await?;
+    let db = orm(db);
+    let (id, role) = require_membership(&db, space_id, user_id).await?;
     if role == "owner" {
-        assert_not_last_owner(db, space_id, user_id).await?;
+        assert_not_last_owner(&db, space_id, user_id).await?;
     }
-    sqlx::query(
-        "update knowledge_space_members
-         set left_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(now)
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::LeftAt, Expr::value(now))
+        .col_expr(members::Column::UpdatedAt, Expr::value(now))
+        .filter(members::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
     Ok(())
 }
 
@@ -577,7 +695,7 @@ pub async fn join_space(
     db: &PgPool,
     access: &SpaceAccess,
     user_id: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), KnowError> {
     if access.is_personal() {
         return Err(KnowError::Forbidden("You cannot join a private space."));

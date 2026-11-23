@@ -406,6 +406,18 @@ fn read_saved_test(issues: &mut Issues, body: &Value) -> (Option<Config>, Option
 
 // ── handlers ────────────────────────────────────────────────────────────────
 
+/// ADR OPS-026: Microsoft Intune is reached (tested, connected, imported
+/// from) only once the workspace switched Microsoft on: 403
+/// `OUTSIDE_EU_SERVICE_OFF` otherwise (enforced on the EU edition; elsewhere
+/// this never reads the database). Listing, editing and removing a source
+/// stay open.
+async fn microsoft_off(member: &Member) -> Option<Response> {
+    weldsuite_outside_eu::require(&member.db, weldsuite_outside_eu::ServiceId::Microsoft)
+        .await
+        .err()
+        .map(|error| error.to_api_error().into_response())
+}
+
 /// `GET /`: the workspace's sources, oldest first. Not paged.
 async fn list(member: Member) -> Response {
     answer(
@@ -429,6 +441,9 @@ async fn test_unsaved(
         Ok(body) => body,
         Err(invalid) => return *invalid,
     };
+    if let Some(off) = microsoft_off(&member).await {
+        return off;
+    }
     let http = member.http(&state);
     let result = test_source(http.as_ref(), &config.tenant_id, &config.client_id, &secret).await;
     Data(result).into_response()
@@ -445,6 +460,9 @@ async fn create(
         Ok(body) => body,
         Err(invalid) => return *invalid,
     };
+    if let Some(off) = microsoft_off(&member).await {
+        return off;
+    }
     answer(
         async {
             let db = &member.db;
@@ -665,6 +683,9 @@ async fn test_saved(
     Path(id): Path<String>,
     body: Bytes,
 ) -> Response {
+    if let Some(off) = microsoft_off(&member).await {
+        return off;
+    }
     answer(
         async {
             let row = source::by_id(&member.db, &id)
@@ -718,6 +739,9 @@ async fn sync(
     member: Member,
     Path(id): Path<String>,
 ) -> Response {
+    if let Some(off) = microsoft_off(&member).await {
+        return off;
+    }
     answer(
         async {
             let db = &member.db;

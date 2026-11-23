@@ -209,7 +209,8 @@ interface ShapeSpec {
 }
 
 /** `billing.dunning`'s kind from its flags: none is a failed charge. */
-function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
+function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' | 'upcoming' {
+  if (flags.has('upcoming')) return 'upcoming';
   if (flags.has('ended')) return 'ended';
   if (flags.has('reminder')) return 'reminder';
   return 'failed';
@@ -220,6 +221,13 @@ function invoiceVat(flags: Set<string>): 'charged' | 'reverse' | 'outside' {
   if (flags.has('outside')) return 'outside';
   if (flags.has('reverse')) return 'reverse';
   return 'charged';
+}
+
+/** The buyer-invitation role a case's flags pick. */
+function buyerRole(f: ReadonlySet<string>): 'admin' | 'approver' | 'buyer' {
+  if (f.has('role_admin')) return 'admin';
+  if (f.has('role_approver')) return 'approver';
+  return 'buyer';
 }
 
 const SPECS: Spec[] = [
@@ -462,10 +470,16 @@ const SPECS: Spec[] = [
   },
   // EU plan billing (ADR BILL-014): a failed charge, the reminder halfway
   // through the grace period, and the plan ending on Free. No flag: failed.
+  // `upcoming`: the notice before the renewal of a plan without a payment
+  // method; `nomethod`: a failed charge or its reminder for want of one.
   {
     id: 'billing.dunning',
-    flags: ['reminder', 'ended'],
+    flags: ['reminder', 'ended', 'upcoming', 'nomethod'],
     fields: ['workspace_name', 'plan_name', 'amount', 'ends_on', 'url'],
+    // One kind at a time; `nomethod` only words `failed` and `reminder`.
+    exclude: (f) =>
+      ['reminder', 'ended', 'upcoming'].filter((k) => f.has(k)).length > 1 ||
+      (f.has('nomethod') && (f.has('ended') || f.has('upcoming'))),
     props: (f) => ({
       kind: dunningKind(f),
       workspaceName: S('workspace_name'),
@@ -473,6 +487,7 @@ const SPECS: Spec[] = [
       amount: S('amount'),
       endsOn: S('ends_on'),
       url: S('url'),
+      noMethod: f.has('nomethod'),
     }),
   },
   // The invoice of a paid charge (ADR BILL-014, decision 5). The VAT line is
@@ -523,6 +538,78 @@ const SPECS: Spec[] = [
       invitedBy: f.has('by') ? S('invited_by') : null,
       workspaceName: S('workspace_name'),
       url: S('url'),
+    }),
+  },
+  // WeldCommerce (B2B): access for a buyer, the order copy, and the approval mails.
+  // The role and the reason are enums, so each value is a flag (none set: 'buyer', 'buyer_limit').
+  {
+    id: 'commerce.buyer-invitation',
+    flags: ['inviter', 'url', 'role_approver', 'role_admin'],
+    fields: ['shop_name', 'company_name', 'inviter_name', 'shop_url'],
+    exclude: (f) => f.has('role_approver') && f.has('role_admin'),
+    props: (f) => ({
+      shopName: S('shop_name'),
+      companyName: S('company_name'),
+      inviterName: f.has('inviter') ? S('inviter_name') : null,
+      role: buyerRole(f),
+      shopUrl: f.has('url') ? S('shop_url') : null,
+    }),
+  },
+  {
+    id: 'commerce.order-confirmation',
+    flags: ['rows', 'url', 'approval', 'invoice'],
+    fields: ['shop_name', 'order_number', 'currency', 'subtotal', 'shipping_total', 'tax_total', 'total', 'order_url'],
+    list: {
+      flag: 'rows',
+      flags: [],
+      fields: ['name', 'quantity', 'total'],
+      row: (_f, i) => ({ name: R(i, 'name'), quantity: R(i, 'quantity'), total: R(i, 'total') }),
+    },
+    props: (f, rows) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      lines: rows,
+      subtotal: S('subtotal'),
+      shippingTotal: S('shipping_total'),
+      taxTotal: S('tax_total'),
+      total: S('total'),
+      orderUrl: f.has('url') ? S('order_url') : null,
+      awaitingApproval: f.has('approval'),
+      onInvoice: f.has('invoice'),
+    }),
+  },
+  {
+    id: 'commerce.approval-requested',
+    flags: ['company', 'url', 'reason_company'],
+    fields: ['shop_name', 'order_number', 'currency', 'total', 'requested_by', 'company_name', 'shop_url'],
+    props: (f) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      total: S('total'),
+      requestedBy: S('requested_by'),
+      companyName: f.has('company') ? S('company_name') : null,
+      reason: f.has('reason_company') ? 'company_threshold' : 'buyer_limit',
+      shopUrl: f.has('url') ? S('shop_url') : null,
+    }),
+  },
+  {
+    id: 'commerce.approval-decided',
+    flags: ['approved', 'by', 'comment', 'pay'],
+    fields: ['shop_name', 'order_number', 'currency', 'total', 'decided_by', 'comment', 'payment_url'],
+    multiline: ['comment'],
+    // A payment link is only ever shown for an approved order.
+    exclude: (f) => f.has('pay') && !f.has('approved'),
+    props: (f) => ({
+      shopName: S('shop_name'),
+      orderNumber: S('order_number'),
+      currency: S('currency'),
+      total: S('total'),
+      approved: f.has('approved'),
+      decidedBy: f.has('by') ? S('decided_by') : null,
+      comment: f.has('comment') ? S('comment') : null,
+      paymentUrl: f.has('pay') ? S('payment_url') : null,
     }),
   },
   // WeldReach's access decisions, sent by `weldsuite admin access` (ADR

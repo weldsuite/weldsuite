@@ -1,7 +1,9 @@
 /**
  * The team directory against a real pglite tenant DB: GET /me, the list with
  * its filters, visibility projection and keyset cursor, one member, and the
- * per-member permission breakdown and app assignments (+ the toggle).
+ * per-member permission breakdown and app assignments (+ the toggle). A
+ * member's picture is their ACCOUNT picture (master `users.image_url`), never
+ * the `workspace_members.picture` copy.
  *
  * These run in the Rust conformance suite too ("core: team-members
  * (directory)"), so nothing here is mocked that the Rust server can't see.
@@ -9,20 +11,42 @@
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { teamMembersRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
+import { teamMembersRoutes } from './index';
 
 // Conformance mode runs each write twice, on a copy of the database for one.
 vi.setConfig({ testTimeout: 60_000 });
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+
+const OWNER_PICTURE = 'https://img.clerk.test/olivia.png';
+const SALES_PICTURE = 'https://img.clerk.test/sam.png';
 
 const at = (minute: number) => new Date(Date.UTC(2026, 0, 10, 9, minute, 0, 123));
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.delete(users);
+  // Account pictures. Adam's account has none; Vera has no account row at all.
+  await master.insert(users).values([
+    { id: 'user_owner', email: 'olivia@acme.test', imageUrl: OWNER_PICTURE },
+    { id: 'user_sales', email: 'sam@acme.test', imageUrl: SALES_PICTURE },
+    { id: 'user_admin', email: 'adam@acme.test', imageUrl: null },
+  ]);
   await db.insert(schema.roles).values({
     id: 'role_sales',
     name: 'Sales',
@@ -36,6 +60,7 @@ beforeAll(async () => {
       userId: 'user_owner',
       email: 'olivia@acme.test',
       name: 'Olivia Owner',
+      picture: 'https://stale.test/olivia-old.png',
       role: 'OWNER',
       status: 'ACTIVE',
       createdAt: at(1),
@@ -46,6 +71,7 @@ beforeAll(async () => {
       userId: 'user_admin',
       email: 'adam@acme.test',
       name: 'Adam Admin',
+      picture: 'https://stale.test/adam-old.png',
       role: 'ADMIN',
       status: 'ACTIVE',
       invitedBy: 'user_owner',
@@ -156,7 +182,7 @@ beforeAll(async () => {
 
 function app(userId: string, ...keys: string[]) {
   return createTestApp('/api/team-members', teamMembersRoutes, {
-    context: { tenantDb: db, userId, permissions: permissions(...keys) },
+    context: { tenantDb: db, masterDb: master, userId, permissions: permissions(...keys) },
   });
 }
 
@@ -175,7 +201,7 @@ describe('GET /api/team-members/me', () => {
       userId: 'user_sales',
       email: 'sam@acme.test',
       name: 'Sam Sales',
-      picture: null,
+      picture: SALES_PICTURE,
       role: 'MEMBER',
       roleId: 'role_sales',
       permissions: ['welddesk:tickets:read', 'weldcrm:companies:read'],
@@ -189,6 +215,33 @@ describe('GET /api/team-members/me', () => {
       const res = await app(userId, 'channels:read').request('/api/team-members/me');
       expect(res.status).toBe(404);
     }
+  });
+});
+
+describe('member pictures', () => {
+  it('lists each member with their account picture, ignoring the member row copy', async () => {
+    const res = await app('user_viewer', 'channels:read').request('/api/team-members?memberType=all');
+    const body = (await res.json()) as ListBody;
+    const pictures = Object.fromEntries(body.data.map((m) => [m.id, m.picture]));
+    expect(pictures).toEqual({
+      wm_owner: OWNER_PICTURE,
+      wm_sales: SALES_PICTURE,
+      // An account without a picture, and a stale copy on the member row.
+      wm_admin: null,
+      // No account row yet (and the pending invite has no account at all).
+      wm_viewer: null,
+      wm_pending: null,
+      wm_guest: null,
+      wm_employee: null,
+    });
+  });
+
+  it('answers the account picture for one member', async () => {
+    const res = await app('user_viewer', 'channels:read').request('/api/team-members/wm_owner');
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: Record<string, unknown> }).data.picture).toBe(OWNER_PICTURE);
+    const admin = await app('user_viewer', 'channels:read').request('/api/team-members/wm_admin');
+    expect(((await admin.json()) as { data: Record<string, unknown> }).data.picture).toBeNull();
   });
 });
 

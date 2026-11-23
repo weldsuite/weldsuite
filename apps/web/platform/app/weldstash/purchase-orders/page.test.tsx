@@ -90,7 +90,7 @@ function setList(orders: PurchaseOrder[], extra: Record<string, unknown> = {}) {
   };
 }
 
-const ALL = ['orders:create', 'orders:update', 'orders:delete'];
+const ALL = ['purchase_orders:create', 'purchase_orders:update', 'purchase_orders:delete'];
 
 async function pickFilter(user: ReturnType<typeof userEvent.setup>, trigger: string, option: string) {
   await user.click(screen.getByRole('combobox', { name: trigger }));
@@ -271,7 +271,7 @@ describe('purchase orders list row delete', () => {
   });
 
   it('offers no delete without the permission', () => {
-    env.permissions = new Set(['orders:create', 'orders:update']);
+    env.permissions = new Set(['purchase_orders:create', 'purchase_orders:update']);
     render(<WeldStashPurchaseOrdersPage />);
     expect(screen.queryByLabelText('Open row actions')).not.toBeInTheDocument();
   });

@@ -13,6 +13,7 @@ weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-core-domain = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
@@ -32,6 +33,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 

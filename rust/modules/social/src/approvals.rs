@@ -364,8 +364,18 @@ async fn approve_inner(
     .execute(&caller.db)
     .await?;
 
+    // PostPeer switched off (ADR OPS-026): approved, but not scheduled there.
+    let postpeer_off = match &post.scheduled_at {
+        Some(_) => crate::postpeer_switch(&caller.db).await.err(),
+        None => None,
+    };
     let (scheduled, schedule_error, publish_result) = match &post.scheduled_at {
         None => (false, Value::Null, Value::Null),
+        Some(_) if postpeer_off.is_some() => (
+            false,
+            json!(postpeer_off.as_ref().map(ToString::to_string)),
+            Value::Null,
+        ),
         Some(scheduled_at) => {
             let options = PublishOptions {
                 now: false,

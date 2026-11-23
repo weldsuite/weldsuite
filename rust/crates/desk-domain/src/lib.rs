@@ -15,7 +15,8 @@
 //! - [`phone`] (`@weldsuite/db/lib/desk`, the phone channel): an inbound
 //!   call starts a conversation or continues the caller's open one.
 //! - [`table`]: writing a JSON object into a table the way Drizzle does,
-//!   for the webchat tables here and the desk crate's generated ones.
+//!   through the table's entity, for the webchat tables here and the desk
+//!   crate's generated ones.
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
 //!   and the `RealtimePublisher` conversation calls): the helpdesk
 //!   conversation room payloads.
@@ -61,7 +62,9 @@
 //!   and help-center links.
 //!
 //! Small on purpose: add what a ported route uses, with the TypeScript
-//! function it mirrors named in its doc comment.
+//! function it mirrors named in its doc comment. Queries go through the
+//! SeaORM entities of `weldsuite-schema` (ADR DATA-019); the few statements
+//! that stay SQL say why on their function.
 
 pub mod articles;
 pub mod assignment;
@@ -87,3 +90,44 @@ pub mod sla_calendar;
 pub mod table;
 pub mod webchat;
 pub mod workflow;
+
+/// `upper(column) = value`. (`ExprTrait` stays unimported in this crate: it
+/// would shadow `serde_json::Value::is_null` and `str::eq`.)
+pub(crate) fn upper_is(
+    column: impl sea_orm::sea_query::IntoColumnRef,
+    value: &str,
+) -> sea_orm::sea_query::Expr {
+    use sea_orm::sea_query::{Expr, Func};
+    sea_orm::ExprTrait::eq(Expr::from(Func::upper(Expr::col(column))), value)
+}
+
+/// An entity's model as Drizzle returned the row (its serde shape).
+pub(crate) fn row<T: serde::Serialize>(model: T) -> serde_json::Value {
+    serde_json::to_value(model).unwrap_or(serde_json::Value::Null)
+}
+
+/// A time value as a `timestamp` column holds it (`new Date(ms)` written by
+/// Drizzle): UTC, to the millisecond.
+pub(crate) fn at_ms(ms: i64) -> time::PrimitiveDateTime {
+    let at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    weldsuite_db::utc_timestamp(at)
+}
+
+/// `column->>'key'` of a `jsonb` value read whole: a string as itself, null
+/// or a missing key as `None`, anything else as its JSON text.
+pub(crate) fn json_text(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// A `timestamp` column as a time value, as `new Date(value).getTime()`
+/// reads Drizzle's: milliseconds since the epoch in UTC, the microseconds
+/// dropped.
+pub(crate) fn epoch_ms(at: time::PrimitiveDateTime) -> i64 {
+    let nanos = at.assume_utc().unix_timestamp_nanos();
+    i64::try_from(nanos.div_euclid(1_000_000)).unwrap_or(i64::MAX)
+}

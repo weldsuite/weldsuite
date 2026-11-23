@@ -1,0 +1,175 @@
+//! `recurring_invoices`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "recurring_invoices")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "contactId")]
+    pub contact_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(15))")]
+    #[serde(rename = "frequency")]
+    pub frequency: String,
+    #[serde(rename = "dayOfMonth")]
+    pub day_of_month: Option<i32>,
+    #[serde(rename = "nextIssueDate", with = "crate::js::timestamp")]
+    pub next_issue_date: TimeDateTime,
+    #[serde(rename = "endDate", with = "crate::js::timestamp::option")]
+    pub end_date: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "templateData")]
+    pub template_data: Option<Json>,
+    #[serde(rename = "autoSend")]
+    pub auto_send: Option<bool>,
+    #[serde(rename = "autoFinalize")]
+    pub auto_finalize: Option<bool>,
+    #[serde(rename = "generatedCount")]
+    pub generated_count: Option<i32>,
+    #[serde(rename = "lastGeneratedAt", with = "crate::js::timestamp::option")]
+    pub last_generated_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "lastGeneratedInvoiceId")]
+    pub last_generated_invoice_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "recurring_invoices",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_send",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "auto_finalize",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "generated_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "acct_recurring_invoices_entity_idx",
+            columns: &[IndexColumn {
+                expression: "entity_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_recurring_invoices_status_idx",
+            columns: &[IndexColumn {
+                expression: "status",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_recurring_invoices_next_issue_idx",
+            columns: &[IndexColumn {
+                expression: "next_issue_date",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "acct_recurring_invoices_contact_idx",
+            columns: &[IndexColumn {
+                expression: "contact_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

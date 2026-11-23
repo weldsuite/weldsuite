@@ -1,0 +1,221 @@
+//! `reach_messages`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "reach_messages")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(3))")]
+    #[serde(rename = "direction")]
+    pub direction: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "campaignId")]
+    pub campaign_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "enrollmentId")]
+    pub enrollment_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "stepId")]
+    pub step_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "mailboxId")]
+    pub mailbox_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "prospectId")]
+    pub prospect_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "threadKey")]
+    pub thread_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "messageIdHeader")]
+    pub message_id_header: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "inReplyTo")]
+    pub in_reply_to: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "references")]
+    pub references: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(320))")]
+    #[serde(rename = "fromEmail")]
+    pub from_email: String,
+    #[sea_orm(column_type = "String(StringLen::N(320))")]
+    #[serde(rename = "toEmail")]
+    pub to_email: String,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "subject")]
+    pub subject: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "snippet")]
+    pub snippet: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "bodyText")]
+    pub body_text: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "r2Key")]
+    pub r2_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "smtpResponse")]
+    pub smtp_response: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "error")]
+    pub error: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "kind")]
+    pub kind: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "label")]
+    pub label: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "labelSource")]
+    pub label_source: Option<String>,
+    #[serde(rename = "classifiedAt", with = "crate::js::timestamptz::option")]
+    pub classified_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "readAt", with = "crate::js::timestamptz::option")]
+    pub read_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "handledAt", with = "crate::js::timestamptz::option")]
+    pub handled_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "handledBy")]
+    pub handled_by: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "sentBy")]
+    pub sent_by: Option<String>,
+    #[serde(rename = "sentAt", with = "crate::js::timestamptz::option")]
+    pub sent_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "receivedAt", with = "crate::js::timestamptz::option")]
+    pub received_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "reach_messages",
+    columns: &[
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "reach_messages_message_id_idx",
+            columns: &[IndexColumn {
+                expression: "message_id_header",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "reach_messages_thread_idx",
+            columns: &[IndexColumn {
+                expression: "thread_key",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "reach_messages_mailbox_sent_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "mailbox_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "sent_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "reach_messages_enrollment_idx",
+            columns: &[IndexColumn {
+                expression: "enrollment_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "reach_messages_inbox_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "direction",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "received_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "reach_messages_campaign_idx",
+            columns: &[IndexColumn {
+                expression: "campaign_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[],
+    uniques: &[],
+    checks: &[],
+};

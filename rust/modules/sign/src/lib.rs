@@ -14,6 +14,11 @@
 //! they may not see is a 404. Only the owner changes an envelope, and only a
 //! draft (409 otherwise). Templates belong to the workspace.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod documents;
 mod envelopes;
 mod fields;

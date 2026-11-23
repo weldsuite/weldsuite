@@ -95,6 +95,14 @@
       "preview": "Pay {amount} before {date} to keep {plan}.",
       "subject": "Payment failed for \"{workspace}\""
     },
+    "failedNoMethod": {
+      "body": "The {plan} plan of {workspace} renewed, but there is no payment method on file to charge {amount} to. Your plan keeps working until {date}. Add a payment method before then to keep it.",
+      "button": "Pay and add payment method",
+      "heading": "Your plan needs a payment method",
+      "note": "Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.",
+      "preview": "Add a payment method before {date} to keep {plan}.",
+      "subject": "Add a payment method for \"{workspace}\""
+    },
     "kicker": "Billing",
     "plan": "Plan",
     "reminder": {
@@ -104,6 +112,23 @@
       "note": "You get this email because you manage billing for the workspace.",
       "preview": "Pay {amount} before {date} to keep {plan}.",
       "subject": "Reminder: a payment is open for \"{workspace}\""
+    },
+    "reminderNoMethod": {
+      "body": "The {plan} plan of {workspace} still has {amount} open because there is no payment method on file. If it isn’t paid by {date}, the workspace moves to the Free plan.",
+      "button": "Pay and add payment method",
+      "heading": "Your plan still needs a payment method",
+      "note": "Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.",
+      "preview": "Add a payment method before {date} to keep {plan}.",
+      "subject": "Reminder: \"{workspace}\" still needs a payment method"
+    },
+    "renewsOn": "Renews on",
+    "upcoming": {
+      "body": "The {plan} plan of {workspace} renews on {date}, but there is no payment method on file to charge it to. Add a payment method before {date} to keep {plan}.",
+      "button": "Add payment method",
+      "heading": "Add a payment method before {date}",
+      "note": "If the renewal can’t be charged, your plan keeps working for a short grace period and then moves to the Free plan. You get this email because you manage billing for the workspace.",
+      "preview": "Add a payment method before {date} to keep {plan}.",
+      "subject": "Add a payment method for \"{workspace}\" before {date}"
     },
     "workspace": "Workspace"
   },
@@ -199,6 +224,69 @@
     "viewInCalendar": "View in WeldCalendar",
     "when": "When",
     "where": "Where"
+  },
+  "commerce": {
+    "approvalDecided": {
+      "bodyApproved": "Your order {order} at {shop} for {currency} {total} was approved.",
+      "bodyRejected": "Your order {order} at {shop} for {currency} {total} was rejected. It will not be processed.",
+      "comment": "Comment",
+      "decidedBy": "Decided by {name}.",
+      "footer": "This message was sent on behalf of {shop}.",
+      "heading": "Order {order}",
+      "kickerApproved": "Order approved",
+      "kickerRejected": "Order rejected",
+      "pay": "Pay now",
+      "previewApproved": "Your order {order} for {currency} {total} was approved.",
+      "previewRejected": "Your order {order} for {currency} {total} was rejected.",
+      "subjectApproved": "Order {order} was approved",
+      "subjectRejected": "Order {order} was rejected"
+    },
+    "approvalRequested": {
+      "body": "{requester} placed order {order} at {shop} for {currency} {total}. It needs your approval.",
+      "bodyCompany": "{requester} from {company} placed order {order} at {shop} for {currency} {total}. It needs your approval.",
+      "footer": "You get this because you can approve orders at {shop}.",
+      "heading": "Order {order}",
+      "kicker": "Approval needed",
+      "open": "Review the order",
+      "preview": "{requester} placed order {order} for {currency} {total}.",
+      "reasons": {
+        "buyer_limit": "The total is above this buyer's order limit.",
+        "company_threshold": "The total is above your company's approval threshold."
+      },
+      "subject": "Order {order} needs your approval"
+    },
+    "buyerInvitation": {
+      "body": "{company} has given you access to order for it at {shop} as {role}.",
+      "footer": "This message was sent on behalf of {shop}. If you didn't expect it, you can ignore this email.",
+      "kicker": "{inviter} gave you access",
+      "kickerNoInviter": "You were given access",
+      "open": "Open the shop",
+      "preview": "{company} gave you access to order at {shop}.",
+      "roles": {
+        "admin": "an admin",
+        "approver": "an approver",
+        "buyer": "a buyer"
+      },
+      "signIn": "You sign in with your email address. We send you a code each time, so you do not need a password.",
+      "subject": "{company} gave you access to order at {shop}"
+    },
+    "orderConfirmation": {
+      "amount": "{currency} {amount}",
+      "awaitingApproval": "This order waits for approval from a colleague at your company. We process it once it is approved.",
+      "body": "We received your order at {shop}. This is what you ordered.",
+      "footer": "This message was sent on behalf of {shop}.",
+      "heading": "Order {order}",
+      "kicker": "Order confirmation",
+      "line": "{quantity} × {name}",
+      "onInvoice": "You will receive an invoice for this order.",
+      "preview": "We received your order {order}.",
+      "shipping": "Shipping",
+      "subject": "Your order {order} at {shop}",
+      "subtotal": "Subtotal",
+      "tax": "Tax",
+      "total": "Total",
+      "view": "View your order"
+    }
   },
   "dates": {
     "allDay": "{date} (all day)"

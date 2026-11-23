@@ -1,0 +1,167 @@
+//! `dns_records`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "dns_records")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "zoneId")]
+    pub zone_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "externalRecordId")]
+    pub external_record_id: Option<String>,
+    #[sea_orm(column_name = "type")]
+    #[serde(rename = "type")]
+    pub type_: super::enums::HostDnsRecordType,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "value")]
+    pub value: String,
+    #[serde(rename = "ttl")]
+    pub ttl: i32,
+    #[serde(rename = "priority")]
+    pub priority: Option<i32>,
+    #[serde(rename = "weight")]
+    pub weight: Option<i32>,
+    #[serde(rename = "port")]
+    pub port: Option<i32>,
+    #[serde(rename = "caaFlag")]
+    pub caa_flag: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(50))")]
+    #[serde(rename = "caaTag")]
+    pub caa_tag: Option<String>,
+    #[serde(rename = "status")]
+    pub status: super::enums::HostDnsRecordStatus,
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "syncError")]
+    pub sync_error: Option<String>,
+    #[serde(rename = "syncedAt", with = "crate::js::timestamp::option")]
+    pub synced_at: Option<TimeDateTime>,
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "comment")]
+    pub comment: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "metadata")]
+    pub metadata: Option<Json>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "dns_records",
+    columns: &[
+        DdlColumn {
+            name: "ttl",
+            sql_type: None,
+            default: Some(DdlDefault::Number("3600")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "status",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'active'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "dns_records_zone_id_idx",
+            columns: &[IndexColumn {
+                expression: "zone_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "dns_records_type_idx",
+            columns: &[IndexColumn {
+                expression: "type",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "dns_records_name_idx",
+            columns: &[IndexColumn {
+                expression: "name",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "dns_records_external_record_id_idx",
+            columns: &[IndexColumn {
+                expression: "external_record_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "dns_records_zone_id_dns_zones_id_fk",
+        columns: &["zone_id"],
+        references: "dns_zones",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

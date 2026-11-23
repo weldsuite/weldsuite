@@ -2,12 +2,18 @@
 //! lookups it threads with): a customer email starts a `desk_conversations`
 //! row (channel `email`) or lands on the one it continues.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_minutes_ago};
+use weldsuite_schema::tenant::{desk_conversations, desk_messages, desk_visitors};
+
+use crate::row;
 
 use crate::webchat::{
-    Append, AppendError, ChannelConversation, DESK_CONVERSATIONS, NewConversation, VisitorInput,
-    append, create_on_channel, preview_of, upsert_visitor,
+    Append, AppendError, ChannelConversation, NewConversation, VisitorInput, append,
+    create_on_channel, preview_of, upsert_visitor,
 };
 
 /// `normalizeRfcMessageId(id)`: angle brackets (one each side) and the
@@ -67,27 +73,34 @@ pub fn normalize_email_subject(subject: Option<&str>) -> String {
 pub async fn find_by_rfc_message_ids(
     db: &PgPool,
     ids: &[Option<&str>],
-) -> Result<Option<Value>, sqlx::Error> {
-    for id in ids.iter().filter_map(|id| normalize_rfc_message_id(*id)) {
-        let conversation: Option<String> = sqlx::query_scalar(
-            "select conversation_id from desk_messages
-             where (metadata->>'emailMessageId' = $1 or metadata->>'emailThreadMessageId' = $1)
-             limit 1",
+) -> Result<Option<Value>, DbErr> {
+    let orm_db = orm(db);
+    let email_id = |key: &'static str, id: &str| {
+        sea_orm::ExprTrait::eq(
+            pg::PgExpr::cast_json_field(Expr::col(desk_messages::Column::Metadata), key),
+            id.to_owned(),
         )
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
+    };
+    for id in ids.iter().filter_map(|id| normalize_rfc_message_id(*id)) {
+        let conversation: Option<String> = desk_messages::Entity::find()
+            .select_only()
+            .column(desk_messages::Column::ConversationId)
+            .filter(
+                Condition::any()
+                    .add(email_id("emailMessageId", &id))
+                    .add(email_id("emailThreadMessageId", &id)),
+            )
+            .into_tuple()
+            .one(&orm_db)
+            .await?;
         let Some(conversation) = conversation else {
             continue;
         };
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1",
-        )
-        .bind(&conversation)
-        .fetch_optional(db)
-        .await?;
-        if let Some(row) = row {
-            return Ok(Some(DESK_CONVERSATIONS.js(row)));
+        let found = desk_conversations::Entity::find_by_id(conversation)
+            .one(&orm_db)
+            .await?;
+        if let Some(found) = found {
+            return Ok(Some(row(found)));
         }
     }
     Ok(None)
@@ -95,25 +108,22 @@ pub async fn find_by_rfc_message_ids(
 
 /// `findRecentEmailConversation(db, email, title)`: the same sender and
 /// subject within thirty days.
-pub async fn find_recent(
-    db: &PgPool,
-    email: &str,
-    title: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+pub async fn find_recent(db: &PgPool, email: &str, title: &str) -> Result<Option<Value>, DbErr> {
+    use desk_conversations::Column;
     if title.is_empty() {
         return Ok(None);
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t
-         where t.channel = 'email' and t.email = $1 and t.title = $2
-           and t.last_message_at > now() - interval '30 days'
-         order by t.last_message_at desc limit 1",
-    )
-    .bind(email.to_lowercase())
-    .bind(title)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_CONVERSATIONS.js(row)))
+    // `now() - interval '30 days'`.
+    let since = utc_minutes_ago(30 * 24 * 60);
+    let found = desk_conversations::Entity::find()
+        .filter(Column::Channel.eq("email"))
+        .filter(Column::Email.eq(email.to_lowercase()))
+        .filter(Column::Title.eq(title))
+        .filter(Column::LastMessageAt.gt(since))
+        .order_by_desc(Column::LastMessageAt)
+        .one(&orm(db))
+        .await?;
+    Ok(found.map(row))
 }
 
 /// `findDeskEmailConversation(db, email)`: the conversation an inbound email
@@ -127,7 +137,7 @@ pub async fn find_desk_email_conversation(
     subject: Option<&str>,
     in_reply_to: Option<&str>,
     references: &[String],
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let title = normalize_email_subject(subject);
     let mut ids: Vec<Option<&str>> = vec![in_reply_to];
     ids.extend(references.iter().map(|r| Some(r.as_str())));
@@ -195,11 +205,11 @@ pub async fn ingest_desk_email(
     )
     .await?;
 
-    let visitor: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_visitors t where t.email = $1 limit 1")
-            .bind(&from_email)
-            .fetch_optional(db)
-            .await?;
+    let visitor: Option<Value> = desk_visitors::Entity::find()
+        .filter(desk_visitors::Column::Email.eq(from_email.as_str()))
+        .one(&orm(db))
+        .await?
+        .map(row);
     let visitor_id = visitor
         .as_ref()
         .and_then(|v| v["id"].as_str())

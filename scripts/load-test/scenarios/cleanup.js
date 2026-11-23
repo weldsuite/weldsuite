@@ -4,18 +4,28 @@
  * `loadtest` marker: people named `loadtest …` / emailed `loadtest+…`, and
  * companies, tickets and tasks whose name/subject/title starts with `loadtest `.
  *
- * Uses the first-party API when Clerk credentials are set, otherwise the
- * public API key. `pnpm load-test cleanup`.
+ * Uses the first-party API when there is a member session (Clerk on Global,
+ * WeldID on EU), otherwise the public API key. `pnpm load-test cleanup`
+ * (add `--target eu` for the EU install).
  */
 
 import http from 'k6/http';
-import { assertSafeTarget, MARKER, platformHost, publicApiHost } from '../lib/config.js';
-import { bearerToken, initialToken } from '../lib/auth.js';
+import {
+  assertSafeTarget,
+  IS_EU,
+  listOf,
+  MARKER,
+  platformHost,
+  publicApiHost,
+  TARGET_LABEL,
+  workspaceHeaders,
+  WORKSPACES,
+} from '../lib/config.js';
+import { bearerToken, hasPlatformCredentials, initialToken } from '../lib/auth.js';
 
 export const options = { vus: 1, iterations: 1, setupTimeout: '2m', summaryTrendStats: ['count'] };
 
-const hasClerk = Boolean(__ENV.WELD_TOKEN || (__ENV.CLERK_SESSION_ID && __ENV.CLERK_SECRET_KEY));
-const usePlatform = __ENV.CLEANUP_API ? __ENV.CLEANUP_API === 'platform' : hasClerk;
+const usePlatform = __ENV.CLEANUP_API ? __ENV.CLEANUP_API === 'platform' : hasPlatformCredentials();
 
 const prefixed = (value) => typeof value === 'string' && value.startsWith(`${MARKER} `);
 const TARGETS = [
@@ -33,21 +43,39 @@ const TARGETS = [
 
 export function setup() {
   assertSafeTarget();
+  console.log(`Cleanup on ${TARGET_LABEL} through the ${usePlatform ? 'first-party' : 'public'} API`);
   if (usePlatform) return { platform: true, token: initialToken() };
-  if (!__ENV.WELD_API_KEY) throw new Error('Set Clerk credentials or WELD_API_KEY in scripts/load-test/.env');
+  if (!__ENV.WELD_API_KEY) throw new Error('Set a member session (Clerk, or WeldID with --target eu) or WELD_API_KEY in scripts/load-test/.env');
   return { platform: false };
 }
 
+/** A member session's passes: each of WELD_WORKSPACE on EU, the Clerk session's one workspace on Global. */
+function platformPasses(token) {
+  const workspaces = IS_EU ? WORKSPACES : [undefined];
+  return workspaces.map((workspace) => ({
+    label: workspace ? ` (${workspace})` : '',
+    headers: () => ({ Authorization: `Bearer ${bearerToken(token)}`, Accept: 'application/json', ...workspaceHeaders(workspace) }),
+  }));
+}
+
+/** The public API's passes: one per key of WELD_API_KEY. */
+function publicPasses() {
+  return listOf(__ENV.WELD_API_KEY).map((key, i, keys) => ({
+    label: keys.length > 1 ? ` (key ${i + 1})` : '',
+    headers: () => ({ Authorization: `Bearer ${key}`, Accept: 'application/json' }),
+  }));
+}
+
 export default function (shared) {
-  const headers = () => ({
-    Authorization: `Bearer ${shared.platform ? bearerToken(shared.token) : __ENV.WELD_API_KEY}`,
-    Accept: 'application/json',
-  });
+  // One pass per test workspace.
+  const passes = shared.platform ? platformPasses(shared.token) : publicPasses();
   const base = (target) => (shared.platform ? `${platformHost(target.module)}${target.platformPath}` : `${publicApiHost()}${target.publicPath}`);
 
-  for (const target of TARGETS) {
-    const deleted = sweep(target, base(target), headers);
-    console.log(`${target.label}: deleted ${deleted} leftover record(s)`);
+  for (const pass of passes) {
+    for (const target of TARGETS) {
+      const deleted = sweep(target, base(target), pass.headers);
+      console.log(`${target.label}${pass.label}: deleted ${deleted} leftover record(s)`);
+    }
   }
 }
 

@@ -7,7 +7,13 @@
 //! the caller set, defaults filled in), as JSON objects keyed like the
 //! TypeScript types.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod activities;
+pub mod auto_add;
 pub mod companies;
 pub mod company_attributes;
 pub mod events;
@@ -111,6 +117,19 @@ impl DomainError {
             | Self::Other(message) => message.clone(),
             Self::Database(error) => error.to_string(),
         }
+    }
+}
+
+/// An ORM failure is a database failure; the route answers its 500 with the message.
+impl From<sea_orm::DbErr> for DomainError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for DomainError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Other(error.to_string())
     }
 }
 

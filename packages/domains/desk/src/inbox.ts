@@ -45,6 +45,7 @@ import { deskChangeReroutes, routeDeskConversation, type DeskRoutingChange } fro
 import type { DeskImpact, DeskPriority, DeskUrgency } from '@weldsuite/db/schema/desk-conversations';
 import type { DeskAttributeChange, DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { nextDeskSlaCheckAt } from '@weldsuite/db/lib/desk-sla';
 
@@ -109,6 +110,11 @@ export interface DeskInboxEnv extends NotificationEnv {
   HELPDESK_WORKFLOW?: FetcherLike;
   /** Schedule-index D1: writes mark when an SLA clock next comes due (kind `desk_sla`, ADR DESK-009). */
   SCHEDULE_INDEX?: D1Database;
+  /**
+   * Master database: an agent's avatar is their account picture
+   * (`users.image_url`). Without it the room payloads carry no avatar.
+   */
+  DATABASE_URL_MASTER?: string;
 }
 
 export interface DeskInboxDeps {
@@ -196,17 +202,23 @@ async function emitAll(deps: DeskInboxDeps, events: DeskInboxEvent[]): Promise<v
   }
 }
 
-/** Display names for teammates, by first name only (`deskAuthorFromMember`). */
-async function deskAuthors(db: Database, userIds: Array<string | null>): Promise<Map<string, DeskAuthorInfo>> {
+/**
+ * Display info for teammates: first name only (`deskAuthorFromMember`) from the
+ * member row, the avatar from their account.
+ */
+async function deskAuthors(deps: DeskInboxDeps, userIds: Array<string | null>): Promise<Map<string, DeskAuthorInfo>> {
   const ids = Array.from(new Set(userIds.filter((id): id is string => Boolean(id))));
   const out = new Map<string, DeskAuthorInfo>();
   if (ids.length === 0) return out;
   const m = schema.workspaceMembers;
-  const rows = await db
-    .select({ userId: m.userId, name: m.name, picture: m.picture })
-    .from(m)
-    .where(inArray(m.userId, ids));
-  for (const row of rows) out.set(row.userId, deskAuthorFromMember(row));
+  const masterUrl = deps.env.DATABASE_URL_MASTER;
+  const [rows, pictures] = await Promise.all([
+    deps.db.select({ userId: m.userId, name: m.name }).from(m).where(inArray(m.userId, ids)),
+    masterUrl ? loadAccountPictures({ DATABASE_URL_MASTER: masterUrl }, ids) : new Map<string, string | null>(),
+  ]);
+  for (const row of rows) {
+    out.set(row.userId, deskAuthorFromMember({ name: row.name, picture: accountPicture(pictures, row.userId) }));
+  }
   return out;
 }
 
@@ -229,7 +241,7 @@ async function publishToRooms(deps: DeskInboxDeps, events: DeskInboxEvent[]): Pr
       conversations.set(event.entityId, event.data as unknown as DeskConversation);
     }
   }
-  const authors = await deskAuthors(deps.db, [
+  const authors = await deskAuthors(deps, [
     ...messages.map((message) => (message.authorType === 'agent' ? message.authorId : null)),
     ...Array.from(conversations.values(), (conversation) => conversation.assigneeId),
   ]);

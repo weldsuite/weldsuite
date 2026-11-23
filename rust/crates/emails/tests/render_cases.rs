@@ -6,6 +6,9 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::commerce::{
+    ApprovalDecided, ApprovalRequested, BuyerInvitation, OrderConfirmation, OrderConfirmationLine,
+};
 use weldsuite_emails::desk::{
     DeskReport, DeskReportAgent, DeskReportBacklog, DeskReportChart, DeskReportKpi,
     DeskReportPoint, KpiKey,
@@ -17,8 +20,8 @@ use weldsuite_emails::reach::{AccessApproved, AccessRejected, ApprovedLimits};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::workspace::WorkspaceInvitation;
 use weldsuite_emails::{
-    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, billing, calendar, desk, flow,
-    forms, hr, meet, panel, panel_monitor, portal, reach, sign, workspace,
+    EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, billing, calendar, commerce, desk,
+    flow, forms, hr, meet, panel, panel_monitor, portal, reach, sign, workspace,
 };
 
 #[derive(Deserialize)]
@@ -271,6 +274,74 @@ fn render(case: &Case) -> RenderedEmail {
                 url: s(p, "url"),
             },
         ),
+        "commerce.buyer-invitation" => commerce::buyer_invitation(
+            locale,
+            &brand,
+            &BuyerInvitation {
+                shop_name: s(p, "shopName"),
+                company_name: s(p, "companyName"),
+                inviter_name: opt("inviterName"),
+                role: s(p, "role"),
+                shop_url: opt("shopUrl"),
+            },
+        ),
+        "commerce.order-confirmation" => commerce::order_confirmation(
+            locale,
+            &brand,
+            &OrderConfirmation {
+                shop_name: s(p, "shopName"),
+                order_number: s(p, "orderNumber"),
+                currency: s(p, "currency"),
+                lines: p["lines"]
+                    .as_array()
+                    .map(|lines| {
+                        lines
+                            .iter()
+                            .map(|line| OrderConfirmationLine {
+                                name: s(line, "name"),
+                                quantity: line["quantity"].as_i64().unwrap_or_default(),
+                                total: s(line, "total"),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                subtotal: s(p, "subtotal"),
+                shipping_total: s(p, "shippingTotal"),
+                tax_total: s(p, "taxTotal"),
+                total: s(p, "total"),
+                order_url: opt("orderUrl"),
+                awaiting_approval: p["awaitingApproval"].as_bool().unwrap_or(false),
+                on_invoice: p["onInvoice"].as_bool().unwrap_or(false),
+            },
+        ),
+        "commerce.approval-requested" => commerce::approval_requested(
+            locale,
+            &brand,
+            &ApprovalRequested {
+                shop_name: s(p, "shopName"),
+                order_number: s(p, "orderNumber"),
+                currency: s(p, "currency"),
+                total: s(p, "total"),
+                requested_by: s(p, "requestedBy"),
+                company_name: opt("companyName"),
+                reason: s(p, "reason"),
+                shop_url: opt("shopUrl"),
+            },
+        ),
+        "commerce.approval-decided" => commerce::approval_decided(
+            locale,
+            &brand,
+            &ApprovalDecided {
+                shop_name: s(p, "shopName"),
+                order_number: s(p, "orderNumber"),
+                currency: s(p, "currency"),
+                total: s(p, "total"),
+                approved: p["approved"].as_bool().unwrap_or(false),
+                decided_by: opt("decidedBy"),
+                comment: opt("comment"),
+                payment_url: opt("paymentUrl"),
+            },
+        ),
         "hr.payslip-ready" => hr::payslip_ready(
             locale,
             &brand,
@@ -300,6 +371,7 @@ fn render(case: &Case) -> RenderedEmail {
                 kind: match p["kind"].as_str() {
                     Some("reminder") => billing::DunningKind::Reminder,
                     Some("ended") => billing::DunningKind::Ended,
+                    Some("upcoming") => billing::DunningKind::Upcoming,
                     _ => billing::DunningKind::Failed,
                 },
                 workspace_name: s(p, "workspaceName"),
@@ -307,6 +379,7 @@ fn render(case: &Case) -> RenderedEmail {
                 amount: s(p, "amount"),
                 ends_on: s(p, "endsOn"),
                 url: s(p, "url"),
+                no_method: p["noMethod"].as_bool() == Some(true),
             },
         ),
         "billing.invoice" => billing::invoice(

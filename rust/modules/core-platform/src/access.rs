@@ -86,6 +86,13 @@ impl Caller {
             .unwrap_or_else(|| state.master.clone())
     }
 
+    /// The request's master database, for account pictures: the app's
+    /// behind `workspace_db`, the test's in conformance (none when the test
+    /// shares none, as a worker whose master lookup fails).
+    pub fn request_master(&self) -> Option<&PgPool> {
+        self.overrides.master.as_ref()
+    }
+
     /// The identity provider, if any.
     pub fn identity(&self, state: &CorePlatformState) -> Option<Arc<dyn Identity>> {
         self.overrides

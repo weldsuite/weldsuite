@@ -28,6 +28,11 @@
 //! Respondent sessions are the worker's HMAC tokens byte for byte, so a
 //! session either backend issued opens on the other.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 /// The forms engine (`weldsuite-forms-engine`, `@weldsuite/forms-engine`).
 pub use weldsuite_forms_engine as engine;
 

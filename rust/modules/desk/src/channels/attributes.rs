@@ -23,7 +23,7 @@ const TAG_WINDOW_DAYS: i32 = 90;
 
 /// `getDeskAttributeOptions(db)`: the active ticket types, their fields, the
 /// active teams, the tags in use and the priority matrix.
-pub(crate) async fn options(db: &PgPool) -> Result<Value, sqlx::Error> {
+pub(crate) async fn options(db: &PgPool) -> Result<Value, sea_orm::DbErr> {
     let ticket_types: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('id', id, 'name', name, 'description', description,
                                    'icon', icon, 'color', color)
@@ -32,7 +32,8 @@ pub(crate) async fn options(db: &PgPool) -> Result<Value, sqlx::Error> {
           order by sort_order asc, name asc",
     )
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let teams: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('id', id, 'name', name)
            from helpdesk_departments
@@ -40,7 +41,8 @@ pub(crate) async fn options(db: &PgPool) -> Result<Value, sqlx::Error> {
           order by name asc",
     )
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let fields: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('id', id, 'ticketTypeId', ticket_type_id, 'slug', slug,
                                    'name', name, 'description', description,
@@ -52,7 +54,8 @@ pub(crate) async fn options(db: &PgPool) -> Result<Value, sqlx::Error> {
           order by sort_order asc, name asc",
     )
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let tags: Vec<(String, i32)> = sqlx::query_as(
         "select tag, count(*)::int as count
            from desk_conversations, jsonb_array_elements_text(desk_conversations.tags) as tag
@@ -66,7 +69,8 @@ pub(crate) async fn options(db: &PgPool) -> Result<Value, sqlx::Error> {
     .bind(TAG_WINDOW_DAYS)
     .bind(TAG_SUGGESTIONS)
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let tags: Vec<Value> = tags
         .into_iter()
         .map(|(tag, count)| json!({ "tag": tag, "count": count }))

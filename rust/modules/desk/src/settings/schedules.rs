@@ -431,7 +431,7 @@ async fn list(caller: Caller) -> Response {
     .await;
     match listed {
         Ok(schedules) => Data(Value::Array(schedules)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to fetch report schedules"),
+        Err(error) => Refusal::from(error).respond("Failed to fetch report schedules"),
     }
 }
 
@@ -444,7 +444,7 @@ enum WriteFailure {
 
 impl From<sqlx::Error> for WriteFailure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::Database(error))
+        Self::Refusal(Refusal::from(error))
     }
 }
 
@@ -732,7 +732,7 @@ async fn remove(
             NoContent.into_response()
         }
         Ok(None) => Refusal::not_found("Report schedule", &id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -780,7 +780,7 @@ async fn send_now(
     match sent {
         Ok(Some(result)) => Data(result).into_response(),
         Ok(None) => Refusal::not_found("Report schedule", &id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 

@@ -96,7 +96,14 @@ async fn file_sharing(caller: &Caller, opened: &OpenedFile) -> Result<Value, Fai
         general_access: DriveGeneralAccess::parse(text(row, "generalAccess").unwrap_or_default()),
         parent_id: text(row, "folderId"),
     };
-    Ok(describe_sharing(&caller.db, &opened.access, target, opened.role).await?)
+    Ok(describe_sharing(
+        &caller.db,
+        caller.request_master(),
+        &opened.access,
+        target,
+        opened.role,
+    )
+    .await?)
 }
 
 fn is_module_row(row: &Value) -> bool {

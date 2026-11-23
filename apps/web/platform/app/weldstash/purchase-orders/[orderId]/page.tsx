@@ -83,8 +83,8 @@ function PurchaseOrderContent() {
         sentToOdoo,
         warehouseManagedInOdoo,
         purchasing,
-        canUpdate: can('orders:update'),
-        canDelete: can('orders:delete'),
+        canUpdate: can('purchase_orders:update'),
+        canDelete: can('purchase_orders:delete'),
       }),
     [order, sentToOdoo, warehouseManagedInOdoo, purchasing, can],
   );

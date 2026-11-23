@@ -26,11 +26,20 @@
 //! - **Past due:** a charge that fails sets `past_due`, emails the billing
 //!   owners a pay link ([`paylink`]) and keeps the plan working for the grace
 //!   period (`BILLING_GRACE_DAYS`, 14), after which it ends on Free.
+//! - **No payment method yet** (`payment_method`): a paid plan without a
+//!   mandate (every workspace that moved from Global) is warned before its
+//!   renewal (`BILLING_RENEWAL_NOTICE_DAYS`, 14): one email to the billing
+//!   owners and a banner, through the grace period if the renewal is refused.
 //! - **Add-ons ride on the plan** ([`addons`]): WeldReach inboxes, €8.00
 //!   each per month, billed on every anchor; one added between anchors is
 //!   charged at once for the rest of the month.
 //! - **One webhook** (`/api/webhooks/mollie`, shared with BILL-013's top-up):
 //!   [`settle::settle_payment`] reads the payment back and applies it once.
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 
 mod access;
 mod account;
@@ -41,6 +50,7 @@ pub mod engine;
 pub mod lines;
 mod notify;
 pub mod paylink;
+mod payment_method;
 pub mod period;
 mod plans;
 pub mod renewals;

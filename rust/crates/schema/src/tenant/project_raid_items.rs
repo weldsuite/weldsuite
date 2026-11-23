@@ -1,0 +1,264 @@
+//! `project_raid_items`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "project_raid_items")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[serde(rename = "number")]
+    pub number: i32,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "title")]
+    pub title: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "category")]
+    pub category: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[serde(rename = "dueAt", with = "crate::js::timestamptz::option")]
+    pub due_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "closedAt", with = "crate::js::timestamptz::option")]
+    pub closed_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "customFields")]
+    pub custom_fields: Option<Json>,
+    #[serde(rename = "probability")]
+    pub probability: Option<i16>,
+    #[serde(rename = "impact")]
+    pub impact: Option<i16>,
+    #[serde(rename = "score")]
+    pub score: Option<i32>,
+    #[serde(rename = "residualProbability")]
+    pub residual_probability: Option<i16>,
+    #[serde(rename = "residualImpact")]
+    pub residual_impact: Option<i16>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "strategy")]
+    pub strategy: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "trigger")]
+    pub trigger: Option<String>,
+    #[sea_orm(column_type = "Decimal(Some((18, 2)))")]
+    #[serde(
+        rename = "costImpact",
+        serialize_with = "crate::js::Numeric::<2>::serialize_option"
+    )]
+    pub cost_impact: Option<BigDecimal>,
+    #[serde(rename = "scheduleImpactDays")]
+    pub schedule_impact_days: Option<i32>,
+    #[serde(rename = "reviewIntervalDays")]
+    pub review_interval_days: Option<i32>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "confidence")]
+    pub confidence: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "ifWrong")]
+    pub if_wrong: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "severity")]
+    pub severity: Option<String>,
+    #[serde(rename = "escalatedAt", with = "crate::js::timestamptz::option")]
+    pub escalated_at: Option<TimeDateTimeWithTimeZone>,
+    #[sea_orm(column_type = "String(StringLen::N(10))")]
+    #[serde(rename = "direction")]
+    pub direction: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "partyType")]
+    pub party_type: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "partyProjectId")]
+    pub party_project_id: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "partyName")]
+    pub party_name: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "createdBy")]
+    pub created_by: String,
+    #[serde(rename = "createdAt", with = "crate::js::timestamptz")]
+    pub created_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
+    pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "project_raid_items",
+    columns: &[
+        DdlColumn {
+            name: "score",
+            sql_type: None,
+            default: None,
+            generated: Some("probability * impact"),
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "project_raid_items_project_kind_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "kind",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_raid_items_project_due_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "due_at",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_raid_items_project_kind_number_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "kind",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "number",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[
+        ForeignKey {
+            name: "project_raid_items_project_id_projects_id_fk",
+            columns: &["project_id"],
+            references: "projects",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+        ForeignKey {
+            name: "project_raid_items_party_project_id_projects_id_fk",
+            columns: &["party_project_id"],
+            references: "projects",
+            referenced_columns: &["id"],
+            on_delete: "no action",
+            on_update: "no action",
+        },
+    ],
+    uniques: &[],
+    checks: &[
+        Check {
+            name: "project_raid_items_kind_check",
+            expression: "\"project_raid_items\".\"kind\" in ('risk', 'assumption', 'issue', 'dependency')",
+        },
+        Check {
+            name: "project_raid_items_status_check",
+            expression: "(\"project_raid_items\".\"kind\" = 'risk' and \"project_raid_items\".\"status\" in ('identified', 'assessing', 'mitigating', 'monitoring', 'occurred', 'closed'))\n        or (\"project_raid_items\".\"kind\" = 'assumption' and \"project_raid_items\".\"status\" in ('open', 'validated', 'invalid'))\n        or (\"project_raid_items\".\"kind\" = 'issue' and \"project_raid_items\".\"status\" in ('open', 'in_progress', 'resolved', 'closed'))\n        or (\"project_raid_items\".\"kind\" = 'dependency' and \"project_raid_items\".\"status\" in ('open', 'at_risk', 'delivered', 'closed'))",
+        },
+        Check {
+            name: "project_raid_items_risk_required_check",
+            expression: "\"project_raid_items\".\"kind\" <> 'risk' or (\"project_raid_items\".\"probability\" is not null and \"project_raid_items\".\"impact\" is not null)",
+        },
+        Check {
+            name: "project_raid_items_scale_check",
+            expression: "(\"project_raid_items\".\"probability\" is null or \"project_raid_items\".\"probability\" between 1 and 5)\n        and (\"project_raid_items\".\"impact\" is null or \"project_raid_items\".\"impact\" between 1 and 5)\n        and (\"project_raid_items\".\"residual_probability\" is null or \"project_raid_items\".\"residual_probability\" between 1 and 5)\n        and (\"project_raid_items\".\"residual_impact\" is null or \"project_raid_items\".\"residual_impact\" between 1 and 5)",
+        },
+        Check {
+            name: "project_raid_items_residual_pair_check",
+            expression: "(\"project_raid_items\".\"residual_probability\" is null) = (\"project_raid_items\".\"residual_impact\" is null)",
+        },
+        Check {
+            name: "project_raid_items_risk_columns_check",
+            expression: "\"project_raid_items\".\"kind\" = 'risk' or (\"project_raid_items\".\"probability\" is null and \"project_raid_items\".\"impact\" is null\n        and \"project_raid_items\".\"residual_probability\" is null and \"project_raid_items\".\"residual_impact\" is null\n        and \"project_raid_items\".\"strategy\" is null and \"project_raid_items\".\"trigger\" is null and \"project_raid_items\".\"cost_impact\" is null\n        and \"project_raid_items\".\"schedule_impact_days\" is null and \"project_raid_items\".\"review_interval_days\" is null)",
+        },
+        Check {
+            name: "project_raid_items_assumption_columns_check",
+            expression: "\"project_raid_items\".\"kind\" = 'assumption' or (\"project_raid_items\".\"confidence\" is null and \"project_raid_items\".\"if_wrong\" is null)",
+        },
+        Check {
+            name: "project_raid_items_issue_columns_check",
+            expression: "\"project_raid_items\".\"kind\" = 'issue' or (\"project_raid_items\".\"severity\" is null and \"project_raid_items\".\"escalated_at\" is null)",
+        },
+        Check {
+            name: "project_raid_items_dependency_columns_check",
+            expression: "\"project_raid_items\".\"kind\" = 'dependency' or (\"project_raid_items\".\"direction\" is null and \"project_raid_items\".\"party_type\" is null\n        and \"project_raid_items\".\"party_project_id\" is null and \"project_raid_items\".\"party_name\" is null)",
+        },
+    ],
+};

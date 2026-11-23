@@ -1,0 +1,191 @@
+//! `mail_rules`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "mail_rules")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "accountId")]
+    pub account_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "name")]
+    pub name: String,
+    #[sea_orm(column_type = "Text")]
+    #[serde(rename = "description")]
+    pub description: Option<String>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "conditions")]
+    pub conditions: Json,
+    #[serde(rename = "matchType")]
+    pub match_type: super::enums::MailRuleMatchType,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "actions")]
+    pub actions: Json,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+    #[serde(rename = "stopProcessing")]
+    pub stop_processing: Option<bool>,
+    #[serde(rename = "priority")]
+    pub priority: Option<i32>,
+    #[serde(rename = "applyToExisting")]
+    pub apply_to_existing: Option<bool>,
+    #[serde(rename = "appliedCount")]
+    pub applied_count: Option<i32>,
+    #[serde(rename = "lastAppliedAt", with = "crate::js::timestamp::option")]
+    pub last_applied_at: Option<TimeDateTime>,
+    #[serde(rename = "scope")]
+    pub scope: Option<super::enums::MailRuleScope>,
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "folders")]
+    pub folders: Option<Json>,
+    #[serde(rename = "createdAt", with = "crate::js::timestamp")]
+    pub created_at: TimeDateTime,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamp")]
+    pub updated_at: TimeDateTime,
+    #[serde(rename = "deletedAt", with = "crate::js::timestamp::option")]
+    pub deleted_at: Option<TimeDateTime>,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "mail_rules",
+    columns: &[
+        DdlColumn {
+            name: "match_type",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'all'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "is_active",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "stop_processing",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "priority",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "apply_to_existing",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(false)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "applied_count",
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "scope",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'incoming'")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "created_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "mail_rules_account_id_idx",
+            columns: &[IndexColumn {
+                expression: "account_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_rules_is_active_idx",
+            columns: &[IndexColumn {
+                expression: "is_active",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "mail_rules_priority_idx",
+            columns: &[IndexColumn {
+                expression: "priority",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "mail_rules_account_id_mail_accounts_id_fk",
+        columns: &["account_id"],
+        references: "mail_accounts",
+        referenced_columns: &["id"],
+        on_delete: "no action",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

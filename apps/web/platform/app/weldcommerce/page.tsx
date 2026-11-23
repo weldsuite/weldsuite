@@ -8,12 +8,9 @@ import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { formatPanelDate, formatPanelMoney } from '@/components/objects/_shared/simple-object-panel';
 import { useCommerceOverview, type CommerceRecentOrder } from '@/hooks/queries/use-commerce-queries';
+import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
-
-/** `{name}` placeholders in a translated string. */
-function fill(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => (key in values ? String(values[key]) : match));
-}
+import { fill } from './lib/text';
 
 function statusTone(status: string | null): SoftTone {
   switch (status) {
@@ -61,7 +58,16 @@ export default function WeldCommerceOverview() {
   }
 
   const columns: ListTableColumn<CommerceRecentOrder>[] = [
-    { id: 'order', header: t.columns.order, accessor: (row) => row.orderNumber ?? row.id },
+    {
+      id: 'order',
+      header: t.columns.order,
+      // Opens the order's panel on the orders list.
+      cell: (row) => (
+        <Link href={`/weldcommerce/orders?stack=order:${encodeURIComponent(row.id)}`} className="font-medium text-primary hover:underline">
+          {row.orderNumber ?? row.id}
+        </Link>
+      ),
+    },
     { id: 'customer', header: t.columns.customer, accessor: (row) => row.customerName ?? '—' },
     { id: 'status', header: t.columns.status, cell: (row) => <StatusBadge value={row.status} /> },
     { id: 'payment', header: t.columns.payment, cell: (row) => <StatusBadge value={row.paymentStatus} /> },

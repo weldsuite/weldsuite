@@ -64,6 +64,12 @@ export interface CreateBookingMeetingInput {
   eventId: string;
   /** Clerk user id of the page owner, who hosts the meeting. */
   hostUserId: string;
+  /**
+   * The host's account picture (master `users.image_url`), for their attendee
+   * entry. Avatars come from the account, never `workspace_members.picture`;
+   * this package only has the tenant handle, so the caller looks it up.
+   */
+  hostPicture?: string | null;
   /** Clerk organization id of the workspace: the meeting portal resolves the tenant from it. */
   workspaceId: string;
   /** Meeting portal origin; defaults to production. */
@@ -81,14 +87,17 @@ export interface BookingMeeting {
 }
 
 /** The host as the first attendee (organizer, accepted), when they are a workspace member. */
-async function hostAttendee(db: BookingMeetingDb, hostUserId: string): Promise<MeetingAttendee | null> {
+async function hostAttendee(
+  db: BookingMeetingDb,
+  hostUserId: string,
+  hostPicture: string | null | undefined,
+): Promise<MeetingAttendee | null> {
   const { workspaceMembers } = schema;
   const [member] = await db
     .select({
       id: workspaceMembers.id,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
     })
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, hostUserId))
@@ -103,7 +112,7 @@ async function hostAttendee(db: BookingMeetingDb, hostUserId: string): Promise<M
     status: 'accepted',
     role: 'organizer',
     workspaceMemberId: member.id,
-    ...(member.picture ? { avatar: member.picture } : {}),
+    ...(hostPicture ? { avatar: hostPicture } : {}),
   };
 }
 
@@ -118,7 +127,7 @@ export async function createBookingMeeting(
   db: BookingMeetingDb,
   input: CreateBookingMeetingInput,
 ): Promise<BookingMeeting> {
-  const host = await hostAttendee(db, input.hostUserId);
+  const host = await hostAttendee(db, input.hostUserId, input.hostPicture);
 
   const attendees: MeetingAttendee[] = host ? [host] : [];
   const seen = new Set(attendees.map((a) => a.email));

@@ -18,6 +18,11 @@
 //! ([`set_push_server`]): the mobile apps act on a tap only when that is the
 //! server they run against.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod preview;
 mod push;
 

@@ -1,0 +1,132 @@
+//! `ad_sync_index`.
+
+use sea_orm::entity::prelude::*;
+
+#[allow(unused_imports)]
+use crate::ddl::{
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
+};
+
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+#[sea_orm(table_name = "ad_sync_index")]
+pub struct Model {
+    #[sea_orm(
+        primary_key,
+        auto_increment = false,
+        column_type = "String(StringLen::N(30))"
+    )]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "workspaceId")]
+    pub workspace_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "connectionId")]
+    pub connection_id: String,
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "clerkOrgId")]
+    pub clerk_org_id: String,
+    #[serde(rename = "isEnabled")]
+    pub is_enabled: bool,
+    #[serde(rename = "nextMetricsSyncAt", with = "crate::js::timestamptz::option")]
+    pub next_metrics_sync_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "metricsIntervalHours")]
+    pub metrics_interval_hours: i32,
+    #[serde(
+        rename = "webhookSubscribedAt",
+        with = "crate::js::timestamptz::option"
+    )]
+    pub webhook_subscribed_at: Option<TimeDateTimeWithTimeZone>,
+    #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
+    pub updated_at: TimeDateTimeWithTimeZone,
+}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {}
+
+impl ActiveModelBehavior for ActiveModel {}
+
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
+pub const DDL: Table = Table {
+    name: "ad_sync_index",
+    columns: &[
+        DdlColumn {
+            name: "is_enabled",
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "metrics_interval_hours",
+            sql_type: None,
+            default: Some(DdlDefault::Number("6")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+        DdlColumn {
+            name: "updated_at",
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
+            generated: None,
+            default_fn: false,
+            on_update: false,
+        },
+    ],
+    primary_key: None,
+    indexes: &[
+        Index {
+            name: "ad_sync_index_workspace_connection_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "workspace_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "connection_id",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: true,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_sync_index_next_metrics_sync_at_idx",
+            columns: &[IndexColumn {
+                expression: "next_metrics_sync_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "ad_sync_index_is_enabled_idx",
+            columns: &[IndexColumn {
+                expression: "is_enabled",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
+    foreign_keys: &[ForeignKey {
+        name: "ad_sync_index_workspace_id_workspaces_id_fk",
+        columns: &["workspace_id"],
+        references: "workspaces",
+        referenced_columns: &["id"],
+        on_delete: "cascade",
+        on_update: "no action",
+    }],
+    uniques: &[],
+    checks: &[],
+};

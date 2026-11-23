@@ -28,6 +28,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { schema } from '@weldsuite/worker-kit/db';
 import { canChangeOwners, canManageProject, mayAccess, resolveProjectAccess } from '../../lib/project-access';
+import { withUserAvatars } from '../../lib/member-avatars';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 
 const MANAGE_MEMBERS_DENIED = 'You must be a project owner, admin, or manager to manage its members';
 const PROJECT_DENIED = 'You are not a member of this project';
@@ -185,7 +187,6 @@ app.get('/', requirePermission('projects:read'), async (c) => {
           id: workspaceMembers.userId,
           name: workspaceMembers.name,
           email: workspaceMembers.email,
-          avatar: workspaceMembers.picture,
         },
       })
       .from(t)
@@ -203,7 +204,8 @@ app.get('/', requirePermission('projects:read'), async (c) => {
           ),
         ),
       );
-    return success(c, results.map((row) => redactRate(row, viewer)));
+    const withAvatars = await withUserAvatars(c.env, results);
+    return success(c, withAvatars.map((row) => redactRate(row, viewer)));
   } catch (err) {
     console.error('[app-api/project-members] list failed:', err);
     return error.internal(c, 'Failed to list project members');
@@ -245,11 +247,11 @@ app.get('/available', requirePermission('projects:read'), async (c) => {
         id: workspaceMembers.userId,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        image: workspaceMembers.picture,
       })
       .from(workspaceMembers)
       .where(and(...conditions));
-    return success(c, available);
+    const pictures = await loadAccountPictures(c.env, available.map((m) => m.id));
+    return success(c, available.map((m) => ({ ...m, image: accountPicture(pictures, m.id) })));
   } catch (err) {
     console.error('[app-api/project-members] available failed:', err);
     return error.internal(c, 'Failed to fetch available users');
@@ -287,7 +289,6 @@ app.get('/by-user/:projectId/:userId', requirePermission('projects:read'), async
           id: workspaceMembers.userId,
           name: workspaceMembers.name,
           email: workspaceMembers.email,
-          avatar: workspaceMembers.picture,
         },
       })
       .from(t)
@@ -295,7 +296,8 @@ app.get('/by-user/:projectId/:userId', requirePermission('projects:read'), async
       .where(and(eq(t.projectId, projectId), eq(t.userId, userId), isNull(t.deletedAt)))
       .limit(1);
     if (!row) return error.notFound(c, 'Project member', `${projectId}/${userId}`);
-    return success(c, redactRate(row, { userId: c.get('userId'), isAdmin: access.isAdmin }));
+    const [withAvatar] = await withUserAvatars(c.env, [row]);
+    return success(c, redactRate(withAvatar!, { userId: c.get('userId'), isAdmin: access.isAdmin }));
   } catch (err) {
     console.error('[app-api/project-members] by-user get failed:', err);
     return error.internal(c, 'Failed to fetch project member');
