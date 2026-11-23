@@ -9,11 +9,13 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::social_accounts;
 use weldsuite_social_domain::publishing::{PublishError, get_connect_url, sync_accounts};
 
 use crate::crud::{
@@ -22,11 +24,6 @@ use crate::crud::{
 };
 use crate::objects::{OPT, POSTS, messages, string};
 use crate::{Caller, SocialState, tables, validate};
-
-const ACCOUNT_LIST: (&str, &str) = listing!("social_accounts";
-    "($2::boolean or t.platform = $3::social_platform)",
-    "($4::boolean or t.status = $5::social_account_status)";
-    6, 7, 8; "$9");
 
 fn account_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     string(issues, body, "platform", partial.required(), Some(50));
@@ -82,9 +79,14 @@ static ACCOUNTS: Crud = Crud {
         "Failed to delete social account",
     ),
     schema: account_schema,
-    filters: &[Filter::eq("platform"), Filter::eq("status")],
-    list_sql: ACCOUNT_LIST.0,
-    count_sql: ACCOUNT_LIST.1,
+    filters: &[
+        Filter::eq("platform", |v| {
+            Condition::all().add(social_accounts::Column::Platform.eq(v))
+        }),
+        Filter::eq("status", |v| {
+            Condition::all().add(social_accounts::Column::Status.eq(v))
+        }),
+    ],
     slice_count: true,
     hidden: &["accessToken", "refreshToken"],
     prepare: account_prepare,

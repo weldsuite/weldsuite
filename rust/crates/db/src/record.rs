@@ -88,13 +88,15 @@ pub fn count_statement(select: &SelectStatement) -> Statement {
 }
 
 /// `insert into t (<columns sent>) select r.<column>, … from
-/// jsonb_populate_record(…) r returning <every column>`.
+/// jsonb_populate_record(…) r returning <every column>` (an enum column as
+/// text, as `E::find()` reads it, so the model decodes).
 pub fn insert_statement<E: EntityTrait>(values: Map<String, Value>) -> Result<Statement, DbErr> {
     let columns = sent::<E>(&values);
     let mut insert = Query::insert();
-    insert
-        .into_table(E::default().table_ref())
-        .returning(Query::returning().columns(E::Column::iter()));
+    insert.into_table(E::default().table_ref()).returning(
+        Query::returning()
+            .exprs(E::Column::iter().map(|column| column.select_as(Expr::col(column)))),
+    );
     if columns.is_empty() {
         insert.or_default_values();
     } else {
@@ -121,8 +123,9 @@ pub fn find_statement<E: EntityTrait>(id: &str, live_only: bool) -> Result<State
 }
 
 /// `update t set <column> = r.<column>, … from jsonb_populate_record(…) r
-/// where t.id = $id returning <every column>`; `live_only` as in
-/// [`find_statement`]. With nothing to set, the row as it is.
+/// where t.id = $id returning <every column>` (enums as text, as in
+/// [`insert_statement`]); `live_only` as in [`find_statement`]. With nothing
+/// to set, the row as it is.
 pub fn update_statement<E: EntityTrait>(
     values: Map<String, Value>,
     id: &str,
@@ -148,7 +151,10 @@ pub fn update_statement<E: EntityTrait>(
     if live_only && let Some(deleted_at) = column::<E>("deleted_at") {
         update.and_where(Expr::col((table, deleted_at)).is_null());
     }
-    update.returning(Query::returning().columns(E::Column::iter().map(|column| (table, column))));
+    update.returning(
+        Query::returning()
+            .exprs(E::Column::iter().map(|column| column.select_as(Expr::col((table, column))))),
+    );
     Ok(DbBackend::Postgres.build(&update))
 }
 
@@ -325,6 +331,31 @@ mod tests {
         impl ActiveModelBehavior for ActiveModel {}
     }
 
+    #[allow(unreachable_pub)]
+    mod tasks {
+        use sea_orm::entity::prelude::*;
+
+        #[derive(Clone, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize)]
+        #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "task_status")]
+        pub enum Status {
+            #[sea_orm(string_value = "open")]
+            Open,
+        }
+
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+        #[sea_orm(table_name = "tasks")]
+        pub struct Model {
+            #[sea_orm(primary_key, auto_increment = false)]
+            pub id: String,
+            pub status: Status,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
+
+        impl ActiveModelBehavior for ActiveModel {}
+    }
+
     fn object(value: Value) -> Map<String, Value> {
         match value {
             Value::Object(map) => map,
@@ -341,6 +372,23 @@ mod tests {
         assert_eq!(
             statement.sql,
             r#"INSERT INTO "things" ("id", "title") SELECT "r"."id", "r"."title" FROM jsonb_populate_record(null::"things", CAST($1 AS jsonb)) AS "r" RETURNING "id", "title", "deleted_at""#
+        );
+    }
+
+    #[test]
+    fn writes_return_an_enum_as_text() {
+        let values = || object(serde_json::json!({ "id": "t1", "status": "open" }));
+        let insert =
+            insert_statement::<tasks::Entity>(values()).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            insert.sql,
+            r#"INSERT INTO "tasks" ("id", "status") SELECT "r"."id", "r"."status" FROM jsonb_populate_record(null::"tasks", CAST($1 AS jsonb)) AS "r" RETURNING "id", CAST("status" AS "text")"#
+        );
+        let update = update_statement::<tasks::Entity>(values(), "t1", true)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            update.sql,
+            r#"UPDATE "tasks" SET "status" = "r"."status" FROM jsonb_populate_record(null::"tasks", CAST($1 AS jsonb)) AS "r" WHERE "tasks"."id" = $2 RETURNING "tasks"."id", CAST("tasks"."status" AS "text")"#
         );
     }
 

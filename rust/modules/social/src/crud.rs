@@ -19,7 +19,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Order};
+use sea_orm::{Condition, DbErr};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
@@ -29,21 +32,31 @@ use crate::js::{js_limit, js_slice, query_param, sql_limit, text};
 use crate::table::{Table, WriteError};
 use crate::{Caller, SocialState, now, validate};
 
-/// A list filter: `eq(column, q[key])` or `like(column, '%' + q[key] + '%')`
-/// when the query value is a non-empty string.
+/// A list filter: `test` on `q[key]` when the query value is a non-empty
+/// string, as `'%' + q[key] + '%'` for a `like` one. `test` is the
+/// condition on the entity's columns (`eq(column, value)`, `like(…)`).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Filter {
     pub(crate) query: &'static str,
     pub(crate) like: bool,
+    pub(crate) test: fn(String) -> Condition,
 }
 
 impl Filter {
-    pub(crate) const fn eq(query: &'static str) -> Self {
-        Self { query, like: false }
+    pub(crate) const fn eq(query: &'static str, test: fn(String) -> Condition) -> Self {
+        Self {
+            query,
+            like: false,
+            test,
+        }
     }
 
-    pub(crate) const fn like(query: &'static str) -> Self {
-        Self { query, like: true }
+    pub(crate) const fn like(query: &'static str, test: fn(String) -> Condition) -> Self {
+        Self {
+            query,
+            like: true,
+            test,
+        }
     }
 }
 
@@ -114,12 +127,9 @@ pub(crate) struct Crud {
     pub(crate) gates: Gates,
     pub(crate) messages: Messages,
     pub(crate) schema: Schema,
+    /// The list's filters, after its live-only condition and before its
+    /// cursor. The rows come newest first.
     pub(crate) filters: &'static [Filter],
-    /// `$1` live-only skip, then per filter `(skip, value)`, then the cursor
-    /// `(skip, created_at, id)`, then `limit`. The rows, newest first.
-    pub(crate) list_sql: &'static str,
-    /// The same conditions without the limit: `count(*)`.
-    pub(crate) count_sql: &'static str,
     /// The count drops the last list condition on a `?cursor=`
     /// (`conditions.slice(0, -1)`); otherwise it counts the filters only.
     pub(crate) slice_count: bool,
@@ -205,44 +215,53 @@ where
     router
 }
 
-/// The keyset condition's operands: the cursor row's `createdAt` as
-/// JavaScript read it (milliseconds) and its id.
+/// The keyset operands: the cursor row's `createdAt` as JavaScript read it
+/// (milliseconds) and its id.
+type CursorRow = (PrimitiveDateTime, String);
+
+/// `select createdAt, id from t where id = cursor limit 1`.
 async fn cursor_row(
     db: &weldsuite_db::PgPool,
-    table: &str,
+    table: &Table,
     cursor: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let sql = cursor_sql(table);
-    let row: Option<(Option<String>, String)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
-    Ok(row.and_then(|(created_at, id)| {
-        created_at
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
+) -> Result<Option<CursorRow>, DbErr> {
+    let row = table
+        .entity
+        .find(&weldsuite_db::orm(db), cursor, false)
+        .await?;
+    Ok(row.and_then(|row| {
+        let created_at = row.get("createdAt").and_then(Value::as_str)?;
+        let id = row.get("id").and_then(Value::as_str)?;
+        Some((js_date_time(created_at)?, id.to_owned()))
     }))
 }
 
-/// `select createdAt, id from t where id = $1 limit 1`, per table.
-fn cursor_sql(table: &str) -> &'static str {
-    macro_rules! cursor {
-        ($($table:literal),* $(,)?) => {
-            match table {
-                $($table => concat!(
-                    "select to_jsonb(t.created_at)#>>'{}', t.id from \"", $table,
-                    "\" t where t.id = $1 limit 1"
-                ),)*
-                _ => "select null::text, null::text where false",
-            }
-        };
-    }
-    cursor!(
-        "social_accounts",
-        "social_campaigns",
-        "social_posts",
-        "social_media",
-        "social_approvals",
-        "social_team_members",
-    )
+/// A `toISOString()` (`2026-10-29T07:00:00.123Z`) as the `timestamp` it was
+/// read from.
+fn js_date_time(text: &str) -> Option<PrimitiveDateTime> {
+    let format = time::macros::format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]"
+    );
+    PrimitiveDateTime::parse(text.strip_suffix('Z')?, format).ok()
+}
+
+/// `t.<name>` of the table's entity.
+fn column(table: &Table, name: &str) -> Result<Expr, DbErr> {
+    table
+        .entity
+        .column(name)
+        .ok_or_else(|| DbErr::Custom(format!("{} has no {name}", table.name)))
+}
+
+/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`.
+fn before(table: &Table, (at, id): &CursorRow) -> Result<Condition, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let created_at = column(table, "created_at")?;
+    Ok(Condition::any().add(created_at.clone().lt(*at)).add(
+        Condition::all()
+            .add(created_at.eq(*at))
+            .add(column(table, "id")?.lt(id.as_str())),
+    ))
 }
 
 /// The skipped slots of the page and of its count: with a `?cursor=` and
@@ -266,7 +285,7 @@ fn slots(active: &[bool], cursor_given: bool, slice_count: bool) -> (Vec<bool>, 
 /// before the route's `try`) or a statement inside it (the route's 500).
 enum ListError {
     Cursor,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 async fn list(crud: Handler, caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -297,7 +316,7 @@ async fn fetch(crud: Handler, caller: &Caller, query: Option<&str>) -> Result<Re
         .collect();
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
     let cursor_row = match &cursor {
-        Some(cursor) => cursor_row(db, crud.table.name, cursor)
+        Some(cursor) => cursor_row(db, crud.table, cursor)
             .await
             .map_err(|error| {
                 tracing::error!(%error, "social: cursor lookup failed");
@@ -309,29 +328,34 @@ async fn fetch(crud: Handler, caller: &Caller, query: Option<&str>) -> Result<Re
     active.extend(values.iter().map(Option::is_some));
     active.push(cursor_row.is_some());
     let (page, count) = slots(&active, cursor.is_some(), crud.slice_count);
-    let rows: Vec<Value> = bind_slots(
-        sqlx::query_scalar(crud.list_sql),
-        &page,
-        &values,
-        cursor_row.as_ref(),
-    )
-    .bind(sql_limit(limit))
-    .fetch_all(db)
-    .await
-    .map_err(ListError::Database)?;
-    let total: i64 = bind_slots(
-        sqlx::query_scalar(crud.count_sql),
-        &count,
-        &values,
-        cursor_row.as_ref(),
-    )
-    .fetch_one(db)
-    .await
-    .map_err(ListError::Database)?;
-    let rows: Vec<Value> = rows
-        .into_iter()
-        .map(|row| show(crud, crud.table.js(row)))
-        .collect();
+    let entity = &crud.table.entity;
+    let conditions = |skip: &[bool]| conditions(crud, skip, &values, cursor_row.as_ref());
+    let mut select = entity.select();
+    select
+        .cond_where(conditions(&page).map_err(ListError::Database)?)
+        .order_by_expr(
+            column(crud.table, "created_at").map_err(ListError::Database)?,
+            Order::Desc,
+        )
+        .order_by_expr(
+            column(crud.table, "id").map_err(ListError::Database)?,
+            Order::Desc,
+        );
+    if let Some(limit) = sql_limit(limit) {
+        select.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    let mut counted = entity.select();
+    counted.cond_where(conditions(&count).map_err(ListError::Database)?);
+    let db = weldsuite_db::orm(db);
+    let rows = entity
+        .rows(&db, &select)
+        .await
+        .map_err(ListError::Database)?;
+    let total = entity
+        .count(&db, &counted)
+        .await
+        .map_err(ListError::Database)?;
+    let rows: Vec<Value> = rows.into_iter().map(|row| show(crud, row)).collect();
     // `rows.length > limit` is false for a NaN limit.
     #[allow(clippy::cast_precision_loss)]
     let has_more = (rows.len() as f64) > limit;
@@ -355,22 +379,32 @@ async fn fetch(crud: Handler, caller: &Caller, query: Option<&str>) -> Result<Re
     .into_response())
 }
 
-/// Bind the slots: `$1` live-only skip, then `(skip, value)` per filter,
-/// then the cursor's `(skip, created_at, id)`.
-fn bind_slots<'q, O>(
-    query: sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments>,
+/// The list's conditions the slots keep (see [`slots`]):
+/// `isNull(t.deletedAt)`, then each filter on its value, then the cursor.
+fn conditions(
+    crud: Handler,
     skip: &[bool],
-    values: &'q [Option<String>],
-    cursor: Option<&'q (String, String)>,
-) -> sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments> {
-    let mut query = query.bind(skip[0]);
-    for (index, value) in values.iter().enumerate() {
-        query = query.bind(skip[index + 1]).bind(value.as_deref());
+    values: &[Option<String>],
+    cursor: Option<&CursorRow>,
+) -> Result<Condition, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let mut all = Condition::all();
+    if !skip[0] {
+        all = all.add(column(crud.table, "deleted_at")?.is_null());
     }
-    query
-        .bind(skip[values.len() + 1])
-        .bind(cursor.map(|(created_at, _)| created_at.as_str()))
-        .bind(cursor.map(|(_, id)| id.as_str()))
+    for (index, (filter, value)) in crud.filters.iter().zip(values).enumerate() {
+        if !skip[index + 1]
+            && let Some(value) = value
+        {
+            all = all.add((filter.test)(value.clone()));
+        }
+    }
+    if !skip[values.len() + 1]
+        && let Some(cursor) = cursor
+    {
+        all = all.add(before(crud.table, cursor)?);
+    }
+    Ok(all)
 }
 
 /// The row without its hidden properties.
