@@ -239,7 +239,10 @@ async fn remove_one(caller: Caller, Path(id): Path<String>) -> Response {
         }
         let db = orm(&caller.db);
         channels::Entity::update_many()
-            .col_expr(channels::Column::SectionId, Expr::value(Option::<String>::None))
+            .col_expr(
+                channels::Column::SectionId,
+                Expr::value(Option::<String>::None),
+            )
             .col_expr(channels::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(channels::Column::SectionId.eq(&id))
             .exec(&db)

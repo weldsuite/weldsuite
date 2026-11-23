@@ -116,10 +116,7 @@ pub(crate) async fn pin_message(
 }
 
 /// `unpinMessage`.
-pub(crate) async fn unpin_message(
-    db: &PgPool,
-    message_id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn unpin_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, DbErr> {
     let Some(channel_id) = live_message_channel(db, message_id).await? else {
         return Ok(None);
     };
@@ -133,14 +130,19 @@ pub(crate) async fn unpin_message(
 
 /// `set is_pinned = false, pinned_at = null, pinned_by = null,
 /// pin_expires_at = null, updated_at = now`.
-fn clear_pin(update: sea_orm::UpdateMany<messages::Entity>) -> sea_orm::UpdateMany<messages::Entity> {
+fn clear_pin(
+    update: sea_orm::UpdateMany<messages::Entity>,
+) -> sea_orm::UpdateMany<messages::Entity> {
     update
         .col_expr(messages::Column::IsPinned, Expr::value(false))
         .col_expr(
             messages::Column::PinnedAt,
             Expr::value(Option::<PrimitiveDateTime>::None),
         )
-        .col_expr(messages::Column::PinnedBy, Expr::value(Option::<String>::None))
+        .col_expr(
+            messages::Column::PinnedBy,
+            Expr::value(Option::<String>::None),
+        )
         .col_expr(
             messages::Column::PinExpiresAt,
             Expr::value(Option::<PrimitiveDateTime>::None),
@@ -268,16 +270,15 @@ impl Job for UnpinExpiredMessageJob {
                         .await
                         .map_err(JobError::failed)?;
                     let orm = orm(&db);
-                    let row: Option<(bool, Option<PrimitiveDateTime>)> =
-                        messages::Entity::find()
-                            .select_only()
-                            .column(messages::Column::IsPinned)
-                            .column(messages::Column::PinExpiresAt)
-                            .filter(messages::Column::Id.eq(&message))
-                            .into_tuple()
-                            .one(&orm)
-                            .await
-                            .map_err(JobError::failed)?;
+                    let row: Option<(bool, Option<PrimitiveDateTime>)> = messages::Entity::find()
+                        .select_only()
+                        .column(messages::Column::IsPinned)
+                        .column(messages::Column::PinExpiresAt)
+                        .filter(messages::Column::Id.eq(&message))
+                        .into_tuple()
+                        .one(&orm)
+                        .await
+                        .map_err(JobError::failed)?;
                     let still_this_pin = row.is_some_and(|(pinned, at)| {
                         pinned
                             && at.map(iso).as_deref()

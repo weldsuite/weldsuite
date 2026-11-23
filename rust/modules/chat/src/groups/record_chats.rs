@@ -504,9 +504,7 @@ impl Listing<'_> {
         if self.filter != "all" {
             let also = match self.filter {
                 "unread" => Some(unread_membership()),
-                "mentions" => {
-                    Some(Condition::all().add(members::Column::UnreadMentionCount.gt(0)))
-                }
+                "mentions" => Some(Condition::all().add(members::Column::UnreadMentionCount.gt(0))),
                 _ => None,
             };
             condition = condition.add(membership(self.user_id, also));
@@ -640,7 +638,9 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             }
             let batch = listing.batch(&db, after.as_deref(), probe).await?;
             let full = i64::try_from(batch.len()).unwrap_or(i64::MAX) > limit;
-            let last = batch.last().and_then(|r| r["id"].as_str().map(str::to_owned));
+            let last = batch
+                .last()
+                .and_then(|r| r["id"].as_str().map(str::to_owned));
             page.extend(keep_visible(&caller, &can, batch, &providers).await?);
             if !full {
                 exhausted = true;
@@ -651,7 +651,9 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let limit_len = usize::try_from(limit.max(0)).unwrap_or(0);
         let (items, has_more, cursor) = if page.len() > limit_len {
             page.truncate(limit_len);
-            let cursor = page.last().and_then(|r| r["id"].as_str().map(str::to_owned));
+            let cursor = page
+                .last()
+                .and_then(|r| r["id"].as_str().map(str::to_owned));
             (page, true, cursor)
         } else if exhausted {
             (page, false, None)
@@ -697,10 +699,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 /// `callerState`: following, mute, read cursor and mentions per channel.
-async fn caller_state(
-    caller: &Caller,
-    ids: &[String],
-) -> Result<Vec<(String, Value)>, DbErr> {
+async fn caller_state(caller: &Caller, ids: &[String]) -> Result<Vec<(String, Value)>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -771,18 +770,20 @@ async fn followed_states(caller: &Caller, types: &[String]) -> Result<Vec<Value>
     let millis = |at: PrimitiveDateTime| utc_timestamp(at.assume_utc());
     Ok(rows
         .into_iter()
-        .map(|(entity_type, entity_id, muted, message_at, read_at, mentions)| {
-            let unread = !muted
-                && message_at.is_some_and(|message_at| {
-                    read_at.is_none_or(|read_at| millis(message_at) > millis(read_at))
-                });
-            json!({
-                "entityType": entity_type,
-                "entityId": entity_id,
-                "unread": unread,
-                "unreadMentionCount": mentions,
-            })
-        })
+        .map(
+            |(entity_type, entity_id, muted, message_at, read_at, mentions)| {
+                let unread = !muted
+                    && message_at.is_some_and(|message_at| {
+                        read_at.is_none_or(|read_at| millis(message_at) > millis(read_at))
+                    });
+                json!({
+                    "entityType": entity_type,
+                    "entityId": entity_id,
+                    "unread": unread,
+                    "unreadMentionCount": mentions,
+                })
+            },
+        )
         .collect())
 }
 

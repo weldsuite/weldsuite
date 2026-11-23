@@ -455,6 +455,10 @@ async fn update(
         } else {
             Some(Some(json!([caller.user_id])))
         };
+        let user_ids = match user_ids {
+            Some(value) => UserIds::Set(value),
+            None => UserIds::Keep,
+        };
         write_update(&caller, &id, &data, user_ids).await?;
         let after = written_signature(&caller, &id).await?;
         let reconsider = flag(&data, "isDefault") == Some(true)
@@ -477,13 +481,20 @@ async fn update(
     answer(result, "Failed to update signature")
 }
 
+/// What an update does to `userIds`.
+enum UserIds {
+    Keep,
+    /// The list, or null to clear it.
+    Set(Option<Value>),
+}
+
 /// `updateSignature`'s write: the fields the body sent, `userIds` when
-/// decided (`Some(None)` clears it), and `updatedAt`.
+/// decided, and `updatedAt`.
 async fn write_update(
     caller: &Caller,
     id: &str,
     data: &Map<String, Value>,
-    user_ids: Option<Option<Value>>,
+    user_ids: UserIds,
 ) -> Result<(), DbErr> {
     let mut update = mail_signatures::Entity::update_many()
         .col_expr(mail_signatures::Column::UpdatedAt, Expr::value(utc_now()));
@@ -510,7 +521,7 @@ async fn write_update(
             Expr::value(accounts.clone()),
         );
     }
-    if let Some(user_ids) = user_ids {
+    if let UserIds::Set(user_ids) = user_ids {
         update = update.col_expr(mail_signatures::Column::UserIds, Expr::value(user_ids));
     }
     for (key, column) in [

@@ -5,14 +5,27 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    merge_issue_pull_requests, merge_issues, merge_provider_accounts, merge_pull_requests,
+    merge_teams,
+};
 
 use crate::automation::{
     PullRequestPhase, issue_status_for_pull_request, pull_request_phase, should_evaluate_link,
 };
-use crate::db::{Row, col, flag, opt_text, text};
+use crate::db::{
+    Row, col, flag, instant_opt, int4, is_unique_violation, json_row, json_rows, now_at,
+    opt_text, required, text,
+};
 use crate::github::{
     MirrorFields, is_not_older, map_github_pull_request, merge_mirror_update, millis_of,
 };
@@ -20,7 +33,7 @@ use crate::hooks::{HookContext, after_issue_updated, after_pull_request_synced};
 use crate::issues::move_issue_status;
 use crate::keys::find_issue_key_mentions;
 use crate::mappers::{issue_event_data, pull_request_event_data};
-use crate::{MergeError, PendingEvent, now};
+use crate::{MergeError, PendingEvent};
 
 /// A pull request's link to an issue, with the issue (`LinkedIssue`).
 #[derive(Debug, Clone)]
@@ -36,24 +49,119 @@ pub(crate) fn phase_of(row: &Row) -> PullRequestPhase {
     pull_request_phase(text(row, "state"), flag(row, "draft"))
 }
 
+/// A pull request mirror row as the services read it.
+pub(crate) fn mirror_row(pr: merge_pull_requests::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(pr))
+}
+
+/// `findPullRequestByNumber`: the mirror of a repository's pull request.
+pub(crate) async fn mirror_by_number(
+    db: &PgPool,
+    repository_id: &str,
+    number: i64,
+) -> Result<Option<Row>, DbErr> {
+    merge_pull_requests::Entity::find()
+        .filter(merge_pull_requests::Column::RepositoryId.eq(repository_id))
+        .filter(merge_pull_requests::Column::Number.eq(number))
+        .one(&orm(db))
+        .await?
+        .map(mirror_row)
+        .transpose()
+}
+
+/// A repository's open mirrors at a head commit; with `numbers`, only those
+/// pull requests.
+pub(crate) async fn open_mirrors_at(
+    db: &PgPool,
+    repository_id: &str,
+    head_sha: &str,
+    numbers: &[i32],
+) -> Result<Vec<Row>, DbErr> {
+    let mut select = merge_pull_requests::Entity::find()
+        .filter(merge_pull_requests::Column::RepositoryId.eq(repository_id))
+        .filter(merge_pull_requests::Column::HeadSha.eq(head_sha))
+        .filter(merge_pull_requests::Column::State.eq("open"));
+    if !numbers.is_empty() {
+        select = select.filter(merge_pull_requests::Column::Number.is_in(numbers.iter().copied()));
+    }
+    json_rows(
+        select
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )
+}
+
+/// What a review or check event changes on a mirror (`review_decision` or
+/// `checks_status`), with `synced_at` and `updated_at`; the row as written.
+pub(crate) async fn set_mirror_status(
+    db: &PgPool,
+    pr_id: &str,
+    column: merge_pull_requests::Column,
+    value: Option<&str>,
+) -> Result<Row, DbErr> {
+    let (_, at) = now_at();
+    let updated = merge_pull_requests::Entity::update_many()
+        .col_expr(column, Expr::value(value.map(str::to_owned)))
+        .col_expr(merge_pull_requests::Column::SyncedAt, Expr::value(at))
+        .col_expr(merge_pull_requests::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_pull_requests::Column::Id.eq(pr_id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    mirror_row(updated.into_iter().next().ok_or(DbErr::RecordNotUpdated)?)
+}
+
+/// A mentioned issue with its team's key (`to_jsonb(i), t.key`).
+#[derive(Debug, FromQueryResult)]
+struct KeyedIssue {
+    #[sea_orm(nested)]
+    issue: merge_issues::Model,
+    team_key: String,
+}
+
+/// A live issue linked to a pull request (`to_jsonb(l), to_jsonb(i), t.key`).
+#[derive(Debug, FromQueryResult)]
+struct LinkRow {
+    #[sea_orm(nested)]
+    issue: merge_issues::Model,
+    link_id: String,
+    link_closes: bool,
+    team_key: String,
+}
+
+/// `issue.team_id = team.id`.
+fn issue_team() -> sea_orm::RelationDef {
+    merge_issues::Entity::belongs_to(merge_teams::Entity)
+        .from(merge_issues::Column::TeamId)
+        .to(merge_teams::Column::Id)
+        .into()
+}
+
+fn link_row(link: merge_issue_pull_requests::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(link))
+}
+
 /// `syncAutoLinks(db, pr)`: the existing links, plus new `auto` links for
 /// the issue keys the pull request mentions.
-async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usize), sqlx::Error> {
+async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usize), DbErr> {
     let pr_id = text(pr, "id").to_owned();
     let mentions = find_issue_key_mentions(
         pr.get("headRef").and_then(Value::as_str),
         pr.get("title").and_then(Value::as_str),
         pr.get("body").and_then(Value::as_str),
     );
-    let existing: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from merge_issue_pull_requests l where l.pull_request_id = $1",
-    )
-    .bind(&pr_id)
-    .fetch_all(db)
-    .await?;
+    let orm_db = orm(db);
+    let existing = json_rows(
+        merge_issue_pull_requests::Entity::find()
+            .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pr_id))
+            .all(&orm_db)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let mut by_issue: HashMap<String, Row> = existing
         .into_iter()
-        .map(js_row)
         .map(|link| (text(&link, "issueId").to_owned(), link))
         .collect();
     let mut created: HashSet<String> = HashSet::new();
@@ -69,18 +177,19 @@ async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usi
                 numbers.push(mention.number);
             }
         }
-        let candidates: Vec<(Value, String)> = sqlx::query_as(
-            "select to_jsonb(i), t.key from merge_issues i inner join merge_teams t on t.id = i.team_id \
-             where t.key = any($1) and i.number = any($2) and t.deleted_at is null and i.deleted_at is null",
-        )
-        .bind(&team_keys)
-        .bind(&numbers)
-        .fetch_all(db)
-        .await?;
-        let candidates: Vec<(Row, String)> = candidates
+        let candidates: Vec<(Row, String)> = merge_issues::Entity::find()
+            .column_as(merge_teams::Column::Key, "team_key")
+            .join(JoinType::InnerJoin, issue_team())
+            .filter(merge_teams::Column::Key.is_in(team_keys))
+            .filter(merge_issues::Column::Number.is_in(numbers))
+            .filter(merge_teams::Column::DeletedAt.is_null())
+            .filter(merge_issues::Column::DeletedAt.is_null())
+            .into_model::<KeyedIssue>()
+            .all(&orm_db)
+            .await?
             .into_iter()
-            .map(|(issue, key)| (js_row(issue), key))
-            .collect();
+            .map(|hit| Ok((json_row(serde_json::to_value(hit.issue))?, hit.team_key)))
+            .collect::<Result<_, DbErr>>()?;
         for mention in &mentions {
             let Some((hit, _)) = candidates.iter().find(|(issue, key)| {
                 *key == mention.team_key
@@ -93,18 +202,21 @@ async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usi
                 // A removed automatic link stays removed: the pair is not linked again.
                 Some(link) if !link.get("dismissedAt").is_none_or(Value::is_null) => {}
                 None => {
-                    let inserted: Option<Value> = sqlx::query_scalar(
-                        "insert into merge_issue_pull_requests (id, issue_id, pull_request_id, source, closes) \
-                         values ($1, $2, $3, 'auto', $4) on conflict do nothing \
-                         returning to_jsonb(merge_issue_pull_requests.*)",
-                    )
-                    .bind(generate_id("mip"))
-                    .bind(&issue_id)
-                    .bind(&pr_id)
-                    .bind(mention.closes)
-                    .fetch_optional(db)
-                    .await?;
-                    if let Some(link) = inserted.map(js_row) {
+                    // `on conflict do nothing`: a link another delivery made wins.
+                    let inserted =
+                        merge_issue_pull_requests::Entity::insert(merge_issue_pull_requests::ActiveModel {
+                            id: Set(generate_id("mip")),
+                            issue_id: Set(issue_id.clone()),
+                            pull_request_id: Set(pr_id.clone()),
+                            source: Set("auto".to_owned()),
+                            closes: Set(mention.closes),
+                            ..Default::default()
+                        })
+                        .on_conflict(OnConflict::new().do_nothing().to_owned())
+                        .exec_with_returning_many(&orm_db)
+                        .await?;
+                    if let Some(link) = inserted.into_iter().next() {
+                        let link = link_row(link)?;
                         created.insert(text(&link, "id").to_owned());
                         by_issue.insert(issue_id, link);
                     }
@@ -112,15 +224,14 @@ async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usi
                 Some(link)
                     if text(link, "source") == "auto" && flag(link, "closes") != mention.closes =>
                 {
-                    let updated: Value = sqlx::query_scalar(
-                        "update merge_issue_pull_requests set closes = $2 where id = $1 \
-                         returning to_jsonb(merge_issue_pull_requests.*)",
-                    )
-                    .bind(text(link, "id"))
-                    .bind(mention.closes)
-                    .fetch_one(db)
+                    let updated = merge_issue_pull_requests::ActiveModel {
+                        id: Unchanged(text(link, "id").to_owned()),
+                        closes: Set(mention.closes),
+                        ..Default::default()
+                    }
+                    .update(&orm_db)
                     .await?;
-                    by_issue.insert(issue_id, js_row(updated));
+                    by_issue.insert(issue_id, link_row(updated)?);
                 }
                 Some(_) => {}
             }
@@ -136,28 +247,35 @@ async fn load_links(
     db: &PgPool,
     pull_request_id: &str,
     new_ids: &HashSet<String>,
-) -> Result<Vec<LinkedIssue>, sqlx::Error> {
-    let rows: Vec<(Value, Value, String)> = sqlx::query_as(
-        "select to_jsonb(l), to_jsonb(i), t.key from merge_issue_pull_requests l \
-         inner join merge_issues i on i.id = l.issue_id \
-         inner join merge_teams t on t.id = i.team_id \
-         where l.pull_request_id = $1 and l.dismissed_at is null and i.deleted_at is null",
-    )
-    .bind(pull_request_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
+) -> Result<Vec<LinkedIssue>, DbErr> {
+    merge_issues::Entity::find()
+        .column_as(merge_issue_pull_requests::Column::Id, "link_id")
+        .column_as(merge_issue_pull_requests::Column::Closes, "link_closes")
+        .column_as(merge_teams::Column::Key, "team_key")
+        .join(
+            JoinType::InnerJoin,
+            merge_issues::Entity::belongs_to(merge_issue_pull_requests::Entity)
+                .from(merge_issues::Column::Id)
+                .to(merge_issue_pull_requests::Column::IssueId)
+                .into(),
+        )
+        .join(JoinType::InnerJoin, issue_team())
+        .filter(merge_issue_pull_requests::Column::PullRequestId.eq(pull_request_id))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .into_model::<LinkRow>()
+        .all(&orm(db))
+        .await?
         .into_iter()
-        .map(|(link, issue, team_key)| {
-            let link = js_row(link);
-            LinkedIssue {
-                closes: flag(&link, "closes"),
-                is_new: new_ids.contains(text(&link, "id")),
-                issue: js_row(issue),
-                team_key,
-            }
+        .map(|row| {
+            Ok(LinkedIssue {
+                closes: row.link_closes,
+                is_new: new_ids.contains(&row.link_id),
+                issue: json_row(serde_json::to_value(row.issue))?,
+                team_key: row.team_key,
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// `runAutomation(db, pr, previous, links, hooks?)`: applies the rules to
@@ -170,7 +288,7 @@ pub(crate) async fn run_automation(
     previous: Option<PullRequestPhase>,
     links: &mut [LinkedIssue],
     hooks: Option<&HookContext>,
-) -> Result<Vec<PendingEvent>, sqlx::Error> {
+) -> Result<Vec<PendingEvent>, DbErr> {
     let next = phase_of(pr);
     let mut events = Vec::new();
     for link in links.iter_mut() {
@@ -257,7 +375,7 @@ async fn match_members(
     db: &PgPool,
     provider: &str,
     logins: &[String],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
     let mut unique: Vec<String> = Vec::new();
     for login in logins.iter().filter(|l| !l.is_empty()) {
         if !unique.contains(login) {
@@ -267,13 +385,15 @@ async fn match_members(
     if unique.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select login, user_id from merge_provider_accounts where provider = $2 and login = any($1)",
-    )
-    .bind(&unique)
-    .bind(provider)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String)> = merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::Login)
+        .column(merge_provider_accounts::Column::UserId)
+        .filter(merge_provider_accounts::Column::Provider.eq(provider))
+        .filter(merge_provider_accounts::Column::Login.is_in(unique))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -283,6 +403,30 @@ fn opt_str(value: &Value) -> Option<String> {
 
 fn opt_int(value: &Value) -> Option<i64> {
     value.as_i64()
+}
+
+/// The line counts (`$n::int`) and the provider's times of a mirror being
+/// written. A `not null` time the provider gave no valid value for is
+/// Postgres's refusal, as before.
+fn set_counts_and_times(
+    mirror: &mut merge_pull_requests::ActiveModel,
+    fields: &MirrorFields,
+) -> Result<(), DbErr> {
+    let count = |value: &Value| opt_int(value).map(int4).transpose();
+    mirror.additions = Set(count(&fields.additions)?);
+    mirror.deletions = Set(count(&fields.deletions)?);
+    mirror.changed_files = Set(count(&fields.changed_files)?);
+    mirror.provider_created_at = Set(required(
+        instant_opt(fields.provider_created_at.as_deref())?,
+        "provider_created_at",
+    )?);
+    mirror.provider_updated_at = Set(required(
+        instant_opt(fields.provider_updated_at.as_deref())?,
+        "provider_updated_at",
+    )?);
+    mirror.merged_at = Set(instant_opt(fields.merged_at.as_deref())?);
+    mirror.closed_at = Set(instant_opt(fields.closed_at.as_deref())?);
+    Ok(())
 }
 
 /// `upsertPullRequest(db, repository, github, options)`: a GitHub pull request
@@ -366,14 +510,7 @@ async fn upsert_mirror_once(
         .number
         .as_i64()
         .ok_or_else(|| MergeError::Unexpected("a pull request without a number".to_owned()))?;
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from merge_pull_requests p where p.repository_id = $1 and p.number = $2 limit 1",
-    )
-    .bind(text(repository, "id"))
-    .bind(number)
-    .fetch_optional(db)
-    .await?;
-    let existing = existing.map(js_row);
+    let existing = mirror_by_number(db, text(repository, "id"), number).await?;
 
     if let Some(stored) = &existing
         && !is_not_older(
@@ -435,11 +572,12 @@ async fn upsert_mirror_once(
             .as_ref()
             .filter(|l| !l.is_empty())
             .and_then(|login| members.get(login).cloned());
-        let now = now();
+        let (_, at) = now_at();
         let title = opt_str(&fields.title)
             .ok_or_else(|| MergeError::Unexpected("a pull request without a title".to_owned()))?;
         let url = opt_str(&fields.url)
             .ok_or_else(|| MergeError::Unexpected("a pull request without a URL".to_owned()))?;
+        let orm_db = orm(db);
         if let Some(stored) = &existing {
             let merged = merge_mirror_update(
                 fields.clone(),
@@ -453,87 +591,60 @@ async fn upsert_mirror_once(
             } else {
                 None
             };
-            let updated: Value = sqlx::query_scalar(
-                "update merge_pull_requests set title = $2, body = $3, state = $4, draft = $5, url = $6, \
-                   author_login = $7, author_avatar_url = $8, author_user_id = $9, head_ref = $10, \
-                   base_ref = $11, head_sha = $12, additions = $13::int, deletions = $14::int, \
-                   changed_files = $15::int, checks_status = $16, requested_reviewers = $17, labels = $18, \
-                   provider_created_at = $19::timestamptz, provider_updated_at = $20::timestamptz, \
-                   merged_at = $21::timestamptz, closed_at = $22::timestamptz, \
-                   synced_at = $23::timestamptz, updated_at = $23::timestamptz \
-                 where id = $1 returning to_jsonb(merge_pull_requests.*)",
-            )
-            .bind(text(stored, "id"))
-            .bind(&title)
-            .bind(opt_str(&merged.body))
-            .bind(merged.state)
-            .bind(merged.draft)
-            .bind(&url)
-            .bind(&merged.author_login)
-            .bind(opt_str(&merged.author_avatar_url))
-            .bind(&author_user_id)
-            .bind(opt_str(&merged.head_ref))
-            .bind(opt_str(&merged.base_ref))
-            .bind(opt_str(&merged.head_sha))
-            .bind(opt_int(&merged.additions))
-            .bind(opt_int(&merged.deletions))
-            .bind(opt_int(&merged.changed_files))
-            .bind(checks_status)
-            .bind(Value::Array(reviewers))
-            .bind(Value::Array(merged.labels.clone()))
-            .bind(&merged.provider_created_at)
-            .bind(&merged.provider_updated_at)
-            .bind(&merged.merged_at)
-            .bind(&merged.closed_at)
-            .bind(&now)
-            .fetch_one(db)
-            .await?;
-            js_row(updated)
+            let mut mirror = merge_pull_requests::ActiveModel {
+                id: Unchanged(text(stored, "id").to_owned()),
+                title: Set(title),
+                body: Set(opt_str(&merged.body)),
+                state: Set(merged.state.to_owned()),
+                draft: Set(merged.draft),
+                url: Set(url),
+                author_login: Set(merged.author_login.clone()),
+                author_avatar_url: Set(opt_str(&merged.author_avatar_url)),
+                author_user_id: Set(author_user_id),
+                head_ref: Set(opt_str(&merged.head_ref)),
+                base_ref: Set(opt_str(&merged.base_ref)),
+                head_sha: Set(opt_str(&merged.head_sha)),
+                checks_status: Set(checks_status),
+                requested_reviewers: Set(Value::Array(reviewers)),
+                labels: Set(Value::Array(merged.labels.clone())),
+                synced_at: Set(at),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            set_counts_and_times(&mut mirror, &merged)?;
+            mirror_row(mirror.update(&orm_db).await?)?
         } else {
-            let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-                "insert into merge_pull_requests ( \
-                   id, repository_id, provider, external_id, number, title, body, state, draft, url, \
-                   author_login, author_avatar_url, author_user_id, head_ref, base_ref, head_sha, \
-                   additions, deletions, changed_files, requested_reviewers, labels, \
-                   provider_created_at, provider_updated_at, merged_at, closed_at, \
-                   synced_at, created_at, updated_at \
-                 ) values ( \
-                   $1, $2, $26, $3, $4::int, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
-                   $16::int, $17::int, $18::int, $19, $20, $21::timestamptz, $22::timestamptz, \
-                   $23::timestamptz, $24::timestamptz, $25::timestamptz, $25::timestamptz, $25::timestamptz \
-                 ) returning to_jsonb(merge_pull_requests.*)",
-            )
-            .bind(generate_id("mpr"))
-            .bind(text(repository, "id"))
-            .bind(&fields.external_id)
-            .bind(number)
-            .bind(&title)
-            .bind(opt_str(&fields.body))
-            .bind(fields.state)
-            .bind(fields.draft)
-            .bind(&url)
-            .bind(&fields.author_login)
-            .bind(opt_str(&fields.author_avatar_url))
-            .bind(&author_user_id)
-            .bind(opt_str(&fields.head_ref))
-            .bind(opt_str(&fields.base_ref))
-            .bind(opt_str(&fields.head_sha))
-            .bind(opt_int(&fields.additions))
-            .bind(opt_int(&fields.deletions))
-            .bind(opt_int(&fields.changed_files))
-            .bind(Value::Array(reviewers))
-            .bind(Value::Array(fields.labels.clone()))
-            .bind(&fields.provider_created_at)
-            .bind(&fields.provider_updated_at)
-            .bind(&fields.merged_at)
-            .bind(&fields.closed_at)
-            .bind(&now)
-            .bind(text(repository, "provider"))
-            .fetch_one(db)
-            .await;
+            let mut mirror = merge_pull_requests::ActiveModel {
+                id: Set(generate_id("mpr")),
+                repository_id: Set(text(repository, "id").to_owned()),
+                provider: Set(text(repository, "provider").to_owned()),
+                external_id: Set(fields.external_id.clone()),
+                number: Set(int4(number)?),
+                title: Set(title),
+                body: Set(opt_str(&fields.body)),
+                state: Set(fields.state.to_owned()),
+                draft: Set(fields.draft),
+                url: Set(url),
+                author_login: Set(fields.author_login.clone()),
+                author_avatar_url: Set(opt_str(&fields.author_avatar_url)),
+                author_user_id: Set(author_user_id),
+                head_ref: Set(opt_str(&fields.head_ref)),
+                base_ref: Set(opt_str(&fields.base_ref)),
+                head_sha: Set(opt_str(&fields.head_sha)),
+                requested_reviewers: Set(Value::Array(reviewers)),
+                labels: Set(Value::Array(fields.labels.clone())),
+                synced_at: Set(at),
+                created_at: Set(at),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            set_counts_and_times(&mut mirror, &fields)?;
+            let inserted = merge_pull_requests::Entity::insert(mirror)
+                .exec_with_returning(&orm_db)
+                .await;
             match inserted {
-                Ok(inserted) => js_row(inserted),
-                Err(error) if retry_on_race && crate::db::is_unique_violation(&error) => {
+                Ok(inserted) => mirror_row(inserted)?,
+                Err(error) if retry_on_race && is_unique_violation(&error) => {
                     return Ok(None);
                 }
                 Err(error) => return Err(error.into()),
