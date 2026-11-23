@@ -117,13 +117,6 @@ impl From<DbErr> for RunError {
     }
 }
 
-/// The books domain's statements (not on the entities yet) fail the same way.
-impl From<sqlx::Error> for RunError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::from(weldsuite_db::orm_error(error))
-    }
-}
-
 impl From<Refusal> for RunError {
     fn from(refusal: Refusal) -> Self {
         Self::Refused(refusal)

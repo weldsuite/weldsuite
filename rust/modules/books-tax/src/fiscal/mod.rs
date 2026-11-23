@@ -38,13 +38,6 @@ pub(crate) enum FiscalError {
     Refusal(Refusal),
 }
 
-/// A transaction's own `BEGIN` / `COMMIT`, through `weldsuite_db::orm_error`.
-impl From<sqlx::Error> for FiscalError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::from(error))
-    }
-}
-
 impl From<DbErr> for FiscalError {
     fn from(error: DbErr) -> Self {
         Self::Refusal(Refusal::Database(error))

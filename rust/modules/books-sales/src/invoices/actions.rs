@@ -775,6 +775,7 @@ pub(crate) async fn create_credit_note(
 
 // ── POST /:id/record-payment ────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)] // the route's steps, in its order
 pub(crate) async fn record_payment_route(
     caller: Caller,
     State(state): State<BooksState>,
