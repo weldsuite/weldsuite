@@ -994,14 +994,17 @@ flags, the app catalog's flags, workspaces and plans, which are still SQL.
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
 docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs', WeldSheets' and WeldBoard's rooms (Node, docs/collab-rooms.md)
+docker build -f rust/Dockerfile --target storefront -t weldsuite-storefront:dev .       # WeldCommerce's online store renderer (Node, ADR COM-015), behind the storefront edge
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
 
 Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
-`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
-`ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
+`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal`,
+`ghcr.io/weldsuite/weldsuite-collab-rooms` and the other portal images
+(the storefront renderer's `ghcr.io/weldsuite/weldsuite-storefront` among
+them), amd64, tagged
 `sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
 `main` also moves the tag `main` and publishes the chart as
@@ -1020,6 +1023,12 @@ build's `_headers` rules, a 404 for a missing asset. `/api`, `/public`,
 share one origin and the app finds the API through `/config.json`
 (`"backend": "rust"`). The build context is the repo root, trimmed by
 `rust/Dockerfile.dockerignore`.
+
+WeldCommerce's online store (storefronts plan, ADRs COM-015 to COM-018): the
+server answers shop hosts on a second listener, the storefront edge
+(`STOREFRONT_LISTEN`), and serves the renderer's `/public/storefront`; every
+`STOREFRONT_*` setting is listed in `bins/weldsuite/src/storefront.rs`, and
+the chart's `storefront:` values set them.
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`

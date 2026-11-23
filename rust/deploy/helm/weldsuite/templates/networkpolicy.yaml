@@ -47,7 +47,23 @@ spec:
             matchLabels:
               {{- include "weldsuite.admin.selectorLabels" $ | nindent 14 }}
         {{- end }}
+        {{- if $.Values.storefront.enabled }}
+        # The storefront renderer calls /public/storefront and /storefront/v1.
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.storefront.selectorLabels" $ | nindent 14 }}
+        {{- end }}
       {{- end }}
+    {{- if .Values.storefront.enabled }}
+    # The storefront edge: the shop hosts, through the ingress controller.
+    - ports:
+        - port: storefront
+          protocol: TCP
+      {{- with .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
     {{- if include "weldsuite.restate.ingressUrl" $ }}
     - ports:
         - port: jobs
@@ -110,6 +126,30 @@ spec:
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}
+{{- if .Values.storefront.enabled }}
+---
+# The storefront renderer has no Ingress: only the server's pods (the
+# storefront edge) call it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" . }}
+  labels:
+    {{- include "weldsuite.storefront.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "weldsuite.storefront.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.selectorLabels" . | nindent 14 }}
 {{- end }}
 {{- if .Values.admin.enabled }}
 ---

@@ -41,8 +41,8 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "weldsuite.serviceAccountName" . }}
       {{- /* The server talks to the Kubernetes API with the sandbox on (its pods, the sandbox Role) and with
-      WeldPanel's custom domains on (their Certificates and Ingresses, the panel-domains Role). */}}
-      automountServiceAccountToken: {{ or .Values.sandbox.enabled (eq (include "weldsuite.panelDomains.enabled" .) "true") }}
+      WeldPanel's or WeldCommerce's custom domains on (their Certificates and Ingresses, the custom-domains Role). */}}
+      automountServiceAccountToken: {{ or .Values.sandbox.enabled (eq (include "weldsuite.customDomains.enabled" .) "true") }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -82,6 +82,13 @@ spec:
             {{- if include "weldsuite.restate.ingressUrl" . }}
             - name: jobs
               containerPort: {{ .Values.config.jobs.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.storefront.enabled }}
+            # The storefront edge: every shop host's traffic, on a listener of
+            # its own so a shop's host never reaches the platform's routes.
+            - name: storefront
+              containerPort: {{ .Values.storefront.edgePort }}
               protocol: TCP
             {{- end }}
             {{- with include "weldsuite.metricsPort" . }}{{ . | nindent 12 }}{{- end }}
@@ -129,6 +136,19 @@ spec:
               value: {{ .dir | quote }}
             - name: HELPDESK_WIDGET_HOSTS
               value: {{ join "," .hosts | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.storefront.enabled }}
+            # WeldCommerce's storefront edge (the shared STOREFRONT_* settings
+            # are in weldsuite.storefrontEnv): its listener, the renderer it
+            # proxies builder shops to, and who may frame a shop's preview.
+            - name: STOREFRONT_LISTEN
+              value: {{ printf "0.0.0.0:%v" .Values.storefront.edgePort | quote }}
+            - name: STOREFRONT_RENDERER_URL
+              value: {{ include "weldsuite.storefront.rendererUrl" . | quote }}
+            {{- with include "weldsuite.storefront.editorOrigins" . }}
+            - name: STOREFRONT_EDITOR_ORIGINS
+              value: {{ . | quote }}
             {{- end }}
             {{- end }}
           envFrom:

@@ -1,0 +1,42 @@
+{{- with .Values.storefront }}
+{{- if and .enabled .baseDomain .ingress.enabled }}
+# WeldCommerce's free shop addresses, {slug}.<baseDomain> (and deployments'
+# previews, {deployment}--{slug}.<baseDomain>): one wildcard host to the
+# server's storefront edge (its Service's port storefront, never http), which
+# looks the shop up by host. One wildcard certificate, made outside the chart
+# (storefront.wildcardTls). Custom shop domains get an Ingress each, made by
+# the server (templates/custom-domains.yaml).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # Not the renderer's (<release>-storefront has no Ingress): the server's.
+  name: {{ include "weldsuite.fullname" $ }}-storefront-wildcard
+  labels:
+    {{- include "weldsuite.labels" $ | nindent 4 }}
+  {{- with .ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with (.ingress.className | default $.Values.ingress.className) }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .wildcardTls.secretName }}
+  tls:
+    - secretName: {{ . }}
+      hosts:
+        - {{ printf "*.%s" $.Values.storefront.baseDomain | quote }}
+  {{- end }}
+  rules:
+    - host: {{ printf "*.%s" .baseDomain | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "weldsuite.fullname" $ }}
+                port:
+                  name: storefront
+{{- end }}
+{{- end }}
