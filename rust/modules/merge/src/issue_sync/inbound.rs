@@ -14,15 +14,20 @@
 //! Nothing here publishes: every function answers the entity events it
 //! caused and the caller publishes them (`system` source for webhooks).
 
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, js_date_parse};
+use weldsuite_schema::tenant::{merge_comments, merge_external_issues};
 
 use super::fields::{checksum_of, provider_fields, provider_state_to_status};
 use super::people::{host_of, member_for_login, resolve_assignee, resolve_label_ids};
 use super::targets::{SyncTarget, find_link_by_number};
-use crate::db::{Row, col, opt_text, text};
+use crate::comments::{comment_row, soft_delete_comment};
+use crate::db::{Row, col, instant_opt, int4, now_at, opt_text, required, text};
 use crate::hooks::HookContext;
 use crate::issues::{
     CreateFailure, ISSUE_CHANGE_FIELDS, RefFailure, UpdateFailure, create_issue, diff_fields,
@@ -30,7 +35,7 @@ use crate::issues::{
 };
 use crate::mappers::issue_event_data;
 use crate::providers::{NormalizedIssue, NormalizedIssueComment};
-use crate::{MergeError, PendingEvent, chat, now};
+use crate::{MergeError, PendingEvent, chat};
 
 /// What the inbound functions act on (`InboundContext`). `hooks` runs the
 /// chat hooks after a write (left out for bulk imports).
@@ -164,25 +169,24 @@ async fn create_from_provider(
         Err(CreateFailure::TeamNotFound) => return Ok(ignored("team_not_found")),
         Err(CreateFailure::Ref(failure)) => return Ok(ignored(ref_reason(failure))),
     };
-    let now = now();
-    sqlx::query(
-        "insert into merge_external_issues (id, issue_id, repository_id, provider, external_id, number, url, \
-           state, checksum, last_writer, provider_updated_at, synced_at, updated_at, created_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'provider', $10::timestamptz, $11::timestamptz, \
-           $11::timestamptz, $11::timestamptz)",
-    )
-    .bind(generate_id("mxi"))
-    .bind(text(&created.issue, "id"))
-    .bind(text(repository, "id"))
-    .bind(provider)
-    .bind(&issue.external_id)
-    .bind(issue.number)
-    .bind(&issue.url)
-    .bind(issue.state)
-    .bind(checksum)
-    .bind(&issue.updated_at)
-    .bind(&now)
-    .execute(ctx.db)
+    let (_, at) = now_at();
+    merge_external_issues::Entity::insert(merge_external_issues::ActiveModel {
+        id: Set(generate_id("mxi")),
+        issue_id: Set(text(&created.issue, "id").to_owned()),
+        repository_id: Set(text(repository, "id").to_owned()),
+        provider: Set(provider.to_owned()),
+        external_id: Set(issue.external_id.clone()),
+        number: Set(int4(issue.number)?),
+        url: Set(issue.url.clone()),
+        state: Set(issue.state.to_owned()),
+        checksum: Set(checksum.to_owned()),
+        last_writer: Set("provider".to_owned()),
+        provider_updated_at: Set(instant_opt(issue.updated_at.as_deref())?),
+        synced_at: Set(at),
+        updated_at: Set(at),
+        created_at: Set(at),
+    })
+    .exec_without_returning(&orm(ctx.db))
     .await?;
     let team_key = text(&created.team, "key").to_owned();
     chat_after_created(ctx, &created.issue, &team_key).await;
@@ -302,24 +306,37 @@ async fn write_link(
     repository_id: &str,
     issue: &NormalizedIssue,
     checksum: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update merge_external_issues set external_id = $3, number = $4, url = $5, state = $6, checksum = $7, \
-           last_writer = 'provider', provider_updated_at = $8::timestamptz, synced_at = $9::timestamptz, \
-           updated_at = $9::timestamptz \
-         where repository_id = $1 and number = $2",
-    )
-    .bind(repository_id)
-    .bind(issue.number)
-    .bind(&issue.external_id)
-    .bind(issue.number)
-    .bind(&issue.url)
-    .bind(issue.state)
-    .bind(checksum)
-    .bind(&issue.updated_at)
-    .bind(now())
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let (_, at) = now_at();
+    merge_external_issues::Entity::update_many()
+        .col_expr(
+            merge_external_issues::Column::ExternalId,
+            Expr::value(issue.external_id.clone()),
+        )
+        .col_expr(
+            merge_external_issues::Column::Number,
+            Expr::value(int4(issue.number)?),
+        )
+        .col_expr(
+            merge_external_issues::Column::Url,
+            Expr::value(issue.url.clone()),
+        )
+        .col_expr(merge_external_issues::Column::State, Expr::value(issue.state))
+        .col_expr(merge_external_issues::Column::Checksum, Expr::value(checksum))
+        .col_expr(
+            merge_external_issues::Column::LastWriter,
+            Expr::value("provider"),
+        )
+        .col_expr(
+            merge_external_issues::Column::ProviderUpdatedAt,
+            Expr::value(instant_opt(issue.updated_at.as_deref())?),
+        )
+        .col_expr(merge_external_issues::Column::SyncedAt, Expr::value(at))
+        .col_expr(merge_external_issues::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_external_issues::Column::RepositoryId.eq(repository_id))
+        .filter(merge_external_issues::Column::Number.eq(issue.number))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -371,9 +388,8 @@ pub(crate) async fn unlink_provider_issue(
     else {
         return Ok(ignored("unlinked_issue"));
     };
-    sqlx::query("delete from merge_external_issues where id = $1")
-        .bind(text(&link, "id"))
-        .execute(ctx.db)
+    merge_external_issues::Entity::delete_by_id(text(&link, "id").to_owned())
+        .exec(&orm(ctx.db))
         .await?;
     Ok(InboundResult {
         outcome: Outcome::Updated,
@@ -413,32 +429,25 @@ pub(crate) async fn apply_inbound_comment(
     if find_issue(ctx.db, &issue_id).await?.is_none() {
         return Ok(ignored("issue_deleted"));
     }
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from merge_comments c where c.issue_id = $1 and c.external_id = $2 limit 1",
-    )
-    .bind(&issue_id)
-    .bind(&comment.external_id)
-    .fetch_optional(ctx.db)
-    .await?;
-    let existing = existing.map(js_row);
-    let now = now();
+    let db = orm(ctx.db);
+    let existing = merge_comments::Entity::find()
+        .filter(merge_comments::Column::IssueId.eq(&issue_id))
+        .filter(merge_comments::Column::ExternalId.eq(&comment.external_id))
+        .one(&db)
+        .await?
+        .map(comment_row)
+        .transpose()?;
+    let (_, at) = now_at();
 
     if action == "deleted" {
         let Some(existing) = existing.filter(|c| c["deletedAt"].is_null()) else {
             return Ok(ignored("unknown_comment"));
         };
-        let row: Value = sqlx::query_scalar(
-            "update merge_comments set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-             where id = $1 returning to_jsonb(merge_comments.*)",
-        )
-        .bind(text(&existing, "id"))
-        .bind(&now)
-        .fetch_one(ctx.db)
-        .await?;
+        let row = soft_delete_comment(ctx.db, text(&existing, "id")).await?;
         return Ok(InboundResult {
             outcome: Outcome::Updated,
             reason: None,
-            events: vec![comment_event(&js_row(row), "deleted")],
+            events: vec![comment_event(&row, "deleted")],
         });
     }
 
@@ -446,19 +455,20 @@ pub(crate) async fn apply_inbound_comment(
         if action == "created" || text(&existing, "body") == comment.body {
             return Ok(ignored("echo"));
         }
-        let row: Value = sqlx::query_scalar(
-            "update merge_comments set body = $2, updated_at = $3::timestamptz \
-             where id = $1 returning to_jsonb(merge_comments.*)",
-        )
-        .bind(text(&existing, "id"))
-        .bind(&comment.body)
-        .bind(&now)
-        .fetch_one(ctx.db)
-        .await?;
+        let row = comment_row(
+            merge_comments::ActiveModel {
+                id: Unchanged(text(&existing, "id").to_owned()),
+                body: Set(comment.body.clone()),
+                updated_at: Set(at),
+                ..Default::default()
+            }
+            .update(&db)
+            .await?,
+        )?;
         return Ok(InboundResult {
             outcome: Outcome::Updated,
             reason: None,
-            events: vec![comment_event(&js_row(row), "updated")],
+            events: vec![comment_event(&row, "updated")],
         });
     }
 
@@ -474,27 +484,31 @@ pub(crate) async fn apply_inbound_comment(
         }
         None => None,
     };
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_comments (id, issue_id, author_user_id, body, external_id, external_author_login, \
-           external_author_avatar_url, source, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, 'provider', $8::timestamptz, $9::timestamptz) \
-         returning to_jsonb(merge_comments.*)",
-    )
-    .bind(generate_id("mcm"))
-    .bind(&issue_id)
-    .bind(author)
-    .bind(&comment.body)
-    .bind(&comment.external_id)
-    .bind(&comment.author_login)
-    .bind(&comment.author_avatar_url)
-    .bind(&comment.created_at)
-    .bind(&now)
-    .fetch_one(ctx.db)
-    .await?;
+    let row = comment_row(
+        merge_comments::Entity::insert(merge_comments::ActiveModel {
+            id: Set(generate_id("mcm")),
+            issue_id: Set(issue_id),
+            author_user_id: Set(author),
+            body: Set(comment.body.clone()),
+            external_id: Set(Some(comment.external_id.clone())),
+            external_author_login: Set(comment.author_login.clone()),
+            external_author_avatar_url: Set(comment.author_avatar_url.clone()),
+            source: Set("provider".to_owned()),
+            // An invalid provider time was a null Postgres refused.
+            created_at: Set(required(
+                instant_opt(comment.created_at.as_deref())?,
+                "created_at",
+            )?),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_with_returning(&db)
+        .await?,
+    )?;
     Ok(InboundResult {
         outcome: Outcome::Created,
         reason: None,
-        events: vec![comment_event(&js_row(row), "created")],
+        events: vec![comment_event(&row, "created")],
     })
 }
 

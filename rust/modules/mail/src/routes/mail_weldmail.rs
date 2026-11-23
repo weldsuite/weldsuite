@@ -25,15 +25,27 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::permission_keys::{ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::mail_account_registry as registry;
+use weldsuite_schema::master::{plans, workspaces};
+use weldsuite_schema::tenant::enums::{MailAccountStatus, MailAuthType, MailProvider};
+use weldsuite_schema::tenant::mail_accounts;
 
 use super::mail_accounts::seed_system_labels;
-use crate::util::{MailError, MailResult, answer, bump_mailbox_directory, now, validate};
+use crate::util::{MailError, MailResult, answer, bump_mailbox_directory, validate};
 use crate::{Caller, MailState};
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -146,13 +158,21 @@ async fn workspace(state: &MailState, caller: &Caller) -> MailResult<(String, St
         tracing::error!("[mail-weldmail] no master database");
         return Err(MailError::api(ApiError::internal()));
     };
-    let row: Option<(String, String)> = sqlx::query_as(
-        "select id, slug from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(&org)
-    .fetch_optional(&master)
-    .await?;
+    let row: Option<(String, String)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::Slug])
+        .filter(names_workspace(&org))
+        .into_tuple()
+        .one(&orm(&master))
+        .await?;
     row.ok_or_else(|| not_found("Workspace not found"))
+}
+
+/// `workspaces.id = org or workspaces.clerk_org_id = org`.
+fn names_workspace(org: &str) -> Condition {
+    Condition::any()
+        .add(workspaces::Column::Id.eq(org))
+        .add(workspaces::Column::ClerkOrgId.eq(org))
 }
 
 /// `{slug}.{apex}`.
@@ -179,14 +199,23 @@ type PlanRow = (Option<String>, Option<Value>, Option<bool>, Option<String>);
 /// `getLimits`: whether the plan allows free addresses, and how many (`None`
 /// = unlimited). Fails open with the defaults, as in TypeScript.
 async fn limits(master: &PgPool, org: &str) -> (bool, Option<i64>) {
-    let row: Result<Option<PlanRow>, _> = sqlx::query_as(
-        "select w.plan_id, p.features, p.is_default, p.slug from workspaces w
-             left join plans p on p.id = w.plan_id
-             where w.id = $1 or w.clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(master)
-    .await;
+    let row: Result<Option<PlanRow>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::PlanId)
+        .column(plans::Column::Features)
+        .column(plans::Column::IsDefault)
+        .column(plans::Column::Slug)
+        .join(
+            JoinType::LeftJoin,
+            workspaces::Entity::belongs_to(plans::Entity)
+                .from(workspaces::Column::PlanId)
+                .to(plans::Column::Id)
+                .into(),
+        )
+        .filter(names_workspace(org))
+        .into_tuple()
+        .one(&orm(master))
+        .await;
     let defaults = (true, Some(DEFAULT_MAX_ADDRESSES));
     match row {
         Ok(Some((Some(_), Some(features), is_default, slug))) => {
@@ -238,11 +267,15 @@ fn is_reserved(address: &str) -> bool {
 }
 
 /// Whether the registry knows `email`, active or released.
-async fn registered(master: &PgPool, email: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("select exists(select 1 from mail_account_registry where email = $1)")
-        .bind(email)
-        .fetch_one(master)
-        .await
+async fn registered(master: &PgPool, email: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = registry::Entity::find()
+        .select_only()
+        .column(registry::Column::Id)
+        .filter(registry::Column::Email.eq(email))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(found.is_some())
 }
 
 fn master_db(state: &MailState, caller: &Caller) -> MailResult<PgPool> {
@@ -330,12 +363,12 @@ async fn reserve(
         if registered(&master, &email).await? {
             return Err(MailError::conflict("This address is already taken"));
         }
-        let existing: i64 = sqlx::query_scalar(
-            "select count(*) from mail_accounts where email like $1 and deleted_at is null",
-        )
-        .bind(on_domain(&domain))
-        .fetch_one(&caller.db)
-        .await?;
+        let existing = mail_accounts::Entity::find()
+            .filter(mail_accounts::Column::Email.like(on_domain(&domain)))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .count(&orm(&caller.db))
+            .await?;
+        let existing = i64::try_from(existing).unwrap_or(i64::MAX);
         if let Some(max) = max
             && existing >= max
         {
@@ -346,37 +379,41 @@ async fn reserve(
         }
 
         let id = generate_id("mail");
-        let at = now();
+        let now = OffsetDateTime::now_utc();
+        let at = utc_timestamp(now);
         let name = name.unwrap_or_else(|| address.clone());
         let display_name = display_name.unwrap_or_else(|| name.clone());
         let is_default = existing == 0;
-        let inserted = sqlx::query(
-            "insert into mail_accounts (id, name, email, display_name, provider, auth_type,
-               status, sync_enabled, is_default, created_at, updated_at)
-             values ($1, $2, $3, $4, 'custom', 'api_key', 'active', false, $5,
-               $6::timestamp, $6::timestamp)",
-        )
-        .bind(&id)
-        .bind(&name)
-        .bind(&email)
-        .bind(&display_name)
-        .bind(is_default)
-        .bind(&at)
-        .execute(&caller.db)
+        let inserted = mail_accounts::Entity::insert(mail_accounts::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.clone()),
+            email: Set(email.clone()),
+            display_name: Set(Some(display_name.clone())),
+            provider: Set(MailProvider::Custom),
+            auth_type: Set(MailAuthType::ApiKey),
+            status: Set(MailAccountStatus::Active),
+            sync_enabled: Set(false),
+            is_default: Set(Some(is_default)),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await;
         if let Err(error) = inserted {
             return Err(unique_or(error));
         }
-        seed_system_labels(&caller.db, &id, &at).await?;
-        let registry = sqlx::query(
-            "insert into mail_account_registry (id, email, tenant_kind, workspace_id, account_id, is_active)
-             values ($1, $2, 'workspace', $3, $4, true)",
-        )
-        .bind(generate_id("reg"))
-        .bind(&email)
-        .bind(&workspace_id)
-        .bind(&id)
-        .execute(&master)
+        seed_system_labels(&caller.db, &id, &iso_timestamp(now)).await?;
+        let registry = registry::Entity::insert(registry::ActiveModel {
+            id: Set(generate_id("reg")),
+            email: Set(email.clone()),
+            tenant_kind: Set("workspace".to_owned()),
+            workspace_id: Set(Some(workspace_id)),
+            account_id: Set(id.clone()),
+            is_active: Set(true),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&master))
         .await;
         if let Err(error) = registry {
             return Err(unique_or(error));
@@ -396,16 +433,26 @@ async fn reserve(
 }
 
 /// A unique-constraint violation is the address being taken meanwhile (409).
-fn unique_or(error: sqlx::Error) -> MailError {
-    let unique = error
-        .as_database_error()
-        .and_then(sqlx::error::DatabaseError::code)
-        .is_some_and(|code| code == "23505");
-    if unique {
+fn unique_or(error: DbErr) -> MailError {
+    if weldsuite_db::is_unique_violation(&error) {
         MailError::conflict("This address is already taken")
     } else {
         MailError::from(error)
     }
+}
+
+/// An address as `listAddresses` returns it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Address {
+    id: String,
+    email: String,
+    name: String,
+    display_name: Option<String>,
+    status: MailAccountStatus,
+    is_default: Option<bool>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
 }
 
 /// `GET /` (`listAddresses`).
@@ -415,16 +462,29 @@ async fn list(State(state): State<MailState>, caller: Caller) -> Response {
         let (_, slug) = workspace(&state, &caller).await?;
         let domain = domain_for(&slug, &apex);
         let (enabled, max) = limits(&master_db(&state, &caller)?, caller.org()?).await;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(a) from (
-               select id, email, name, display_name, status, is_default, created_at
-               from mail_accounts where email like $1 and deleted_at is null
-               order by created_at, id) a",
-        )
-        .bind(on_domain(&domain))
-        .fetch_all(&caller.db)
-        .await?;
-        let addresses: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let rows: Vec<Address> = mail_accounts::Entity::find()
+            .select_only()
+            .columns([
+                mail_accounts::Column::Id,
+                mail_accounts::Column::Email,
+                mail_accounts::Column::Name,
+                mail_accounts::Column::DisplayName,
+                mail_accounts::Column::Status,
+                mail_accounts::Column::IsDefault,
+                mail_accounts::Column::CreatedAt,
+            ])
+            .filter(mail_accounts::Column::Email.like(on_domain(&domain)))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .order_by_asc(mail_accounts::Column::CreatedAt)
+            .order_by_asc(mail_accounts::Column::Id)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        let addresses = rows
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DbErr::Json(error.to_string()))?;
         Ok(Data(json!({
             "total": addresses.len(),
             "addresses": addresses,
@@ -449,34 +509,35 @@ async fn release(
         let apex = free_apex(&state, &caller)?;
         let (_, slug) = workspace(&state, &caller).await?;
         let domain = domain_for(&slug, &apex);
-        let email: Option<String> = sqlx::query_scalar(
-            "select email from mail_accounts
-             where id = $1 and email like $2 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .bind(on_domain(&domain))
-        .fetch_optional(&caller.db)
-        .await?;
+        let email: Option<String> = mail_accounts::Entity::find_by_id(&id)
+            .select_only()
+            .column(mail_accounts::Column::Email)
+            .filter(mail_accounts::Column::Email.like(on_domain(&domain)))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let Some(email) = email else {
             return Err(not_found("WeldMail address not found"));
         };
-        let at = now();
-        sqlx::query(
-            "update mail_accounts set deleted_at = $2::timestamp, status = 'inactive',
-               updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
-        sqlx::query(
-            "update mail_account_registry set is_active = false, updated_at = $2::timestamp
-             where email = $1",
-        )
-        .bind(&email)
-        .bind(&at)
-        .execute(&master_db(&state, &caller)?)
-        .await?;
+        let at = utc_now();
+        mail_accounts::Entity::update_many()
+            .col_expr(mail_accounts::Column::DeletedAt, Expr::value(at))
+            .col_expr(
+                mail_accounts::Column::Status,
+                // The value as the `mail_account_status` enum.
+                mail_accounts::Column::Status.save_as(Expr::val(MailAccountStatus::Inactive)),
+            )
+            .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_accounts::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
+        registry::Entity::update_many()
+            .col_expr(registry::Column::IsActive, Expr::value(false))
+            .col_expr(registry::Column::UpdatedAt, Expr::value(at))
+            .filter(registry::Column::Email.eq(&email))
+            .exec(&orm(&master_db(&state, &caller)?))
+            .await?;
         bump_mailbox_directory(&caller, &state).await;
         Ok(Data(json!({ "deleted": true, "id": id, "email": email })).into_response())
     }
@@ -525,6 +586,7 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     #![allow(clippy::too_many_lines)] // one scenario, step by step
+    #![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
     use std::collections::HashMap;
 

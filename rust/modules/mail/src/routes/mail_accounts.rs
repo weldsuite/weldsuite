@@ -14,14 +14,20 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     EMAIL_EMAIL_SENT, MAIL_ACCOUNT_CREATED, MAIL_ACCOUNT_DELETED, MAIL_ACCOUNT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE, MESSAGES_CREATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_body};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::{
@@ -31,13 +37,21 @@ use weldsuite_mail_domain::access::{
 use weldsuite_mail_domain::outbound::limits::{SHARED_WELDMAIL_APEXES, is_shared_weldmail_domain};
 use weldsuite_mail_domain::send::{SendInput, SendOptions, send_and_persist};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{mail_account_registry as registry, workspaces};
+use weldsuite_schema::tenant::enums::{
+    MailAccountStatus, MailAuthType, MailDomainDnsStatus, MailProvider, MailSyncStatus,
+};
+use weldsuite_schema::tenant::{
+    domains, mail_accounts, mail_domains, mail_labels, workspace_members,
+};
 
+use crate::routes::mail_drafts::to_millis;
 use crate::send::{
     EMAIL, RequestDoh, SendContext, attachments, emails, optional_text, send_error_response,
 };
 use crate::util::{
-    MailError, MailResult, answer, bump_mailbox_directory, list_response, now, page, strings,
-    validate, validate_query,
+    MailError, MailResult, answer, bump_mailbox_directory, list_response, page, strings, validate,
+    validate_query,
 };
 use crate::{Caller, MailState};
 
@@ -95,16 +109,139 @@ where
 
 /// The columns safe to send to the browser (`publicAccountColumns`): every
 /// column but the credentials and `provider_config`.
-macro_rules! public_account {
-    () => {
-        "(to_jsonb(a) - 'access_token' - 'refresh_token' - 'api_key' - 'password_hash'
-           - 'provider_config')"
+fn public_account(account: mail_accounts::Model) -> Result<Value, DbErr> {
+    let mut row = serde_json::to_value(account).map_err(|error| DbErr::Json(error.to_string()))?;
+    if let Value::Object(fields) = &mut row {
+        for key in [
+            "accessToken",
+            "refreshToken",
+            "apiKey",
+            "passwordHash",
+            "providerConfig",
+        ] {
+            fields.remove(key);
+        }
+    }
+    Ok(row)
+}
+
+/// The mailboxes `user_id` may open (ADR MAIL-003): shared ones, those
+/// assigned to them, and for an admin the ones assigned to nobody
+/// (`coalesce(assigned_user_ids, '[]') in ('[]', 'null')`).
+fn visible_to(user_id: &str, admin: bool) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let assigned = || Expr::col(mail_accounts::Column::AssignedUserIds);
+    let mut visible = Condition::any()
+        .add(mail_accounts::Column::IsShared.eq(true))
+        .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            assigned(),
+            Expr::value(json!([user_id])),
+        ));
+    if admin {
+        visible = visible.add(
+            Expr::from(Func::coalesce([assigned(), Expr::value(json!([]))]))
+                .is_in([json!([]), Value::Null]),
+        );
+    }
+    visible
+}
+
+/// The list's filters: the caller's mailboxes unless `scoped` is off,
+/// `search` in the name or address (`like`), `status`, `provider`.
+fn list_scope(
+    caller: &Caller,
+    scoped: bool,
+    admin: bool,
+    search: Option<&str>,
+    status: Option<&str>,
+    provider: Option<&str>,
+) -> Result<Condition, DbErr> {
+    let mut scope = Condition::all().add(mail_accounts::Column::DeletedAt.is_null());
+    if scoped {
+        scope = scope.add(visible_to(&caller.user_id, admin));
+    }
+    if let Some(search) = search {
+        scope = scope.add(
+            Condition::any()
+                .add(mail_accounts::Column::Name.like(search))
+                .add(mail_accounts::Column::Email.like(search)),
+        );
+    }
+    // Any text: one that is no status (or provider) fails as the cast did.
+    if let Some(status) = status {
+        let status = MailAccountStatus::try_from_value(&status.to_owned())?;
+        scope = scope.add(mail_accounts::Column::Status.eq(status));
+    }
+    if let Some(provider) = provider {
+        let provider = MailProvider::try_from_value(&provider.to_owned())?;
+        scope = scope.add(mail_accounts::Column::Provider.eq(provider));
+    }
+    Ok(scope)
+}
+
+/// `listMailAccounts`' page (`limit + 1` rows after the cursor) and total.
+async fn list_page(
+    caller: &Caller,
+    scope: Condition,
+    limit: i64,
+    cursor: Option<&str>,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(&caller.db);
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty()) {
+        Some(cursor) => {
+            mail_accounts::Entity::find_by_id(cursor.to_owned())
+                .select_only()
+                .columns([mail_accounts::Column::CreatedAt, mail_accounts::Column::Id])
+                .into_tuple()
+                .one(&db)
+                .await?
+        }
+        None => None,
     };
+    let mut page_scope = scope.clone();
+    if let Some((at, id)) = cursor_row {
+        let at = to_millis(at);
+        page_scope = page_scope.add(
+            Condition::any()
+                .add(mail_accounts::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(mail_accounts::Column::CreatedAt.eq(at))
+                        .add(mail_accounts::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = mail_accounts::Entity::find()
+        .filter(page_scope)
+        .order_by_desc(mail_accounts::Column::CreatedAt)
+        .order_by_desc(mail_accounts::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = mail_accounts::Entity::find()
+        .filter(scope)
+        .count(&db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(public_account)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
+}
+
+/// The live mailbox `id`, if there is one.
+async fn live_account_id(caller: &Caller, id: &str) -> Result<Option<String>, DbErr> {
+    mail_accounts::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(mail_accounts::Column::Id)
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// `GET /` (`listMailAccounts`): the mailboxes the caller may open, or
 /// every one for an admin's `scope=manage`.
-#[allow(clippy::too_many_lines)] // the query, the list and its count
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let filters = validate_query(raw.as_deref(), |issues, q| {
         let limit = issues.number(
@@ -144,70 +281,17 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let search = search.filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
         let status = status.filter(|s| !s.is_empty());
         let provider = provider.filter(|s| !s.is_empty());
-        let cursor_row: Option<(Option<String>, String)> =
-            match cursor.as_deref().filter(|c| !c.is_empty()) {
-                Some(cursor) => {
-                    sqlx::query_as(
-                        "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                         from mail_accounts where id = $1 limit 1",
-                    )
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await?
-                }
-                None => None,
-            };
-        let (cursor_at, cursor_id) = cursor_row
-            .and_then(|(at, id)| at.map(|at| (at, id)))
-            .unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            public_account!(),
-            " from mail_accounts a
-             where a.deleted_at is null
-               and (not $1 or (a.is_shared = true
-                    or a.assigned_user_ids @> jsonb_build_array($2::text)
-                    or ($3 and coalesce(a.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb))))
-               and ($4::text is null or (a.name like $4 or a.email like $4))
-               and ($5::text is null or a.status = $5::mail_account_status)
-               and ($6::text is null or a.provider = $6::mail_provider)
-               and ($7::timestamp is null or (a.created_at < $7::timestamp
-                    or (a.created_at = $7::timestamp and a.id < $8)))
-             order by a.created_at desc, a.id desc
-             limit $9"
-        ))
-        .bind(scoped)
-        .bind(&caller.user_id)
-        .bind(admin)
-        .bind(&search)
-        .bind(&status)
-        .bind(&provider)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(
-            "select count(*)::int from mail_accounts a
-             where a.deleted_at is null
-               and (not $1 or (a.is_shared = true
-                    or a.assigned_user_ids @> jsonb_build_array($2::text)
-                    or ($3 and coalesce(a.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb))))
-               and ($4::text is null or (a.name like $4 or a.email like $4))
-               and ($5::text is null or a.status = $5::mail_account_status)
-               and ($6::text is null or a.provider = $6::mail_provider)",
-        )
-        .bind(scoped)
-        .bind(&caller.user_id)
-        .bind(admin)
-        .bind(&search)
-        .bind(&status)
-        .bind(&provider)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(js_row).collect();
+        let scope = list_scope(
+            &caller,
+            scoped,
+            admin,
+            search.as_deref(),
+            status.as_deref(),
+            provider.as_deref(),
+        )?;
+        let (rows, total) = list_page(&caller, scope, limit, cursor.as_deref()).await?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, i64::from(total), has_more, next))
+        Ok(list_response(data, total, has_more, next))
     }
     .await;
     answer(result, "Failed to list mail accounts")
@@ -216,15 +300,21 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 /// `GET /stats` (`getMailAccountStats`).
 async fn stats(caller: Caller) -> Response {
     let result = async {
-        let (total, active, inactive, error): (i32, i32, i32, i32) = sqlx::query_as(
-            "select count(*)::int,
-               count(*) filter (where status = 'active')::int,
-               count(*) filter (where status = 'inactive')::int,
-               count(*) filter (where status = 'error')::int
-             from mail_accounts where deleted_at is null",
-        )
-        .fetch_one(&caller.db)
-        .await?;
+        // `count(*) filter (where status = …)`: COUNT skips the CASE's nulls.
+        let with = |status: MailAccountStatus| {
+            Func::count(Expr::case(mail_accounts::Column::Status.eq(status), 1))
+        };
+        let counts: Option<(i64, i64, i64, i64)> = mail_accounts::Entity::find()
+            .select_only()
+            .column_as(Func::count(Expr::col(Asterisk)), "total")
+            .column_as(with(MailAccountStatus::Active), "active")
+            .column_as(with(MailAccountStatus::Inactive), "inactive")
+            .column_as(with(MailAccountStatus::Error), "error")
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
+        let (total, active, inactive, error) = counts.unwrap_or_default();
         Ok(Data(json!({
             "total": total,
             "active": active,
@@ -263,21 +353,18 @@ async fn labels(caller: Caller, Path(id): Path<String>) -> Response {
         if !check_account_access(&caller.db, &id, &caller.user_id).await? {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        let account: Option<String> = sqlx::query_scalar(
-            "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if account.is_none() {
+        if live_account_id(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        let rows: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(l) from mail_labels l where l.account_id = $1")
-                .bind(&id)
-                .fetch_all(&caller.db)
-                .await?;
-        Ok(Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response())
+        let rows = mail_labels::Entity::find()
+            .filter(mail_labels::Column::AccountId.eq(&id))
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Data(rows).into_response())
     }
     .await;
     answer(result, "Failed to fetch mail account labels")
@@ -286,15 +373,13 @@ async fn labels(caller: Caller, Path(id): Path<String>) -> Response {
 /// `GET /:id` (`getMailAccount`).
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            public_account!(),
-            " from mail_accounts a where a.id = $1 and a.deleted_at is null limit 1"
-        ))
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(row) = row.map(js_row) else {
+        let row = mail_accounts::Entity::find_by_id(id.clone())
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .one(&orm(&caller.db))
+            .await?
+            .map(public_account)
+            .transpose()?;
+        let Some(row) = row else {
             return Err(MailError::not_found("Mail account", Some(&id)));
         };
         let admin = is_admin_or_owner(&caller.db, &caller.user_id).await?;

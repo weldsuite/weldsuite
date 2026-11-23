@@ -26,9 +26,17 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_desk_domain::phone::{IngestPhone, ingest_desk_phone};
+use weldsuite_schema::master::telnyx_porting_order_index as porting_index;
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_messages, desk_phone_routes, notifications, voip_calls,
+    voip_phone_numbers as voip_numbers, voip_porting_orders as porting_orders,
+};
 
 use crate::credits;
 use crate::crm::{self, Hit};
