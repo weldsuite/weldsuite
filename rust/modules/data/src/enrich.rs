@@ -17,10 +17,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::id::generate_id;
-use weldsuite_schema::tenant::{welddata_cells, welddata_columns, welddata_leads};
 use weldsuite_ports::{
     BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, OutboundHttp, StepRetry, step,
 };
+use weldsuite_schema::tenant::{welddata_cells, welddata_columns, welddata_leads};
 
 use crate::actions::{
     ActionContext, ActionKeys, ActionResult, AiModel, WebPages, config_of, known_action, run_action,
@@ -337,21 +337,20 @@ impl Job for WelddataEnrichJob {
                 .await
                 .map_err(JobError::Failed)?;
             // Read outside a step: cheap and idempotent.
-            let column: Option<(String, String, Option<Value>)> =
-                welddata_columns::Entity::find()
-                    .select_only()
-                    .columns([
-                        welddata_columns::Column::Id,
-                        welddata_columns::Column::Type,
-                        welddata_columns::Column::Config,
-                    ])
-                    .filter(welddata_columns::Column::Id.eq(params.column_id.as_str()))
-                    .filter(welddata_columns::Column::ListId.eq(params.list_id.as_str()))
-                    .filter(welddata_columns::Column::DeletedAt.is_null())
-                    .into_tuple()
-                    .one(&orm(&db))
-                    .await
-                    .map_err(JobError::failed)?;
+            let column: Option<(String, String, Option<Value>)> = welddata_columns::Entity::find()
+                .select_only()
+                .columns([
+                    welddata_columns::Column::Id,
+                    welddata_columns::Column::Type,
+                    welddata_columns::Column::Config,
+                ])
+                .filter(welddata_columns::Column::Id.eq(params.column_id.as_str()))
+                .filter(welddata_columns::Column::ListId.eq(params.list_id.as_str()))
+                .filter(welddata_columns::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&db))
+                .await
+                .map_err(JobError::failed)?;
             let Some((id, kind, config)) = column else {
                 return Ok(());
             };
@@ -380,62 +379,5 @@ impl Job for WelddataEnrichJob {
             }
             Ok(())
         })
-    }
-}
-
-#[cfg(test)]
-mod sql_preview_tmp {
-    use super::*;
-    use sea_orm::{DbBackend, QueryTrait};
-
-    #[test]
-    fn sql_preview_tmp() {
-        use welddata_cells::Column as Cell;
-        use welddata_columns::Column as Col;
-        let q = welddata_cells::Entity::find()
-            .select_only()
-            .column(Col::Name)
-            .column(Cell::Value)
-            .join(
-                JoinType::InnerJoin,
-                welddata_cells::Entity::belongs_to(welddata_columns::Entity)
-                    .from(Cell::ColumnId)
-                    .to(Col::Id)
-                    .into(),
-            )
-            .filter(Col::ListId.eq("l"))
-            .filter(Col::Id.ne("c"))
-            .filter(Col::DeletedAt.is_null())
-            .filter(Cell::LeadId.eq("x"))
-            .filter(Cell::Status.eq("done"))
-            .build(DbBackend::Postgres);
-        println!("SIBLINGS {q}");
-        let at = utc_now();
-        let cell = welddata_cells::ActiveModel {
-            id: Set("i".into()),
-            created_at: Set(at),
-            updated_at: Set(at),
-            column_id: Set("c".into()),
-            lead_id: Set("l".into()),
-            status: Set("done".into()),
-            value: Set(None),
-            data: Set(Some(serde_json::json!({"a":1}))),
-            error: Set(None),
-            credits_used: Set(Some(2)),
-            ran_at: Set(Some(at)),
-        };
-        let q = welddata_cells::Entity::insert(cell)
-            .on_conflict(
-                OnConflict::columns([Cell::ColumnId, Cell::LeadId])
-                    .update_columns([Cell::Status, Cell::Value, Cell::UpdatedAt])
-                    .to_owned(),
-            )
-            .build(DbBackend::Postgres);
-        println!("UPSERT {q}");
-        let q = welddata_leads::Entity::find_by_id("x")
-            .filter(welddata_leads::Column::DeletedAt.is_null())
-            .limit(1)
-            .build(DbBackend::Postgres);
-        println!("LEAD {q}");
     }
 }

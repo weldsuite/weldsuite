@@ -15,7 +15,9 @@ use http::HeaderMap;
 use regex::Regex;
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ENRICH_FIELD_CREATED, ENRICH_FIELD_DELETED, ENRICH_FIELD_UPDATED,

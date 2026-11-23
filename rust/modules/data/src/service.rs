@@ -169,7 +169,9 @@ pub(crate) async fn list_lists(
     let db = orm(db);
     let pattern = search.filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
     let keyset = match cursor.filter(|c| !c.is_empty()) {
-        Some(id) => cursor_row::<welddata_lists::Entity>(&db, List::CreatedAt, List::Id, id).await?,
+        Some(id) => {
+            cursor_row::<welddata_lists::Entity>(&db, List::CreatedAt, List::Id, id).await?
+        }
         None => None,
     };
     let live = || {
@@ -472,7 +474,9 @@ pub(crate) async fn list_leads(
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
     let keyset = match query.cursor.as_deref().filter(|c| !c.is_empty()) {
-        Some(id) => cursor_row::<welddata_leads::Entity>(&db, Lead::CreatedAt, Lead::Id, id).await?,
+        Some(id) => {
+            cursor_row::<welddata_leads::Entity>(&db, Lead::CreatedAt, Lead::Id, id).await?
+        }
         None => None,
     };
     let mut found =
@@ -713,7 +717,10 @@ pub(crate) async fn convert_lead(
         .col_expr(Lead::ConvertedStatus, Expr::value("converted"))
         .col_expr(Lead::ConvertedAt, Expr::value(at))
         .col_expr(Lead::ConvertedPersonId, Expr::value(made.person_id.clone()))
-        .col_expr(Lead::ConvertedCompanyId, Expr::value(made.company_id.clone()))
+        .col_expr(
+            Lead::ConvertedCompanyId,
+            Expr::value(made.company_id.clone()),
+        )
         .col_expr(Lead::UpdatedAt, Expr::value(at))
         .filter(Lead::Id.eq(id))
         .exec(&orm(db))
@@ -1061,96 +1068,5 @@ mod tests {
         assert_eq!(page.cursor.as_deref(), Some("a"));
         assert!(page_limit(2.5).is_err());
         assert_eq!(page_limit(50.0).ok(), Some(51));
-    }
-}
-
-#[cfg(test)]
-mod sql_preview_tmp {
-    use super::*;
-    use sea_orm::{DbBackend, QueryTrait};
-
-    #[test]
-    fn sql_preview_tmp() {
-        let same_name = sea_orm::ExprTrait::eq(
-            Func::lower(Expr::col((companies::Entity, companies::Column::Name))),
-            js_lowercase("ACME"),
-        );
-        let q = companies::Entity::find()
-            .select_only()
-            .column(companies::Column::Id)
-            .filter(same_name)
-            .filter(companies::Column::DeletedAt.is_null())
-            .build(DbBackend::Postgres);
-        println!("COMPANY {q}");
-        let q = welddata_leads::Entity::find()
-            .select_only()
-            .column(Lead::ListId)
-            .column_as(Lead::Id.count(), "count")
-            .filter(Lead::ListId.is_in(vec!["a".to_owned()]))
-            .filter(Lead::DeletedAt.is_null())
-            .group_by(Lead::ListId)
-            .build(DbBackend::Postgres);
-        println!("COUNTS {q}");
-        let at = utc_now();
-        let cells = ["a", "b"].iter().map(|lead_id| welddata_cells::ActiveModel {
-            id: Set("x".into()),
-            created_at: Set(at),
-            updated_at: Set(at),
-            column_id: Set("c".to_owned()),
-            lead_id: Set((*lead_id).to_owned()),
-            status: Set("pending".to_owned()),
-            ..Default::default()
-        });
-        let q = welddata_cells::Entity::insert_many(cells)
-            .on_conflict(
-                OnConflict::columns([Cell::ColumnId, Cell::LeadId])
-                    .value(Cell::Status, Expr::value("pending"))
-                    .value(Cell::Error, Expr::value(Option::<String>::None))
-                    .value(Cell::UpdatedAt, Expr::value(at))
-                    .to_owned(),
-            )
-            .build(DbBackend::Postgres);
-        println!("PENDING {q}");
-        let lead = serde_json::Map::from_iter([
-            ("kind".to_owned(), json!("person")),
-            ("name".to_owned(), json!("Ada")),
-        ]);
-        let q = welddata_leads::Entity::insert_many([lead_model(&lead, "l", "person", "u", at)])
-            .on_conflict(
-                OnConflict::columns([Lead::ListId, Lead::Kind, Lead::LemlistId])
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .build(DbBackend::Postgres);
-        println!("LEADS {q}");
-        let q = welddata_columns::Entity::update_many()
-            .col_expr(Col::UpdatedAt, Expr::value(utc_now()))
-            .col_expr(Col::Config, Expr::value(json!({"type":"ai"})))
-            .col_expr(Col::Type, Expr::value("ai".to_owned()))
-            .filter(Col::Id.eq("x"))
-            .build(DbBackend::Postgres);
-        println!("COLUPDATE {q}");
-        let q = welddata_columns::Entity::find()
-            .select_only()
-            .column_as(Col::SortOrder.max(), "max")
-            .filter(Col::ListId.eq("l"))
-            .build(DbBackend::Postgres);
-        println!("MAX {q}");
-        let keyset: CursorRow = (at, "id1".into());
-        let q = welddata_lists::Entity::find()
-            .filter(Condition::all().add(List::DeletedAt.is_null()).add(List::Name.ilike("%a%")))
-            .filter(before(List::CreatedAt, List::Id, &keyset))
-            .order_by_desc(List::CreatedAt)
-            .order_by_desc(List::Id)
-            .limit(51)
-            .build(DbBackend::Postgres);
-        println!("LISTS {q}");
-        let q = welddata_leads::Entity::find()
-            .filter(lead_filters("l", &LeadQuery { cursor: None, limit: 50.0, search: None, kind: Some("person".into()), converted_status: None }, Some("%x%")))
-            .build(DbBackend::Postgres);
-        println!("LEADFILTERS {q}");
-        let q = Condition::all().add(Condition::all());
-        let q2 = welddata_leads::Entity::find().filter(q).build(DbBackend::Postgres);
-        println!("EMPTY {q2}");
     }
 }

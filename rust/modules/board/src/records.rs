@@ -5,9 +5,9 @@
 
 use sea_orm::sea_query::{Expr, Func, Query};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
-    FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
-    RelationDef, Select, TransactionTrait, UpdateMany,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+    TransactionTrait, UpdateMany,
 };
 use serde_json::{Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
@@ -772,7 +772,8 @@ pub(crate) async fn project_exists(db: &PgPool, project_id: &str) -> Result<bool
 
 // ── versions ────────────────────────────────────────────────────────────────
 
-/// A `board_versions` row as Drizzle returns it.
+/// A `board_versions` row in the JSON Drizzle gave it (`to_jsonb`): the
+/// entity serializes as Drizzle did.
 fn version_json(row: board_versions::Model) -> Result<Value, DbErr> {
     serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
