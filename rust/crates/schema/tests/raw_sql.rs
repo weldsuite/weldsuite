@@ -16,8 +16,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// SQL by nature: the migration runner and the lakehouse catalog.
-const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations"];
+/// SQL by nature: the migration runner, the lakehouse catalog, and the MTA's
+/// queue store (its own database and embedded migrations, no entities).
+const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations", "crates/mta"];
 
 /// Not converted yet. Remove a crate when its root `allow` goes; never add one.
 const NOT_CONVERTED: &[&str] = &[
@@ -38,7 +39,6 @@ const NOT_CONVERTED: &[&str] = &[
     "crates/mail-domain",
     "crates/mail-inbound",
     "crates/merge-domain",
-    "crates/mta",
     "crates/notifications",
     "crates/pipeline",
     "crates/reach-domain",

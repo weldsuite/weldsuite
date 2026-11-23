@@ -29,7 +29,7 @@
 
 #![allow(
     clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
+    reason = "the MTA's queue store is SQL by nature: its own database and embedded migrations, with no SeaORM entities (ADR DATA-019)"
 )]
 
 pub mod api;
