@@ -61,6 +61,7 @@ mod routes;
 mod sandbox;
 mod server;
 mod spa;
+mod storefront;
 mod telemetry;
 
 use std::process::ExitCode;
@@ -326,9 +327,26 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
     let gateway = realtime::start(&config, &state).await?;
+    // The storefront edge: every shop host's traffic, on its own listener.
+    let edge = storefront::edge(&state);
     let app = realtime::mount(router(state), gateway.as_ref());
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
+    if let Some((address, router)) = edge {
+        let edge_listener = tokio::net::TcpListener::bind(address).await?;
+        let mut edge_stop = stopping.subscribe();
+        tracing::info!(listen = %address, "serving the storefront edge");
+        tokio::spawn(async move {
+            let served = axum::serve(edge_listener, monitoring::track_http(router))
+                .with_graceful_shutdown(async move {
+                    let _ = edge_stop.changed().await;
+                })
+                .await;
+            if let Err(error) = served {
+                tracing::error!(%error, "the storefront edge stopped");
+            }
+        });
+    }
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
     axum::serve(listener, monitoring::track_http(spa::mount(app, sites)))
         .with_graceful_shutdown(async move {

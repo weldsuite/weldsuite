@@ -56,6 +56,7 @@
         "discounts",
         "commerce_settings",
         "commerce_channels",
+        "websites",
         "companies",
         "people"
       ]
@@ -1096,27 +1097,27 @@
     },
     {
       "key": "websites",
-      "label": "Websites",
+      "label": "Online store",
       "permissions": [
         {
           "key": "websites:read",
-          "label": "View websites"
+          "label": "View online store"
         },
         {
           "key": "websites:create",
-          "label": "Create websites"
+          "label": "Create online store"
         },
         {
           "key": "websites:update",
-          "label": "Edit websites"
+          "label": "Edit online store"
         },
         {
           "key": "websites:delete",
-          "label": "Delete websites"
+          "label": "Delete online store"
         },
         {
           "key": "websites:manage",
-          "label": "Manage websites"
+          "label": "Manage online store"
         }
       ]
     },
@@ -3746,7 +3747,12 @@
         "commerce_channels:read",
         "commerce_channels:create",
         "commerce_channels:update",
-        "commerce_channels:delete"
+        "commerce_channels:delete",
+        "websites:read",
+        "websites:create",
+        "websites:update",
+        "websites:delete",
+        "websites:manage"
       ]
     },
     "MEMBER": {
@@ -3995,7 +4001,10 @@
         "categories:update",
         "discounts:read",
         "commerce_channels:read",
-        "commerce_settings:read"
+        "commerce_settings:read",
+        "websites:read",
+        "websites:create",
+        "websites:update"
       ]
     },
     "OWNER": {
@@ -4108,7 +4117,8 @@
         "categories:read",
         "discounts:read",
         "commerce_channels:read",
-        "commerce_settings:read"
+        "commerce_settings:read",
+        "websites:read"
       ]
     }
   }

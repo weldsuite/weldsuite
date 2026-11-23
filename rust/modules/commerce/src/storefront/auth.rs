@@ -10,6 +10,13 @@
 //!
 //! `last_used_at` is written, in the tenant and the master, at most once a
 //! minute per key.
+//!
+//! The storefront renderer of WeldSuite-hosted shops (storefronts plan) is a
+//! third kind of caller, *hosted*: `Authorization: Hosted <renderer secret>`
+//! with `X-Storefront-Host: <shop host>`. The host resolves through the
+//! master `storefront_hosts` to its workspace and channel; it acts like a
+//! private key of that channel (the shopper's address in `X-Shopper-Ip`),
+//! and its payment redirects must stay on the shop's own hosts.
 
 use std::time::Duration;
 
@@ -181,6 +188,72 @@ async fn touch(state: &StorefrontState, entry: &Entry, tenant: &weldsuite_db::Pg
     });
 }
 
+/// The renderer's `Authorization: Hosted <secret>`, checked; the shop host
+/// it names, resolved to a registry-like entry with the shop's origins.
+/// `Ok(None)` when the request isn't the renderer's.
+#[allow(clippy::result_large_err, reason = "the Err is the response to send")]
+async fn hosted_entry(
+    state: &StorefrontState,
+    headers: &HeaderMap,
+) -> Result<Option<Entry>, Response> {
+    let Some(given) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Hosted "))
+    else {
+        return Ok(None);
+    };
+    let secret = state.hosting.secret.as_deref().unwrap_or_default();
+    if secret.is_empty() || !crate::online_store::tokens::same(given.trim(), secret) {
+        return Err(invalid_key());
+    }
+    let Some(host) = headers
+        .get("x-storefront-host")
+        .and_then(|v| v.to_str().ok())
+        .map(weldsuite_custom_domains::normalize_host)
+        .filter(|h| !h.is_empty())
+    else {
+        return Err(invalid_key());
+    };
+    match crate::online_store::registry::lookup(&state.master, state.hosting.cache.as_ref(), &host)
+        .await
+    {
+        Ok(Some(found)) => Ok(Some(Entry {
+            id: found.id.clone(),
+            kind: "hosted".to_owned(),
+            workspace_id: found.workspace_id.clone(),
+            channel_id: found.channel_id.clone(),
+            origins: found
+                .site_hosts
+                .iter()
+                .map(|h| state.hosting.origin(h))
+                .collect(),
+        })),
+        Ok(None) => Err(invalid_key()),
+        Err(error) => Err(internal(&error, "The shop could not be reached")),
+    }
+}
+
+/// `origin` is an active WeldSuite-hosted address of the key's own channel
+/// (storefronts plan, static deployments).
+async fn hosted_origin(state: &StorefrontState, entry: &Entry, origin: Option<&str>) -> bool {
+    let Some(host) = origin
+        .and_then(|o| url::Url::parse(o).ok())
+        .and_then(|u| u.host_str().map(weldsuite_custom_domains::normalize_host))
+    else {
+        return false;
+    };
+    let Ok(Some(found)) =
+        crate::online_store::registry::lookup(&state.master, state.hosting.cache.as_ref(), &host)
+            .await
+    else {
+        return false;
+    };
+    found.workspace_id == entry.workspace_id
+        && found.channel_id == entry.channel_id
+        && origin.is_some_and(|o| same_origin(&state.hosting.origin(&host), o))
+}
+
 /// The `/storefront/v1` authentication layer.
 #[allow(
     clippy::too_many_lines,
@@ -195,10 +268,16 @@ pub(crate) async fn authenticate(
     if request.method() == Method::OPTIONS {
         return preflight(origin.as_deref());
     }
-    let Some(key) = bearer(request.headers()).map(str::to_owned) else {
-        return invalid_key();
+    let hosted = match hosted_entry(&state, request.headers()).await {
+        Ok(hosted) => hosted,
+        Err(response) => return response,
     };
-    let publishable = key.starts_with("wcp_");
+    let key = match (&hosted, bearer(request.headers())) {
+        (Some(entry), _) => format!("hosted:{}", entry.id),
+        (None, Some(key)) => key.to_owned(),
+        (None, None) => return invalid_key(),
+    };
+    let publishable = hosted.is_none() && key.starts_with("wcp_");
     let cors_origin = if publishable { origin.as_deref() } else { None };
     let hash = hex::encode(Sha256::digest(key.as_bytes()));
     let client = if publishable {
@@ -231,16 +310,30 @@ pub(crate) async fn authenticate(
         }
         return with_cors(response, cors_origin);
     }
-    let entry = match lookup(&state, &hash).await {
-        Ok(Some(entry)) => entry,
-        Ok(None) => return with_cors(invalid_key(), cors_origin),
-        Err(error) => return internal(&error, "The key could not be checked"),
+    let entry = match hosted {
+        Some(entry) => entry,
+        None => match lookup(&state, &hash).await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return with_cors(invalid_key(), cors_origin),
+            Err(error) => return internal(&error, "The key could not be checked"),
+        },
     };
+    // A deploy key uploads deployments; it never shops.
+    if entry.kind == "deploy" {
+        return with_cors(invalid_key(), cors_origin);
+    }
+    let mut entry = entry;
     if entry.kind == "publishable" {
-        let allowed = origin
+        let listed = origin
             .as_deref()
             .is_some_and(|o| entry.origins.iter().any(|a| same_origin(a, o)));
-        if !allowed {
+        // A shop WeldSuite hosts for this channel may use the channel's
+        // publishable keys from its own addresses without listing them.
+        let hosted = !listed && hosted_origin(&state, &entry, origin.as_deref()).await;
+        if hosted && let Some(origin) = &origin {
+            entry.origins.push(origin.clone());
+        }
+        if !listed && !hosted {
             return fail(
                 StatusCode::FORBIDDEN,
                 "ORIGIN_NOT_ALLOWED",
@@ -293,7 +386,9 @@ pub(crate) async fn authenticate(
             }
         }
     };
-    touch(&state, &entry, &tenant.db).await;
+    if entry.kind != "hosted" {
+        touch(&state, &entry, &tenant.db).await;
+    }
     request.extensions_mut().insert(Principal {
         db: tenant.db.clone(),
         workspace_id: tenant.workspace_id.clone(),

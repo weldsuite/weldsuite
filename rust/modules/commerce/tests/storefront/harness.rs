@@ -162,6 +162,7 @@ impl Env {
             cache: Some(Arc::clone(&cache) as Arc<dyn DynCache>),
             trusted_proxies: 1,
             payments: weldsuite_commerce::PaymentsConfig::default(),
+            hosting: weldsuite_commerce::online_store::OnlineStoreConfig::default(),
         };
         App {
             router: storefront_router(state),

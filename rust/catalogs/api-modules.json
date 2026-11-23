@@ -312,7 +312,9 @@
       "/api/commerce-payments",
       "/api/commerce-settings",
       "/api/discounts",
-      "/api/orders"
+      "/api/online-store",
+      "/api/orders",
+      "/api/storefront-hosts"
     ],
     "rust": true,
     "rustOnly": true,

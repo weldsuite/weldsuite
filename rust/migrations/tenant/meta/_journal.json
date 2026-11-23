@@ -1856,6 +1856,13 @@
       "when": 1795300963345,
       "tag": "0264_mail_threat_scanning",
       "breakpoints": true
+    },
+    {
+      "idx": 265,
+      "version": "7",
+      "when": 1795467238172,
+      "tag": "0265_weldcommerce_online_store",
+      "breakpoints": true
     }
   ]
 }

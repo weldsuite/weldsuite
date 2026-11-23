@@ -258,7 +258,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('commerce_settings', 'Commerce settings', ['read', 'update']),
   // WeldCommerce sales channels, their storefront keys and shipping rates.
   objectPermissions('commerce_channels', 'Sales channels', ['read', 'create', 'update', 'delete']),
-  objectPermissions('websites',      'Websites',             ['read', 'create', 'update', 'delete', 'manage']),
+  // WeldCommerce's online store: sites, pages, menus, redirects and
+  // deployments; `manage` publishes, restores, sets the visibility, manages
+  // shop domains and promotes deployments.
+  objectPermissions('websites',      'Online store',         ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Accounting (WeldBooks) ────────────────────────────────────────────
   objectPermissions('entities',      'Legal Entities',       ['read', 'create', 'update', 'delete', 'manage']),
@@ -1007,6 +1010,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'discounts:read', 'discounts:create', 'discounts:update', 'discounts:delete',
   'commerce_settings:read', 'commerce_settings:update',
   'commerce_channels:read', 'commerce_channels:create', 'commerce_channels:update', 'commerce_channels:delete',
+  'websites:read', 'websites:create', 'websites:update', 'websites:delete', 'websites:manage',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -1158,6 +1162,9 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // channels (and their keys) and the settings are read-only
   'categories:read', 'categories:create', 'categories:update',
   'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
+  // The online store: edit content and pages; publishing, domains and
+  // visibility stay with admins
+  'websites:read', 'websites:create', 'websites:update',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -1196,6 +1203,7 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
   // WeldCommerce — read-only
   'categories:read', 'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
+  'websites:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {

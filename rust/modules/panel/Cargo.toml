@@ -21,6 +21,7 @@ weldsuite-kit = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-panel-domain = { workspace = true }
 weldsuite-permissions = { workspace = true }
+weldsuite-custom-domains = { workspace = true }
 weldsuite-ports = { workspace = true }
 weldsuite-zod = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }

@@ -108,6 +108,10 @@
 //!   and the custom collector domains still pending
 //!   (`apps/workers/panel-api/src/scheduled.ts`, `crate::panel_monitor`).
 //!   Nothing while panel is not served.
+//! - `storefront-hosts` (every 10 minutes): WeldCommerce's custom shop
+//!   domains still pending (ownership record, routing, certificate), from the
+//!   master `storefront_hosts` alone (`crate::storefront`). Nothing while
+//!   custom shop domains are off.
 //! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
@@ -186,7 +190,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment, storefront-hosts";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -230,7 +234,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "panel-usage"
         | "panel-maintenance"
         | "panel-schedule"
-        | "stash-replenishment"),
+        | "stash-replenishment"
+        | "storefront-hosts"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -294,6 +299,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             "stash-replenishment" => stash_replenishment(config).await,
+            "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
             _ => sign_lifecycle(config).await,

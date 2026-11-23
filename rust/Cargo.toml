@@ -55,6 +55,7 @@ weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-data = { path = "modules/data" }
+weldsuite-custom-domains = { path = "crates/custom-domains" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
