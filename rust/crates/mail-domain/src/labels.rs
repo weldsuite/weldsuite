@@ -945,7 +945,7 @@ async fn update_label_message_count(
 /// only those it sets.
 fn with_flags(
     mut update: sea_orm::UpdateMany<mail_messages::Entity>,
-    flags: &LabelFlags,
+    flags: LabelFlags,
 ) -> sea_orm::UpdateMany<mail_messages::Entity> {
     use mail_messages::Column;
     for (column, value) in [
@@ -986,7 +986,7 @@ pub async fn bulk_add_label(
             Expr::val(json!([label])),
         ),
     );
-    let update = with_flags(update, &flags)
+    let update = with_flags(update, flags)
         .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
         .filter(Column::Id.is_in(ids))
         .filter(Column::DeletedAt.is_null())
@@ -1020,7 +1020,7 @@ pub async fn bulk_remove_label(
     }
     let update = mail_messages::Entity::update_many()
         .col_expr(Column::Labels, labels_or_empty().sub(label.as_str()));
-    let update = with_flags(update, &flags)
+    let update = with_flags(update, flags)
         .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
         .filter(Column::Id.is_in(ids))
         .filter(Column::DeletedAt.is_null())

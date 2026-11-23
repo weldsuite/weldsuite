@@ -30,7 +30,6 @@ const NOT_CONVERTED: &[&str] = &[
     "crates/connect-domain",
     "crates/crm-domain",
     "crates/db",
-    "crates/legal-entities",
     "crates/mail-domain",
     "crates/mail-inbound",
     "crates/reach-domain",

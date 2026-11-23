@@ -715,8 +715,6 @@ fn delegation_rows(models: Vec<delegations::Model>) -> Vec<DelegationRow> {
         .collect()
 }
 
-
-
 /// `listSubjectApprovals(db, subjectType, subjectId)`: a subject's live rows,
 /// in step order.
 pub async fn list_subject_approvals(
@@ -1192,7 +1190,8 @@ pub async fn list_pending_for_approver(
         .unwrap_or_else(|| vec!["pending".to_owned()]);
     let limit = filters.limit.unwrap_or(200).clamp(1, 500);
 
-    let rows = approval_rows(pending_rows(db, user_id, kind, &approver_ids, &decisions, filters, limit).await?);
+    let found = pending_rows(db, user_id, kind, &approver_ids, &decisions, filters, limit).await?;
+    let rows = approval_rows(found);
     if rows.is_empty() {
         return Ok(Vec::new());
     }

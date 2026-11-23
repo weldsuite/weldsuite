@@ -22,7 +22,8 @@ use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::tasks;
 
 use crate::js::{
-    iso_from_millis, js_date, json_text, millis_of, row as entity_row, timestamp_of_millis,
+    cast_text, iso_from_millis, js_date, json_text, millis_of, row as entity_row,
+    timestamp_of_millis,
 };
 use crate::numbering::allocate_task_number;
 use crate::recurrence::{RepeatConfig, next_occurrence_date};
@@ -118,18 +119,18 @@ async fn read_back(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
 
 /// `$n::timestamp` of an ISO text (`NULL` stays `NULL`): Postgres reads it.
 fn timestamp_text(value: Option<&str>) -> Expr {
-    sea_orm::ExprTrait::cast_as(Expr::val(value), "timestamp")
+    cast_text(value, "timestamp")
 }
 
 /// `($n::jsonb #>> '{}')::<type>`: a JSON value converted by Postgres, as
 /// the insert spreads it (a number or its text; `null` stays `NULL`).
 fn json_cast(value: &Value, type_name: &'static str) -> Expr {
-    sea_orm::ExprTrait::cast_as(Expr::val(json_text(value)), type_name)
+    cast_text(json_text(value).as_deref(), type_name)
 }
 
 /// The `'0'` the insert writes to `progress`.
 fn zero_progress() -> Expr {
-    sea_orm::ExprTrait::cast_as(Expr::val("0"), "numeric")
+    cast_text(Some("0"), "numeric")
 }
 
 /// Run an insert built with SeaQuery; its row count.

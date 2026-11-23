@@ -4,7 +4,9 @@
 
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_db::{PgPool, orm};
-use weldsuite_schema::tenant::{milestones, project_deliverables, project_pipeline_stages, sprints, tasks};
+use weldsuite_schema::tenant::{
+    milestones, project_deliverables, project_pipeline_stages, sprints, tasks,
+};
 
 /// The references a body may set; `None` (or empty) is "not set".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

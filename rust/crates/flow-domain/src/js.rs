@@ -377,11 +377,6 @@ pub fn instant(millis: i64) -> Result<time::OffsetDateTime, sea_orm::DbErr> {
         })
 }
 
-/// `$n::timestamp` of `new Date(millis).toISOString()`, as [`instant`].
-pub fn wall_time(millis: i64) -> Result<time::PrimitiveDateTime, sea_orm::DbErr> {
-    instant(millis).map(weldsuite_db::utc_timestamp)
-}
-
 /// `CAST($n AS <type>)` of a text Postgres reads (a timestamp or a number
 /// as the SQL bound it): `NULL` stays `NULL`, bad text is the statement's
 /// error.

@@ -6,17 +6,30 @@
 //! wakes the scope's due snoozed mail first, so a mail that just came due is
 //! already back in the inbox for the count and the page.
 
+use sea_orm::sea_query::{
+    Alias, CommonTableExpression, Expr, Func, NullOrdering, Order, Query, SelectStatement,
+    UpdateStatement, WithClause,
+};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::{PgPool, js_row};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::cursor::{atob_url, btoa_url};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::mail_messages::{self, Column};
 
-use crate::labels::{self, LabelMatch, SPAM, TRASH, label_folder_hides_archived, to_system_label};
-use crate::messages::{
-    contains_pattern, enrich_sender_contacts, iso, message_record, search_patterns,
+use crate::labels::{
+    self, ARCHIVE, LabelMatch, SPAM, TRASH, carries, label_folder_hides_archived, msg,
+    thread_key_of, to_system_label,
 };
-use crate::outbound::clock::parse_iso;
+use crate::messages::{
+    contains_pattern, enrich_sender_contacts, in_trash_or_spam, message_record,
+    message_rows, recipient_matches, search_patterns, search_term, sender_matches, wide_rows,
+};
+use crate::outbound::clock::{parse_iso, timestamp};
 
 /// `MAX_THREAD_PAGE_SIZE`.
 pub const MAX_THREAD_PAGE_SIZE: i64 = 100;
@@ -112,50 +125,7 @@ pub struct ThreadQuery {
     pub cursor: Option<ThreadCursor>,
 }
 
-/// The conditions of `buildThreadScope` over `mail_messages m`, account
-/// scope `$1`, parameters up to `$13`.
-macro_rules! thread_conditions {
-    () => {
-        "m.deleted_at is null and m.account_id = any($1::text[])
-         and (not $2::bool or (exists (select 1 from unnest($3::text[]) as n(name)
-                  where m.labels @> jsonb_build_array(n.name))
-              or ($4::bool and m.is_starred = true)
-              or ($5::bool and m.is_important = true)))
-         and (not $6::bool or not coalesce(m.labels, '[]'::jsonb) @> '[\"ARCHIVE\"]'::jsonb)
-         and (not $7::bool or not (coalesce(m.labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb
-              or coalesce(m.labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb
-              or coalesce(m.is_trash, false) or coalesce(m.is_spam, false)))
-         and not exists (select 1 from unnest($8::text[]) as s(p) where not coalesce((
-              m.subject ilike s.p or m.preview ilike s.p or m.text_body ilike s.p
-              or (m.\"from\"->>'name' ilike s.p or m.\"from\"->>'email' ilike s.p)
-              or (exists (select 1 from jsonb_array_elements(case when jsonb_typeof(m.\"to\") = 'array'
-                       then m.\"to\" else '[]'::jsonb end) as r
-                     where r->>'email' ilike s.p or r->>'name' ilike s.p)
-                  or exists (select 1 from jsonb_array_elements(case when jsonb_typeof(m.cc) = 'array'
-                       then m.cc else '[]'::jsonb end) as r
-                     where r->>'email' ilike s.p or r->>'name' ilike s.p))), false))
-         and ($9::text is null or (m.\"from\"->>'name' ilike $9 or m.\"from\"->>'email' ilike $9))
-         and ($10::text is null or (exists (select 1 from jsonb_array_elements(case when jsonb_typeof(m.\"to\") = 'array'
-                       then m.\"to\" else '[]'::jsonb end) as r
-                     where r->>'email' ilike $10 or r->>'name' ilike $10)
-                  or exists (select 1 from jsonb_array_elements(case when jsonb_typeof(m.cc) = 'array'
-                       then m.cc else '[]'::jsonb end) as r
-                     where r->>'email' ilike $10 or r->>'name' ilike $10)))
-         and ($11::text is null or m.subject ilike $11)
-         and (not $12::bool or (m.account_id, coalesce(m.thread_id, m.id)) in (
-              select a.account_id, coalesce(a.thread_id, a.id) from mail_messages a
-              where a.deleted_at is null and a.account_id = any($1::text[])
-                and (a.has_attachments = true or coalesce(a.attachment_count, 0) > 0)))
-         and (cardinality($13::text[]) = 0 or (m.account_id, coalesce(m.thread_id, m.id)) not in (
-              select a.account_id, coalesce(a.thread_id, a.id) from mail_messages a
-              where a.deleted_at is null and a.account_id = any($1::text[])
-                and exists (select 1 from unnest($13::text[]) as w(p)
-                     where a.subject ilike w.p or a.preview ilike w.p or a.text_body ilike w.p
-                        or (a.\"from\"->>'name' ilike w.p or a.\"from\"->>'email' ilike w.p))))"
-    };
-}
-
-/// The bound values of [`thread_conditions!`].
+/// What `buildThreadScope` matches on.
 #[derive(Debug, Clone, Default)]
 struct Scope {
     account_ids: Vec<String>,
@@ -170,24 +140,118 @@ struct Scope {
     exclude: Vec<String>,
 }
 
-macro_rules! bind_scope {
-    ($query:expr, $scope:expr) => {{
-        let label = $scope.label.clone().unwrap_or_default();
-        $query
-            .bind($scope.account_ids.clone())
-            .bind($scope.label.is_some())
-            .bind(label.names)
-            .bind(label.starred)
-            .bind(label.important)
-            .bind($scope.hides_archived)
-            .bind($scope.live_only)
-            .bind($scope.search.clone())
-            .bind($scope.from.clone())
-            .bind($scope.to.clone())
-            .bind($scope.subject.clone())
-            .bind($scope.has_attachment)
-            .bind($scope.exclude.clone())
-    }};
+/// `(account_id, coalesce(thread_id, id))` of `table`: a thread.
+fn thread_of(table: &Alias) -> Expr {
+    Expr::tuple([
+        Expr::col((table.clone(), Column::AccountId)),
+        Func::coalesce([
+            Expr::col((table.clone(), Column::ThreadId)),
+            Expr::col((table.clone(), Column::Id)),
+        ])
+        .into(),
+    ])
+}
+
+/// `(account_id, coalesce(thread_id, id))` of `mail_messages`.
+fn thread_of_message() -> Expr {
+    Expr::tuple([msg(Column::AccountId), thread_key_of()])
+}
+
+impl Scope {
+    /// `select a.account_id, coalesce(a.thread_id, a.id) from mail_messages a
+    /// where a.deleted_at is null and a.account_id = any(scope) and …`: the
+    /// threads with a message matching `condition`.
+    fn threads_where(&self, condition: impl FnOnce(&Alias) -> Condition) -> SelectStatement {
+        use sea_orm::ExprTrait as _;
+        let a = Alias::new("a");
+        Query::select()
+            .expr(Expr::col((a.clone(), Column::AccountId)))
+            .expr(Func::coalesce([
+                Expr::col((a.clone(), Column::ThreadId)),
+                Expr::col((a.clone(), Column::Id)),
+            ]))
+            .from_as(mail_messages::Entity, a.clone())
+            .cond_where(
+                Condition::all()
+                    .add(Expr::col((a.clone(), Column::DeletedAt)).is_null())
+                    .add(Expr::col((a.clone(), Column::AccountId)).is_in(&self.account_ids))
+                    .add(condition(&a)),
+            )
+            .to_owned()
+    }
+
+    /// The conditions of `buildThreadScope` over `mail_messages`.
+    fn condition(&self) -> Condition {
+        use sea_orm::ExprTrait as _;
+        use sea_orm::sea_query::extension::postgres::PgExpr;
+        let mut all = Condition::all()
+            .add(Column::DeletedAt.is_null())
+            .add(Column::AccountId.is_in(&self.account_ids));
+        if let Some(label) = &self.label {
+            all = all.add(label.condition());
+        }
+        if self.hides_archived {
+            all = all.add(carries(ARCHIVE).not());
+        }
+        if self.live_only {
+            all = all.add(in_trash_or_spam().not());
+        }
+        for pattern in &self.search {
+            all = all.add(search_term(pattern));
+        }
+        if let Some(from) = &self.from {
+            all = all.add(sender_matches(from));
+        }
+        if let Some(to) = &self.to {
+            all = all.add(
+                Condition::any()
+                    .add(recipient_matches(Column::To, to))
+                    .add(recipient_matches(Column::Cc, to)),
+            );
+        }
+        if let Some(subject) = &self.subject {
+            all = all.add(Column::Subject.ilike(subject));
+        }
+        if self.has_attachment {
+            // A thread with an attachment anywhere in it.
+            let with_attachment = self.threads_where(|a| {
+                Condition::any()
+                    .add(Expr::col((a.clone(), Column::HasAttachments)).eq(true))
+                    .add(
+                        Expr::from(Func::coalesce([
+                            Expr::col((a.clone(), Column::AttachmentCount)),
+                            Expr::val(0),
+                        ]))
+                        .gt(0),
+                    )
+            });
+            all = all.add(thread_of_message().in_subquery(with_attachment));
+        }
+        if !self.exclude.is_empty() {
+            // No message of the thread has an excluded word.
+            let excluded = self.threads_where(|a| {
+                let field = |column: Column| Expr::col((a.clone(), column));
+                let sender = |key: &str| PgExpr::cast_json_field(field(Column::From), key);
+                let mut any = Condition::any();
+                for pattern in &self.exclude {
+                    any = any.add(
+                        Condition::any()
+                            .add(PgExpr::ilike(field(Column::Subject), pattern))
+                            .add(PgExpr::ilike(field(Column::Preview), pattern))
+                            .add(PgExpr::ilike(field(Column::TextBody), pattern))
+                            .add(
+                                Condition::any()
+                                    .add(PgExpr::ilike(sender("name"), pattern))
+                                    .add(PgExpr::ilike(sender("email"), pattern)),
+                            ),
+                    );
+                }
+                any
+            });
+            all = all.add(thread_of_message().not_in_subquery(excluded));
+        }
+        all
+    }
 }
 
 /// A "contains" filter's pattern when the text is not blank.
@@ -202,7 +266,7 @@ async fn build_scope(
     db: &PgPool,
     account_ids: &[String],
     q: &ThreadQuery,
-) -> Result<Scope, sqlx::Error> {
+) -> Result<Scope, DbErr> {
     let search = search_patterns(q.search.as_deref());
     let system = to_system_label(&q.label_slug);
     let mut scope = Scope {
@@ -225,27 +289,67 @@ async fn build_scope(
     Ok(scope)
 }
 
+/// Runs `update` with `returning <columns>`: two text columns per row, in
+/// the order the database returns them.
+async fn update_returning<const N: usize>(
+    db: &PgPool,
+    mut update: UpdateStatement,
+    columns: [Column; N],
+) -> Result<Vec<[String; N]>, DbErr> {
+    update.returning(Query::returning().columns(columns));
+    orm(db)
+        .query_all(&update)
+        .await?
+        .iter()
+        .map(|row| {
+            let mut out: [String; N] = std::array::from_fn(|_| String::new());
+            for (index, slot) in out.iter_mut().enumerate() {
+                *slot = row.try_get_by_index(index)?;
+            }
+            Ok(out)
+        })
+        .collect()
+}
+
 /// `buildWakeDueSnoozedUpdate(db, { now, scope })`: due snoozed mail back in
 /// the inbox. The ids and mailboxes woken.
 pub async fn wake_due_snoozed(
     db: &PgPool,
     account_ids: Option<&[String]>,
     now: OffsetDateTime,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "update mail_messages set
-           labels = ((labels - 'SNOOZED') - 'INBOX') || '[\"INBOX\"]'::jsonb,
-           is_read = false, snoozed_until = null, unsnooze_trigger_run_id = null,
-           unsnoozed_at = $1::timestamp, unsnoozed_early = false, updated_at = $1::timestamp
-         where deleted_at is null and snoozed_until <= $1::timestamp
-           and labels @> '[\"SNOOZED\"]'::jsonb
-           and ($2::text[] is null or account_id = any($2::text[]))
-         returning account_id, id",
+) -> Result<Vec<(String, String)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let at = utc_timestamp(now);
+    // `((labels - 'SNOOZED') - 'INBOX') || '["INBOX"]'`.
+    let labels = PgExpr::concat(
+        msg(Column::Labels).sub("SNOOZED").sub("INBOX"),
+        Expr::val(json!(["INBOX"])),
+    );
+    let mut update = mail_messages::Entity::update_many()
+        .col_expr(Column::Labels, labels)
+        .col_expr(Column::IsRead, Expr::value(false))
+        .col_expr(Column::SnoozedUntil, Expr::value(None::<PrimitiveDateTime>))
+        .col_expr(Column::UnsnoozeTriggerRunId, Expr::value(None::<String>))
+        .col_expr(Column::UnsnoozedAt, Expr::value(at))
+        .col_expr(Column::UnsnoozedEarly, Expr::value(false))
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::SnoozedUntil.lte(at))
+        .filter(PgExpr::contains(
+            msg(Column::Labels),
+            Expr::val(json!(["SNOOZED"])),
+        ));
+    if let Some(account_ids) = account_ids {
+        update = update.filter(Column::AccountId.is_in(account_ids));
+    }
+    let rows = update_returning(
+        db,
+        update.into_query(),
+        [Column::AccountId, Column::Id],
     )
-    .bind(iso(now))
-    .bind(account_ids)
-    .fetch_all(db)
-    .await
+    .await?;
+    Ok(rows.into_iter().map(|[account, id]| (account, id)).collect())
 }
 
 /// One page of threads.
@@ -380,77 +484,44 @@ pub async fn list_threads(
     account_ids: &[String],
     q: &ThreadQuery,
     now: OffsetDateTime,
-) -> Result<ThreadPage, sqlx::Error> {
+) -> Result<ThreadPage, DbErr> {
     if account_ids.is_empty() {
         return Ok(ThreadPage::default());
     }
     let scope = build_scope(db, account_ids, q).await?;
     let page_size = clamp_thread_page_size(q.page_size);
     let limit = page_size + 1;
-    let (cursor_at, cursor_account, cursor_key) = match &q.cursor {
-        Some(cursor) => {
-            #[allow(clippy::cast_possible_truncation)]
-            let ms = cursor.latest_at as i64;
-            (
-                Some(crate::outbound::clock::iso(ms)),
-                Some(cursor.account_id.clone()),
-                Some(cursor.thread_key.clone()),
-            )
-        }
-        None => (None, None, None),
-    };
     let offset = if q.cursor.is_some() {
         0
     } else {
         q.offset.unwrap_or(0).max(0)
     };
+    let conn = orm(db);
 
     // The wake, then the count and the page. A wake that cannot land (a
     // read-only workspace) does not fail the listing.
     if let Err(error) = wake_due_snoozed(db, Some(account_ids), now).await {
         tracing::warn!(%error, "[mail] waking snoozed mail failed; listing without it");
     }
-    let total: i32 = bind_scope!(
-        sqlx::query_scalar(concat!(
-            "select count(distinct (m.account_id, coalesce(m.thread_id, m.id)))::int
-             from mail_messages m where ",
-            thread_conditions!()
-        )),
-        scope
-    )
-    .fetch_one(db)
-    .await?;
-    let rows: Vec<(String, String)> = bind_scope!(
-        sqlx::query_as(concat!(
-            "with matching as (
-                 select m.account_id, coalesce(m.thread_id, m.id) as tk
-                 from mail_messages m where ",
-            thread_conditions!(),
-            " group by m.account_id, coalesce(m.thread_id, m.id)
-             ), dates as (
-                 select m.account_id, coalesce(m.thread_id, m.id) as tk,
-                        max(coalesce(m.received_date, m.sent_date, m.created_at)) as latest
-                 from mail_messages m
-                 where m.deleted_at is null and m.account_id = any($1::text[])
-                 group by m.account_id, coalesce(m.thread_id, m.id)
-             )
-             select mt.account_id, mt.tk from matching mt
-             join dates d on d.account_id = mt.account_id and d.tk = mt.tk
-             where ($14::timestamp is null or (d.latest < $14::timestamp
-                    or (d.latest = $14::timestamp and (mt.account_id > $15
-                        or (mt.account_id = $15 and mt.tk > $16)))))
-             order by d.latest desc, mt.account_id asc, mt.tk asc
-             limit $17 offset $18"
-        )),
-        scope
-    )
-    .bind(cursor_at)
-    .bind(cursor_account)
-    .bind(cursor_key)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
+    let condition = scope.condition();
+    let total: i32 = mail_messages::Entity::find()
+        .select_only()
+        .column_as(
+            sea_orm::ExprTrait::cast_as(Func::count_distinct(thread_of_message()), "int"),
+            "count",
+        )
+        .filter(condition.clone())
+        .into_tuple()
+        .one(&conn)
+        .await?
+        .unwrap_or_default();
+    let page = thread_page(&scope, condition, q.cursor.as_ref(), limit, offset);
+    let rows: Vec<(String, String)> = conn
+        .query_all(&page)
+        .await?
+        .iter()
+        .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
+        .collect::<Result<_, DbErr>>()?;
     let total_count = i64::from(total);
     if rows.is_empty() {
         return Ok(ThreadPage {
@@ -471,20 +542,14 @@ pub async fn list_threads(
             page_accounts.push(account.clone());
         }
     }
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select (to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) - 'text_body' - 'html_body' - 'raw_message' - 'headers'
-                 - 'custom_fields' - 'clicked_links')
-         from mail_messages m
-         where m.account_id = any($1::text[])
-           and coalesce(m.thread_id, m.id) = any($2::text[])
-           and m.deleted_at is null
-         order by m.sent_date asc",
-    )
-    .bind(&page_accounts)
-    .bind(&thread_ids)
-    .fetch_all(db)
-    .await?;
-    let found: Vec<Value> = found.into_iter().map(js_row).collect();
+    let found = mail_messages::Entity::find()
+        .filter(Column::AccountId.is_in(page_accounts))
+        .filter(sea_orm::ExprTrait::is_in(thread_key_of(), thread_ids))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::SentDate)
+        .all(&conn)
+        .await?;
+    let found = wide_rows(found)?;
 
     let mut summaries: Vec<Value> = Vec::new();
     for (account, tk) in &rows {
@@ -528,9 +593,119 @@ pub async fn list_threads(
     })
 }
 
+/// The page of `listThreadsForAccounts`: the scope's threads by their latest
+/// message (any message of the thread counts, matching or not), newest
+/// first, after the cursor.
+///
+/// ```sql
+/// with matching as (select account_id, coalesce(thread_id, id) as tk
+///                   from mail_messages where <scope> group by 1, 2),
+///      dates as (select account_id, coalesce(thread_id, id) as tk,
+///                       max(coalesce(received_date, sent_date, created_at)) as latest
+///                from mail_messages where deleted_at is null
+///                  and account_id = any(<accounts>) group by 1, 2)
+/// select mt.account_id, mt.tk from matching mt join dates d using the thread
+/// where <after the cursor>
+/// order by d.latest desc, mt.account_id asc, mt.tk asc limit … offset …
+/// ```
+fn thread_page(
+    scope: &Scope,
+    condition: Condition,
+    cursor: Option<&ThreadCursor>,
+    limit: i64,
+    offset: i64,
+) -> sea_orm::sea_query::WithQuery {
+    use sea_orm::ExprTrait as _;
+    let (matching, dates) = (Alias::new("matching"), Alias::new("dates"));
+    let (mt, d) = (Alias::new("mt"), Alias::new("d"));
+    let (tk, latest) = (Alias::new("tk"), Alias::new("latest"));
+    let matching_query = Query::select()
+        .expr(msg(Column::AccountId))
+        .expr_as(thread_key_of(), tk.clone())
+        .from(mail_messages::Entity)
+        .cond_where(condition)
+        .group_by_columns([(mail_messages::Entity, Column::AccountId)])
+        .add_group_by([thread_key_of()])
+        .to_owned();
+    let dates_query = Query::select()
+        .expr(msg(Column::AccountId))
+        .expr_as(thread_key_of(), tk.clone())
+        .expr_as(
+            Func::max(Func::coalesce([
+                msg(Column::ReceivedDate),
+                msg(Column::SentDate),
+                msg(Column::CreatedAt),
+            ])),
+            latest.clone(),
+        )
+        .from(mail_messages::Entity)
+        .cond_where(
+            Condition::all()
+                .add(Column::DeletedAt.is_null())
+                .add(Column::AccountId.is_in(&scope.account_ids)),
+        )
+        .group_by_columns([(mail_messages::Entity, Column::AccountId)])
+        .add_group_by([thread_key_of()])
+        .to_owned();
+    let col = |table: &Alias, column: &Alias| Expr::col((table.clone(), column.clone()));
+    let account = Alias::new("account_id");
+    let mut page = Condition::all();
+    if let Some(cursor) = cursor {
+        #[allow(clippy::cast_possible_truncation)]
+        let at = timestamp(cursor.latest_at as i64);
+        page = page.add(
+            Condition::any().add(col(&d, &latest).lt(at)).add(
+                Condition::all().add(col(&d, &latest).eq(at)).add(
+                    Condition::any()
+                        .add(col(&mt, &account).gt(cursor.account_id.as_str()))
+                        .add(
+                            Condition::all()
+                                .add(col(&mt, &account).eq(cursor.account_id.as_str()))
+                                .add(col(&mt, &tk).gt(cursor.thread_key.as_str())),
+                        ),
+                ),
+            ),
+        );
+    }
+    let select = Query::select()
+        .expr(col(&mt, &account))
+        .expr(col(&mt, &tk))
+        .from_as(matching.clone(), mt.clone())
+        .join_as(
+            sea_orm::JoinType::InnerJoin,
+            dates.clone(),
+            d.clone(),
+            Condition::all()
+                .add(col(&d, &account).eq(col(&mt, &account)))
+                .add(col(&d, &tk).eq(col(&mt, &tk))),
+        )
+        .cond_where(page)
+        .order_by((d.clone(), latest.clone()), Order::Desc)
+        .order_by((mt.clone(), account.clone()), Order::Asc)
+        .order_by((mt.clone(), tk.clone()), Order::Asc)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .offset(u64::try_from(offset).unwrap_or_default())
+        .to_owned();
+    let with = WithClause::new()
+        .cte(
+            CommonTableExpression::new()
+                .query(matching_query)
+                .table_name(matching)
+                .to_owned(),
+        )
+        .cte(
+            CommonTableExpression::new()
+                .query(dates_query)
+                .table_name(dates)
+                .to_owned(),
+        )
+        .to_owned();
+    select.with(with)
+}
+
 /// `enrichThreadContacts(db, summaries)`: every message's sender resolved,
 /// and the latest sender's name and avatar from it.
-async fn enrich_thread_contacts(db: &PgPool, summaries: &mut [Value]) -> Result<(), sqlx::Error> {
+async fn enrich_thread_contacts(db: &PgPool, summaries: &mut [Value]) -> Result<(), DbErr> {
     let mut all: Vec<Value> = Vec::new();
     let mut counts: Vec<usize> = Vec::new();
     for summary in summaries.iter_mut() {
@@ -571,20 +746,19 @@ pub async fn thread_by_key(
     db: &PgPool,
     account_id: &str,
     thread_key: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
-         where m.account_id = $1 and coalesce(m.thread_id, m.id) = $2 and m.deleted_at is null
-         order by m.sent_date asc, m.id asc",
-    )
-    .bind(account_id)
-    .bind(thread_key)
-    .fetch_all(db)
-    .await?;
+) -> Result<Option<Value>, DbErr> {
+    let rows = mail_messages::Entity::find()
+        .filter(Column::AccountId.eq(account_id))
+        .filter(sea_orm::ExprTrait::eq(thread_key_of(), thread_key))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::SentDate)
+        .order_by_asc(Column::Id)
+        .all(&orm(db))
+        .await?;
     if rows.is_empty() {
         return Ok(None);
     }
-    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let mut rows = message_rows(rows)?;
     enrich_sender_contacts(db, &mut rows).await?;
     Ok(Some(json!({
         "threadId": thread_key,
@@ -601,19 +775,16 @@ pub async fn mark_thread_read(
     thread_key: &str,
     is_read: bool,
     now: OffsetDateTime,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "update mail_messages set is_read = $3, updated_at = $4::timestamp
-         where account_id = $1 and coalesce(thread_id, id) = $2 and deleted_at is null
-           and is_read = not $3
-         returning id",
-    )
-    .bind(account_id)
-    .bind(thread_key)
-    .bind(is_read)
-    .bind(iso(now))
-    .fetch_all(db)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    let update = mail_messages::Entity::update_many()
+        .col_expr(Column::IsRead, Expr::value(is_read))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+        .filter(Column::AccountId.eq(account_id))
+        .filter(sea_orm::ExprTrait::eq(thread_key_of(), thread_key))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::IsRead.eq(!is_read));
+    let rows = update_returning(db, update.into_query(), [Column::Id]).await?;
+    Ok(rows.into_iter().map(|[id]| id).collect())
 }
 
 /// `MARK_READ_BATCH_SIZE` / `MARK_READ_MAX_BATCHES`.
@@ -637,7 +808,7 @@ pub async fn mark_folder_read(
     label_slug: &str,
     updated_per_account: usize,
     now: OffsetDateTime,
-) -> Result<FolderRead, sqlx::Error> {
+) -> Result<FolderRead, DbErr> {
     if account_ids.is_empty() {
         return Ok(FolderRead::default());
     }
@@ -649,38 +820,30 @@ pub async fn mark_folder_read(
     if let Err(error) = wake_due_snoozed(db, Some(account_ids), now).await {
         tracing::error!(%error, "[mail-thread-ops] waking snoozed mail failed");
     }
+    let conn = orm(db);
     let mut out = FolderRead::default();
     let mut kept: Vec<(String, usize)> = Vec::new();
     for _ in 0..MARK_READ_MAX_BATCHES {
-        let batch: Vec<(String, String)> = bind_scope!(
-            sqlx::query_as(concat!(
-                "select o.id, o.account_id from mail_messages o
-                 where o.account_id = any($1::text[]) and o.deleted_at is null and o.is_read = false
-                   and (o.account_id, coalesce(o.thread_id, o.id)) in (
-                     select m.account_id, coalesce(m.thread_id, m.id) from mail_messages m where ",
-                thread_conditions!(),
-                ")
-                 order by coalesce(o.received_date, o.sent_date) desc nulls last
-                 limit $14"
-            )),
-            scope
-        )
-        .bind(MARK_READ_BATCH_SIZE)
-        .fetch_all(db)
-        .await?;
+        let batch: Vec<(String, String)> = conn
+            .query_all(&unread_batch(&scope))
+            .await?
+            .iter()
+            .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
+            .collect::<Result<_, DbErr>>()?;
         if batch.is_empty() {
             break;
         }
         let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
-        let done: Vec<String> = sqlx::query_scalar(
-            "update mail_messages set is_read = true, updated_at = $2::timestamp
-             where id = any($1::text[]) and is_read = false
-             returning id",
-        )
-        .bind(&ids)
-        .bind(iso(now))
-        .fetch_all(db)
-        .await?;
+        let update = mail_messages::Entity::update_many()
+            .col_expr(Column::IsRead, Expr::value(true))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+            .filter(Column::Id.is_in(ids))
+            .filter(Column::IsRead.eq(false));
+        let done: Vec<String> = update_returning(db, update.into_query(), [Column::Id])
+            .await?
+            .into_iter()
+            .map(|[id]| id)
+            .collect();
         out.updated_count += done.len();
         for (id, account) in &batch {
             if !done.contains(id) {
@@ -703,4 +866,43 @@ pub async fn mark_folder_read(
         }
     }
     Ok(out)
+}
+
+/// One batch of `markFolderReadForAccounts`: the scope's unread messages in
+/// the folder's threads, newest first.
+///
+/// ```sql
+/// select o.id, o.account_id from mail_messages o
+/// where o.account_id = any(<accounts>) and o.deleted_at is null and o.is_read = false
+///   and (o.account_id, coalesce(o.thread_id, o.id)) in (select <thread> from mail_messages where <scope>)
+/// order by coalesce(o.received_date, o.sent_date) desc nulls last limit 1000
+/// ```
+fn unread_batch(scope: &Scope) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let o = Alias::new("o");
+    let col = |column: Column| Expr::col((o.clone(), column));
+    let in_folder = Query::select()
+        .expr(msg(Column::AccountId))
+        .expr(thread_key_of())
+        .from(mail_messages::Entity)
+        .cond_where(scope.condition())
+        .to_owned();
+    Query::select()
+        .expr(col(Column::Id))
+        .expr(col(Column::AccountId))
+        .from_as(mail_messages::Entity, o.clone())
+        .cond_where(
+            Condition::all()
+                .add(col(Column::AccountId).is_in(&scope.account_ids))
+                .add(col(Column::DeletedAt).is_null())
+                .add(col(Column::IsRead).eq(false))
+                .add(thread_of(&o).in_subquery(in_folder)),
+        )
+        .order_by_expr_with_nulls(
+            Func::coalesce([col(Column::ReceivedDate), col(Column::SentDate)]).into(),
+            Order::Desc,
+            NullOrdering::Last,
+        )
+        .limit(u64::try_from(MARK_READ_BATCH_SIZE).unwrap_or_default())
+        .to_owned()
 }

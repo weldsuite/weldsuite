@@ -453,25 +453,11 @@ async fn entity_scope(caller: &Caller) -> Result<EntityScopeCondition, sqlx::Err
     ))
 }
 
-/// `EntityScopeCondition::sql(column, …)` as a condition: no filter, none of
+/// `entityScopeCondition(column, …)` as a condition: no filter, none of
 /// the rows, or the entities allowed (and rows without an entity when the
 /// default one is among them).
 fn in_scope(scope: &EntityScopeCondition, column: impl ColumnTrait) -> Condition {
-    match scope {
-        EntityScopeCondition::All => Condition::all(),
-        EntityScopeCondition::Nothing => Condition::all().add(column.is_in(Vec::<String>::new())),
-        EntityScopeCondition::In {
-            ids,
-            include_unassigned,
-        } => {
-            let scoped = Condition::any().add(column.is_in(ids));
-            if *include_unassigned {
-                scoped.add(column.is_null())
-            } else {
-                scoped
-            }
-        }
-    }
+    scope.condition(column)
 }
 
 async fn invoices(caller: Caller, Path(id): Path<String>) -> Response {
