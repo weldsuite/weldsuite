@@ -1,0 +1,39 @@
+{
+  "name": "commerce-starter-static",
+  "version": "0.1.0",
+  "description": "A static starter shop on the WeldCommerce storefront API: a Vite + React SPA with a publishable key, prerendered product and category pages, for `weld storefront deploy`",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3032",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 3032",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@weldsuite/commerce-sdk": "workspace:*",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-router": "^7.18.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.51.0",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
+  }
+}

@@ -117,7 +117,8 @@ TypeScript worker.
   help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
   `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on
   `@weldsuite/commerce-sdk`: a template to fork, never deployed, no internal
-  imports).
+  imports; its static Vite variant with a publishable key, for
+  `weld storefront deploy`, is `commerce-starter-static`, 3032).
 - Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
   reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
   Weld account, served by `personal-api`), `helpdesk-widget` (3100).
