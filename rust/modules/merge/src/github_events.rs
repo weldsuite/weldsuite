@@ -13,20 +13,25 @@ use axum::extract::{FromRequestParts, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
 use http::request::Parts;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, Tenant, js_row};
+use weldsuite_db::{PgPool, Tenant, orm};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::{merge_connections, merge_pull_requests, merge_repositories};
 
-use crate::db::{Row, rows_of, text};
+use crate::db::{Row, json_row, json_rows, now_at, text};
 use crate::github::{combine_check_suites, js_string, review_decision_from_reviews};
 use crate::github_client::{GithubClient, list_check_suites, list_pull_request_reviews};
 use crate::hooks::{HookContext, after_pull_request_synced};
 use crate::mappers::{pull_request_event_data, repository_event_data};
-use crate::pr_sync::{UpsertStatus, upsert_pull_request};
+use crate::pr_sync::{
+    UpsertStatus, mirror_by_number, open_mirrors_at, set_mirror_status, upsert_pull_request,
+};
 use crate::pull_requests::linked_issues;
 use crate::{
-    Answer, MergeError, MergeState, Overrides, PendingEvent, Refusal, now, publish, system_events,
+    Answer, MergeError, MergeState, Overrides, PendingEvent, Refusal, publish, system_events,
     validate,
 };
 
@@ -106,20 +111,26 @@ fn installation_of(payload: &Map<String, Value>) -> Option<String> {
 async fn tracked_repository(
     db: &PgPool,
     payload: &Map<String, Value>,
-) -> Result<Option<Row>, sqlx::Error> {
+) -> Result<Option<Row>, DbErr> {
     let Some(repo_id) = id_of(obj(payload.get("repository")).and_then(|r| r.get("id"))) else {
         return Ok(None);
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from merge_repositories r \
-         inner join merge_connections c on c.id = r.connection_id \
-         where r.provider = 'github' and r.external_id = $1 and r.deleted_at is null \
-           and c.deleted_at is null limit 1",
-    )
-    .bind(repo_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    merge_repositories::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            merge_repositories::Entity::belongs_to(merge_connections::Entity)
+                .from(merge_repositories::Column::ConnectionId)
+                .to(merge_connections::Column::Id)
+                .into(),
+        )
+        .filter(merge_repositories::Column::Provider.eq("github"))
+        .filter(merge_repositories::Column::ExternalId.eq(repo_id))
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|repository| json_row(serde_json::to_value(repository)))
+        .transpose()
 }
 
 async fn installation_repositories(
@@ -141,29 +152,32 @@ async fn installation_repositories(
     if ids.is_empty() {
         return Ok(applied(Vec::new()));
     }
-    let connections: Vec<String> = sqlx::query_scalar(
-        "select id from merge_connections where provider = 'github' and external_account_id = $1 \
-         and deleted_at is null",
-    )
-    .bind(&installation)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let connections: Vec<String> = merge_connections::Entity::find()
+        .select_only()
+        .column(merge_connections::Column::Id)
+        .filter(merge_connections::Column::Provider.eq("github"))
+        .filter(merge_connections::Column::ExternalAccountId.eq(&installation))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
     if connections.is_empty() {
         return Ok(ignored("untracked_repository"));
     }
-    let now = now();
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "update merge_repositories set deleted_at = $3::timestamptz, updated_at = $3::timestamptz \
-             where connection_id = any($1) and external_id = any($2) and deleted_at is null \
-             returning to_jsonb(merge_repositories.*)",
-        )
-        .bind(&connections)
-        .bind(&ids)
-        .bind(&now)
-        .fetch_all(db)
-        .await?,
-    );
+    let (_, at) = now_at();
+    let rows = json_rows(
+        merge_repositories::Entity::update_many()
+            .col_expr(merge_repositories::Column::DeletedAt, Expr::value(at))
+            .col_expr(merge_repositories::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_repositories::Column::ConnectionId.is_in(connections))
+            .filter(merge_repositories::Column::ExternalId.is_in(ids))
+            .filter(merge_repositories::Column::DeletedAt.is_null())
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     Ok(applied(
         rows.iter()
             .map(|row| {
@@ -207,28 +221,13 @@ async fn pull_request(
     Ok(applied(outcome.events))
 }
 
-async fn pull_request_for(
-    db: &PgPool,
-    repository: &Row,
-    number: i64,
-) -> Result<Option<Row>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from merge_pull_requests p where p.repository_id = $1 and p.number = $2 limit 1",
-    )
-    .bind(text(repository, "id"))
-    .bind(number)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
-}
-
 /// `updateEvent(db, pr)`: `merge_pull_request:updated` with its issues.
 async fn update_event(
     db: &PgPool,
     pr: &Row,
     field: &str,
     old: Value,
-) -> Result<PendingEvent, sqlx::Error> {
+) -> Result<PendingEvent, DbErr> {
     let id = text(pr, "id").to_owned();
     let mut issues = linked_issues(db, std::slice::from_ref(&id)).await?;
     let issue_ids: Vec<String> = issues
@@ -268,7 +267,7 @@ async fn review(
     #[allow(clippy::cast_possible_truncation)]
     let whole = (number.fract() == 0.0).then_some(number as i64);
     let pr = match whole {
-        Some(number) => pull_request_for(db, &repository, number).await?,
+        Some(number) => mirror_by_number(db, text(&repository, "id"), number).await?,
         None => None,
     };
     let (Some(pr), Some(number)) = (pr, whole) else {
@@ -280,17 +279,13 @@ async fn review(
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
     let decision = review_decision_from_reviews(&reviews, requested);
-    let now = now();
-    let updated: Value = sqlx::query_scalar(
-        "update merge_pull_requests set review_decision = $2, synced_at = $3::timestamptz, \
-           updated_at = $3::timestamptz where id = $1 returning to_jsonb(merge_pull_requests.*)",
+    let updated = set_mirror_status(
+        db,
+        text(&pr, "id"),
+        merge_pull_requests::Column::ReviewDecision,
+        decision,
     )
-    .bind(text(&pr, "id"))
-    .bind(decision)
-    .bind(&now)
-    .fetch_one(db)
     .await?;
-    let updated = js_row(updated);
     let event = update_event(db, &updated, "reviewDecision", pr["reviewDecision"].clone()).await?;
     let events = vec![event];
     if let Some(hooks) = hooks {
@@ -318,16 +313,7 @@ async fn check_suite(
     if repository.get("prSync") != Some(&Value::Bool(true)) {
         return Ok(ignored("pr_sync_off"));
     }
-    let tracked = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(p) from merge_pull_requests p \
-             where p.repository_id = $1 and p.head_sha = $2 and p.state = 'open'",
-        )
-        .bind(text(&repository, "id"))
-        .bind(sha)
-        .fetch_all(db)
-        .await?,
-    );
+    let tracked = open_mirrors_at(db, text(&repository, "id"), sha, &[]).await?;
     if tracked.is_empty() {
         return Ok(ignored("unknown_pull_request"));
     }
@@ -335,17 +321,13 @@ async fn check_suite(
     let status = combine_check_suites(&suites);
     let mut events = Vec::new();
     for pr in &tracked {
-        let now = now();
-        let updated: Value = sqlx::query_scalar(
-            "update merge_pull_requests set checks_status = $2, synced_at = $3::timestamptz, \
-               updated_at = $3::timestamptz where id = $1 returning to_jsonb(merge_pull_requests.*)",
+        let updated = set_mirror_status(
+            db,
+            text(pr, "id"),
+            merge_pull_requests::Column::ChecksStatus,
+            status,
         )
-        .bind(text(pr, "id"))
-        .bind(status)
-        .bind(&now)
-        .fetch_one(db)
         .await?;
-        let updated = js_row(updated);
         let event = update_event(db, &updated, "checksStatus", pr["checksStatus"].clone()).await?;
         if let Some(hooks) = hooks {
             after_pull_request_synced(hooks, Some(pr), &updated, std::slice::from_ref(&event))

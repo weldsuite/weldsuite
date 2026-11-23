@@ -10,6 +10,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EMAIL_RULE_CREATED, EMAIL_RULE_DELETED, EMAIL_RULE_DISABLED, EMAIL_RULE_ENABLED,
@@ -18,14 +22,16 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::check_account_access;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{MailRuleMatchType, MailRuleScope};
+use weldsuite_schema::tenant::mail_rules;
 
 use crate::routes::mail_labels::NO_ACCESS;
-use crate::util::{MailError, answer, now, unhandled, validate, validate_query};
+use crate::util::{MailError, answer, unhandled, validate, validate_query};
 use crate::{Caller, MailState};
 
 const FIELDS: [&str; 10] = [
@@ -103,22 +109,39 @@ where
         .with_state(state)
 }
 
-async fn rule_row(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from mail_rules r where r.id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// A rule row as Drizzle returns it.
+fn js(rule: mail_rules::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(rule).map_err(|error| DbErr::Json(error.to_string()))
 }
 
-async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar("select to_jsonb(r) from mail_rules r where r.id = $1")
-        .bind(id)
-        .fetch_one(&caller.db)
+async fn rule_row(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_rules::Entity::find_by_id(id.to_owned())
+        .filter(mail_rules::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
         .await?;
-    Ok(js_row(row))
+    row.map(js).transpose()
+}
+
+/// The rule `id`, deleted or not; a missing one is an error.
+async fn model_by_id(caller: &Caller, id: &str) -> Result<mail_rules::Model, DbErr> {
+    mail_rules::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail rule {id}")))
+}
+
+async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, DbErr> {
+    js(model_by_id(caller, id).await?)
+}
+
+/// A `matchType` the body chose (`all` or `any`).
+fn match_type(kind: &str) -> Result<MailRuleMatchType, DbErr> {
+    MailRuleMatchType::try_from_value(&kind.to_owned())
+}
+
+/// A `scope` the body chose.
+fn scope(scope: &str) -> Result<MailRuleScope, DbErr> {
+    MailRuleScope::try_from_value(&scope.to_owned())
 }
 
 fn event(row: &Value, id: &str) -> Value {
@@ -148,17 +171,20 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         {
             return Err(MailError::forbidden(NO_ACCESS));
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(r) from mail_rules r
-             where r.deleted_at is null and ($1::text is null or r.account_id = $1)
-               and ($2::bool is null or r.is_active = $2)
-             order by r.priority asc, r.created_at asc",
-        )
-        .bind(&account)
-        .bind(active)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response())
+        let mut find = mail_rules::Entity::find().filter(mail_rules::Column::DeletedAt.is_null());
+        if let Some(account) = &account {
+            find = find.filter(mail_rules::Column::AccountId.eq(account));
+        }
+        if let Some(active) = active {
+            find = find.filter(mail_rules::Column::IsActive.eq(active));
+        }
+        let rows = find
+            .order_by_asc(mail_rules::Column::Priority)
+            .order_by_asc(mail_rules::Column::CreatedAt)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+        Ok(Data(rows).into_response())
     }
     .await;
     answer(result, "Failed to list rules")
@@ -197,22 +223,38 @@ async fn reorder(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let (ids, priorities): (Vec<String>, Vec<i64>) = rules.into_iter().unzip();
-        let updated: Vec<String> = sqlx::query_scalar(
-            "update mail_rules r set
-               priority = coalesce((select o.priority::int from unnest($1::text[], $2::bigint[])
-                   with ordinality as o(id, priority, ord) where o.id = r.id order by o.ord limit 1),
-                 r.priority),
-               updated_at = $3::timestamp
-             where r.id = any($1::text[]) and r.deleted_at is null
-             returning r.id",
-        )
-        .bind(&ids)
-        .bind(&priorities)
-        .bind(now())
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(Data(json!({ "updated": updated.len() })).into_response())
+        // One statement: `case when id = … then … end`, the first priority
+        // given for an id first (Postgres casts it to the `integer` column).
+        let mut first: Vec<(String, i64)> = Vec::new();
+        for (id, priority) in rules {
+            if !first.iter().any(|(seen, _)| *seen == id) {
+                first.push((id, priority));
+            }
+        }
+        let Some(((head_id, head_priority), rest)) = first.split_first() else {
+            return Ok(Data(json!({ "updated": 0 })).into_response());
+        };
+        let mut priority = Expr::case(
+            mail_rules::Column::Id.eq(head_id),
+            Expr::value(*head_priority),
+        );
+        for (id, value) in rest {
+            priority = priority.case(mail_rules::Column::Id.eq(id), Expr::value(*value));
+        }
+        let ids = first.iter().map(|(id, _)| id.clone());
+        let updated = mail_rules::Entity::update_many()
+            .col_expr(
+                mail_rules::Column::Priority,
+                priority
+                    .finally(Expr::col(mail_rules::Column::Priority))
+                    .into(),
+            )
+            .col_expr(mail_rules::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mail_rules::Column::Id.is_in(ids))
+            .filter(mail_rules::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
+        Ok(Data(json!({ "updated": updated.rows_affected })).into_response())
     }
     .await;
     answer(result, "Failed to reorder rules")
@@ -477,28 +519,31 @@ async fn create(
             return Err(MailError::forbidden(NO_ACCESS));
         }
         let id = generate_id("rule");
-        sqlx::query(
-            "insert into mail_rules (id, account_id, name, description, conditions, match_type,
-               actions, is_active, stop_processing, priority, apply_to_existing, scope, folders,
-               created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6::mail_rule_match_type, $7, $8, $9, $10, $11,
-               $12::mail_rule_scope, $13, $14::timestamp, $14::timestamp)",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(text(&data, "name"))
-        .bind(text(&data, "description"))
-        .bind(data.get("conditions").cloned())
-        .bind(text(&data, "matchType").unwrap_or("all"))
-        .bind(data.get("actions").cloned())
-        .bind(flag(&data, "isActive").unwrap_or(true))
-        .bind(flag(&data, "stopProcessing").unwrap_or(false))
-        .bind(data.get("priority").and_then(Value::as_i64).unwrap_or(0))
-        .bind(flag(&data, "applyToExisting").unwrap_or(false))
-        .bind(text(&data, "scope").unwrap_or("incoming"))
-        .bind(data.get("folders").cloned())
-        .bind(now())
-        .execute(&caller.db)
+        // An `integer` column: what Postgres refuses ("out of range") stays
+        // the route's 500.
+        let priority = i32::try_from(data.get("priority").and_then(Value::as_i64).unwrap_or(0))
+            .map_err(|_| DbErr::Custom("priority: integer out of range".to_owned()))?;
+        let at = utc_now();
+        mail_rules::Entity::insert(mail_rules::ActiveModel {
+            id: Set(id.clone()),
+            account_id: Set(account.clone()),
+            name: Set(text(&data, "name").unwrap_or_default().to_owned()),
+            description: Set(text(&data, "description").map(str::to_owned)),
+            // Both required by `createBody`.
+            conditions: Set(data.get("conditions").cloned().unwrap_or_default()),
+            match_type: Set(match_type(text(&data, "matchType").unwrap_or("all"))?),
+            actions: Set(data.get("actions").cloned().unwrap_or_default()),
+            is_active: Set(flag(&data, "isActive").unwrap_or(true)),
+            stop_processing: Set(Some(flag(&data, "stopProcessing").unwrap_or(false))),
+            priority: Set(Some(priority)),
+            apply_to_existing: Set(Some(flag(&data, "applyToExisting").unwrap_or(false))),
+            scope: Set(Some(scope(text(&data, "scope").unwrap_or("incoming"))?)),
+            folders: Set(data.get("folders").cloned()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = row_by_id(&caller, &id).await?;
         caller.publish(&state, EMAIL_RULE_CREATED, &id, &event(&row, &id));
@@ -544,38 +589,65 @@ async fn update(
         if rule_row(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Rule", None));
         }
-        sqlx::query(
-            "update mail_rules set updated_at = $2::timestamp,
-               name = coalesce($3, name), description = coalesce($4, description),
-               conditions = coalesce($5, conditions),
-               match_type = coalesce($6::mail_rule_match_type, match_type),
-               actions = coalesce($7, actions), is_active = coalesce($8, is_active),
-               stop_processing = coalesce($9, stop_processing), priority = coalesce($10, priority),
-               apply_to_existing = coalesce($11, apply_to_existing),
-               scope = coalesce($12::mail_rule_scope, scope), folders = coalesce($13, folders)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text(&data, "name"))
-        .bind(text(&data, "description"))
-        .bind(data.get("conditions").cloned())
-        .bind(text(&data, "matchType"))
-        .bind(data.get("actions").cloned())
-        .bind(flag(&data, "isActive"))
-        .bind(flag(&data, "stopProcessing"))
-        .bind(data.get("priority").and_then(Value::as_i64))
-        .bind(flag(&data, "applyToExisting"))
-        .bind(text(&data, "scope"))
-        .bind(data.get("folders").cloned())
-        .execute(&caller.db)
-        .await?;
+        write_update(&caller, &id, &data).await?;
         let after = row_by_id(&caller, &id).await?;
         caller.publish(&state, EMAIL_RULE_UPDATED, &id, &event(&after, &id));
         Ok(Data(after).into_response())
     }
     .await;
     answer(result, "Failed to update rule")
+}
+
+/// `updateRule`'s write: the fields the body sent, and `updatedAt`.
+async fn write_update(caller: &Caller, id: &str, data: &Map<String, Value>) -> Result<(), DbErr> {
+    let mut update = mail_rules::Entity::update_many()
+        .col_expr(mail_rules::Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("name", mail_rules::Column::Name),
+        ("description", mail_rules::Column::Description),
+    ] {
+        if let Some(value) = text(data, key) {
+            update = update.col_expr(column, Expr::value(value.to_owned()));
+        }
+    }
+    for (key, column) in [
+        ("conditions", mail_rules::Column::Conditions),
+        ("actions", mail_rules::Column::Actions),
+        ("folders", mail_rules::Column::Folders),
+    ] {
+        if let Some(value) = data.get(key) {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    if let Some(kind) = text(data, "matchType") {
+        update = update.col_expr(
+            mail_rules::Column::MatchType,
+            mail_rules::Column::MatchType.save_as(Expr::value(match_type(kind)?)),
+        );
+    }
+    for (key, column) in [
+        ("isActive", mail_rules::Column::IsActive),
+        ("stopProcessing", mail_rules::Column::StopProcessing),
+        ("applyToExisting", mail_rules::Column::ApplyToExisting),
+    ] {
+        if let Some(value) = flag(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(priority) = data.get("priority").and_then(Value::as_i64) {
+        update = update.col_expr(mail_rules::Column::Priority, Expr::value(priority));
+    }
+    if let Some(value) = text(data, "scope") {
+        update = update.col_expr(
+            mail_rules::Column::Scope,
+            mail_rules::Column::Scope.save_as(Expr::value(scope(value)?)),
+        );
+    }
+    update
+        .filter(mail_rules::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `DELETE /:id` (`softDeleteRule`).
@@ -592,13 +664,13 @@ async fn remove(
         if !check_account_access(&caller.db, account, &caller.user_id).await? {
             return Err(MailError::forbidden(NO_ACCESS));
         }
-        sqlx::query(
-            "update mail_rules set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_rules::Entity::update_many()
+            .col_expr(mail_rules::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_rules::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_rules::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, EMAIL_RULE_DELETED, &id, &event(&existing, &id));
         Ok(NoContent.into_response())
     }
@@ -621,14 +693,12 @@ async fn toggle(
             return Err(MailError::forbidden(NO_ACCESS));
         }
         let next = !existing["isActive"].as_bool().unwrap_or(false);
-        sqlx::query(
-            "update mail_rules set is_active = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(next)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        mail_rules::Entity::update_many()
+            .col_expr(mail_rules::Column::IsActive, Expr::value(next))
+            .col_expr(mail_rules::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mail_rules::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let after = row_by_id(&caller, &id).await?;
         let action = if after["isActive"].as_bool() == Some(true) {
             EMAIL_RULE_ENABLED
@@ -657,18 +727,28 @@ async fn duplicate(
             return Err(MailError::forbidden(NO_ACCESS));
         }
         let new_id = generate_id("rule");
-        sqlx::query(
-            "insert into mail_rules (id, account_id, name, description, conditions, match_type,
-               actions, is_active, stop_processing, priority, apply_to_existing, scope, folders,
-               created_at, updated_at)
-             select $2, account_id, name || ' (Copy)', description, conditions, match_type, actions,
-               false, stop_processing, priority, false, scope, folders, $3::timestamp, $3::timestamp
-             from mail_rules where id = $1",
-        )
-        .bind(&id)
-        .bind(&new_id)
-        .bind(now())
-        .execute(&caller.db)
+        // The source row as stored, copied disabled.
+        let source = model_by_id(&caller, &id).await?;
+        let at = utc_now();
+        mail_rules::Entity::insert(mail_rules::ActiveModel {
+            id: Set(new_id.clone()),
+            account_id: Set(source.account_id),
+            name: Set(format!("{} (Copy)", source.name)),
+            description: Set(source.description),
+            conditions: Set(source.conditions),
+            match_type: Set(source.match_type),
+            actions: Set(source.actions),
+            is_active: Set(false),
+            stop_processing: Set(source.stop_processing),
+            priority: Set(source.priority),
+            apply_to_existing: Set(Some(false)),
+            scope: Set(source.scope),
+            folders: Set(source.folders),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = row_by_id(&caller, &new_id).await?;
         caller.publish(&state, EMAIL_RULE_CREATED, &new_id, &event(&row, &new_id));

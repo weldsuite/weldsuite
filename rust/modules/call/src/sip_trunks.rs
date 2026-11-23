@@ -10,8 +10,16 @@
 //! only at Telnyx.
 
 use http::StatusCode;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::master::phone_number_registry as registry_rows;
+use weldsuite_schema::tenant::{voip_phone_numbers as numbers, voip_sip_trunks as trunks};
 
 use crate::registry::{self, OwnRow};
 use crate::sip_trunk_number::{country_of_e164, to_trunk_e164};
@@ -23,7 +31,7 @@ use crate::telnyx_connections::{
     ConnectionBase, ConnectionPatch, DEFAULT_SIP_HOST, SIGNALING_IPS, SIP_HOSTS, SIP_PORT_PLAIN,
     SIP_PORT_TLS,
 };
-use crate::{CallState, Caller, js, now};
+use crate::{CallState, Caller, js};
 
 /// `DESK_SIP_TRUNK_MAX_IP_ADDRESSES`.
 pub(crate) const MAX_IP_ADDRESSES: usize = 10;
@@ -57,10 +65,28 @@ pub(crate) enum Failure {
     Internal(String),
 }
 
-impl From<sqlx::Error> for Failure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
         Self::Internal(error.to_string())
     }
+}
+
+/// A trunk's row as Drizzle returned it: the entity serializes to its JSON.
+fn trunk_row(model: trunks::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// A number's row as Drizzle returned it.
+fn number_row(model: numbers::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// `update … returning *` that expected its row (`fetch_one`): no row is
+/// the query's error.
+fn the_row<T>(rows: Vec<T>) -> Result<T, DbErr> {
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("no rows returned by the update".to_owned()))
 }
 
 fn refusal(status: StatusCode, code: &'static str, message: impl Into<String>) -> Failure {
@@ -420,8 +446,8 @@ impl<'a> Trunks<'a> {
         }
     }
 
-    fn db(&self) -> &PgPool {
-        &self.caller.db
+    fn db(&self) -> DatabaseConnection {
+        orm(&self.caller.db)
     }
 
     fn sip_host(&self) -> Option<String> {
