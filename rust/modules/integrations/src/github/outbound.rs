@@ -8,17 +8,24 @@
 
 use std::time::Duration;
 
+use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BoxFuture, Job, JobContext, JobError, StepRetry, step};
+use weldsuite_schema::tenant::{
+    github_issue_sync_map as sync_map, github_project_links as links, merge_connections, tasks,
+};
 
 use super::api::{self, StatusOptionMapping, status_option_for_stage_id};
 use super::project_sync::labels_of;
 use super::{
     GITHUB_PROJECT_OUTBOUND_JOB, GithubDeps, iso_of_millis, millis_of_iso, now_millis,
-    status_to_stage_id,
+    status_to_stage_id, timestamp_of_millis,
 };
+use crate::crm::db_text;
 
 /// `GithubProjectOutboundSyncParams`.
 #[derive(Debug, Clone, Deserialize)]
@@ -113,25 +120,40 @@ async fn load(
         String,
         Option<Value>,
         Option<String>,
-    )> = sqlx::query_as(
-        "select id, title, description, stage_id, status, labels, project_id from tasks \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(task_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    )> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::Title,
+            tasks::Column::Description,
+            tasks::Column::StageId,
+            tasks::Column::Status,
+            tasks::Column::Labels,
+            tasks::Column::ProjectId,
+        ])
+        .filter(tasks::Column::Id.eq(task_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let Some((id, title, description, stage_id, status, labels, project_id)) = task else {
         return Err(format!("Task {task_id} not found"));
     };
-    let sync_map: Option<(String, Option<String>, i32, String, String)> = sqlx::query_as(
-        "select id, issue_node_id, issue_number, project_item_node_id, project_link_id \
-         from github_issue_sync_map where task_id = $1 limit 1",
-    )
-    .bind(task_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let sync_map: Option<(String, Option<String>, i32, String, String)> = sync_map::Entity::find()
+        .select_only()
+        .columns([
+            sync_map::Column::Id,
+            sync_map::Column::IssueNodeId,
+            sync_map::Column::IssueNumber,
+            sync_map::Column::ProjectItemNodeId,
+            sync_map::Column::ProjectLinkId,
+        ])
+        .filter(sync_map::Column::TaskId.eq(task_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
 
     // `resolveLinkId`: the mapped link, else (create only) the given one or
     // the task project's.
@@ -139,13 +161,15 @@ async fn load(
         (Some((.., link)), _) => Some(link.clone()),
         (None, "create") => match (param_link_id.filter(|l| !l.is_empty()), &project_id) {
             (Some(link), _) => Some(link.to_owned()),
-            (None, Some(project)) if !project.is_empty() => sqlx::query_scalar(
-                "select id from github_project_links where project_id = $1 and deleted_at is null limit 1",
-            )
-            .bind(project)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?,
+            (None, Some(project)) if !project.is_empty() => links::Entity::find()
+                .select_only()
+                .column(links::Column::Id)
+                .filter(links::Column::ProjectId.eq(project))
+                .filter(links::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await
+                .map_err(|e| db_text(&e))?,
             _ => None,
         },
         _ => None,
@@ -163,16 +187,25 @@ async fn load(
         String,
         String,
         String,
-    )> = sqlx::query_as(
-        "select id, project_v2_node_id, repo_full_name, status_field_id, status_option_map, \
-         sync_direction, connection_id, project_id from github_project_links \
-         where id = $1 and workspace_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(&link_id)
-    .bind(workspace_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    )> = links::Entity::find()
+        .select_only()
+        .columns([
+            links::Column::Id,
+            links::Column::ProjectV2NodeId,
+            links::Column::RepoFullName,
+            links::Column::StatusFieldId,
+            links::Column::StatusOptionMap,
+            links::Column::SyncDirection,
+            links::Column::ConnectionId,
+            links::Column::ProjectId,
+        ])
+        .filter(links::Column::Id.eq(&link_id))
+        .filter(links::Column::WorkspaceId.eq(workspace_id))
+        .filter(links::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let Some((lid, node, repo, field, option_map, direction, connection_id, link_project)) = link
     else {
         return Err(format!("Project link {link_id} not found"));
@@ -183,14 +216,19 @@ async fn load(
     }
     // The link's connection is a WeldMerge connection; its installation id
     // is `external_account_id` (`Number(conn.externalAccountId)`).
-    let connection: Option<(String, String, String)> = sqlx::query_as(
-        "select id, external_account_id, status from merge_connections \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&connection_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let connection: Option<(String, String, String)> = merge_connections::Entity::find()
+        .select_only()
+        .columns([
+            merge_connections::Column::Id,
+            merge_connections::Column::ExternalAccountId,
+            merge_connections::Column::Status,
+        ])
+        .filter(merge_connections::Column::Id.eq(&connection_id))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let Some((cid, external_account_id, cstatus)) = connection else {
         return Err(format!("Connection for link {lid} not found"));
     };
@@ -200,7 +238,7 @@ async fn load(
     }
     let status_to_stage_id = status_to_stage_id(db, &link_project)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| db_text(&e))?;
     Ok(Some(Loaded {
         task: TaskSnapshot {
             id,
@@ -360,56 +398,62 @@ async fn record(
     kind: &str,
     result: &PushResult,
 ) -> Result<(), String> {
-    let now = iso_of_millis(now_millis());
+    let now = timestamp_of_millis(now_millis());
     let issue_updated = match result.issue_updated_at.as_deref() {
         Some(at) => millis_of_iso(at)
-            .map(iso_of_millis)
+            .map(timestamp_of_millis)
             .ok_or_else(|| "Invalid time value".to_owned())?,
-        None => now.clone(),
+        None => now,
     };
     if kind == "create" {
         let number = result.issue_number.and_then(|n| i32::try_from(n).ok());
-        sqlx::query(
-            "update tasks set github_issue_number = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&loaded.task.id)
-        .bind(number)
-        .bind(&now)
-        .execute(db)
+        tasks::Entity::update_many()
+            .col_expr(tasks::Column::GithubIssueNumber, Expr::value(number))
+            .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+            .filter(tasks::Column::Id.eq(&loaded.task.id))
+            .exec(&orm(db))
+            .await
+            .map_err(|e| db_text(&e))?;
+        sync_map::Entity::insert(sync_map::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("ghsm")),
+            workspace_id: Set(workspace_id.to_owned()),
+            project_link_id: Set(loaded.link.id.clone()),
+            task_id: Set(loaded.task.id.clone()),
+            // A `null` the statement refuses, as it refused the worker's.
+            project_item_node_id: result
+                .project_item_node_id
+                .clone()
+                .map_or(NotSet, Set),
+            issue_node_id: Set(result.issue_node_id.clone()),
+            issue_number: number.map_or(NotSet, Set),
+            last_synced_task_updated_at: Set(Some(now)),
+            last_synced_issue_updated_at: Set(Some(issue_updated)),
+            last_writer_side: Set(Some("task".to_owned())),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await
-        .map_err(|e| e.to_string())?;
-        sqlx::query(
-            "insert into github_issue_sync_map (id, workspace_id, project_link_id, task_id, project_item_node_id, \
-             issue_node_id, issue_number, last_synced_task_updated_at, last_synced_issue_updated_at, \
-             last_writer_side, created_at, updated_at) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $9::timestamp, 'task', $8::timestamp, $8::timestamp)",
-        )
-        .bind(weldsuite_kit::generate_id("ghsm"))
-        .bind(workspace_id)
-        .bind(&loaded.link.id)
-        .bind(&loaded.task.id)
-        .bind(&result.project_item_node_id)
-        .bind(&result.issue_node_id)
-        .bind(number)
-        .bind(&now)
-        .bind(&issue_updated)
-        .execute(db)
-        .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| db_text(&e))?;
         return Ok(());
     }
     if let Some(map) = &loaded.sync_map {
-        sqlx::query(
-            "update github_issue_sync_map set last_synced_task_updated_at = $2::timestamp, \
-             last_synced_issue_updated_at = $3::timestamp, last_writer_side = 'task', \
-             updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&map.id)
-        .bind(&now)
-        .bind(&issue_updated)
-        .execute(db)
-        .await
-        .map_err(|e| e.to_string())?;
+        sync_map::Entity::update_many()
+            .col_expr(
+                sync_map::Column::LastSyncedTaskUpdatedAt,
+                Expr::value(now),
+            )
+            .col_expr(
+                sync_map::Column::LastSyncedIssueUpdatedAt,
+                Expr::value(issue_updated),
+            )
+            .col_expr(sync_map::Column::LastWriterSide, Expr::value("task"))
+            .col_expr(sync_map::Column::UpdatedAt, Expr::value(now))
+            .filter(sync_map::Column::Id.eq(&map.id))
+            .exec(&orm(db))
+            .await
+            .map_err(|e| db_text(&e))?;
     }
     Ok(())
 }

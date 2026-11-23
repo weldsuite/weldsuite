@@ -9,6 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_CREATED, PROJECT_DELETED, PROJECT_DOCUMENT_CREATED, PROJECT_DOCUMENT_DELETED,
@@ -24,6 +25,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_WHITEBOARD_UPDATED, TASK_COMMENT_CREATED, TASK_COMMENT_DELETED, TASK_COMMENT_UPDATED,
     TASK_TAG_CREATED, TASK_TAG_DELETED, TASK_TAG_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::stage::{apply_status_change, task_status_aliases};
 use weldsuite_flow_domain::stats::{
     milestone_refs, milestone_stats, project_stats, with_milestone_stats, with_project_stats,
@@ -35,13 +37,18 @@ use weldsuite_flow_domain::task_dependencies::{
 use weldsuite_flow_domain::task_tree::soft_delete_task_tree;
 use weldsuite_flow_domain::tasks::{CreateError, create_task};
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::{
+    milestones, project_documents, project_files, project_goals, project_labels, project_members,
+    project_messages, project_whiteboards, projects, sprints, task_comments, task_tags, tasks,
+    time_entries,
+};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, Fail, created, dates, field, js_date, list_query, live_or_404, no_content, now,
-    ok, soft_delete, table_list_sql, to_date,
+    ok, soft_delete, to_date,
 };
-use crate::list::list_rows;
+use crate::list::{cast, like_any, list_rows, one_of, param, when, when_flag};
 use crate::schemas::{
     CREATE_TIME_ENTRY, LIST_GOALS, LIST_MILESTONES, LIST_PROJECT_DOCUMENTS, LIST_PROJECT_FILES,
     LIST_PROJECT_LABELS, LIST_PROJECT_MEMBERS, LIST_PROJECT_MESSAGES, LIST_PROJECTS, LIST_SPRINTS,
@@ -127,14 +134,18 @@ static PROJECT_GROUP: Simple = Simple {
     list: &LIST_PROJECTS,
     create: &CREATE_PROJECT,
     update: &UPDATE_PROJECT,
-    sql: table_list_sql!(
-        projects,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'ownerId' is null or t.project_manager_id = $3->>'ownerId') \
-         and ($3->>'status' is null or t.status = $3->>'status') \
-         and ($3->>'isActive' is null or t.is_active = ($3->>'isActive')::boolean)"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(projects::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| projects::Column::Name.like(v)))
+            .add_option(when(f, "ownerId", |v| {
+                projects::Column::ProjectManagerId.eq(v)
+            }))
+            .add_option(when(f, "status", |v| projects::Column::Status.eq(v)))
+            .add_option(when_flag(f, "isActive", |flag| {
+                projects::Column::IsActive.eq(flag)
+            }))
+    },
     filters: &[
         F::Like("search"),
         F::Eq("ownerId"),
@@ -159,13 +170,13 @@ static MILESTONE_GROUP: Simple = Simple {
     list: &LIST_MILESTONES,
     create: &CREATE_MILESTONE,
     update: &UPDATE_MILESTONE,
-    sql: table_list_sql!(
-        milestones,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-         and ($3->>'status' is null or t.status = $3->>'status')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(milestones::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| milestones::Column::Name.like(v)))
+            .add_option(when(f, "projectId", |v| milestones::Column::ProjectId.eq(v)))
+            .add_option(when(f, "status", |v| milestones::Column::Status.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("status")],
     dates: &["dueDate", "completedAt"],
     events: Some([
@@ -189,10 +200,13 @@ static GOALS: Simple = Simple {
     list: &LIST_GOALS,
     create: &CREATE_GOAL,
     update: &UPDATE_GOAL,
-    sql: table_list_sql!(
-        project_goals,
-        "t.deleted_at is null and ($3->>'projectId' is null or t.project_id = $3->>'projectId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_goals::Column::DeletedAt.is_null())
+            .add_option(when(f, "projectId", |v| {
+                project_goals::Column::ProjectId.eq(v)
+            }))
+    },
     filters: &[F::Eq("projectId")],
     dates: &[],
     events: Some([
@@ -216,13 +230,13 @@ static SPRINTS_GROUP: Simple = Simple {
     list: &LIST_SPRINTS,
     create: &CREATE_SPRINT,
     update: &UPDATE_SPRINT,
-    sql: table_list_sql!(
-        sprints,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-         and ($3->>'status' is null or t.status = $3->>'status')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(sprints::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| sprints::Column::Name.like(v)))
+            .add_option(when(f, "projectId", |v| sprints::Column::ProjectId.eq(v)))
+            .add_option(when(f, "status", |v| sprints::Column::Status.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("status")],
     dates: &["startDate", "endDate", "startedAt", "completedAt"],
     events: Some([
@@ -271,12 +285,12 @@ static TASK_COMMENTS_GROUP: Simple = Simple {
     list: &LIST_TASK_COMMENTS,
     create: &CREATE_TASK_COMMENT,
     update: &UPDATE_TASK_COMMENT,
-    sql: table_list_sql!(
-        task_comments,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.content like $3->>'search') \
-         and ($3->>'taskId' is null or t.task_id = $3->>'taskId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(task_comments::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| task_comments::Column::Content.like(v)))
+            .add_option(when(f, "taskId", |v| task_comments::Column::TaskId.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("taskId")],
     dates: &[],
     events: Some([
@@ -313,12 +327,12 @@ static TASK_TAGS_GROUP: Simple = Simple {
     list: &LIST_TASK_TAGS,
     create: &CREATE_TASK_TAG,
     update: &UPDATE_TASK_TAG,
-    sql: table_list_sql!(
-        task_tags,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'userId' is null or t.user_id = $3->>'userId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(task_tags::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| task_tags::Column::Name.like(v)))
+            .add_option(when(f, "userId", |v| task_tags::Column::UserId.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("userId")],
     dates: &[],
     events: Some([TASK_TAG_CREATED, TASK_TAG_UPDATED, TASK_TAG_DELETED]),
@@ -338,13 +352,19 @@ static DOCUMENTS: Simple = Simple {
     list: &LIST_PROJECT_DOCUMENTS,
     create: &CREATE_PROJECT_DOCUMENT,
     update: &UPDATE_PROJECT_DOCUMENT,
-    sql: table_list_sql!(
-        project_documents,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.title like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-         and ($3->>'parentId' is null or t.parent_id = $3->>'parentId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_documents::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| {
+                project_documents::Column::Title.like(v)
+            }))
+            .add_option(when(f, "projectId", |v| {
+                project_documents::Column::ProjectId.eq(v)
+            }))
+            .add_option(when(f, "parentId", |v| {
+                project_documents::Column::ParentId.eq(v)
+            }))
+    },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("parentId")],
     dates: &[],
     events: Some([
@@ -368,13 +388,15 @@ static FILES: Simple = Simple {
     list: &LIST_PROJECT_FILES,
     create: &CREATE_PROJECT_FILE,
     update: &UPDATE_PROJECT_FILE,
-    sql: table_list_sql!(
-        project_files,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.file_name like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-         and ($3->>'fileType' is null or t.file_type = $3->>'fileType')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_files::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| project_files::Column::FileName.like(v)))
+            .add_option(when(f, "projectId", |v| {
+                project_files::Column::ProjectId.eq(v)
+            }))
+            .add_option(when(f, "fileType", |v| project_files::Column::FileType.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("fileType")],
     dates: &[],
     events: Some([
@@ -407,12 +429,14 @@ static LABELS: Simple = Simple {
     list: &LIST_PROJECT_LABELS,
     create: &CREATE_PROJECT_LABEL,
     update: &UPDATE_PROJECT_LABEL,
-    sql: table_list_sql!(
-        project_labels,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_labels::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| project_labels::Column::Name.like(v)))
+            .add_option(when(f, "projectId", |v| {
+                project_labels::Column::ProjectId.eq(v)
+            }))
+    },
     filters: &[F::Like("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
@@ -436,13 +460,15 @@ static MEMBERS: Simple = Simple {
     list: &LIST_PROJECT_MEMBERS,
     create: &CREATE_PROJECT_MEMBER,
     update: &UPDATE_PROJECT_MEMBER,
-    sql: table_list_sql!(
-        project_members,
-        "t.deleted_at is null \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-         and ($3->>'userId' is null or t.user_id = $3->>'userId') \
-         and ($3->>'role' is null or t.role = $3->>'role')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_members::Column::DeletedAt.is_null())
+            .add_option(when(f, "projectId", |v| {
+                project_members::Column::ProjectId.eq(v)
+            }))
+            .add_option(when(f, "userId", |v| project_members::Column::UserId.eq(v)))
+            .add_option(when(f, "role", |v| project_members::Column::Role.eq(v)))
+    },
     filters: &[F::Eq("projectId"), F::Eq("userId"), F::Eq("role")],
     dates: &[],
     events: Some([
@@ -479,12 +505,14 @@ static MESSAGES: Simple = Simple {
     list: &LIST_PROJECT_MESSAGES,
     create: &CREATE_PROJECT_MESSAGE,
     update: &UPDATE_PROJECT_MESSAGE,
-    sql: table_list_sql!(
-        project_messages,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.message like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_messages::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| project_messages::Column::Message.like(v)))
+            .add_option(when(f, "projectId", |v| {
+                project_messages::Column::ProjectId.eq(v)
+            }))
+    },
     filters: &[F::Like("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
@@ -508,12 +536,14 @@ static WHITEBOARDS: Simple = Simple {
     list: &LIST_WHITEBOARDS,
     create: &CREATE_WHITEBOARD,
     update: &UPDATE_WHITEBOARD,
-    sql: table_list_sql!(
-        project_whiteboards,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'projectId' is null or t.project_id = $3->>'projectId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(project_whiteboards::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| project_whiteboards::Column::Name.like(v)))
+            .add_option(when(f, "projectId", |v| {
+                project_whiteboards::Column::ProjectId.eq(v)
+            }))
+    },
     filters: &[F::Like("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
@@ -556,23 +586,42 @@ pub(crate) async fn decorate(
 // Tasks
 // ---------------------------------------------------------------------------
 
-const TASKS_LIST: (&str, &str) = table_list_sql!(
-    tasks,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.title like $3->>'search' or t.description like $3->>'search' \
-          or ($3->>'number' is not null and t.number = ($3->>'number')::integer)) \
-     and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-     and ($3->>'status' is null or t.status in (select jsonb_array_elements_text($3->'statuses'))) \
-     and ($3->>'priority' is null or t.priority = $3->>'priority') \
-     and ($3->>'type' is null or t.type = $3->>'type') \
-     and ($3->>'sprintId' is null or t.sprint_id = $3->>'sprintId') \
-     and ($3->>'milestoneId' is null or t.milestone_id = $3->>'milestoneId') \
-     and ($3->>'parentTaskId' is null or t.parent_task_id = $3->>'parentTaskId') \
-     and ($3->>'assigneeId' is null or t.assignee_id = $3->>'assigneeId' \
-          or t.assignee_ids @> jsonb_build_array($3->>'assigneeId')) \
-     and ($3->>'dueFrom' is null or t.due_date >= ($3->>'dueFrom')::timestamp) \
-     and ($3->>'dueTo' is null or t.due_date <= ($3->>'dueTo')::timestamp)"
-);
+/// The task list's conditions: the search on the title and description, or
+/// the task number it names; the status as any of its aliases; an assignee
+/// as the assignee or one of `assigneeIds`; the due dates as `Date`s.
+fn tasks_list(f: &Value) -> Condition {
+    use tasks::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::Title, Column::Description], &v).add_option(
+                param(f, "number").map(|number| {
+                    sea_orm::ExprTrait::eq(Column::Number.into_expr(), cast(number, "integer"))
+                }),
+            )
+        }))
+        .add_option(when(f, "projectId", |v| Column::ProjectId.eq(v)))
+        .add_option(when(f, "status", |_| one_of(f, "statuses", Column::Status)))
+        .add_option(when(f, "priority", |v| Column::Priority.eq(v)))
+        .add_option(when(f, "type", |v| Column::Type.eq(v)))
+        .add_option(when(f, "sprintId", |v| Column::SprintId.eq(v)))
+        .add_option(when(f, "milestoneId", |v| Column::MilestoneId.eq(v)))
+        .add_option(when(f, "parentTaskId", |v| Column::ParentTaskId.eq(v)))
+        .add_option(when(f, "assigneeId", |v| {
+            Condition::any()
+                .add(Column::AssigneeId.eq(v.clone()))
+                .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                    Column::AssigneeIds.into_expr(),
+                    json!([v]),
+                ))
+        }))
+        .add_option(when(f, "dueFrom", |v| {
+            sea_orm::ExprTrait::gte(Column::DueDate.into_expr(), cast(v, "timestamp"))
+        }))
+        .add_option(when(f, "dueTo", |v| {
+            sea_orm::ExprTrait::lte(Column::DueDate.into_expr(), cast(v, "timestamp"))
+        }))
+}
 
 /// The task number a search names (`TASK-1042`, `#1042`, `1042`).
 fn number_search(term: &str) -> Option<String> {
@@ -620,7 +669,7 @@ async fn list_tasks(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "dueFrom": date_filter(&q, "dueDateFrom")?,
         "dueTo": date_filter(&q, "dueDateTo")?,
     });
-    crate::crud::page(&caller.db, TASKS_LIST, &TASKS, &q, filters).await
+    crate::crud::page(&caller.db, tasks_list, &TASKS, &q, filters).await
 }
 
 async fn get_task(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -693,12 +742,13 @@ async fn create_task_route(
         .and_then(Value::as_str)
         .map(str::to_owned);
     if let Some(project) = &project_id {
-        let live: Option<String> = sqlx::query_scalar(
-            "select id from projects where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(project)
-        .fetch_optional(&caller.db)
-        .await?;
+        let live: Option<String> = projects::Entity::find_by_id(project.clone())
+            .filter(projects::Column::DeletedAt.is_null())
+            .select_only()
+            .column(projects::Column::Id)
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if live.is_none() {
             return Err(not_found("Project", project).into());
         }
@@ -817,13 +867,18 @@ async fn update_task(
 ) -> Answer {
     let parsed = zod::json(&UPDATE_TASK, &headers, &body)?;
     let body = &parsed.body;
-    let existing: Option<TaskState> = sqlx::query_as(
-        "select project_id, parent_task_id, stage_id, status from tasks
-             where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let existing: Option<TaskState> = tasks::Entity::find_by_id(id.clone())
+        .filter(tasks::Column::DeletedAt.is_null())
+        .select_only()
+        .columns([
+            tasks::Column::ProjectId,
+            tasks::Column::ParentTaskId,
+            tasks::Column::StageId,
+            tasks::Column::Status,
+        ])
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some((project, parent_now, stage_now, status)) = existing else {
         return Err(not_found("Task", &id).into());
     };
@@ -892,7 +947,7 @@ async fn update_task(
             let mut tx = caller.db.begin().await?;
             write_dependency_rows(&mut tx, &id, &plan, &now(), caller.session.actor()).await?;
             TASKS
-                .patch(&mut *tx, &id, &update, true, &date_props)
+                .patch_on(&OrmConn::new(&mut tx), &id, &update, true, &date_props)
                 .await?;
             tx.commit().await?;
         }
@@ -929,17 +984,22 @@ async fn delete_task(State(state): S, caller: Caller, Path(id): Path<String>) ->
 // Time entries
 // ---------------------------------------------------------------------------
 
-const TIME_ENTRIES_LIST: (&str, &str) = table_list_sql!(
-    time_entries,
-    "t.deleted_at is null \
-     and ($3->>'projectId' is null or t.project_id = $3->>'projectId') \
-     and ($3->>'taskId' is null or t.task_id = $3->>'taskId') \
-     and ($3->>'userId' is null or t.user_id = $3->>'userId') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'billable' is null or t.billable = ($3->>'billable')::boolean) \
-     and ($3->>'fromDate' is null or t.date >= ($3->>'fromDate')::date) \
-     and ($3->>'toDate' is null or t.date <= ($3->>'toDate')::date)"
-);
+fn time_entries_list(f: &Value) -> Condition {
+    use time_entries::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "projectId", |v| Column::ProjectId.eq(v)))
+        .add_option(when(f, "taskId", |v| Column::TaskId.eq(v)))
+        .add_option(when(f, "userId", |v| Column::UserId.eq(v)))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when_flag(f, "billable", |flag| Column::Billable.eq(flag)))
+        .add_option(when(f, "fromDate", |v| {
+            sea_orm::ExprTrait::gte(Column::Date.into_expr(), cast(v, "date"))
+        }))
+        .add_option(when(f, "toDate", |v| {
+            sea_orm::ExprTrait::lte(Column::Date.into_expr(), cast(v, "date"))
+        }))
+}
 
 async fn list_time_entries(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_TIME_ENTRIES, raw.as_deref())?;
@@ -952,7 +1012,14 @@ async fn list_time_entries(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "fromDate": crate::crud::text(&q, "fromDate"),
         "toDate": crate::crud::text(&q, "toDate"),
     });
-    crate::crud::page(&caller.db, TIME_ENTRIES_LIST, &TIME_ENTRIES, &q, filters).await
+    crate::crud::page(
+        &caller.db,
+        time_entries_list,
+        &TIME_ENTRIES,
+        &q,
+        filters,
+    )
+    .await
 }
 
 async fn get_time_entry(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -1188,7 +1255,13 @@ pub(crate) async fn decorated_page(
     parsed: &zod::Parsed,
     filters: Value,
 ) -> Answer {
-    let mut page = list_rows(&caller.db, spec.sql, &list_query(parsed), &filters).await?;
+    let mut page = list_rows(
+        &caller.db,
+        &spec.table.entity,
+        (spec.filter)(&filters),
+        &list_query(parsed),
+    )
+    .await?;
     let rows = page
         .rows
         .into_iter()

@@ -135,6 +135,13 @@ pub(crate) fn label_eq<C: ColumnTrait>(column: C, value: String) -> Expr {
         .eq(value)
 }
 
+/// `$value::<type>`: a filter's text as Postgres reads it into the
+/// column's type (`($3->>'dueFrom')::timestamp`).
+pub(crate) fn cast(value: String, to: &'static str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::val(value).cast_as(to)
+}
+
 /// `t.<column> in (select jsonb_array_elements_text($3->'key'))`: the
 /// column is one of the filter's strings (none: nothing matches).
 pub(crate) fn one_of<C: ColumnTrait>(filters: &Value, key: &str, column: C) -> Condition {

@@ -5,13 +5,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{CALENDAR_BOOKING_DELETED, CALENDAR_BOOKING_UPDATED};
 use weldsuite_catalogs::permission_keys::BOOKINGS_SCOPE_ALL;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data, NoContent};
+use weldsuite_schema::tenant::{calendar_booking_pages as pages, calendar_bookings as bookings};
 
+use crate::access::row_json;
 use crate::passthrough::{self, Kind};
 use crate::{CalendarState, Caller, Outcome, Refusal, now, page, text, validate};
 
@@ -27,12 +34,14 @@ pub(crate) fn scope_for(caller: &Caller) -> Option<String> {
 }
 
 /// Whether `scope` owns the booking page (`ownsPage`), deleted or not.
-async fn owns_page(db: &PgPool, page_id: Option<&str>, scope: &str) -> Result<bool, sqlx::Error> {
-    let owner: Option<String> =
-        sqlx::query_scalar("select owner_id from calendar_booking_pages where id = $1 limit 1")
-            .bind(page_id)
-            .fetch_optional(db)
-            .await?;
+async fn owns_page(db: &PgPool, page_id: Option<&str>, scope: &str) -> Result<bool, DbErr> {
+    let owner: Option<String> = pages::Entity::find()
+        .select_only()
+        .column(pages::Column::OwnerId)
+        .filter(pages::Column::Id.eq(page_id.map(str::to_owned)))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(owner.as_deref() == Some(scope))
 }
 
@@ -132,11 +141,13 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     let setup = async {
         let owned_pages: Option<Vec<String>> = match &scope {
             Some(scope) => {
-                let ids: Vec<String> =
-                    sqlx::query_scalar("select id from calendar_booking_pages where owner_id = $1")
-                        .bind(scope)
-                        .fetch_all(&caller.db)
-                        .await?;
+                let ids: Vec<String> = pages::Entity::find()
+                    .select_only()
+                    .column(pages::Column::Id)
+                    .filter(pages::Column::OwnerId.eq(scope.as_str()))
+                    .into_tuple()
+                    .all(&orm(&caller.db))
+                    .await?;
                 Some(if ids.is_empty() {
                     vec![String::new()]
                 } else {
@@ -149,7 +160,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
             Some(id) => crate::events::cursor_of(&caller.db, "calendar_bookings", id).await?,
             None => None,
         };
-        Ok::<_, sqlx::Error>((owned_pages, cursor))
+        Ok::<_, DbErr>((owned_pages, cursor))
     }
     .await;
     let (owned_pages, cursor) = match setup {
@@ -179,52 +190,63 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     let on = |list: &[(&str, bool)], name: &str| list.iter().any(|(n, set)| *n == name && *set);
     let count_keeps_deleted = !on(&count, "deleted");
     applied.retain(|(n, _)| *n != "deleted");
+    // `and(...conditions)` for the conditions that are on in `list`.
+    let conditions = |list: &[(&str, bool)]| {
+        let mut all = Condition::all();
+        if on(list, "page")
+            && let Some(page_id) = &page_id
+        {
+            all = all.add(bookings::Column::BookingPageId.eq(page_id.as_str()));
+        }
+        if on(list, "status")
+            && let Some(status) = &status
+        {
+            all = all.add(bookings::Column::Status.eq(status.as_str()));
+        }
+        if on(list, "scope")
+            && let Some(owned) = &owned_pages
+        {
+            all = all.add(bookings::Column::BookingPageId.is_in(owned.clone()));
+        }
+        if on(list, "cursor")
+            && let Some((at, id)) = &cursor
+        {
+            all = all.add(
+                Condition::any().add(bookings::Column::CreatedAt.lt(*at)).add(
+                    Condition::all()
+                        .add(bookings::Column::CreatedAt.eq(*at))
+                        .add(bookings::Column::Id.lt(id.as_str())),
+                ),
+            );
+        }
+        all
+    };
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(b) from calendar_bookings b
-             where deleted_at is null
-               and (not $1 or booking_page_id = $2)
-               and (not $3 or status = $4)
-               and (not $5 or booking_page_id = any($6))
-               and (not $7 or (created_at < $8::timestamp or (created_at = $8::timestamp and id < $9)))
-             order by created_at desc, id desc
-             limit $10",
-        )
-        .bind(on(&applied, "page"))
-        .bind(&page_id)
-        .bind(on(&applied, "status"))
-        .bind(&status)
-        .bind(on(&applied, "scope"))
-        .bind(owned_pages.clone().unwrap_or_default())
-        .bind(on(&applied, "cursor"))
-        .bind(cursor.as_ref().map(|c| c.0.clone()))
-        .bind(cursor.as_ref().map(|c| c.1.clone()))
-        .bind(paging.sql_limit())
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from calendar_bookings
-             where (not $1 or deleted_at is null)
-               and (not $2 or booking_page_id = $3)
-               and (not $4 or status = $5)
-               and (not $6 or booking_page_id = any($7))
-               and (not $8 or (created_at < $9::timestamp or (created_at = $9::timestamp and id < $10)))",
-        )
-        .bind(count_keeps_deleted)
-        .bind(on(&count, "page"))
-        .bind(&page_id)
-        .bind(on(&count, "status"))
-        .bind(&status)
-        .bind(on(&count, "scope"))
-        .bind(owned_pages.clone().unwrap_or_default())
-        .bind(on(&count, "cursor"))
-        .bind(cursor.as_ref().map(|c| c.0.clone()))
-        .bind(cursor.as_ref().map(|c| c.1.clone()))
-        .fetch_one(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let db = orm(&caller.db);
+        let rows = bookings::Entity::find()
+            .filter(bookings::Column::DeletedAt.is_null())
+            .filter(conditions(&applied))
+            .order_by_desc(bookings::Column::CreatedAt)
+            .order_by_desc(bookings::Column::Id)
+            .limit(paging.sql_limit().and_then(|l| u64::try_from(l).ok()))
+            .all(&db)
+            .await?;
+        let mut counted = bookings::Entity::find();
+        if count_keeps_deleted {
+            counted = counted.filter(bookings::Column::DeletedAt.is_null());
+        }
+        let total = counted.filter(conditions(&count)).count(&db).await?;
+        let rows = rows
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<Vec<_>, _>>()?;
         let (data, has_more, next) = paging.cut(rows);
-        Ok::<_, sqlx::Error>(page(data, total, has_more, next))
+        Ok::<_, DbErr>(page(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     result.unwrap_or_else(|error| Refusal::from(error).respond("Failed to list bookings"))
@@ -232,14 +254,14 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn booking_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(b) from calendar_bookings b where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn booking_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    bookings::Entity::find()
+        .filter(bookings::Column::Id.eq(id))
+        .filter(bookings::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// The live booking, when the caller may touch it: 404 / 403 otherwise.
@@ -383,75 +405,7 @@ async fn update_booking(
         .map_err(|e| Refusal::Internal(e.0))?;
     let cancelled_at = passthrough::column(data, "cancelledAt", Kind::Timestamp)
         .map_err(|e| Refusal::Internal(e.0))?;
-    let col = |key: &str| passthrough::bind(&columns[key]);
-    let (set_id, new_id) = col("id");
-    let (set_created, _) = col("createdAt");
-    let (set_deleted, _) = col("deletedAt");
-    let (set_page, page_id) = col("bookingPageId");
-    let (set_event, event_id) = col("calendarEventId");
-    let (set_name, name) = col("bookerName");
-    let (set_email, email) = col("bookerEmail");
-    let (set_start, _) = col("startTime");
-    let (set_end, _) = col("endTime");
-    let (set_status, status) = col("status");
-    let (set_answers, answers) = col("answers");
-    let (set_notes, notes) = col("notes");
-    let (set_guests, guests) = col("guests");
-    let (set_zone, zone) = col("timezone");
-    let (set_reason, reason) = col("cancelReason");
-    sqlx::query(
-        "update calendar_bookings set
-             id = case when $2 then $3 else id end,
-             created_at = case when $4 then null else created_at end,
-             updated_at = case when $5 then null else $6::timestamp end,
-             deleted_at = case when $7 then null else deleted_at end,
-             booking_page_id = case when $8 then $9 else booking_page_id end,
-             calendar_event_id = case when $10 then $11 else calendar_event_id end,
-             booker_name = case when $12 then $13 else booker_name end,
-             booker_email = case when $14 then $15 else booker_email end,
-             start_time = case when $16 then null else start_time end,
-             end_time = case when $17 then null else end_time end,
-             status = case when $18 then $19 else status end,
-             answers = case when $20 then $21::jsonb else answers end,
-             notes = case when $22 then $23 else notes end,
-             guests = case when $24 then $25::jsonb else guests end,
-             timezone = case when $26 then $27 else timezone end,
-             cancelled_at = case when $28 then null else cancelled_at end,
-             cancel_reason = case when $29 then $30 else cancel_reason end
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(set_id)
-    .bind(&new_id)
-    .bind(set_created)
-    .bind(updated_at.is_set())
-    .bind(now())
-    .bind(set_deleted)
-    .bind(set_page)
-    .bind(&page_id)
-    .bind(set_event)
-    .bind(&event_id)
-    .bind(set_name)
-    .bind(&name)
-    .bind(set_email)
-    .bind(&email)
-    .bind(set_start)
-    .bind(set_end)
-    .bind(set_status)
-    .bind(&status)
-    .bind(set_answers)
-    .bind(&answers)
-    .bind(set_notes)
-    .bind(&notes)
-    .bind(set_guests)
-    .bind(&guests)
-    .bind(set_zone)
-    .bind(&zone)
-    .bind(cancelled_at.is_set())
-    .bind(set_reason)
-    .bind(&reason)
-    .execute(&caller.db)
-    .await?;
+    write_booking(caller, id, &columns, &updated_at, &cancelled_at).await?;
     // `(update.x as string | undefined) ?? existing.x`: the body's value as sent.
     let pick = |key: &str| match data.get(key) {
         Some(value) if !value.is_null() => value.clone(),
@@ -471,6 +425,84 @@ async fn update_booking(
     Ok(Data(json!({ "id": id })).into_response())
 }
 
+/// `update(calendarBookings).set({ ...data, updatedAt: new Date() })`: only
+/// the columns the body names, each as the driver handed it over (a
+/// timestamp can only be `null` here: anything else threw before).
+async fn write_booking(
+    caller: &Caller,
+    id: &str,
+    columns: &std::collections::HashMap<&'static str, passthrough::Column>,
+    updated_at: &passthrough::Column,
+    cancelled_at: &passthrough::Column,
+) -> Result<(), DbErr> {
+    use bookings::Column as B;
+    let null_stamp = || Expr::value(Option::<time::PrimitiveDateTime>::None);
+    let set = |key: &str| columns[key].is_set();
+    let text = |key: &str| Expr::value(passthrough::bind(&columns[key]).1);
+    let mut update = bookings::Entity::update_many();
+    if set("id") {
+        update = update.col_expr(B::Id, text("id"));
+    }
+    if set("createdAt") {
+        update = update.col_expr(B::CreatedAt, null_stamp());
+    }
+    update = update.col_expr(
+        B::UpdatedAt,
+        if updated_at.is_set() {
+            null_stamp()
+        } else {
+            Expr::value(now())
+        },
+    );
+    if set("deletedAt") {
+        update = update.col_expr(B::DeletedAt, null_stamp());
+    }
+    for (key, column) in [
+        ("bookingPageId", B::BookingPageId),
+        ("calendarEventId", B::CalendarEventId),
+        ("bookerName", B::BookerName),
+        ("bookerEmail", B::BookerEmail),
+    ] {
+        if set(key) {
+            update = update.col_expr(column, text(key));
+        }
+    }
+    if set("startTime") {
+        update = update.col_expr(B::StartTime, null_stamp());
+    }
+    if set("endTime") {
+        update = update.col_expr(B::EndTime, null_stamp());
+    }
+    for (key, column, jsonb) in [
+        ("status", B::Status, false),
+        ("answers", B::Answers, true),
+        ("notes", B::Notes, false),
+        ("guests", B::Guests, true),
+        ("timezone", B::Timezone, false),
+    ] {
+        if set(key) {
+            let value = if jsonb {
+                text(key).cast_as("jsonb")
+            } else {
+                text(key)
+            };
+            update = update.col_expr(column, value);
+        }
+    }
+    if cancelled_at.is_set() {
+        update = update.col_expr(B::CancelledAt, null_stamp());
+    }
+    if set("cancelReason") {
+        update = update.col_expr(B::CancelReason, text("cancelReason"));
+    }
+    update
+        .filter(B::Id.eq(id))
+        .filter(B::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
 pub(crate) async fn remove(
@@ -481,14 +513,12 @@ pub(crate) async fn remove(
     let result = async {
         reachable(&caller, &id).await?;
         let now = now();
-        sqlx::query(
-            "update calendar_bookings set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        bookings::Entity::update_many()
+            .col_expr(bookings::Column::DeletedAt, Expr::value(now))
+            .col_expr(bookings::Column::UpdatedAt, Expr::value(now))
+            .filter(bookings::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, CALENDAR_BOOKING_DELETED, &id, &json!({ "id": id }));
         Ok::<_, Refusal>(())
     }

@@ -18,8 +18,7 @@ use time::OffsetDateTime;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{
-    weldpass_items, weldpass_vault_members as members, weldpass_vaults as vaults,
-    workspace_members,
+    weldpass_items, weldpass_vault_members as members, weldpass_vaults as vaults, workspace_members,
 };
 
 use crate::envelope::{Key, RootKeyring, create_vault_key, unwrap_vault_key};
@@ -530,7 +529,10 @@ pub(crate) async fn list_vault_members(
     let rows = members::Entity::find()
         .select_only()
         .columns([M::UserId, M::Role])
-        .columns([workspace_members::Column::Name, workspace_members::Column::Email])
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
         .columns([M::AddedBy, M::CreatedAt])
         .join(
             JoinType::LeftJoin,

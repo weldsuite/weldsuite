@@ -13,22 +13,26 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use serde::{Deserialize, Serialize};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::{ApiError, Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{user_app_dev_sessions as dev_sessions, user_app_installs, user_apps};
+use weldsuite_schema::tenant::workspace_installed_apps;
 
 use crate::CoreAppsState;
-use crate::access::{AppsError, AppsResult, Caller, OrInternal, answer, now, now_ms, validate};
+use crate::access::{AppsError, AppsResult, Caller, OrInternal, answer, now_ms, validate};
 use crate::bundle_access::{
     plain_bundle_path, sign_bundle_capability, signed_bundle_path, workspace_may_use_bundle,
 };
 use crate::http_transport::OutboundRequest;
-use crate::publish::{is_publicly_servable, mint_app_token, string_list};
+use crate::publish::{is_publicly_servable, mint_app_token, now_tz, string_list, to_millis};
 use crate::schemas;
 use crate::scopes::{is_allowed_dev_session_url, origin_of};
 
@@ -112,35 +116,45 @@ async fn resolve_active_install(
     tenant: &PgPool,
     workspace_id: &str,
     code: &str,
-) -> Result<Option<ActiveInstall>, sqlx::Error> {
-    let app_id: Option<String> = sqlx::query_scalar(
-        "select id from user_apps where code = $1 and is_active = true and deleted_at is null limit 1",
-    )
-    .bind(code)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<ActiveInstall>, DbErr> {
+    let master = orm(master);
+    let app_id: Option<String> = user_apps::Entity::find()
+        .select_only()
+        .column(user_apps::Column::Id)
+        .filter(user_apps::Column::Code.eq(code))
+        .filter(user_apps::Column::IsActive.eq(true))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some(app_id) = app_id else {
         return Ok(None);
     };
-    let tenant_row: Option<String> = sqlx::query_scalar(
-        "select id from workspace_installed_apps
-         where app_code = $1 and app_type = 'user' and is_active = true and deleted_at is null
-         limit 1",
-    )
-    .bind(code)
-    .fetch_optional(tenant)
-    .await?;
+    let tenant_row: Option<String> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .column(workspace_installed_apps::Column::Id)
+        .filter(workspace_installed_apps::Column::AppCode.eq(code))
+        .filter(workspace_installed_apps::Column::AppType.eq("user"))
+        .filter(workspace_installed_apps::Column::IsActive.eq(true))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(tenant))
+        .await?;
     if tenant_row.is_none() {
         return Ok(None);
     }
-    let install: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, granted_scopes from user_app_installs
-         where app_id = $1 and workspace_id = $2 and status = 'active' limit 1",
-    )
-    .bind(&app_id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let install: Option<(String, Option<Value>)> = user_app_installs::Entity::find()
+        .select_only()
+        .columns([
+            user_app_installs::Column::Id,
+            user_app_installs::Column::GrantedScopes,
+        ])
+        .filter(user_app_installs::Column::AppId.eq(&app_id))
+        .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&master)
+        .await?;
     Ok(install.map(|(install_id, granted)| ActiveInstall {
         app_id,
         install_id,
@@ -200,14 +214,23 @@ async fn bundle_url(
         async {
             const FAILED: &str = "Failed to mint the app bundle link";
             let master = caller.master(&state);
-            let app: Option<(String, String, String, String, Option<String>)> = sqlx::query_as(
-                "select id, owner_workspace_id, visibility, review_status, current_version_id
-                 from user_apps where code = $1 and is_active = true and deleted_at is null limit 1",
-            )
-            .bind(&code)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
+            let app: Option<(String, String, String, String, Option<String>)> =
+                user_apps::Entity::find()
+                    .select_only()
+                    .columns([
+                        user_apps::Column::Id,
+                        user_apps::Column::OwnerWorkspaceId,
+                        user_apps::Column::Visibility,
+                        user_apps::Column::ReviewStatus,
+                        user_apps::Column::CurrentVersionId,
+                    ])
+                    .filter(user_apps::Column::Code.eq(&code))
+                    .filter(user_apps::Column::IsActive.eq(true))
+                    .filter(user_apps::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm(&master))
+                    .await
+                    .or_internal(FAILED)?;
             let not_found = || AppsError::api(ApiError::not_found("App", Some(&code)));
             let Some((app_id, owner, visibility, review_status, Some(_))) = app else {
                 return Err(not_found());
@@ -318,7 +341,7 @@ async fn gateway_token(
     caller: &Caller,
     cache: Option<&dyn DynCache>,
     code: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let key = gateway_cache_key(&caller.workspace_id, code);
     let now = now_ms();
     let local = state
@@ -614,7 +637,7 @@ fn picked(headers: &HeaderMap, allowed: &[&str]) -> Vec<(String, String)> {
 
 /// A stored session as the platform may see it: `{ url, origin, expiresAt }`,
 /// `None` when the URL is not (or no longer) an allowed preview URL.
-fn session_view(url: &str, expires_at: &str) -> Option<Value> {
+fn session_view(url: &str, expires_at: OffsetDateTime) -> Option<Value> {
     if !is_allowed_dev_session_url(url) {
         return None;
     }
@@ -622,7 +645,7 @@ fn session_view(url: &str, expires_at: &str) -> Option<Value> {
     Some(json!({
         "url": url,
         "origin": origin,
-        "expiresAt": weldsuite_db::js_timestamp(expires_at).unwrap_or_else(|| expires_at.to_owned()),
+        "expiresAt": iso_timestamp(expires_at),
     }))
 }
 
@@ -631,15 +654,16 @@ async fn owned_app_by_code(
     master: &PgPool,
     code: &str,
     workspace_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from user_apps
-         where code = $1 and owner_workspace_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(code)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await
+) -> Result<Option<String>, DbErr> {
+    user_apps::Entity::find()
+        .select_only()
+        .column(user_apps::Column::Id)
+        .filter(user_apps::Column::Code.eq(code))
+        .filter(user_apps::Column::OwnerWorkspaceId.eq(workspace_id))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(master))
+        .await
 }
 
 async fn dev_session(
@@ -654,34 +678,35 @@ async fn dev_session(
             if !caller.can("weldapps:develop") {
                 return Ok(Data(Value::Null).into_response());
             }
-            let master = caller.master(&state);
-            let app: Option<(String, String)> = sqlx::query_as(
-                "select id, owner_workspace_id from user_apps
-                 where code = $1 and is_active = true and deleted_at is null limit 1",
-            )
-            .bind(&code)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
+            let master = orm(&caller.master(&state));
+            let app: Option<(String, String)> = user_apps::Entity::find()
+                .select_only()
+                .columns([user_apps::Column::Id, user_apps::Column::OwnerWorkspaceId])
+                .filter(user_apps::Column::Code.eq(&code))
+                .filter(user_apps::Column::IsActive.eq(true))
+                .filter(user_apps::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&master)
+                .await
+                .or_internal(FAILED)?;
             let Some((app_id, owner)) = app else {
                 return Ok(Data(Value::Null).into_response());
             };
             if owner != caller.workspace_id {
                 return Ok(Data(Value::Null).into_response());
             }
-            let session: Option<(String, String)> = sqlx::query_as(
-                "select url, to_jsonb(expires_at) #>> '{}' from user_app_dev_sessions
-                 where app_id = $1 and user_id = $2 and workspace_id = $3 and expires_at > $4::timestamptz
-                 limit 1",
-            )
-            .bind(&app_id)
-            .bind(&caller.user_id)
-            .bind(&caller.workspace_id)
-            .bind(now())
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
-            let view = session.and_then(|(url, expires)| session_view(&url, &expires));
+            let session: Option<(String, OffsetDateTime)> = dev_sessions::Entity::find()
+                .select_only()
+                .columns([dev_sessions::Column::Url, dev_sessions::Column::ExpiresAt])
+                .filter(dev_sessions::Column::AppId.eq(&app_id))
+                .filter(dev_sessions::Column::UserId.eq(&caller.user_id))
+                .filter(dev_sessions::Column::WorkspaceId.eq(&caller.workspace_id))
+                .filter(dev_sessions::Column::ExpiresAt.gt(now_tz()))
+                .into_tuple()
+                .one(&master)
+                .await
+                .or_internal(FAILED)?;
+            let view = session.and_then(|(url, expires)| session_view(&url, expires));
             Ok(Data(view.unwrap_or(Value::Null)).into_response())
         }
         .await,
@@ -711,50 +736,48 @@ async fn put_dev_session(
                 .into());
             }
             let now = OffsetDateTime::now_utc();
-            let stamp = iso_timestamp(now);
-            let expires = iso_timestamp(now + DEV_SESSION_TTL);
-            let existing: Option<String> = sqlx::query_scalar(
-                "select id from user_app_dev_sessions
-                 where app_id = $1 and user_id = $2 and workspace_id = $3 limit 1",
-            )
-            .bind(&app_id)
-            .bind(&caller.user_id)
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
-            let stored: Option<(String, String)> = match existing {
-                Some(id) => sqlx::query_as(
-                    "update user_app_dev_sessions set url = $2, expires_at = $3::timestamptz,
-                       updated_at = $4::timestamptz where id = $1
-                     returning url, to_jsonb(expires_at) #>> '{}'",
-                )
-                .bind(id)
-                .bind(&url)
-                .bind(&expires)
-                .bind(&stamp)
-                .fetch_optional(&master)
+            let stamp = to_millis(now);
+            let expires = to_millis(now + DEV_SESSION_TTL);
+            let master = orm(&master);
+            let existing: Option<String> = dev_sessions::Entity::find()
+                .select_only()
+                .column(dev_sessions::Column::Id)
+                .filter(dev_sessions::Column::AppId.eq(&app_id))
+                .filter(dev_sessions::Column::UserId.eq(&caller.user_id))
+                .filter(dev_sessions::Column::WorkspaceId.eq(&caller.workspace_id))
+                .into_tuple()
+                .one(&master)
                 .await
-                .or_internal(FAILED)?,
-                None => sqlx::query_as(
-                    "insert into user_app_dev_sessions
-                       (id, app_id, workspace_id, user_id, url, expires_at, created_at, updated_at)
-                     values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $7::timestamptz)
-                     returning url, to_jsonb(expires_at) #>> '{}'",
-                )
-                .bind(generate_id("uads"))
-                .bind(&app_id)
-                .bind(&caller.workspace_id)
-                .bind(&caller.user_id)
-                .bind(&url)
-                .bind(&expires)
-                .bind(&stamp)
-                .fetch_optional(&master)
-                .await
-                .or_internal(FAILED)?,
+                .or_internal(FAILED)?;
+            let stored: Option<dev_sessions::Model> = match existing {
+                Some(id) => dev_sessions::Entity::update_many()
+                    .col_expr(dev_sessions::Column::Url, Expr::value(&url))
+                    .col_expr(dev_sessions::Column::ExpiresAt, Expr::value(expires))
+                    .col_expr(dev_sessions::Column::UpdatedAt, Expr::value(stamp))
+                    .filter(dev_sessions::Column::Id.eq(id))
+                    .exec_with_returning(&master)
+                    .await
+                    .or_internal(FAILED)?
+                    .into_iter()
+                    .next(),
+                None => Some(
+                    dev_sessions::Entity::insert(dev_sessions::ActiveModel {
+                        id: Set(generate_id("uads")),
+                        app_id: Set(app_id),
+                        workspace_id: Set(caller.workspace_id.clone()),
+                        user_id: Set(caller.user_id.clone()),
+                        url: Set(url),
+                        expires_at: Set(expires),
+                        created_at: Set(stamp),
+                        updated_at: Set(stamp),
+                    })
+                    .exec_with_returning(&master)
+                    .await
+                    .or_internal(FAILED)?,
+                ),
             };
             let view = stored
-                .and_then(|(url, expires)| session_view(&url, &expires))
+                .and_then(|session| session_view(&session.url, session.expires_at))
                 .ok_or_else(|| {
                     AppsError::internal(
                         FAILED,
@@ -786,15 +809,13 @@ async fn delete_session(
         .await
         .or_internal(FAILED)?
         .ok_or_else(|| AppsError::api(ApiError::not_found("App", Some(code))))?;
-    sqlx::query(
-        "delete from user_app_dev_sessions where app_id = $1 and user_id = $2 and workspace_id = $3",
-    )
-    .bind(&app_id)
-    .bind(&caller.user_id)
-    .bind(&caller.workspace_id)
-    .execute(&master)
-    .await
-    .or_internal(FAILED)?;
+    dev_sessions::Entity::delete_many()
+        .filter(dev_sessions::Column::AppId.eq(&app_id))
+        .filter(dev_sessions::Column::UserId.eq(&caller.user_id))
+        .filter(dev_sessions::Column::WorkspaceId.eq(&caller.workspace_id))
+        .exec(&orm(&master))
+        .await
+        .or_internal(FAILED)?;
     Ok(NoContent.into_response())
 }
 

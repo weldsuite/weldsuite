@@ -954,18 +954,21 @@ pub(crate) fn read_changes(
 
 /// What a field the body sent writes (`set col = case when $set then $value
 /// else col end`): `None` when it was left out, so the column keeps its
-/// value; `Some(None)` for an explicit null.
-pub(crate) fn sent<T, V>(field: &Field<T>, to: impl FnOnce(&T) -> V) -> Option<Option<V>> {
+/// value; a null for an explicit null.
+pub(crate) fn sent<T, V>(field: &Field<T>, to: impl FnOnce(&T) -> V) -> Option<sea_orm::Value>
+where
+    Option<V>: Into<sea_orm::Value>,
+{
     match field {
         Field::Absent => None,
-        Field::Null => Some(None),
-        Field::Set(value) => Some(Some(to(value))),
+        Field::Null => Some(None::<V>.into()),
+        Field::Set(value) => Some(Some(to(value)).into()),
     }
 }
 
-/// A day count the schema bounds, as the `int` column takes it (`$n::int`).
-pub(crate) fn int(n: &i64) -> i32 {
-    i32::try_from(*n).unwrap_or(i32::MAX)
+/// A number the schema bounds, as the `int` column takes it (`$n::int`).
+pub(crate) fn int(n: i64) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
 }
 
 /// `$n::timestamptz` for a value `Format::DatetimeOffset` let through
@@ -976,9 +979,10 @@ fn offset_datetime(text: &str) -> Option<OffsetDateTime> {
         Some(date_time) => (date_time, "Z".to_owned()),
         None => {
             let (date_time, offset) = text.split_at(text.rfind(['+', '-'])?);
-            let offset = match offset.len() {
-                5 => format!("{}:{}", &offset[..3], &offset[3..]),
-                _ => offset.to_owned(),
+            let offset = if offset.len() == 5 {
+                format!("{}:{}", &offset[..3], &offset[3..])
+            } else {
+                offset.to_owned()
             };
             (date_time, offset)
         }
@@ -1009,42 +1013,44 @@ pub(crate) async fn update_envelope(
     if text(envelope, "status") != "draft" {
         return Err(SignError::not_a_draft());
     }
-    let expires: Option<Option<OffsetDateTime>> = match &changes.expires_at {
-        Field::Absent => None,
-        Field::Null => Some(None),
-        Field::Set(at) => Some(Some(offset_datetime(at).ok_or_else(|| {
-            SignError::Internal(format!("sign: unreadable expiry {at}"))
-        })?)),
+    let expires = match &changes.expires_at {
+        Field::Set(at) => Some(
+            Some(offset_datetime(at).ok_or_else(|| {
+                SignError::Internal(format!("sign: unreadable expiry {at}"))
+            })?)
+            .into(),
+        ),
+        other => sent(other, |_| OffsetDateTime::UNIX_EPOCH),
     };
     let values: [(Column, Option<sea_orm::Value>); 9] = [
         (
             Column::Title,
-            sent(&changes.title, Clone::clone).map(Into::into),
+            sent(&changes.title, Clone::clone),
         ),
         (
             Column::Message,
-            sent(&changes.message, Clone::clone).map(Into::into),
+            sent(&changes.message, Clone::clone),
         ),
         (
             Column::SigningOrderEnabled,
-            sent(&changes.signing_order, |on| *on).map(Into::into),
+            sent(&changes.signing_order, |on| *on),
         ),
-        (Column::ExpiresAt, expires.map(Into::into)),
+        (Column::ExpiresAt, expires),
         (
             Column::ReminderAfterDays,
-            sent(&changes.reminder_after, int).map(Into::into),
+            sent(&changes.reminder_after, |n| int(*n)),
         ),
         (
             Column::ReminderEveryDays,
-            sent(&changes.reminder_every, int).map(Into::into),
+            sent(&changes.reminder_every, |n| int(*n)),
         ),
         (
             Column::ReminderMaxCount,
-            sent(&changes.reminder_max, int).map(Into::into),
+            sent(&changes.reminder_max, |n| int(*n)),
         ),
         (
             Column::FileBackFolderId,
-            sent(&changes.folder, Clone::clone).map(Into::into),
+            sent(&changes.folder, Clone::clone),
         ),
         (Column::UpdatedAt, Some(now().into())),
     ];

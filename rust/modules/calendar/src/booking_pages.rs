@@ -5,14 +5,21 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CALENDAR_BOOKING_PAGE_CREATED, CALENDAR_BOOKING_PAGE_DELETED, CALENDAR_BOOKING_PAGE_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{calendar_booking_pages as pages, calendar_bookings};
 
+use crate::access::row_json;
 use crate::bookings::{Paging, first_values, scope_for};
 use crate::passthrough::{self, Column, Kind};
 use crate::{
@@ -23,18 +30,56 @@ const NOT_FOUND: &str = "Booking page";
 
 /// The live page, within the caller's scope: 404 otherwise.
 async fn scoped_page(caller: &Caller, id: &str) -> Outcome<Value> {
-    let scope = scope_for(caller);
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from calendar_booking_pages p
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2)
-         limit 1",
-    )
-    .bind(id)
-    .bind(&scope)
-    .fetch_optional(&caller.db)
-    .await?;
-    row.map(js_row)
+    let mut find = pages::Entity::find()
+        .filter(pages::Column::Id.eq(id))
+        .filter(pages::Column::DeletedAt.is_null());
+    if let Some(scope) = scope_for(caller) {
+        find = find.filter(pages::Column::OwnerId.eq(scope));
+    }
+    let row = find.one(&orm(&caller.db)).await?;
+    row.map(row_json)
+        .transpose()?
         .ok_or_else(|| Refusal::not_found(NOT_FOUND, id))
+}
+
+/// The list's conditions that are on (`and(...conditions)`): the scope, the
+/// owner, the search and the keyset.
+struct PageFilters<'a> {
+    scope: Option<&'a str>,
+    owner: Option<&'a str>,
+    search: Option<&'a str>,
+    cursor: Option<&'a (time::PrimitiveDateTime, String)>,
+}
+
+impl PageFilters<'_> {
+    fn condition(&self) -> Condition {
+        let mut all = Condition::all();
+        if let Some(scope) = self.scope {
+            all = all.add(pages::Column::OwnerId.eq(scope));
+        }
+        if let Some(owner) = self.owner {
+            all = all.add(pages::Column::OwnerId.eq(owner));
+        }
+        if let Some(search) = self.search {
+            all = all.add(
+                Condition::any()
+                    .add(pages::Column::Name.like(search))
+                    .add(pages::Column::Slug.like(search)),
+            );
+        }
+        if let Some((at, id)) = self.cursor {
+            all = all.add(
+                Condition::any()
+                    .add(pages::Column::CreatedAt.lt(*at))
+                    .add(
+                        Condition::all()
+                            .add(pages::Column::CreatedAt.eq(*at))
+                            .add(pages::Column::Id.lt(id.as_str())),
+                    ),
+            );
+        }
+        all
+    }
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -87,52 +132,41 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
         }
     }
     let on = |list: &[(&str, bool)], name: &str| list.iter().any(|(n, set)| *n == name && *set);
+    let filters = |list: &[(&str, bool)]| PageFilters {
+        scope: scope.as_deref().filter(|_| on(list, "scope")),
+        owner: owner.as_deref().filter(|_| on(list, "owner")),
+        search: search.as_deref().filter(|_| on(list, "search")),
+        cursor: cursor.as_ref().filter(|_| on(list, "cursor")),
+    };
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(p) from calendar_booking_pages p
-             where deleted_at is null
-               and (not $1 or owner_id = $2)
-               and (not $3 or owner_id = $4)
-               and (not $5 or (name like $6 or slug like $6))
-               and (not $7 or (created_at < $8::timestamp or (created_at = $8::timestamp and id < $9)))
-             order by created_at desc, id desc
-             limit $10",
-        )
-        .bind(on(&applied, "scope"))
-        .bind(&scope)
-        .bind(on(&applied, "owner"))
-        .bind(&owner)
-        .bind(on(&applied, "search"))
-        .bind(&search)
-        .bind(on(&applied, "cursor"))
-        .bind(cursor.as_ref().map(|c| c.0.clone()))
-        .bind(cursor.as_ref().map(|c| c.1.clone()))
-        .bind(paging.sql_limit())
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from calendar_booking_pages
-             where (not $1 or deleted_at is null)
-               and (not $2 or owner_id = $3)
-               and (not $4 or owner_id = $5)
-               and (not $6 or (name like $7 or slug like $7))
-               and (not $8 or (created_at < $9::timestamp or (created_at = $9::timestamp and id < $10)))",
-        )
-        .bind(count_keeps_deleted)
-        .bind(on(&count, "scope"))
-        .bind(&scope)
-        .bind(on(&count, "owner"))
-        .bind(&owner)
-        .bind(on(&count, "search"))
-        .bind(&search)
-        .bind(on(&count, "cursor"))
-        .bind(cursor.as_ref().map(|c| c.0.clone()))
-        .bind(cursor.as_ref().map(|c| c.1.clone()))
-        .fetch_one(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let db = orm(&caller.db);
+        let rows = pages::Entity::find()
+            .filter(pages::Column::DeletedAt.is_null())
+            .filter(filters(&applied).condition())
+            .order_by_desc(pages::Column::CreatedAt)
+            .order_by_desc(pages::Column::Id)
+            .limit(paging.sql_limit().and_then(|l| u64::try_from(l).ok()))
+            .all(&db)
+            .await?;
+        let mut counted = pages::Entity::find();
+        if count_keeps_deleted {
+            counted = counted.filter(pages::Column::DeletedAt.is_null());
+        }
+        let total = counted
+            .filter(filters(&count).condition())
+            .count(&db)
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<Vec<_>, _>>()?;
         let (data, has_more, next) = paging.cut(rows);
-        Ok::<_, sqlx::Error>(page(data, total, has_more, next))
+        Ok::<_, DbErr>(page(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     result.unwrap_or_else(|error| Refusal::from(error).respond("Failed to list booking pages"))
@@ -621,6 +655,112 @@ fn columns_of(
     Ok(columns)
 }
 
+/// A passthrough value as the driver handed it to Postgres: text, cast to
+/// the column's type (`$n::integer`), `NULL` for a `null`.
+fn cast(column: &Column, sql_type: &'static str) -> Expr {
+    plain(column).cast_as(sql_type)
+}
+
+/// A passthrough text value (`NULL` for a `null` or a key left out).
+fn plain(column: &Column) -> Expr {
+    Expr::value(passthrough::bind(column).1)
+}
+
+/// The value of a column with a default: the body's when it names the
+/// column, else `default` (`case when $set then $value else <default> end`).
+fn or_default(column: &Column, value: Expr, default: Expr) -> Expr {
+    if column.is_set() { value } else { default }
+}
+
+/// `insert into calendar_booking_pages (…) values (…)`: every column, the
+/// body's values cast by Postgres, the defaults the TypeScript schema has
+/// where the body leaves a column out.
+async fn insert_page(
+    db: &weldsuite_db::PgPool,
+    columns: &std::collections::HashMap<&'static str, Column>,
+    owner_id: &str,
+) -> Result<(), DbErr> {
+    use pages::Column as P;
+    let col = |key: &str| &columns[key];
+    let now = now();
+    let mut insert = Query::insert();
+    insert
+        .into_table(pages::Entity)
+        .columns([
+            P::Id,
+            P::CreatedAt,
+            P::UpdatedAt,
+            P::DeletedAt,
+            P::Name,
+            P::Slug,
+            P::Description,
+            P::OwnerId,
+            P::Duration,
+            P::BufferBefore,
+            P::BufferAfter,
+            P::Color,
+            P::IsActive,
+            P::LocationType,
+            P::LocationValue,
+            P::Availability,
+            P::Questions,
+            P::MinNotice,
+            P::MaxAdvance,
+            P::DateOverrides,
+            P::MaxBookingsPerDay,
+            P::ConfirmationMessage,
+            P::Timezone,
+        ])
+        .values([
+            plain(col("id")),
+            Expr::value(now),
+            Expr::value(now),
+            Expr::value(Option::<time::PrimitiveDateTime>::None),
+            plain(col("name")),
+            plain(col("slug")),
+            plain(col("description")),
+            Expr::value(owner_id.to_owned()),
+            cast(col("duration"), "integer"),
+            or_default(
+                col("bufferBefore"),
+                cast(col("bufferBefore"), "integer"),
+                Expr::value(0),
+            ),
+            or_default(
+                col("bufferAfter"),
+                cast(col("bufferAfter"), "integer"),
+                Expr::value(0),
+            ),
+            plain(col("color")),
+            or_default(
+                col("isActive"),
+                cast(col("isActive"), "boolean"),
+                Expr::value(true),
+            ),
+            plain(col("locationType")),
+            plain(col("locationValue")),
+            cast(col("availability"), "jsonb"),
+            cast(col("questions"), "jsonb"),
+            or_default(
+                col("minNotice"),
+                cast(col("minNotice"), "integer"),
+                Expr::value(60),
+            ),
+            or_default(
+                col("maxAdvance"),
+                cast(col("maxAdvance"), "integer"),
+                Expr::value(60),
+            ),
+            cast(col("dateOverrides"), "jsonb"),
+            cast(col("maxBookingsPerDay"), "integer"),
+            plain(col("confirmationMessage")),
+            or_default(col("timezone"), plain(col("timezone")), Expr::value("UTC")),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    orm(db).execute(&insert).await?;
+    Ok(())
+}
+
 pub(crate) async fn create(
     State(state): State<CalendarState>,
     caller: Caller,
@@ -657,72 +797,7 @@ async fn create_page(
     data.remove("createdAt");
     data.remove("updatedAt");
     let columns = columns_of(&data)?;
-    let col = |key: &str| passthrough::bind(&columns[key]);
-    let (_, row_id) = col("id");
-    let (_, name) = col("name");
-    let (_, slug) = col("slug");
-    let (_, description) = col("description");
-    let (_, duration) = col("duration");
-    let (set_before, before) = col("bufferBefore");
-    let (set_after, after) = col("bufferAfter");
-    let (_, color) = col("color");
-    let (set_active, active) = col("isActive");
-    let (_, location_type) = col("locationType");
-    let (_, location_value) = col("locationValue");
-    let (_, availability) = col("availability");
-    let (_, questions) = col("questions");
-    let (set_notice, notice) = col("minNotice");
-    let (set_advance, advance) = col("maxAdvance");
-    let (_, overrides) = col("dateOverrides");
-    let (_, per_day) = col("maxBookingsPerDay");
-    let (_, confirmation) = col("confirmationMessage");
-    let (set_zone, zone) = col("timezone");
-    sqlx::query(
-        "insert into calendar_booking_pages
-             (id, created_at, updated_at, deleted_at, name, slug, description, owner_id, duration,
-              buffer_before, buffer_after, color, is_active, location_type, location_value,
-              availability, questions, min_notice, max_advance, date_overrides,
-              max_bookings_per_day, confirmation_message, timezone)
-         values ($1, $2::timestamp, $2::timestamp, null, $3, $4, $5, $6, $7::integer,
-                 case when $8 then $9::integer else 0 end,
-                 case when $10 then $11::integer else 0 end,
-                 $12,
-                 case when $13 then $14::boolean else true end,
-                 $15, $16, $17::jsonb, $18::jsonb,
-                 case when $19 then $20::integer else 60 end,
-                 case when $21 then $22::integer else 60 end,
-                 $23::jsonb, $24::integer, $25,
-                 case when $26 then $27 else 'UTC' end)",
-    )
-    .bind(&row_id)
-    .bind(now())
-    .bind(&name)
-    .bind(&slug)
-    .bind(&description)
-    .bind(&owner_id)
-    .bind(&duration)
-    .bind(set_before)
-    .bind(&before)
-    .bind(set_after)
-    .bind(&after)
-    .bind(&color)
-    .bind(set_active)
-    .bind(&active)
-    .bind(&location_type)
-    .bind(&location_value)
-    .bind(&availability)
-    .bind(&questions)
-    .bind(set_notice)
-    .bind(&notice)
-    .bind(set_advance)
-    .bind(&advance)
-    .bind(&overrides)
-    .bind(&per_day)
-    .bind(&confirmation)
-    .bind(set_zone)
-    .bind(&zone)
-    .execute(&caller.db)
-    .await?;
+    insert_page(&caller.db, &columns, &owner_id).await?;
     caller.publish(
         state,
         CALENDAR_BOOKING_PAGE_CREATED,
@@ -752,115 +827,76 @@ pub(crate) async fn update(
         .unwrap_or_else(|refused| refused.respond("Failed to update booking page"))
 }
 
-#[allow(clippy::too_many_lines)] // one bind per column
 async fn update_page(
     state: &CalendarState,
     caller: &Caller,
     id: &str,
     data: &Map<String, Value>,
 ) -> Outcome<Response> {
+    use pages::Column as P;
     let existing = scoped_page(caller, id).await?;
     let columns = columns_of(data)?;
     let updated_at =
         passthrough::column(data, "updatedAt", Kind::Timestamp).unwrap_or(Column::Absent);
     let created_at =
         passthrough::column(data, "createdAt", Kind::Timestamp).unwrap_or(Column::Absent);
-    let col = |key: &str| passthrough::bind(&columns[key]);
-    let (set_id, new_id) = col("id");
-    let (set_deleted, _) = col("deletedAt");
-    let (set_name, name) = col("name");
-    let (set_slug, slug) = col("slug");
-    let (set_description, description) = col("description");
-    let (set_owner, owner) = col("ownerId");
-    let (set_duration, duration) = col("duration");
-    let (set_before, before) = col("bufferBefore");
-    let (set_after, after) = col("bufferAfter");
-    let (set_color, color) = col("color");
-    let (set_active, active) = col("isActive");
-    let (set_location_type, location_type) = col("locationType");
-    let (set_location_value, location_value) = col("locationValue");
-    let (set_availability, availability) = col("availability");
-    let (set_questions, questions) = col("questions");
-    let (set_notice, notice) = col("minNotice");
-    let (set_advance, advance) = col("maxAdvance");
-    let (set_overrides, overrides) = col("dateOverrides");
-    let (set_per_day, per_day) = col("maxBookingsPerDay");
-    let (set_confirmation, confirmation) = col("confirmationMessage");
-    let (set_zone, zone) = col("timezone");
-    sqlx::query(
-        "update calendar_booking_pages set
-             id = case when $2 then $3 else id end,
-             created_at = case when $4 then null else created_at end,
-             updated_at = case when $5 then null else $6::timestamp end,
-             deleted_at = case when $7 then null else deleted_at end,
-             name = case when $8 then $9 else name end,
-             slug = case when $10 then $11 else slug end,
-             description = case when $12 then $13 else description end,
-             owner_id = case when $14 then $15 else owner_id end,
-             duration = case when $16 then $17::integer else duration end,
-             buffer_before = case when $18 then $19::integer else buffer_before end,
-             buffer_after = case when $20 then $21::integer else buffer_after end,
-             color = case when $22 then $23 else color end,
-             is_active = case when $24 then $25::boolean else is_active end,
-             location_type = case when $26 then $27 else location_type end,
-             location_value = case when $28 then $29 else location_value end,
-             availability = case when $30 then $31::jsonb else availability end,
-             questions = case when $32 then $33::jsonb else questions end,
-             min_notice = case when $34 then $35::integer else min_notice end,
-             max_advance = case when $36 then $37::integer else max_advance end,
-             date_overrides = case when $38 then $39::jsonb else date_overrides end,
-             max_bookings_per_day = case when $40 then $41::integer else max_bookings_per_day end,
-             confirmation_message = case when $42 then $43 else confirmation_message end,
-             timezone = case when $44 then $45 else timezone end
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(set_id)
-    .bind(&new_id)
-    .bind(created_at.is_set())
-    .bind(updated_at.is_set())
-    .bind(now())
-    .bind(set_deleted)
-    .bind(set_name)
-    .bind(&name)
-    .bind(set_slug)
-    .bind(&slug)
-    .bind(set_description)
-    .bind(&description)
-    .bind(set_owner)
-    .bind(&owner)
-    .bind(set_duration)
-    .bind(&duration)
-    .bind(set_before)
-    .bind(&before)
-    .bind(set_after)
-    .bind(&after)
-    .bind(set_color)
-    .bind(&color)
-    .bind(set_active)
-    .bind(&active)
-    .bind(set_location_type)
-    .bind(&location_type)
-    .bind(set_location_value)
-    .bind(&location_value)
-    .bind(set_availability)
-    .bind(&availability)
-    .bind(set_questions)
-    .bind(&questions)
-    .bind(set_notice)
-    .bind(&notice)
-    .bind(set_advance)
-    .bind(&advance)
-    .bind(set_overrides)
-    .bind(&overrides)
-    .bind(set_per_day)
-    .bind(&per_day)
-    .bind(set_confirmation)
-    .bind(&confirmation)
-    .bind(set_zone)
-    .bind(&zone)
-    .execute(&caller.db)
-    .await?;
+    let null_stamp = || Expr::value(Option::<time::PrimitiveDateTime>::None);
+    // `set({ ...data, updatedAt: new Date() })`: only the columns the body
+    // names, each as the driver handed it over (a timestamp can only be
+    // `null` here: anything else threw above).
+    let mut update = pages::Entity::update_many();
+    if columns["id"].is_set() {
+        update = update.col_expr(P::Id, plain(&columns["id"]));
+    }
+    if created_at.is_set() {
+        update = update.col_expr(P::CreatedAt, null_stamp());
+    }
+    update = update.col_expr(
+        P::UpdatedAt,
+        if updated_at.is_set() {
+            null_stamp()
+        } else {
+            Expr::value(now())
+        },
+    );
+    if columns["deletedAt"].is_set() {
+        update = update.col_expr(P::DeletedAt, null_stamp());
+    }
+    for (key, column, sql_type) in [
+        ("name", P::Name, None),
+        ("slug", P::Slug, None),
+        ("description", P::Description, None),
+        ("ownerId", P::OwnerId, None),
+        ("duration", P::Duration, Some("integer")),
+        ("bufferBefore", P::BufferBefore, Some("integer")),
+        ("bufferAfter", P::BufferAfter, Some("integer")),
+        ("color", P::Color, None),
+        ("isActive", P::IsActive, Some("boolean")),
+        ("locationType", P::LocationType, None),
+        ("locationValue", P::LocationValue, None),
+        ("availability", P::Availability, Some("jsonb")),
+        ("questions", P::Questions, Some("jsonb")),
+        ("minNotice", P::MinNotice, Some("integer")),
+        ("maxAdvance", P::MaxAdvance, Some("integer")),
+        ("dateOverrides", P::DateOverrides, Some("jsonb")),
+        ("maxBookingsPerDay", P::MaxBookingsPerDay, Some("integer")),
+        ("confirmationMessage", P::ConfirmationMessage, None),
+        ("timezone", P::Timezone, None),
+    ] {
+        let value = &columns[key];
+        if value.is_set() {
+            let expr = match sql_type {
+                Some(sql_type) => cast(value, sql_type),
+                None => plain(value),
+            };
+            update = update.col_expr(column, expr);
+        }
+    }
+    update
+        .filter(P::Id.eq(id))
+        .filter(P::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     let pick = |key: &str| match data.get(key) {
         Some(value) if !value.is_null() => value.clone(),
         _ => existing[key].clone(),
@@ -879,15 +915,13 @@ async fn update_page(
 pub(crate) async fn delete_impact(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         scoped_page(&caller, &id).await?;
-        let count: i64 = sqlx::query_scalar(
-            "select count(*) from calendar_bookings
-             where booking_page_id = $1 and deleted_at is null and status <> 'cancelled'
-               and start_time >= $2::timestamp",
-        )
-        .bind(&id)
-        .bind(now())
-        .fetch_one(&caller.db)
-        .await?;
+        let count = calendar_bookings::Entity::find()
+            .filter(calendar_bookings::Column::BookingPageId.eq(id.as_str()))
+            .filter(calendar_bookings::Column::DeletedAt.is_null())
+            .filter(calendar_bookings::Column::Status.ne("cancelled"))
+            .filter(calendar_bookings::Column::StartTime.gte(now()))
+            .count(&orm(&caller.db))
+            .await?;
         Ok::<_, Refusal>(json!({ "upcomingBookingCount": count }))
     }
     .await;
@@ -907,14 +941,12 @@ pub(crate) async fn remove(
     let result = async {
         scoped_page(&caller, &id).await?;
         let now = now();
-        sqlx::query(
-            "update calendar_booking_pages set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        pages::Entity::update_many()
+            .col_expr(pages::Column::DeletedAt, Expr::value(now))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now))
+            .filter(pages::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, CALENDAR_BOOKING_PAGE_DELETED, &id, &json!({ "id": id }));
         Ok::<_, Refusal>(())
     }
@@ -936,14 +968,12 @@ pub(crate) async fn toggle(
         let record = scoped_page(&caller, &id).await?;
         let was = record["isActive"].clone();
         let is_active = !crate::js::truthy(&was);
-        sqlx::query(
-            "update calendar_booking_pages set is_active = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(is_active)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        pages::Entity::update_many()
+            .col_expr(pages::Column::IsActive, Expr::value(is_active))
+            .col_expr(pages::Column::UpdatedAt, Expr::value(now()))
+            .filter(pages::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         let mut changes = Map::new();
         changes.insert("isActive".to_owned(), json!({ "old": was, "new": is_active }));
         state.events.publish(

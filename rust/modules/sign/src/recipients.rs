@@ -221,7 +221,7 @@ pub(crate) async fn add_recipient(
         email: Set(Some(input.email)),
         person_id: Set(input.person_id),
         locale: Set(input.locale.unwrap_or_else(|| "en".to_owned())),
-        routing_order: Set(int(&order)),
+        routing_order: Set(int(order)),
         auth_mode: Set(auth_mode),
         access_code_hash: Set(hash),
         ..Default::default()
@@ -269,22 +269,22 @@ async fn update_recipient(
     use sign_recipients::Column;
     let values: [(Column, Option<sea_orm::Value>); 9] = [
         (Column::Role, Some(role.clone().into())),
-        (Column::Name, sent(&input.name, Clone::clone).map(Into::into)),
+        (Column::Name, sent(&input.name, Clone::clone)),
         (
             Column::Email,
-            sent(&input.email, Clone::clone).map(Into::into),
+            sent(&input.email, Clone::clone),
         ),
         (
             Column::PersonId,
-            sent(&input.person_id, Clone::clone).map(Into::into),
+            sent(&input.person_id, Clone::clone),
         ),
         (
             Column::Locale,
-            sent(&input.locale, Clone::clone).map(Into::into),
+            sent(&input.locale, Clone::clone),
         ),
         (
             Column::RoutingOrder,
-            sent(&input.routing_order, int).map(Into::into),
+            sent(&input.routing_order, |n| int(*n)),
         ),
         (Column::AuthMode, Some(auth_mode.into())),
         (Column::AccessCodeHash, Some(hash.into())),

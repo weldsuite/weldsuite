@@ -391,11 +391,7 @@ pub(crate) async fn create_items(
         }))
         .exec_with_returning(&db)
         .await?;
-        created.extend(
-            inserted
-                .into_iter()
-                .map(|row| Item::from_row(row.into())),
-        );
+        created.extend(inserted.into_iter().map(|row| Item::from_row(row.into())));
 
         versions::Entity::insert_many(chunk.iter().map(|row| versions::ActiveModel {
             id: Set(generate_id("wph")),

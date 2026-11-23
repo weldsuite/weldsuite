@@ -8,13 +8,18 @@
 //! whole record. Keys without a definition are not refused: they stay in the
 //! blob and the API keeps returning them.
 
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::custom_field_values::{self as values, Definition, ValuesError};
 use weldsuite_core_domain::js::Js;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::custom_field_definitions;
 
 use crate::crud::{Answer, Fail, list_query};
-use crate::list::{Page, list_rows};
+use crate::list::{Filter, Page, list_rows};
 use crate::session::bad_request;
 use crate::table::Table;
 use crate::zod::Parsed;
@@ -147,32 +152,64 @@ pub(crate) async fn hydrated(
 /// table (`hydrateCustomFields` over the page).
 pub(crate) async fn page(
     db: &PgPool,
-    sql: (&'static str, &'static str),
+    filter: Filter,
     table: &'static Table,
     parsed: &Parsed,
     filters: Value,
     entity_type: &str,
 ) -> Answer {
-    let mut page = list_rows(db, sql, &list_query(parsed), &filters).await?;
+    let mut page = list_rows(db, &table.entity, filter(&filters), &list_query(parsed)).await?;
     let rows = page.rows.into_iter().map(|row| table.js(row)).collect();
     page.rows = values::hydrate(db, entity_type, rows, None).await?;
     Ok(page.respond())
 }
 
+/// A definition as `GET /custom-fields` answers it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicDefinition {
+    id: String,
+    slug: String,
+    name: String,
+    description: Option<String>,
+    field_type: String,
+    options: Option<Value>,
+    config: Option<Value>,
+    required: Option<bool>,
+    group: Option<String>,
+    sort_order: Option<i32>,
+}
+
 /// `GET /v1/<object>/custom-fields`: the live definitions, in display order.
 pub(crate) async fn definitions_list(db: &PgPool, entity_type: &str) -> Answer {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                'id', id, 'slug', slug, 'name', name, 'description', description,
-                'fieldType', field_type, 'options', options, 'config', config,
-                'required', required, 'group', \"group\", 'sortOrder', sort_order)
-           from custom_field_definitions
-          where entity_type = $1 and deleted_at is null
-          order by sort_order asc, name asc, id asc",
-    )
-    .bind(entity_type)
-    .fetch_all(db)
-    .await?;
+    use custom_field_definitions::Column;
+    let definitions: Vec<PublicDefinition> = custom_field_definitions::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Slug,
+            Column::Name,
+            Column::Description,
+            Column::FieldType,
+            Column::Options,
+            Column::Config,
+            Column::Required,
+            Column::Group,
+            Column::SortOrder,
+        ])
+        .filter(Column::EntityType.eq(entity_type))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::SortOrder)
+        .order_by_asc(Column::Name)
+        .order_by_asc(Column::Id)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let rows = definitions
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| Fail::from(DbErr::Json(error.to_string())))?;
     let total = i64::try_from(rows.len()).unwrap_or(i64::MAX);
     Ok(Page {
         rows,

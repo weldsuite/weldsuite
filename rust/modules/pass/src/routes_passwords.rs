@@ -440,8 +440,7 @@ pub(crate) async fn activity(
             }
             let limit = clamped_limit(query(raw.as_deref(), "limit").as_deref(), 50, 1, 200);
             let before = cursor_before(query(raw.as_deref(), "cursor").as_deref());
-            let rows =
-                list_vault_events(&caller.db, &access.vault.id, before, limit + 1).await?;
+            let rows = list_vault_events(&caller.db, &access.vault.id, before, limit + 1).await?;
             Ok(page(rows, limit))
         }
         .await,

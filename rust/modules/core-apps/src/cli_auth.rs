@@ -17,17 +17,22 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{api_key_registry, workspaces};
+use weldsuite_schema::tenant::api_keys;
 
 use crate::CoreAppsState;
-use crate::access::{
-    AppsError, AppsResult, Caller, OrInternal, Public, answer, now, now_ms, validate,
-};
+use crate::access::{AppsError, AppsResult, Caller, OrInternal, Public, answer, now_ms, validate};
 use crate::bundle_access::encode_uri_component;
+use crate::publish::now_tz;
 use crate::schemas;
 use crate::scopes::{random_hex, sha256_hex};
 
@@ -277,27 +282,32 @@ fn generate_api_key() -> (String, String, String) {
 /// `registerApiKey`: best-effort; a key that lists but can't authenticate is
 /// recoverable, a thrown error after the plaintext was minted is not.
 async fn register_api_key(master: &PgPool, org: &str, hash: &str, tenant_key_id: &str) {
-    let result: Result<(), sqlx::Error> = async {
-        let workspace: Option<String> = sqlx::query_scalar(
-            "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(org)
-        .fetch_optional(master)
-        .await?;
+    let result: Result<(), DbErr> = async {
+        let db = orm(master);
+        let workspace: Option<String> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(org))
+                    .add(workspaces::Column::ClerkOrgId.eq(org)),
+            )
+            .into_tuple()
+            .one(&db)
+            .await?;
         let Some(workspace_id) = workspace else {
             tracing::error!(org, tenant_key_id, "core-apps: no master workspace; the CLI key will not authenticate");
             return Ok(());
         };
-        sqlx::query(
-            "insert into api_key_registry (id, key_hash, key_type, workspace_id, tenant_key_id, created_at)
-             values ($1, $2, 'personal', $3, $4, $5::timestamptz)",
-        )
-        .bind(generate_id("akr"))
-        .bind(hash)
-        .bind(workspace_id)
-        .bind(tenant_key_id)
-        .bind(now())
-        .execute(master)
+        api_key_registry::Entity::insert(api_key_registry::ActiveModel {
+            id: Set(generate_id("akr")),
+            key_hash: Set(hash.to_owned()),
+            key_type: Set("personal".to_owned()),
+            workspace_id: Set(workspace_id),
+            tenant_key_id: Set(tenant_key_id.to_owned()),
+            created_at: Set(utc_now()),
+        })
+        .exec_without_returning(&db)
         .await?;
         Ok(())
     }
@@ -309,9 +319,9 @@ async fn register_api_key(master: &PgPool, org: &str, hash: &str, tenant_key_id:
 
 /// `unregisterApiKey`: best-effort.
 async fn unregister_api_key(master: &PgPool, tenant_key_id: &str) {
-    if let Err(error) = sqlx::query("delete from api_key_registry where tenant_key_id = $1")
-        .bind(tenant_key_id)
-        .execute(master)
+    if let Err(error) = api_key_registry::Entity::delete_many()
+        .filter(api_key_registry::Column::TenantKeyId.eq(tenant_key_id))
+        .exec(&orm(master))
         .await
     {
         tracing::error!(%error, "core-apps: failed to remove a key from the master registry");
@@ -362,46 +372,47 @@ async fn approve_with(
     }
 
     let master = caller.master(state);
-    let now = now();
+    let tenant = orm(&caller.db);
+    let now = now_tz();
     // Earlier Weld CLI keys of this user go: no key sprawl.
-    let earlier: Vec<String> = sqlx::query_scalar(
-        "select id from api_keys where user_id = $1 and name = $2 and deleted_at is null",
-    )
-    .bind(&caller.user_id)
-    .bind(CLI_KEY_NAME)
-    .fetch_all(&caller.db)
-    .await
-    .or_internal(FAILED)?;
-    for id in &earlier {
-        sqlx::query(
-            "update api_keys set deleted_at = $3::timestamptz, updated_at = $3::timestamptz
-             where id = $1 and user_id = $2",
-        )
-        .bind(id)
-        .bind(&caller.user_id)
-        .bind(&now)
-        .execute(&caller.db)
+    let earlier: Vec<String> = api_keys::Entity::find()
+        .select_only()
+        .column(api_keys::Column::Id)
+        .filter(api_keys::Column::UserId.eq(&caller.user_id))
+        .filter(api_keys::Column::Name.eq(CLI_KEY_NAME))
+        .filter(api_keys::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&tenant)
         .await
         .or_internal(FAILED)?;
+    for id in &earlier {
+        api_keys::Entity::update_many()
+            .col_expr(api_keys::Column::DeletedAt, Expr::value(now))
+            .col_expr(api_keys::Column::UpdatedAt, Expr::value(now))
+            .filter(api_keys::Column::Id.eq(id))
+            .filter(api_keys::Column::UserId.eq(&caller.user_id))
+            .exec(&tenant)
+            .await
+            .or_internal(FAILED)?;
         unregister_api_key(&master, id).await;
     }
 
     let (key, hash, prefix) = generate_api_key();
     let id = generate_id("ak");
-    sqlx::query(
-        "insert into api_keys
-           (id, user_id, name, description, key_hash, key_prefix, scopes, expires_at, created_at, updated_at)
-         values ($1, $2, $3, 'Minted by weld login (device code)', $4, $5, $6::jsonb, null,
-                 $7::timestamptz, $7::timestamptz)",
-    )
-    .bind(&id)
-    .bind(&caller.user_id)
-    .bind(CLI_KEY_NAME)
-    .bind(&hash)
-    .bind(&prefix)
-    .bind(json!(CLI_KEY_SCOPES))
-    .bind(&now)
-    .execute(&caller.db)
+    api_keys::Entity::insert(api_keys::ActiveModel {
+        id: Set(id.clone()),
+        user_id: Set(caller.user_id.clone()),
+        name: Set(CLI_KEY_NAME.to_owned()),
+        description: Set(Some("Minted by weld login (device code)".to_owned())),
+        key_hash: Set(hash.clone()),
+        key_prefix: Set(prefix.clone()),
+        scopes: Set(Some(json!(CLI_KEY_SCOPES))),
+        expires_at: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&tenant)
     .await
     .or_internal(FAILED)?;
     register_api_key(&master, &org_id, &hash, &id).await;

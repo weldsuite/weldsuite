@@ -10,14 +10,20 @@ use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use jiff::Timestamp;
 use jiff::tz::{Offset, TimeZone};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, PutOptions};
+use weldsuite_schema::tenant::{
+    sign_documents, sign_envelopes, sign_events, sign_fields, sign_recipients,
+};
 
+use crate::envelopes::{json_rows, row_json};
 use crate::finalize::DISCLOSURE_VERSION;
 use crate::pdf_render::{RenderField, flatten_document};
 use crate::{SignError, SignResult, text};
@@ -43,27 +49,23 @@ pub(crate) async fn load_signer(
     envelope_id: &str,
     recipient_id: &str,
 ) -> SignResult<SignerRef> {
-    let envelope: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from sign_envelopes e where id = $1 limit 1")
-            .bind(envelope_id)
-            .fetch_optional(db)
-            .await?;
+    let db = &orm(db);
+    let envelope = sign_envelopes::Entity::find_by_id(envelope_id)
+        .one(db)
+        .await?
+        .map(row_json)
+        .transpose()?;
     let Some(envelope) = envelope
-        .map(js_row)
         .filter(|e| e["kind"] == "envelope" && e["status"] != "draft" && e["deletedAt"].is_null())
     else {
         return Err(SignError::NotFound("Envelope"));
     };
-    let recipient: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from sign_recipients r where id = $1 and envelope_id = $2 limit 1",
-    )
-    .bind(recipient_id)
-    .bind(envelope_id)
-    .fetch_optional(db)
-    .await?;
-    let recipient = recipient
-        .map(js_row)
-        .ok_or(SignError::NotFound("Recipient"))?;
+    let recipient = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .filter(sign_recipients::Column::EnvelopeId.eq(envelope_id))
+        .one(db)
+        .await?;
+    let recipient = row_json(recipient.ok_or(SignError::NotFound("Recipient"))?)?;
     Ok(SignerRef {
         envelope,
         recipient,
@@ -126,21 +128,21 @@ async fn record_signer_event(
     details: Option<Value>,
 ) -> SignResult<()> {
     let recipient = &signer.recipient;
-    sqlx::query(
-        "insert into sign_events
-             (id, envelope_id, recipient_id, type, actor_user_id, actor_name, actor_email, ip, user_agent, details)
-         values ($1, $2, $3, $4, null, $5, $6, $7, $8, $9::jsonb)",
-    )
-    .bind(generate_id("sge"))
-    .bind(text(&signer.envelope, "id"))
-    .bind(text(recipient, "id"))
-    .bind(kind)
-    .bind(recipient["name"].as_str())
-    .bind(recipient["email"].as_str())
-    .bind(meta.ip.as_deref())
-    .bind(meta.user_agent.as_deref())
-    .bind(details)
-    .execute(db)
+    let string = |value: &Value| value.as_str().map(str::to_owned);
+    sign_events::Entity::insert(sign_events::ActiveModel {
+        id: Set(generate_id("sge")),
+        envelope_id: Set(text(&signer.envelope, "id").to_owned()),
+        recipient_id: Set(Some(text(recipient, "id").to_owned())),
+        type_: Set(kind.to_owned()),
+        actor_user_id: Set(None),
+        actor_name: Set(string(&recipient["name"])),
+        actor_email: Set(string(&recipient["email"])),
+        ip: Set(meta.ip.clone()),
+        user_agent: Set(meta.user_agent.clone()),
+        details: Set(details),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -155,27 +157,25 @@ pub(crate) async fn mark_opened(
     let now = crate::now();
     let recipient = &signer.recipient;
     if recipient["status"] == "sent" {
-        sqlx::query(
-            "update sign_recipients set status = 'opened', opened_at = $2::timestamptz, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(text(recipient, "id"))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        sign_recipients::Entity::update_many()
+            .col_expr(sign_recipients::Column::Status, Expr::value("opened"))
+            .col_expr(sign_recipients::Column::OpenedAt, Expr::value(now))
+            .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now))
+            .filter(sign_recipients::Column::Id.eq(text(recipient, "id")))
+            .exec(&orm(db))
+            .await?;
     }
     if recipient["openedAt"].is_null() {
         record_signer_event(db, signer, "opened", meta, None).await?;
     }
     if signer.envelope["status"] == "sent" {
-        sqlx::query(
-            "update sign_envelopes set status = 'in_progress', updated_at = $2::timestamptz
-             where id = $1 and status = 'sent'",
-        )
-        .bind(text(&signer.envelope, "id"))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        sign_envelopes::Entity::update_many()
+            .col_expr(sign_envelopes::Column::Status, Expr::value("in_progress"))
+            .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now))
+            .filter(sign_envelopes::Column::Id.eq(text(&signer.envelope, "id")))
+            .filter(sign_envelopes::Column::Status.eq("sent"))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(())
 }
@@ -200,14 +200,16 @@ fn changed_email(details: &Value) -> bool {
 /// `hasConsented`: only consent given after the last correction that
 /// changed the address counts; fixing just the name changes nothing.
 pub(crate) async fn has_consented(db: &PgPool, recipient_id: &str) -> SignResult<bool> {
-    let steps: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select type, details from sign_events
-         where recipient_id = $1 and type in ('consented', 'recipient_corrected')
-         order by created_at desc, id desc",
-    )
-    .bind(recipient_id)
-    .fetch_all(db)
-    .await?;
+    let steps: Vec<(String, Option<Value>)> = sign_events::Entity::find()
+        .select_only()
+        .columns([sign_events::Column::Type, sign_events::Column::Details])
+        .filter(sign_events::Column::RecipientId.eq(recipient_id))
+        .filter(sign_events::Column::Type.is_in(["consented", "recipient_corrected"]))
+        .order_by_desc(sign_events::Column::CreatedAt)
+        .order_by_desc(sign_events::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let last = steps
         .iter()
         .find(|(kind, details)| kind == "consented" || details.as_ref().is_some_and(changed_email));
@@ -234,13 +236,7 @@ pub(crate) async fn portal_view(
     let envelope_id = text(envelope, "id");
     let recipient_id = text(recipient, "id");
     let documents = crate::envelopes::list_documents(db, envelope_id).await?;
-    let fields: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from sign_fields f where envelope_id = $1 and recipient_id = $2",
-    )
-    .bind(envelope_id)
-    .bind(recipient_id)
-    .fetch_all(db)
-    .await?;
+    let fields = own_fields(db, envelope_id, recipient_id).await?;
     let consented = has_consented(db, recipient_id).await?;
     let now = now_ms();
     let pick = |row: &Value, keys: &[&str]| -> Value {
@@ -276,9 +272,8 @@ pub(crate) async fn portal_view(
             .map(|d| pick(d, &["id", "name", "pageCount", "pageSizes"]))
             .collect::<Vec<_>>(),
         "fields": fields
-            .into_iter()
-            .map(js_row)
-            .map(|f| pick(&f, &["id", "documentId", "type", "page", "x", "y", "width", "height", "required", "label", "value"]))
+            .iter()
+            .map(|f| pick(f, &["id", "documentId", "type", "page", "x", "y", "width", "height", "required", "label", "value"]))
             .collect::<Vec<_>>(),
     }))
 }
@@ -534,14 +529,12 @@ fn storage_error(error: impl std::fmt::Display) -> SignError {
 /// The signer's own fields, in the table's order (no `order by`, as
 /// TypeScript reads them).
 async fn own_fields(db: &PgPool, envelope_id: &str, recipient_id: &str) -> SignResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from sign_fields f where envelope_id = $1 and recipient_id = $2",
-    )
-    .bind(envelope_id)
-    .bind(recipient_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let rows = sign_fields::Entity::find()
+        .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_fields::Column::RecipientId.eq(recipient_id))
+        .all(&orm(db))
+        .await?;
+    json_rows(rows)
 }
 
 /// `completeSigning`: images to the private bucket, values on the fields,
@@ -603,39 +596,48 @@ pub(crate) async fn complete_signing(
     // Claim the signature before writing anything: a double-submitted
     // /complete (or two tabs) races here, and only the one that flips the
     // recipient goes on.
-    let stamp = weldsuite_events::iso_timestamp(now);
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update sign_recipients
-         set status = 'signed', signed_at = $2::timestamptz, signed_ip = $3, signed_user_agent = $4,
-             updated_at = $2::timestamptz
-         where id = $1 and status in ('sent', 'opened')
-         returning id",
-    )
-    .bind(recipient_id)
-    .bind(&stamp)
-    .bind(ctx.meta.ip.as_deref())
-    .bind(ctx.meta.user_agent.as_deref())
-    .fetch_optional(db)
-    .await?;
-    if claimed.is_none() {
+    let stamp = crate::millis(now);
+    let claimed = sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("signed"))
+        .col_expr(sign_recipients::Column::SignedAt, Expr::value(stamp))
+        .col_expr(
+            sign_recipients::Column::SignedIp,
+            Expr::value(ctx.meta.ip.clone()),
+        )
+        .col_expr(
+            sign_recipients::Column::SignedUserAgent,
+            Expr::value(ctx.meta.user_agent.clone()),
+        )
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(stamp))
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .filter(sign_recipients::Column::Status.is_in(["sent", "opened"]))
+        .exec(&orm(db))
+        .await?;
+    if claimed.rows_affected == 0 {
         return Err(SignError::Conflict(
             "This request has already been signed".to_owned(),
         ));
     }
-    if let Err(error) = fill_fields(db, &resolved, &stamp).await {
+    if let Err(error) = fill_fields(db, &resolved, stamp).await {
         // The values did not all land: give the turn back so the signer can
         // submit again.
-        sqlx::query(
-            "update sign_recipients
-             set status = $2, signed_at = null, signed_ip = null, signed_user_agent = null,
-                 updated_at = $3::timestamptz
-             where id = $1 and status = 'signed'",
-        )
-        .bind(recipient_id)
-        .bind(text(recipient, "status"))
-        .bind(crate::now())
-        .execute(db)
-        .await?;
+        let none = || Expr::value(Option::<String>::None);
+        sign_recipients::Entity::update_many()
+            .col_expr(
+                sign_recipients::Column::Status,
+                Expr::value(text(recipient, "status")),
+            )
+            .col_expr(
+                sign_recipients::Column::SignedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
+            .col_expr(sign_recipients::Column::SignedIp, none())
+            .col_expr(sign_recipients::Column::SignedUserAgent, none())
+            .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
+            .filter(sign_recipients::Column::Id.eq(recipient_id))
+            .filter(sign_recipients::Column::Status.eq("signed"))
+            .exec(&orm(db))
+            .await?;
         return Err(error);
     }
     let details = json!({
@@ -644,10 +646,10 @@ pub(crate) async fn complete_signing(
         "fields": fields.len(),
     });
     record_signer_event(db, signer, "signed", ctx.meta, Some(details)).await?;
-    sqlx::query("update sign_envelopes set updated_at = $2::timestamptz where id = $1")
-        .bind(envelope_id)
-        .bind(&stamp)
-        .execute(db)
+    sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(stamp))
+        .filter(sign_envelopes::Column::Id.eq(envelope_id))
+        .exec(&orm(db))
         .await?;
 
     let mut seen = HashSet::new();
@@ -659,19 +661,24 @@ pub(crate) async fn complete_signing(
     refresh_working_copies(db, ctx.bucket, envelope_id, &touched).await
 }
 
-async fn fill_fields(db: &PgPool, resolved: &[(String, Resolved)], stamp: &str) -> SignResult<()> {
+async fn fill_fields(
+    db: &PgPool,
+    resolved: &[(String, Resolved)],
+    stamp: OffsetDateTime,
+) -> SignResult<()> {
+    let db = &orm(db);
     for (id, field) in resolved {
-        sqlx::query(
-            "update sign_fields
-             set value = $2, signature_key = $3, filled_at = $4::timestamptz, updated_at = $4::timestamptz
-             where id = $1",
-        )
-        .bind(id)
-        .bind(field.value.as_deref())
-        .bind(field.signature_key.as_deref())
-        .bind(stamp)
-        .execute(db)
-        .await?;
+        sign_fields::Entity::update_many()
+            .col_expr(sign_fields::Column::Value, Expr::value(field.value.clone()))
+            .col_expr(
+                sign_fields::Column::SignatureKey,
+                Expr::value(field.signature_key.clone()),
+            )
+            .col_expr(sign_fields::Column::FilledAt, Expr::value(stamp))
+            .col_expr(sign_fields::Column::UpdatedAt, Expr::value(stamp))
+            .filter(sign_fields::Column::Id.eq(id))
+            .exec(db)
+            .await?;
     }
     Ok(())
 }
@@ -687,19 +694,19 @@ pub(crate) async fn refresh_working_copies(
     if document_ids.is_empty() {
         return Ok(());
     }
-    let docs: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(d) from sign_documents d where id = any($1)")
-            .bind(document_ids)
-            .fetch_all(db)
-            .await?;
-    let fields: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from sign_fields f where envelope_id = $1 and document_id = any($2)",
-    )
-    .bind(envelope_id)
-    .bind(document_ids)
-    .fetch_all(db)
-    .await?;
-    let fields: Vec<Value> = fields.into_iter().map(js_row).collect();
+    let orm = &orm(db);
+    let ids = || document_ids.iter().map(String::as_str);
+    let docs = sign_documents::Entity::find()
+        .filter(sign_documents::Column::Id.is_in(ids()))
+        .all(orm)
+        .await?;
+    let docs = json_rows(docs)?;
+    let fields = sign_fields::Entity::find()
+        .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_fields::Column::DocumentId.is_in(ids()))
+        .all(orm)
+        .await?;
+    let fields = json_rows(fields)?;
     // `loadImages`: each signature image once.
     let mut images: HashMap<String, Vec<u8>> = HashMap::new();
     for key in fields.iter().filter_map(|f| f["signatureKey"].as_str()) {
@@ -710,7 +717,7 @@ pub(crate) async fn refresh_working_copies(
             images.insert(key.to_owned(), object.bytes);
         }
     }
-    for doc in docs.into_iter().map(js_row) {
+    for doc in docs {
         let storage_key = text(&doc, "storageKey");
         let Some(original) = bucket.get_boxed(storage_key).await.map_err(storage_error)? else {
             continue;
@@ -757,13 +764,14 @@ pub(crate) async fn signer_document(
     envelope_id: &str,
     document_id: &str,
 ) -> SignResult<Vec<u8>> {
-    let storage_key: Option<String> = sqlx::query_scalar(
-        "select storage_key from sign_documents where id = $1 and envelope_id = $2 limit 1",
-    )
-    .bind(document_id)
-    .bind(envelope_id)
-    .fetch_optional(db)
-    .await?;
+    let storage_key: Option<String> = sign_documents::Entity::find()
+        .select_only()
+        .column(sign_documents::Column::StorageKey)
+        .filter(sign_documents::Column::Id.eq(document_id))
+        .filter(sign_documents::Column::EnvelopeId.eq(envelope_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some(storage_key) = storage_key else {
         return Err(SignError::NotFound("Document"));
     };
@@ -795,23 +803,20 @@ pub(crate) async fn decline_signing(
         ));
     }
     let now = crate::now();
-    sqlx::query(
-        "update sign_recipients
-         set status = 'declined', declined_at = $2::timestamptz, decline_reason = $3, updated_at = $2::timestamptz
-         where id = $1",
-    )
-    .bind(text(&signer.recipient, "id"))
-    .bind(&now)
-    .bind(reason)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update sign_envelopes set status = 'declined', updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(text(&signer.envelope, "id"))
-    .bind(&now)
-    .execute(db)
-    .await?;
+    sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("declined"))
+        .col_expr(sign_recipients::Column::DeclinedAt, Expr::value(now))
+        .col_expr(sign_recipients::Column::DeclineReason, Expr::value(reason))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_recipients::Column::Id.eq(text(&signer.recipient, "id")))
+        .exec(&orm(db))
+        .await?;
+    sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::Status, Expr::value("declined"))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_envelopes::Column::Id.eq(text(&signer.envelope, "id")))
+        .exec(&orm(db))
+        .await?;
     let details = json!({ "reason": reason });
     record_signer_event(db, signer, "declined", meta, Some(details)).await
 }

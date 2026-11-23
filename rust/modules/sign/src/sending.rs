@@ -8,19 +8,24 @@
 
 use std::collections::HashMap;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    sign_documents, sign_envelopes, sign_events, sign_fields, sign_recipients,
+};
 
-use crate::envelopes::{list_recipients, load_sign_settings};
+use crate::envelopes::{json_rows, list_recipients, load_sign_settings, row_json};
 use crate::links::{LinkTarget, create_link, revoke_tokens, signing_link};
 use crate::mail::{RequestMail, send_requests};
-use crate::schedule::schedule_lifecycle;
-use crate::{SendContext, SignError, SignResult, text};
+use crate::schedule::{schedule_lifecycle, timestamp};
+use crate::{SendContext, SignError, SignResult, millis, text};
 
 /// Why a request, reminder or new link did not go out.
 pub(crate) const EMAIL_LIMIT_MESSAGE: &str = "The workspace's email limits do not allow sending this right now. Try again later or contact WeldSuite support.";
@@ -46,20 +51,20 @@ pub(crate) struct SignEvent<'a> {
 /// Add to the evidence trail (`recordSignEvent`).
 pub(crate) async fn record_sign_event(db: &PgPool, event: SignEvent<'_>) -> SignResult<()> {
     let actor = event.actor.cloned().unwrap_or_default();
-    sqlx::query(
-        "insert into sign_events
-             (id, envelope_id, recipient_id, type, actor_user_id, actor_name, actor_email, ip, user_agent, details)
-         values ($1, $2, $3, $4, $5, $6, $7, null, null, $8::jsonb)",
-    )
-    .bind(generate_id("sge"))
-    .bind(event.envelope_id)
-    .bind(event.recipient_id)
-    .bind(event.kind)
-    .bind(actor.user_id)
-    .bind(actor.name)
-    .bind(actor.email)
-    .bind(event.details)
-    .execute(db)
+    sign_events::Entity::insert(sign_events::ActiveModel {
+        id: Set(generate_id("sge")),
+        envelope_id: Set(event.envelope_id.to_owned()),
+        recipient_id: Set(event.recipient_id.map(str::to_owned)),
+        type_: Set(event.kind.to_owned()),
+        actor_user_id: Set(actor.user_id),
+        actor_name: Set(actor.name),
+        actor_email: Set(actor.email),
+        ip: Set(None),
+        user_agent: Set(None),
+        details: Set(event.details),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -67,17 +72,18 @@ pub(crate) async fn record_sign_event(db: &PgPool, event: SignEvent<'_>) -> Sign
 /// Everything a request needs before it can go out; the first problem
 /// found, or `None` (`sendProblem`).
 pub(crate) async fn send_problem(db: &PgPool, envelope_id: &str) -> SignResult<Option<String>> {
-    let documents: i64 =
-        sqlx::query_scalar("select count(*) from sign_documents where envelope_id = $1")
-            .bind(envelope_id)
-            .fetch_one(db)
-            .await?;
+    let documents = sign_documents::Entity::find()
+        .filter(sign_documents::Column::EnvelopeId.eq(envelope_id))
+        .count(&orm(db))
+        .await?;
     let recipients = list_recipients(db, envelope_id).await?;
-    let fields: Vec<(Option<String>, String)> =
-        sqlx::query_as("select recipient_id, type from sign_fields where envelope_id = $1")
-            .bind(envelope_id)
-            .fetch_all(db)
-            .await?;
+    let fields: Vec<(Option<String>, String)> = sign_fields::Entity::find()
+        .select_only()
+        .columns([sign_fields::Column::RecipientId, sign_fields::Column::Type])
+        .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if documents == 0 {
         return Ok(Some("Add at least one document".to_owned()));
     }
@@ -160,7 +166,7 @@ pub(crate) async fn mail_new_links(
                 clerk_org_id: &ctx.clerk_org_id,
                 envelope_id: text(envelope, "id"),
                 recipient_id: text(recipient, "id"),
-                expires_at: envelope["expiresAt"].as_str(),
+                expires_at: timestamp(&envelope["expiresAt"]),
             },
         )
         .await?;
@@ -207,17 +213,16 @@ async fn email_group(
         return Ok(false);
     };
     let now = crate::now();
-    let ids: Vec<String> = group.iter().map(|r| text(r, "id").to_owned()).collect();
     // Not over a signer who already opened the link (or signed) while the
     // mail went out.
-    sqlx::query(
-        "update sign_recipients set status = 'sent', sent_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = any($1) and status in ('pending', 'sent')",
-    )
-    .bind(&ids)
-    .bind(&now)
-    .execute(&ctx.db)
-    .await?;
+    sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("sent"))
+        .col_expr(sign_recipients::Column::SentAt, Expr::value(now))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_recipients::Column::Id.is_in(group.iter().map(|r| text(r, "id"))))
+        .filter(sign_recipients::Column::Status.is_in(["pending", "sent"]))
+        .exec(&orm(&ctx.db))
+        .await?;
     for recipient in group {
         let (email, delivered) = delivery(recipient, &sent);
         record_sign_event(
@@ -273,10 +278,11 @@ pub(crate) async fn send_envelope(
     {
         return Err(SignError::invalid("The expiry date must be in the future"));
     }
-    let expiry = expiry.map(iso_timestamp);
+    let expiry = expiry.map(millis);
+    let expiry_text = expiry.map(iso_timestamp);
     let recipients = list_recipients(&ctx.db, id).await?;
     let mut envelope = draft.clone();
-    envelope["expiresAt"] = expiry.clone().map_or(Value::Null, Value::from);
+    envelope["expiresAt"] = expiry_text.clone().map_or(Value::Null, Value::from);
     let signing_order = draft["signingOrderEnabled"].as_bool().unwrap_or(false);
 
     let group = next_group(signing_order, &recipients);
@@ -285,17 +291,18 @@ pub(crate) async fn send_envelope(
     }
 
     let now = crate::now();
-    let sent: Option<Value> = sqlx::query_scalar(
-        "update sign_envelopes
-         set status = 'sent', sent_at = $2::timestamptz, expires_at = $3::timestamptz, updated_at = $2::timestamptz
-         where id = $1 and status = 'draft'
-         returning to_jsonb(sign_envelopes)",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(&expiry)
-    .fetch_optional(&ctx.db)
-    .await?;
+    // Only a draft is sent, once.
+    let sent = sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::Status, Expr::value("sent"))
+        .col_expr(sign_envelopes::Column::SentAt, Expr::value(now))
+        .col_expr(sign_envelopes::Column::ExpiresAt, Expr::value(expiry))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_envelopes::Column::Id.eq(id))
+        .filter(sign_envelopes::Column::Status.eq("draft"))
+        .exec_with_returning(&orm(&ctx.db))
+        .await?
+        .into_iter()
+        .next();
     record_sign_event(
         &ctx.db,
         SignEvent {
@@ -303,15 +310,19 @@ pub(crate) async fn send_envelope(
             kind: "sent",
             actor: Some(actor),
             details: Some(
-                json!({ "expiresAt": expiry, "signingOrder": draft["signingOrderEnabled"] }),
+                json!({ "expiresAt": expiry_text, "signingOrder": draft["signingOrderEnabled"] }),
             ),
             ..SignEvent::default()
         },
     )
     .await?;
     schedule_lifecycle(ctx).await;
-    sent.map(js_row)
-        .ok_or_else(|| SignError::Internal(format!("sign: draft {id} changed while it was sent")))
+    match sent {
+        Some(sent) => Ok(row_json(sent)?),
+        None => Err(SignError::Internal(format!(
+            "sign: draft {id} changed while it was sent"
+        ))),
+    }
 }
 
 /// Mark `group` sent, only where it is still pending; the rows this call
@@ -320,17 +331,17 @@ async fn claim_group(db: &PgPool, group: &[Value]) -> SignResult<Vec<Value>> {
     if group.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<String> = group.iter().map(|r| text(r, "id").to_owned()).collect();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "update sign_recipients set status = 'sent', sent_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = any($1) and status = 'pending'
-         returning to_jsonb(sign_recipients)",
-    )
-    .bind(&ids)
-    .bind(crate::now())
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let now = crate::now();
+    // Only where still pending: the rows flipped here are this call's.
+    let rows = sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("sent"))
+        .col_expr(sign_recipients::Column::SentAt, Expr::value(now))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_recipients::Column::Id.is_in(group.iter().map(|r| text(r, "id"))))
+        .filter(sign_recipients::Column::Status.eq("pending"))
+        .exec_with_returning(&orm(db))
+        .await?;
+    json_rows(rows)
 }
 
 /// Undo [`claim_group`] when the group could not be mailed (`releaseGroup`).
@@ -338,15 +349,17 @@ async fn release_group(db: &PgPool, group: &[Value]) -> SignResult<()> {
     if group.is_empty() {
         return Ok(());
     }
-    let ids: Vec<String> = group.iter().map(|r| text(r, "id").to_owned()).collect();
-    sqlx::query(
-        "update sign_recipients set status = 'pending', sent_at = null, updated_at = $2::timestamptz
-         where id = any($1) and status = 'sent'",
-    )
-    .bind(&ids)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("pending"))
+        .col_expr(
+            sign_recipients::Column::SentAt,
+            Expr::value(Option::<OffsetDateTime>::None),
+        )
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
+        .filter(sign_recipients::Column::Id.is_in(group.iter().map(|r| text(r, "id"))))
+        .filter(sign_recipients::Column::Status.eq("sent"))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -411,12 +424,14 @@ pub(crate) async fn awaiting_finalize(db: &PgPool, envelope: &Value) -> SignResu
     if envelope["status"] != "sent" && envelope["status"] != "in_progress" {
         return Ok(false);
     }
-    let statuses: Vec<String> = sqlx::query_scalar(
-        "select status from sign_recipients where envelope_id = $1 and role = 'signer'",
-    )
-    .bind(text(envelope, "id"))
-    .fetch_all(db)
-    .await?;
+    let statuses: Vec<String> = sign_recipients::Entity::find()
+        .select_only()
+        .column(sign_recipients::Column::Status)
+        .filter(sign_recipients::Column::EnvelopeId.eq(text(envelope, "id")))
+        .filter(sign_recipients::Column::Role.eq("signer"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(!statuses.is_empty() && statuses.iter().all(|status| status == "signed"))
 }
 

@@ -4,15 +4,20 @@
 //! bookmark, draft and section routes publish no events and delete the row.
 
 use axum::Router;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CHAT_CHANNEL_CREATED, CHAT_CHANNEL_DELETED, CHAT_CHANNEL_UPDATED, CHAT_MESSAGE_CREATED,
     CHAT_MESSAGE_DELETED, CHAT_MESSAGE_UPDATED,
 };
+use weldsuite_schema::tenant::{
+    chat_bookmarks, chat_channel_members, chat_channels, chat_drafts, chat_messages, chat_sections,
+};
 
 use crate::ExternalApiState;
-use crate::crud::{Caller, Fail, table_list_sql};
+use crate::crud::{Caller, Fail};
 use crate::desk::slugify;
+use crate::list::when;
 use crate::schemas::{
     LIST_CHANNEL_MEMBERS, LIST_CHANNELS, LIST_CHAT_BOOKMARKS, LIST_CHAT_DRAFTS, LIST_CHAT_MESSAGES,
     LIST_CHAT_SECTIONS,
@@ -92,12 +97,12 @@ static CHANNELS: Simple = Simple {
     list: &LIST_CHANNELS,
     create: &CREATE_CHANNEL,
     update: &UPDATE_CHANNEL,
-    sql: table_list_sql!(
-        chat_channels,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'type' is null or t.type = $3->>'type')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(chat_channels::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| chat_channels::Column::Name.like(v)))
+            .add_option(when(f, "type", |v| chat_channels::Column::Type.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("type")],
     dates: &[],
     events: Some([
@@ -121,11 +126,15 @@ static CHANNEL_MEMBERS: Simple = Simple {
     list: &LIST_CHANNEL_MEMBERS,
     create: &CREATE_CHANNEL_MEMBER,
     update: &UPDATE_CHANNEL_MEMBER,
-    sql: table_list_sql!(
-        chat_channel_members,
-        "($3->>'channelId' is null or t.channel_id = $3->>'channelId') \
-         and ($3->>'userId' is null or t.user_id = $3->>'userId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add_option(when(f, "channelId", |v| {
+                chat_channel_members::Column::ChannelId.eq(v)
+            }))
+            .add_option(when(f, "userId", |v| {
+                chat_channel_members::Column::UserId.eq(v)
+            }))
+    },
     filters: &[F::Eq("channelId"), F::Eq("userId")],
     dates: &[],
     events: None,
@@ -167,13 +176,15 @@ static MESSAGES: Simple = Simple {
     list: &LIST_CHAT_MESSAGES,
     create: &CREATE_CHAT_MESSAGE,
     update: &UPDATE_CHAT_MESSAGE,
-    sql: table_list_sql!(
-        chat_messages,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.content like $3->>'search') \
-         and ($3->>'channelId' is null or t.channel_id = $3->>'channelId') \
-         and ($3->>'parentId' is null or t.parent_id = $3->>'parentId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(chat_messages::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| chat_messages::Column::Content.like(v)))
+            .add_option(when(f, "channelId", |v| {
+                chat_messages::Column::ChannelId.eq(v)
+            }))
+            .add_option(when(f, "parentId", |v| chat_messages::Column::ParentId.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("channelId"), F::Eq("parentId")],
     dates: &[],
     events: Some([
@@ -213,11 +224,13 @@ static BOOKMARKS: Simple = Simple {
     list: &LIST_CHAT_BOOKMARKS,
     create: &CREATE_CHAT_BOOKMARK,
     update: &UPDATE_CHAT_BOOKMARK,
-    sql: table_list_sql!(
-        chat_bookmarks,
-        "($3->>'userId' is null or t.user_id = $3->>'userId') \
-         and ($3->>'channelId' is null or t.channel_id = $3->>'channelId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add_option(when(f, "userId", |v| chat_bookmarks::Column::UserId.eq(v)))
+            .add_option(when(f, "channelId", |v| {
+                chat_bookmarks::Column::ChannelId.eq(v)
+            }))
+    },
     filters: &[F::Eq("userId"), F::Eq("channelId")],
     dates: &[],
     events: None,
@@ -265,11 +278,11 @@ static DRAFTS: Simple = Simple {
     list: &LIST_CHAT_DRAFTS,
     create: &CREATE_CHAT_DRAFT,
     update: &UPDATE_CHAT_DRAFT,
-    sql: table_list_sql!(
-        chat_drafts,
-        "($3->>'channelId' is null or t.channel_id = $3->>'channelId') \
-         and ($3->>'userId' is null or t.user_id = $3->>'userId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add_option(when(f, "channelId", |v| chat_drafts::Column::ChannelId.eq(v)))
+            .add_option(when(f, "userId", |v| chat_drafts::Column::UserId.eq(v)))
+    },
     filters: &[F::Eq("channelId"), F::Eq("userId")],
     dates: &[],
     events: None,
@@ -289,10 +302,9 @@ static SECTIONS: Simple = Simple {
     list: &LIST_CHAT_SECTIONS,
     create: &CREATE_CHAT_SECTION,
     update: &UPDATE_CHAT_SECTION,
-    sql: table_list_sql!(
-        chat_sections,
-        "($3->>'search' is null or t.name like $3->>'search')"
-    ),
+    filter: |f| {
+        Condition::all().add_option(when(f, "search", |v| chat_sections::Column::Name.like(v)))
+    },
     filters: &[F::Like("search")],
     dates: &[],
     events: None,

@@ -6,17 +6,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     HELPDESK_ARTICLE_CREATED, HELPDESK_ARTICLE_DELETED, HELPDESK_ARTICLE_UPDATED,
 };
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::helpdesk_articles;
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, created, dates, get_live, like, no_content, now, ok, page, pick, soft_delete,
-    table_list_sql, text, with_updated,
+    text, with_updated,
 };
+use crate::list::when;
 use crate::schemas::LIST_ARTICLES;
 use crate::schemas_gen::{CREATE_ARTICLE, UPDATE_ARTICLE};
 use crate::session::{bad_request, not_found};
@@ -43,13 +46,15 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
         )
 }
 
-const ARTICLES_LIST: (&str, &str) = table_list_sql!(
-    helpdesk_articles,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.title like $3->>'search') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'authorId' is null or t.author_id = $3->>'authorId')"
-);
+fn articles_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(helpdesk_articles::Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| helpdesk_articles::Column::Title.like(v)))
+        .add_option(when(f, "status", |v| helpdesk_articles::Column::Status.eq(v)))
+        .add_option(when(f, "authorId", |v| {
+            helpdesk_articles::Column::AuthorId.eq(v)
+        }))
+}
 
 /// `slugify(title)`: lower case, runs of anything else than `[a-z0-9]` as
 /// one `-`, no dash at either end, at most `max` characters.
@@ -87,7 +92,7 @@ async fn list_articles(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "status": text(&q, "status"),
         "authorId": text(&q, "authorId"),
     });
-    page(&caller.db, ARTICLES_LIST, &HELPDESK_ARTICLES, &q, filters).await
+    page(&caller.db, articles_list, &HELPDESK_ARTICLES, &q, filters).await
 }
 
 async fn get_article(caller: Caller, Path(id): Path<String>) -> Answer {

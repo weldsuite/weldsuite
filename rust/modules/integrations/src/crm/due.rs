@@ -14,12 +14,13 @@
 //! answered (the index's `markCrmSyncIndexTriggered`). WeldConnect's connect
 //! flows mark the workspace due when a CRM connection is made.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::integration_connections as connections;
 
-use super::adapters::millis_of;
 use super::db_message;
 use crate::connect_internal::{ConnectCall, ConnectInternal};
 
@@ -79,47 +80,66 @@ pub struct DueConnection {
     pub renew_at: Option<i64>,
 }
 
-/// `(id, provider, sync_settings, webhook_secret, last activity)`.
+/// `(id, provider, sync_settings, webhook_secret, last_sync_at,
+/// connected_at, created_at)`.
 type ConnectionRow = (
     String,
     String,
     Option<Value>,
     Option<String>,
-    Option<String>,
+    Option<PrimitiveDateTime>,
+    Option<PrimitiveDateTime>,
+    PrimitiveDateTime,
 );
 
+/// A `timestamp` in milliseconds, the microseconds dropped (`to_char(…,
+/// 'MS')` read back with `new Date(…)`).
+fn millis_of_timestamp(at: PrimitiveDateTime) -> i64 {
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
+        .unwrap_or_default()
+}
+
 /// The workspace's live CRM connections, with when each is due.
-pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, sqlx::Error> {
-    let rows: Vec<ConnectionRow> =
-        sqlx::query_as(
-            "select id, provider, sync_settings, webhook_secret,
-                    to_char(coalesce(last_sync_at, connected_at, created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-             from integration_connections
-             where deleted_at is null and provider = any($1)
-             order by id",
-        )
-        .bind(CRM_INDEX_PROVIDERS)
-        .fetch_all(db)
+pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, DbErr> {
+    let rows: Vec<ConnectionRow> = connections::Entity::find()
+        .select_only()
+        .columns([
+            connections::Column::Id,
+            connections::Column::Provider,
+            connections::Column::SyncSettings,
+            connections::Column::WebhookSecret,
+            connections::Column::LastSyncAt,
+            connections::Column::ConnectedAt,
+            connections::Column::CreatedAt,
+        ])
+        .filter(connections::Column::DeletedAt.is_null())
+        .filter(connections::Column::Provider.is_in(CRM_INDEX_PROVIDERS.iter().copied()))
+        .order_by_asc(connections::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
         .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, provider, settings, secret, last)| {
-            let interval =
-                interval_minutes(settings.as_ref().and_then(|s| s.get("syncIntervalHours")));
-            let last = last.as_deref().and_then(millis_of).unwrap_or_default();
-            let renew_at = if provider == "google_calendar" {
-                watch_renewal_at(secret.as_deref())
-            } else {
-                None
-            };
-            DueConnection {
-                id,
-                provider,
-                due_at: last + interval * 60_000,
-                interval_minutes: interval,
-                renew_at,
-            }
-        })
+        .map(
+            |(id, provider, settings, secret, last_sync_at, connected_at, created_at)| {
+                let interval =
+                    interval_minutes(settings.as_ref().and_then(|s| s.get("syncIntervalHours")));
+                // `coalesce(last_sync_at, connected_at, created_at)`.
+                let last = millis_of_timestamp(last_sync_at.or(connected_at).unwrap_or(created_at));
+                let renew_at = if provider == "google_calendar" {
+                    watch_renewal_at(secret.as_deref())
+                } else {
+                    None
+                };
+                DueConnection {
+                    id,
+                    provider,
+                    due_at: last + interval * 60_000,
+                    interval_minutes: interval,
+                    renew_at,
+                }
+            },
+        )
         .collect())
 }
 
@@ -200,7 +220,7 @@ pub async fn sweep_workspace(
     clerk_org_id: &str,
     now: i64,
     counts: &mut CrmDueCounts,
-) -> Result<Option<i64>, sqlx::Error> {
+) -> Result<Option<i64>, DbErr> {
     let connections = due_connections(db).await?;
     let mut next: Option<i64> = None;
     for connection in &connections {

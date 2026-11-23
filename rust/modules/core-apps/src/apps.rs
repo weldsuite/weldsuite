@@ -11,25 +11,37 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, UpdateMany,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     USER_APP_CREATED, USER_APP_DELETED, USER_APP_INSTALLED, USER_APP_PUBLISHED,
     USER_APP_UNINSTALLED, USER_APP_UPDATED,
 };
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::{Field, query_values};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::master::{
+    admin_users, app_developer_accounts, user_app_installs, user_app_oauth_clients,
+    user_app_tokens, user_app_versions, user_apps,
+};
+use weldsuite_schema::tenant::workspace_installed_apps;
 
 use crate::CoreAppsState;
-use crate::access::{AppsError, Caller, OrInternal, answer, now, validate};
+use crate::access::{AppsError, AppsResult, Caller, OrInternal, answer, validate};
 use crate::bundle_access::invalidate_bundle_access;
 use crate::publish::{
     adopt_official_system_installs, dispatch_lifecycle_webhook, invalidate_asset_cache,
-    is_official_publisher_workspace, mint_app_token, publish_app_version, row, store_listing,
-    string_list, sweep_adopt_system_installs, text,
+    is_official_publisher_workspace, mint_app_token, now_tz, publish_app_version, row,
+    store_listing, string_list, sweep_adopt_system_installs, text, to_millis,
 };
 use crate::schemas;
 use crate::scopes::{
@@ -97,18 +109,51 @@ async fn owned_app(
     master: &PgPool,
     id: &str,
     workspace_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let found: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        app_json!(),
-        " from user_apps a
-         where a.id = $1 and a.owner_workspace_id = $2 and a.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<Value>, DbErr> {
+    let found = user_apps::Entity::find()
+        .filter(user_apps::Column::Id.eq(id))
+        .filter(user_apps::Column::OwnerWorkspaceId.eq(workspace_id))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .one(&orm(master))
+        .await?;
     Ok(found.map(row))
+}
+
+/// An app that is not soft-deleted, whoever owns it.
+async fn live_app(master: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let found = user_apps::Entity::find()
+        .filter(user_apps::Column::Id.eq(id))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .one(&orm(master))
+        .await?;
+    Ok(found.map(row))
+}
+
+/// What the store shows a workspace: live public approved apps, and its own.
+fn visible_in_store(workspace_id: &str) -> Condition {
+    Condition::any()
+        .add(
+            Condition::all()
+                .add(user_apps::Column::Visibility.eq("public"))
+                .add(user_apps::Column::ReviewStatus.eq("approved"))
+                .add(user_apps::Column::IsActive.eq(true))
+                .add(user_apps::Column::DeletedAt.is_null()),
+        )
+        .add(
+            Condition::all()
+                .add(user_apps::Column::OwnerWorkspaceId.eq(workspace_id))
+                .add(user_apps::Column::DeletedAt.is_null()),
+        )
+}
+
+/// `.returning()` read as `fetch_one`: no row is the route's 500.
+fn returned<T>(rows: Vec<T>, message: &'static str) -> AppsResult<T> {
+    rows.into_iter().next().ok_or_else(|| {
+        AppsError::internal(
+            message,
+            DbErr::RecordNotFound("no row returned by `returning`".to_owned()),
+        )
+    })
 }
 
 fn app_not_found(id: &str) -> AppsError {
@@ -180,55 +225,56 @@ async fn list(
 ) -> Response {
     answer(
         async {
-            let master = caller.master(&state);
+            const FAILED: &str = "Failed to list apps";
+            let master = orm(&caller.master(&state));
             let q = query_values(query.as_deref());
             let limit = first_query(&q, "limit")
                 .filter(|text| !text.is_empty())
                 .map_or(Some(25), |text| js_parse_int(&text))
                 .map_or(25, |n| n.clamp(1, 100));
             // Workspace-scoped: a cursor at another workspace's app is ignored.
-            let mut cursor: Option<(String, String)> = None;
+            let mut cursor: Option<(OffsetDateTime, String)> = None;
             if let Some(id) = first_query(&q, "cursor").filter(|c| !c.is_empty()) {
-                let found: Option<(Option<String>, String)> = sqlx::query_as(
-                    "select to_jsonb(created_at) #>> '{}', id from user_apps
-                     where id = $1 and owner_workspace_id = $2 limit 1",
-                )
-                .bind(&id)
-                .bind(&caller.workspace_id)
-                .fetch_optional(&master)
-                .await
-                .or_internal("Failed to list apps")?;
-                cursor = found.and_then(|(created, id)| {
-                    created
-                        .as_deref()
-                        .and_then(weldsuite_db::js_timestamp)
-                        .map(|stamp| (stamp, id))
-                });
+                let found: Option<(OffsetDateTime, String)> = user_apps::Entity::find()
+                    .select_only()
+                    .columns([user_apps::Column::CreatedAt, user_apps::Column::Id])
+                    .filter(user_apps::Column::Id.eq(&id))
+                    .filter(user_apps::Column::OwnerWorkspaceId.eq(&caller.workspace_id))
+                    .into_tuple()
+                    .one(&master)
+                    .await
+                    .or_internal(FAILED)?;
+                // The cursor's instant as the worker's `Date` holds it: to the
+                // millisecond.
+                cursor = found.map(|(created, id)| (to_millis(created), id));
             }
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a
-                 where a.owner_workspace_id = $1 and a.deleted_at is null
-                   and ($2::timestamptz is null or a.created_at < $2::timestamptz
-                        or (a.created_at = $2::timestamptz and a.id < $3))
-                 order by a.created_at desc, a.id desc
-                 limit $4"
-            ))
-            .bind(&caller.workspace_id)
-            .bind(cursor.as_ref().map(|(stamp, _)| stamp.as_str()))
-            .bind(cursor.as_ref().map(|(_, id)| id.as_str()))
-            .bind(limit + 1)
-            .fetch_all(&master)
-            .await
-            .or_internal("Failed to list apps")?;
-            let total: i64 = sqlx::query_scalar(
-                "select count(*) from user_apps where owner_workspace_id = $1 and deleted_at is null",
-            )
-            .bind(&caller.workspace_id)
-            .fetch_one(&master)
-            .await
-            .or_internal("Failed to list apps")?;
+            let mut page = user_apps::Entity::find()
+                .filter(user_apps::Column::OwnerWorkspaceId.eq(&caller.workspace_id))
+                .filter(user_apps::Column::DeletedAt.is_null());
+            if let Some((stamp, id)) = &cursor {
+                page = page.filter(
+                    Condition::any()
+                        .add(user_apps::Column::CreatedAt.lt(*stamp))
+                        .add(
+                            Condition::all()
+                                .add(user_apps::Column::CreatedAt.eq(*stamp))
+                                .add(user_apps::Column::Id.lt(id.as_str())),
+                        ),
+                );
+            }
+            let rows = page
+                .order_by_desc(user_apps::Column::CreatedAt)
+                .order_by_desc(user_apps::Column::Id)
+                .limit(u64::try_from(limit + 1).unwrap_or(26))
+                .all(&master)
+                .await
+                .or_internal(FAILED)?;
+            let total = user_apps::Entity::find()
+                .filter(user_apps::Column::OwnerWorkspaceId.eq(&caller.workspace_id))
+                .filter(user_apps::Column::DeletedAt.is_null())
+                .count(&master)
+                .await
+                .or_internal(FAILED)?;
             let has_more = rows.len() > usize::try_from(limit).unwrap_or(25);
             let mut data: Vec<Value> = rows.into_iter().map(row).collect();
             data.truncate(usize::try_from(limit).unwrap_or(25));
@@ -237,11 +283,7 @@ async fn list(
             } else {
                 None
             };
-            Ok(List::new(
-                data,
-                Pagination::new(u64::try_from(total).unwrap_or(0), has_more, next),
-            )
-            .into_response())
+            Ok(List::new(data, Pagination::new(total, has_more, next)).into_response())
         }
         .await,
     )
@@ -269,13 +311,16 @@ async fn create(
                     ApiError::conflict(format!("App code '{}' is reserved", data.code)).into(),
                 );
             }
-            let master = caller.master(&state);
-            let taken: Option<String> =
-                sqlx::query_scalar("select id from user_apps where code = $1 limit 1")
-                    .bind(&data.code)
-                    .fetch_optional(&master)
-                    .await
-                    .or_internal("Failed to create app")?;
+            const FAILED: &str = "Failed to create app";
+            let master = orm(&caller.master(&state));
+            let taken: Option<String> = user_apps::Entity::find()
+                .select_only()
+                .column(user_apps::Column::Id)
+                .filter(user_apps::Column::Code.eq(&data.code))
+                .into_tuple()
+                .one(&master)
+                .await
+                .or_internal(FAILED)?;
             if taken.is_some() {
                 return Err(ApiError::conflict(format!(
                     "App code '{}' is already taken",
@@ -283,35 +328,30 @@ async fn create(
                 ))
                 .into());
             }
-            let now = now();
-            let created: Value = sqlx::query_scalar(concat!(
-                "insert into user_apps as a
-                   (id, code, name, description, icon, category, website_url, privacy_url,
-                    screenshots, webhook_url, owner_workspace_id, created_by, publisher_type,
-                    created_at, updated_at)
-                 values ($1, $2, $3, $4, coalesce($5, 'Puzzle'), coalesce($6, 'Productivity'),
-                         $7, $8, coalesce($9::jsonb, '[]'::jsonb), $10, $11, $12, $13,
-                         $14::timestamptz, $14::timestamptz)
-                 returning ",
-                app_json!()
-            ))
-            .bind(generate_id("uapp"))
-            .bind(&data.code)
-            .bind(&data.name)
-            .bind(&data.description)
-            .bind(data.icon.as_deref().filter(|v| !v.is_empty()))
-            .bind(data.category.as_deref().filter(|v| !v.is_empty()))
-            .bind(data.website_url.as_deref().filter(|v| !v.is_empty()))
-            .bind(data.privacy_url.as_deref().filter(|v| !v.is_empty()))
-            .bind(data.screenshots.as_ref().map(|s| json!(s)))
-            .bind(data.webhook_url.as_deref().filter(|v| !v.is_empty()))
-            .bind(&caller.workspace_id)
-            .bind(&caller.user_id)
-            .bind(if official { "weldsuite" } else { "community" })
-            .bind(&now)
-            .fetch_one(&master)
+            // `''` counts as not given.
+            let given = |value: Option<String>| value.filter(|v| !v.is_empty());
+            let now = now_tz();
+            let created = user_apps::Entity::insert(user_apps::ActiveModel {
+                id: Set(generate_id("uapp")),
+                code: Set(data.code),
+                name: Set(data.name),
+                description: Set(data.description),
+                icon: Set(given(data.icon).unwrap_or_else(|| "Puzzle".to_owned())),
+                category: Set(given(data.category).unwrap_or_else(|| "Productivity".to_owned())),
+                website_url: Set(given(data.website_url)),
+                privacy_url: Set(given(data.privacy_url)),
+                screenshots: Set(Some(data.screenshots.map_or_else(|| json!([]), |s| json!(s)))),
+                webhook_url: Set(given(data.webhook_url)),
+                owner_workspace_id: Set(caller.workspace_id.clone()),
+                created_by: Set(caller.user_id.clone()),
+                publisher_type: Set(if official { "weldsuite" } else { "community" }.to_owned()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_with_returning(&master)
             .await
-            .or_internal("Failed to create app")?;
+            .or_internal(FAILED)?;
             let created = row(created);
             caller.publish(&state, USER_APP_CREATED, text(&created, "id"), &created);
             Ok(Created(created).into_response())

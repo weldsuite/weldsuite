@@ -2,14 +2,17 @@
 //! (`routes/v1/<object>/index.ts`).
 
 use axum::Router;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CALENDAR_CREATED, CALENDAR_DELETED, CALENDAR_EVENT_CREATED, CALENDAR_EVENT_DELETED,
     CALENDAR_EVENT_UPDATED, CALENDAR_UPDATED,
 };
+use weldsuite_schema::tenant::{calendar_events, calendars};
 
 use crate::ExternalApiState;
-use crate::crud::{Caller, Fail, table_list_sql};
+use crate::crud::{Caller, Fail};
+use crate::list::when;
 use crate::schemas::{LIST_CALENDAR_EVENTS, LIST_CALENDARS};
 use crate::schemas_gen::{
     CREATE_CALENDAR, CREATE_CALENDAR_EVENT, UPDATE_CALENDAR, UPDATE_CALENDAR_EVENT,
@@ -46,12 +49,12 @@ static CALENDAR_GROUP: Simple = Simple {
     list: &LIST_CALENDARS,
     create: &CREATE_CALENDAR,
     update: &UPDATE_CALENDAR,
-    sql: table_list_sql!(
-        calendars,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.name like $3->>'search') \
-         and ($3->>'ownerId' is null or t.owner_id = $3->>'ownerId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(calendars::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| calendars::Column::Name.like(v)))
+            .add_option(when(f, "ownerId", |v| calendars::Column::OwnerId.eq(v)))
+    },
     filters: &[F::Like("search"), F::Eq("ownerId")],
     dates: &[],
     events: Some([CALENDAR_CREATED, CALENDAR_UPDATED, CALENDAR_DELETED]),
@@ -97,12 +100,14 @@ static EVENTS: Simple = Simple {
     list: &LIST_CALENDAR_EVENTS,
     create: &CREATE_CALENDAR_EVENT,
     update: &UPDATE_CALENDAR_EVENT,
-    sql: table_list_sql!(
-        calendar_events,
-        "t.deleted_at is null \
-         and ($3->>'search' is null or t.title like $3->>'search') \
-         and ($3->>'calendarId' is null or t.calendar_id = $3->>'calendarId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(calendar_events::Column::DeletedAt.is_null())
+            .add_option(when(f, "search", |v| calendar_events::Column::Title.like(v)))
+            .add_option(when(f, "calendarId", |v| {
+                calendar_events::Column::CalendarId.eq(v)
+            }))
+    },
     filters: &[F::Like("search"), F::Eq("calendarId")],
     dates: &["startTime", "endTime"],
     events: Some([

@@ -19,6 +19,7 @@ use crate::crud::{
     Answer, Caller, Fail, created, dates, flag, get_live, like, no_content, now, ok, page, pick,
     soft_delete, text, to_date, with_id, with_updated,
 };
+use crate::list::Filter;
 use crate::session::{not_found, require_scope};
 use crate::table::Table;
 use crate::zod::{self, Parsed, Z};
@@ -59,9 +60,9 @@ pub(crate) struct Simple {
     pub(crate) list: &'static Z,
     pub(crate) create: &'static Z,
     pub(crate) update: &'static Z,
-    /// The list and count statements (`table_list_sql!`), reading `$3` by
+    /// The list's conditions on the table, reading the filters object by
     /// the filters' query keys.
-    pub(crate) sql: (&'static str, &'static str),
+    pub(crate) filter: Filter,
     pub(crate) filters: &'static [F],
     /// `coerceDates`: the body strings written as `Date`s.
     pub(crate) dates: &'static [&'static str],
@@ -161,7 +162,7 @@ async fn list(spec: &'static Simple, caller: Caller, raw: Option<String>) -> Ans
     let q = zod::query(spec.list, raw.as_deref())?;
     let filters = filters(spec.filters, &q);
     if spec.stats == Stats::None {
-        return page(&caller.db, spec.sql, spec.table, &q, filters).await;
+        return page(&caller.db, spec.filter, spec.table, &q, filters).await;
     }
     crate::flow::decorated_page(&caller, spec, &q, filters).await
 }

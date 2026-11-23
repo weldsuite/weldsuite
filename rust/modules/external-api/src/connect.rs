@@ -7,6 +7,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     self, WORKFLOW_CREATED, WORKFLOW_DELETED, WORKFLOW_SCHEDULE_CREATED, WORKFLOW_SCHEDULE_DELETED,
@@ -14,12 +15,16 @@ use weldsuite_catalogs::entity_events::{
     WORKFLOW_WEBHOOK_DELETED, WORKFLOW_WEBHOOK_UPDATED,
 };
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::{
+    workflow_executions, workflow_schedules, workflow_webhooks, workflows,
+};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, created, dates, field, flag, get_live, like, no_content, now, ok, page,
-    soft_delete, table_list_sql, text, to_date, with_updated,
+    soft_delete, text, to_date, with_updated,
 };
+use crate::list::{always, like_any, when, when_flag};
 use crate::schemas::{
     CREATE_WEBHOOK, LIST_EXECUTIONS, LIST_SCHEDULES, LIST_WEBHOOKS, LIST_WORKFLOWS, UPDATE_WEBHOOK,
 };
@@ -106,12 +111,16 @@ async fn webhook_events() -> Answer {
     ok(Value::Array(all_events()))
 }
 
-const WEBHOOKS_LIST: (&str, &str) = table_list_sql!(
-    workflow_webhooks,
-    "t.deleted_at is null \
-     and ($3->>'workflowId' is null or t.workflow_id = $3->>'workflowId') \
-     and ($3->>'isEnabled' is null or t.is_enabled = ($3->>'isEnabled')::boolean)"
-);
+fn webhooks_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(workflow_webhooks::Column::DeletedAt.is_null())
+        .add_option(when(f, "workflowId", |v| {
+            workflow_webhooks::Column::WorkflowId.eq(v)
+        }))
+        .add_option(when_flag(f, "isEnabled", |flag| {
+            workflow_webhooks::Column::IsEnabled.eq(flag)
+        }))
+}
 
 async fn list_webhooks(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_WEBHOOKS, raw.as_deref())?;
@@ -119,7 +128,7 @@ async fn list_webhooks(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "workflowId": text(&q, "workflowId"),
         "isEnabled": flag(&q, "isEnabled"),
     });
-    page(&caller.db, WEBHOOKS_LIST, &WORKFLOW_WEBHOOKS, &q, filters).await
+    page(&caller.db, webhooks_list, &WORKFLOW_WEBHOOKS, &q, filters).await
 }
 
 async fn get_webhook(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -216,13 +225,16 @@ async fn delete_webhook(State(state): S, caller: Caller, Path(id): Path<String>)
 
 // ── workflows ────────────────────────────────────────────────────────────────
 
-const WORKFLOWS_LIST: (&str, &str) = table_list_sql!(
-    workflows,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or (t.name like $3->>'search' or t.description like $3->>'search')) \
-     and ($3->>'status' is null or t.status::text = $3->>'status') \
-     and ($3->>'folderId' is null or t.folder_id = $3->>'folderId')"
-);
+fn workflows_list(f: &Value) -> Condition {
+    use workflows::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::Name, Column::Description], &v)
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "folderId", |v| Column::FolderId.eq(v)))
+}
 
 async fn list_workflows(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_WORKFLOWS, raw.as_deref())?;
@@ -231,7 +243,7 @@ async fn list_workflows(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "status": text(&q, "status"),
         "folderId": text(&q, "folderId"),
     });
-    page(&caller.db, WORKFLOWS_LIST, &WORKFLOWS, &q, filters).await
+    page(&caller.db, workflows_list, &WORKFLOWS, &q, filters).await
 }
 
 async fn get_workflow(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -324,11 +336,16 @@ async fn delete_workflow(State(state): S, caller: Caller, Path(id): Path<String>
 
 // ── schedules ────────────────────────────────────────────────────────────────
 
-const SCHEDULES_LIST: (&str, &str) = table_list_sql!(
-    workflow_schedules,
-    "t.deleted_at is null and t.workflow_id = $3->>'workflowId' \
-     and ($3->>'isEnabled' is null or t.is_enabled = ($3->>'isEnabled')::boolean)"
-);
+fn schedules_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(workflow_schedules::Column::DeletedAt.is_null())
+        .add(always(f, "workflowId", |v| {
+            workflow_schedules::Column::WorkflowId.eq(v)
+        }))
+        .add_option(when_flag(f, "isEnabled", |flag| {
+            workflow_schedules::Column::IsEnabled.eq(flag)
+        }))
+}
 
 async fn list_schedules(
     caller: Caller,
@@ -337,7 +354,7 @@ async fn list_schedules(
 ) -> Answer {
     let q = zod::query(&LIST_SCHEDULES, raw.as_deref())?;
     let filters = json!({ "workflowId": workflow_id, "isEnabled": flag(&q, "isEnabled") });
-    page(&caller.db, SCHEDULES_LIST, &WORKFLOW_SCHEDULES, &q, filters).await
+    page(&caller.db, schedules_list, &WORKFLOW_SCHEDULES, &q, filters).await
 }
 
 async fn get_schedule(caller: Caller, Path((_workflow, id)): Path<(String, String)>) -> Answer {
@@ -455,11 +472,13 @@ async fn delete_schedule(
 
 // ── executions ───────────────────────────────────────────────────────────────
 
-const EXECUTIONS_LIST: (&str, &str) = table_list_sql!(
-    workflow_executions,
-    "t.workflow_id = $3->>'workflowId' \
-     and ($3->>'status' is null or t.status::text = $3->>'status')"
-);
+fn executions_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(always(f, "workflowId", |v| {
+            workflow_executions::Column::WorkflowId.eq(v)
+        }))
+        .add_option(when(f, "status", |v| workflow_executions::Column::Status.eq(v)))
+}
 
 async fn list_executions(
     caller: Caller,
@@ -470,7 +489,7 @@ async fn list_executions(
     let filters = json!({ "workflowId": workflow_id, "status": text(&q, "status") });
     page(
         &caller.db,
-        EXECUTIONS_LIST,
+        executions_list,
         &WORKFLOW_EXECUTIONS,
         &q,
         filters,

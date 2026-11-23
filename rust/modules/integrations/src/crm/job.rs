@@ -7,14 +7,18 @@
 
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, Job, JobContext, JobError, RealtimeMessage, StepRetry, step};
+use weldsuite_schema::tenant::{integration_connections as connections, sync_logs};
 
 use super::adapters::{Adapter, millis_of};
-use super::engine::{SyncConnection, SyncEntityStats, now, sync_entity_type};
+use super::engine::{SyncConnection, SyncEntityStats, now_at, sync_entity_type};
 use super::mapper::truthy;
 use super::{CRM_SYNC_JOB, CrmDeps, db_message, now_millis};
 
@@ -94,16 +98,34 @@ pub fn enabled_entity_types(sync_settings: &Value, supported: &[&str]) -> Vec<St
 }
 
 /// `select * from integration_connections where id = $1 [and deleted_at is null]`.
-async fn connection_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, String> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from integration_connections t
-         where t.id = $1 and (not $2 or t.deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| db_message(&e))
+async fn connection_row(
+    db: &PgPool,
+    id: &str,
+    live: bool,
+) -> Result<Option<connections::Model>, String> {
+    let mut find = connections::Entity::find_by_id(id.to_owned());
+    if live {
+        find = find.filter(connections::Column::DeletedAt.is_null());
+    }
+    find.one(&orm(db)).await.map_err(|e| db_message(&e))
+}
+
+/// `db.update(integrationConnections).set({ ... }).where(eq(id))`: the
+/// columns given, on the one connection.
+async fn update_connection(
+    db: &PgPool,
+    id: &str,
+    set: Vec<(connections::Column, Expr)>,
+) -> Result<(), DbErr> {
+    let mut update = connections::Entity::update_many();
+    for (column, value) in set {
+        update = update.col_expr(column, value);
+    }
+    update
+        .filter(connections::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 impl CrmSyncJob {
@@ -114,10 +136,7 @@ impl CrmSyncJob {
         let connection = connection_row(&db, id, true)
             .await?
             .ok_or_else(|| format!("Connection {id} not found"))?;
-        let tokens = connection
-            .get("oauth_tokens")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let tokens = connection.oauth_tokens.clone().unwrap_or(Value::Null);
         let access = tokens.get("accessToken");
         if !truthy(access) {
             return Err(format!("No access token for connection {id}"));
@@ -125,10 +144,7 @@ impl CrmSyncJob {
         let access = weldsuite_core_domain::js::js_string(
             &weldsuite_core_domain::js::Js::from_jsonb(access.expect("truthy")),
         );
-        let sync_settings = connection
-            .get("sync_settings")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let sync_settings = connection.sync_settings.clone().unwrap_or(Value::Null);
         let expiry = tokens.get("expiresAt").filter(|v| truthy(Some(v)));
         let expired = expiry
             .and_then(Value::as_str)
@@ -173,13 +189,17 @@ impl CrmSyncJob {
                 &refresh,
             )
             .await?;
-        sqlx::query(
-            "update integration_connections set oauth_tokens = $2, updated_at = $3::timestamp where id = $1",
+        update_connection(
+            &db,
+            id,
+            vec![
+                (
+                    connections::Column::OauthTokens,
+                    Expr::value(tokens.to_json()),
+                ),
+                (connections::Column::UpdatedAt, Expr::value(now_at())),
+            ],
         )
-        .bind(id)
-        .bind(tokens.to_json())
-        .bind(now())
-        .execute(&db)
         .await
         .map_err(|e| db_message(&e))?;
         Ok(ConnectionData {
@@ -192,25 +212,32 @@ impl CrmSyncJob {
     async fn create_log(&self, p: &CrmSyncParams) -> Result<String, String> {
         let db = self.deps.db(&p.workspace_id).await?;
         let id = generate_id("slog");
-        let at = now();
-        sqlx::query(
-            "insert into sync_logs (id, platform, connection_id, sync_type, status, triggered_by, started_at)
-             values ($1, $2, $3, 'all', 'running', $4, $5::timestamp)",
-        )
-        .bind(&id)
-        .bind(&p.provider)
-        .bind(&p.connection_id)
-        .bind(if p.sync_type == "full" { "manual" } else { "scheduled" })
-        .bind(&at)
-        .execute(&db)
+        let triggered_by = if p.sync_type == "full" {
+            "manual"
+        } else {
+            "scheduled"
+        };
+        sync_logs::Entity::insert(sync_logs::ActiveModel {
+            id: Set(id.clone()),
+            platform: Set(p.provider.clone()),
+            connection_id: Set(p.connection_id.clone()),
+            sync_type: Set("all".to_owned()),
+            status: Set("running".to_owned()),
+            triggered_by: Set(triggered_by.to_owned()),
+            started_at: Set(Some(now_at())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&db))
         .await
         .map_err(|e| db_message(&e))?;
-        sqlx::query(
-            "update integration_connections set status = 'syncing', updated_at = $2::timestamp where id = $1",
+        update_connection(
+            &db,
+            &p.connection_id,
+            vec![
+                (connections::Column::Status, Expr::value("syncing")),
+                (connections::Column::UpdatedAt, Expr::value(now_at())),
+            ],
         )
-        .bind(&p.connection_id)
-        .bind(now())
-        .execute(&db)
         .await
         .map_err(|e| db_message(&e))?;
         Ok(id)
@@ -228,20 +255,19 @@ impl CrmSyncJob {
         let connection = connection_row(&db, &p.connection_id, false)
             .await?
             .ok_or_else(|| format!("Connection {} not found during sync", p.connection_id))?;
-        let field = |key: &str| connection.get(key).cloned().filter(|v| !v.is_null());
         let sync = SyncConnection {
             id: p.connection_id.clone(),
-            sync_cursor: field("sync_cursor"),
-            conflict_strategy: field("conflict_strategy")
-                .and_then(|v| v.as_str().map(str::to_owned)),
-            entity_config: field("entity_config"),
+            sync_cursor: connection.sync_cursor.clone().filter(|v| !v.is_null()),
+            conflict_strategy: Some(connection.conflict_strategy.clone()),
+            entity_config: connection.entity_config.clone().filter(|v| !v.is_null()),
         };
         let defaults: Vec<(&str, Option<Value>)> = if entity_type == "calendar_event" {
             vec![
                 (
                     "calendarId",
                     connection
-                        .get("settings")
+                        .settings
+                        .as_ref()
                         .and_then(|s| s.get("googleCalendarId"))
                         .cloned(),
                 ),
@@ -249,9 +275,9 @@ impl CrmSyncJob {
                     "organizerId",
                     Some(
                         connection
-                            .get("connected_by")
-                            .cloned()
-                            .unwrap_or(Value::Null),
+                            .connected_by
+                            .clone()
+                            .map_or(Value::Null, Value::String),
                     ),
                 ),
                 ("type", Some(json!("event"))),
@@ -287,24 +313,37 @@ impl CrmSyncJob {
             .iter()
             .map(|(k, s)| (k.clone(), serde_json::to_value(s).unwrap_or(Value::Null)))
             .collect();
-        sqlx::query(
-            "update sync_logs set status = 'completed', items_processed = $2, total_items = $2,
-                items_created = $3, items_updated = $4, items_failed = $5, items_skipped = $6,
-                finished_at = $7::timestamp, duration_ms = $8, metadata = $9
-             where id = $1",
-        )
-        .bind(log_id)
-        .bind(i32::try_from(processed).unwrap_or(i32::MAX))
-        .bind(i32::try_from(total(|s| s.created)).unwrap_or(i32::MAX))
-        .bind(i32::try_from(total(|s| s.updated)).unwrap_or(i32::MAX))
-        .bind(i32::try_from(total(|s| s.failed)).unwrap_or(i32::MAX))
-        .bind(i32::try_from(total(|s| s.skipped)).unwrap_or(i32::MAX))
-        .bind(now())
-        .bind(i32::try_from(duration).unwrap_or(i32::MAX))
-        .bind(Value::Object(metadata))
-        .execute(&db)
-        .await
-        .map_err(|e| db_message(&e))?;
+        let count = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+        sync_logs::Entity::update_many()
+            .col_expr(sync_logs::Column::Status, Expr::value("completed"))
+            .col_expr(
+                sync_logs::Column::ItemsProcessed,
+                Expr::value(count(processed)),
+            )
+            .col_expr(sync_logs::Column::TotalItems, Expr::value(count(processed)))
+            .col_expr(
+                sync_logs::Column::ItemsCreated,
+                Expr::value(count(total(|s| s.created))),
+            )
+            .col_expr(
+                sync_logs::Column::ItemsUpdated,
+                Expr::value(count(total(|s| s.updated))),
+            )
+            .col_expr(
+                sync_logs::Column::ItemsFailed,
+                Expr::value(count(total(|s| s.failed))),
+            )
+            .col_expr(
+                sync_logs::Column::ItemsSkipped,
+                Expr::value(count(total(|s| s.skipped))),
+            )
+            .col_expr(sync_logs::Column::FinishedAt, Expr::value(now_at()))
+            .col_expr(sync_logs::Column::DurationMs, Expr::value(count(duration)))
+            .col_expr(sync_logs::Column::Metadata, Expr::value(Value::Object(metadata)))
+            .filter(sync_logs::Column::Id.eq(log_id))
+            .exec(&orm(&db))
+            .await
+            .map_err(|e| db_message(&e))?;
 
         let of = |key: &str| {
             all.iter()
@@ -313,28 +352,33 @@ impl CrmSyncJob {
         };
         // `calendar_event` overwrites `activitiesSynced` after `activity`.
         let activities = of("calendar_event").or_else(|| of("activity"));
-        let at = now();
-        sqlx::query(
-            "update integration_connections set status = 'active', last_sync_at = $2::timestamp,
-                last_sync_status = 'completed', last_error = null, last_error_at = null,
-                updated_at = $2::timestamp,
-                companies_synced = coalesce($3, companies_synced),
-                people_synced = coalesce($4, people_synced),
-                leads_synced = coalesce($5, leads_synced),
-                opportunities_synced = coalesce($6, opportunities_synced),
-                activities_synced = coalesce($7, activities_synced)
-             where id = $1",
-        )
-        .bind(&p.connection_id)
-        .bind(&at)
-        .bind(of("customer"))
-        .bind(of("contact"))
-        .bind(of("lead"))
-        .bind(of("opportunity"))
-        .bind(activities)
-        .execute(&db)
-        .await
-        .map_err(|e| db_message(&e))?;
+        let at = now_at();
+        let mut set = vec![
+            (connections::Column::Status, Expr::value("active")),
+            (connections::Column::LastSyncAt, Expr::value(at)),
+            (connections::Column::LastSyncStatus, Expr::value("completed")),
+            (connections::Column::LastError, Expr::value(None::<String>)),
+            (
+                connections::Column::LastErrorAt,
+                Expr::value(None::<time::PrimitiveDateTime>),
+            ),
+            (connections::Column::UpdatedAt, Expr::value(at)),
+        ];
+        // `coalesce($n, <counter>)`: a counter the run synced nothing of keeps its value.
+        for (column, synced) in [
+            (connections::Column::CompaniesSynced, of("customer")),
+            (connections::Column::PeopleSynced, of("contact")),
+            (connections::Column::LeadsSynced, of("lead")),
+            (connections::Column::OpportunitiesSynced, of("opportunity")),
+            (connections::Column::ActivitiesSynced, activities),
+        ] {
+            if let Some(synced) = synced {
+                set.push((column, Expr::value(synced)));
+            }
+        }
+        update_connection(&db, &p.connection_id, set)
+            .await
+            .map_err(|e| db_message(&e))?;
         tracing::info!(
             "[CrmSync] Completed: {processed} processed, {} created, {} updated, {} failed ({duration}ms)",
             total(|s| s.created),
@@ -370,26 +414,27 @@ impl CrmSyncJob {
     ) -> Result<(), String> {
         let db = self.deps.db(&p.workspace_id).await?;
         if let Some(log_id) = log_id {
-            sqlx::query(
-                "update sync_logs set status = 'failed', error_message = $2, finished_at = $3::timestamp where id = $1",
-            )
-            .bind(log_id)
-            .bind(message)
-            .bind(now())
-            .execute(&db)
-            .await
-            .map_err(|e| db_message(&e))?;
+            sync_logs::Entity::update_many()
+                .col_expr(sync_logs::Column::Status, Expr::value("failed"))
+                .col_expr(sync_logs::Column::ErrorMessage, Expr::value(message))
+                .col_expr(sync_logs::Column::FinishedAt, Expr::value(now_at()))
+                .filter(sync_logs::Column::Id.eq(log_id))
+                .exec(&orm(&db))
+                .await
+                .map_err(|e| db_message(&e))?;
         }
-        let at = now();
-        sqlx::query(
-            "update integration_connections set status = 'error', last_sync_status = 'failed',
-                last_error = $2, last_error_at = $3::timestamp, updated_at = $3::timestamp
-             where id = $1",
+        let at = now_at();
+        update_connection(
+            &db,
+            &p.connection_id,
+            vec![
+                (connections::Column::Status, Expr::value("error")),
+                (connections::Column::LastSyncStatus, Expr::value("failed")),
+                (connections::Column::LastError, Expr::value(message)),
+                (connections::Column::LastErrorAt, Expr::value(at)),
+                (connections::Column::UpdatedAt, Expr::value(at)),
+            ],
         )
-        .bind(&p.connection_id)
-        .bind(message)
-        .bind(&at)
-        .execute(&db)
         .await
         .map_err(|e| db_message(&e))?;
         Ok(())

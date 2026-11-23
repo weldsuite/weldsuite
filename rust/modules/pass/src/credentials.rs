@@ -12,7 +12,9 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
-use weldsuite_schema::tenant::{weldpass_provider_credentials as credentials, weldpass_sync_targets};
+use weldsuite_schema::tenant::{
+    weldpass_provider_credentials as credentials, weldpass_sync_targets,
+};
 
 use crate::envelope::{Key, credential_location, open_secret, seal_secret};
 use crate::providers::{self, VerifyResult};

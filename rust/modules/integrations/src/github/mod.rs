@@ -14,9 +14,12 @@ pub mod webhook;
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BoxFuture, DynJobs, JobRequest, OutboundHttp};
+use weldsuite_schema::tenant::project_pipeline_stages as stages;
 
 use crate::books::TenantResolver;
 pub use auth::AppCredentials;
@@ -103,6 +106,20 @@ pub(crate) fn iso_of_millis(millis: i64) -> String {
     weldsuite_events::iso_timestamp(at)
 }
 
+/// `new Date(millis)` as Drizzle writes it to a `timestamp` column.
+pub(crate) fn timestamp_of_millis(millis: i64) -> PrimitiveDateTime {
+    let at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+    weldsuite_db::utc_timestamp(at)
+}
+
+/// `floor(extract(epoch from <col>) * 1000)` of a `timestamp` column: the
+/// milliseconds JavaScript's `Date` holds, the microseconds dropped.
+pub(crate) fn millis_of_timestamp(at: PrimitiveDateTime) -> i64 {
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
+        .unwrap_or_default()
+}
+
 /// `new Date(iso).getTime()`, for the ISO times GitHub sends.
 pub(crate) fn millis_of_iso(iso: &str) -> Option<i64> {
     let at =
@@ -128,16 +145,21 @@ pub(crate) fn now_millis() -> i64 {
 pub(crate) async fn status_to_stage_id(
     db: &PgPool,
     project_id: &str,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    let mut stages: Vec<(String, Option<String>, Option<i32>)> = sqlx::query_as(
-        "select id, system_status, position from project_pipeline_stages where project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    stages.sort_by_key(|(_, _, position)| position.unwrap_or(0));
+) -> Result<Vec<(String, String)>, DbErr> {
+    let mut rows: Vec<(String, Option<String>, Option<i32>)> = stages::Entity::find()
+        .select_only()
+        .columns([
+            stages::Column::Id,
+            stages::Column::SystemStatus,
+            stages::Column::Position,
+        ])
+        .filter(stages::Column::ProjectId.eq(project_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    rows.sort_by_key(|(_, _, position)| position.unwrap_or(0));
     let mut map: Vec<(String, String)> = Vec::new();
-    for (id, status, _) in stages {
+    for (id, status, _) in rows {
         if let Some(status) = status.filter(|s| !s.is_empty())
             && !map.iter().any(|(s, _)| *s == status)
         {

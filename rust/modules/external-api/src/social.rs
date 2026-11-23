@@ -8,6 +8,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     SOCIAL_ACCOUNT_CREATED, SOCIAL_ACCOUNT_DELETED, SOCIAL_ACCOUNT_UPDATED,
@@ -15,12 +16,14 @@ use weldsuite_catalogs::entity_events::{
     SOCIAL_MEDIA_CREATED, SOCIAL_MEDIA_DELETED, SOCIAL_MEDIA_UPDATED,
 };
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::{social_accounts, social_analytics, social_campaigns, social_media};
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, created, dates, get_live, no_content, now, ok, page, pick,
-    table_list_sql, text, with_updated,
+    Answer, Caller, Fail, created, dates, get_live, no_content, now, ok, page, pick, text,
+    with_updated,
 };
+use crate::list::when;
 use crate::schemas::{
     LIST_SOCIAL_ACCOUNTS, LIST_SOCIAL_ANALYTICS, LIST_SOCIAL_CAMPAIGNS, LIST_SOCIAL_MEDIA,
 };
@@ -108,12 +111,16 @@ static ACCOUNTS: Simple = Simple {
     list: &LIST_SOCIAL_ACCOUNTS,
     create: &CREATE_SOCIAL_ACCOUNT,
     update: &UPDATE_SOCIAL_ACCOUNT,
-    sql: table_list_sql!(
-        social_accounts,
-        "t.deleted_at is null \
-         and ($3->>'platform' is null or t.platform = ($3->>'platform')::social_platform) \
-         and ($3->>'status' is null or t.status = ($3->>'status')::social_account_status)"
-    ),
+    // `($3->>'platform')::social_platform`: the value is cast to the enum
+    // (an unknown label is the statement's error, as in the worker).
+    filter: |f| {
+        Condition::all()
+            .add(social_accounts::Column::DeletedAt.is_null())
+            .add_option(when(f, "platform", |v| {
+                social_accounts::Column::Platform.eq(v)
+            }))
+            .add_option(when(f, "status", |v| social_accounts::Column::Status.eq(v)))
+    },
     filters: &[F::Eq("platform"), F::Eq("status")],
     dates: &[],
     events: Some([
@@ -150,10 +157,11 @@ static CAMPAIGNS: Simple = Simple {
     list: &LIST_SOCIAL_CAMPAIGNS,
     create: &CREATE_SOCIAL_CAMPAIGN,
     update: &UPDATE_SOCIAL_CAMPAIGN,
-    sql: table_list_sql!(
-        social_campaigns,
-        "t.deleted_at is null and ($3->>'status' is null or t.status = ($3->>'status')::social_campaign_status)"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add(social_campaigns::Column::DeletedAt.is_null())
+            .add_option(when(f, "status", |v| social_campaigns::Column::Status.eq(v)))
+    },
     filters: &[F::Eq("status")],
     dates: &[],
     events: Some([
@@ -192,11 +200,13 @@ static ANALYTICS: Simple = Simple {
     list: &LIST_SOCIAL_ANALYTICS,
     create: &CREATE_SOCIAL_ANALYTICS,
     update: &UPDATE_SOCIAL_ANALYTICS,
-    sql: table_list_sql!(
-        social_analytics,
-        "($3->>'postId' is null or t.post_id = $3->>'postId') \
-         and ($3->>'accountId' is null or t.account_id = $3->>'accountId')"
-    ),
+    filter: |f| {
+        Condition::all()
+            .add_option(when(f, "postId", |v| social_analytics::Column::PostId.eq(v)))
+            .add_option(when(f, "accountId", |v| {
+                social_analytics::Column::AccountId.eq(v)
+            }))
+    },
     filters: &[F::Eq("postId"), F::Eq("accountId")],
     dates: &[],
     events: None,
@@ -211,12 +221,13 @@ static ANALYTICS: Simple = Simple {
 // Media
 // ---------------------------------------------------------------------------
 
-const MEDIA_LIST: (&str, &str) = table_list_sql!(
-    social_media,
-    "t.deleted_at is null \
-     and ($3->>'mediaType' is null or t.media_type = ($3->>'mediaType')::social_media_type) \
-     and ($3->>'status' is null or t.status = ($3->>'status')::social_media_status)"
-);
+/// The media list's conditions; the filters are cast to their enums.
+fn media_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(social_media::Column::DeletedAt.is_null())
+        .add_option(when(f, "mediaType", |v| social_media::Column::MediaType.eq(v)))
+        .add_option(when(f, "status", |v| social_media::Column::Status.eq(v)))
+}
 
 /// `guessMime(fileName, mediaType)`.
 fn guess_mime(file_name: &str, media_type: &str) -> &'static str {
@@ -267,7 +278,7 @@ const MEDIA_EVENT: [&str; 3] = ["fileName", "mediaType", "status"];
 async fn list_media(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_SOCIAL_MEDIA, raw.as_deref())?;
     let filters = json!({ "mediaType": text(&q, "mediaType"), "status": text(&q, "status") });
-    page(&caller.db, MEDIA_LIST, &SOCIAL_MEDIA, &q, filters).await
+    page(&caller.db, media_list, &SOCIAL_MEDIA, &q, filters).await
 }
 
 async fn get_media(caller: Caller, Path(id): Path<String>) -> Answer {
