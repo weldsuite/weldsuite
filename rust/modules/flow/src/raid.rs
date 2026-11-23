@@ -48,7 +48,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_TASK_CREATED,
 };
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::approvals::cancel_pending_approvals;
 use weldsuite_flow_domain::js::{
@@ -856,7 +856,7 @@ async fn create_item(
     let db = &caller.db;
     let now_ms = crate::now_ms();
     let id = generate_id("raid");
-    let number = allocate_number(db, &raid_sequence(kind, project_id)).await?;
+    let number = allocate_number(&orm(db), &raid_sequence(kind, project_id)).await?;
     let values = new_item_values(
         kind,
         input,
@@ -1092,8 +1092,7 @@ async fn close_acceptance_request(
 ) -> Result<(), DbErr> {
     let cleared =
         cancel_pending_approvals(&caller.db, "risk_acceptance", id, true, crate::now_ms())
-            .await
-            .map_err(orm_error)?;
+            .await?;
     announce_approvals_cancelled(state, caller, &cleared);
     Ok(())
 }
@@ -1413,7 +1412,7 @@ async fn convert_item(
     let now_ms = crate::now_ms();
     let now = iso_ms(now_ms);
     let new_id = generate_id("raid");
-    let number = allocate_number(db, &raid_sequence(to, project_id)).await?;
+    let number = allocate_number(&orm(db), &raid_sequence(to, project_id)).await?;
     let created = converted_values(
         source,
         to,

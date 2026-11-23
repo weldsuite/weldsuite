@@ -151,16 +151,16 @@ where
             "/leave-requests/{id}",
             delete(delete_leave_route).route_layer(gate.require([LEAVE_DELETE])),
         )
-        .route_layer(guard("/shifts", "Shift", via_employee!("hr_shifts")))
+        .route_layer(guard("/shifts", "Shift", via_employee!(hr_shifts)))
         .route_layer(guard(
             "/attendance",
             "Attendance record",
-            via_employee!("hr_attendance_records"),
+            via_employee!(hr_attendance_records),
         ))
         .route_layer(guard(
             "/leave-requests",
             "Leave request",
-            via_employee!("hr_leave_requests"),
+            via_employee!(hr_leave_requests),
         ))
 }
 

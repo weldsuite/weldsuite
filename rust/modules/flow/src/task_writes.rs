@@ -29,7 +29,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_TASK_COMPLETED, PROJECT_TASK_CREATED, PROJECT_TASK_UPDATED,
 };
-use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::recurrence::is_completion;
@@ -878,8 +878,7 @@ async fn status_update(
         text_of(task, "stageId"),
         status,
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     if let Some(stage) = &stage {
         update.set("stageId", Js::String(stage.clone()));
     }
@@ -1189,7 +1188,6 @@ async fn plan_links(
     let access = LinkAccess::Projects(caller.accessible_project_ids().await?);
     plan_dependency_update(&caller.db, id, input, &access)
         .await
-        .map_err(orm_error)
 }
 
 pub(crate) async fn dependencies(
@@ -1226,7 +1224,7 @@ pub(crate) async fn dependencies(
         };
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, &id, &plan, &at, &caller.user_id).await?;
+        write_dependency_rows(&OrmConn::new(&mut tx), &id, &plan, &at, &caller.user_id).await?;
         tx.commit().await?;
         let task = task.unwrap_or(Value::Null);
         caller.publish(
@@ -1348,8 +1346,7 @@ async fn relation_error(
         ..changed
     };
     if let Some(message) = find_invalid_task_reference(db, current_project, &refs)
-        .await
-        .map_err(orm_error)?
+        .await?
     {
         return Ok(Some(message));
     }
@@ -1366,7 +1363,6 @@ async fn relation_error(
         &parent,
     )
     .await
-    .map_err(orm_error)
 }
 
 pub(crate) async fn update(
@@ -1522,8 +1518,11 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
     if let Some(plan) = &plan {
         let at = now();
         let mut tx = db.begin().await?;
-        write_dependency_rows(&mut tx, id, plan, &at, &caller.user_id).await?;
-        write_columns_on(&OrmConn::new(&mut tx), id, &update, false).await?;
+        {
+            let conn = OrmConn::new(&mut tx);
+            write_dependency_rows(&conn, id, plan, &at, &caller.user_id).await?;
+            write_columns_on(&conn, id, &update, false).await?;
+        }
         tx.commit().await?;
     } else {
         write_columns(db, id, &update, false).await?;

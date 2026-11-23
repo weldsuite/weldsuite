@@ -497,7 +497,7 @@ async fn create_project(
     let copy = resolve_copy(input.get("copy"));
     // The only counter every project shares: its numbers are allocated up front, in one step.
     let task_numbers =
-        allocate_numbers(db, &TASK_SEQUENCE, needed_task_numbers(blueprint, &copy)).await?;
+        allocate_numbers(&orm(db), &TASK_SEQUENCE, needed_task_numbers(blueprint, &copy)).await?;
     let start_ms = js_date_millis(&format!("{}T00:00:00.000Z", text(input, "startDate")))
         .ok_or_else(|| Refusal::Internal("the start date does not parse".to_owned()))?;
     let roles: HashMap<String, String> = input

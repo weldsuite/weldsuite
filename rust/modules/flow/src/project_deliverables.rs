@@ -344,7 +344,7 @@ async fn create_deliverable(
     let db = &caller.db;
     let now = iso(crate::now_ms());
     let id = generate_id("del");
-    let number = allocate_number(db, &deliverable_sequence(project_id)).await?;
+    let number = allocate_number(&orm(db), &deliverable_sequence(project_id)).await?;
     let position = match input.get("position").and_then(Value::as_i64) {
         Some(position) => position,
         None => next_deliverable_position(db, project_id).await?,

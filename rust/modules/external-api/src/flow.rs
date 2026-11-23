@@ -957,10 +957,13 @@ async fn update_task(
     match plan {
         Some(plan) => {
             let mut tx = caller.db.begin().await?;
-            write_dependency_rows(&mut tx, &id, &plan, &now(), caller.session.actor()).await?;
-            TASKS
-                .patch_on(&OrmConn::new(&mut tx), &id, &update, true, &date_props)
-                .await?;
+            {
+                let conn = OrmConn::new(&mut tx);
+                write_dependency_rows(&conn, &id, &plan, &now(), caller.session.actor()).await?;
+                TASKS
+                    .patch_on(&conn, &id, &update, true, &date_props)
+                    .await?;
+            }
             tx.commit().await?;
         }
         None => {

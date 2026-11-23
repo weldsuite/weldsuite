@@ -131,7 +131,7 @@ where
         .route_layer(guard(
             "/declarations",
             "Declaration",
-            via_employee!("hr_declarations"),
+            via_employee!(hr_declarations),
         ))
 }
 

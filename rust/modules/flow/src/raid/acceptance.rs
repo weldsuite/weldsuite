@@ -39,7 +39,6 @@ use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
     announce_approvals_requested, register_aftermath,
 };
-use crate::orm_bridge::sqlx_error;
 use crate::raid_body::{Body, Reader, parse_body};
 use crate::reporting_store::instant;
 use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply, row_json};
@@ -55,12 +54,12 @@ impl ApprovalSubjectHandler for AcceptanceHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
         Box::pin(async move {
             if outcome != ResolvedApprovalOutcome::Approved {
                 return Ok(());
             }
-            accept(db, subject_id, context).await.map_err(sqlx_error)
+            accept(db, subject_id, context).await
         })
     }
 }

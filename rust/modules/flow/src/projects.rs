@@ -26,7 +26,7 @@ use weldsuite_catalogs::permission_keys::{
     PROJECTS_CREATE, PROJECTS_DELETE, PROJECTS_READ, PROJECTS_UPDATE, TASKS_CREATE, TASKS_READ,
 };
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::js::{
     contains_pattern, js_date, math_round, number_value, numeric, parse_int, slice_utf16,
 };
@@ -123,7 +123,7 @@ async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
         .iter()
         .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
         .collect();
-    let stats = project_stats(db, &ids).await.map_err(orm_error)?;
+    let stats = project_stats(db, &ids).await?;
     let hydrated = custom_values::hydrate(db, PROJECT_ENTITY, rows).await?;
     Ok(with_project_stats(hydrated, &stats))
 }
@@ -970,7 +970,7 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                 .iter()
                 .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
                 .collect();
-            let stats = project_stats(&caller.db, &ids).await.map_err(orm_error)?;
+            let stats = project_stats(&caller.db, &ids).await?;
             Ok(Data(with_project_stats(rows, &stats)).into_response())
         }
         .await,
@@ -1147,8 +1147,7 @@ async fn gantt_milestones(caller: Caller, Path(id): Path<String>) -> Response {
         async {
             let rows = GanttMilestone::of_project(&caller.db, &id).await?;
             let stats = milestone_stats(&caller.db, &milestone_refs(&rows))
-                .await
-                .map_err(orm_error)?;
+                .await?;
             Ok(Data(with_milestone_stats(rows, &stats)).into_response())
         }
         .await,
@@ -1743,7 +1742,7 @@ async fn transfer_tasks(
         .into_tuple()
         .all(&orm(db))
         .await?;
-    let place = stage_placement(db, dest).await.map_err(orm_error)?;
+    let place = stage_placement(db, dest).await?;
     // `coalesce(max(position), 0)`.
     let max_position: Option<i32> = tasks::Entity::find()
         .select_only()

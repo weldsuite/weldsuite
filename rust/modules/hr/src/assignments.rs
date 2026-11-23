@@ -52,7 +52,7 @@ where
         .route_layer(guard(
             "/assignments",
             "Assignment",
-            via_employee!("hr_client_assignments"),
+            via_employee!(hr_client_assignments),
         ))
         .route("/clients", get(clients).route_layer(read()))
         .route("/clients/{company_id}", get(client).route_layer(read()))

@@ -19,7 +19,7 @@ use weldsuite_catalogs::entity_events::{EventName, PERSON_CREATED, PROJECT_TASK_
 use weldsuite_crm_domain::people::{
     ListOptions, PeopleFilter, create_person_with, get_person, list_people,
 };
-use weldsuite_db::{orm, orm_error};
+use weldsuite_db::orm;
 use weldsuite_events::publish_entity_event;
 use weldsuite_flow_domain::numbering::allocate_task_number;
 use weldsuite_flow_domain::stats::project_stats;
@@ -591,7 +591,7 @@ async fn project_names(db: &PgPool, ids: &[String]) -> Result<Vec<(String, Strin
 async fn tasks_create(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError> {
     let id = generate_id("task");
     let now = weldsuite_db::utc_now();
-    let number = allocate_task_number(&ctx.db).await.map_err(orm_error)?;
+    let number = allocate_task_number(&orm(&ctx.db)).await?;
     let status = text(args, "status").unwrap_or("todo").to_owned();
     let title = text(args, "title").unwrap_or_default().to_owned();
     tasks::Entity::insert(tasks::ActiveModel {
@@ -709,7 +709,7 @@ async fn projects_list(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErr
         .iter()
         .filter_map(|r| r["id"].as_str().map(str::to_owned))
         .collect();
-    let stats = project_stats(&ctx.db, &ids).await.map_err(orm_error)?;
+    let stats = project_stats(&ctx.db, &ids).await?;
     let projects: Vec<Value> = rows
         .iter()
         .map(|row| {
@@ -800,9 +800,7 @@ async fn projects_get(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
     }
     let project = candidates[0];
     let project_id = project["id"].as_str().unwrap_or_default().to_owned();
-    let stats = project_stats(&ctx.db, std::slice::from_ref(&project_id))
-        .await
-        .map_err(orm_error)?;
+    let stats = project_stats(&ctx.db, std::slice::from_ref(&project_id)).await?;
     let detail = stats.get(&project_id);
     let manager = match project["projectManagerId"].as_str() {
         Some(manager) => member_names(&ctx.db, &[manager.to_owned()])

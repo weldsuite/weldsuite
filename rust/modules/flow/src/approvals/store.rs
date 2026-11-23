@@ -729,8 +729,7 @@ pub(crate) async fn load_my_reviews(db: &PgPool, o: &MineOptions<'_>) -> Result<
         ..PendingReviewFilters::default()
     };
     let pending = list_pending_for_approver(db, o.user_id, &filters, o.now)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     let approvals: Vec<ApprovalRow> = pending.into_iter().map(|p| p.approval).collect();
     let approval_items = build_review_items(db, &approvals, o.user_id, o.now).await?;
     let timesheets: Vec<Value> =

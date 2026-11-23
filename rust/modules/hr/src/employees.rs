@@ -39,7 +39,7 @@ use weldsuite_schema::tenant::{
     hr_payroll_profiles, workspace_members,
 };
 
-use crate::entity_scope::{EMPLOYEE_RECORD, Scope, guard};
+use crate::entity_scope::{Scope, employee_record, guard};
 use crate::fields::{Fields, field_json, id, iso_date, short_text, text_max};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_birth_date, assert_date_order, company_names,
@@ -96,7 +96,7 @@ where
         )
         .route("/org-chart", get(org_chart_route).route_layer(read()))
         // An employee of a legal entity the request may not touch is a 404 on every by-id route.
-        .route_layer(guard("/employees", "Employee", EMPLOYEE_RECORD))
+        .route_layer(guard("/employees", "Employee", employee_record()))
         .merge(crate::departments::routes(gate))
 }
 

@@ -201,7 +201,7 @@ pub(crate) async fn find_active(
 fn legal_entity_refusal(error: LegalEntityError, answer: fn(String) -> Refusal) -> Refusal {
     match error {
         LegalEntityError::Coded { message, .. } => answer(message),
-        LegalEntityError::Database(error) => Refusal::Database(error),
+        LegalEntityError::Database(error) => Refusal::Database(sqlx_error(error)),
         LegalEntityError::Internal(message) => Refusal::Internal(message),
     }
 }
@@ -209,7 +209,7 @@ fn legal_entity_refusal(error: LegalEntityError, answer: fn(String) -> Refusal) 
 /// A `LegalEntityError` the route does not catch on its own: the route's 500.
 fn legal_entity_failure(error: LegalEntityError) -> Refusal {
     match error {
-        LegalEntityError::Database(error) => Refusal::Database(error),
+        LegalEntityError::Database(error) => Refusal::Database(sqlx_error(error)),
         other => Refusal::Internal(other.to_string()),
     }
 }
@@ -554,7 +554,9 @@ async fn can_in_entity(
     entity_id: &str,
     key: &str,
 ) -> Result<bool, sqlx::Error> {
-    let resolved = permissions_in_entity(&caller.db, access, entity_id).await?;
+    let resolved = permissions_in_entity(&caller.db, access, entity_id)
+        .await
+        .map_err(sqlx_error)?;
     Ok(caller.permissions.with_resolved(resolved).has_any(&[key]))
 }
 
@@ -1906,7 +1908,10 @@ async fn remove(
         if !enabled {
             return Err(Refusal::not_found("Entity", &id));
         }
-        let has_data = LegalEntityApp::Weldbooks.has_data(&caller.db, &id).await?;
+        let has_data = LegalEntityApp::Weldbooks
+            .has_data(&caller.db, &id)
+            .await
+            .map_err(sqlx_error)?;
         if has_data
             || lock_state(&caller.db, &id)
                 .await

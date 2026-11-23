@@ -786,7 +786,7 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
 async fn insert_request(state: &FlowState, caller: &Caller, input: &Body) -> Reply {
     let db = &caller.db;
     let id = generate_id("prq");
-    let number = allocate_number(db, &REQUEST_SEQUENCE).await?;
+    let number = allocate_number(&orm(db), &REQUEST_SEQUENCE).await?;
     let number = i32::try_from(number)
         .map_err(|_| DbErr::Custom(format!("integer out of range: {number}")))?;
     let now = instant(crate::now_ms());

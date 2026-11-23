@@ -9,7 +9,7 @@ use sea_orm::prelude::BigDecimal;
 use sea_orm::sea_query::{Asterisk, Expr, Func};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::blueprint::Json;
 use weldsuite_flow_domain::js::js_date;
 use weldsuite_flow_domain::project_closing::{
@@ -155,8 +155,7 @@ async fn read_tables(db: &PgPool, project_id: &str) -> Result<Tables, DbErr> {
         .one(&conn)
         .await?;
     let approvals: Vec<Value> = list_subject_approvals(db, "project_close", project_id)
-        .await
-        .map_err(orm_error)?
+        .await?
         .iter()
         .map(ApprovalRow::to_json)
         .collect();

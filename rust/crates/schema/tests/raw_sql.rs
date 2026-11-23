@@ -23,7 +23,6 @@ const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations", "crate
 /// Not converted yet. Remove a crate when its root `allow` goes; never add one.
 const NOT_CONVERTED: &[&str] = &[
     "bins/weldsuite",
-    "crates/adapters-oss",
     "crates/ads-domain",
     "crates/ai",
     "crates/books-domain",

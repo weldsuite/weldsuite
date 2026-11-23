@@ -40,7 +40,6 @@ use crate::approvals::announce::{
 };
 use crate::approvals::store::project_names;
 use crate::governance_store::{find_decision, find_deliverable};
-use crate::orm_bridge::sqlx_error;
 use crate::{Caller, FlowState};
 
 /// A moment in epoch milliseconds, as the `timestamptz` it is written as.
@@ -62,12 +61,8 @@ impl ApprovalSubjectHandler for DecisionHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move {
-            settle_decision(db, subject_id, outcome, context)
-                .await
-                .map_err(sqlx_error)
-        })
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { settle_decision(db, subject_id, outcome, context).await })
     }
 }
 
@@ -125,12 +120,8 @@ impl ApprovalSubjectHandler for DeliverableHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move {
-            settle_deliverable(db, subject_id, outcome, context)
-                .await
-                .map_err(sqlx_error)
-        })
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { settle_deliverable(db, subject_id, outcome, context).await })
     }
 }
 

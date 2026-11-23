@@ -67,7 +67,7 @@ where
             "/absences/{id}",
             delete(remove).route_layer(gate.require([ABSENCES_DELETE])),
         )
-        .route_layer(guard("/absences", "Absence", via_employee!("hr_absences")))
+        .route_layer(guard("/absences", "Absence", via_employee!(hr_absences)))
 }
 
 /// `absenceStatus(endDate, today)`.

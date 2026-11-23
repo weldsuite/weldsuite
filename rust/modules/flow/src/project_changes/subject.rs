@@ -11,7 +11,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_DECISION_CREATED, PROJECT_DECISION_DECIDED, PROJECT_DELIVERABLE_CREATED,
     PROJECT_DELIVERABLE_DELETED, PROJECT_DELIVERABLE_UPDATED, PROJECT_MILESTONE_UPDATED,
 };
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalSubjectHandler, ResolvedApprovalOutcome,
     register_approval_subject,
@@ -61,7 +61,7 @@ impl ApprovalSubjectHandler for ChangeHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+    ) -> ApprovalFuture<'a, Result<(), sea_orm::DbErr>> {
         Box::pin(async move {
             let actor = context.actor.as_ref().map(|a| a.id.as_str());
             let result = match outcome {
@@ -94,8 +94,7 @@ fn aftermath<'a>(
 ) -> AftermathFuture<'a> {
     Box::pin(async move {
         let change = find_change_request(&caller.db, &info.subject_id)
-            .await
-            .map_err(orm_error)?;
+            .await?;
         let result = take(&info.subject_id);
         let (Some(change), Some(result)) = (change, result) else {
             return Ok(());

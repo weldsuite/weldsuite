@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{
     CONTACTS_READ, OPPORTUNITIES_READ, PROJECTS_READ, PROJECTS_SCOPE_ALL, TASKS_READ, TICKETS_READ,
 };
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::access::member_project_ids;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Presence, Text};
@@ -150,11 +150,7 @@ async fn resolve_records(
     } else if viewer.scope_all {
         None
     } else {
-        Some(
-            member_project_ids(db, viewer.user_id)
-                .await
-                .map_err(orm_error)?,
-        )
+        Some(member_project_ids(db, viewer.user_id).await?)
     };
     let project_open = |id: Option<&str>| {
         id.is_some_and(|id| {

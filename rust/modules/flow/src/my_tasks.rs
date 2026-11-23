@@ -28,7 +28,7 @@ use sea_orm::{
 };
 use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
-use weldsuite_db::{orm, orm_error, utc_timestamp};
+use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_flow_domain::day_bounds::workspace_day_bounds;
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_flow_domain::stage::task_status_aliases;
@@ -270,8 +270,7 @@ async fn my_tasks(state: &FlowState, caller: &Caller, f: &Filters) -> Reply {
     let mut bounds = [None, None, None];
     if f.due_bucket.is_some() {
         let b = workspace_day_bounds(db, crate::now_ms())
-            .await
-            .map_err(orm_error)?;
+            .await?;
         bounds = [
             stamp(b.start_of_today),
             stamp(b.start_of_tomorrow),

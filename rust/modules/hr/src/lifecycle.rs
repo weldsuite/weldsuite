@@ -127,12 +127,12 @@ where
         .route_layer(guard(
             "/checklists",
             "Checklist",
-            via_employee!("hr_checklists"),
+            via_employee!(hr_checklists),
         ))
         .route_layer(guard(
             "/checklists/tasks",
             "Checklist task",
-            via_employee!("hr_checklist_tasks"),
+            via_employee!(hr_checklist_tasks),
         ))
 }
 

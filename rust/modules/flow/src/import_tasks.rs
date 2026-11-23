@@ -13,7 +13,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Que
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::PrimitiveDateTime;
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::numbering::allocate_task_numbers;
 use weldsuite_flow_domain::stage::{TASK_STATUSES, normalize_task_status};
 use weldsuite_kit::generate_id;
@@ -586,9 +586,8 @@ async fn process_batch(
             .iter()
             .filter(|u| !by_key.contains_key(&u.3))
             .count();
-        let numbers = allocate_task_numbers(db, i64::try_from(new_count).unwrap_or(0))
-            .await
-            .map_err(orm_error)?;
+        let numbers = allocate_task_numbers(&orm(db), i64::try_from(new_count).unwrap_or(0))
+            .await?;
         let mut cursor = 0;
         for (row, row_num, title, key) in &upserts {
             let values = normalize_task(row, maps);
@@ -619,9 +618,8 @@ async fn process_batch(
     }
 
     if !inserts.is_empty() {
-        let numbers = allocate_task_numbers(db, i64::try_from(inserts.len()).unwrap_or(0))
-            .await
-            .map_err(orm_error)?;
+        let numbers = allocate_task_numbers(&orm(db), i64::try_from(inserts.len()).unwrap_or(0))
+            .await?;
         let records: Vec<Value> = inserts
             .iter()
             .enumerate()

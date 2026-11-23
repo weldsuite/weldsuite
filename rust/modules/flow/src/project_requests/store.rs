@@ -10,7 +10,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
 use time::OffsetDateTime;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalRowInput,
     ApprovalSubjectHandler, RequestApprovalsInput, RequestApprovalsResult, ResolvedApprovalOutcome,
@@ -21,7 +21,6 @@ use weldsuite_flow_domain::intake::{Criterion, default_scoring_model, model_from
 use weldsuite_schema::tenant::{flow_workspace_settings, project_requests};
 
 use crate::approvals::announce::{Aftermath, register_aftermath};
-use crate::orm_bridge::sqlx_error;
 use crate::row_json;
 
 /// `new Date(millis)`, as the row stores it.
@@ -77,7 +76,6 @@ pub(crate) async fn list_subject_approvals(
 ) -> Result<Vec<ApprovalRow>, DbErr> {
     core_list_subject_approvals(db, "project_request", subject_id)
         .await
-        .map_err(orm_error)
 }
 
 /// What the board decided on a project request (`settleProjectRequest`): an
@@ -91,11 +89,9 @@ impl ApprovalSubjectHandler for RequestHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
         Box::pin(async move {
-            settle_project_request(db, subject_id, outcome, context.now_ms)
-                .await
-                .map_err(sqlx_error)
+            settle_project_request(db, subject_id, outcome, context.now_ms).await
         })
     }
 }
@@ -156,8 +152,7 @@ pub(crate) async fn request_approvals(
             now_ms,
         },
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     match result {
         RequestApprovalsResult::Requested(rows) => Ok(rows),
         RequestApprovalsResult::Refused { message, .. } => Err(DbErr::Custom(message.to_owned())),
@@ -168,7 +163,6 @@ pub(crate) async fn request_approvals(
 /// row of a subject (soft delete).
 pub(crate) async fn clear_approvals(db: &PgPool, subject_id: &str) -> Result<(), DbErr> {
     cancel_pending_approvals(db, "project_request", subject_id, true, crate::now_ms())
-        .await
-        .map_err(orm_error)?;
+        .await?;
     Ok(())
 }

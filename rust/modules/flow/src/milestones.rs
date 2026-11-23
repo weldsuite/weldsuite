@@ -21,7 +21,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_MILESTONE_UPDATED,
 };
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{orm, orm_error, utc_now};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_flow_domain::stats::{milestone_refs, milestone_stats, with_milestone_stats};
 use weldsuite_kit::validation::{Issues, Presence};
@@ -236,8 +236,7 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         let total = i64::try_from(total).unwrap_or(i64::MAX);
         let (rows, has_more, cursor) = page(json_rows(rows)?, limit);
         let counters = milestone_stats(db, &milestone_refs(&rows))
-            .await
-            .map_err(orm_error)?;
+            .await?;
         Ok(paged(
             with_milestone_stats(rows, &counters),
             total,
@@ -264,8 +263,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             }
             let rows = vec![row];
             let stats = milestone_stats(&caller.db, &milestone_refs(&rows))
-                .await
-                .map_err(orm_error)?;
+                .await?;
             let mut rows = with_milestone_stats(rows, &stats);
             Ok(Data(rows.remove(0)).into_response())
         }

@@ -55,7 +55,7 @@ use sea_orm::{
 };
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{FLOW_APPROVAL_DELEGATED, PROJECT_UPDATED};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::approval_views::{
     SPONSOR_NOT_MEMBER, TIMESHEET_NO_PERMISSION, TIMESHEET_ONLY_APPROVE_OR_DECLINE,
     delegation_event_data, delegation_input_error, present_delegation, present_review_approver,
@@ -603,8 +603,7 @@ pub(crate) async fn decide_and_announce(
 ) -> Result<DecideApprovalResult, DbErr> {
     let db = &caller.db;
     let before = list_subject_approvals(db, &row.subject_type, &row.subject_id)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     let result = decide_approval(
         db,
         &DecideApprovalInput {
@@ -615,8 +614,7 @@ pub(crate) async fn decide_and_announce(
             now_ms: now_ms(),
         },
     )
-    .await
-    .map_err(orm_error)?;
+    .await?;
     let DecideApprovalResult::Decided(decided) = &result else {
         return Ok(result);
     };

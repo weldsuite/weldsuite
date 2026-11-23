@@ -20,7 +20,7 @@ use sea_orm::{
 use serde::Serialize;
 use serde_json::{Value, json};
 use time::PrimitiveDateTime;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::project_portal::{
     ApprovalView, is_portal_approval_subject, next_milestone_of, present_approval,
     present_change_request, present_deliverable, present_document, present_file, present_message,
@@ -268,8 +268,7 @@ pub(crate) async fn pending_reviews(
     for contact_id in contact_ids {
         lists.push(
             list_pending_for_approver(db, contact_id, &filters, now)
-                .await
-                .map_err(orm_error)?,
+                .await?,
         );
     }
     let mut seen = HashSet::new();

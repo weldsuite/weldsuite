@@ -13,7 +13,7 @@
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use time::OffsetDateTime;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::benefit_metrics::{
     measure_metric, next_month_start_ms, previous_period,
 };
@@ -70,8 +70,7 @@ pub async fn measure_due_benefits(db: &PgPool, now_ms: i64) -> Result<usize, DbE
     let mut measured = 0;
     for (id, project_id, metric, params) in open_measured_benefits(db, None).await? {
         let Some(value) = measure_metric(db, &metric, &params, &period)
-            .await
-            .map_err(orm_error)?
+            .await?
         else {
             continue;
         };

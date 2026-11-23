@@ -204,8 +204,7 @@ async fn dry_run(
                     access.can("projects:scope:all", "weldflow"),
                     project_id,
                 )
-                .await
-                .map_err(weldsuite_db::orm_error)?;
+                .await?;
                 if !project.can_write {
                     return Ok(Dry::Forbidden(CreatorForbidden(
                         "The member who set up this integration does not have write access to the project"

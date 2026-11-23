@@ -34,7 +34,6 @@ mod messages;
 mod milestones;
 mod my_tasks;
 mod notify;
-mod orm_bridge;
 mod personal;
 mod project_analytics;
 mod project_files;
@@ -357,7 +356,6 @@ impl Caller {
     pub(crate) async fn access(&self, project_id: &str) -> Result<ProjectAccess, sea_orm::DbErr> {
         resolve_project_access(&self.db, self.user(), self.scope_all(), project_id)
             .await
-            .map_err(weldsuite_db::orm_error)
     }
 
     /// `canAccessProject`.
@@ -393,7 +391,6 @@ impl Caller {
         member_project_ids(&self.db, user)
             .await
             .map(Some)
-            .map_err(weldsuite_db::orm_error)
     }
 
     /// `c.get('userId')`, `None` when empty.

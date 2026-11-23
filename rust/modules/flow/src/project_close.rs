@@ -486,12 +486,10 @@ impl ApprovalSubjectHandler for CloseHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+    ) -> ApprovalFuture<'a, Result<(), sea_orm::DbErr>> {
         Box::pin(async move {
             if outcome == ResolvedApprovalOutcome::Approved {
-                close_project(db, subject_id, context.now_ms)
-                    .await
-                    .map_err(crate::orm_bridge::sqlx_error)?;
+                close_project(db, subject_id, context.now_ms).await?;
             }
             Ok(())
         })

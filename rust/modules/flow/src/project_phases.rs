@@ -39,7 +39,7 @@ use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_PHASE_CREATED, PROJECT_PHASE_DELETED, PROJECT_PHASE_GATE_REQUESTED,
     PROJECT_PHASE_PASSED, PROJECT_PHASE_REJECTED, PROJECT_PHASE_UPDATED,
 };
-use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalRowInput,
     ApprovalSubjectHandler, RequestApprovalsInput, RequestApprovalsResult, RequestRefusal,
@@ -67,7 +67,6 @@ use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
     announce_approvals_requested, register_aftermath,
 };
-use crate::orm_bridge::sqlx_error;
 use crate::project_schedule::{PROJECT_MANAGE_DENIED, find_live_project, merge_settings};
 use crate::raid::PROJECT_DENIED;
 use crate::raid_body::{Body, IDENTIFIER, Reader, iso_date_time, parse_body, read_query, whole};
@@ -429,8 +428,7 @@ fn present_approval(row: &ApprovalRow) -> Value {
 
 async fn phase_summary(db: &PgPool, row: &Value, gate_number: usize) -> Result<Value, DbErr> {
     let approvals = list_subject_approvals(db, "gate", text(row, "id"))
-        .await
-        .map_err(orm_error)?;
+        .await?;
     let mut out = present_phase(row);
     out["gateNumber"] = json!(gate_number);
     out["criteriaCount"] = json!(criteria_of(row).len());
@@ -560,12 +558,8 @@ impl ApprovalSubjectHandler for GateHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move {
-            resolve_gate(db, subject_id, outcome, context.now_ms)
-                .await
-                .map_err(sqlx_error)
-        })
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { resolve_gate(db, subject_id, outcome, context.now_ms).await })
     }
 }
 
@@ -676,8 +670,7 @@ async fn publish_gate_resolution(
         return Ok(());
     }
     let rows = list_subject_approvals(db, "gate", phase_id)
-        .await
-        .map_err(orm_error)?;
+        .await?;
     let rejected = rows.iter().find(|row| row.decision == "rejected");
     publish_phase(
         state,

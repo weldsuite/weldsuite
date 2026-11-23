@@ -177,22 +177,22 @@ where
         .route_layer(guard(
             "/coaching",
             "Coaching log",
-            via_employee!("hr_coaching_logs"),
+            via_employee!(hr_coaching_logs),
         ))
         .route_layer(guard(
             "/evaluations",
             "Evaluation",
-            via_employee!("hr_evaluations"),
+            via_employee!(hr_evaluations),
         ))
         .route_layer(guard(
             "/kpi-values",
             "KPI value",
-            via_employee!("hr_kpi_values"),
+            via_employee!(hr_kpi_values),
         ))
         .route_layer(guard(
             "/milestones",
             "Milestone",
-            via_employee!("hr_milestones"),
+            via_employee!(hr_milestones),
         ))
 }
 

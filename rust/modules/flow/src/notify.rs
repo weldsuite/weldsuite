@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::access::resolve_project_access;
 use weldsuite_flow_domain::js::slice_utf16;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
@@ -248,8 +248,7 @@ async fn mentionable(
     let mut readers = Vec::with_capacity(active.len());
     for user in active {
         if resolve_project_access(db, Some(&user), false, project_id)
-            .await
-            .map_err(orm_error)?
+            .await?
             .can_read
         {
             readers.push(user);

@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::FLOW_APPROVAL_OVERDUE;
 use weldsuite_db::due_index::run_sweep;
-use weldsuite_db::{PgPool, orm, orm_error, utc_timestamp};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource};
 use weldsuite_flow_domain::approval_views::approval_event_data;
 use weldsuite_flow_domain::approvals::{ApprovalRow, is_step_active, list_subject_approvals};
@@ -80,8 +80,7 @@ async fn is_actionable(db: &PgPool, row: &ApprovalRow) -> Result<bool, DbErr> {
     Ok(is_step_active(
         row,
         &list_subject_approvals(db, &row.subject_type, &row.subject_id)
-            .await
-            .map_err(orm_error)?,
+            .await?,
     ))
 }
 

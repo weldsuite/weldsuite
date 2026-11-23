@@ -21,6 +21,8 @@ use weldsuite_legal_entities::service::{
     get_registration, update_registration,
 };
 
+use crate::orm_bridge::sqlx_error;
+
 /// `/^\d{2}-\d{7}$/`.
 fn is_ein(value: &str) -> bool {
     let bytes = value.as_bytes();
@@ -36,7 +38,7 @@ fn is_ein(value: &str) -> bool {
 fn thrown(error: LegalEntityError) -> Result<(), Refusal> {
     match error {
         LegalEntityError::Coded { .. } => Ok(()),
-        LegalEntityError::Database(error) => Err(Refusal::Database(error)),
+        LegalEntityError::Database(error) => Err(Refusal::Database(sqlx_error(error))),
         LegalEntityError::Internal(message) => Err(Refusal::Internal(message)),
     }
 }

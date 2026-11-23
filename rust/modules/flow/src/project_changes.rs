@@ -555,7 +555,7 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
         async {
             let now = iso(now_ms());
             let id = generate_id("pcr");
-            let number = allocate_number(&caller.db, &change_sequence(&project_id)).await?;
+            let number = allocate_number(&orm(&caller.db), &change_sequence(&project_id)).await?;
             let row = json!({
                 "id": id, "project_id": project_id, "number": number, "title": input["title"],
                 "description": null_if_absent(input.get("description")),

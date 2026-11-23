@@ -22,9 +22,9 @@ use sea_orm::sea_query::Query;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_db::orm;
 use weldsuite_legal_entities::{
-    EntityRecordGuard, EntityRecordGuardLayer, EntityScopeCondition, LegalEntityApp, RequestEntity,
-    can_see_entity, default_entity_id_for, entity_scope_condition, record_in_request_entity,
-    request_entity_scope,
+    EntityRecordGuard, EntityRecordGuardLayer, EntityScopeCondition, LegalEntityApp, RecordLookup,
+    RequestEntity, can_see_entity, default_entity_id_for, entity_scope_condition,
+    record_in_request_entity, request_entity_scope,
 };
 use weldsuite_schema::tenant::{hr_employees, hr_payroll_employers};
 
@@ -131,40 +131,48 @@ impl Default for Scope {
 }
 
 /// `guardRecord(router, param, resource, resolve, prefix)`: a 404 for
-/// `<prefix>/<id>` and everything under it when the record (found with
-/// `sql`, the id as `$1`, the entity as the first column) belongs to an
-/// entity the request may not touch. Add it with `route_layer`.
+/// `<prefix>/<id>` and everything under it when the record (its entity found
+/// with `lookup`) belongs to an entity the request may not touch. Add it with
+/// `route_layer`.
 pub(crate) fn guard(
     prefix: &'static str,
     label: &'static str,
-    sql: &'static str,
+    lookup: RecordLookup,
 ) -> EntityRecordGuardLayer {
-    EntityRecordGuard::query(sql, label)
+    EntityRecordGuard::lookup(lookup, label)
         .prefix(prefix)
         .unassigned_as_default(Some(HR_APP))
         .layer()
 }
 
-/// `viaEmployee(table, id, employee)`: a record keyed by its employee's entity.
+/// `viaEmployee(table, id, employee)`: a record of the `hr_*` entity `$table`
+/// (by its `id`), keyed by its employee's entity.
 macro_rules! via_employee {
-    ($table:literal) => {
-        concat!(
-            "select scope_e.legal_entity_id from ",
-            $table,
-            " scope_t join hr_employees scope_e on scope_e.id = scope_t.employee_id",
-            " where scope_t.id = $1 limit 1"
+    ($table:ident) => {
+        weldsuite_legal_entities::RecordLookup::via::<
+            weldsuite_schema::tenant::$table::Entity,
+            weldsuite_schema::tenant::hr_employees::Entity,
+        >(
+            weldsuite_schema::tenant::$table::Column::Id,
+            weldsuite_schema::tenant::$table::Column::EmployeeId,
+            weldsuite_schema::tenant::hr_employees::Column::Id,
+            weldsuite_schema::tenant::hr_employees::Column::LegalEntityId,
         )
     };
 }
 
-/// `viaEmployer(table, id, employer)`: a record keyed by its employer's entity.
+/// `viaEmployer(table, id, employer)`: a record of the `hr_*` entity `$table`
+/// (by its `id`), keyed by its employer's entity.
 macro_rules! via_employer {
-    ($table:literal) => {
-        concat!(
-            "select scope_p.legal_entity_id from ",
-            $table,
-            " scope_t join hr_payroll_employers scope_p on scope_p.id = scope_t.employer_id",
-            " where scope_t.id = $1 limit 1"
+    ($table:ident) => {
+        weldsuite_legal_entities::RecordLookup::via::<
+            weldsuite_schema::tenant::$table::Entity,
+            weldsuite_schema::tenant::hr_payroll_employers::Entity,
+        >(
+            weldsuite_schema::tenant::$table::Column::Id,
+            weldsuite_schema::tenant::$table::Column::EmployerId,
+            weldsuite_schema::tenant::hr_payroll_employers::Column::Id,
+            weldsuite_schema::tenant::hr_payroll_employers::Column::LegalEntityId,
         )
     };
 }
@@ -172,12 +180,20 @@ macro_rules! via_employer {
 pub(crate) use {via_employee, via_employer};
 
 /// `employeeRecord`: an employee by id.
-pub(crate) const EMPLOYEE_RECORD: &str =
-    "select legal_entity_id from hr_employees where id = $1 limit 1";
+pub(crate) fn employee_record() -> RecordLookup {
+    RecordLookup::column::<hr_employees::Entity>(
+        hr_employees::Column::Id,
+        hr_employees::Column::LegalEntityId,
+    )
+}
 
 /// `employerRecord`: an employer by id.
-pub(crate) const EMPLOYER_RECORD: &str =
-    "select legal_entity_id from hr_payroll_employers where id = $1 limit 1";
+pub(crate) fn employer_record() -> RecordLookup {
+    RecordLookup::column::<hr_payroll_employers::Entity>(
+        hr_payroll_employers::Column::Id,
+        hr_payroll_employers::Column::LegalEntityId,
+    )
+}
 
 impl Caller {
     /// The request's list scope ([`Scope::of`]).
@@ -237,7 +253,7 @@ impl Caller {
         Ok(())
     }
 
-    /// `assertEmployeeVisible(c, employeeId)` ([`EMPLOYEE_RECORD`]).
+    /// `assertEmployeeVisible(c, employeeId)` ([`employee_record`]).
     pub(crate) async fn assert_employee_visible(&self, id: Option<&str>) -> Result<(), HrError> {
         self.assert_record_visible::<hr_employees::Entity>(
             hr_employees::Column::Id,
@@ -248,7 +264,7 @@ impl Caller {
         .await
     }
 
-    /// `assertEmployerVisible(c, employerId)` ([`EMPLOYER_RECORD`]).
+    /// `assertEmployerVisible(c, employerId)` ([`employer_record`]).
     pub(crate) async fn assert_employer_visible(&self, id: Option<&str>) -> Result<(), HrError> {
         self.assert_record_visible::<hr_payroll_employers::Entity>(
             hr_payroll_employers::Column::Id,
@@ -378,15 +394,19 @@ mod tests {
 
     #[test]
     fn record_lookups_join_the_employee_or_employer() {
+        use sea_orm::DbBackend;
+        let sql = |lookup: RecordLookup| DbBackend::Postgres.build(&lookup.statement("x")).to_string();
         assert_eq!(
-            via_employee!("hr_absences"),
-            "select scope_e.legal_entity_id from hr_absences scope_t join hr_employees scope_e \
-             on scope_e.id = scope_t.employee_id where scope_t.id = $1 limit 1"
+            sql(via_employee!(hr_absences)),
+            r#"SELECT "hr_employees"."legal_entity_id" FROM "hr_absences" INNER JOIN "hr_employees" ON "hr_absences"."employee_id" = "hr_employees"."id" WHERE "hr_absences"."id" = 'x' LIMIT 1"#
         );
         assert_eq!(
-            via_employer!("hr_pay_runs"),
-            "select scope_p.legal_entity_id from hr_pay_runs scope_t join hr_payroll_employers \
-             scope_p on scope_p.id = scope_t.employer_id where scope_t.id = $1 limit 1"
+            sql(via_employer!(hr_pay_runs)),
+            r#"SELECT "hr_payroll_employers"."legal_entity_id" FROM "hr_pay_runs" INNER JOIN "hr_payroll_employers" ON "hr_pay_runs"."employer_id" = "hr_payroll_employers"."id" WHERE "hr_pay_runs"."id" = 'x' LIMIT 1"#
+        );
+        assert_eq!(
+            sql(employee_record()),
+            r#"SELECT "hr_employees"."legal_entity_id" FROM "hr_employees" WHERE "hr_employees"."id" = 'x' LIMIT 1"#
         );
     }
 

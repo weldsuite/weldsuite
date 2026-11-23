@@ -58,7 +58,7 @@ where
         .route_layer(guard(
             "/shift-requests",
             "Shift request",
-            via_employee!("hr_shift_requests"),
+            via_employee!(hr_shift_requests),
         ))
 }
 

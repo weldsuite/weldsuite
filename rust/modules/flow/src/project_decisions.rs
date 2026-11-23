@@ -389,7 +389,7 @@ async fn create_decision(
 ) -> Reply {
     let db = &caller.db;
     let now = iso(crate::now_ms());
-    let number = allocate_number(db, &decision_sequence(project_id)).await?;
+    let number = allocate_number(&orm(db), &decision_sequence(project_id)).await?;
     let decided = status == "decided";
     let mut values = Body::new();
     values.insert("id".to_owned(), json!(id));

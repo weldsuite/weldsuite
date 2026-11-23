@@ -538,7 +538,7 @@ async fn create_benefit(
     let now_ms = crate::now_ms();
     let now = iso_ms(now_ms);
     let id = generate_id("ben");
-    let number = allocate_number(db, &benefit_sequence(project_id)).await?;
+    let number = allocate_number(&orm(db), &benefit_sequence(project_id)).await?;
     let unit = match input.get("unit") {
         Some(Value::String(unit)) => json!(unit),
         _ => json!(metric_unit(metric)),
