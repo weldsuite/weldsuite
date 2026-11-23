@@ -32,7 +32,7 @@ use weldsuite_schema::tenant::{dns_zones, domains as host_domains, reach_domains
 
 use crate::dnscheck::{DnsLookupError, evaluate, footprint};
 use crate::mailpool::{Mailpool, id_text, not_configured, upstream};
-use crate::{Caller, ReachState, account_workspace, db_error, respond, validate};
+use crate::{Caller, ReachState, account_workspace, db_error, respond, row_json, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -204,15 +204,19 @@ async fn candidates(State(state): State<ReachState>, caller: Caller) -> Response
                 .await
                 .map_err(db_error)?
                 .into_iter()
-                .map(serde_json::to_value)
-                .collect::<Result<Vec<Value>, _>>()
-                .map_err(|error| ReachError::unexpected(&error))?;
-            let ids: Vec<String> = hosts.iter().filter_map(|h| text(h, "id").map(str::to_owned)).collect();
+                .map(row_json)
+                .collect::<ReachResult<Vec<Value>>>()?;
+            let ids: Vec<String> = hosts
+                .iter()
+                .filter_map(|h| text(h, "id").map(str::to_owned))
+                .collect();
             let g = guards(&caller.db, &ids).await?;
             let http = caller.http(&state);
             let mut out = Vec::with_capacity(hosts.len());
             for host in &hosts {
-                let reason = ineligible_reason(host, &g, &limits, &http, false).await.unwrap_or(None);
+                let reason = ineligible_reason(host, &g, &limits, &http, false)
+                    .await
+                    .unwrap_or(None);
                 out.push(json!({
                     "hostDomainId": text(host, "id"),
                     "name": text(host, "fullDomain"),
@@ -290,9 +294,8 @@ async fn connect_domain(
         .one(&orm(db))
         .await
         .map_err(db_error)?
-        .map(serde_json::to_value)
-        .transpose()
-        .map_err(|error| ReachError::unexpected(&error))?;
+        .map(row_json)
+        .transpose()?;
     let Some(host) = host else {
         return Err(ReachError::new(
             404,
@@ -358,7 +361,7 @@ async fn connect_domain(
     .exec_with_returning(&orm(db))
     .await;
     let row = match inserted {
-        Ok(row) => serde_json::to_value(row).map_err(|error| ReachError::unexpected(&error))?,
+        Ok(row) => row_json(row)?,
         Err(error) => {
             drop_from_mailpool(mailpool, &mailpool_domain_id).await;
             if weldsuite_db::is_unique_violation(&error) {
@@ -379,8 +382,14 @@ async fn connect_domain(
     })
     .on_conflict(
         OnConflict::columns([reach_routes::Column::Kind, reach_routes::Column::ExternalId])
-            .value(reach_routes::Column::TenantEntityId, Expr::value(&domain_id))
-            .value(reach_routes::Column::ClerkOrgId, Expr::value(&caller.clerk_org_id))
+            .value(
+                reach_routes::Column::TenantEntityId,
+                Expr::value(&domain_id),
+            )
+            .value(
+                reach_routes::Column::ClerkOrgId,
+                Expr::value(&caller.clerk_org_id),
+            )
             .value(reach_routes::Column::Status, Expr::value("active"))
             .value(reach_routes::Column::UpdatedAt, Expr::value(now))
             .action_and_where(reach_routes::Column::WorkspaceId.eq(workspace_id))
@@ -454,15 +463,27 @@ async fn refresh_dns(
             let db = &caller.db;
             let row = domains::require(db, &id).await?;
             let Some(mailpool_id) = text(&row, "mailpoolDomainId").map(str::to_owned) else {
-                return Err(ReachError::new(409, "DOMAIN_NOT_CONNECTED", "The domain is not connected yet."));
+                return Err(ReachError::new(
+                    409,
+                    "DOMAIN_NOT_CONNECTED",
+                    "The domain is not connected yet.",
+                ));
             };
             let remote = mailpool.get_domain(&mailpool_id).await;
             let records = mailpool.get_domain_dns(&mailpool_id).await;
-            let (remote, records) = (remote.map_err(|e| upstream(&e))?, records.map_err(|e| upstream(&e))?);
+            let (remote, records) = (
+                remote.map_err(|e| upstream(&e))?,
+                records.map_err(|e| upstream(&e))?,
+            );
             let now = caller.now();
-            let dns_status = evaluate(&caller.http(&state), text(&row, "name").unwrap_or_default(), &records, &iso(now))
-                .await
-                .map_err(DnsLookupError::into_reach)?;
+            let dns_status = evaluate(
+                &caller.http(&state),
+                text(&row, "name").unwrap_or_default(),
+                &records,
+                &iso(now),
+            )
+            .await
+            .map_err(DnsLookupError::into_reach)?;
             let current = text(&row, "status").unwrap_or_default();
             let (status, last_error) = if current == "disconnecting" {
                 (current.to_owned(), None)
@@ -482,7 +503,8 @@ async fn refresh_dns(
                     _ => ("connecting".to_owned(), None),
                 }
             };
-            let policy = dmarc_policy_of(&records).or_else(|| text(&row, "dmarcPolicy").map(str::to_owned));
+            let policy =
+                dmarc_policy_of(&records).or_else(|| text(&row, "dmarcPolicy").map(str::to_owned));
             let updated = reach_domains::Entity::update_many()
                 .col_expr(reach_domains::Column::Status, Expr::value(&status))
                 .col_expr(reach_domains::Column::LastError, Expr::value(last_error))
@@ -495,11 +517,12 @@ async fn refresh_dns(
                 .map_err(db_error)?
                 .into_iter()
                 .next()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|error| ReachError::unexpected(&error))?;
+                .map(row_json)
+                .transpose()?;
             let updated = updated.unwrap_or(row);
-            caller.sink(&state).emit(ReachEvent::new(REACH_DOMAIN_UPDATED, &id, updated.clone()));
+            caller
+                .sink(&state)
+                .emit(ReachEvent::new(REACH_DOMAIN_UPDATED, &id, updated.clone()));
             Ok(Data(domains::get(db, text(&updated, "id").unwrap_or(&id)).await?).into_response())
         }
         .await,
@@ -550,7 +573,9 @@ async fn disconnect(
                     .map_err(db_error)?;
             }
             delete_domain_row(db, &id).await?;
-            caller.sink(&state).emit(ReachEvent::new(REACH_DOMAIN_DISCONNECTED, &id, row));
+            caller
+                .sink(&state)
+                .emit(ReachEvent::new(REACH_DOMAIN_DISCONNECTED, &id, row));
             Ok(NoContent.into_response())
         }
         .await,
@@ -565,7 +590,10 @@ async fn set_domain_status(
     at: time::OffsetDateTime,
 ) -> ReachResult<()> {
     reach_domains::Entity::update_many()
-        .col_expr(reach_domains::Column::Status, Expr::value(status.map(str::to_owned)))
+        .col_expr(
+            reach_domains::Column::Status,
+            Expr::value(status.map(str::to_owned)),
+        )
         .col_expr(reach_domains::Column::UpdatedAt, Expr::value(at))
         .filter(reach_domains::Column::Id.eq(id))
         .exec(&orm(db))

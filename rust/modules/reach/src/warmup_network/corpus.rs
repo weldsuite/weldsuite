@@ -125,7 +125,10 @@ pub(crate) async fn write_setting(master: &PgPool, key: &str, value: &Value) -> 
     .on_conflict(
         OnConflict::column(system_settings::Column::Key)
             .update_column(system_settings::Column::Value)
-            .value(system_settings::Column::UpdatedAt, Expr::current_timestamp())
+            .value(
+                system_settings::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .to_owned(),
     )
     .exec_without_returning(&orm(master))

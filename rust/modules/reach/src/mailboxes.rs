@@ -597,7 +597,12 @@ async fn provision(
         last_name: Set(input.last_name.clone()),
         signature: Set(input.signature.clone()),
         type_: Set(input.kind.clone()),
-        status: Set(if logins.is_some() { "warming" } else { "provisioning" }.to_owned()),
+        status: Set(if logins.is_some() {
+            "warming"
+        } else {
+            "provisioning"
+        }
+        .to_owned()),
         warmup_status: Set(logins.is_some().then(|| "waiting".to_owned())),
         smtp_credentials: Set(smtp_sealed),
         imap_credentials: Set(imap_sealed),
@@ -971,14 +976,8 @@ async fn pause(
         async {
             account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let row = pause_mailbox(
-                &caller.db,
-                &master,
-                &caller.clerk_org_id,
-                &id,
-                caller.now(),
-            )
-            .await?;
+            let row =
+                pause_mailbox(&caller.db, &master, &caller.clerk_org_id, &id, caller.now()).await?;
             caller.sink(&state).emit(ReachEvent::new(
                 REACH_MAILBOX_UPDATED,
                 text(&row, "id").unwrap_or(&id),
@@ -1027,16 +1026,25 @@ async fn resume(
                     .await
                     .map_err(db_error)?;
                 if domain_status.as_deref() != Some("active") {
-                    return Err(ReachError::new(409, "DOMAIN_NOT_ACTIVE", "The domain of this mailbox is not active."));
+                    return Err(ReachError::new(
+                        409,
+                        "DOMAIN_NOT_ACTIVE",
+                        "The domain of this mailbox is not active.",
+                    ));
                 }
                 warmup_pool::resume(&master, &caller.clerk_org_id, &id).await?;
-                let updated = set_status(db, &id, resume_status_for(&row), None, caller.now()).await?;
+                let updated =
+                    set_status(db, &id, resume_status_for(&row), None, caller.now()).await?;
                 updated.unwrap_or(row)
             };
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_MAILBOX_UPDATED, text(&row, "id").unwrap_or(&id), without_credentials(&row)));
-            let dto = weldsuite_reach_domain::mailboxes::get(db, &source(&caller, Some(&master)), &id).await?;
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_MAILBOX_UPDATED,
+                text(&row, "id").unwrap_or(&id),
+                without_credentials(&row),
+            ));
+            let dto =
+                weldsuite_reach_domain::mailboxes::get(db, &source(&caller, Some(&master)), &id)
+                    .await?;
             Ok(Data(dto).into_response())
         }
         .await,
@@ -1107,9 +1115,11 @@ async fn delete_one(
                 Some(deleted) => row_json(deleted)?,
                 None => row,
             };
-            caller
-                .sink(&state)
-                .emit(ReachEvent::new(REACH_MAILBOX_DELETED, text(&deleted, "id").unwrap_or(&id), without_credentials(&deleted)));
+            caller.sink(&state).emit(ReachEvent::new(
+                REACH_MAILBOX_DELETED,
+                text(&deleted, "id").unwrap_or(&id),
+                without_credentials(&deleted),
+            ));
             Ok(NoContent.into_response())
         }
         .await,

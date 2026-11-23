@@ -24,11 +24,11 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_reach_domain::epoch_ms;
 use weldsuite_reach_domain::smtp::generate_message_id;
 use weldsuite_reach_domain::warmup::{
     WARMUP_MAINTAIN_MAX, WARMUP_MAINTAIN_MIN, WARMUP_MIN_POOL_DOMAINS, ramp_target,
 };
-use weldsuite_reach_domain::epoch_ms;
 use weldsuite_schema::master::{reach_warmup_mailboxes as pool, reach_warmup_messages as messages};
 
 use super::WarmupNetwork;
@@ -237,7 +237,10 @@ async fn claim_day(
 /// `releaseDay(...)`: hand the day back after a failed insert.
 async fn release_day(ctx: &PlanContext<'_>, mailbox: &PoolMailbox) -> Result<(), DbErr> {
     pool::Entity::update_many()
-        .col_expr(pool::Column::PlannedFor, Expr::value(mailbox.planned_for.clone()))
+        .col_expr(
+            pool::Column::PlannedFor,
+            Expr::value(mailbox.planned_for.clone()),
+        )
         .col_expr(pool::Column::DailyTarget, Expr::value(mailbox.daily_target))
         .filter(pool::Column::Id.eq(&mailbox.id))
         .exec(&orm(ctx.master))

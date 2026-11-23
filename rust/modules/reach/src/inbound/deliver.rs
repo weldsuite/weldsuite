@@ -47,11 +47,11 @@ use weldsuite_schema::tenant::{
 use super::bounce::BounceInfo;
 use super::parse::{ParsedInbound, parse_inbound, synthetic_message_id};
 use super::rules::{classify_inbound, is_unsubscribe_request, looks_like_bulk};
-use crate::{db_error, row_json};
 use crate::effects::{
     Target, apply_unsubscribe, bump_campaign_stat, flag_prospects_suppressed,
     stop_other_enrollments, suppress_address, to_ms, transition_enrollment,
 };
+use crate::{db_error, row_json};
 
 const MAX_SUBJECT: usize = 500;
 const MAX_EMAIL: usize = 320;
@@ -509,9 +509,13 @@ async fn store_inbound(input: &DeliverInput<'_>, a: &Analysis) -> ReachResult<Op
         id: Set(id.clone()),
         direction: Set("in".to_owned()),
         campaign_id: Set(owned(campaign_id)),
-        enrollment_id: Set(owned(a.matched.enrollment.as_ref().and_then(|e| text(e, "id")))),
+        enrollment_id: Set(owned(
+            a.matched.enrollment.as_ref().and_then(|e| text(e, "id")),
+        )),
         mailbox_id: Set(input.mailbox.id.clone()),
-        prospect_id: Set(owned(a.matched.prospect.as_ref().and_then(|p| text(p, "id")))),
+        prospect_id: Set(owned(
+            a.matched.prospect.as_ref().and_then(|p| text(p, "id")),
+        )),
         thread_key: Set(Some(js_slice(&a.thread_key, 255))),
         message_id_header: Set(a.message_id_header.clone()),
         in_reply_to: Set(a.parsed.in_reply_to.clone()),

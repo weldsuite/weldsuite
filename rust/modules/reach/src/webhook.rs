@@ -35,7 +35,9 @@ use weldsuite_schema::master::reach_routes;
 use weldsuite_schema::tenant::{reach_domains, reach_mailboxes};
 
 use crate::effects::to_ms;
-use crate::mailboxes::{PoolDeps, patch_mailbox, pause_reasons, register_in_pool, resume_status_for};
+use crate::mailboxes::{
+    PoolDeps, patch_mailbox, pause_reasons, register_in_pool, resume_status_for,
+};
 use crate::mailpool::{Mailpool, imap_credentials_of, smtp_credentials_of};
 use crate::{ReachState, db_error, env_value, row_json};
 

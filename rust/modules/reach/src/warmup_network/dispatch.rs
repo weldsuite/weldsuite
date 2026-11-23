@@ -18,9 +18,7 @@
 //! keeps its claim and is handed out again when the claim expires.
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use weldsuite_db::orm;

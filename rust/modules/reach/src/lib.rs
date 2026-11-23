@@ -16,10 +16,6 @@
 //! TypeScript worker's; its tests run against this crate in the `reach`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // JavaScript numbers are mirrored on purpose (casts), handlers answer a
 // `Response` as their refusal, and `Option<Option<_>>` is a field a body may
 // leave out, set or null.

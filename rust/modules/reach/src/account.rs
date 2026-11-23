@@ -20,7 +20,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_reach_domain::{ReachError, ReachResult, field, now, text};
 use weldsuite_schema::tenant::reach_settings;
 
-use crate::{Caller, ReachState, billing, db_error, respond, validate};
+use crate::{Caller, ReachState, billing, db_error, respond, row_json, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -265,8 +265,15 @@ async fn update_settings(caller: Caller, headers: HeaderMap, body: Bytes) -> Res
             for (column, value) in &input.fields {
                 update = update.col_expr(*column, value.clone());
             }
-            if input.complete_onboarding == Some(true) && current.get("onboardingCompletedAt").is_none_or(Value::is_null) {
-                update = update.col_expr(reach_settings::Column::OnboardingCompletedAt, Expr::value(at));
+            if input.complete_onboarding == Some(true)
+                && current
+                    .get("onboardingCompletedAt")
+                    .is_none_or(Value::is_null)
+            {
+                update = update.col_expr(
+                    reach_settings::Column::OnboardingCompletedAt,
+                    Expr::value(at),
+                );
             }
             let row = update
                 .col_expr(reach_settings::Column::UpdatedAt, Expr::value(at))
@@ -276,9 +283,8 @@ async fn update_settings(caller: Caller, headers: HeaderMap, body: Bytes) -> Res
                 .map_err(db_error)?
                 .into_iter()
                 .next()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|error| ReachError::unexpected(&error))?;
+                .map(row_json)
+                .transpose()?;
             let row = row.unwrap_or(current);
             Ok(Data(settings_dto(&row)).into_response())
         }

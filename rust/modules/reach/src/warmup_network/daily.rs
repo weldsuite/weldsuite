@@ -116,7 +116,10 @@ pub async fn pause_on_low_placement(
     }
     let paused: Vec<(String, String, String)> = pool::Entity::update_many()
         .col_expr(pool::Column::Status, Expr::value("paused"))
-        .col_expr(pool::Column::PausedReason, Expr::value(LOW_INBOX_RATE_REASON))
+        .col_expr(
+            pool::Column::PausedReason,
+            Expr::value(LOW_INBOX_RATE_REASON),
+        )
         .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
         .filter(pool::Column::Id.is_in(low))
         .filter(pool::Column::Status.eq("maintaining"))

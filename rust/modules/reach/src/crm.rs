@@ -14,7 +14,9 @@ use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::schemas::{email_domain, is_consumer_email};
 use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, js_slice, now, text};
-use weldsuite_schema::tenant::{companies, people, person_companies, reach_prospects, workspace_members};
+use weldsuite_schema::tenant::{
+    companies, people, person_companies, reach_prospects, workspace_members,
+};
 
 use crate::db_error;
 

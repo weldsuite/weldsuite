@@ -26,8 +26,8 @@ use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, REACH_MAILBOX_SUSPENDED, REACH_MAILBOX_UPDATED,
 };
-use weldsuite_db::{Keyring, orm};
 use weldsuite_db::due_index::{self, SweepResult};
+use weldsuite_db::{Keyring, orm};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource};
 use weldsuite_ports::OutboundHttp;
 use weldsuite_reach_domain::access::{utc_day_start, utc_tomorrow};
@@ -41,8 +41,8 @@ use weldsuite_schema::master::reach_routes;
 use weldsuite_schema::tenant::{domains as host_domains, reach_domains, reach_mailboxes};
 
 use crate::mailboxes::{PoolDeps, patch_mailbox, register_in_pool};
-use crate::{db_error, row_json};
 use crate::mailpool::{Mailpool, imap_credentials_of, smtp_credentials_of};
+use crate::{db_error, row_json};
 
 /// The due-index kind.
 pub const WARMUP_DUE_KIND: &str = "reach_warmup";
