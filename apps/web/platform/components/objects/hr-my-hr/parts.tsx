@@ -3,7 +3,7 @@
  * menu with "Copy link", and the body of an item that could not be read.
  */
 
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { EllipsisVertical, LayoutGrid, Link as LinkIcon } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -18,9 +18,15 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 import { RecordLoadFailed, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { errorMessage } from '@/app/weldhr/components/shared';
 import { ColorDot } from '@/app/weldhr/me/components/shared';
+import { MY_PERIODS, periodRange } from '@/app/weldhr/me/components/schedule-period';
 
 /** Width of the side panel, as the employee panel. */
 export const MY_HR_PANEL_WIDTH = 400;
+
+/** The periods My HR → Schedule's lists offer, where a shift or clock record panel looks for its item. */
+export function useSchedulePeriodRanges(): Array<{ from: string; to: string }> {
+  return useMemo(() => MY_PERIODS.map(periodRange), []);
+}
 
 /** The Details tab every My HR panel opens on. */
 export function useDetailsTab(): ObjectPanelTabDescriptor {

@@ -6,19 +6,19 @@ import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { ObjectPanelTabs, useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
 import { PanelRow } from '@/components/objects/_shared/record-panel-parts';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
-import { useLoadedMyAttendanceItem } from '@/hooks/queries/use-weldhr-queries';
+import { useMyAttendanceItem } from '@/hooks/queries/use-weldhr-queries';
 import { MY_HR_PATHS } from '@/app/weldhr/access';
 import { StatusBadge, formatMinutes, formatMoney, formatWeekdayDate, useFormatTime } from '@/app/weldhr/components/shared';
 import { RecordStatus } from '@/app/weldhr/me/components/schedule-hours-tab';
-import { MY_HR_PANEL_WIDTH, MyHrPanelMenu, MyHrPanelMissing, MyHrPanelTitle, useDetailsTab } from './parts';
+import { MY_HR_PANEL_WIDTH, MyHrPanelMenu, MyHrPanelMissing, MyHrPanelTitle, useDetailsTab, useSchedulePeriodRanges } from './parts';
 import { MY_ATTENDANCE_PANEL_TYPE } from './types';
 
 export function MyAttendancePanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const formatTime = useFormatTime();
-  const record = useLoadedMyAttendanceItem('records', props.id);
+  const { item: record, error, retry } = useMyAttendanceItem('records', props.id, useSchedulePeriodRanges());
   const detailsTab = useDetailsTab();
-  const shell = useObjectPanelShell({ ...props, width: MY_HR_PANEL_WIDTH, loading: record === undefined });
+  const shell = useObjectPanelShell({ ...props, width: MY_HR_PANEL_WIDTH, loading: record === undefined && !error });
 
   return (
     <EntityDetailView
@@ -33,7 +33,7 @@ export function MyAttendancePanel(props: Readonly<ObjectPanelComponentProps>) {
       actions={record ? <MyHrPanelMenu listPath={MY_HR_PATHS.schedule} type={MY_ATTENDANCE_PANEL_TYPE} id={record.id} /> : null}
       tabs={<ObjectPanelTabs tabs={[detailsTab]} activeTab={detailsTab.id} onChange={() => {}} />}
     >
-      {record === null && <MyHrPanelMissing loaded error={null} onRetry={() => {}} />}
+      {!record && <MyHrPanelMissing loaded={record === null} error={error} onRetry={retry} />}
 
       {record && (
         <div className="space-y-1 p-4">

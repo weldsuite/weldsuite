@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
-import { useMutation, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getHrLegalEntityId } from '@/lib/api/legal-entity-scope';
 import type {
@@ -870,6 +870,39 @@ export function useLoadedMyAttendanceItem<K extends 'shifts' | 'records'>(
   }, [queryClient, kind, id]);
   const subscribe = useCallback((onChange: () => void) => queryClient.getQueryCache().subscribe(onChange), [queryClient]);
   return useSyncExternalStore(subscribe, find, find);
+}
+
+/**
+ * One of your shifts or clock records, for its details panel. It looks in what
+ * My HR → Schedule has loaded first; when that doesn't have it (an older item,
+ * or a copied link opened fresh) it loads `ranges`, the periods the Schedule
+ * lists offer, as the lists' own queries.
+ *
+ * `item` is `undefined` while loading, `null` when none of those periods has
+ * it. `error` is set when one failed to load and the item wasn't found.
+ */
+export function useMyAttendanceItem<K extends 'shifts' | 'records'>(
+  kind: K,
+  id: string,
+  ranges: ReadonlyArray<{ from: string; to: string }>,
+): { item: HrSelfAttendance[K][number] | null | undefined; error: unknown; retry: () => void } {
+  const { weldhr } = useAppApi();
+  const loaded = useLoadedMyAttendanceItem(kind, id);
+  const periods = useQueries({
+    queries: ranges.map((range) => ({
+      queryKey: weldhrKeys.me('attendance', range),
+      queryFn: () => weldhr.meAttendance(range),
+      enabled: !loaded,
+    })),
+  });
+  const retry = () => {
+    for (const period of periods) if (period.isError) void period.refetch();
+  };
+
+  if (loaded) return { item: loaded, error: null, retry };
+  if (periods.some((period) => period.isPending)) return { item: undefined, error: null, retry };
+  const error = periods.find((period) => period.isError)?.error ?? null;
+  return { item: error ? undefined : null, error, retry };
 }
 
 export function useMyHrOpenShifts(opts: { enabled?: boolean } = {}) {
