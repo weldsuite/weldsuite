@@ -172,7 +172,7 @@ export function EmailSettingsClient() {
   }, [mailAccounts]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => {
-    const addressDomains = [...new Set(activeAddresses.map((a) => domainOf(a.email)))].sort();
+    const addressDomains = [...new Set(activeAddresses.map((a) => domainOf(a.email)))].sort((a, b) => a.localeCompare(b));
     return [
       {
         field: 'domain',

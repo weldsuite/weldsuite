@@ -105,10 +105,13 @@ export function SavedRepliesSettings() {
   const scopes = useMemo(() => {
     const present = new Set(items.map((item) => item.scope));
     const known = ['global', 'team', 'department', 'personal'].filter((scope) => present.has(scope));
-    return [...known, ...[...present].filter((scope) => !known.includes(scope)).sort()];
+    return [...known, ...[...present].filter((scope) => !known.includes(scope)).sort((a, b) => a.localeCompare(b))];
   }, [items]);
   const categories = useMemo(
-    () => [...new Set(items.map((item) => item.category).filter((c): c is string => Boolean(c)))].sort(),
+    () =>
+      [...new Set(items.map((item) => item.category).filter((c): c is string => Boolean(c)))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
     [items],
   );
 
