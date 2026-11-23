@@ -81,13 +81,25 @@ impl Source {
     }
 }
 
-/// `custom_settings.crm.autoAdd`. Off by default; once on, every source is
-/// on unless switched off.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// `custom_settings.crm.autoAdd`. On by default, with every source on and
+/// companies off, until someone switches it off.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub enabled: bool,
     pub create_companies: bool,
     pub sources: Sources,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            // Off in conformance builds, which are compared with Global,
+            // where there is no auto-add (the `conformance` feature).
+            enabled: !cfg!(feature = "conformance"),
+            create_companies: false,
+            sources: Sources::default(),
+        }
+    }
 }
 
 /// Which sources add people (`autoAdd.sources`).
@@ -911,18 +923,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settings_default_off_with_every_source_on() {
+    fn settings_default_on_with_every_source_and_no_companies() {
         let settings = Settings::from_stored(None);
-        assert!(!settings.enabled);
+        assert!(settings.enabled);
         assert!(!settings.create_companies);
-        assert!(!settings.covers(Source::Email));
-        let on = settings.merged(&Patch {
-            enabled: Some(true),
+        for source in Source::ALL {
+            assert!(settings.covers(source), "{}", source.key());
+        }
+        assert_eq!(Settings::from_stored(Some(&json!({}))), settings);
+        let off = settings.merged(&Patch {
+            enabled: Some(false),
             ..Patch::default()
         });
         for source in Source::ALL {
-            assert!(on.covers(source), "{}", source.key());
+            assert!(!off.covers(source), "{}", source.key());
         }
+        assert_eq!(
+            Settings::from_stored(Some(&json!({ "enabled": false }))),
+            off
+        );
     }
 
     #[test]
