@@ -904,12 +904,16 @@ pub(crate) async fn submit_order_requirements(
         else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
         };
-        let kind = kind.filter(|k| !k.is_empty()).unwrap_or_else(|| "local".to_owned());
+        let kind = kind
+            .filter(|k| !k.is_empty())
+            .unwrap_or_else(|| "local".to_owned());
         let Some(pending) = numbers::pending_requirements(&telnyx, &id, &phone, &country, &kind)
             .await
             .map_err(|e| e.to_string())?
         else {
-            return Ok(ApiError::bad_request("No Telnyx order found for this number").into_response());
+            return Ok(
+                ApiError::bad_request("No Telnyx order found for this number").into_response(),
+            );
         };
         let line = js::string(&pending["phoneNumberOrderId"]);
         let met = numbers::submit_requirements(&telnyx, &line, &values)
@@ -1071,15 +1075,15 @@ pub(crate) async fn service_rates(State(state): State<CallState>, caller: Caller
     match found {
         Ok(rows) => {
             let rate = |service: &str, fallback: i64| {
-                rows.iter()
-                    .rev()
-                    .find(|(kind, _)| kind == service)
-                    .map_or(json!(fallback), |(_, credits)| {
+                rows.iter().rev().find(|(kind, _)| kind == service).map_or(
+                    json!(fallback),
+                    |(_, credits)| {
                         // `credits_per_unit::text`: a `numeric(10, 2)` prints
                         // two decimals.
                         let text = credits.with_scale(2).to_plain_string();
                         js::json_number(weldsuite_kit::validation::js_number(&text))
-                    })
+                    },
+                )
             };
             Data(json!({
                 "rates": {

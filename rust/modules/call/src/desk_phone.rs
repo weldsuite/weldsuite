@@ -8,15 +8,22 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
+use weldsuite_schema::tenant::{
+    desk_phone_routes as routes, desk_voice_agents as agents, helpdesk_departments, voip_calls,
+    voip_phone_numbers,
+};
 
 use crate::desk_phone_schema::{self as schema, Options};
 use crate::js::Ordered;
 use crate::telnyx::{AssistantInput, Telnyx, encode_client_state};
 use crate::tool_auth::{self, Claims};
-use crate::{CallState, Caller, env_value, internal, now, validate};
+use crate::{CallState, Caller, env_value, internal, validate};
 
 const LOOKUP_CRM_PATH: &str = "/public/webhooks/telnyx/tools/lookup_crm";
 
@@ -185,9 +192,14 @@ fn extra_tools(caller: &Caller, aid: &str) -> Vec<Value> {
     vec![lookup_crm_tool(&url, &format!("Bearer {token}"))]
 }
 
-/// `toAgentJson(row)` from a `to_jsonb` row.
-fn agent_json(row: &Value) -> Value {
-    let row = weldsuite_db::js_row(row.clone());
+/// A row as Drizzle returns it.
+fn js(row: Result<Value, serde_json::Error>) -> Value {
+    row.unwrap_or_default()
+}
+
+/// `toAgentJson(row)`.
+fn agent_json(agent: agents::Model) -> Value {
+    let row = js(serde_json::to_value(agent));
     json!({
         "id": row["id"],
         "createdAt": row["createdAt"],
@@ -203,9 +215,9 @@ fn agent_json(row: &Value) -> Value {
     })
 }
 
-/// `toRouteJson(row)` from a `to_jsonb` row.
-fn route_json(row: &Value) -> Value {
-    let row = weldsuite_db::js_row(row.clone());
+/// `toRouteJson(row)`.
+fn route_json(route: routes::Model) -> Value {
+    let row = js(serde_json::to_value(route));
     json!({
         "id": row["id"],
         "createdAt": row["createdAt"],
@@ -227,30 +239,28 @@ pub(crate) fn whole_list(data: Vec<Value>) -> Response {
 
 /// `GET /api/desk/phone/agents`.
 pub(crate) async fn list_agents(caller: Caller) -> Response {
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_voice_agents t where t.deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let found = agents::Entity::find()
+        .filter(agents::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await;
     match found {
-        Ok(found) => whole_list(found.iter().map(agent_json).collect()),
+        Ok(found) => whole_list(found.into_iter().map(agent_json).collect()),
         Err(error) => internal(&error, "Internal server error"),
     }
 }
 
-async fn live_agent(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from desk_voice_agents t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+async fn live_agent(caller: &Caller, id: &str) -> Result<Option<agents::Model>, DbErr> {
+    agents::Entity::find()
+        .filter(agents::Column::Id.eq(id))
+        .filter(agents::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// `GET /api/desk/phone/agents/:id`.
 pub(crate) async fn agent(caller: Caller, Path(id): Path<String>) -> Response {
     match live_agent(&caller, &id).await {
-        Ok(Some(row)) => Data(agent_json(&row)).into_response(),
+        Ok(Some(row)) => Data(agent_json(row)).into_response(),
         Ok(None) => ApiError::not_found("Voice agent", Some(&id)).into_response(),
         Err(error) => internal(&error, "Internal server error"),
     }
@@ -334,26 +344,25 @@ pub(crate) async fn create_agent(
             }
         }
     }
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into desk_voice_agents (id, created_at, updated_at, name, system_prompt, greeting,
-             telnyx_assistant_id, enabled, forward_to_e164, model, voice)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8, $9, $10)
-         returning to_jsonb(desk_voice_agents)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(&data.name)
-    .bind(&data.system_prompt)
-    .bind(data.greeting.as_set())
-    .bind(&assistant_id)
-    .bind(data.enabled.unwrap_or(true))
-    .bind(data.forward_to_e164.as_set())
-    .bind(data.model.as_set())
-    .bind(data.voice.as_set())
-    .fetch_one(&caller.db)
+    let now = utc_now();
+    let inserted = agents::Entity::insert(agents::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        name: Set(data.name.clone().unwrap_or_default()),
+        system_prompt: Set(data.system_prompt.clone().unwrap_or_default()),
+        greeting: Set(data.greeting.as_set().cloned()),
+        telnyx_assistant_id: Set(assistant_id),
+        enabled: Set(data.enabled.unwrap_or(true)),
+        forward_to_e164: Set(data.forward_to_e164.as_set().cloned()),
+        model_: Set(data.model.as_set().cloned()),
+        voice: Set(data.voice.as_set().cloned()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await;
     match inserted {
-        Ok(row) => Created(agent_json(&row)).into_response(),
+        Ok(row) => Created(agent_json(row)).into_response(),
         Err(error) => internal(&error, "Internal server error"),
     }
 }
@@ -383,7 +392,7 @@ pub(crate) async fn update_agent(
         Err(response) => return *response,
     };
     let existing = match live_agent(&caller, &id).await {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => js(serde_json::to_value(row)),
         Ok(None) => return ApiError::not_found("Voice agent", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Internal server error"),
     };
@@ -428,27 +437,30 @@ pub(crate) async fn update_agent(
             return ApiError::bad_request("Failed to sync Telnyx AI assistant").into_response();
         }
     }
-    let updated: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "update desk_voice_agents set name = $2, system_prompt = $3, greeting = $4, enabled = $5,
-             forward_to_e164 = $6, model = $7, voice = $8, telnyx_assistant_id = $9,
-             updated_at = $10::timestamp
-         where id = $1
-         returning to_jsonb(desk_voice_agents)",
-    )
-    .bind(&id)
-    .bind(text(&name))
-    .bind(text(&system_prompt))
-    .bind(text(&greeting))
-    .bind(enabled.as_bool())
-    .bind(text(&forward))
-    .bind(text(&model))
-    .bind(text(&voice))
-    .bind(&assistant_id)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await;
+    let updated = agents::Entity::update_many()
+        .col_expr(agents::Column::Name, Expr::value(text(&name)))
+        .col_expr(
+            agents::Column::SystemPrompt,
+            Expr::value(text(&system_prompt)),
+        )
+        .col_expr(agents::Column::Greeting, Expr::value(text(&greeting)))
+        .col_expr(agents::Column::Enabled, Expr::value(enabled.as_bool()))
+        .col_expr(agents::Column::ForwardToE164, Expr::value(text(&forward)))
+        .col_expr(agents::Column::Model, Expr::value(text(&model)))
+        .col_expr(agents::Column::Voice, Expr::value(text(&voice)))
+        .col_expr(agents::Column::TelnyxAssistantId, Expr::value(assistant_id))
+        .col_expr(agents::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(agents::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| {
+            // `returning` read with `fetch_one`: no row is an error.
+            rows.into_iter()
+                .next()
+                .ok_or_else(|| DbErr::RecordNotFound("desk_voice_agents".to_owned()))
+        });
     match updated {
-        Ok(row) => Data(agent_json(&row)).into_response(),
+        Ok(row) => Data(agent_json(row)).into_response(),
         Err(error) => internal(&error, "Internal server error"),
     }
 }
@@ -466,24 +478,23 @@ pub(crate) async fn delete_agent(
         Err(error) => return internal(&error, "Internal server error"),
     };
     let telnyx = caller.telnyx(&state);
-    if let Some(assistant) = existing["telnyx_assistant_id"]
-        .as_str()
+    if let Some(assistant) = existing
+        .telnyx_assistant_id
+        .as_deref()
         .filter(|a| !a.is_empty())
         && telnyx.configured()
         && let Err(error) = telnyx.delete_assistant(assistant).await
     {
         tracing::error!(%error, "[desk-phone] Failed to delete Telnyx assistant (continuing)");
     }
-    let now = now();
-    if let Err(error) = sqlx::query(
-        "update desk_voice_agents set deleted_at = $2::timestamp, updated_at = $2::timestamp,
-             enabled = false
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await
+    let now = utc_now();
+    if let Err(error) = agents::Entity::update_many()
+        .col_expr(agents::Column::DeletedAt, Expr::value(now))
+        .col_expr(agents::Column::UpdatedAt, Expr::value(now))
+        .col_expr(agents::Column::Enabled, Expr::value(false))
+        .filter(agents::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await
     {
         return internal(&error, "Internal server error");
     }
@@ -492,12 +503,9 @@ pub(crate) async fn delete_agent(
 
 /// `GET /api/desk/phone/routes`.
 pub(crate) async fn list_routes(caller: Caller) -> Response {
-    let found: Result<Vec<Value>, sqlx::Error> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_phone_routes t")
-            .fetch_all(&caller.db)
-            .await;
+    let found = routes::Entity::find().all(&orm(&caller.db)).await;
     match found {
-        Ok(found) => whole_list(found.iter().map(route_json).collect()),
+        Ok(found) => whole_list(found.into_iter().map(route_json).collect()),
         Err(error) => internal(&error, "Internal server error"),
     }
 }
@@ -592,21 +600,81 @@ fn read_route(issues: &mut Issues, fields: &Map<String, Value>) -> RouteInput {
     }
 }
 
-const LIVE_PHONE_NUMBER: &str =
-    "select id from voip_phone_numbers where id = $1 and deleted_at is null limit 1";
-const LIVE_TEAM: &str =
-    "select id from helpdesk_departments where id = $1 and deleted_at is null limit 1";
+/// Whether the phone number exists and is not deleted.
+async fn live_phone_number(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = voip_phone_numbers::Entity::find()
+        .select_only()
+        .column(voip_phone_numbers::Column::Id)
+        .filter(voip_phone_numbers::Column::Id.eq(id))
+        .filter(voip_phone_numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
+}
 
-/// The id of a row that is not deleted, by one of the lookups above.
-async fn live_id(
-    caller: &Caller,
-    lookup: &'static str,
-    id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(lookup)
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
+/// Whether the team exists and is not deleted.
+async fn live_team(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = helpdesk_departments::Entity::find()
+        .select_only()
+        .column(helpdesk_departments::Column::Id)
+        .filter(helpdesk_departments::Column::Id.eq(id))
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
+}
+
+/// A number's route: the existing one replaced, or a new one.
+async fn write_route(
+    db: &PgPool,
+    data: &RouteInput,
+    voice_agent_id: Option<String>,
+    forward_to_e164: Option<String>,
+    options: Option<Value>,
+) -> Result<Response, DbErr> {
+    let db = orm(db);
+    let existing: Option<String> = routes::Entity::find()
+        .select_only()
+        .column(routes::Column::Id)
+        .filter(routes::Column::VoipPhoneNumberId.eq(&data.phone_id))
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let now = utc_now();
+    if let Some(route_id) = existing {
+        let row = routes::Entity::update_many()
+            .col_expr(routes::Column::Action, Expr::value(&data.action))
+            .col_expr(routes::Column::VoiceAgentId, Expr::value(voice_agent_id))
+            .col_expr(routes::Column::ForwardToE164, Expr::value(forward_to_e164))
+            .col_expr(routes::Column::Options, Expr::value(options))
+            .col_expr(routes::Column::UpdatedAt, Expr::value(now))
+            .filter(routes::Column::Id.eq(route_id))
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| DbErr::RecordNotFound("desk_phone_routes".to_owned()))?;
+        return Ok(Data(route_json(row)).into_response());
+    }
+    let row = routes::Entity::insert(routes::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("dpr")),
+        created_at: Set(now),
+        updated_at: Set(now),
+        voip_phone_number_id: Set(data.phone_id.clone()),
+        action: Set(data.action.clone()),
+        voice_agent_id: Set(voice_agent_id),
+        forward_to_e164: Set(forward_to_e164),
+        schedule: Set(None),
+        options: Set(options),
+    })
+    .exec_with_returning(&db)
+    .await?;
+    Ok(Created(route_json(row)).into_response())
 }
 
 /// `PUT /api/desk/phone/routes`: a number's inbound route, created or
@@ -619,14 +687,11 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
     // The new actions keep their settings in `options`; the old ones keep
     // the columns.
     let classic = matches!(data.action.as_str(), "ai_agent" | "forward" | "hangup");
-    let voice_agent_id = data.voice_agent_id.filter(|_| classic);
-    let forward_to_e164 = data.forward_to_e164.filter(|_| classic);
+    let voice_agent_id = data.voice_agent_id.clone().filter(|_| classic);
+    let forward_to_e164 = data.forward_to_e164.clone().filter(|_| classic);
     let options = schema::normalize(&data.action, data.options.as_ref());
     let result = async {
-        if live_id(&caller, LIVE_PHONE_NUMBER, &data.phone_id)
-            .await?
-            .is_none()
-        {
+        if !live_phone_number(&caller.db, &data.phone_id).await? {
             return Ok(ApiError::not_found("Phone number", Some(&data.phone_id)).into_response());
         }
         if let Some(agent) = voice_agent_id.as_deref().filter(|a| !a.is_empty())
@@ -639,7 +704,7 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
             let Some(row) = live_agent(&caller, &agent).await? else {
                 return Ok(ApiError::not_found("Voice agent", Some(&agent)).into_response());
             };
-            if row["enabled"] != true {
+            if !row.enabled {
                 return Ok(
                     ApiError::bad_request(format!("Voice agent {agent} is disabled"))
                         .into_response(),
@@ -648,53 +713,18 @@ pub(crate) async fn upsert_route(caller: Caller, headers: HeaderMap, body: Bytes
         }
         // Teams must exist.
         for team in schema::referenced_team_ids(options.as_ref()) {
-            if live_id(&caller, LIVE_TEAM, &team).await?.is_none() {
+            if !live_team(&caller.db, &team).await? {
                 return Ok(ApiError::not_found("Team", Some(&team)).into_response());
             }
         }
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from desk_phone_routes where voip_phone_number_id = $1 limit 1",
-        )
-        .bind(&data.phone_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let now = now();
-        if let Some(route_id) = existing {
-            let row: Value = sqlx::query_scalar(
-                "update desk_phone_routes set action = $2, voice_agent_id = $3, forward_to_e164 = $4,
-                     options = $5, updated_at = $6::timestamp
-                 where id = $1 returning to_jsonb(desk_phone_routes)",
-            )
-            .bind(&route_id)
-            .bind(&data.action)
-            .bind(&voice_agent_id)
-            .bind(&forward_to_e164)
-            .bind(&options)
-            .bind(&now)
-            .fetch_one(&caller.db)
-            .await?;
-            return Ok(Data(route_json(&row)).into_response());
-        }
-        let row: Value = sqlx::query_scalar(
-            "insert into desk_phone_routes (id, created_at, updated_at, voip_phone_number_id, action,
-                 voice_agent_id, forward_to_e164, schedule, options)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, null, $7)
-             returning to_jsonb(desk_phone_routes)",
-        )
-        .bind(weldsuite_kit::generate_id("dpr"))
-        .bind(&now)
-        .bind(&data.phone_id)
-        .bind(&data.action)
-        .bind(&voice_agent_id)
-        .bind(&forward_to_e164)
-        .bind(&options)
-        .fetch_one(&caller.db)
-        .await?;
-        Ok::<_, sqlx::Error>(Created(route_json(&row)).into_response())
+        write_route(&caller.db, &data, voice_agent_id, forward_to_e164, options).await
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Internal server error"))
 }
+
+/// A call to transfer: `(id, providerCallId, toNumber, deskConversationId)`.
+type LiveCall = (String, Option<String>, String, Option<String>);
 
 /// `POST /api/desk/phone/forward-live { callId, to }`: cold-transfer an
 /// active call.
@@ -718,14 +748,20 @@ pub(crate) async fn forward_live(
     if !telnyx.configured() {
         return ApiError::bad_request("Phone service is not activated").into_response();
     }
-    let call: Option<(String, Option<String>, String, Option<String>)> = match sqlx::query_as(
-        "select id, provider_call_id, to_number, desk_conversation_id from voip_calls
-         where id = $1 limit 1",
-    )
-    .bind(&call_id)
-    .fetch_optional(&caller.db)
-    .await
-    {
+    let call: Result<Option<LiveCall>, DbErr> = voip_calls::Entity::find()
+        .select_only()
+        .columns([
+            voip_calls::Column::Id,
+            voip_calls::Column::ProviderCallId,
+            voip_calls::Column::ToNumber,
+            voip_calls::Column::DeskConversationId,
+        ])
+        .filter(voip_calls::Column::Id.eq(&call_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
+    let call = match call {
         Ok(call) => call,
         Err(error) => return internal(&error, "Internal server error"),
     };

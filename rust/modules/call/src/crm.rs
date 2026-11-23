@@ -128,7 +128,10 @@ fn digits(text: Expr) -> Expr {
 
 /// `regexp_replace(coalesce(column, ''), '[^0-9]', '', 'g') like pattern`.
 fn digits_like(column: Expr, pattern: &str) -> Expr {
-    sea_orm::ExprTrait::like(digits(Func::coalesce([column, Expr::val("")]).into()), pattern)
+    sea_orm::ExprTrait::like(
+        digits(Func::coalesce([column, Expr::val("")]).into()),
+        pattern,
+    )
 }
 
 /// `lower(text) like pattern`.
@@ -161,12 +164,21 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
 
     let matches = if by_phone {
         Condition::any()
-            .add(digits_like(Expr::col(people::Column::DirectPhone), &pattern))
-            .add(digits_like(Expr::col(people::Column::MobilePhone), &pattern))
+            .add(digits_like(
+                Expr::col(people::Column::DirectPhone),
+                &pattern,
+            ))
+            .add(digits_like(
+                Expr::col(people::Column::MobilePhone),
+                &pattern,
+            ))
     } else {
         Condition::any()
             .add(lower_like(Expr::col(people::Column::DisplayName), &pattern))
-            .add(lower_like(or_empty(Expr::col(people::Column::Email)), &pattern))
+            .add(lower_like(
+                or_empty(Expr::col(people::Column::Email)),
+                &pattern,
+            ))
             .add(people::Column::FirstName.ilike(&pattern))
             .add(people::Column::LastName.ilike(&pattern))
     };
@@ -202,9 +214,18 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
             .add(digits_like(Expr::col(companies::Column::Mobile), &pattern))
     } else {
         Condition::any()
-            .add(lower_like(Expr::col(companies::Column::DisplayName), &pattern))
-            .add(lower_like(or_empty(Expr::col(companies::Column::Name)), &pattern))
-            .add(lower_like(or_empty(Expr::col(companies::Column::Email)), &pattern))
+            .add(lower_like(
+                Expr::col(companies::Column::DisplayName),
+                &pattern,
+            ))
+            .add(lower_like(
+                or_empty(Expr::col(companies::Column::Name)),
+                &pattern,
+            ))
+            .add(lower_like(
+                or_empty(Expr::col(companies::Column::Email)),
+                &pattern,
+            ))
     };
     let found: Vec<CompanyRow> = companies::Entity::find()
         .select_only()
@@ -240,8 +261,14 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
             .add(digits_like(Expr::col(crm_leads::Column::Mobile), &pattern))
     } else {
         Condition::any()
-            .add(lower_like(or_empty(Expr::col(crm_leads::Column::FullName)), &pattern))
-            .add(lower_like(or_empty(Expr::col(crm_leads::Column::CompanyName)), &pattern))
+            .add(lower_like(
+                or_empty(Expr::col(crm_leads::Column::FullName)),
+                &pattern,
+            ))
+            .add(lower_like(
+                or_empty(Expr::col(crm_leads::Column::CompanyName)),
+                &pattern,
+            ))
             .add(lower_like(Expr::col(crm_leads::Column::Email), &pattern))
             .add(crm_leads::Column::FirstName.ilike(&pattern))
             .add(crm_leads::Column::LastName.ilike(&pattern))

@@ -122,7 +122,10 @@ async fn on_agent_answered(
     let now = utc_now();
     let won = voip_calls::Entity::update_many()
         .col_expr(voip_calls::Column::AgentAnsweredAt, Expr::value(now))
-        .col_expr(voip_calls::Column::AnsweredByUserId, Expr::value(&leg.user_id))
+        .col_expr(
+            voip_calls::Column::AnsweredByUserId,
+            Expr::value(&leg.user_id),
+        )
         .col_expr(voip_calls::Column::UserId, Expr::value(&leg.user_id))
         .col_expr(voip_calls::Column::Outcome, Expr::value("answered"))
         .col_expr(voip_calls::Column::UpdatedAt, Expr::value(now))
@@ -237,7 +240,10 @@ async fn return_to_queue(
             voip_calls::Column::AnsweredByUserId,
             Expr::value(Option::<String>::None),
         )
-        .col_expr(voip_calls::Column::Outcome, Expr::value(Option::<String>::None))
+        .col_expr(
+            voip_calls::Column::Outcome,
+            Expr::value(Option::<String>::None),
+        )
         .col_expr(voip_calls::Column::UserId, Expr::value(previous_user_id))
         .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
         .filter(voip_calls::Column::Id.eq(call_id))
@@ -291,7 +297,10 @@ async fn assign_to_answerer(
 ) -> Result<(), String> {
     let claimed = desk_conversations::Entity::update_many()
         .col_expr(desk_conversations::Column::AssigneeId, Expr::value(user_id))
-        .col_expr(desk_conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .col_expr(
+            desk_conversations::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
         .filter(desk_conversations::Column::Id.eq(conversation_id))
         .filter(desk_conversations::Column::AssigneeId.is_null())
         .exec(&orm(phone.db))

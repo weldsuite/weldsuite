@@ -294,7 +294,8 @@ async fn busy_user_ids(
         .filter(voip_calls::Column::InitiatedAt.gt(cutoff));
     // `id <> all('{}')` holds for every call.
     if !except_call_ids.is_empty() {
-        on_calls = on_calls.filter(voip_calls::Column::Id.is_not_in(except_call_ids.iter().copied()));
+        on_calls =
+            on_calls.filter(voip_calls::Column::Id.is_not_in(except_call_ids.iter().copied()));
     }
     let on_calls: Vec<String> = on_calls
         .filter(
@@ -320,7 +321,10 @@ async fn by_idle_time(db: &PgPool, agents: Vec<StaffedAgent>) -> Result<Vec<Staf
     let last: Vec<(Option<String>, Option<PrimitiveDateTime>)> = voip_calls::Entity::find()
         .select_only()
         .column(voip_calls::Column::AnsweredByUserId)
-        .column_as(voip_calls::Column::AgentAnsweredAt.max(), "last_answered_at")
+        .column_as(
+            voip_calls::Column::AgentAnsweredAt.max(),
+            "last_answered_at",
+        )
         .filter(voip_calls::Column::AnsweredByUserId.is_in(ids))
         .group_by(voip_calls::Column::AnsweredByUserId)
         .into_tuple()
@@ -724,9 +728,8 @@ async fn try_ring_waiting_calls(
             .one(&orm(db))
             .await
             .map_err(|error| error.to_string())?;
-        let rang = newest.and_then(|(created, ended)| {
-            ended.map(|ended| epoch_ms(ended) - epoch_ms(created))
-        });
+        let rang = newest
+            .and_then(|(created, ended)| ended.map(|ended| epoch_ms(ended) - epoch_ms(created)));
         if rang.is_some_and(|rang| rang < MIN_RING_MS_FOR_NEXT_ROUND) {
             continue;
         }

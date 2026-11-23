@@ -778,7 +778,10 @@ async fn live_ported_number(
         provider: Set("telnyx".to_owned()),
         phone_number: Set(phone.clone()),
         formatted_number: Set(Some(
-            draft.formatted_number.clone().unwrap_or_else(|| phone.clone()),
+            draft
+                .formatted_number
+                .clone()
+                .unwrap_or_else(|| phone.clone()),
         )),
         country_code: Set(draft.country_code.clone()),
         number_type: Set(Some(draft.number_type.clone())),
@@ -1225,11 +1228,6 @@ impl CallEvent<'_> {
         }
     }
 
-    /// A field of the payload, if the event has it: `value ?? null` as text.
-    fn present(&self, key: &str) -> Option<Option<String>> {
-        self.payload.get(key).map(text_of)
-    }
-
     /// `update voip_calls set … where id = $1`: the columns of `set` on
     /// this call.
     async fn update_call(&self, set: voip_calls::ActiveModel) -> Result<(), String> {
@@ -1250,14 +1248,14 @@ impl CallEvent<'_> {
             updated_at: Set(utc_now()),
             ..Default::default()
         };
-        if let Some(control) = self.present("call_control_id") {
-            set.provider_call_id = Set(control);
+        if let Some(control) = self.payload.get("call_control_id") {
+            set.provider_call_id = Set(text_of(control));
         }
-        if let Some(session) = self.present("call_session_id") {
-            set.provider_session_id = Set(session);
+        if let Some(session) = self.payload.get("call_session_id") {
+            set.provider_session_id = Set(text_of(session));
         }
-        if let Some(leg) = self.present("call_leg_id") {
-            set.provider_leg_id = Set(leg);
+        if let Some(leg) = self.payload.get("call_leg_id") {
+            set.provider_leg_id = Set(text_of(leg));
         }
         self.update_call(set).await
     }

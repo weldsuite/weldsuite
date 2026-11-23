@@ -48,7 +48,10 @@ pub(crate) async fn upsert(master: Option<&PgPool>, entry: Entry<'_>) -> Result<
         .map_err(|error| error.to_string())?;
     if existing.is_some() {
         registry::Entity::update_many()
-            .col_expr(registry::Column::ClerkOrgId, Expr::value(entry.clerk_org_id))
+            .col_expr(
+                registry::Column::ClerkOrgId,
+                Expr::value(entry.clerk_org_id),
+            )
             .col_expr(
                 registry::Column::VoipPhoneNumberId,
                 Expr::value(entry.voip_phone_number_id),

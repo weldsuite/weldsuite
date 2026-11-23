@@ -35,11 +35,6 @@
 //! TypeScript worker's; its tests run against this crate in the `call`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod calls;
 mod credits;
 mod crm;
@@ -729,14 +724,4 @@ pub(crate) fn validate<T>(
 pub(crate) fn internal(error: &dyn std::fmt::Display, message: &str) -> Response {
     tracing::error!(%error, "[call-api] {message}");
     ApiError::internal().with_message(message).into_response()
-}
-
-/// `select to_jsonb(t)` rows as Drizzle returns them.
-pub(crate) fn rows(values: Vec<Value>) -> Vec<Value> {
-    values.into_iter().map(weldsuite_db::js_row).collect()
-}
-
-/// `new Date()` as Drizzle writes it.
-pub(crate) fn now() -> String {
-    weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc())
 }
