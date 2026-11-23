@@ -498,7 +498,7 @@ pub(crate) async fn set_access(
             return Ok(None);
         };
         let member_ids = list_agent_member_ids(&caller.db, &id).await?;
-        Ok::<_, sqlx::Error>(Some((agent, member_ids)))
+        Ok::<_, sea_orm::DbErr>(Some((agent, member_ids)))
     }
     .await;
     match result {
@@ -589,7 +589,7 @@ pub(crate) async fn set_subagents(
             .collect();
         let name = agent["name"].as_str().unwrap_or_default();
         if let Some(problem) = check_subagents(&caller.db, &id, name, &subagent_ids).await? {
-            return Ok::<_, sqlx::Error>(Err(problem));
+            return Ok::<_, sea_orm::DbErr>(Err(problem));
         }
         let updated = update_agent(
             &caller.db,

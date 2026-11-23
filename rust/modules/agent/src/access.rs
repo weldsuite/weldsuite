@@ -12,7 +12,9 @@
 //! with chat and merge in `weldsuite_chat_domain::agents`.
 
 use sea_orm::sea_query::{Expr, OnConflict, Query};
-use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use sqlx::PgPool;
 pub use weldsuite_chat_domain::agents::{
     AgentAccess, AgentViewer, agent_viewer_for, can_access_agent, inaccessible_agent_ids,
@@ -166,6 +168,9 @@ mod tests {
             .build(DbBackend::Postgres)
             .to_string();
         assert!(sql.contains("'workspace'"), "{sql}");
-        assert!(sql.contains("EXISTS(SELECT 1 FROM \"weldagent_agent_members\""), "{sql}");
+        assert!(
+            sql.contains("EXISTS(SELECT 1 FROM \"weldagent_agent_members\""),
+            "{sql}"
+        );
     }
 }

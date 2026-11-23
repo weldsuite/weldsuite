@@ -33,18 +33,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Expr, Func, IntoIden, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QueryResult, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::{Postgres, Transaction};
+use time::PrimitiveDateTime;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 use weldsuite_catalogs::entity_events::{CATEGORY_CREATED, CATEGORY_DELETED, CATEGORY_UPDATED};
 use weldsuite_catalogs::permission_keys::{
     CATEGORIES_CREATE, CATEGORIES_DELETE, CATEGORIES_READ, CATEGORIES_UPDATE,
 };
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{categories, category_products, products};
 
+use crate::args::{advisory_lock, after_cursor, now_stamped};
 use crate::rules::{read_rules, rules_match, rules_param, stored_rules};
 use crate::tables::{CATEGORIES, PRODUCTS};
 use crate::{Caller, CommerceState, Refusal, internal, now, validate, validate_query};
@@ -65,7 +73,7 @@ const SORT_ORDERS: &[&str] = &[
 ];
 
 /// Taken by every write that checks the tree (slugs, placement).
-const TREE_LOCK: &str = "select pg_advisory_xact_lock(hashtext('weldcommerce:categories'))";
+const TREE_LOCK: &str = "weldcommerce:categories";
 
 /// How many products a preview shows.
 const PREVIEW_LIMIT: i64 = 20;
@@ -114,12 +122,7 @@ where
 /// A category as the API answers it: Drizzle's row, `isActive` a boolean,
 /// the defaults of the membership columns filled in, and without the
 /// unmaintained `productCount` (counts come from the members' `totalCount`).
-fn present(row: Value) -> Value {
-    present_js(CATEGORIES.js(row))
-}
-
-/// [`present`] for a row already read by [`crate::table::Table::js`].
-fn present_js(mut row: Value) -> Value {
+fn present(mut row: Value) -> Value {
     if let Value::Object(fields) = &mut row {
         let active = fields.get("isActive").and_then(Value::as_i64).unwrap_or(1) == 1;
         fields.insert("isActive".to_owned(), json!(active));
@@ -164,15 +167,27 @@ fn not_manual() -> Refusal {
     )
 }
 
-async fn live_category<'e>(
-    db: impl sqlx::PgExecutor<'e>,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(CATEGORIES.select_live)
-        .bind(id)
-        .fetch_optional(db)
+async fn live_category<C: ConnectionTrait>(db: &C, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(CATEGORIES.find_live_on(db, id).await?.map(present))
+}
+
+/// The categories as Drizzle returns them, presented.
+fn presented(rows: &[categories::Model]) -> Result<Vec<Value>, DbErr> {
+    rows.iter()
+        .map(|row| CATEGORIES.model(row).map(present))
+        .collect()
+}
+
+/// Whether the live product `id` is there.
+async fn product_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = products::Entity::find_by_id(id)
+        .filter(products::Column::DeletedAt.is_null())
+        .select_only()
+        .column(products::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
         .await?;
-    Ok(row.map(present))
+    Ok(found.is_some())
 }
 
 // ── slug and placement ──────────────────────────────────────────────────────
@@ -214,8 +229,8 @@ pub(crate) fn slugify(input: &str, fallback: &str) -> String {
 
 /// A slug free among the children of `parent` (roots when `None`): `desired`,
 /// else `desired-2`, `desired-3`, … `exclude` lets a category keep its own.
-async fn sibling_slug(
-    tx: &mut Transaction<'_, Postgres>,
+async fn sibling_slug<C: ConnectionTrait>(
+    db: &C,
     desired: &str,
     parent: Option<&str>,
     exclude: Option<&str>,
@@ -229,16 +244,22 @@ async fn sibling_slug(
             let stem: String = desired.chars().take(room).collect();
             format!("{}{suffix}", stem.trim_end_matches('-'))
         };
-        let taken: bool = sqlx::query_scalar(
-            "select exists (select 1 from categories where slug = $1 and deleted_at is null \
-             and parent_id is not distinct from $2 and id <> $3)",
-        )
-        .bind(&candidate)
-        .bind(parent)
-        .bind(exclude.unwrap_or_default())
-        .fetch_one(&mut **tx)
-        .await?;
-        if !taken {
+        // `parent_id is not distinct from parent`.
+        let sibling = match parent {
+            Some(parent) => categories::Column::ParentId.eq(parent),
+            None => categories::Column::ParentId.is_null(),
+        };
+        let taken: Option<String> = categories::Entity::find()
+            .select_only()
+            .column(categories::Column::Id)
+            .filter(categories::Column::Slug.eq(candidate.as_str()))
+            .filter(categories::Column::DeletedAt.is_null())
+            .filter(sibling)
+            .filter(categories::Column::Id.ne(exclude.unwrap_or_default()))
+            .into_tuple()
+            .one(db)
+            .await?;
+        if taken.is_none() {
             return Ok(candidate);
         }
     }
@@ -251,8 +272,8 @@ async fn sibling_slug(
 /// `resolvePlacement`: where category `id` sits under `parent` (`path`,
 /// `depth`). `height` is how many levels the category's subtree adds below
 /// it (0 for a new category).
-async fn placement(
-    tx: &mut Transaction<'_, Postgres>,
+async fn placement<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     parent: Option<&str>,
     height: i64,
@@ -269,12 +290,17 @@ async fn placement(
             "CYCLE",
         ));
     }
-    let row: Option<(String, Option<String>, Option<i32>)> = sqlx::query_as(
-        "select id, path, depth from categories where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(parent_id)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let row: Option<(String, Option<String>, Option<i32>)> = categories::Entity::find_by_id(parent_id)
+        .select_only()
+        .columns([
+            categories::Column::Id,
+            categories::Column::Path,
+            categories::Column::Depth,
+        ])
+        .filter(categories::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((parent, path, depth)) = row else {
         return Err(refused(
             ApiError::not_found("Parent category", Some(parent_id)),
@@ -307,18 +333,22 @@ fn too_deep() -> Refusal {
 
 /// How many levels the subtree under the category at `path` (depth `depth`)
 /// adds.
-async fn subtree_height(
-    tx: &mut Transaction<'_, Postgres>,
+async fn subtree_height<C: ConnectionTrait>(
+    db: &C,
     path: &str,
     depth: i64,
-) -> Result<i64, sqlx::Error> {
-    let deepest: Option<i32> = sqlx::query_scalar(
-        "select max(depth) from categories where path like $1 and deleted_at is null",
-    )
-    .bind(format!("{}/%", like_escape(path)))
-    .fetch_one(&mut **tx)
-    .await?;
-    Ok(deepest.map_or(0, |deepest| (i64::from(deepest) - depth).max(0)))
+) -> Result<i64, DbErr> {
+    let deepest: Option<Option<i32>> = categories::Entity::find()
+        .select_only()
+        .column_as(categories::Column::Depth.max(), "max")
+        .filter(categories::Column::Path.like(format!("{}/%", like_escape(path))))
+        .filter(categories::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(deepest
+        .flatten()
+        .map_or(0, |deepest| (i64::from(deepest) - depth).max(0)))
 }
 
 fn like_escape(value: &str) -> String {
@@ -326,57 +356,82 @@ fn like_escape(value: &str) -> String {
 }
 
 /// `reparentDescendants`: the subtree under `old` moves under `new`.
-async fn reparent_descendants(
-    tx: &mut Transaction<'_, Postgres>,
+async fn reparent_descendants<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     old: &str,
     new: &str,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
     if old == new {
         return Ok(());
     }
     let segments = |path: &str| i64::try_from(path.split('/').count()).unwrap_or(0);
     let shift = segments(new) - segments(old);
     let from = i64::try_from(old.chars().count()).unwrap_or(0) + 1;
-    // The `::int` casts are load-bearing: `substring(x from $n)` with an
-    // untyped parameter picks the regex overload and blanks every path.
-    sqlx::query(
-        "update categories set path = $1::text || substring(path from $2::int), \
-         depth = coalesce(depth, 0) + $3::int, updated_at = $4::timestamp \
-         where path like $5 and id <> $6 and deleted_at is null",
-    )
-    .bind(new)
-    .bind(i32::try_from(from).unwrap_or(i32::MAX))
-    .bind(i32::try_from(shift).unwrap_or(0))
-    .bind(now)
-    .bind(format!("{}/%", like_escape(old)))
-    .bind(id)
-    .execute(&mut **tx)
-    .await?;
+    // `$1::text || substr(path, $2)`: the integer start is load-bearing,
+    // `substring(x from $n)` with an untyped parameter picks the regex
+    // overload and blanks every path.
+    let path = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::val(new),
+        Func::cust("substr")
+            .arg(Expr::col((categories::Entity, categories::Column::Path)))
+            .arg(i32::try_from(from).unwrap_or(i32::MAX)),
+    );
+    let depth = sea_orm::ExprTrait::add(
+        Func::coalesce([
+            Expr::col((categories::Entity, categories::Column::Depth)),
+            Expr::val(0),
+        ]),
+        i32::try_from(shift).unwrap_or(0),
+    );
+    categories::Entity::update_many()
+        .col_expr(categories::Column::Path, path)
+        .col_expr(categories::Column::Depth, depth)
+        .col_expr(categories::Column::UpdatedAt, Expr::val(now))
+        .filter(categories::Column::Path.like(format!("{}/%", like_escape(old))))
+        .filter(categories::Column::Id.ne(id))
+        .filter(categories::Column::DeletedAt.is_null())
+        .exec(db)
+        .await?;
     Ok(())
 }
 
 // ── list, tree, one ─────────────────────────────────────────────────────────
 
-const LIST_SQL: &str = concat!(
-    "select ",
-    row_of!(categories),
-    " from categories t where t.deleted_at is null \
-     and ($1::boolean is not true or t.parent_id is null) \
-     and ($2::text is null or t.parent_id = $2) \
-     and ($3::text is null or coalesce(t.type, 'manual') = $3) \
-     and ($4::text is null or t.name ilike $4 or t.slug ilike $4) \
-     and ($5::text is null or not exists (select 1 from categories c where c.id = $5) \
-          or (t.created_at, t.id) < (select c.created_at, c.id from categories c where c.id = $5)) \
-     order by t.created_at desc, t.id desc limit $6"
-);
-
-const COUNT_SQL: &str = "select count(*) from categories t where t.deleted_at is null \
-     and ($1::boolean is not true or t.parent_id is null) \
-     and ($2::text is null or t.parent_id = $2) \
-     and ($3::text is null or coalesce(t.type, 'manual') = $3) \
-     and ($4::text is null or t.name ilike $4 or t.slug ilike $4)";
+/// The list's filters: live, roots only (`parentId=null`), a parent,
+/// `type` (`manual` when unset), `search` on name and slug.
+fn list_filters(
+    roots: bool,
+    parent: Option<String>,
+    kind: Option<String>,
+    search: Option<&str>,
+) -> Condition {
+    let mut all = Condition::all().add(categories::Column::DeletedAt.is_null());
+    if roots {
+        all = all.add(categories::Column::ParentId.is_null());
+    }
+    if let Some(parent) = parent {
+        all = all.add(categories::Column::ParentId.eq(parent));
+    }
+    if let Some(kind) = kind {
+        all = all.add(sea_orm::ExprTrait::eq(
+            Func::coalesce([
+                Expr::col((categories::Entity, categories::Column::Type)),
+                Expr::val("manual"),
+            ]),
+            kind,
+        ));
+    }
+    if let Some(search) = search {
+        all = all.add(
+            Condition::any()
+                .add(categories::Column::Name.ilike(search))
+                .add(categories::Column::Slug.ilike(search)),
+        );
+    }
+    all
+}
 
 /// `GET /`: newest first. `parentId=null` asks for roots (an absent
 /// `parentId` is any parent), `type`, `search` on name and slug.
@@ -391,31 +446,33 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let kind = param("type");
     let search = param("search").map(|s| format!("%{}%", like_escape(&s)));
     let cursor = param("cursor");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(LIST_SQL)
-        .bind(roots)
-        .bind(parent.as_deref())
-        .bind(kind.as_deref())
-        .bind(search.as_deref())
-        .bind(cursor.as_deref())
-        .bind(i64::from(limit) + 1)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(COUNT_SQL)
-        .bind(roots)
-        .bind(parent.as_deref())
-        .bind(kind.as_deref())
-        .bind(search.as_deref())
-        .fetch_one(&caller.db)
-        .await;
+    let filters = list_filters(roots, parent, kind, search.as_deref());
+    let mut page = categories::Entity::find().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        page = page.filter(after_cursor::<categories::Entity>(
+            categories::Column::CreatedAt,
+            categories::Column::Id,
+            cursor,
+            true,
+        ));
+    }
+    let db = orm(&caller.db);
+    let rows = page
+        .order_by_desc(categories::Column::CreatedAt)
+        .order_by_desc(categories::Column::Id)
+        .limit(u64::from(limit) + 1)
+        .all(&db)
+        .await
+        .and_then(|rows| presented(&rows));
+    let total = categories::Entity::find().filter(filters).count(&db).await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => {
             let page = weldsuite_kit::Page::of(
-                rows.into_iter().map(present).collect(),
+                rows,
                 usize::try_from(limit).unwrap_or(25),
                 |row: &Value| row["id"].as_str().unwrap_or_default(),
             );
-            page.into_list(u64::try_from(total).unwrap_or(0))
-                .into_response()
+            page.into_list(total).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -423,7 +480,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch category";
-    match live_category(&caller.db, &id).await {
+    match live_category(&orm(&caller.db), &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Category", &id).respond(FAILED),
         Err(error) => internal(&error, FAILED),
@@ -559,45 +616,108 @@ async fn tree(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Ok(read) => read,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select ",
-        row_of!(categories),
-        " from categories t where t.deleted_at is null \
-         and (not $1::boolean or coalesce(t.is_active, 1) = 1) \
-         order by t.depth asc, t.position asc, t.id asc"
-    ))
-    .bind(active_only)
-    .fetch_all(&caller.db)
-    .await;
+    let mut rows = categories::Entity::find().filter(categories::Column::DeletedAt.is_null());
+    if active_only {
+        rows = rows.filter(sea_orm::ExprTrait::eq(
+            Func::coalesce([
+                Expr::col((categories::Entity, categories::Column::IsActive)),
+                Expr::val(1),
+            ]),
+            1,
+        ));
+    }
+    let rows = rows
+        .order_by_asc(categories::Column::Depth)
+        .order_by_asc(categories::Column::Position)
+        .order_by_asc(categories::Column::Id)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| presented(&rows));
     match rows {
-        Ok(rows) => {
-            let rows: Vec<Value> = rows.into_iter().map(present).collect();
-            Data(build_tree(&rows, root.as_deref())).into_response()
-        }
+        Ok(rows) => Data(build_tree(&rows, root.as_deref())).into_response(),
         Err(error) => internal(&error, FAILED),
     }
 }
 
 // ── members ─────────────────────────────────────────────────────────────────
 
-/// A manual category in its curated order (`category_products.position`):
-/// `$1` the category, `$2` the cursor product (none, or not a member: the
-/// first page), `$3` the limit.
-const MANUAL_MEMBERS_SQL: &str = concat!(
-    "select ",
-    row_of!(products),
-    " from category_products cp join products t on t.id = cp.product_id \
-     where cp.category_id = $1 and t.deleted_at is null \
-     and ($2::text is null \
-          or not exists (select 1 from category_products c where c.category_id = $1 and c.product_id = $2) \
-          or (coalesce(cp.position, 0), cp.id) > \
-             (select coalesce(c.position, 0), c.id from category_products c where c.category_id = $1 and c.product_id = $2)) \
-     order by coalesce(cp.position, 0), cp.id limit $3"
-);
+/// `coalesce(cp.position, 0)` of `table` (`category_products`, or its alias).
+fn member_position(table: impl IntoIden) -> Expr {
+    Func::coalesce([
+        Expr::col((table.into_iden(), category_products::Column::Position)),
+        Expr::val(0),
+    ])
+    .into()
+}
 
-const MANUAL_COUNT_SQL: &str = "select count(*) from category_products cp \
-     join products t on t.id = cp.product_id \
-     where cp.category_id = $1 and t.deleted_at is null";
+/// A manual category in its curated order (`category_products.position`),
+/// after the cursor product (none, or not a member: the first page), at
+/// most `limit`; and how many members there are.
+async fn manual_members(
+    db: &weldsuite_db::PgPool,
+    category: &str,
+    cursor: Option<&str>,
+    limit: i64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(db);
+    let members = || {
+        products::Entity::find()
+            .join_rev(
+                JoinType::InnerJoin,
+                category_products::Entity::belongs_to(products::Entity)
+                    .from(category_products::Column::ProductId)
+                    .to(products::Column::Id)
+                    .into(),
+            )
+            .filter(category_products::Column::CategoryId.eq(category))
+            .filter(products::Column::DeletedAt.is_null())
+    };
+    let mut page = members();
+    if let Some(cursor) = cursor {
+        // `(coalesce(cp.position, 0), cp.id) > (… of the cursor's member)`,
+        // unless the cursor is not a member.
+        let row = Alias::new("c");
+        let of_cursor = |select: &mut SelectStatement| {
+            select
+                .from_as(category_products::Entity, row.clone())
+                .and_where(sea_orm::ExprTrait::eq(
+                    Expr::col((row.clone(), category_products::Column::CategoryId)),
+                    category,
+                ))
+                .and_where(sea_orm::ExprTrait::eq(
+                    Expr::col((row.clone(), category_products::Column::ProductId)),
+                    cursor,
+                ))
+                .to_owned()
+        };
+        let gone = of_cursor(Query::select().expr(Expr::val(1)));
+        let at = of_cursor(
+            Query::select()
+                .expr(member_position(row.clone()))
+                .column((row.clone(), category_products::Column::Id)),
+        );
+        let here = Expr::tuple([
+            member_position(category_products::Entity),
+            Expr::col((category_products::Entity, category_products::Column::Id)),
+        ]);
+        page = page.filter(
+            Condition::any()
+                .add(Expr::not_exists(gone))
+                .add(sea_orm::ExprTrait::gt(here, at)),
+        );
+    }
+    let rows = page
+        .order_by_asc(member_position(category_products::Entity))
+        .order_by_asc(category_products::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&db)
+        .await?
+        .iter()
+        .map(|row| PRODUCTS.model(row))
+        .collect::<Result<Vec<Value>, DbErr>>()?;
+    let total = members().count(&db).await?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
+}
 
 /// Membership of product `t`: the manual category `$<n>` when set, else the
 /// rules `$1` matched by `$2`.
@@ -620,9 +740,7 @@ macro_rules! member {
 /// the first page), at most `$5`, of the manual category `$6` or the rules.
 /// The keyset compares the columns the order uses, `id` breaking ties.
 const SORTED_MEMBERS_SQL: &str = concat!(
-    "select ",
-    row_of!(products),
-    " from products t where t.deleted_at is null and ",
+    "select t.* from products t where t.deleted_at is null and ",
     member!(6),
     " and ($4::text is null or not exists (select 1 from products c where c.id = $4) or (case $3::text \
        when 'best-selling' then (coalesce(t.sales_count, 0), t.id) < (select coalesce(c.sales_count, 0), c.id from products c where c.id = $4) \
@@ -665,24 +783,11 @@ async fn member_page(
     sort: &str,
     cursor: Option<&str>,
     limit: i64,
-) -> Result<(Vec<Value>, i64), sqlx::Error> {
+) -> Result<(Vec<Value>, i64), DbErr> {
     if let Members::Manual(category) = members
         && sort == "manual"
     {
-        let rows: Vec<Value> = sqlx::query_scalar(MANUAL_MEMBERS_SQL)
-            .bind(category)
-            .bind(cursor)
-            .bind(limit)
-            .fetch_all(&caller.db)
-            .await?;
-        let total: i64 = sqlx::query_scalar(MANUAL_COUNT_SQL)
-            .bind(category)
-            .fetch_one(&caller.db)
-            .await?;
-        return Ok((
-            rows.into_iter().map(|row| PRODUCTS.js(row)).collect(),
-            total,
-        ));
+        return manual_members(&caller.db, category, cursor, limit).await;
     }
     let (rules, any, category) = match members {
         Members::Manual(category) => (json!([]), false, Some(*category)),
@@ -695,25 +800,68 @@ async fn member_page(
     } else {
         sort
     };
-    let rows: Vec<Value> = sqlx::query_scalar(SORTED_MEMBERS_SQL)
-        .bind(&rules)
-        .bind(matching)
-        .bind(sort)
-        .bind(cursor)
-        .bind(limit)
-        .bind(category)
-        .fetch_all(&caller.db)
-        .await?;
+    let (rows, total) = sorted_members(
+        &caller.db,
+        &Sorted {
+            rules: &rules,
+            matching,
+            sort,
+            cursor,
+            limit,
+            category,
+        },
+    )
+    .await?;
+    let rows = rows
+        .iter()
+        .map(|row| PRODUCTS.model(row))
+        .collect::<Result<Vec<Value>, DbErr>>()?;
+    Ok((rows, total))
+}
+
+/// A sorted page of members: the rules, `any` or `all`, the sort, the
+/// cursor product, the limit and the manual category.
+struct Sorted<'a> {
+    rules: &'a Value,
+    matching: &'a str,
+    sort: &'a str,
+    cursor: Option<&'a str>,
+    limit: i64,
+    category: Option<&'a str>,
+}
+
+/// The page and the count of [`SORTED_MEMBERS_SQL`], the rows as the
+/// products' entity reads them.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "an automated category's rules are evaluated in SQL from one bound jsonb (crate::rules::rules_match!), a CASE per rule the query builder cannot express"
+)]
+async fn sorted_members(
+    db: &weldsuite_db::PgPool,
+    page: &Sorted<'_>,
+) -> Result<(Vec<products::Model>, i64), DbErr> {
+    let rows = sqlx::query(SORTED_MEMBERS_SQL)
+        .bind(page.rules)
+        .bind(page.matching)
+        .bind(page.sort)
+        .bind(page.cursor)
+        .bind(page.limit)
+        .bind(page.category)
+        .fetch_all(db)
+        .await
+        .map_err(weldsuite_db::orm_error)?;
+    let rows = rows
+        .into_iter()
+        .map(|row| products::Model::from_query_result(&QueryResult::from(row), ""))
+        .collect::<Result<Vec<_>, DbErr>>()?;
     let total: i64 = sqlx::query_scalar(SORTED_COUNT_SQL)
-        .bind(&rules)
-        .bind(matching)
-        .bind(category)
-        .fetch_one(&caller.db)
-        .await?;
-    Ok((
-        rows.into_iter().map(|row| PRODUCTS.js(row)).collect(),
-        total,
-    ))
+        .bind(page.rules)
+        .bind(page.matching)
+        .bind(page.category)
+        .fetch_one(db)
+        .await
+        .map_err(weldsuite_db::orm_error)?;
+    Ok((rows, total))
 }
 
 /// The members of a category however it gets them. Its own `sortOrder`
@@ -759,7 +907,7 @@ async fn members(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQue
         Ok(read) => read,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let category = match live_category(&caller.db, &id).await {
+    let category = match live_category(&orm(&caller.db), &id).await {
         Ok(Some(category)) => category,
         Ok(None) => return Refusal::not_found("Category", &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
@@ -849,30 +997,35 @@ async fn preview(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
 /// in, by name.
 async fn product_categories(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to list product categories";
-    let exists: Result<bool, sqlx::Error> = sqlx::query_scalar(
-        "select exists (select 1 from products where id = $1 and deleted_at is null)",
-    )
-    .bind(&id)
-    .fetch_one(&caller.db)
-    .await;
-    match exists {
+    match product_exists(&caller.db, &id).await {
         Ok(true) => {}
         Ok(false) => return Refusal::not_found("Product", &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select ",
-        row_of!(categories),
-        " from categories t join category_products cp on cp.category_id = t.id \
-         where cp.product_id = $1 and t.deleted_at is null \
-         and coalesce(t.type, 'manual') <> 'automated' \
-         order by t.name asc, t.id asc"
-    ))
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = categories::Entity::find()
+        .join_rev(
+            JoinType::InnerJoin,
+            category_products::Entity::belongs_to(categories::Entity)
+                .from(category_products::Column::CategoryId)
+                .to(categories::Column::Id)
+                .into(),
+        )
+        .filter(category_products::Column::ProductId.eq(id.as_str()))
+        .filter(categories::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::ne(
+            Func::coalesce([
+                Expr::col((categories::Entity, categories::Column::Type)),
+                Expr::val("manual"),
+            ]),
+            "automated",
+        ))
+        .order_by_asc(categories::Column::Name)
+        .order_by_asc(categories::Column::Id)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| presented(&rows));
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(present).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, FAILED),
     }
 }
@@ -1071,9 +1224,10 @@ async fn create_category(caller: &Caller, data: &Map<String, Value>) -> Result<V
         None => slugify(name, &id),
     };
     let mut tx = caller.db.begin().await?;
-    sqlx::query(TREE_LOCK).execute(&mut *tx).await?;
-    let (path, depth) = placement(&mut tx, &id, parent, 0).await?;
-    let slug = sibling_slug(&mut tx, &desired, parent, None).await?;
+    let db = OrmConn::new(&mut tx);
+    advisory_lock(&db, TREE_LOCK).await?;
+    let (path, depth) = placement(&db, &id, parent, 0).await?;
+    let slug = sibling_slug(&db, &desired, parent, None).await?;
     let t = &CATEGORIES;
     let mut values = Map::new();
     let mut set = |prop: &str, value: Value| t.set(&mut values, prop, value);
@@ -1125,10 +1279,10 @@ async fn create_category(caller: &Caller, data: &Map<String, Value>) -> Result<V
     set("createdAt", json!(now));
     set("updatedAt", json!(now));
     let row = t
-        .insert(&mut *tx, values, &["createdAt", "updatedAt", "publishedAt"])
+        .insert_on(&db, values, &["createdAt", "updatedAt", "publishedAt"])
         .await?;
     tx.commit().await?;
-    Ok(present_js(row))
+    Ok(present(row))
 }
 
 /// Body fields written to the row as they come.
@@ -1179,8 +1333,9 @@ async fn patch_category(
     data: &Map<String, Value>,
 ) -> Result<Value, Refusal> {
     let mut tx = caller.db.begin().await?;
-    sqlx::query(TREE_LOCK).execute(&mut *tx).await?;
-    let Some(existing) = live_category(&mut *tx, id).await? else {
+    let db = OrmConn::new(&mut tx);
+    advisory_lock(&db, TREE_LOCK).await?;
+    let Some(existing) = live_category(&db, id).await? else {
         return Err(Refusal::not_found("Category", id));
     };
     // The invariant is about the state this PATCH leaves behind.
@@ -1200,7 +1355,7 @@ async fn patch_category(
         ));
     }
     let t = &CATEGORIES;
-    let now = now();
+    let (now, stamp) = now_stamped();
     let mut update: Map<String, Value> = Map::new();
     t.set(&mut update, "updatedAt", json!(now));
     for key in PASS_THROUGH {
@@ -1231,8 +1386,8 @@ async fn patch_category(
             .and_then(Value::as_str)
             .map_or_else(|| format!("/{id}"), str::to_owned);
         let depth = existing.get("depth").and_then(Value::as_i64).unwrap_or(0);
-        let height = subtree_height(&mut tx, &old_path, depth).await?;
-        let (path, depth) = placement(&mut tx, id, wanted_parent, height).await?;
+        let height = subtree_height(&db, &old_path, depth).await?;
+        let (path, depth) = placement(&db, id, wanted_parent, height).await?;
         t.set(&mut update, "parentId", json!(wanted_parent));
         t.set(&mut update, "path", json!(path));
         t.set(&mut update, "depth", json!(depth));
@@ -1245,17 +1400,17 @@ async fn patch_category(
         .filter(|s| !s.is_empty() && *s != current_slug)
         .map(|s| slugify(s, id));
     if let Some(desired) = wanted_slug.or_else(|| moving.then(|| current_slug.to_owned())) {
-        let slug = sibling_slug(&mut tx, &desired, wanted_parent, Some(id)).await?;
+        let slug = sibling_slug(&db, &desired, wanted_parent, Some(id)).await?;
         t.set(&mut update, "slug", json!(slug));
     }
     let row = t
-        .patch(&mut *tx, id, update, true, &["updatedAt", "publishedAt"])
+        .patch_on(&db, id, update, true, &["updatedAt", "publishedAt"])
         .await?;
     if let Some((old, new)) = reparent {
-        reparent_descendants(&mut tx, id, &old, &new, &now).await?;
+        reparent_descendants(&db, id, &old, &new, stamp).await?;
     }
     tx.commit().await?;
-    Ok(row.map_or(existing, present_js))
+    Ok(row.map_or(existing, present))
 }
 
 /// `DELETE /:id`: a soft delete, refused while it has children. Its manual
@@ -1277,16 +1432,16 @@ async fn remove(
 
 async fn delete_category(caller: &Caller, id: &str) -> Result<Value, Refusal> {
     let mut tx = caller.db.begin().await?;
-    sqlx::query(TREE_LOCK).execute(&mut *tx).await?;
-    let Some(existing) = live_category(&mut *tx, id).await? else {
+    let db = OrmConn::new(&mut tx);
+    advisory_lock(&db, TREE_LOCK).await?;
+    let Some(existing) = live_category(&db, id).await? else {
         return Err(Refusal::not_found("Category", id));
     };
-    let children: i64 = sqlx::query_scalar(
-        "select count(*) from categories where parent_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let children = categories::Entity::find()
+        .filter(categories::Column::ParentId.eq(id))
+        .filter(categories::Column::DeletedAt.is_null())
+        .count(&db)
+        .await?;
     if children > 0 {
         let noun = if children == 1 {
             "category"
@@ -1299,17 +1454,16 @@ async fn delete_category(caller: &Caller, id: &str) -> Result<Value, Refusal> {
         .with_details(json!({ "code": "HAS_CHILDREN", "childCount": children }))
         .into());
     }
-    let now = now();
-    sqlx::query(
-        "update categories set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-    )
-    .bind(&now)
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query("delete from category_products where category_id = $1")
-        .bind(id)
-        .execute(&mut *tx)
+    let now = utc_now();
+    categories::Entity::update_many()
+        .col_expr(categories::Column::DeletedAt, Expr::val(now))
+        .col_expr(categories::Column::UpdatedAt, Expr::val(now))
+        .filter(categories::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
+    category_products::Entity::delete_many()
+        .filter(category_products::Column::CategoryId.eq(id))
+        .exec(&db)
         .await?;
     tx.commit().await?;
     Ok(existing)
@@ -1356,7 +1510,8 @@ async fn add_members(
     id: &str,
     ids: Vec<String>,
 ) -> Result<(Value, usize, usize), Refusal> {
-    let Some(category) = live_category(&caller.db, id).await? else {
+    let db = orm(&caller.db);
+    let Some(category) = live_category(&db, id).await? else {
         return Err(Refusal::not_found("Category", id));
     };
     if is_automated(&category) {
@@ -1368,11 +1523,15 @@ async fn add_members(
             unique.push(product);
         }
     }
-    let found: Vec<String> =
-        sqlx::query_scalar("select id from products where id = any($1) and deleted_at is null")
-            .bind(&unique)
-            .fetch_all(&caller.db)
-            .await?;
+    // `productIds` has at least one id.
+    let found: Vec<String> = products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .filter(products::Column::Id.is_in(unique.iter().map(String::as_str)))
+        .filter(products::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
     if found.len() != unique.len() {
         let missing: Vec<&str> = unique
             .iter()
@@ -1385,9 +1544,23 @@ async fn add_members(
                 .into(),
         );
     }
-    // `category_products_unique` decides what is already a member, so a
-    // double submit is a no-op rather than a 500.
-    let member_ids: Vec<String> = unique.iter().map(|_| generate_id("cprod")).collect();
+    let added = insert_members(&caller.db, id, &unique).await?;
+    Ok((category, added, unique.len() - added))
+}
+
+/// The products join the category after its last member, in the order
+/// given; `category_products_unique` decides what is already a member, so a
+/// double submit is a no-op rather than a 500. How many joined.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one insert … select from unnest with ordinality: each position follows the members' maximum read in the same statement, and on conflict skips the members already there"
+)]
+async fn insert_members(
+    db: &weldsuite_db::PgPool,
+    category_id: &str,
+    product_ids: &[String],
+) -> Result<usize, DbErr> {
+    let member_ids: Vec<String> = product_ids.iter().map(|_| generate_id("cprod")).collect();
     let inserted: Vec<String> = sqlx::query_scalar(
         "insert into category_products (id, category_id, product_id, position, created_at) \
          select x.i, $2, x.p, \
@@ -1397,13 +1570,13 @@ async fn add_members(
          on conflict (category_id, product_id) do nothing returning product_id",
     )
     .bind(&member_ids)
-    .bind(id)
-    .bind(&unique)
+    .bind(category_id)
+    .bind(product_ids)
     .bind(now())
-    .fetch_all(&caller.db)
-    .await?;
-    let added = inserted.len();
-    Ok((category, added, unique.len() - added))
+    .fetch_all(db)
+    .await
+    .map_err(weldsuite_db::orm_error)?;
+    Ok(inserted.len())
 }
 
 /// `DELETE /:id/products/:productId`: 204, or 404 when it is not a member.
@@ -1413,7 +1586,7 @@ async fn remove_product(
     Path((id, product_id)): Path<(String, String)>,
 ) -> Response {
     const FAILED: &str = "Failed to remove product from category";
-    let category = match live_category(&caller.db, &id).await {
+    let category = match live_category(&orm(&caller.db), &id).await {
         Ok(Some(category)) => category,
         Ok(None) => return Refusal::not_found("Category", &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
@@ -1421,15 +1594,13 @@ async fn remove_product(
     if is_automated(&category) {
         return not_manual().respond(FAILED);
     }
-    let removed: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "delete from category_products where category_id = $1 and product_id = $2 returning id",
-    )
-    .bind(&id)
-    .bind(&product_id)
-    .fetch_all(&caller.db)
-    .await;
+    let removed = category_products::Entity::delete_many()
+        .filter(category_products::Column::CategoryId.eq(id.as_str()))
+        .filter(category_products::Column::ProductId.eq(product_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await;
     match removed {
-        Ok(rows) if rows.is_empty() => {
+        Ok(done) if done.rows_affected == 0 => {
             Refusal::not_found("Category product", &product_id).respond(FAILED)
         }
         Ok(_) => {

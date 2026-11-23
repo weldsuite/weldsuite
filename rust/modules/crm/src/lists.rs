@@ -6,19 +6,32 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CUSTOMER_LIST_CREATED, CUSTOMER_LIST_DELETED, CUSTOMER_LIST_UPDATED,
 };
-use weldsuite_crm_domain::tables::{LIST_MEMBERS, LISTS};
-use weldsuite_crm_domain::{drizzle_row, insert_sql, update_sql};
+use weldsuite_crm_domain::tables::LISTS;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{companies, list_members, lists, people};
 
+use crate::orm_rows::{
+    before, cursor_row, insert_values, js_date, json, probe_limit, set_values,
+};
 use crate::schema::{Kind, OPT, REQ, Spec, partial, s};
 use crate::{Answer, Caller, CrmState, Refusal, answer, cut, now, page, validate_specs};
 
 const LOG: &str = "lists";
+
+/// `lists`, written from a body as Drizzle wrote it.
+const LISTS_TABLE: JsonTable = JsonTable::of::<lists::Entity>();
 
 const KINDS: &[&str] = &["company", "person"];
 
@@ -91,40 +104,90 @@ fn list_query(raw: Option<&str>) -> Answer<ListQuery> {
     })
 }
 
-async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from lists t where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = lists::Entity::find_by_id(id.to_owned())
+        .filter(lists::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
 }
 
-async fn by_id(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from lists t where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map(drizzle_row))
+async fn by_id(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = lists::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
 }
 
 /// `countMembersByList`: member counts for these lists.
 async fn member_counts(
     caller: &Caller,
     ids: &[String],
-) -> Result<std::collections::HashMap<String, i64>, sqlx::Error> {
+) -> Result<std::collections::HashMap<String, i64>, DbErr> {
+    use list_members::Column;
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "select list_id, count(*) from list_members where list_id = any($1) group by list_id",
-    )
-    .bind(ids)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows: Vec<(String, i64)> = list_members::Entity::find()
+        .select_only()
+        .column(Column::ListId)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(Column::ListId.is_in(ids.iter().map(String::as_str)))
+        .group_by(Column::ListId)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     Ok(rows.into_iter().collect())
+}
+
+/// The list's columns the list route returns (`select({ id, name, kind,
+/// type, color, icon, description, linkedListId, createdAt, updatedAt })`).
+const LIST_KEYS: [&str; 10] = [
+    "id",
+    "name",
+    "kind",
+    "type",
+    "color",
+    "icon",
+    "description",
+    "linkedListId",
+    "createdAt",
+    "updatedAt",
+];
+
+/// The fields of a list named in [`LIST_KEYS`].
+fn list_fields(row: lists::Model) -> Result<Value, DbErr> {
+    let row = json(serde_json::to_value(row))?;
+    Ok(Value::Object(
+        LIST_KEYS
+            .iter()
+            .map(|key| {
+                let value = row.get(*key).cloned().unwrap_or(Value::Null);
+                ((*key).to_owned(), value)
+            })
+            .collect(),
+    ))
+}
+
+/// The list conditions that are `on` (live, search, kind), in TypeScript's
+/// order.
+fn list_filters(on: [bool; 3], search: Option<&String>, kind: Option<&String>) -> Condition {
+    use lists::Column;
+    let mut filters = Condition::all();
+    if on[0] {
+        filters = filters.add(Column::DeletedAt.is_null());
+    }
+    if on[1]
+        && let Some(search) = search
+    {
+        filters = filters.add(Column::Name.like(search.as_str()));
+    }
+    if on[2]
+        && let Some(kind) = kind
+    {
+        filters = filters.add(Column::Kind.eq(kind.as_str()));
+    }
+    filters
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -138,16 +201,10 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, q: ListQuery) -> Answer {
-    let mut cursor: Option<(String, String)> = None;
+    use lists::{Column, Entity};
+    let mut cursor = None;
     if let Some(id) = q.cursor.as_ref().filter(|c| !c.is_empty()) {
-        cursor = sqlx::query_as(
-            "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from lists where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|e| Refusal::Failed(e.to_string()))?;
+        cursor = cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, id).await?;
     }
     let search = q
         .search
@@ -164,42 +221,28 @@ async fn run_list(caller: &Caller, q: ListQuery) -> Answer {
     {
         on[last] = false;
     }
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'name', name, 'kind', kind, 'type', type,
-                    'color', color, 'icon', icon, 'description', description,
-                    'linked_list_id', linked_list_id, 'created_at', created_at,
-                    'updated_at', updated_at)
-         from lists
-         where deleted_at is null
-           and ($1::text is null or name like $1)
-           and ($2::text is null or kind = $2)
-           and ($3::timestamp is null
-                or created_at < $3::timestamp or (created_at = $3::timestamp and id < $4))
-         order by created_at desc, id desc
-         limit $5",
-    )
-    .bind(&search)
-    .bind(&kind)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(q.limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from lists
-         where (not $3 or deleted_at is null)
-           and (not $4 or name like $1)
-           and (not $5 or kind = $2)",
-    )
-    .bind(&search)
-    .bind(&kind)
-    .bind(on[0])
-    .bind(on[1])
-    .bind(on[2])
-    .fetch_one(&caller.db)
-    .await?;
-    let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), q.limit);
+    let page_on = [true, search.is_some(), kind.is_some()];
+    let mut rows = Entity::find().filter(list_filters(page_on, search.as_ref(), kind.as_ref()));
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let db = orm(&caller.db);
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe_limit(q.limit)?)
+        .all(&db)
+        .await?;
+    let total = Entity::find()
+        .filter(list_filters(on, search.as_ref(), kind.as_ref()))
+        .count(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(list_fields)
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let (data, has_more, next) = cut(rows, q.limit);
     let ids: Vec<String> = data
         .iter()
         .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
@@ -277,18 +320,16 @@ pub(crate) async fn create(
         );
         values.insert("createdAt".into(), json!(now));
         values.insert("updatedAt".into(), json!(now));
-        sqlx::query(insert_sql!(lists))
-            .bind(LISTS.values(&values))
-            .execute(&caller.db)
+        let row = LISTS_TABLE
+            .insert(&orm(&caller.db), insert_values(&LISTS, &values))
             .await?;
-        let row = by_id(&caller, &id).await?;
         caller.publish(
             &state,
             CUSTOMER_LIST_CREATED,
             &id,
             &json!({ "id": id, "name": data.get("name"), "kind": data.get("kind") }),
         );
-        Ok(Created(row.unwrap_or(Value::Null)).into_response())
+        Ok(Created(row).into_response())
     }
     .await;
     answer(result, LOG, "Failed to create list")
@@ -316,14 +357,9 @@ pub(crate) async fn update(
         for (key, value) in &data {
             update.insert(key.clone(), value.clone());
         }
-        sqlx::query(update_sql!(
-            lists,
-            "where t.id = $1 and t.deleted_at is null"
-        ))
-        .bind(&id)
-        .bind(LISTS.set(&update))
-        .execute(&caller.db)
-        .await?;
+        LISTS_TABLE
+            .update(&orm(&caller.db), &id, set_values(&LISTS, &update), true)
+            .await?;
         let row = by_id(&caller, &id).await?;
         let name = match update.get("name") {
             Some(name) if !name.is_null() => name.clone(),
@@ -352,13 +388,13 @@ pub(crate) async fn remove(
         if live(&caller, &id).await?.is_none() {
             return Ok(ApiError::not_found("List", Some(&id)).into_response());
         }
-        sqlx::query(
-            "update lists set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        lists::Entity::update_many()
+            .col_expr(lists::Column::DeletedAt, Expr::value(at))
+            .col_expr(lists::Column::UpdatedAt, Expr::value(at))
+            .filter(lists::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, CUSTOMER_LIST_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     }
@@ -367,10 +403,70 @@ pub(crate) async fn remove(
 }
 
 /// The live list's `kind`, or `None`.
-async fn kind_of(caller: &Caller, id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("select kind from lists where id = $1 and deleted_at is null limit 1")
-        .bind(id)
-        .fetch_optional(&caller.db)
+async fn kind_of(caller: &Caller, id: &str) -> Result<Option<String>, DbErr> {
+    lists::Entity::find()
+        .select_only()
+        .column(lists::Column::Kind)
+        .filter(lists::Column::Id.eq(id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
+}
+
+/// The list's members joined to their records in `E` (`companies` or
+/// `people`, by `id`), newest first: `{ memberId, entityId, addedAt,
+/// entity }`.
+async fn members_of<E: EntityTrait>(
+    db: &DatabaseConnection,
+    list_id: &str,
+    id: E::Column,
+    entity_json: fn(E::Model) -> Result<Value, serde_json::Error>,
+) -> Result<Vec<Value>, DbErr> {
+    use list_members::Column;
+    let rows = list_members::Entity::find()
+        .select_also(E::default())
+        .join(
+            JoinType::InnerJoin,
+            list_members::Entity::belongs_to(E::default())
+                .from(Column::EntityId)
+                .to(id)
+                .into(),
+        )
+        .filter(Column::ListId.eq(list_id))
+        .order_by_desc(Column::AddedAt)
+        .all(db)
+        .await?;
+    rows.into_iter()
+        .map(|(member, entity)| {
+            let entity = match entity {
+                Some(entity) => json(entity_json(entity))?,
+                None => Value::Null,
+            };
+            Ok(json!({
+                "memberId": member.id,
+                "entityId": member.entity_id,
+                "addedAt": js_date(member.added_at),
+                "entity": entity,
+            }))
+        })
+        .collect()
+}
+
+/// The ids among `ids` of live records in `E` (`companies` or `people`).
+async fn live_ids<E: EntityTrait>(
+    db: &DatabaseConnection,
+    id: E::Column,
+    deleted_at: E::Column,
+    ids: &[String],
+) -> Result<Vec<String>, DbErr> {
+    E::find()
+        .select_only()
+        .column(id)
+        .filter(id.is_in(ids.iter().map(String::as_str)))
+        .filter(deleted_at.is_null())
+        .into_tuple()
+        .all(db)
         .await
 }
 
@@ -381,46 +477,24 @@ pub(crate) async fn members(caller: Caller, Path(id): Path<String>) -> Response 
         let Some(kind) = kind_of(&caller, &id).await? else {
             return Ok(ApiError::not_found("List", Some(&id)).into_response());
         };
-        let rows: Vec<Value> = if kind == "company" {
-            sqlx::query_scalar(
-                "select jsonb_build_object('memberId', lm.id, 'entityId', lm.entity_id,
-                        'addedAt', lm.added_at, 'entity', to_jsonb(e))
-                 from list_members lm inner join companies e on e.id = lm.entity_id
-                 where lm.list_id = $1
-                 order by lm.added_at desc",
+        let db = orm(&caller.db);
+        let rows = if kind == "company" {
+            members_of::<companies::Entity>(
+                &db,
+                &id,
+                companies::Column::Id,
+                serde_json::to_value::<companies::Model>,
             )
-            .bind(&id)
-            .fetch_all(&caller.db)
             .await?
         } else {
-            sqlx::query_scalar(
-                "select jsonb_build_object('memberId', lm.id, 'entityId', lm.entity_id,
-                        'addedAt', lm.added_at, 'entity', to_jsonb(e))
-                 from list_members lm inner join people e on e.id = lm.entity_id
-                 where lm.list_id = $1
-                 order by lm.added_at desc",
+            members_of::<people::Entity>(
+                &db,
+                &id,
+                people::Column::Id,
+                serde_json::to_value::<people::Model>,
             )
-            .bind(&id)
-            .fetch_all(&caller.db)
             .await?
         };
-        let rows: Vec<Value> = rows
-            .into_iter()
-            .map(|mut row| {
-                if let Value::Object(fields) = &mut row {
-                    if let Some(entity) = fields.remove("entity") {
-                        fields.insert("entity".into(), drizzle_row(entity));
-                    }
-                    if let Some(Value::String(at)) = fields.get("addedAt").cloned() {
-                        fields.insert(
-                            "addedAt".into(),
-                            json!(weldsuite_db::js_timestamp(&at).unwrap_or(at)),
-                        );
-                    }
-                }
-                row
-            })
-            .collect();
         Ok(Data(rows).into_response())
     }
     .await;
@@ -463,50 +537,44 @@ pub(crate) async fn add_members(
                 deduped.push(entity_id);
             }
         }
-        let valid: Vec<String> = if kind == "company" {
-            sqlx::query_scalar("select id from companies where id = any($1) and deleted_at is null")
-                .bind(&deduped)
-                .fetch_all(&caller.db)
-                .await?
+        let db = orm(&caller.db);
+        let valid = if kind == "company" {
+            live_ids::<companies::Entity>(
+                &db,
+                companies::Column::Id,
+                companies::Column::DeletedAt,
+                &deduped,
+            )
+            .await?
         } else {
-            sqlx::query_scalar("select id from people where id = any($1) and deleted_at is null")
-                .bind(&deduped)
-                .fetch_all(&caller.db)
+            live_ids::<people::Entity>(&db, people::Column::Id, people::Column::DeletedAt, &deduped)
                 .await?
         };
-        let existing: Vec<String> = sqlx::query_scalar(
-            "select entity_id from list_members where list_id = $1 and entity_id = any($2)",
-        )
-        .bind(&id)
-        .bind(&deduped)
-        .fetch_all(&caller.db)
-        .await?;
+        let existing: Vec<String> = list_members::Entity::find()
+            .select_only()
+            .column(list_members::Column::EntityId)
+            .filter(list_members::Column::ListId.eq(id.as_str()))
+            .filter(list_members::Column::EntityId.is_in(deduped.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&db)
+            .await?;
         let to_add: Vec<String> = deduped
             .into_iter()
             .filter(|entity| valid.contains(entity) && !existing.contains(entity))
             .collect();
         if !to_add.is_empty() {
-            let now = now();
-            let rows: Vec<Value> = to_add
-                .iter()
-                .map(|entity| {
-                    let mut values = Map::new();
-                    values.insert("id".into(), json!(generate_id("lm")));
-                    values.insert("listId".into(), json!(id));
-                    values.insert("entityId".into(), json!(entity));
-                    values.insert("addedAt".into(), json!(now));
-                    LIST_MEMBERS.values(&values)
-                })
-                .collect();
+            let now = utc_now();
+            let rows = to_add.iter().map(|entity| list_members::ActiveModel {
+                id: Set(generate_id("lm")),
+                added_at: Set(now),
+                added_by: Set(None),
+                list_id: Set(id.clone()),
+                entity_id: Set(entity.clone()),
+            });
             // One statement for every row, like Drizzle's multi-row insert.
-            sqlx::query(
-                "insert into list_members (id, added_at, added_by, list_id, entity_id)
-                 select r.id, r.added_at, r.added_by, r.list_id, r.entity_id
-                 from jsonb_populate_recordset(null::list_members, $1::jsonb) r",
-            )
-            .bind(Value::Array(rows))
-            .execute(&caller.db)
-            .await?;
+            list_members::Entity::insert_many(rows)
+                .exec_without_returning(&db)
+                .await?;
             caller.publish(
                 &state,
                 CUSTOMER_LIST_UPDATED,
@@ -531,14 +599,12 @@ pub(crate) async fn remove_member(
         let Some(kind) = kind_of(&caller, &id).await? else {
             return Ok(ApiError::not_found("List", Some(&id)).into_response());
         };
-        let deleted: Vec<String> = sqlx::query_scalar(
-            "delete from list_members where list_id = $1 and entity_id = $2 returning id",
-        )
-        .bind(&id)
-        .bind(&entity_id)
-        .fetch_all(&caller.db)
-        .await?;
-        if !deleted.is_empty() {
+        let deleted = list_members::Entity::delete_many()
+            .filter(list_members::Column::ListId.eq(id.as_str()))
+            .filter(list_members::Column::EntityId.eq(entity_id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
+        if deleted.rows_affected > 0 {
             caller.publish(
                 &state,
                 CUSTOMER_LIST_UPDATED,

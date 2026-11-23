@@ -7,14 +7,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::PIPELINE_UPDATED;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::Text;
+use weldsuite_schema::tenant::crm_pipelines::{self as pipelines, Column};
 
 use crate::schema::{Kind, OPT, Spec};
-use crate::{Caller, CrmState, answer, now, validate_specs};
+use crate::{Caller, CrmState, answer, validate_specs};
 
 const LOG: &str = "pipeline-field-visibility";
 
@@ -41,14 +45,16 @@ const SCHEMA: [Spec; 2] = [
 ];
 
 /// The live pipeline's `settings` (`null` when it has none), or `None`.
-async fn settings_of(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Option<Value>,)> = sqlx::query_as(
-        "select settings from crm_pipelines where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|(settings,)| settings.unwrap_or(Value::Null)))
+async fn settings_of(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row: Option<Option<Value>> = pipelines::Entity::find()
+        .select_only()
+        .column(Column::Settings)
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(|settings| settings.unwrap_or(Value::Null)))
 }
 
 /// `settings.fieldVisibility ?? {}` of `(row.settings ?? {})`.
@@ -98,15 +104,13 @@ pub(crate) async fn update(
             visibility.insert(key.clone(), value.clone());
         }
         next.insert("fieldVisibility".into(), Value::Object(visibility.clone()));
-        sqlx::query(
-            "update crm_pipelines set settings = $2, updated_at = $3::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(Value::Object(next))
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        pipelines::Entity::update_many()
+            .col_expr(Column::Settings, Expr::value(Value::Object(next)))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id.as_str()))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, PIPELINE_UPDATED, &id, &json!({ "id": id }));
         Ok(Data(Value::Object(visibility)).into_response())
     }

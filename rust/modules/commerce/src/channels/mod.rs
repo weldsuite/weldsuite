@@ -21,8 +21,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
+    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::tax::eu_vat::rates::is_eu_member;
 use weldsuite_catalogs::entity_events::{
     COMMERCE_CHANNEL_CREATED, COMMERCE_CHANNEL_DELETED, COMMERCE_CHANNEL_KEY_REVOKED,
@@ -32,13 +38,18 @@ use weldsuite_catalogs::permission_keys::{
     COMMERCE_CHANNELS_CREATE, COMMERCE_CHANNELS_DELETE, COMMERCE_CHANNELS_READ,
     COMMERCE_CHANNELS_UPDATE,
 };
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    commerce_channel_keys, commerce_channels, commerce_shipping_rates, orders,
+};
 
+use crate::args::{after_cursor, iso};
 use crate::js::query_set;
-use crate::wire::{body_or_empty, invalid, iso, read_currency};
-use crate::{Caller, CommerceState, Refusal, internal, now, validate};
+use crate::wire::{body_or_empty, invalid, read_currency};
+use crate::{Caller, CommerceState, Refusal, internal, validate};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -81,22 +92,52 @@ pub(super) fn conflict(code: &'static str, message: &str, details: Option<Value>
 
 // ── presenting ──────────────────────────────────────────────────────────────
 
-const SELECT: &str = "select jsonb_build_object('id', t.id, 'name', t.name, 'type', t.type, \
-       'audience', t.audience, 'status', t.status, 'currency', t.currency, \
-       'pricesIncludeTax', t.prices_include_tax, 'sellingCountries', t.selling_countries, \
-       'guestCheckout', t.guest_checkout, 'paymentMethods', t.payment_methods, \
-       'connectionId', t.connection_id, \
-       'activeKeyCount', (select count(*) from commerce_channel_keys k \
-                           where k.channel_id = t.id and k.revoked_at is null), \
-       'createdAt', to_jsonb(t.created_at), 'updatedAt', to_jsonb(t.updated_at)) \
-     from commerce_channels t";
+/// A channel with how many of its keys are not revoked.
+#[derive(Debug, FromQueryResult)]
+struct Listed {
+    #[sea_orm(nested)]
+    channel: commerce_channels::Model,
+    active_key_count: i64,
+}
 
-fn present(mut row: Value) -> Value {
-    for key in ["createdAt", "updatedAt"] {
-        let stamp = iso(&row[key]);
-        row[key] = stamp;
-    }
-    row
+/// The channels with `activeKeyCount`: `(select count(*) from
+/// commerce_channel_keys k where k.channel_id = t.id and k.revoked_at is
+/// null)`.
+fn listed() -> Select<commerce_channels::Entity> {
+    let keys = Query::select()
+        .expr(Func::count(Expr::col(Asterisk)))
+        .from(commerce_channel_keys::Entity)
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((
+                commerce_channel_keys::Entity,
+                commerce_channel_keys::Column::ChannelId,
+            )),
+            Expr::col((commerce_channels::Entity, commerce_channels::Column::Id)),
+        ))
+        .and_where(commerce_channel_keys::Column::RevokedAt.is_null())
+        .to_owned();
+    commerce_channels::Entity::find().column_as(Expr::from(keys), "active_key_count")
+}
+
+/// A channel as the API answers it.
+fn present(row: Listed) -> Value {
+    let channel = row.channel;
+    json!({
+        "id": channel.id,
+        "name": channel.name,
+        "type": channel.type_,
+        "audience": channel.audience,
+        "status": channel.status,
+        "currency": channel.currency,
+        "pricesIncludeTax": channel.prices_include_tax,
+        "sellingCountries": channel.selling_countries,
+        "guestCheckout": channel.guest_checkout,
+        "paymentMethods": channel.payment_methods,
+        "connectionId": channel.connection_id,
+        "activeKeyCount": row.active_key_count,
+        "createdAt": iso(channel.created_at),
+        "updatedAt": iso(channel.updated_at),
+    })
 }
 
 fn event(channel: &Value) -> Value {
@@ -110,23 +151,25 @@ fn event(channel: &Value) -> Value {
     })
 }
 
-async fn find(conn: &mut PgConnection, id: &str, lock: bool) -> Result<Option<Value>, sqlx::Error> {
+async fn find<C: ConnectionTrait>(db: &C, id: &str, lock: bool) -> Result<Option<Value>, DbErr> {
     // The lock is taken on the plain row: `for update` cannot sit on the
     // aggregate subselect's statement.
     if lock {
-        sqlx::query(
-            "select id from commerce_channels where id = $1 and deleted_at is null for update",
-        )
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?;
+        let _locked: Option<String> = commerce_channels::Entity::find_by_id(id)
+            .select_only()
+            .column(commerce_channels::Column::Id)
+            .filter(commerce_channels::Column::DeletedAt.is_null())
+            .lock_exclusive()
+            .into_tuple()
+            .one(db)
+            .await?;
     }
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{SELECT} where t.id = $1 and t.deleted_at is null"
-    )))
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let row = listed()
+        .filter(commerce_channels::Column::Id.eq(id))
+        .filter(commerce_channels::Column::DeletedAt.is_null())
+        .into_model::<Listed>()
+        .one(db)
+        .await?;
     Ok(row.map(present))
 }
 
@@ -390,26 +433,39 @@ impl Channel {
 }
 
 /// Another live channel already serves this store connection.
-async fn connection_taken(
-    conn: &mut PgConnection,
+async fn connection_taken<C: ConnectionTrait>(
+    db: &C,
     connection_id: &str,
     except: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from commerce_channels \
-           where connection_id = $1 and deleted_at is null and id <> $2)",
-    )
-    .bind(connection_id)
-    .bind(except)
-    .fetch_one(&mut *conn)
-    .await
+) -> Result<bool, DbErr> {
+    let found: Option<String> = commerce_channels::Entity::find()
+        .select_only()
+        .column(commerce_channels::Column::Id)
+        .filter(commerce_channels::Column::ConnectionId.eq(connection_id))
+        .filter(commerce_channels::Column::DeletedAt.is_null())
+        .filter(commerce_channels::Column::Id.ne(except))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(found.is_some())
 }
 
 // ── list and detail ─────────────────────────────────────────────────────────
 
-const WHERE_SQL: &str = " where t.deleted_at is null \
-    and ($1::text is null or t.type = $1) and ($2::text is null or t.status = $2) \
-    and ($3::text is null or t.name ilike $3)";
+/// The list's filters: live, `type`, `status`, `search` on the name.
+fn filters(kind: Option<String>, status: Option<String>, search: Option<&str>) -> Condition {
+    let mut all = Condition::all().add(commerce_channels::Column::DeletedAt.is_null());
+    if let Some(kind) = kind {
+        all = all.add(commerce_channels::Column::Type.eq(kind));
+    }
+    if let Some(status) = status {
+        all = all.add(commerce_channels::Column::Status.eq(status));
+    }
+    if let Some(search) = search {
+        all = all.add(commerce_channels::Column::Name.ilike(search));
+    }
+    all
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list channels";
@@ -417,27 +473,28 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let param = |name: &str| query_set(query, name);
     let limit = weldsuite_kit::parse_limit(param("limit").as_deref(), 50, 100);
     let search = param("search").map(|s| format!("%{}%", crate::rules::like_literal(&s)));
-    let select = format!(
-        "{SELECT}{WHERE_SQL} \
-         and ($4::text is null or not exists (select 1 from commerce_channels where id = $4) \
-           or (t.created_at, t.id) > (select c.created_at, c.id from commerce_channels c where c.id = $4)) \
-         order by t.created_at asc, t.id asc limit $5"
-    );
-    let count = format!("select count(*) from commerce_channels t{WHERE_SQL}");
+    let filters = filters(param("type"), param("status"), search.as_deref());
     let cursor = param("cursor");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(select))
-        .bind(param("type"))
-        .bind(param("status"))
-        .bind(search.as_deref())
-        .bind(cursor.as_deref())
-        .bind(i64::from(limit) + 1)
-        .fetch_all(&caller.db)
+    let mut page = listed().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        page = page.filter(after_cursor::<commerce_channels::Entity>(
+            commerce_channels::Column::CreatedAt,
+            commerce_channels::Column::Id,
+            cursor,
+            false,
+        ));
+    }
+    let db = orm(&caller.db);
+    let rows = page
+        .order_by_asc(commerce_channels::Column::CreatedAt)
+        .order_by_asc(commerce_channels::Column::Id)
+        .limit(u64::from(limit) + 1)
+        .into_model::<Listed>()
+        .all(&db)
         .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(count))
-        .bind(param("type"))
-        .bind(param("status"))
-        .bind(search.as_deref())
-        .fetch_one(&caller.db)
+    let total = commerce_channels::Entity::find()
+        .filter(filters)
+        .count(&db)
         .await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
@@ -445,7 +502,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
             usize::try_from(limit).unwrap_or(50),
             |row: &Value| row["id"].as_str().unwrap_or_default(),
         )
-        .into_list(u64::try_from(total).unwrap_or(0))
+        .into_list(total)
         .into_response(),
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -453,12 +510,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch channel";
-    let found = async {
-        let mut conn = caller.db.acquire().await?;
-        find(&mut conn, &id, false).await
-    }
-    .await;
-    match found {
+    match find(&orm(&caller.db), &id, false).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Channel", &id).respond(FAILED),
         Err(error) => internal(&error, FAILED),
@@ -485,8 +537,9 @@ async fn create(
         channel.check()?;
         let id = generate_id("chan");
         let mut tx = caller.db.begin().await?;
+        let db = OrmConn::new(&mut tx);
         if let Some(connection) = &channel.connection_id
-            && connection_taken(&mut tx, connection, &id).await?
+            && connection_taken(&db, connection, &id).await?
         {
             return Err(conflict(
                 "CONNECTION_IN_USE",
@@ -494,27 +547,24 @@ async fn create(
                 None,
             ));
         }
-        let stamp = now();
-        sqlx::query(
-            "insert into commerce_channels (id, name, type, audience, status, currency, \
-               prices_include_tax, selling_countries, guest_checkout, payment_methods, \
-               connection_id, created_at, updated_at) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::jsonb, $11, \
-               $12::timestamp, $12::timestamp)",
-        )
-        .bind(&id)
-        .bind(&channel.name)
-        .bind(&channel.kind)
-        .bind(&channel.audience)
-        .bind(&channel.status)
-        .bind(&channel.currency)
-        .bind(channel.prices_include_tax)
-        .bind(json!(channel.selling_countries))
-        .bind(channel.guest_checkout)
-        .bind(json!(channel.payment_methods))
-        .bind(channel.connection_id.as_deref())
-        .bind(&stamp)
-        .execute(&mut *tx)
+        let stamp = utc_now();
+        commerce_channels::Entity::insert(commerce_channels::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(channel.name.clone()),
+            type_: Set(channel.kind.clone()),
+            audience: Set(channel.audience.clone()),
+            status: Set(channel.status.clone()),
+            currency: Set(channel.currency.clone()),
+            prices_include_tax: Set(channel.prices_include_tax),
+            selling_countries: Set(json!(channel.selling_countries)),
+            guest_checkout: Set(channel.guest_checkout),
+            payment_methods: Set(json!(channel.payment_methods)),
+            connection_id: Set(channel.connection_id.clone()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         tx.commit().await?;
         Ok(id)
@@ -556,7 +606,8 @@ async fn update(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let Some(current) = find(&mut tx, &id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        let Some(current) = find(&db, &id, true).await? else {
             return Err(Refusal::not_found("Channel", &id));
         };
         if body
@@ -573,7 +624,7 @@ async fn update(
         let channel = Channel::merged(&current, body);
         channel.check()?;
         if let Some(connection) = &channel.connection_id
-            && connection_taken(&mut tx, connection, &id).await?
+            && connection_taken(&db, connection, &id).await?
         {
             return Err(conflict(
                 "CONNECTION_IN_USE",
@@ -583,13 +634,15 @@ async fn update(
         }
         let currency_changed = current["currency"] != channel.currency.as_str();
         if currency_changed {
-            let has_orders: bool = sqlx::query_scalar(
-                "select exists (select 1 from orders where channel_id = $1 and deleted_at is null)",
-            )
-            .bind(&id)
-            .fetch_one(&mut *tx)
-            .await?;
-            if has_orders {
+            let has_orders: Option<String> = orders::Entity::find()
+                .select_only()
+                .column(orders::Column::Id)
+                .filter(orders::Column::ChannelId.eq(id.as_str()))
+                .filter(orders::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&db)
+                .await?;
+            if has_orders.is_some() {
                 return Err(conflict(
                     "CURRENCY_LOCKED",
                     "The currency cannot change once the channel has orders",
@@ -597,45 +650,53 @@ async fn update(
                 ));
             }
         }
-        let stamp = now();
-        sqlx::query(
-            "update commerce_channels set name = $2, audience = $3, status = $4, currency = $5, \
-               prices_include_tax = $6, selling_countries = $7::jsonb, guest_checkout = $8, \
-               payment_methods = $9::jsonb, connection_id = $10, updated_at = $11::timestamp \
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&channel.name)
-        .bind(&channel.audience)
-        .bind(&channel.status)
-        .bind(&channel.currency)
-        .bind(channel.prices_include_tax)
-        .bind(json!(channel.selling_countries))
-        .bind(channel.guest_checkout)
-        .bind(json!(channel.payment_methods))
-        .bind(channel.connection_id.as_deref())
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
+        let stamp = utc_now();
+        commerce_channels::Entity::update_many()
+            .col_expr(commerce_channels::Column::Name, Expr::val(channel.name.as_str()))
+            .col_expr(
+                commerce_channels::Column::Audience,
+                Expr::val(channel.audience.as_str()),
+            )
+            .col_expr(commerce_channels::Column::Status, Expr::val(channel.status.as_str()))
+            .col_expr(
+                commerce_channels::Column::Currency,
+                Expr::val(channel.currency.as_str()),
+            )
+            .col_expr(
+                commerce_channels::Column::PricesIncludeTax,
+                Expr::val(channel.prices_include_tax),
+            )
+            .col_expr(
+                commerce_channels::Column::SellingCountries,
+                Expr::val(json!(channel.selling_countries)),
+            )
+            .col_expr(
+                commerce_channels::Column::GuestCheckout,
+                Expr::val(channel.guest_checkout),
+            )
+            .col_expr(
+                commerce_channels::Column::PaymentMethods,
+                Expr::val(json!(channel.payment_methods)),
+            )
+            .col_expr(
+                commerce_channels::Column::ConnectionId,
+                Expr::val(channel.connection_id.clone()),
+            )
+            .col_expr(commerce_channels::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_channels::Column::Id.eq(id.as_str()))
+            .exec(&db)
+            .await?;
         // The rates follow the channel: its currency, and only countries it
         // still sells to.
-        sqlx::query(
-            "update commerce_shipping_rates r set currency = $2, \
-               countries = (select coalesce(jsonb_agg(c.value), '[]'::jsonb) \
-                            from jsonb_array_elements(r.countries) c \
-                            where c.value in (select value from jsonb_array_elements($3::jsonb))), \
-               updated_at = $4::timestamp \
-             where r.channel_id = $1 and r.deleted_at is null \
-               and (r.currency <> $2 or exists (select 1 from jsonb_array_elements(r.countries) c \
-                    where c.value not in (select value from jsonb_array_elements($3::jsonb))))",
+        follow_channel(
+            &mut tx,
+            &id,
+            &channel.currency,
+            &channel.selling_countries,
+            stamp,
         )
-        .bind(&id)
-        .bind(&channel.currency)
-        .bind(json!(channel.selling_countries))
-        .bind(&stamp)
-        .execute(&mut *tx)
         .await?;
-        let fresh = find(&mut tx, &id, false).await?;
+        let fresh = find(&OrmConn::new(&mut tx), &id, false).await?;
         tx.commit().await?;
         fresh.ok_or_else(|| Refusal::not_found("Channel", &id))
     }
@@ -649,6 +710,39 @@ async fn update(
     }
 }
 
+/// The channel's live rates take its currency and keep only the countries
+/// it still sells to.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one update that filters each rate's jsonb country array against the channel's (jsonb_array_elements), which the query builder cannot express"
+)]
+async fn follow_channel(
+    conn: &mut PgConnection,
+    channel_id: &str,
+    currency: &str,
+    countries: &[String],
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    sqlx::query(
+        "update commerce_shipping_rates r set currency = $2, \
+           countries = (select coalesce(jsonb_agg(c.value), '[]'::jsonb) \
+                        from jsonb_array_elements(r.countries) c \
+                        where c.value in (select value from jsonb_array_elements($3::jsonb))), \
+           updated_at = $4 \
+         where r.channel_id = $1 and r.deleted_at is null \
+           and (r.currency <> $2 or exists (select 1 from jsonb_array_elements(r.countries) c \
+                where c.value not in (select value from jsonb_array_elements($3::jsonb))))",
+    )
+    .bind(channel_id)
+    .bind(currency)
+    .bind(json!(countries))
+    .bind(at)
+    .execute(&mut *conn)
+    .await
+    .map(|_| ())
+    .map_err(weldsuite_db::orm_error)
+}
+
 async fn remove(
     State(state): State<CommerceState>,
     caller: Caller,
@@ -657,47 +751,49 @@ async fn remove(
     const FAILED: &str = "Failed to delete channel";
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let Some(current) = find(&mut tx, &id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        let Some(current) = find(&db, &id, true).await? else {
             return Err(Refusal::not_found("Channel", &id));
         };
-        let active: Vec<String> = sqlx::query_scalar(
-            "select id from commerce_channel_keys where channel_id = $1 and revoked_at is null",
-        )
-        .bind(&id)
-        .fetch_all(&mut *tx)
-        .await?;
-        let stamp = now();
+        let active: Vec<String> = commerce_channel_keys::Entity::find()
+            .select_only()
+            .column(commerce_channel_keys::Column::Id)
+            .filter(commerce_channel_keys::Column::ChannelId.eq(id.as_str()))
+            .filter(commerce_channel_keys::Column::RevokedAt.is_null())
+            .into_tuple()
+            .all(&db)
+            .await?;
+        let stamp = utc_now();
         // The keys stop working first (the registry is what the storefront
         // reads); a failure after that leaves a channel that retries cleanly.
         if !active.is_empty() {
             registry::Registry::of(&caller)?
-                .revoke_channel(&id, &stamp)
+                .revoke_channel(&id, stamp)
                 .await?;
         }
-        sqlx::query(
-            "update commerce_channel_keys set revoked_at = $2::timestamp, updated_at = $2::timestamp \
-             where channel_id = $1 and revoked_at is null",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
-        let rates: Vec<String> = sqlx::query_scalar(
-            "update commerce_shipping_rates set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-             where channel_id = $1 and deleted_at is null returning id",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .fetch_all(&mut *tx)
-        .await?;
-        sqlx::query(
-            "update commerce_channels set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
+        commerce_channel_keys::Entity::update_many()
+            .col_expr(commerce_channel_keys::Column::RevokedAt, Expr::val(stamp))
+            .col_expr(commerce_channel_keys::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_channel_keys::Column::ChannelId.eq(id.as_str()))
+            .filter(commerce_channel_keys::Column::RevokedAt.is_null())
+            .exec(&db)
+            .await?;
+        let rates: Vec<String> = commerce_shipping_rates::Entity::update_many()
+            .col_expr(commerce_shipping_rates::Column::DeletedAt, Expr::val(stamp))
+            .col_expr(commerce_shipping_rates::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_shipping_rates::Column::ChannelId.eq(id.as_str()))
+            .filter(commerce_shipping_rates::Column::DeletedAt.is_null())
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .map(|rate| rate.id)
+            .collect();
+        commerce_channels::Entity::update_many()
+            .col_expr(commerce_channels::Column::DeletedAt, Expr::val(stamp))
+            .col_expr(commerce_channels::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_channels::Column::Id.eq(id.as_str()))
+            .exec(&db)
+            .await?;
         tx.commit().await?;
         Ok((current, active, rates))
     }

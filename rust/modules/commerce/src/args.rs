@@ -6,14 +6,18 @@
 //! and its count drops the last one that is on when a `?cursor=` was given
 //! ([`sliced`]).
 
+use std::str::FromStr;
+
 use axum::response::{IntoResponse, Response};
-use sea_orm::sea_query::{Alias, Expr, Func, Query, SelectStatement};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Alias, Expr, Func, IntoIden, Query, SelectStatement};
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
 };
 use serde_json::Value;
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::commerce_channel_keys;
 
 use crate::table::Table;
 
@@ -73,6 +77,12 @@ pub(crate) fn iso_or_null(at: Option<PrimitiveDateTime>) -> Value {
     at.map_or(Value::Null, |at| Value::String(iso(at)))
 }
 
+/// An amount in cents as the `numeric` value its text (`money::format`)
+/// was cast to.
+pub(crate) fn decimal(cents: weldsuite_commerce_domain::money::Cents) -> BigDecimal {
+    BigDecimal::from_str(&weldsuite_commerce_domain::money::format(cents)).unwrap_or_default()
+}
+
 /// `now() at time zone 'utc'`: the database's clock, as the statements that
 /// stamp a row with it read it.
 pub(crate) fn utc_now_sql() -> Expr {
@@ -100,6 +110,39 @@ pub(crate) async fn select_bool<C: ConnectionTrait>(db: &C, condition: Expr) -> 
         .await?
         .ok_or_else(|| DbErr::RecordNotFound("select".to_owned()))?;
     row.try_get("", "value")
+}
+
+/// `allowed_origins->>0` of a storefront key in `table` (its name or alias).
+pub(crate) fn first_origin(table: impl IntoIden) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+        Expr::col((table, commerce_channel_keys::Column::AllowedOrigins)),
+        0,
+    )
+}
+
+/// A live publishable key that allows an origin: `kind = 'publishable' and
+/// revoked_at is null and jsonb_typeof(allowed_origins) = 'array' and
+/// jsonb_array_length(allowed_origins) > 0`, the key in `table`.
+pub(crate) fn has_origin(table: impl IntoIden) -> Condition {
+    let table = table.into_iden();
+    let column = |column: commerce_channel_keys::Column| Expr::col((table.clone(), column));
+    let origins = || column(commerce_channel_keys::Column::AllowedOrigins);
+    Condition::all()
+        .add(sea_orm::ExprTrait::eq(
+            column(commerce_channel_keys::Column::Kind),
+            "publishable",
+        ))
+        .add(sea_orm::ExprTrait::is_null(column(
+            commerce_channel_keys::Column::RevokedAt,
+        )))
+        .add(sea_orm::ExprTrait::eq(
+            Func::cust("jsonb_typeof").arg(origins()),
+            "array",
+        ))
+        .add(sea_orm::ExprTrait::gt(
+            Func::cust("jsonb_array_length").arg(origins()),
+            0,
+        ))
 }
 
 /// `select createdAt, id from <table> where id = cursor limit 1`: the
@@ -133,6 +176,40 @@ pub(crate) fn before<C: ColumnTrait>(
             .add(created_at.eq(*at))
             .add(id.lt(cursor_id.as_str())),
     )
+}
+
+/// `not exists (select 1 from t where id = cursor) or (t.key, t.id) <|>
+/// (select c.key, c.id from t c where c.id = cursor)`: the rows after the
+/// cursor row in a keyset order (descending: `<`), every row when the
+/// cursor row is gone.
+pub(crate) fn after_cursor<E: EntityTrait>(
+    key: E::Column,
+    id: E::Column,
+    cursor: &str,
+    descending: bool,
+) -> Condition {
+    let row = Alias::new("c");
+    let gone = Query::select()
+        .expr(Expr::val(1))
+        .from(E::default())
+        .and_where(id.eq(cursor))
+        .to_owned();
+    let at = Query::select()
+        .column((row.clone(), key))
+        .column((row.clone(), id))
+        .from_as(E::default(), row.clone())
+        .and_where(sea_orm::ExprTrait::eq(Expr::col((row, id)), cursor))
+        .to_owned();
+    let here = Expr::tuple([
+        Expr::col((E::default(), key)),
+        Expr::col((E::default(), id)),
+    ]);
+    let after = if descending {
+        sea_orm::ExprTrait::lt(here, at)
+    } else {
+        sea_orm::ExprTrait::gt(here, at)
+    };
+    Condition::any().add(Expr::not_exists(gone)).add(after)
 }
 
 /// `.limit(limit + 1)` on a statement: none when JavaScript's limit is `NaN`
@@ -209,7 +286,7 @@ mod tests {
         select.expr(utc_now_sql());
         assert_eq!(
             select.to_string(PostgresQueryBuilder),
-            r#"SELECT timezone('utc', now())"#
+            "SELECT timezone('utc', now())"
         );
     }
 

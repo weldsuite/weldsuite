@@ -20,18 +20,26 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Issues, Presence, js_trim, query_values};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::audit_logs;
 
 use super::notifications::body::{
     Column, Kind, col, column_values, ensure_some_column, js_max, js_min, new_id, parse_int,
     query_first, slice_end, sql_limit,
 };
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate};
+use super::notifications::set_values;
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
 
 /// Not catalog keys (no role holds them but the owner's `*`); the routes
 /// require them as written.
@@ -81,13 +89,17 @@ const COLUMNS: [Column; 12] = [
 const HIDDEN_ACTIVITY_ENTITY_TYPES: [&str; 3] =
     ["meeting_session", "meeting_message", "meeting_bot_session"];
 
-async fn row_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from audit_logs t where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+/// A row as `to_jsonb` through `js_row` read it: the entity serializes as
+/// Drizzle did.
+fn row_json(row: audit_logs::Model) -> Value {
+    serde_json::to_value(row).unwrap_or(Value::Null)
+}
+
+async fn row_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = audit_logs::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json))
 }
 
 /// A query param counts as supplied only when present and non-empty.
@@ -179,7 +191,7 @@ fn filters(query: &Map<String, Value>) -> Result<Filters, String> {
         match supplied(query, param) {
             None => Ok(None),
             Some(text) => js_date(&text)
-                .map(Some)
+                .map(|at| Some(weldsuite_events::iso_timestamp(at)))
                 .ok_or_else(|| format!("Invalid {param} — expected an ISO 8601 date")),
         }
     };
@@ -219,19 +231,21 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Ok(filters) => filters,
         Err(message) => return ApiError::bad_request(message).into_response(),
     };
-    let mut after: Option<(Value, String)> = None;
+    let mut after: Option<(PrimitiveDateTime, String)> = None;
     if paging.use_cursor
         && let Some(cursor) = supplied(&query, "cursor")
     {
-        let found: Result<Option<(Value, String)>, sqlx::Error> = sqlx::query_as(
-            "select to_jsonb(date_trunc('milliseconds', created_at)), id
-             from audit_logs where id = $1 limit 1",
-        )
-        .bind(&cursor)
-        .fetch_optional(&caller.db)
-        .await;
+        // Its time as the route reads it (a `Date`, so milliseconds).
+        let found: Result<Option<(PrimitiveDateTime, String)>, DbErr> =
+            audit_logs::Entity::find()
+                .select_only()
+                .columns([audit_logs::Column::CreatedAt, audit_logs::Column::Id])
+                .filter(audit_logs::Column::Id.eq(&cursor))
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await;
         match found {
-            Ok(found) => after = found,
+            Ok(found) => after = found.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)),
             Err(error) => return PlatformError::Database(error).respond(),
         }
     }
@@ -242,10 +256,10 @@ async fn list_page(
     db: &PgPool,
     paging: &Paging,
     filters: &Filters,
-    after: Option<(Value, String)>,
+    after: Option<(PrimitiveDateTime, String)>,
 ) -> PlatformResult<Response> {
     const FAILED: &str = "Failed to list audit logs";
-    let failed = |error: sqlx::Error| PlatformError::internal(FAILED, error);
+    let failed = |error: DbErr| PlatformError::internal(FAILED, error);
     // Cursor mode over-fetches by one to tell whether there is more; the
     // numbered pager reads the exact page and counts instead.
     let fetch = if paging.use_cursor {
@@ -262,19 +276,24 @@ async fn list_page(
     let sql_offset = if offset.is_nan() || offset == 0.0 {
         None
     } else if offset.is_finite() && offset < 9.2e18 {
-        #[allow(clippy::cast_possible_truncation)]
-        Some(offset as i64)
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(offset as u64)
     } else {
         return Err(PlatformError::internal(FAILED, "offset out of range"));
     };
-    let rows = fetch_rows(db, filters, after, sql_limit(fetch), sql_offset)
+    let limit = sql_limit(fetch).map(|n| u64::try_from(n).unwrap_or(0));
+    let db = orm(db);
+    let rows = fetch_rows(&db, filters, after, limit, sql_offset)
         .await
         .map_err(failed)?;
     // The count reflects the filters only, never the cursor window.
-    let total = count_rows(db, filters).await.map_err(failed)?;
+    let total = filtered(filters)
+        .count(&db)
+        .await
+        .map_err(failed)?;
 
-    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
-    let total_count = u64::try_from(total).unwrap_or(0);
+    let mut rows: Vec<Value> = rows.into_iter().map(row_json).collect();
+    let total_count = total;
     let last_id = |rows: &[Value]| {
         rows.last()
             .and_then(|row| row["id"].as_str())
@@ -309,98 +328,77 @@ async fn list_page(
     .into_response())
 }
 
-fn hidden_types() -> Vec<String> {
-    HIDDEN_ACTIVITY_ENTITY_TYPES
-        .iter()
-        .map(|t| (*t).to_owned())
-        .collect()
+/// One equality filter on `column`: `= any(values)` when it names some,
+/// `is null or <> all(excluded)` when it excludes some.
+fn equal(condition: Condition, column: audit_logs::Column, filter: &Equality) -> Condition {
+    let mut condition = condition;
+    if !filter.any.is_empty() {
+        condition = condition.add(column.is_in(filter.any.clone()));
+    }
+    if !filter.not.is_empty() {
+        condition = condition.add(
+            Condition::any()
+                .add(column.is_null())
+                .add(column.is_not_in(filter.not.clone())),
+        );
+    }
+    condition
+}
+
+/// `buildListFilters` as conditions: the rows the filters keep.
+fn filtered(filters: &Filters) -> Select<audit_logs::Entity> {
+    use audit_logs::Column as A;
+    let mut condition = Condition::all();
+    condition = equal(condition, A::Action, &filters.action);
+    condition = equal(condition, A::EntityType, &filters.entity_type);
+    condition = equal(condition, A::EntityId, &filters.entity_id);
+    condition = equal(condition, A::PerformedBy, &filters.performed_by);
+    if filters.hide_internal {
+        condition = condition.add(A::EntityType.is_not_in(HIDDEN_ACTIVITY_ENTITY_TYPES));
+    }
+    if let Some(search) = &filters.search {
+        condition = condition.add(
+            Condition::any()
+                .add(A::Description.ilike(search.as_str()))
+                .add(A::EntityId.ilike(search.as_str())),
+        );
+    }
+    // `$n::timestamp`: Postgres reads the ISO text as before.
+    let at = |text: &String| sea_orm::ExprTrait::cast_as(Expr::value(text.clone()), "timestamp");
+    if let Some(start) = &filters.start {
+        condition = condition.add(sea_orm::ExprTrait::gte(Expr::col(A::CreatedAt), at(start)));
+    }
+    if let Some(end) = &filters.end {
+        condition = condition.add(sea_orm::ExprTrait::lte(Expr::col(A::CreatedAt), at(end)));
+    }
+    audit_logs::Entity::find().filter(condition)
 }
 
 /// The page: the filters, the cursor window, newest first with the id
 /// breaking ties.
 async fn fetch_rows(
-    db: &PgPool,
+    db: &sea_orm::DatabaseConnection,
     filters: &Filters,
-    after: Option<(Value, String)>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let (after_at, after_id) = match &after {
-        Some((at, id)) => (at.as_str().map(str::to_owned), Some(id.clone())),
-        None => (None, None),
-    };
-    sqlx::query_scalar(
-        "select to_jsonb(t) from audit_logs t
-         where (cardinality($1::text[]) = 0 or action = any($1))
-           and (cardinality($2::text[]) = 0 or action is null or action <> all($2))
-           and (cardinality($3::text[]) = 0 or entity_type = any($3))
-           and (cardinality($4::text[]) = 0 or entity_type is null or entity_type <> all($4))
-           and (cardinality($5::text[]) = 0 or entity_id = any($5))
-           and (cardinality($6::text[]) = 0 or entity_id is null or entity_id <> all($6))
-           and (cardinality($7::text[]) = 0 or performed_by = any($7))
-           and (cardinality($8::text[]) = 0 or performed_by is null or performed_by <> all($8))
-           and (not $9 or entity_type <> all($10))
-           and ($11::text is null or description ilike $11 or entity_id ilike $11)
-           and ($12::timestamp is null or created_at >= $12::timestamp)
-           and ($13::timestamp is null or created_at <= $13::timestamp)
-           and ($14::timestamp is null or created_at < $14::timestamp
-                or (created_at = $14::timestamp and id < $15))
-         order by created_at desc, id desc
-         limit $16 offset $17",
-    )
-    .bind(&filters.action.any)
-    .bind(&filters.action.not)
-    .bind(&filters.entity_type.any)
-    .bind(&filters.entity_type.not)
-    .bind(&filters.entity_id.any)
-    .bind(&filters.entity_id.not)
-    .bind(&filters.performed_by.any)
-    .bind(&filters.performed_by.not)
-    .bind(filters.hide_internal)
-    .bind(hidden_types())
-    .bind(&filters.search)
-    .bind(&filters.start)
-    .bind(&filters.end)
-    .bind(&after_at)
-    .bind(&after_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(db)
-    .await
-}
-
-/// The rows the filters keep.
-async fn count_rows(db: &PgPool, filters: &Filters) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from audit_logs
-         where (cardinality($1::text[]) = 0 or action = any($1))
-           and (cardinality($2::text[]) = 0 or action is null or action <> all($2))
-           and (cardinality($3::text[]) = 0 or entity_type = any($3))
-           and (cardinality($4::text[]) = 0 or entity_type is null or entity_type <> all($4))
-           and (cardinality($5::text[]) = 0 or entity_id = any($5))
-           and (cardinality($6::text[]) = 0 or entity_id is null or entity_id <> all($6))
-           and (cardinality($7::text[]) = 0 or performed_by = any($7))
-           and (cardinality($8::text[]) = 0 or performed_by is null or performed_by <> all($8))
-           and (not $9 or entity_type <> all($10))
-           and ($11::text is null or description ilike $11 or entity_id ilike $11)
-           and ($12::timestamp is null or created_at >= $12::timestamp)
-           and ($13::timestamp is null or created_at <= $13::timestamp)",
-    )
-    .bind(&filters.action.any)
-    .bind(&filters.action.not)
-    .bind(&filters.entity_type.any)
-    .bind(&filters.entity_type.not)
-    .bind(&filters.entity_id.any)
-    .bind(&filters.entity_id.not)
-    .bind(&filters.performed_by.any)
-    .bind(&filters.performed_by.not)
-    .bind(filters.hide_internal)
-    .bind(hidden_types())
-    .bind(&filters.search)
-    .bind(&filters.start)
-    .bind(&filters.end)
-    .fetch_one(db)
-    .await
+    after: Option<(PrimitiveDateTime, String)>,
+    limit: Option<u64>,
+    offset: Option<u64>,
+) -> Result<Vec<audit_logs::Model>, DbErr> {
+    use audit_logs::Column as A;
+    let mut select = filtered(filters);
+    if let Some((at, id)) = after {
+        select = select.filter(
+            Condition::any()
+                .add(A::CreatedAt.lt(at))
+                .add(Condition::all().add(A::CreatedAt.eq(at)).add(A::Id.lt(id))),
+        );
+    }
+    select
+        .order_by_desc(A::CreatedAt)
+        .order_by_desc(A::Id)
+        .limit(limit)
+        .offset(offset)
+        .all(db)
+        .await
 }
 
 /// A number as `JSON.stringify` writes it: `NaN` and `±Infinity` are `null`.
@@ -427,19 +425,16 @@ async fn history(
     let query = query_values(query.as_deref());
     // `Math.min(limit ? parseInt(limit, 10) : 100, 200)`: no lower bound.
     let limit = supplied(&query, "limit").map_or(100.0, |t| js_min(parse_int(&t), 200.0));
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from audit_logs t
-         where entity_type = $1 and entity_id = $2
-         order by created_at desc, id desc
-         limit $3",
-    )
-    .bind(&entity_type)
-    .bind(&entity_id)
-    .bind(sql_limit(limit))
-    .fetch_all(&caller.db)
-    .await;
+    let rows = audit_logs::Entity::find()
+        .filter(audit_logs::Column::EntityType.eq(&entity_type))
+        .filter(audit_logs::Column::EntityId.eq(&entity_id))
+        .order_by_desc(audit_logs::Column::CreatedAt)
+        .order_by_desc(audit_logs::Column::Id)
+        .limit(sql_limit(limit).map(|n| u64::try_from(n).unwrap_or(0)))
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows.into_iter().map(row_json).collect::<Vec<_>>()).into_response(),
         Err(error) => PlatformError::internal("Failed to fetch entity history", error).respond(),
     }
 }
@@ -486,25 +481,17 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                 }
             }
             let id = generate_id("audit");
-            let inserted = sqlx::query(
-                "insert into audit_logs
-                     (id, created_at, entity_type, entity_id, action, description, changes,
-                      data, performed_by, performed_by_name, ip_address, metadata)
-                 values (coalesce($1->>'id', $2), $3::timestamp, $1->>'entity_type',
-                         $1->>'entity_id', $1->>'action', $1->>'description',
-                         nullif($1->'changes', 'null'::jsonb), nullif($1->'data', 'null'::jsonb),
-                         $1->>'performed_by', $1->>'performed_by_name', $1->>'ip_address',
-                         nullif($1->'metadata', 'null'::jsonb))
-                 on conflict (id) do nothing",
-            )
-            .bind(Value::Object(values))
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
+            let inserted = audit_logs::Entity::insert(new_row(&values, &id))
+                .on_conflict(
+                    OnConflict::column(audit_logs::Column::Id)
+                        .do_nothing()
+                        .to_owned(),
+                )
+                .exec_without_returning(&orm(&caller.db))
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?;
             // A body `id` that is taken: the primary key refuses the row.
-            if inserted.rows_affected() == 0 {
+            if inserted == 0 {
                 return Err(PlatformError::internal(FAILED, "duplicate key"));
             }
             Ok(Created(json!({ "id": id })).into_response())
@@ -532,60 +519,64 @@ async fn update(
             let values = column_values(&COLUMNS, &input)
                 .map_err(|error| PlatformError::internal(FAILED, error))?;
             ensure_some_column(&values, FAILED)?;
+            let db = orm(&caller.db);
             if let Some(new_id) = new_id(&values, &id) {
-                let taken: bool =
-                    sqlx::query_scalar("select exists (select 1 from audit_logs where id = $1)")
-                        .bind(new_id)
-                        .fetch_one(&caller.db)
-                        .await
-                        .map_err(|error| PlatformError::internal(FAILED, error))?;
-                if taken {
+                let taken: Option<String> = audit_logs::Entity::find()
+                    .select_only()
+                    .column(audit_logs::Column::Id)
+                    .filter(audit_logs::Column::Id.eq(new_id))
+                    .into_tuple()
+                    .one(&db)
+                    .await
+                    .map_err(|error| PlatformError::internal(FAILED, error))?;
+                if taken.is_some() {
                     return Err(PlatformError::internal(FAILED, "duplicate key"));
                 }
             }
-            sqlx::query(
-                "update audit_logs set
-                     id = case when $1 ? 'id' then $1->>'id' else id end,
-                     entity_type = case when $1 ? 'entity_type'
-                         then $1->>'entity_type' else entity_type end,
-                     entity_id = case when $1 ? 'entity_id' then $1->>'entity_id' else entity_id end,
-                     action = case when $1 ? 'action' then $1->>'action' else action end,
-                     description = case when $1 ? 'description'
-                         then $1->>'description' else description end,
-                     changes = case when $1 ? 'changes'
-                         then nullif($1->'changes', 'null'::jsonb) else changes end,
-                     data = case when $1 ? 'data'
-                         then nullif($1->'data', 'null'::jsonb) else data end,
-                     performed_by = case when $1 ? 'performed_by'
-                         then $1->>'performed_by' else performed_by end,
-                     performed_by_name = case when $1 ? 'performed_by_name'
-                         then $1->>'performed_by_name' else performed_by_name end,
-                     ip_address = case when $1 ? 'ip_address'
-                         then $1->>'ip_address' else ip_address end,
-                     metadata = case when $1 ? 'metadata'
-                         then nullif($1->'metadata', 'null'::jsonb) else metadata end
-                 where id = $2",
-            )
-            .bind(Value::Object(values))
-            .bind(&id)
-            .execute(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
+            let mut update = audit_logs::Entity::update_many();
+            for (column, value) in set_values::<audit_logs::Entity>(&COLUMNS, &values) {
+                update = update.col_expr(column, value);
+            }
+            update
+                .filter(audit_logs::Column::Id.eq(&id))
+                .exec(&db)
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?;
             Ok(Data(json!({ "id": id })).into_response())
         }
         .await,
     )
 }
 
+/// The inserted row: `{ id, ...data, createdAt: now }` (the body's values
+/// as `$1->>'column'` and `nullif($1->'column', 'null'::jsonb)` read them).
+fn new_row(values: &Map<String, Value>, id: &str) -> audit_logs::ActiveModel {
+    let text = |name: &str| values.get(name).and_then(Value::as_str).map(str::to_owned);
+    let json = |name: &str| values.get(name).filter(|value| !value.is_null()).cloned();
+    audit_logs::ActiveModel {
+        id: Set(text("id").unwrap_or_else(|| id.to_owned())),
+        created_at: Set(utc_now()),
+        entity_type: Set(text("entity_type").unwrap_or_default()),
+        entity_id: Set(text("entity_id").unwrap_or_default()),
+        action: Set(text("action").unwrap_or_default()),
+        description: Set(text("description").unwrap_or_default()),
+        changes: Set(json("changes")),
+        data: Set(json("data")),
+        performed_by: Set(text("performed_by")),
+        performed_by_name: Set(text("performed_by_name")),
+        ip_address: Set(text("ip_address")),
+        metadata: Set(json("metadata")),
+    }
+}
+
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
 async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
-    let removed = sqlx::query("delete from audit_logs where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    let removed = audit_logs::Entity::delete_by_id(id.clone())
+        .exec(&orm(&caller.db))
         .await;
     match removed {
-        Ok(done) if done.rows_affected() == 0 => {
+        Ok(done) if done.rows_affected == 0 => {
             ApiError::not_found("Audit log", Some(&id)).into_response()
         }
         Ok(_) => NoContent.into_response(),
@@ -596,10 +587,10 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
 // ── `new Date(text)` ────────────────────────────────────────────────────────
 
 /// `new Date(text)` for the ISO forms (`2026`, `2026-02`, `2026-02-01`, with
-/// `THH:mm`, seconds, a fraction and `Z` or `±HH:mm`), as `toISOString()`;
-/// `None` for an invalid date. A time without an offset is UTC, the
-/// Workers' local time. V8's other, legacy forms are not read.
-fn js_date(text: &str) -> Option<String> {
+/// `THH:mm`, seconds, a fraction and `Z` or `±HH:mm`); `None` for an invalid
+/// date. A time without an offset is UTC, the Workers' local time. V8's
+/// other, legacy forms are not read.
+fn js_date(text: &str) -> Option<OffsetDateTime> {
     let mut p = Cursor {
         bytes: text.as_bytes(),
         at: 0,
@@ -685,9 +676,7 @@ fn js_date(text: &str) -> Option<String> {
     if epoch_millis.abs() > 8_640_000_000_000_000 {
         return None;
     }
-    let at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(epoch_millis) * 1_000_000)
-        .ok()?;
-    Some(weldsuite_events::iso_timestamp(at))
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(epoch_millis) * 1_000_000).ok()
 }
 
 struct Cursor<'a> {
@@ -742,12 +731,13 @@ mod tests {
 
     #[test]
     fn dates_parse_like_javascripts_iso_forms() {
+        let iso = |text: &str| js_date(text).map(weldsuite_events::iso_timestamp);
         assert_eq!(
-            js_date("2026-02-01").as_deref(),
+            iso("2026-02-01").as_deref(),
             Some("2026-02-01T00:00:00.000Z")
         );
         assert_eq!(
-            js_date("2026-02-01T10:30:00+02:00").as_deref(),
+            iso("2026-02-01T10:30:00+02:00").as_deref(),
             Some("2026-02-01T08:30:00.000Z")
         );
         assert_eq!(js_date("soon"), None);

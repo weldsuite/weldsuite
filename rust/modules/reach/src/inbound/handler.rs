@@ -18,9 +18,14 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_events::{EntityEventPublisher, EventContext, EventSource};
 use weldsuite_ports::{BoxFuture, DynFileStore, PutOptions};
+use weldsuite_schema::master::reach_routes;
+use weldsuite_schema::tenant::reach_mailboxes;
 
 use super::deliver::{DeliverInput, DeliverResult, InboundMailbox, deliver_inbound};
 use super::parse::{ParsedInbound, parse_inbound, parse_inbound_token, sha256_hex};
@@ -43,14 +48,19 @@ pub struct InboundRoute {
 pub async fn resolve_inbound_route(
     master: &PgPool,
     token: &str,
-) -> Result<Option<InboundRoute>, sqlx::Error> {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select clerk_org_id, tenant_entity_id from reach_routes
-         where kind = 'inbound_token' and external_id = $1 and status = 'active' limit 1",
-    )
-    .bind(token)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<InboundRoute>, DbErr> {
+    let row: Option<(String, Option<String>)> = reach_routes::Entity::find()
+        .select_only()
+        .columns([
+            reach_routes::Column::ClerkOrgId,
+            reach_routes::Column::TenantEntityId,
+        ])
+        .filter(reach_routes::Column::Kind.eq("inbound_token"))
+        .filter(reach_routes::Column::ExternalId.eq(token))
+        .filter(reach_routes::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(row.map(|(clerk_org_id, mailbox_id)| InboundRoute {
         clerk_org_id,
         mailbox_id: mailbox_id.unwrap_or_default(),
@@ -63,7 +73,7 @@ pub async fn accepts_recipient(
     master: &PgPool,
     inbound_domain: &str,
     address: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(token) = parse_inbound_token(address, Some(inbound_domain)) else {
         return Ok(false);
     };
@@ -140,14 +150,19 @@ impl ReachInbound {
         db: &PgPool,
         mailbox_id: &str,
         token: &str,
-    ) -> Result<Option<InboundMailbox>, sqlx::Error> {
-        let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-            "select id, email, deleted_at::text from reach_mailboxes where id = $1 and inbound_token = $2 limit 1",
-        )
-        .bind(mailbox_id)
-        .bind(token)
-        .fetch_optional(db)
-        .await?;
+    ) -> Result<Option<InboundMailbox>, DbErr> {
+        let row: Option<(String, String, Option<OffsetDateTime>)> =
+            reach_mailboxes::Entity::find_by_id(mailbox_id.to_owned())
+                .select_only()
+                .columns([
+                    reach_mailboxes::Column::Id,
+                    reach_mailboxes::Column::Email,
+                    reach_mailboxes::Column::DeletedAt,
+                ])
+                .filter(reach_mailboxes::Column::InboundToken.eq(token))
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
         Ok(row
             .filter(|(_, _, deleted)| deleted.is_none())
             .map(|(id, email, _)| InboundMailbox { id, email }))

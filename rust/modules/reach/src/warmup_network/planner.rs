@@ -16,12 +16,20 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::smtp::generate_message_id;
 use weldsuite_reach_domain::warmup::{
     WARMUP_MAINTAIN_MAX, WARMUP_MAINTAIN_MIN, WARMUP_MIN_POOL_DOMAINS, ramp_target,
 };
+use weldsuite_reach_domain::epoch_ms;
+use weldsuite_schema::master::{reach_warmup_mailboxes as pool, reach_warmup_messages as messages};
 
 use super::WarmupNetwork;
 use super::clock::{
@@ -29,7 +37,7 @@ use super::clock::{
     plan_day, shuffled, spread_times,
 };
 use super::corpus::{CorpusThread, load_corpus, render_corpus_message};
-use super::db::{PoolMailbox, is_warmup_enabled, pool_columns, ts};
+use super::db::{PoolMailbox, at, is_warmup_enabled, pool_mailboxes, pool_query};
 use super::login_recheck::recheck_logins;
 use super::pairing::{PairingMailbox, PairingState, pair_key, pick_recipient, pick_thread_id};
 
@@ -57,13 +65,11 @@ pub struct PlannerResult {
 }
 
 /// `loadEligible(master)` (no order, as in TypeScript).
-async fn load_eligible(master: &PgPool) -> sqlx::Result<Vec<PoolMailbox>> {
-    sqlx::query_as(concat!(
-        "select ",
-        pool_columns!(),
-        " from reach_warmup_mailboxes where status in ('waiting', 'warming', 'maintaining')"
-    ))
-    .fetch_all(master)
+async fn load_eligible(master: &PgPool) -> Result<Vec<PoolMailbox>, DbErr> {
+    pool_mailboxes(
+        master,
+        pool_query().filter(pool::Column::Status.is_in(["waiting", "warming", "maintaining"])),
+    )
     .await
 }
 
@@ -73,15 +79,19 @@ async fn start_waiting(
     master: &PgPool,
     mailboxes: &mut [PoolMailbox],
     now: i64,
-) -> sqlx::Result<usize> {
-    let started: Vec<String> = sqlx::query_scalar(
-        "update reach_warmup_mailboxes set status = 'warming', started_at = $1::timestamptz, ramp_day = 1,
-           ramp_updated_at = $1::timestamptz, updated_at = $1::timestamptz
-         where status = 'waiting' returning id",
-    )
-    .bind(ts(now))
-    .fetch_all(master)
-    .await?;
+) -> Result<usize, DbErr> {
+    let started: Vec<String> = pool::Entity::update_many()
+        .col_expr(pool::Column::Status, Expr::value("warming"))
+        .col_expr(pool::Column::StartedAt, Expr::value(at(now)))
+        .col_expr(pool::Column::RampDay, Expr::value(1))
+        .col_expr(pool::Column::RampUpdatedAt, Expr::value(at(now)))
+        .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
+        .filter(pool::Column::Status.eq("waiting"))
+        .exec_with_returning(&orm(master))
+        .await?
+        .into_iter()
+        .map(|row| row.id)
+        .collect();
     let ids: HashSet<&String> = started.iter().collect();
     for mailbox in mailboxes.iter_mut().filter(|m| ids.contains(&m.id)) {
         "warming".clone_into(&mut mailbox.status);
@@ -110,14 +120,17 @@ fn to_pairing(mailbox: &PoolMailbox) -> PairingMailbox {
     }
 }
 
-async fn load_received_counts(master: &PgPool, now: i64) -> sqlx::Result<HashMap<String, i64>> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "select to_mailbox_id, count(*)::int8 from reach_warmup_messages
-         where status <> 'failed' and scheduled_at >= $1::timestamptz group by to_mailbox_id",
-    )
-    .bind(ts(now - BALANCE_WINDOW_MS))
-    .fetch_all(master)
-    .await?;
+async fn load_received_counts(master: &PgPool, now: i64) -> Result<HashMap<String, i64>, DbErr> {
+    let rows: Vec<(String, i64)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::ToMailboxId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(messages::Column::Status.ne("failed"))
+        .filter(messages::Column::ScheduledAt.gte(at(now - BALANCE_WINDOW_MS)))
+        .group_by(messages::Column::ToMailboxId)
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -133,22 +146,31 @@ async fn load_pair_history(
     master: &PgPool,
     sender_id: &str,
     now: i64,
-) -> sqlx::Result<PairHistory> {
-    let rows: Vec<(String, String, String, i64)> = sqlx::query_as(
-        "select from_mailbox_id, to_mailbox_id, corpus_thread_id, floor(extract(epoch from scheduled_at) * 1000)::int8
-         from reach_warmup_messages
-         where step = 0 and status <> 'failed' and scheduled_at >= $1::timestamptz
-           and (from_mailbox_id = $2 or to_mailbox_id = $2)",
-    )
-    .bind(ts(now - THREAD_MEMORY_DAYS * DAY_MS))
-    .bind(sender_id)
-    .fetch_all(master)
-    .await?;
+) -> Result<PairHistory, DbErr> {
+    let rows: Vec<(String, String, String, OffsetDateTime)> = messages::Entity::find()
+        .select_only()
+        .columns([
+            messages::Column::FromMailboxId,
+            messages::Column::ToMailboxId,
+            messages::Column::CorpusThreadId,
+            messages::Column::ScheduledAt,
+        ])
+        .filter(messages::Column::Step.eq(0))
+        .filter(messages::Column::Status.ne("failed"))
+        .filter(messages::Column::ScheduledAt.gte(at(now - THREAD_MEMORY_DAYS * DAY_MS)))
+        .filter(
+            Condition::any()
+                .add(messages::Column::FromMailboxId.eq(sender_id))
+                .add(messages::Column::ToMailboxId.eq(sender_id)),
+        )
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     let cooling_since = now - PAIR_COOLDOWN_DAYS * DAY_MS;
     let mut history = PairHistory::default();
     for (from, to, thread, scheduled_at) in rows {
         let key = pair_key(&from, &to);
-        if scheduled_at >= cooling_since {
+        if epoch_ms(scheduled_at) >= cooling_since {
             history.cooling.insert(key.clone());
         }
         history
@@ -192,30 +214,34 @@ async fn claim_day(
     mailbox: &PoolMailbox,
     date: &str,
     planned: i64,
-) -> sqlx::Result<bool> {
-    let claimed = sqlx::query(
-        "update reach_warmup_mailboxes set planned_for = $2, daily_target = $3, updated_at = $4::timestamptz
-         where id = $1 and status in ('warming', 'maintaining') and (planned_for is null or planned_for <> $2)",
-    )
-    .bind(&mailbox.id)
-    .bind(date)
-    .bind(i32::try_from(planned).unwrap_or(i32::MAX))
-    .bind(ts(ctx.now))
-    .execute(ctx.master)
-    .await?;
-    Ok(claimed.rows_affected() > 0)
+) -> Result<bool, DbErr> {
+    let claimed = pool::Entity::update_many()
+        .col_expr(pool::Column::PlannedFor, Expr::value(date))
+        .col_expr(
+            pool::Column::DailyTarget,
+            Expr::value(i32::try_from(planned).unwrap_or(i32::MAX)),
+        )
+        .col_expr(pool::Column::UpdatedAt, Expr::value(at(ctx.now)))
+        .filter(pool::Column::Id.eq(&mailbox.id))
+        .filter(pool::Column::Status.is_in(["warming", "maintaining"]))
+        .filter(
+            Condition::any()
+                .add(pool::Column::PlannedFor.is_null())
+                .add(pool::Column::PlannedFor.ne(date)),
+        )
+        .exec(&orm(ctx.master))
+        .await?;
+    Ok(claimed.rows_affected > 0)
 }
 
 /// `releaseDay(...)`: hand the day back after a failed insert.
-async fn release_day(ctx: &PlanContext<'_>, mailbox: &PoolMailbox) -> sqlx::Result<()> {
-    sqlx::query(
-        "update reach_warmup_mailboxes set planned_for = $2, daily_target = $3 where id = $1",
-    )
-    .bind(&mailbox.id)
-    .bind(mailbox.planned_for.as_deref())
-    .bind(mailbox.daily_target)
-    .execute(ctx.master)
-    .await?;
+async fn release_day(ctx: &PlanContext<'_>, mailbox: &PoolMailbox) -> Result<(), DbErr> {
+    pool::Entity::update_many()
+        .col_expr(pool::Column::PlannedFor, Expr::value(mailbox.planned_for.clone()))
+        .col_expr(pool::Column::DailyTarget, Expr::value(mailbox.daily_target))
+        .filter(pool::Column::Id.eq(&mailbox.id))
+        .exec(&orm(ctx.master))
+        .await?;
     Ok(())
 }
 
@@ -287,44 +313,26 @@ fn build_day_messages(
     rows
 }
 
-async fn insert_messages(master: &PgPool, rows: &[NewMessage]) -> sqlx::Result<()> {
+async fn insert_messages(master: &PgPool, rows: &[NewMessage]) -> Result<(), DbErr> {
     if rows.is_empty() {
         return Ok(());
     }
-    let mut ids = Vec::new();
-    let mut threads = Vec::new();
-    let mut froms = Vec::new();
-    let mut tos = Vec::new();
-    let mut corpus_ids = Vec::new();
-    let mut headers = Vec::new();
-    let mut subjects = Vec::new();
-    let mut times = Vec::new();
-    for row in rows {
-        ids.push(row.id.clone());
-        threads.push(row.thread_id.clone());
-        froms.push(row.from.clone());
-        tos.push(row.to.clone());
-        corpus_ids.push(row.corpus_thread_id.clone());
-        headers.push(row.message_id_header.clone());
-        subjects.push(row.subject.clone());
-        times.push(ts(row.scheduled_at));
-    }
-    sqlx::query(
-        "insert into reach_warmup_messages (id, thread_id, step, from_mailbox_id, to_mailbox_id,
-           corpus_thread_id, message_id_header, in_reply_to, \"references\", subject, status, scheduled_at)
-         select id, thread_id, 0, from_id, to_id, corpus_id, header, null, null, subject, 'scheduled', at::timestamptz
-         from unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[])
-           as t(id, thread_id, from_id, to_id, corpus_id, header, subject, at)",
-    )
-    .bind(&ids)
-    .bind(&threads)
-    .bind(&froms)
-    .bind(&tos)
-    .bind(&corpus_ids)
-    .bind(&headers)
-    .bind(&subjects)
-    .bind(&times)
-    .execute(master)
+    messages::Entity::insert_many(rows.iter().map(|row| messages::ActiveModel {
+        id: Set(row.id.clone()),
+        thread_id: Set(row.thread_id.clone()),
+        step: Set(0),
+        from_mailbox_id: Set(row.from.clone()),
+        to_mailbox_id: Set(row.to.clone()),
+        corpus_thread_id: Set(row.corpus_thread_id.clone()),
+        message_id_header: Set(row.message_id_header.clone()),
+        in_reply_to: Set(None),
+        references: Set(None),
+        subject: Set(row.subject.clone()),
+        status: Set("scheduled".to_owned()),
+        scheduled_at: Set(at(row.scheduled_at)),
+        ..Default::default()
+    }))
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }
@@ -335,7 +343,7 @@ async fn plan_mailbox(
     ctx: &mut PlanContext<'_>,
     sender: &PoolMailbox,
     rng: Rng<'_>,
-) -> sqlx::Result<Option<usize>> {
+) -> Result<Option<usize>, DbErr> {
     let window = business_window(ctx.now, &sender.timezone);
     let maintaining = sender.status == "maintaining";
     let target = daily_target_for(maintaining, i64::from(sender.ramp_day.max(1)), &mut *rng);
@@ -352,13 +360,16 @@ async fn plan_mailbox(
         let rows = build_day_messages(ctx, sender, &mut history, &times, rng);
         insert_messages(ctx.master, &rows).await?;
         if rows.len() as i64 != day.count {
-            sqlx::query("update reach_warmup_mailboxes set daily_target = $2 where id = $1")
-                .bind(&sender.id)
-                .bind(i32::try_from(rows.len()).unwrap_or(i32::MAX))
-                .execute(ctx.master)
+            pool::Entity::update_many()
+                .col_expr(
+                    pool::Column::DailyTarget,
+                    Expr::value(i32::try_from(rows.len()).unwrap_or(i32::MAX)),
+                )
+                .filter(pool::Column::Id.eq(&sender.id))
+                .exec(&orm(ctx.master))
                 .await?;
         }
-        Ok::<_, sqlx::Error>(rows.len())
+        Ok::<_, DbErr>(rows.len())
     }
     .await;
     match planned {

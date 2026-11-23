@@ -25,6 +25,7 @@ mod identity_schema;
 mod leads;
 mod lists;
 mod opportunities;
+mod orm_rows;
 mod people;
 mod person_companies;
 mod pipeline_stages;
@@ -684,9 +685,16 @@ impl From<ApiError> for Refusal {
     }
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+/// SQL of a crate not converted to the ORM yet reports as the ORM does.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Failed(error.to_string())
+        weldsuite_db::orm_error(error).into()
     }
 }
 

@@ -5,8 +5,8 @@
 //!
 //! Both the storefront's approvers and staff end up here.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     ORDER_APPROVED, ORDER_CANCELLED, ORDER_REJECTED, ORDER_UPDATED,
 };
@@ -14,10 +14,13 @@ use weldsuite_commerce_domain::accounts;
 use weldsuite_commerce_domain::approvals::Decided;
 use weldsuite_commerce_domain::payments::books::{self, Actor};
 use weldsuite_commerce_domain::payments::service::{self, NewOrderPayment};
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_emails::commerce::{ApprovalDecided, ApprovalRequested};
 use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{commerce_channel_keys, commerce_channels, companies};
 
+use crate::args::{first_origin, has_origin};
 use crate::config::PaymentsConfig;
 use crate::mail::{self, Mail};
 
@@ -57,9 +60,11 @@ impl Followup<'_> {
         let Some(channel) = channel_id else {
             return "Shop".to_owned();
         };
-        sqlx::query_scalar::<_, String>("select name from commerce_channels where id = $1")
-            .bind(channel)
-            .fetch_optional(self.db)
+        commerce_channels::Entity::find_by_id(channel)
+            .select_only()
+            .column(commerce_channels::Column::Name)
+            .into_tuple::<String>()
+            .one(&orm(self.db))
             .await
             .ok()
             .flatten()
@@ -204,13 +209,14 @@ pub(crate) async fn notify_approvers(
     let approvers = accounts::approvers(&mut conn, company_id)
         .await
         .unwrap_or_default();
-    let company: Option<String> =
-        sqlx::query_scalar("select display_name from companies where id = $1")
-            .bind(company_id)
-            .fetch_optional(&mut *conn)
-            .await
-            .ok()
-            .flatten();
+    let company: Option<String> = companies::Entity::find_by_id(company_id)
+        .select_only()
+        .column(companies::Column::DisplayName)
+        .into_tuple()
+        .one(&OrmConn::new(&mut conn))
+        .await
+        .ok()
+        .flatten();
     let requester: Option<String> = match requested_by {
         Some(person) => accounts::person(&mut conn, person)
             .await
@@ -247,15 +253,17 @@ pub(crate) async fn notify_approvers(
 /// The shop's home, for the links in its emails: the first origin a live
 /// publishable key of the channel allows. No code or token is ever in it.
 pub(crate) async fn shop_url(db: &PgPool, channel_id: &str) -> Option<String> {
-    sqlx::query_scalar::<_, String>(
-        "select allowed_origins->>0 from commerce_channel_keys \
-         where channel_id = $1 and kind = 'publishable' and revoked_at is null \
-           and jsonb_typeof(allowed_origins) = 'array' and jsonb_array_length(allowed_origins) > 0 \
-         order by created_at asc, id asc limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten()
+    let origin: Option<Option<String>> = commerce_channel_keys::Entity::find()
+        .select_only()
+        .column_as(first_origin(commerce_channel_keys::Entity), "origin")
+        .filter(commerce_channel_keys::Column::ChannelId.eq(channel_id))
+        .filter(has_origin(commerce_channel_keys::Entity))
+        .order_by_asc(commerce_channel_keys::Column::CreatedAt)
+        .order_by_asc(commerce_channel_keys::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .ok()
+        .flatten();
+    origin.flatten()
 }

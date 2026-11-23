@@ -430,6 +430,18 @@ pub(crate) fn error_response(error: &ReachError) -> Response {
     api.into_response()
 }
 
+/// A database error as the routes answer it: [`ReachError::unexpected`], as
+/// `weldsuite-reach-domain` does for its own SQL (ADR DATA-019).
+#[allow(clippy::needless_pass_by_value)] // used as a `map_err` function
+pub(crate) fn db_error(error: sea_orm::DbErr) -> ReachError {
+    ReachError::unexpected(&error)
+}
+
+/// A row as the routes answer it: the entity serializes it as Drizzle did.
+pub(crate) fn row_json<M: serde::Serialize>(row: M) -> Result<Value, ReachError> {
+    serde_json::to_value(row).map_err(|error| ReachError::unexpected(&error))
+}
+
 /// A handler's result as a response.
 pub(crate) fn respond(result: Result<Response, ReachError>) -> Response {
     result.unwrap_or_else(|error| error_response(&error))

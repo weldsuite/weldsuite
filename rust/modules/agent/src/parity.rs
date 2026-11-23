@@ -8,15 +8,25 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationDef,
+};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::weldagent_agent_skills::{self as links, Column as Link};
+use weldsuite_schema::tenant::weldagent_memories::{self as memories, Column as Memory};
+use weldsuite_schema::tenant::weldagent_skills::{self as skills, Column as Skill};
+use weldsuite_schema::tenant::weldagent_teach_sessions::{self as teach, Column as Teach};
+use weldsuite_schema::tenant::weldagent_templates::{self as templates, Column as Template};
 
 use crate::agent_routes::{Mode, agent_guard, cannot_grant, ungrantable};
-use crate::agents::{CreateAgent, UpdateAgent, create_agent, get_agent, update_agent};
+use crate::agents::{CreateAgent, UpdateAgent, create_agent, get_agent, js, now_tz, update_agent};
 use crate::routines::{
     NewRoutine, create_routine, create_routine_run, delete_routine, find_connector_routines,
     get_routine, list_routine_runs, list_routines, mark_routine_scheduled, reindex_workspace,
@@ -57,23 +67,29 @@ const SKILL_KEYS: [&str; 10] = [
     "updatedAt",
 ];
 
-fn skill_row(row: Value) -> Value {
-    let row = js_row(row);
-    let mut out = pick(&row, &SKILL_KEYS);
+fn skill_row(skill: skills::Model) -> Value {
+    let mut out = pick(&js(skill), &SKILL_KEYS);
     if out["steps"].is_null() {
         out["steps"] = json!([]);
     }
     out
 }
 
-async fn get_skill(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from weldagent_skills s where s.id = $1 and s.deleted_at is null",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(skill_row))
+async fn get_skill(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(skills::Entity::find_by_id(id.to_owned())
+        .filter(Skill::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(skill_row))
+}
+
+/// `join weldagent_agent_skills l on s.id = l.skill_id`: a skill's links to
+/// agents.
+fn skill_links() -> RelationDef {
+    skills::Entity::belongs_to(links::Entity)
+        .from(Skill::Id)
+        .to(Link::SkillId)
+        .into()
 }
 
 /// `createSkill`.
@@ -86,21 +102,20 @@ async fn create_skill(
     status: &str,
     created_by: Option<&str>,
     source_agent_id: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let id = generate_id("skl");
-    sqlx::query(
-        "insert into weldagent_skills (id, name, description, instructions, steps, status, created_by, source_agent_id)
-         values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)",
-    )
-    .bind(&id)
-    .bind(name.trim())
-    .bind(description)
-    .bind(instructions.trim())
-    .bind(steps)
-    .bind(status)
-    .bind(created_by)
-    .bind(source_agent_id)
-    .execute(db)
+    skills::Entity::insert(skills::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name.trim().to_owned()),
+        description: Set(description.map(str::to_owned)),
+        instructions: Set(instructions.trim().to_owned()),
+        steps: Set(steps.clone()),
+        status: Set(status.to_owned()),
+        created_by: Set(created_by.map(str::to_owned)),
+        source_agent_id: Set(source_agent_id.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(get_skill(db, &id).await?.unwrap_or(Value::Null))
 }
@@ -110,24 +125,27 @@ async fn enable_skill_for_agent(
     db: &PgPool,
     agent_id: &str,
     skill_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(skill) = get_skill(db, skill_id).await? else {
         return Ok(None);
     };
-    let relinked = sqlx::query(
-        "update weldagent_agent_skills set enabled = true where agent_id = $1 and skill_id = $2",
-    )
-    .bind(agent_id)
-    .bind(skill_id)
-    .execute(db)
-    .await?;
-    if relinked.rows_affected() == 0 {
-        sqlx::query("insert into weldagent_agent_skills (id, agent_id, skill_id, enabled) values ($1, $2, $3, true)")
-            .bind(generate_id("asl"))
-            .bind(agent_id)
-            .bind(skill_id)
-            .execute(db)
-            .await?;
+    let conn = orm(db);
+    let relinked = links::Entity::update_many()
+        .col_expr(Link::Enabled, Expr::value(true))
+        .filter(Link::AgentId.eq(agent_id))
+        .filter(Link::SkillId.eq(skill_id))
+        .exec(&conn)
+        .await?;
+    if relinked.rows_affected == 0 {
+        links::Entity::insert(links::ActiveModel {
+            id: Set(generate_id("asl")),
+            agent_id: Set(agent_id.to_owned()),
+            skill_id: Set(skill_id.to_owned()),
+            enabled: Set(true),
+            ..Default::default()
+        })
+        .exec_without_returning(&conn)
+        .await?;
     }
     Ok(Some(skill))
 }
@@ -177,13 +195,14 @@ pub(crate) struct StatusQuery {
 
 /// `GET /skills`.
 pub(crate) async fn skills_list(caller: Caller, Query(query): Query<StatusQuery>) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(s) from weldagent_skills s where s.deleted_at is null and ($1::text is null or s.status = $1)
-         order by s.updated_at desc",
-    )
-    .bind(query.status.as_deref().filter(|s| !s.is_empty()))
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = skills::Entity::find().filter(Skill::DeletedAt.is_null());
+    if let Some(status) = query.status.as_deref().filter(|s| !s.is_empty()) {
+        find = find.filter(Skill::Status.eq(status));
+    }
+    let rows = find
+        .order_by_desc(Skill::UpdatedAt)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(rows.into_iter().map(skill_row).collect::<Vec<_>>()).into_response(),
         Err(e) => failed(&e, CONTEXT, "Failed to list skills"),
@@ -227,22 +246,30 @@ pub(crate) async fn skills_update(
     };
     let result = async {
         if get_skill(&caller.db, &id).await?.is_none() {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         }
-        sqlx::query(
-            "update weldagent_skills set updated_at = $2::timestamptz, name = coalesce($3, name),
-               description = coalesce($4, description), instructions = coalesce($5, instructions),
-               steps = coalesce($6::jsonb, steps), status = coalesce($7, status) where id = $1",
-        )
-        .bind(&id)
-        .bind(crate::now())
-        .bind(data.name.as_deref().map(str::trim))
-        .bind(&data.description)
-        .bind(data.instructions.as_deref().map(str::trim))
-        .bind(data.steps.map(Value::Array))
-        .bind(&data.status)
-        .execute(&caller.db)
-        .await?;
+        // `coalesce($new, column)`: only what the body sent changes.
+        let mut update =
+            skills::Entity::update_many().col_expr(Skill::UpdatedAt, Expr::value(now_tz()));
+        if let Some(name) = data.name.as_deref() {
+            update = update.col_expr(Skill::Name, Expr::value(name.trim()));
+        }
+        if let Some(description) = data.description.as_deref() {
+            update = update.col_expr(Skill::Description, Expr::value(description));
+        }
+        if let Some(instructions) = data.instructions.as_deref() {
+            update = update.col_expr(Skill::Instructions, Expr::value(instructions.trim()));
+        }
+        if let Some(steps) = data.steps {
+            update = update.col_expr(Skill::Steps, Expr::value(Value::Array(steps)));
+        }
+        if let Some(status) = data.status.as_deref() {
+            update = update.col_expr(Skill::Status, Expr::value(status));
+        }
+        update
+            .filter(Skill::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         get_skill(&caller.db, &id).await
     }
     .await;
@@ -257,12 +284,14 @@ pub(crate) async fn skills_update(
 pub(crate) async fn skills_delete(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         if get_skill(&caller.db, &id).await?.is_none() {
-            return Ok::<_, sqlx::Error>(false);
+            return Ok::<_, DbErr>(false);
         }
-        sqlx::query("update weldagent_skills set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-            .bind(&id)
-            .bind(crate::now())
-            .execute(&caller.db)
+        let now = now_tz();
+        skills::Entity::update_many()
+            .col_expr(Skill::DeletedAt, Expr::value(now))
+            .col_expr(Skill::UpdatedAt, Expr::value(now))
+            .filter(Skill::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         Ok(true)
     }
@@ -274,27 +303,37 @@ pub(crate) async fn skills_delete(caller: Caller, Path(id): Path<String>) -> Res
     }
 }
 
+/// A skill with its link to one agent (`to_jsonb(s) || jsonb_build_object(
+/// 'enabled', l.enabled, 'link_id', l.id)`).
+#[derive(Debug, FromQueryResult)]
+struct LinkedSkill {
+    #[sea_orm(nested)]
+    skill: skills::Model,
+    link_enabled: bool,
+    link_id: String,
+}
+
 /// `GET /agents/:id/skills`: the agent's skills with whether each is on.
 pub(crate) async fn agent_skills(caller: Caller, Path(id): Path<String>) -> Response {
     if let Err(r) = agent_guard(&caller, &id, Mode::Access).await {
         return r;
     }
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(s) || jsonb_build_object('enabled', l.enabled, 'link_id', l.id)
-         from weldagent_agent_skills l join weldagent_skills s on s.id = l.skill_id
-         where l.agent_id = $1 and s.deleted_at is null",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = skills::Entity::find()
+        .join(JoinType::InnerJoin, skill_links())
+        .column_as(Link::Enabled, "link_enabled")
+        .column_as(Link::Id, "link_id")
+        .filter(Link::AgentId.eq(&id))
+        .filter(Skill::DeletedAt.is_null())
+        .into_model::<LinkedSkill>()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(
             rows.into_iter()
-                .map(|r| {
-                    let row = js_row(r);
-                    let mut out = skill_row(row.clone());
-                    out["enabled"] = row["enabled"].clone();
-                    out["linkId"] = row["linkId"].clone();
+                .map(|row| {
+                    let mut out = skill_row(row.skill);
+                    out["enabled"] = json!(row.link_enabled);
+                    out["linkId"] = json!(row.link_id);
                     out
                 })
                 .collect::<Vec<_>>(),
@@ -327,13 +366,12 @@ pub(crate) async fn agent_skill_disable(
     if let Err(r) = agent_guard(&caller, &id, Mode::Edit).await {
         return r;
     }
-    match sqlx::query(
-        "update weldagent_agent_skills set enabled = false where agent_id = $1 and skill_id = $2",
-    )
-    .bind(&id)
-    .bind(&skill_id)
-    .execute(&caller.db)
-    .await
+    match links::Entity::update_many()
+        .col_expr(Link::Enabled, Expr::value(false))
+        .filter(Link::AgentId.eq(&id))
+        .filter(Link::SkillId.eq(&skill_id))
+        .exec(&orm(&caller.db))
+        .await
     {
         Ok(_) => NoContent.into_response(),
         Err(e) => failed(&e, CONTEXT, "Failed to disable the skill"),
@@ -461,7 +499,7 @@ pub(crate) async fn routines_list(caller: Caller, Query(query): Query<AgentQuery
     let result = async {
         let visible = crate::agents::list_agents(&caller.db, None, &caller.viewer()).await?;
         let routines = list_routines(&caller.db, None).await?;
-        Ok::<_, sqlx::Error>(
+        Ok::<_, DbErr>(
             routines
                 .into_iter()
                 .filter(|r| visible.iter().any(|a| a["id"] == r["agentId"]))
@@ -697,14 +735,27 @@ const MEMORY_KEYS: [&str; 8] = [
     "updatedAt",
 ];
 
-async fn get_memory(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from weldagent_memories m where m.id = $1 and m.deleted_at is null",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|r| pick(&js_row(r), &MEMORY_KEYS)))
+async fn get_memory(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(memories::Entity::find_by_id(id.to_owned())
+        .filter(Memory::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|m| pick(&js(m), &MEMORY_KEYS)))
+}
+
+/// `select … from weldagent_memories where agent_id = $1 and deleted_at is
+/// null order by updated_at desc limit 100`.
+async fn agent_memories(db: &PgPool, agent_id: &str) -> Result<Vec<Value>, DbErr> {
+    Ok(memories::Entity::find()
+        .filter(Memory::AgentId.eq(agent_id))
+        .filter(Memory::DeletedAt.is_null())
+        .order_by_desc(Memory::UpdatedAt)
+        .limit(100)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect())
 }
 
 async fn create_memory(
@@ -714,17 +765,19 @@ async fn create_memory(
     content: &str,
     source: Option<&str>,
     created_by: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let id = generate_id("mem");
-    sqlx::query("insert into weldagent_memories (id, agent_id, kind, content, source, created_by) values ($1, $2, $3, $4, $5, $6)")
-        .bind(&id)
-        .bind(agent_id)
-        .bind(kind)
-        .bind(content.trim())
-        .bind(source)
-        .bind(created_by)
-        .execute(db)
-        .await?;
+    memories::Entity::insert(memories::ActiveModel {
+        id: Set(id.clone()),
+        agent_id: Set(agent_id.to_owned()),
+        kind: Set(kind.to_owned()),
+        content: Set(content.trim().to_owned()),
+        source: Set(source.map(str::to_owned)),
+        created_by: Set(created_by.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
+    .await?;
     Ok(get_memory(db, &id).await?.unwrap_or(Value::Null))
 }
 
@@ -733,17 +786,10 @@ pub(crate) async fn memories_list(caller: Caller, Path(id): Path<String>) -> Res
     if let Err(r) = agent_guard(&caller, &id, Mode::Access).await {
         return r;
     }
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(m) from weldagent_memories m where m.agent_id = $1 and m.deleted_at is null
-         order by m.updated_at desc limit 100",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
+    match agent_memories(&caller.db, &id).await {
         Ok(rows) => Data(
-            rows.into_iter()
-                .map(|r| pick(&js_row(r), &MEMORY_KEYS))
+            rows.iter()
+                .map(|r| pick(r, &MEMORY_KEYS))
                 .collect::<Vec<_>>(),
         )
         .into_response(),
@@ -828,15 +874,19 @@ pub(crate) async fn memories_update(
         return r;
     }
     let result = async {
-        sqlx::query(
-            "update weldagent_memories set updated_at = $2::timestamptz, content = coalesce($3, content), kind = coalesce($4, kind) where id = $1",
-        )
-        .bind(&id)
-        .bind(crate::now())
-        .bind(data.0.as_deref().map(str::trim))
-        .bind(&data.1)
-        .execute(&caller.db)
-        .await?;
+        // `coalesce($new, column)`: only what the body sent changes.
+        let mut update =
+            memories::Entity::update_many().col_expr(Memory::UpdatedAt, Expr::value(now_tz()));
+        if let Some(content) = data.0.as_deref() {
+            update = update.col_expr(Memory::Content, Expr::value(content.trim()));
+        }
+        if let Some(kind) = data.1.as_deref() {
+            update = update.col_expr(Memory::Kind, Expr::value(kind));
+        }
+        update
+            .filter(Memory::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         get_memory(&caller.db, &id).await
     }
     .await;
@@ -863,10 +913,12 @@ pub(crate) async fn memories_delete(caller: Caller, Path(id): Path<String>) -> R
     {
         return r;
     }
-    match sqlx::query("update weldagent_memories set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-        .bind(&id)
-        .bind(crate::now())
-        .execute(&caller.db)
+    let now = now_tz();
+    match memories::Entity::update_many()
+        .col_expr(Memory::DeletedAt, Expr::value(now))
+        .col_expr(Memory::UpdatedAt, Expr::value(now))
+        .filter(Memory::Id.eq(&id))
+        .exec(&orm(&caller.db))
         .await
     {
         Ok(_) => NoContent.into_response(),
@@ -889,21 +941,20 @@ const TEMPLATE_KEYS: [&str; 10] = [
     "updatedAt",
 ];
 
-fn template_row(row: Value) -> Value {
-    let mut out = pick(&js_row(row), &TEMPLATE_KEYS);
+fn template_row(template: templates::Model) -> Value {
+    let mut out = pick(&js(template), &TEMPLATE_KEYS);
     if out["payload"].is_null() {
         out["payload"] = json!({});
     }
     out
 }
 
-async fn template_by(db: &PgPool, column: &str, value: &str) -> Result<Option<Value>, sqlx::Error> {
-    let sql = format!(
-        "select to_jsonb(t) from weldagent_templates t where t.{column} = $1 and t.deleted_at is null"
-    );
-    Ok(sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql))
-        .bind(value)
-        .fetch_optional(db)
+/// The live template whose `column` (its id or its share token) is `value`.
+async fn template_by(db: &PgPool, column: Template, value: &str) -> Result<Option<Value>, DbErr> {
+    Ok(templates::Entity::find()
+        .filter(column.eq(value))
+        .filter(Template::DeletedAt.is_null())
+        .one(&orm(db))
         .await?
         .map(template_row))
 }
@@ -965,23 +1016,16 @@ pub(crate) async fn templates_export(caller: Caller, headers: HeaderMap, body: B
     }
     let result = async {
         let Some(agent) = get_agent(&caller.db, &data.agent_id).await? else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
-        let skills: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from weldagent_agent_skills l join weldagent_skills s on s.id = l.skill_id
-             where l.agent_id = $1 and s.deleted_at is null",
-        )
-        .bind(&data.agent_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let skills = skills::Entity::find()
+            .join(JoinType::InnerJoin, skill_links())
+            .filter(Link::AgentId.eq(&data.agent_id))
+            .filter(Skill::DeletedAt.is_null())
+            .all(&orm(&caller.db))
+            .await?;
         let routines = list_routines(&caller.db, Some(&data.agent_id)).await?;
-        let memories: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) from weldagent_memories m where m.agent_id = $1 and m.deleted_at is null
-             order by m.updated_at desc limit 100",
-        )
-        .bind(&data.agent_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let memories = agent_memories(&caller.db, &data.agent_id).await?;
         let payload = json!({
             "systemPrompt": agent["systemPrompt"], "permissions": agent["permissions"],
             "enabledTools": agent["enabledTools"], "modelId": agent["modelId"],
@@ -990,26 +1034,25 @@ pub(crate) async fn templates_export(caller: Caller, headers: HeaderMap, body: B
                 json!({ "name": s["name"], "description": s["description"], "instructions": s["instructions"], "steps": s["steps"] })
             }).collect::<Vec<_>>(),
             "routines": routines.iter().map(|r| pick(r, &["name", "instructions", "scheduleKind", "cronExpr", "timezone", "eventKey", "connectorConfig", "requireApproval"])).collect::<Vec<_>>(),
-            "memories": memories.into_iter().map(|m| pick(&js_row(m), &["kind", "content"])).filter(|m| m["kind"] == "preference" || m["kind"] == "fact").collect::<Vec<_>>(),
+            "memories": memories.iter().map(|m| pick(m, &["kind", "content"])).filter(|m| m["kind"] == "preference" || m["kind"] == "fact").collect::<Vec<_>>(),
         });
         let id = generate_id("tpl");
         let name = data.name.clone().unwrap_or_else(|| format!("{} template", agent["name"].as_str().unwrap_or("Agent")));
         let description = data.description.clone().or_else(|| agent["description"].as_str().map(str::to_owned));
-        sqlx::query(
-            "insert into weldagent_templates (id, name, description, payload, is_public, share_token, source_agent_id, created_by)
-             values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)",
-        )
-        .bind(&id)
-        .bind(name.trim())
-        .bind(description)
-        .bind(&payload)
-        .bind(data.is_public.unwrap_or(false))
-        .bind(share_token())
-        .bind(&data.agent_id)
-        .bind(&caller.user_id)
-        .execute(&caller.db)
+        templates::Entity::insert(templates::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.trim().to_owned()),
+            description: Set(description),
+            payload: Set(payload),
+            is_public: Set(data.is_public.unwrap_or(false)),
+            share_token: Set(Some(share_token())),
+            source_agent_id: Set(Some(data.agent_id.clone())),
+            created_by: Set(Some(caller.user_id.clone())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
-        template_by(&caller.db, "id", &id).await
+        template_by(&caller.db, Template::Id, &id).await
     }
     .await;
     match result {
@@ -1021,7 +1064,7 @@ pub(crate) async fn templates_export(caller: Caller, headers: HeaderMap, body: B
 
 /// `GET /templates/:id`.
 pub(crate) async fn templates_get(caller: Caller, Path(id): Path<String>) -> Response {
-    match template_by(&caller.db, "id", &id).await {
+    match template_by(&caller.db, Template::Id, &id).await {
         Ok(Some(t)) => Data(t).into_response(),
         Ok(None) => not_found("Template not found"),
         Err(e) => failed(&e, CONTEXT, "Failed to load the template"),
@@ -1030,7 +1073,7 @@ pub(crate) async fn templates_get(caller: Caller, Path(id): Path<String>) -> Res
 
 /// `GET /templates/share/:token`.
 pub(crate) async fn templates_share(caller: Caller, Path(token): Path<String>) -> Response {
-    match template_by(&caller.db, "share_token", &token).await {
+    match template_by(&caller.db, Template::ShareToken, &token).await {
         Ok(Some(t)) => Data(t).into_response(),
         Ok(None) => not_found("Template not found"),
         Err(e) => failed(&e, CONTEXT, "Failed to load the template"),
@@ -1072,12 +1115,12 @@ pub(crate) async fn templates_install(
     }
     let result = async {
         let template = match (&data.0, &data.1) {
-            (Some(id), _) => template_by(&caller.db, "id", id).await?,
-            (None, Some(token)) => template_by(&caller.db, "share_token", token).await?,
+            (Some(id), _) => template_by(&caller.db, Template::Id, id).await?,
+            (None, Some(token)) => template_by(&caller.db, Template::ShareToken, token).await?,
             (None, None) => None,
         };
         let Some(template) = template else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
         let payload = &template["payload"];
         let strings = |key: &str| -> Option<Vec<String>> {
@@ -1252,18 +1295,19 @@ pub(crate) async fn teach_start(
     }
     let result = async {
         let Some(agent) = get_agent(&caller.db, &id).await? else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
         let session_id = generate_id("tch");
-        sqlx::query(
-            "insert into weldagent_teach_sessions (id, agent_id, title, status, steps, created_by)
-             values ($1, $2, $3, 'recording', '[]'::jsonb, $4)",
-        )
-        .bind(&session_id)
-        .bind(agent["id"].as_str())
-        .bind(title.trim())
-        .bind(&caller.user_id)
-        .execute(&caller.db)
+        teach::Entity::insert(teach::ActiveModel {
+            id: Set(session_id.clone()),
+            agent_id: Set(agent["id"].as_str().unwrap_or_default().to_owned()),
+            title: Set(title.trim().to_owned()),
+            status: Set("recording".to_owned()),
+            steps: Set(json!([])),
+            created_by: Set(Some(caller.user_id.clone())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         Ok(Some(json!({ "id": session_id, "agentId": agent["id"], "title": title, "status": "recording", "steps": [] })))
     }
@@ -1275,10 +1319,28 @@ pub(crate) async fn teach_start(
     }
 }
 
-async fn teach_agent_id(db: &PgPool, id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("select agent_id from weldagent_teach_sessions where id = $1")
-        .bind(id)
-        .fetch_optional(db)
+async fn teach_agent_id(db: &PgPool, id: &str) -> Result<Option<String>, DbErr> {
+    teach::Entity::find()
+        .select_only()
+        .column(Teach::AgentId)
+        .filter(Teach::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// A teach session's `column` (its status or title) and its steps.
+async fn teach_steps(
+    db: &PgPool,
+    id: &str,
+    column: Teach,
+) -> Result<Option<(String, Value)>, DbErr> {
+    teach::Entity::find()
+        .select_only()
+        .columns([column, Teach::Steps])
+        .filter(Teach::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
         .await
 }
 
@@ -1311,13 +1373,9 @@ pub(crate) async fn teach_step(
         return r;
     }
     let result = async {
-        let row: Option<(String, Value)> =
-            sqlx::query_as("select status, steps from weldagent_teach_sessions where id = $1")
-                .bind(&id)
-                .fetch_optional(&caller.db)
-                .await?;
+        let row = teach_steps(&caller.db, &id, Teach::Status).await?;
         let Some((status, steps)) = row else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
         if status != "recording" {
             return Ok(None);
@@ -1326,10 +1384,10 @@ pub(crate) async fn teach_step(
         let mut step = step;
         step.insert("at".into(), json!(crate::now()));
         steps.push(Value::Object(step));
-        sqlx::query("update weldagent_teach_sessions set steps = $2::jsonb where id = $1")
-            .bind(&id)
-            .bind(Value::Array(steps.clone()))
-            .execute(&caller.db)
+        teach::Entity::update_many()
+            .col_expr(Teach::Steps, Expr::value(Value::Array(steps.clone())))
+            .filter(Teach::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         Ok(Some(json!({ "id": id, "steps": steps, "status": status })))
     }
@@ -1371,9 +1429,8 @@ pub(crate) async fn teach_stop(
         return r;
     }
     let result = async {
-        let row: Option<(String, Value)> =
-            sqlx::query_as("select title, steps from weldagent_teach_sessions where id = $1").bind(&id).fetch_optional(&caller.db).await?;
-        let Some((title, steps)) = row else { return Ok::<_, sqlx::Error>(None) };
+        let row = teach_steps(&caller.db, &id, Teach::Title).await?;
+        let Some((title, steps)) = row else { return Ok::<_, DbErr>(None) };
         let list = steps.as_array().cloned().unwrap_or_default();
         let mut skill_id: Option<String> = None;
         if make_skill != Some(false) {
@@ -1397,14 +1454,13 @@ pub(crate) async fn teach_stop(
             enable_skill_for_agent(&caller.db, &agent_id, &sid).await?;
             skill_id = Some(sid);
         }
-        sqlx::query(
-            "update weldagent_teach_sessions set status = 'stopped', stopped_at = $2::timestamptz, skill_id = $3 where id = $1",
-        )
-        .bind(&id)
-        .bind(crate::now())
-        .bind(&skill_id)
-        .execute(&caller.db)
-        .await?;
+        teach::Entity::update_many()
+            .col_expr(Teach::Status, Expr::value("stopped"))
+            .col_expr(Teach::StoppedAt, Expr::value(now_tz()))
+            .col_expr(Teach::SkillId, Expr::value(skill_id.clone()))
+            .filter(Teach::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Some(json!({ "id": id, "status": "stopped", "skillId": skill_id, "steps": steps })))
     }
     .await;
@@ -1495,7 +1551,7 @@ pub(crate) async fn connector_event(
                     .unwrap_or_default(),
             )
             .await?;
-            Ok::<_, sqlx::Error>(run_id)
+            Ok::<_, DbErr>(run_id)
         }
         .await;
         match step {
@@ -1566,9 +1622,20 @@ mod tests {
 
     #[test]
     fn skills_read_with_steps_and_without_the_extras() {
-        let row = json!({ "id": "skl_1", "name": "n", "instructions": "i", "status": "draft", "steps": null,
-            "created_at": "2026-11-13T10:00:00.5+00:00", "deleted_at": null });
-        let skill = skill_row(row);
+        let at = time::macros::datetime!(2026-11-13 10:00:00.5 UTC);
+        let skill = skill_row(skills::Model {
+            id: "skl_1".into(),
+            name: "n".into(),
+            description: None,
+            instructions: "i".into(),
+            status: "draft".into(),
+            steps: Value::Null,
+            created_by: None,
+            source_agent_id: None,
+            created_at: at,
+            updated_at: at,
+            deleted_at: None,
+        });
         assert_eq!(skill["steps"], json!([]));
         assert!(skill.get("deletedAt").is_none());
         assert_eq!(skill["createdAt"], "2026-11-13T10:00:00.500Z");

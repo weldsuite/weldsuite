@@ -262,7 +262,8 @@ pub async fn update_agent(
         enabled = Some(tools);
     }
 
-    let mut update = agents::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now_tz()));
+    let mut update =
+        agents::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now_tz()));
     macro_rules! set {
         ($column:expr, $value:expr) => {
             if let Some(value) = $value {
@@ -314,10 +315,7 @@ pub async fn update_agent(
     set_json!(Column::SubagentIds, input.subagent_ids);
     set!(Column::DelegateToSelf, input.delegate_to_self);
     set!(Column::Status, input.status);
-    update
-        .filter(Column::Id.eq(id))
-        .exec(&orm(db))
-        .await?;
+    update.filter(Column::Id.eq(id)).exec(&orm(db)).await?;
     get_agent(db, id).await
 }
 
@@ -446,11 +444,7 @@ pub async fn delete_agent(db: &PgPool, id: &str) -> Result<bool, DbErr> {
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn list_agent_runs(
-    db: &PgPool,
-    agent_id: &str,
-    limit: i64,
-) -> Result<Vec<Value>, DbErr> {
+pub async fn list_agent_runs(db: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<Value>, DbErr> {
     Ok(runs::Entity::find()
         .filter(runs::Column::AgentId.eq(agent_id))
         .order_by_desc(runs::Column::CreatedAt)

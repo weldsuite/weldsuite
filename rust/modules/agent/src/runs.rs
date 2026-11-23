@@ -98,9 +98,18 @@ pub async fn complete_agent_run(
         .col_expr(Column::DurationMs, duration)
         .col_expr(Column::Result, Expr::value(done.result))
         .col_expr(Column::Error, Expr::value(done.error))
-        .col_expr(Column::TotalIterations, Expr::value(int4(done.total_iterations)?))
-        .col_expr(Column::TotalTokensUsed, Expr::value(int4(done.total_tokens_used)?))
-        .col_expr(Column::ToolCallCount, Expr::value(int4(done.tool_call_count)?))
+        .col_expr(
+            Column::TotalIterations,
+            Expr::value(int4(done.total_iterations)?),
+        )
+        .col_expr(
+            Column::TotalTokensUsed,
+            Expr::value(int4(done.total_tokens_used)?),
+        )
+        .col_expr(
+            Column::ToolCallCount,
+            Expr::value(int4(done.tool_call_count)?),
+        )
         .filter(Column::Id.eq(run_id))
         .exec(&conn)
         .await?;
@@ -156,8 +165,8 @@ pub async fn has_existing_agent_run_for_event(
     agent_id: &str,
     event_id: &str,
 ) -> Result<bool, DbErr> {
-    use sea_orm::sea_query::extension::postgres::PgExpr as _;
     use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
     let found: Option<String> = runs::Entity::find()
         .select_only()
         .column(Column::Id)

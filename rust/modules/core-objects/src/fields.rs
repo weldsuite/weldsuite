@@ -11,21 +11,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CUSTOM_FIELD_CREATED, CUSTOM_FIELD_DELETED, CUSTOM_FIELD_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{SETTINGS_MANAGE, SETTINGS_READ};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::is_custom_object_entity_key;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, js_trim};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::custom_field_definitions::{self, Column, Entity};
 
 use crate::js::{Js, parse_body, stringify};
 use crate::objects::{field_json, reorder_items};
 use crate::{
-    Answer, Caller, CoreObjectsState, Refusal, Rejected, STAMPS, answer, change, now, row,
-    validate, validate_query,
+    Answer, Caller, CoreObjectsState, Refusal, Rejected, answer, change, int4, json_row, validate,
+    validate_query,
 };
 
 const FIELD_TYPES: [&str; 15] = [
@@ -101,8 +108,8 @@ fn has_usable_select_options(field_type: &str, options: Option<&Value>) -> bool 
 }
 
 /// Definitions as the routes return them.
-fn definitions(rows: Vec<Value>) -> Vec<Value> {
-    rows.into_iter().map(|r| row(r, &STAMPS)).collect()
+fn definitions(rows: Vec<custom_field_definitions::Model>) -> Result<Vec<Value>, DbErr> {
+    rows.into_iter().map(json_row).collect()
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────
@@ -115,15 +122,16 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from custom_field_definitions d
-              where deleted_at is null and ($1::text is null or entity_type = $1)
-              order by sort_order asc, created_at asc",
-        )
-        .bind(entity_type)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(Data(definitions(rows)).into_response())
+        let rows = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .apply_if(entity_type, |query, entity_type| {
+                query.filter(Column::EntityType.eq(entity_type))
+            })
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::CreatedAt)
+            .all(&orm(&caller.db))
+            .await?;
+        Ok(Data(definitions(rows)?).into_response())
     }
     .await;
     answer(result, "Failed to list custom field definitions")
@@ -131,14 +139,14 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn grouped(caller: Caller) -> Response {
     let result: Answer = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from custom_field_definitions d
-              where deleted_at is null order by entity_type asc, sort_order asc",
-        )
-        .fetch_all(&caller.db)
-        .await?;
+        let rows = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::EntityType)
+            .order_by_asc(Column::SortOrder)
+            .all(&orm(&caller.db))
+            .await?;
         let mut out = Map::new();
-        for field in definitions(rows) {
+        for field in definitions(rows)? {
             let key = field["entityType"].as_str().unwrap_or_default().to_owned();
             if let Value::Array(list) = out.entry(key).or_insert_with(|| json!([])) {
                 list.push(field);
@@ -150,19 +158,18 @@ async fn grouped(caller: Caller) -> Response {
     answer(result, "Failed to list custom field definitions")
 }
 
-async fn fetch(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from custom_field_definitions d where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(raw.map(|r| row(r, &STAMPS)))
+async fn fetch(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let field = Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    field.map(json_row).transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Answer = async {
-        let field = fetch(&caller, &id)
+        let field = fetch(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("Custom field definition", &id))?;
         Ok(Data(field).into_response())
@@ -180,16 +187,15 @@ async fn reorder(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     };
     let result: Answer = async {
         // Independent rows, no transaction, as in TypeScript.
+        let db = &orm(&caller.db);
         for (id, order) in &items {
-            sqlx::query(
-                "update custom_field_definitions set sort_order = $2::int, updated_at = $3::timestamp
-                  where id = $1 and deleted_at is null",
-            )
-            .bind(id)
-            .bind(order)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            Entity::update_many()
+                .col_expr(Column::SortOrder, Expr::value(int4(*order)?))
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(Column::Id.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(db)
+                .await?;
         }
         Ok(Data(json!({ "reordered": items.len() })).into_response())
     }
@@ -341,7 +347,7 @@ async fn create(
             .respond("Failed to create custom field definition");
     }
     let result: Answer = async {
-        let db = &caller.db;
+        let db = &orm(&caller.db);
         if is_custom_object_entity_key(&input.entity_type) && is_reserved_field_slug(&input.slug) {
             return Err(Refusal::bad_request(format!(
                 "'{}' is reserved and cannot be used as a field name on a custom object",
@@ -349,17 +355,19 @@ async fn create(
             )));
         }
         let ticket_type = input.ticket_type_id.as_set().filter(|t| !t.is_empty());
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from custom_field_definitions
-              where entity_type = $1 and slug = $2 and deleted_at is null
-                and (case when $3::text is null then ticket_type_id is null else ticket_type_id = $3 end)
-              limit 1",
-        )
-        .bind(&input.entity_type)
-        .bind(&input.slug)
-        .bind(ticket_type)
-        .fetch_optional(db)
-        .await?;
+        let existing: Option<String> = Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::EntityType.eq(&input.entity_type))
+            .filter(Column::Slug.eq(&input.slug))
+            .filter(Column::DeletedAt.is_null())
+            .filter(match ticket_type {
+                None => Column::TicketTypeId.is_null(),
+                Some(ticket_type) => Column::TicketTypeId.eq(ticket_type),
+            })
+            .into_tuple()
+            .one(db)
+            .await?;
         if existing.is_some() {
             return Err(Refusal::conflict(format!(
                 "A custom field with slug '{}' already exists for entity type '{}'",
@@ -367,28 +375,27 @@ async fn create(
             )));
         }
         let id = generate_id("cfld");
-        sqlx::query(
-            "insert into custom_field_definitions
-                 (id, entity_type, name, slug, description, field_type, options, config, required,
-                  sort_order, \"group\", ticket_type_id, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::int, $11, $12, $13::timestamp, $13::timestamp)",
-        )
-        .bind(&id)
-        .bind(&input.entity_type)
-        .bind(input.name.as_set())
-        .bind(&input.slug)
-        .bind(input.description.as_set())
-        .bind(&field_type)
-        .bind(&options)
-        .bind(input.config.as_set().map(crate::js::whole_numbers))
-        .bind(input.required.as_set().copied().unwrap_or(false))
-        .bind(input.sort_order.as_set().copied().unwrap_or(0))
-        .bind(input.group.as_set())
-        .bind(input.ticket_type_id.as_set())
-        .bind(now())
-        .execute(db)
+        let now = utc_now();
+        Entity::insert(custom_field_definitions::ActiveModel {
+            id: Set(id.clone()),
+            entity_type: Set(input.entity_type.clone()),
+            name: Set(input.name.as_set().cloned().unwrap_or_default()),
+            slug: Set(input.slug.clone()),
+            description: Set(input.description.as_set().cloned()),
+            field_type: Set(field_type.clone()),
+            options: Set(options.clone()),
+            config: Set(input.config.as_set().map(crate::js::whole_numbers)),
+            required: Set(Some(input.required.as_set().copied().unwrap_or(false))),
+            sort_order: Set(Some(int4(input.sort_order.as_set().copied().unwrap_or(0))?)),
+            group: Set(input.group.as_set().cloned()),
+            ticket_type_id: Set(input.ticket_type_id.as_set().cloned()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(db)
         .await?;
-        let created = fetch(&caller, &id).await?;
+        let created = fetch(&caller.db, &id).await?;
         let mut data = Map::new();
         data.insert("id".to_owned(), json!(id));
         data.extend(input.data);
@@ -459,8 +466,7 @@ async fn update(
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        let db = &caller.db;
-        let existing = fetch(&caller, &id)
+        let existing = fetch(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("Custom field definition", &id))?;
         let next_type = input.field_type.as_set().cloned().unwrap_or_else(|| {
@@ -480,48 +486,12 @@ async fn update(
                 "A {next_type} field needs at least one option"
             )));
         }
-        let (set_name, name) = change(&input.name);
-        let (set_description, description) = change(&input.description);
-        let (set_type, field_type) = change(&input.field_type);
-        let (set_options, options) = change(&input.options);
-        let (set_config, config) = change(&input.config);
-        let (set_required, required) = change(&input.required);
-        let (set_order, order) = change(&input.sort_order);
-        let (set_group, group) = change(&input.group);
-        sqlx::query(
-            "update custom_field_definitions set
-                 name = case when $2 then $3 else name end,
-                 description = case when $4 then $5 else description end,
-                 field_type = case when $6 then $7 else field_type end,
-                 options = case when $8 then $9 else options end,
-                 config = case when $10 then $11 else config end,
-                 required = case when $12 then $13 else required end,
-                 sort_order = case when $14 then $15::int else sort_order end,
-                 \"group\" = case when $16 then $17 else \"group\" end,
-                 updated_at = $18::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(set_name)
-        .bind(name)
-        .bind(set_description)
-        .bind(description)
-        .bind(set_type)
-        .bind(field_type)
-        .bind(set_options)
-        .bind(options.map(Value::Array))
-        .bind(set_config)
-        .bind(config.as_ref().map(crate::js::whole_numbers))
-        .bind(set_required)
-        .bind(required)
-        .bind(set_order)
-        .bind(order)
-        .bind(set_group)
-        .bind(group)
-        .bind(now())
-        .execute(db)
-        .await?;
-        let updated = fetch(&caller, &id).await?;
+        definition_update(&input)?
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
+        let updated = fetch(&caller.db, &id).await?;
         if let Some(changes) = definition_changes(&existing, &input.data, &parse_body(&body)) {
             let mut data = Map::new();
             data.insert("id".to_owned(), json!(id));
@@ -540,6 +510,37 @@ async fn update(
     answer(result, "Failed to update custom field definition")
 }
 
+/// The columns a `PUT` sets: only the fields the body sent.
+fn definition_update(input: &FieldInput) -> Result<sea_orm::UpdateMany<Entity>, DbErr> {
+    let mut update = Entity::update_many();
+    if let (true, name) = change(&input.name) {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if let (true, description) = change(&input.description) {
+        update = update.col_expr(Column::Description, Expr::value(description));
+    }
+    if let (true, field_type) = change(&input.field_type) {
+        update = update.col_expr(Column::FieldType, Expr::value(field_type));
+    }
+    if let (true, options) = change(&input.options) {
+        update = update.col_expr(Column::Options, Expr::value(options.map(Value::Array)));
+    }
+    if let (true, config) = change(&input.config) {
+        let config = config.as_ref().map(crate::js::whole_numbers);
+        update = update.col_expr(Column::Config, Expr::value(config));
+    }
+    if let (true, required) = change(&input.required) {
+        update = update.col_expr(Column::Required, Expr::value(required));
+    }
+    if let (true, order) = change(&input.sort_order) {
+        update = update.col_expr(Column::SortOrder, Expr::value(order.map(int4).transpose()?));
+    }
+    if let (true, group) = change(&input.group) {
+        update = update.col_expr(Column::Group, Expr::value(group));
+    }
+    Ok(update)
+}
+
 // ── DELETE /:id ────────────────────────────────────────────────────────────
 
 async fn remove(
@@ -548,17 +549,16 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result: Answer = async {
-        fetch(&caller, &id)
+        fetch(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("Custom field definition", &id))?;
-        let now = now();
-        sqlx::query(
-            "update custom_field_definitions set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        let now = utc_now();
+        Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, CUSTOM_FIELD_DELETED, &id, &json!({ "id": id }));
         Ok(Data(json!({ "deleted": true })).into_response())
     }

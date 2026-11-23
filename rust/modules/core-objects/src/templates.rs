@@ -10,19 +10,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QueryTrait,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     OBJECT_TEMPLATE_CREATED, OBJECT_TEMPLATE_DELETED, OBJECT_TEMPLATE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{COMPANIES_READ, COMPANIES_UPDATE};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::object_templates::{self, Column, Entity};
 
 use crate::objects::is_lower_slug;
 use crate::{
-    Answer, Caller, CoreObjectsState, Refusal, Rejected, STAMPS, all, answer, change, now,
-    query_param, row, validate,
+    Answer, Caller, CoreObjectsState, Refusal, Rejected, all, answer, change, int4, json_row,
+    query_param, validate,
 };
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreObjectsState>
@@ -51,33 +57,34 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     // Any slug-shaped entity type; anything else is ignored, not refused.
     let entity_type = query_param(query.as_deref(), "entityType").filter(|t| is_lower_slug(t));
     let result: Answer = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from object_templates t
-              where deleted_at is null and ($1::text is null or entity_type = $1)
-              order by sort_order asc, name asc",
-        )
-        .bind(entity_type)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(all(rows.into_iter().map(|r| row(r, &STAMPS)).collect()))
+        let rows = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .apply_if(entity_type, |query, entity_type| {
+                query.filter(Column::EntityType.eq(entity_type))
+            })
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::Name)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows.into_iter().map(json_row).collect::<Result<_, _>>()?;
+        Ok(all(rows))
     }
     .await;
     answer(result, "Failed to list object templates")
 }
 
-async fn fetch(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from object_templates t where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(raw.map(|r| row(r, &STAMPS)))
+async fn fetch(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let template = Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    template.map(json_row).transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result: Answer = async {
-        let template = fetch(&caller, &id)
+        let template = fetch(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("CRM template", &id))?;
         Ok(Data(template).into_response())
@@ -167,24 +174,23 @@ async fn create(
     };
     let result: Answer = async {
         let id = generate_id("crmtpl");
-        let created: Value = sqlx::query_scalar(
-            "insert into object_templates
-                 (id, entity_type, name, slug, description, fields, is_default, sort_order, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::int, $9::timestamp, $9::timestamp)
-             returning to_jsonb(object_templates)",
-        )
-        .bind(&id)
-        .bind(input.entity_type.as_set())
-        .bind(input.name.as_set())
-        .bind(input.slug.as_set())
-        .bind(input.description.as_set())
-        .bind(json!(input.fields.as_set()))
-        .bind(input.is_default.as_set().copied().unwrap_or(false))
-        .bind(input.sort_order.as_set().copied().unwrap_or(0))
-        .bind(now())
-        .fetch_one(&caller.db)
+        let now = utc_now();
+        let created = Entity::insert(object_templates::ActiveModel {
+            id: Set(id.clone()),
+            entity_type: Set(input.entity_type.as_set().cloned().unwrap_or_default()),
+            name: Set(input.name.as_set().cloned().unwrap_or_default()),
+            slug: Set(input.slug.as_set().cloned().unwrap_or_default()),
+            description: Set(input.description.as_set().cloned()),
+            fields: Set(json!(input.fields.as_set())),
+            is_default: Set(input.is_default.as_set().copied().unwrap_or(false)),
+            sort_order: Set(int4(input.sort_order.as_set().copied().unwrap_or(0))?),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(&caller.db))
         .await?;
-        let created = row(created, &STAMPS);
+        let created = json_row(created)?;
         caller.publish(&state, OBJECT_TEMPLATE_CREATED, &id, &created);
         Ok(Created(created).into_response())
     }
@@ -204,44 +210,38 @@ async fn edit(
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        fetch(&caller, &id)
+        fetch(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("CRM template", &id))?;
-        let (set_name, name) = change(&input.name);
-        let (set_slug, slug) = change(&input.slug);
-        let (set_description, description) = change(&input.description);
-        let (set_fields, field_list) = change(&input.fields);
-        let (set_default, is_default) = change(&input.is_default);
-        let (set_order, order) = change(&input.sort_order);
-        let updated: Option<Value> = sqlx::query_scalar(
-            "update object_templates set
-                 name = case when $2 then $3 else name end,
-                 slug = case when $4 then $5 else slug end,
-                 description = case when $6 then $7 else description end,
-                 fields = case when $8 then $9 else fields end,
-                 is_default = case when $10 then $11 else is_default end,
-                 sort_order = case when $12 then $13::int else sort_order end,
-                 updated_at = $14::timestamp
-             where id = $1 and deleted_at is null
-             returning to_jsonb(object_templates)",
-        )
-        .bind(&id)
-        .bind(set_name)
-        .bind(name)
-        .bind(set_slug)
-        .bind(slug)
-        .bind(set_description)
-        .bind(description)
-        .bind(set_fields)
-        .bind(field_list.map(|f| json!(f)))
-        .bind(set_default)
-        .bind(is_default)
-        .bind(set_order)
-        .bind(order)
-        .bind(now())
-        .fetch_optional(&caller.db)
-        .await?;
-        let updated = updated.map_or(Value::Null, |u| row(u, &STAMPS));
+        let mut update = Entity::update_many();
+        if let (true, name) = change(&input.name) {
+            update = update.col_expr(Column::Name, Expr::value(name));
+        }
+        if let (true, slug) = change(&input.slug) {
+            update = update.col_expr(Column::Slug, Expr::value(slug));
+        }
+        if let (true, description) = change(&input.description) {
+            update = update.col_expr(Column::Description, Expr::value(description));
+        }
+        if let (true, field_list) = change(&input.fields) {
+            update = update.col_expr(Column::Fields, Expr::value(field_list.map(|f| json!(f))));
+        }
+        if let (true, is_default) = change(&input.is_default) {
+            update = update.col_expr(Column::IsDefault, Expr::value(is_default));
+        }
+        if let (true, order) = change(&input.sort_order) {
+            update = update.col_expr(Column::SortOrder, Expr::value(order.map(int4).transpose()?));
+        }
+        let updated = update
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(&id))
+            .filter(Column::DeletedAt.is_null())
+            .exec_with_returning(&orm(&caller.db))
+            .await?;
+        let updated = updated
+            .into_iter()
+            .next()
+            .map_or(Ok(Value::Null), json_row)?;
         caller.publish(&state, OBJECT_TEMPLATE_UPDATED, &id, &updated);
         Ok(Data(updated).into_response())
     }
@@ -255,12 +255,13 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result: Answer = async {
-        fetch(&caller, &id).await?.ok_or_else(|| Refusal::not_found("CRM template", &id))?;
-        let now = now();
-        sqlx::query("update object_templates set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
+        fetch(&caller.db, &id).await?.ok_or_else(|| Refusal::not_found("CRM template", &id))?;
+        let now = utc_now();
+        Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(&state, OBJECT_TEMPLATE_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())

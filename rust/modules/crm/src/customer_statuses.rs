@@ -6,16 +6,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CUSTOMER_STATUS_CREATED, CUSTOMER_STATUS_DELETED, CUSTOMER_STATUS_UPDATED,
 };
-use weldsuite_crm_domain::drizzle_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::crm_customer_statuses::{self as statuses, Column};
 
+use crate::orm_rows::json;
 use crate::schema::{self, OPT, REQ, Spec, int, partial, s};
-use crate::{Answer, Caller, CrmState, answer, now, validate};
+use crate::{Answer, Caller, CrmState, answer, validate};
 
 const LOG: &str = "customer-statuses";
 
@@ -76,42 +80,40 @@ fn status_input(
     out
 }
 
-async fn ordered(caller: &Caller) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_customer_statuses t where deleted_at is null
-         order by sort_order asc, name asc",
-    )
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(rows.into_iter().map(drizzle_row).collect())
+/// The live statuses by `sortOrder`, then name.
+async fn ordered(caller: &Caller) -> Result<Vec<Value>, DbErr> {
+    statuses::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::SortOrder)
+        .order_by_asc(Column::Name)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(|row| json(serde_json::to_value(row)))
+        .collect()
 }
 
-async fn by_id(caller: &Caller, id: &str, live: bool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_customer_statuses t
-         where id = $1 and (not $2 or deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+/// The status `id`; `live` skips a deleted one.
+async fn by_id(caller: &Caller, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut find = statuses::Entity::find_by_id(id.to_owned());
+    if live {
+        find = find.filter(Column::DeletedAt.is_null());
+    }
+    let row = find.one(&orm(&caller.db)).await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
 }
 
 /// A live status other than `except` with this slug.
-async fn slug_taken(
-    caller: &Caller,
-    slug: &str,
-    except: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from crm_customer_statuses
-         where slug = $1 and deleted_at is null and ($2::text is null or id <> $2) limit 1",
-    )
-    .bind(slug)
-    .bind(except)
-    .fetch_optional(&caller.db)
-    .await?;
+async fn slug_taken(caller: &Caller, slug: &str, except: Option<&str>) -> Result<bool, DbErr> {
+    let mut find = statuses::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::Slug.eq(slug))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(except) = except {
+        find = find.filter(Column::Id.ne(except));
+    }
+    let found: Option<String> = find.into_tuple().one(&orm(&caller.db)).await?;
     Ok(found.is_some())
 }
 
@@ -154,16 +156,18 @@ pub(crate) async fn reorder(
         Err(refusal) => return refusal.respond(LOG, "Invalid request body"),
     };
     let result: Answer = async {
+        let db = orm(&caller.db);
         for (index, id) in ids.iter().enumerate() {
-            sqlx::query(
-                "update crm_customer_statuses set sort_order = $2, updated_at = $3::timestamp
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id)
-            .bind(i32::try_from(index).unwrap_or(i32::MAX))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            statuses::Entity::update_many()
+                .col_expr(
+                    Column::SortOrder,
+                    Expr::value(i32::try_from(index).unwrap_or(i32::MAX)),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(Column::Id.eq(id.as_str()))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&db)
+                .await?;
         }
         let data = ordered(&caller).await?;
         let first = ids.first().map_or("reorder", String::as_str);
@@ -200,23 +204,29 @@ pub(crate) async fn create(
             return Ok(ApiError::conflict(format!("Slug '{slug}' is already in use")).into_response());
         }
         let id = generate_id("ccst");
-        let now = now();
-        sqlx::query(
-            "insert into crm_customer_statuses (id, name, slug, color, sort_order, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6::timestamp, $6::timestamp)",
-        )
-        .bind(&id)
-        .bind(data.get("name").and_then(Value::as_str))
-        .bind(slug)
-        .bind(data.get("color").and_then(Value::as_str))
-        .bind(
-            data.get("sortOrder")
+        let now = utc_now();
+        // `name` and `color` are required by the schema.
+        let text = |key: &str| {
+            data.get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        statuses::Entity::insert(statuses::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(text("name")),
+            slug: Set(slug.to_owned()),
+            color: Set(text("color")),
+            sort_order: Set(data
+                .get("sortOrder")
                 .and_then(Value::as_i64)
                 .and_then(|n| i32::try_from(n).ok())
-                .unwrap_or(0),
-        )
-        .bind(&now)
-        .execute(&caller.db)
+                .unwrap_or(0)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = by_id(&caller, &id, false).await?;
         caller.publish(
@@ -258,28 +268,29 @@ pub(crate) async fn update(
                 );
             }
         }
-        let text = |key: &str| data.get(key).and_then(Value::as_str);
-        sqlx::query(
-            "update crm_customer_statuses set
-                 updated_at = $2::timestamp,
-                 name = coalesce($3, name),
-                 slug = coalesce($4, slug),
-                 color = coalesce($5, color),
-                 sort_order = coalesce($6, sort_order)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text("name"))
-        .bind(text("slug"))
-        .bind(text("color"))
-        .bind(
-            data.get("sortOrder")
-                .and_then(Value::as_i64)
-                .and_then(|n| i32::try_from(n).ok()),
-        )
-        .execute(&caller.db)
-        .await?;
+        // `coalesce(<sent>, <column>)`: only what the body sent changes.
+        let mut update = statuses::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        for (key, column) in [
+            ("name", Column::Name),
+            ("slug", Column::Slug),
+            ("color", Column::Color),
+        ] {
+            if let Some(text) = data.get(key).and_then(Value::as_str) {
+                update = update.col_expr(column, Expr::value(text));
+            }
+        }
+        if let Some(order) = data
+            .get("sortOrder")
+            .and_then(Value::as_i64)
+            .and_then(|n| i32::try_from(n).ok())
+        {
+            update = update.col_expr(Column::SortOrder, Expr::value(order));
+        }
+        update
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         let row = by_id(&caller, &id, false).await?;
         let name = row
             .as_ref()
@@ -307,14 +318,13 @@ pub(crate) async fn remove(
         if by_id(&caller, &id, true).await?.is_none() {
             return Ok(ApiError::not_found("Customer status", Some(&id)).into_response());
         }
-        sqlx::query(
-            "update crm_customer_statuses set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        statuses::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, CUSTOMER_STATUS_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     }

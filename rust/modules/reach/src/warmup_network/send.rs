@@ -14,6 +14,9 @@
 //! An `Err` (a database error, or the transport failing outright) retries
 //! the queue message.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
+use weldsuite_db::orm;
 use weldsuite_reach_domain::from_epoch_ms;
 use weldsuite_reach_domain::smtp::{
     MailAddress, OutgoingMessage, SmtpConfig, SmtpEnvelope, SmtpSendResult, build_mime_message,
@@ -22,9 +25,11 @@ use weldsuite_reach_domain::smtp::{
 use super::WarmupNetwork;
 use super::clock::{MINUTE_MS, Rng, js_date, random_between};
 use super::corpus::{load_corpus_for_lookup, render_corpus_message};
+use weldsuite_schema::master::reach_warmup_messages::{self as messages, Column};
+
 use super::db::{
-    PoolMailbox, WarmupMessage, clip_error, is_eligible, load_mailboxes, load_message, open_login,
-    take_claim, ts,
+    PoolMailbox, WarmupMessage, at, clip_error, is_eligible, load_mailboxes, load_message,
+    open_login, take_claim,
 };
 use super::pool_state::{pause_for_credentials, record_login_failure, record_login_success};
 
@@ -43,23 +48,29 @@ pub enum SendOutcome {
 }
 
 #[allow(clippy::needless_pass_by_value)] // map_err hands it over
-fn db(error: sqlx::Error) -> String {
+fn db(error: DbErr) -> String {
     error.to_string()
+}
+
+/// `status = 'failed', error = …, claimed_at = null` on a row that is still
+/// `scheduled`.
+async fn record_failed(net: &WarmupNetwork, id: &str, error: &str) -> Result<(), DbErr> {
+    messages::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("failed"))
+        .col_expr(Column::Error, Expr::value(error))
+        .col_expr(Column::ClaimedAt, Expr::null())
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("scheduled"))
+        .exec(&orm(&net.master))
+        .await?;
+    Ok(())
 }
 
 /// `settle(ctx, id, patch)` for a failure: free the claim and record it.
 /// Only touches a row that is still `scheduled`.
 async fn fail(net: &WarmupNetwork, id: &str, error: &str) -> Result<SendOutcome, String> {
     let text = clip_error(error);
-    sqlx::query(
-        "update reach_warmup_messages set status = 'failed', error = $2, claimed_at = null
-         where id = $1 and status = 'scheduled'",
-    )
-    .bind(id)
-    .bind(&text)
-    .execute(&net.master)
-    .await
-    .map_err(db)?;
+    record_failed(net, id, &text).await.map_err(db)?;
     Ok(SendOutcome::Failed(text))
 }
 
@@ -73,18 +84,23 @@ async fn record_sent(
 ) -> Result<(), String> {
     let delay =
         random_between(rng, ENGAGE_DELAY_MIN_MINUTES, ENGAGE_DELAY_MAX_MINUTES) * MINUTE_MS as f64;
-    sqlx::query(
-        "update reach_warmup_messages set status = 'sent', sent_at = $2::timestamptz,
-           engage_at = $3::timestamptz, error = $4, claimed_at = null
-         where id = $1 and status = 'scheduled'",
-    )
-    .bind(id)
-    .bind(ts(now))
-    .bind(ts(js_date(now as f64 + delay)))
-    .bind(uncertain.then_some("delivery_uncertain"))
-    .execute(&net.master)
-    .await
-    .map_err(db)?;
+    messages::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("sent"))
+        .col_expr(Column::SentAt, Expr::value(at(now)))
+        .col_expr(
+            Column::EngageAt,
+            Expr::value(at(js_date(now as f64 + delay))),
+        )
+        .col_expr(
+            Column::Error,
+            Expr::value(uncertain.then(|| "delivery_uncertain".to_owned())),
+        )
+        .col_expr(Column::ClaimedAt, Expr::null())
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("scheduled"))
+        .exec(&orm(&net.master))
+        .await
+        .map_err(db)?;
     Ok(())
 }
 
@@ -158,14 +174,9 @@ pub async fn process_send(
         pause_for_credentials(&net.master, &sender, now)
             .await
             .map_err(db)?;
-        sqlx::query(
-            "update reach_warmup_messages set status = 'failed', error = 'credentials_unavailable', claimed_at = null
-             where id = $1 and status = 'scheduled'",
-        )
-        .bind(&row.id)
-        .execute(&net.master)
-        .await
-        .map_err(db)?;
+        record_failed(net, &row.id, "credentials_unavailable")
+            .await
+            .map_err(db)?;
         return Ok(SendOutcome::Paused("credentials_unavailable".to_owned()));
     };
 

@@ -17,13 +17,19 @@
 //! itself ([`WarmupQueue::Inline`]); a message that fails unexpectedly then
 //! keeps its claim and is handed out again when the claim expires.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_ports::{BatchHandler, BoxFuture, BusMessage, Delivery, Disposition, DynEventBus};
+use weldsuite_schema::master::reach_warmup_messages::{self as messages, Column};
 
 use super::WarmupNetwork;
 use super::clock::{HOUR_MS, Rng, random_float};
-use super::db::{CLAIM_TTL_MS, is_warmup_enabled, release_claims, ts};
+use super::db::{CLAIM_TTL_MS, at, is_warmup_enabled, release_claims};
 use super::engage::{EngageOutcome, process_engage};
 use super::send::{SendOutcome, process_send};
 
@@ -78,15 +84,42 @@ pub struct DispatchResult {
 }
 
 /// `expireStale(master, now)`: failed rather than sent hours late.
-async fn expire_stale(master: &PgPool, now: i64) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
-        "update reach_warmup_messages set status = 'failed', error = 'expired', claimed_at = null
-         where status = 'scheduled' and scheduled_at < $1::timestamptz",
-    )
-    .bind(ts(now - STALE_SEND_AFTER_MS))
-    .execute(master)
-    .await?
-    .rows_affected())
+async fn expire_stale(master: &PgPool, now: i64) -> Result<u64, DbErr> {
+    Ok(messages::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("failed"))
+        .col_expr(Column::Error, Expr::value("expired"))
+        .col_expr(Column::ClaimedAt, Expr::null())
+        .filter(Column::Status.eq("scheduled"))
+        .filter(Column::ScheduledAt.lt(at(now - STALE_SEND_AFTER_MS)))
+        .exec(&orm(master))
+        .await?
+        .rows_affected)
+}
+
+/// `claimed_at is null or claimed_at < now - CLAIM_TTL_MS`: unclaimed, or
+/// the claim expired.
+fn claimable(now: i64) -> Condition {
+    Condition::any()
+        .add(Column::ClaimedAt.is_null())
+        .add(Column::ClaimedAt.lt(at(now - CLAIM_TTL_MS)))
+}
+
+/// Claims the `candidates` that still meet `due` (the conditions they were
+/// read with) and are claimable: the ids this UPDATE won.
+async fn claim(
+    master: &PgPool,
+    now: i64,
+    candidates: &[String],
+    due: Condition,
+) -> Result<Vec<String>, DbErr> {
+    let won = messages::Entity::update_many()
+        .col_expr(Column::ClaimedAt, Expr::value(at(now)))
+        .filter(Column::Id.is_in(candidates))
+        .filter(due)
+        .filter(claimable(now))
+        .exec_with_returning(&orm(master))
+        .await?;
+    Ok(won.into_iter().map(|row| row.id).collect())
 }
 
 /// The rows each UPDATE won, in the order they were read.
@@ -101,32 +134,26 @@ fn won_in_order(candidates: Vec<String>, won: &[String]) -> Vec<String> {
 /// rows, oldest first. The ids are read first and the UPDATE repeats the
 /// conditions, so of two overlapping runs only the one whose UPDATE reaches
 /// a row first changes it.
-pub async fn claim_due_sends(master: &PgPool, now: i64, limit: i64) -> sqlx::Result<Vec<String>> {
-    let candidates: Vec<String> = sqlx::query_scalar(
-        "select id from reach_warmup_messages
-         where status = 'scheduled' and scheduled_at <= $1::timestamptz
-           and (claimed_at is null or claimed_at < $2::timestamptz)
-         order by scheduled_at asc limit $3",
-    )
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_TTL_MS))
-    .bind(limit)
-    .fetch_all(master)
-    .await?;
+pub async fn claim_due_sends(master: &PgPool, now: i64, limit: i64) -> Result<Vec<String>, DbErr> {
+    let due = || {
+        Condition::all()
+            .add(Column::Status.eq("scheduled"))
+            .add(Column::ScheduledAt.lte(at(now)))
+    };
+    let candidates: Vec<String> = messages::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(due())
+        .filter(claimable(now))
+        .order_by_asc(Column::ScheduledAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    let won: Vec<String> = sqlx::query_scalar(
-        "update reach_warmup_messages set claimed_at = $1::timestamptz
-         where id = any($3) and status = 'scheduled' and scheduled_at <= $1::timestamptz
-           and (claimed_at is null or claimed_at < $2::timestamptz)
-         returning id",
-    )
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_TTL_MS))
-    .bind(&candidates)
-    .fetch_all(master)
-    .await?;
+    let won = claim(master, now, &candidates, due()).await?;
     Ok(won_in_order(candidates, &won))
 }
 
@@ -135,34 +162,27 @@ pub async fn claim_due_engagements(
     master: &PgPool,
     now: i64,
     limit: i64,
-) -> sqlx::Result<Vec<String>> {
-    let candidates: Vec<String> = sqlx::query_scalar(
-        "select id from reach_warmup_messages
-         where status = 'sent' and engage_at <= $1::timestamptz and engage_attempts < $4
-           and (claimed_at is null or claimed_at < $2::timestamptz)
-         order by engage_at asc limit $3",
-    )
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_TTL_MS))
-    .bind(limit)
-    .bind(MAX_ENGAGE_ATTEMPTS)
-    .fetch_all(master)
-    .await?;
+) -> Result<Vec<String>, DbErr> {
+    let due = || {
+        Condition::all()
+            .add(Column::Status.eq("sent"))
+            .add(Column::EngageAt.lte(at(now)))
+            .add(Column::EngageAttempts.lt(MAX_ENGAGE_ATTEMPTS))
+    };
+    let candidates: Vec<String> = messages::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(due())
+        .filter(claimable(now))
+        .order_by_asc(Column::EngageAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
-    let won: Vec<String> = sqlx::query_scalar(
-        "update reach_warmup_messages set claimed_at = $1::timestamptz
-         where id = any($3) and status = 'sent' and engage_at <= $1::timestamptz and engage_attempts < $4
-           and (claimed_at is null or claimed_at < $2::timestamptz)
-         returning id",
-    )
-    .bind(ts(now))
-    .bind(ts(now - CLAIM_TTL_MS))
-    .bind(&candidates)
-    .bind(MAX_ENGAGE_ATTEMPTS)
-    .fetch_all(master)
-    .await?;
+    let won = claim(master, now, &candidates, due()).await?;
     Ok(won_in_order(candidates, &won))
 }
 

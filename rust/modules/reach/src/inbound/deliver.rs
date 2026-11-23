@@ -20,25 +20,37 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    TryInsertResult,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     REACH_CAMPAIGN_COMPLETED, REACH_REPLY_CLASSIFIED, REACH_REPLY_RECEIVED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, PutOptions};
 use weldsuite_reach_domain::text::{make_snippet, strip_quoted_history};
 use weldsuite_reach_domain::{
-    EventSink, NoEvents, ReachError, ReachEvent, ReachResult, iso, js_slice, text,
+    EventSink, NoEvents, ReachError, ReachEvent, ReachResult, js_slice, text,
+};
+use weldsuite_schema::tenant::{
+    reach_campaigns, reach_enrollments, reach_mailboxes, reach_messages, reach_prospects,
+    reach_settings,
 };
 
 use super::bounce::BounceInfo;
 use super::parse::{ParsedInbound, parse_inbound, synthetic_message_id};
 use super::rules::{classify_inbound, is_unsubscribe_request, looks_like_bulk};
+use crate::{db_error, row_json};
 use crate::effects::{
     Target, apply_unsubscribe, bump_campaign_stat, flag_prospects_suppressed,
-    stop_other_enrollments, suppress_address, transition_enrollment,
+    stop_other_enrollments, suppress_address, to_ms, transition_enrollment,
 };
 
 const MAX_SUBJECT: usize = 500;
@@ -147,22 +159,26 @@ pub fn candidate_message_ids(parsed: &ParsedInbound, bounce: Option<&BounceInfo>
     weldsuite_reach_domain::unique(&ids)
 }
 
-async fn one(db: &PgPool, sql: &'static str, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    Ok(row.map(weldsuite_db::js_row))
+/// Rows as the route reads them.
+fn js_all<M: Serialize>(rows: Result<Vec<M>, DbErr>) -> ReachResult<Vec<Value>> {
+    rows.map_err(db_error)?.into_iter().map(row_json).collect()
+}
+
+/// One row as the route reads it, if any.
+fn js_one<M: Serialize>(row: Result<Option<M>, DbErr>) -> ReachResult<Option<Value>> {
+    row.map_err(db_error)?.map(row_json).transpose()
 }
 
 async fn find_stored_message(db: &PgPool, ids: &[String]) -> ReachResult<Option<Value>> {
     if ids.is_empty() {
         return Ok(None);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_messages t where t.message_id_header = any($1)",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let rows = js_all(
+        reach_messages::Entity::find()
+            .filter(reach_messages::Column::MessageIdHeader.is_in(ids))
+            .all(&orm(db))
+            .await,
+    )?;
     Ok(ids.iter().find_map(|id| {
         rows.iter()
             .find(|row| text(row, "messageIdHeader") == Some(id.as_str()))
@@ -174,25 +190,25 @@ async fn find_prospect_by_id(db: &PgPool, id: Option<&str>) -> ReachResult<Optio
     let Some(id) = id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    one(
-        db,
-        "select to_jsonb(t) from reach_prospects t where t.id = $1 and t.deleted_at is null limit 1",
-        id,
+    js_one(
+        reach_prospects::Entity::find_by_id(id.to_owned())
+            .filter(reach_prospects::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await,
     )
-    .await
 }
 
 async fn find_prospect_by_email(db: &PgPool, emails: &[String]) -> ReachResult<Option<Value>> {
     if emails.is_empty() {
         return Ok(None);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_prospects t where t.email = any($1) and t.deleted_at is null",
-    )
-    .bind(emails)
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let rows = js_all(
+        reach_prospects::Entity::find()
+            .filter(reach_prospects::Column::Email.is_in(emails))
+            .filter(reach_prospects::Column::DeletedAt.is_null())
+            .all(&orm(db))
+            .await,
+    )?;
     Ok(emails.iter().find_map(|email| {
         rows.iter()
             .find(|row| text(row, "email") == Some(email.as_str()))
@@ -204,12 +220,11 @@ async fn find_enrollment_by_id(db: &PgPool, id: Option<&str>) -> ReachResult<Opt
     let Some(id) = id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    one(
-        db,
-        "select to_jsonb(t) from reach_enrollments t where t.id = $1 limit 1",
-        id,
+    js_one(
+        reach_enrollments::Entity::find_by_id(id.to_owned())
+            .one(&orm(db))
+            .await,
     )
-    .await
 }
 
 async fn find_enrollment_on_mailbox(
@@ -217,27 +232,26 @@ async fn find_enrollment_on_mailbox(
     prospect_id: &str,
     mailbox_id: &str,
 ) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_enrollments t where t.prospect_id = $1 and t.mailbox_id = $2
-         order by t.updated_at desc, t.id desc limit 1",
+    js_one(
+        reach_enrollments::Entity::find()
+            .filter(reach_enrollments::Column::ProspectId.eq(prospect_id))
+            .filter(reach_enrollments::Column::MailboxId.eq(mailbox_id))
+            .order_by_desc(reach_enrollments::Column::UpdatedAt)
+            .order_by_desc(reach_enrollments::Column::Id)
+            .one(&orm(db))
+            .await,
     )
-    .bind(prospect_id)
-    .bind(mailbox_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
 }
 
 async fn find_campaign(db: &PgPool, id: Option<&str>) -> ReachResult<Option<Value>> {
     let Some(id) = id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    one(
-        db,
-        "select to_jsonb(t) from reach_campaigns t where t.id = $1 limit 1",
-        id,
+    js_one(
+        reach_campaigns::Entity::find_by_id(id.to_owned())
+            .one(&orm(db))
+            .await,
     )
-    .await
 }
 
 /// `matchInbound(db, input)`: by header first, else by the sender (or a
@@ -329,11 +343,14 @@ fn bounce_snippet(bounce: &BounceInfo, body: &str) -> String {
 }
 
 async fn message_id_taken(db: &PgPool, header: &str) -> ReachResult<bool> {
-    let row: Option<String> =
-        sqlx::query_scalar("select id from reach_messages where message_id_header = $1 limit 1")
-            .bind(header)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<String> = reach_messages::Entity::find()
+        .select_only()
+        .column(reach_messages::Column::Id)
+        .filter(reach_messages::Column::MessageIdHeader.eq(header))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(row.is_some())
 }
 
@@ -341,20 +358,26 @@ async fn is_own_mailbox(db: &PgPool, email: &str) -> ReachResult<bool> {
     if email.is_empty() {
         return Ok(false);
     }
-    let row: Option<String> =
-        sqlx::query_scalar("select id from reach_mailboxes where email = $1 limit 1")
-            .bind(email)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<String> = reach_mailboxes::Entity::find()
+        .select_only()
+        .column(reach_mailboxes::Column::Id)
+        .filter(reach_mailboxes::Column::Email.eq(email))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(row.is_some())
 }
 
 /// `readStopScope(db)`.
 async fn read_stop_scope(db: &PgPool) -> ReachResult<String> {
-    let scope: Option<Option<String>> =
-        sqlx::query_scalar("select stop_on_reply_scope from reach_settings limit 1")
-            .fetch_optional(db)
-            .await?;
+    let scope: Option<Option<String>> = reach_settings::Entity::find()
+        .select_only()
+        .column(reach_settings::Column::StopOnReplyScope)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(scope.flatten().unwrap_or_else(|| "prospect".to_owned()))
 }
 
@@ -457,7 +480,7 @@ async fn store_inbound(input: &DeliverInput<'_>, a: &Analysis) -> ReachResult<Op
         input.raw,
     )
     .await;
-    let now = iso(input.now);
+    let now = to_ms(input.now);
     let system = a.kind != "reply";
     let campaign_id = a
         .matched
@@ -481,48 +504,52 @@ async fn store_inbound(input: &DeliverInput<'_>, a: &Analysis) -> ReachResult<Op
     };
     let references = (!a.parsed.references.is_empty()).then(|| a.parsed.references.join(" "));
     let subject = (!a.parsed.subject.is_empty()).then(|| js_slice(&a.parsed.subject, MAX_SUBJECT));
-    let row: Option<Value> = sqlx::query_scalar(
-        "insert into reach_messages (id, direction, campaign_id, enrollment_id, mailbox_id, prospect_id,
-             thread_key, message_id_header, in_reply_to, \"references\", from_email, to_email, subject,
-             snippet, r2_key, kind, received_at, read_at, handled_at, handled_by, label, label_source,
-             classified_at)
-         values ($1, 'in', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             $16::timestamptz,
-             case when $17 then $16::timestamptz end,
-             case when $17 then $16::timestamptz end,
-             case when $17 then 'system' end,
-             case when $18 then 'unsubscribe' end,
-             case when $18 then 'rule' end,
-             case when $18 then $16::timestamptz end)
-         on conflict (message_id_header) do nothing
-         returning to_jsonb(reach_messages)",
+    let owned = |text: Option<&str>| text.map(str::to_owned);
+    let inserted = reach_messages::Entity::insert(reach_messages::ActiveModel {
+        id: Set(id.clone()),
+        direction: Set("in".to_owned()),
+        campaign_id: Set(owned(campaign_id)),
+        enrollment_id: Set(owned(a.matched.enrollment.as_ref().and_then(|e| text(e, "id")))),
+        mailbox_id: Set(input.mailbox.id.clone()),
+        prospect_id: Set(owned(a.matched.prospect.as_ref().and_then(|p| text(p, "id")))),
+        thread_key: Set(Some(js_slice(&a.thread_key, 255))),
+        message_id_header: Set(a.message_id_header.clone()),
+        in_reply_to: Set(a.parsed.in_reply_to.clone()),
+        references: Set(references),
+        from_email: Set(js_slice(from, MAX_EMAIL)),
+        to_email: Set(js_slice(&input.mailbox.email, MAX_EMAIL)),
+        subject: Set(subject),
+        snippet: Set(Some(snippet)),
+        r2_key: Set(key.clone()),
+        kind: Set(Some(a.kind.to_owned())),
+        received_at: Set(Some(now)),
+        read_at: Set(system.then_some(now)),
+        handled_at: Set(system.then_some(now)),
+        handled_by: Set(system.then(|| "system".to_owned())),
+        label: Set(a.opt_out.then(|| "unsubscribe".to_owned())),
+        label_source: Set(a.opt_out.then(|| "rule".to_owned())),
+        classified_at: Set(a.opt_out.then_some(now)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(reach_messages::Column::MessageIdHeader)
+            .do_nothing()
+            .to_owned(),
     )
-    .bind(&id)
-    .bind(campaign_id)
-    .bind(a.matched.enrollment.as_ref().and_then(|e| text(e, "id")))
-    .bind(&input.mailbox.id)
-    .bind(a.matched.prospect.as_ref().and_then(|p| text(p, "id")))
-    .bind(js_slice(&a.thread_key, 255))
-    .bind(&a.message_id_header)
-    .bind(a.parsed.in_reply_to.as_deref())
-    .bind(references)
-    .bind(js_slice(from, MAX_EMAIL))
-    .bind(js_slice(&input.mailbox.email, MAX_EMAIL))
-    .bind(subject)
-    .bind(snippet)
-    .bind(key.as_deref())
-    .bind(a.kind)
-    .bind(&now)
-    .bind(system)
-    .bind(a.opt_out)
-    .fetch_optional(input.db)
-    .await?;
+    .try_insert()
+    .exec_with_returning(&orm(input.db))
+    .await
+    .map_err(db_error)?;
+    let row = match inserted {
+        TryInsertResult::Inserted(row) => Some(row),
+        TryInsertResult::Empty | TryInsertResult::Conflicted => None,
+    };
     if row.is_none()
         && let (Some(key), Some(storage)) = (&key, &input.storage)
     {
         let _ = storage.delete_boxed(key).await;
     }
-    Ok(row.map(weldsuite_db::js_row))
+    row.map(row_json).transpose()
 }
 
 fn prospect_target(prospect: Option<&Value>) -> Option<(String, String, Option<String>)> {
@@ -692,9 +719,8 @@ pub async fn deliver_inbound(mut input: DeliverInput<'_>) -> ReachResult<Deliver
     if let Err(error) = apply_effects(input.db, &stored, input.mailbox, &a, input.now).await {
         // Not stored means redeliverable: drop the row so a replay is not
         // de-duplicated away.
-        let _ = sqlx::query("delete from reach_messages where id = $1")
-            .bind(&stored_id)
-            .execute(input.db)
+        let _ = reach_messages::Entity::delete_by_id(stored_id.clone())
+            .exec(&orm(input.db))
             .await;
         return Err(error);
     }

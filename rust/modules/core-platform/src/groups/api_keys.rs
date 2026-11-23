@@ -20,13 +20,20 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{api_key_registry, workspaces};
+use weldsuite_schema::tenant::api_keys;
 
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
 
 pub(crate) fn router<Q>(_gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -134,9 +141,23 @@ pub(crate) fn read_update(issues: &mut Issues, body: &Map<String, Value>) -> Upd
     }
 }
 
-/// `JSON.stringify(scopes)` for a `jsonb` bind.
-pub(crate) fn scopes_json(scopes: &[String]) -> String {
-    Value::from(scopes.to_vec()).to_string()
+/// The scopes as the `jsonb` column stores them (`JSON.stringify(scopes)`).
+pub(crate) fn scopes_json(scopes: &[String]) -> Value {
+    Value::from(scopes.to_vec())
+}
+
+/// `date_trunc('milliseconds', $n::timestamptz)`: the body's `expiresAt` as
+/// Postgres reads the ISO text, to the millisecond as Drizzle writes a
+/// `Date` (null without one).
+pub(crate) fn expires_at(text: Option<&str>) -> Expr {
+    let at = sea_orm::ExprTrait::cast_as(Expr::value(text.map(str::to_owned)), "timestamptz");
+    Func::cust("date_trunc").arg("milliseconds").arg(at).into()
+}
+
+/// A key row as `to_jsonb` through `js_row` read it: the entity serializes
+/// as Drizzle did.
+pub(crate) fn key_json(row: impl serde::Serialize) -> Value {
+    serde_json::to_value(row).unwrap_or(Value::Null)
 }
 
 /// `toSafeKey(row)`: the row without `keyHash`; the timestamps are left out
@@ -186,11 +207,18 @@ pub(crate) async fn register_api_key(
     key_type: &str,
     tenant_key_id: &str,
 ) {
-    let workspace: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-            .bind(org_ref)
-            .fetch_optional(master)
-            .await;
+    let db = orm(master);
+    let workspace: Result<Option<String>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org_ref))
+                .add(workspaces::Column::ClerkOrgId.eq(org_ref)),
+        )
+        .into_tuple()
+        .one(&db)
+        .await;
     let workspace_id = match workspace {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -207,18 +235,17 @@ pub(crate) async fn register_api_key(
             return;
         }
     };
-    if let Err(error) = sqlx::query(
-        "insert into api_key_registry (id, key_hash, key_type, workspace_id, tenant_key_id, created_at)
-         values ($1, $2, $3, $4, $5, $6::timestamp)",
-    )
-    .bind(generate_id("akr"))
-    .bind(key_hash)
-    .bind(key_type)
-    .bind(&workspace_id)
-    .bind(tenant_key_id)
-    .bind(now())
-    .execute(master)
-    .await
+    let entry = api_key_registry::ActiveModel {
+        id: Set(generate_id("akr")),
+        key_hash: Set(key_hash.to_owned()),
+        key_type: Set(key_type.to_owned()),
+        workspace_id: Set(workspace_id),
+        tenant_key_id: Set(tenant_key_id.to_owned()),
+        created_at: Set(utc_now()),
+    };
+    if let Err(error) = api_key_registry::Entity::insert(entry)
+        .exec_without_returning(&db)
+        .await
     {
         tracing::error!(%error, "api keys: failed to write the key to the master registry");
     }
@@ -226,9 +253,9 @@ pub(crate) async fn register_api_key(
 
 /// `unregisterApiKey`: drop a revoked key from the registry. Best effort.
 pub(crate) async fn unregister_api_key(master: &PgPool, tenant_key_id: &str) {
-    if let Err(error) = sqlx::query("delete from api_key_registry where tenant_key_id = $1")
-        .bind(tenant_key_id)
-        .execute(master)
+    if let Err(error) = api_key_registry::Entity::delete_many()
+        .filter(api_key_registry::Column::TenantKeyId.eq(tenant_key_id))
+        .exec(&orm(master))
         .await
     {
         tracing::error!(%error, "api keys: failed to remove the key from the master registry");
@@ -251,17 +278,15 @@ const CREATE_FAILED: &str = "Failed to create API key";
 const UPDATE_FAILED: &str = "Failed to update API key";
 const REVOKE_FAILED: &str = "Failed to revoke API key";
 
-/// The caller's live key, as `to_jsonb` through [`js_row`].
-async fn own_key(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(k) from api_keys k
-         where k.id = $1 and k.user_id = $2 and k.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// The caller's live key, as `to_jsonb` through `js_row` read it.
+async fn own_key(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = api_keys::Entity::find()
+        .filter(api_keys::Column::Id.eq(id))
+        .filter(api_keys::Column::UserId.eq(&caller.user_id))
+        .filter(api_keys::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(key_json))
 }
 
 /// `GET /`: the caller's live keys, newest first. Not paginated.
@@ -269,18 +294,16 @@ async fn list(caller: Caller) -> Response {
     answer(
         async {
             org_of(&caller)?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(k) from api_keys k
-                 where k.user_id = $1 and k.deleted_at is null
-                 order by k.created_at desc",
-            )
-            .bind(&caller.user_id)
-            .fetch_all(&caller.db)
-            .await
-            .map_err(|e| PlatformError::internal("Failed to fetch API keys", e))?;
+            let rows = api_keys::Entity::find()
+                .filter(api_keys::Column::UserId.eq(&caller.user_id))
+                .filter(api_keys::Column::DeletedAt.is_null())
+                .order_by_desc(api_keys::Column::CreatedAt)
+                .all(&orm(&caller.db))
+                .await
+                .map_err(|e| PlatformError::internal("Failed to fetch API keys", e))?;
             let keys: Vec<Value> = rows
                 .into_iter()
-                .map(|row| safe_key(&js_row(row), false))
+                .map(|row| safe_key(&key_json(row), false))
                 .collect();
             Ok(Data(keys).into_response())
         }
@@ -319,31 +342,56 @@ async fn create(
             let minted = generate_api_key()
                 .ok_or_else(|| PlatformError::internal(CREATE_FAILED, "no random"))?;
             let id = generate_id("ak");
-            sqlx::query(
-                "insert into api_keys
-                   (id, user_id, name, description, key_hash, key_prefix, scopes, expires_at,
-                    created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6, $7::jsonb,
-                         date_trunc('milliseconds', $8::timestamptz),
-                         $9::timestamptz, $9::timestamptz)",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(&data.name)
-            .bind(&data.description)
-            .bind(&minted.hash)
-            .bind(&minted.prefix)
-            .bind(scopes_json(&data.scopes))
-            .bind(&data.expires_at)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|e| PlatformError::internal(CREATE_FAILED, e))?;
+            insert_key(&caller, &id, &data, &minted)
+                .await
+                .map_err(|e| PlatformError::internal(CREATE_FAILED, e))?;
             register_api_key(&caller.master(&state), &org, &minted.hash, "personal", &id).await;
             Ok(created_key(&id, &data, &minted))
         }
         .await,
     )
+}
+
+/// `insert into api_keys …`: the minted key's row; `expiresAt` is read by
+/// Postgres as before.
+async fn insert_key(
+    caller: &Caller,
+    id: &str,
+    data: &CreateKey,
+    minted: &GeneratedKey,
+) -> Result<(), DbErr> {
+    use api_keys::Column;
+    let at = utc_now().assume_utc();
+    let mut insert = Query::insert();
+    insert
+        .into_table(api_keys::Entity)
+        .columns([
+            Column::Id,
+            Column::UserId,
+            Column::Name,
+            Column::Description,
+            Column::KeyHash,
+            Column::KeyPrefix,
+            Column::Scopes,
+            Column::ExpiresAt,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+        ])
+        .values([
+            Expr::value(id.to_owned()),
+            Expr::value(caller.user_id.clone()),
+            Expr::value(data.name.clone()),
+            Expr::value(data.description.clone()),
+            Expr::value(minted.hash.clone()),
+            Expr::value(minted.prefix.clone()),
+            Expr::value(scopes_json(&data.scopes)),
+            expires_at(data.expires_at.as_deref()),
+            Expr::value(at),
+            Expr::value(at),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    orm(&caller.db).execute(&insert).await?;
+    Ok(())
 }
 
 /// `PATCH /:id`: rename or re-scope; the key material never changes.
@@ -357,38 +405,39 @@ async fn update(
         async {
             let data = validate(&headers, &body, read_update)?;
             org_of(&caller)?;
-            let failed = |e: sqlx::Error| PlatformError::internal(UPDATE_FAILED, e);
+            let failed = |e: DbErr| PlatformError::internal(UPDATE_FAILED, e);
             if own_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
-            sqlx::query(
-                "update api_keys set
-                   updated_at = $3::timestamptz,
-                   name = case when $4 then $5 else name end,
-                   description = case when $6 then $7 else description end,
-                   scopes = case when $8 then $9::jsonb else scopes end
-                 where id = $1 and user_id = $2",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(now())
-            .bind(data.name.is_some())
-            .bind(&data.name)
-            .bind(data.description.is_some())
-            .bind(&data.description)
-            .bind(data.scopes.is_some())
-            .bind(data.scopes.as_deref().map(scopes_json))
-            .execute(&caller.db)
-            .await
-            .map_err(failed)?;
-            let updated: Option<Value> =
-                sqlx::query_scalar("select to_jsonb(k) from api_keys k where k.id = $1 limit 1")
-                    .bind(&id)
-                    .fetch_optional(&caller.db)
-                    .await
-                    .map_err(failed)?;
+            let db = orm(&caller.db);
+            let mut update = api_keys::Entity::update_many().col_expr(
+                api_keys::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            );
+            if let Some(name) = &data.name {
+                update = update.col_expr(api_keys::Column::Name, Expr::value(name.clone()));
+            }
+            if let Some(description) = &data.description {
+                update = update.col_expr(
+                    api_keys::Column::Description,
+                    Expr::value(description.clone()),
+                );
+            }
+            if let Some(scopes) = &data.scopes {
+                update = update.col_expr(api_keys::Column::Scopes, Expr::value(scopes_json(scopes)));
+            }
+            update
+                .filter(api_keys::Column::Id.eq(&id))
+                .filter(api_keys::Column::UserId.eq(&caller.user_id))
+                .exec(&db)
+                .await
+                .map_err(failed)?;
+            let updated = api_keys::Entity::find_by_id(id.clone())
+                .one(&db)
+                .await
+                .map_err(failed)?;
             let updated = updated.ok_or_else(|| PlatformError::internal(UPDATE_FAILED, "gone"))?;
-            Ok(Data(safe_key(&js_row(updated), false)).into_response())
+            Ok(Data(safe_key(&key_json(updated), false)).into_response())
         }
         .await,
     )
@@ -404,20 +453,19 @@ async fn revoke(
     answer(
         async {
             org_of(&caller)?;
-            let failed = |e: sqlx::Error| PlatformError::internal(REVOKE_FAILED, e);
+            let failed = |e: DbErr| PlatformError::internal(REVOKE_FAILED, e);
             if own_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
-            sqlx::query(
-                "update api_keys set deleted_at = $3::timestamptz, updated_at = $3::timestamptz
-                 where id = $1 and user_id = $2",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(failed)?;
+            let at = utc_now().assume_utc();
+            api_keys::Entity::update_many()
+                .col_expr(api_keys::Column::DeletedAt, Expr::value(at))
+                .col_expr(api_keys::Column::UpdatedAt, Expr::value(at))
+                .filter(api_keys::Column::Id.eq(&id))
+                .filter(api_keys::Column::UserId.eq(&caller.user_id))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(failed)?;
             unregister_api_key(&caller.master(&state), &id).await;
             Ok(NoContent.into_response())
         }

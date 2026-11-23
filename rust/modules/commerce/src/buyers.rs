@@ -16,6 +16,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     COMMERCE_BUYER_CREATED, COMMERCE_BUYER_DELETED, COMMERCE_BUYER_INVITED, COMMERCE_BUYER_UPDATED,
@@ -24,12 +25,15 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{COMPANIES_READ, COMPANIES_UPDATE};
 use weldsuite_commerce_domain::accounts::{self, BuyerPatch, NewBuyer};
 use weldsuite_commerce_domain::money::Cents;
+use weldsuite_db::orm;
 use weldsuite_emails::EmailLocale;
 use weldsuite_emails::commerce::BuyerInvitation;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{commerce_buyers, commerce_channel_keys, commerce_channels, companies};
 
+use crate::args::{first_origin, has_origin, utc_now_sql};
 use crate::js::query_set;
 use crate::wire::{body_or_empty, read_text, refuse};
 use crate::{Caller, CommerceState, Refusal, mail, validate};
@@ -174,18 +178,29 @@ fn read_create(issues: &mut Issues, fields: &Map<String, Value>) -> Create {
 /// The shop to invite into: its name and its home (the first origin a
 /// publishable key of an active B2B channel allows). No code or token.
 async fn shop(db: &weldsuite_db::PgPool) -> (String, Option<String>) {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select c.name, k.allowed_origins->>0 from commerce_channels c \
-         left join commerce_channel_keys k on k.channel_id = c.id and k.kind = 'publishable' \
-           and k.revoked_at is null and jsonb_typeof(k.allowed_origins) = 'array' \
-           and jsonb_array_length(k.allowed_origins) > 0 \
-         where c.audience = 'b2b' and c.status = 'active' and c.deleted_at is null \
-         order by (k.id is null) asc, c.created_at asc, k.created_at asc limit 1",
-    )
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten();
+    let row: Option<(String, Option<String>)> = commerce_channels::Entity::find()
+        .select_only()
+        .column(commerce_channels::Column::Name)
+        .column_as(first_origin(commerce_channel_keys::Entity), "origin")
+        .join_rev(
+            JoinType::LeftJoin,
+            commerce_channel_keys::Entity::belongs_to(commerce_channels::Entity)
+                .from(commerce_channel_keys::Column::ChannelId)
+                .to(commerce_channels::Column::Id)
+                .on_condition(|key, _| has_origin(key))
+                .into(),
+        )
+        .filter(commerce_channels::Column::Audience.eq("b2b"))
+        .filter(commerce_channels::Column::Status.eq("active"))
+        .filter(commerce_channels::Column::DeletedAt.is_null())
+        .order_by_asc(commerce_channel_keys::Column::Id.is_null())
+        .order_by_asc(commerce_channels::Column::CreatedAt)
+        .order_by_asc(commerce_channel_keys::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .ok()
+        .flatten();
     row.unwrap_or_else(|| ("Shop".to_owned(), None))
 }
 
@@ -195,13 +210,15 @@ async fn send_invite(state: &CommerceState, caller: &Caller, buyer: &Value) {
         return;
     }
     let (shop_name, shop_url) = shop(&caller.db).await;
-    let company: Option<String> =
-        sqlx::query_scalar("select display_name from companies where id = $1")
-            .bind(buyer["companyId"].as_str())
-            .fetch_optional(&caller.db)
-            .await
-            .ok()
-            .flatten();
+    let company: Option<String> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::DisplayName)
+        .filter(companies::Column::Id.eq(buyer["companyId"].as_str()))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
+        .ok()
+        .flatten();
     let props = BuyerInvitation {
         shop_name,
         company_name: company.unwrap_or_default(),
@@ -345,14 +362,13 @@ async fn invite(
     .await;
     match found {
         Ok(Some(buyer)) => {
-            sqlx::query(
-                "update commerce_buyers set invited_at = now() at time zone 'utc', \
-                   updated_at = now() at time zone 'utc' where id = $1",
-            )
-            .bind(&id)
-            .execute(&caller.db)
-            .await
-            .ok();
+            commerce_buyers::Entity::update_many()
+                .col_expr(commerce_buyers::Column::InvitedAt, utc_now_sql())
+                .col_expr(commerce_buyers::Column::UpdatedAt, utc_now_sql())
+                .filter(commerce_buyers::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await
+                .ok();
             caller.publish(&state, COMMERCE_BUYER_INVITED, &id, &event(&buyer));
             send_invite(&state, &caller, &buyer).await;
             StatusCode::NO_CONTENT.into_response()

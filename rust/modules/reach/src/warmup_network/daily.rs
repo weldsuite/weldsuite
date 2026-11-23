@@ -17,13 +17,19 @@
 //!
 //! Each step is independent: one failing is logged and the others still run.
 
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
+use weldsuite_reach_domain::epoch_ms;
 use weldsuite_reach_domain::warmup::{WARMUP_GATE_WINDOW_DAYS, WARMUP_MIN_DAYS};
+use weldsuite_schema::master::{reach_warmup_mailboxes as pool, reach_warmup_messages as messages};
 
 use super::WarmupNetwork;
 use super::cleanup::{CleanupResult, run_cleanup};
 use super::clock::DAY_MS;
-use super::db::{is_warmup_enabled, ts};
+use super::db::{at, is_warmup_enabled};
 use super::generate::refresh_corpus;
 use super::pool_state::{LOW_INBOX_RATE_REASON, mark_reach_due};
 use super::stats::{RolledUpMailbox, roll_up_stats};
@@ -53,31 +59,40 @@ pub fn start_of_utc_day(now: i64) -> i64 {
 }
 
 /// `advanceRamp(master, now)`.
-pub async fn advance_ramp(master: &PgPool, now: i64) -> sqlx::Result<(usize, usize)> {
+pub async fn advance_ramp(master: &PgPool, now: i64) -> Result<(usize, usize), DbErr> {
+    use sea_orm::ExprTrait as _;
     let today = start_of_utc_day(now);
-    let advanced = sqlx::query(
-        "update reach_warmup_mailboxes set ramp_day = ramp_day + 1, ramp_updated_at = $1::timestamptz,
-           updated_at = $1::timestamptz
-         where status in ('warming', 'maintaining')
-           and (ramp_updated_at is null or ramp_updated_at < $2::timestamptz)
-           and id in (select from_mailbox_id from reach_warmup_messages
-                      where sent_at >= $3::timestamptz and sent_at < $2::timestamptz)",
-    )
-    .bind(ts(now))
-    .bind(ts(today))
-    .bind(ts(today - DAY_MS))
-    .execute(master)
-    .await?
-    .rows_affected();
-    let graduated = sqlx::query(
-        "update reach_warmup_mailboxes set status = 'maintaining', updated_at = $1::timestamptz
-         where status = 'warming' and ramp_day >= $2",
-    )
-    .bind(ts(now))
-    .bind(i32::try_from(WARMUP_MIN_DAYS).unwrap_or(i32::MAX))
-    .execute(master)
-    .await?
-    .rows_affected();
+    let sent_yesterday = Query::select()
+        .column(messages::Column::FromMailboxId)
+        .from(messages::Entity)
+        .and_where(messages::Column::SentAt.gte(at(today - DAY_MS)))
+        .and_where(messages::Column::SentAt.lt(at(today)))
+        .to_owned();
+    let advanced = pool::Entity::update_many()
+        .col_expr(
+            pool::Column::RampDay,
+            Expr::col(pool::Column::RampDay).add(1),
+        )
+        .col_expr(pool::Column::RampUpdatedAt, Expr::value(at(now)))
+        .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
+        .filter(pool::Column::Status.is_in(["warming", "maintaining"]))
+        .filter(
+            Condition::any()
+                .add(pool::Column::RampUpdatedAt.is_null())
+                .add(pool::Column::RampUpdatedAt.lt(at(today))),
+        )
+        .filter(pool::Column::Id.in_subquery(sent_yesterday))
+        .exec(&orm(master))
+        .await?
+        .rows_affected;
+    let graduated = pool::Entity::update_many()
+        .col_expr(pool::Column::Status, Expr::value("maintaining"))
+        .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
+        .filter(pool::Column::Status.eq("warming"))
+        .filter(pool::Column::RampDay.gte(i32::try_from(WARMUP_MIN_DAYS).unwrap_or(i32::MAX)))
+        .exec(&orm(master))
+        .await?
+        .rows_affected;
     Ok((
         usize::try_from(advanced).unwrap_or_default(),
         usize::try_from(graduated).unwrap_or_default(),
@@ -89,7 +104,7 @@ pub async fn pause_on_low_placement(
     master: &PgPool,
     rolled: &[RolledUpMailbox],
     now: i64,
-) -> sqlx::Result<Vec<String>> {
+) -> Result<Vec<String>, DbErr> {
     let low: Vec<&str> = rolled
         .iter()
         .filter(|m| {
@@ -100,15 +115,17 @@ pub async fn pause_on_low_placement(
     if low.is_empty() {
         return Ok(Vec::new());
     }
-    let paused: Vec<(String, String, String)> = sqlx::query_as(
-        "update reach_warmup_mailboxes set status = 'paused', paused_reason = $2, updated_at = $3::timestamptz
-         where id = any($1) and status = 'maintaining' returning id, email, workspace_id",
-    )
-    .bind(&low)
-    .bind(LOW_INBOX_RATE_REASON)
-    .bind(ts(now))
-    .fetch_all(master)
-    .await?;
+    let paused: Vec<(String, String, String)> = pool::Entity::update_many()
+        .col_expr(pool::Column::Status, Expr::value("paused"))
+        .col_expr(pool::Column::PausedReason, Expr::value(LOW_INBOX_RATE_REASON))
+        .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
+        .filter(pool::Column::Id.is_in(low))
+        .filter(pool::Column::Status.eq("maintaining"))
+        .exec_with_returning(&orm(master))
+        .await?
+        .into_iter()
+        .map(|row| (row.id, row.email, row.workspace_id))
+        .collect();
     for (id, email, workspace_id) in &paused {
         tracing::warn!(
             id,
@@ -123,33 +140,37 @@ pub async fn pause_on_low_placement(
 /// `resumeAfterCoolOff(...)`: lift the engine's own low-placement pauses
 /// after the cool-off; the mailbox is measured again (and paused again if
 /// the rate is still low).
-pub async fn resume_after_cool_off(master: &PgPool, now: i64) -> sqlx::Result<Vec<String>> {
-    let waiting: Vec<(String, String, Option<i64>, i32)> = sqlx::query_as(
-        "select id, workspace_id, floor(extract(epoch from started_at) * 1000)::int8, ramp_day
-         from reach_warmup_mailboxes
-         where status = 'paused' and paused_reason = $1 and updated_at < $2::timestamptz",
-    )
-    .bind(LOW_INBOX_RATE_REASON)
-    .bind(ts(now - LOW_RATE_COOL_OFF_DAYS * DAY_MS))
-    .fetch_all(master)
-    .await?;
+pub async fn resume_after_cool_off(master: &PgPool, now: i64) -> Result<Vec<String>, DbErr> {
+    let waiting: Vec<(String, String, Option<OffsetDateTime>, i32)> = pool::Entity::find()
+        .select_only()
+        .columns([
+            pool::Column::Id,
+            pool::Column::WorkspaceId,
+            pool::Column::StartedAt,
+            pool::Column::RampDay,
+        ])
+        .filter(pool::Column::Status.eq("paused"))
+        .filter(pool::Column::PausedReason.eq(LOW_INBOX_RATE_REASON))
+        .filter(pool::Column::UpdatedAt.lt(at(now - LOW_RATE_COOL_OFF_DAYS * DAY_MS)))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     let mut resumed = Vec::new();
     for (id, workspace_id, started_at, ramp_day) in waiting {
         let status = weldsuite_reach_domain::warmup_pool::unpaused_status(
-            started_at.map(|_| ""),
+            started_at.map(epoch_ms).map(|_| ""),
             i64::from(ramp_day),
         );
-        let lifted = sqlx::query(
-            "update reach_warmup_mailboxes set status = $2, paused_reason = null, updated_at = $3::timestamptz
-             where id = $1 and status = 'paused' and paused_reason = $4",
-        )
-        .bind(&id)
-        .bind(status)
-        .bind(ts(now))
-        .bind(LOW_INBOX_RATE_REASON)
-        .execute(master)
-        .await?;
-        if lifted.rows_affected() == 0 {
+        let lifted = pool::Entity::update_many()
+            .col_expr(pool::Column::Status, Expr::value(status))
+            .col_expr(pool::Column::PausedReason, Expr::null())
+            .col_expr(pool::Column::UpdatedAt, Expr::value(at(now)))
+            .filter(pool::Column::Id.eq(&id))
+            .filter(pool::Column::Status.eq("paused"))
+            .filter(pool::Column::PausedReason.eq(LOW_INBOX_RATE_REASON))
+            .exec(&orm(master))
+            .await?;
+        if lifted.rows_affected == 0 {
             continue;
         }
         mark_reach_due(master, &workspace_id, now).await;
@@ -159,7 +180,7 @@ pub async fn resume_after_cool_off(master: &PgPool, now: i64) -> sqlx::Result<Ve
 }
 
 /// `step(name, fallback, task)`.
-fn step<T>(name: &str, fallback: T, result: sqlx::Result<T>) -> T {
+fn step<T>(name: &str, fallback: T, result: Result<T, DbErr>) -> T {
     result.unwrap_or_else(|error| {
         tracing::error!(%error, "[reach-warmup] daily: {name} failed");
         fallback

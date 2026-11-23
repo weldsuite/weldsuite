@@ -15,6 +15,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::Ai;
@@ -22,9 +26,13 @@ use weldsuite_chat_domain::policy::parse_agent_room_policy;
 use weldsuite_chat_domain::publish::Realtime;
 use weldsuite_chat_domain::system_message::extract_chat_mentions;
 use weldsuite_chat_domain::text::{build_reply_reference, format_message_preview};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{Notifier, chat as notify, create_and_deliver};
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, Job, JobContext, JobError};
+use weldsuite_schema::tenant::chat_channel_members::{self, Column as Member};
+use weldsuite_schema::tenant::chat_channels::{self, Column as Channel};
+use weldsuite_schema::tenant::chat_messages::{self, Column as ChatMessage};
 use weldsuite_subscribers::Tenants;
 
 use crate::agent_loop::{
@@ -37,7 +45,7 @@ use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_
 use crate::tools::{EventSink, extract_visuals, visual_to_plain_text};
 
 /// How many earlier messages an agent reads before the one it answers.
-const ROOM_CONTEXT_LIMIT: i64 = 12;
+const ROOM_CONTEXT_LIMIT: u64 = 12;
 
 /// `selectAgentsToReply`: who answers a message.
 pub fn select_agents_to_reply(
@@ -151,21 +159,30 @@ pub async fn dispatch_agent_mentions(
     channel_id: &str,
     message_id: &str,
     message_content: &str,
-) -> Result<(), sqlx::Error> {
-    let metadata: Option<Option<Value>> =
-        sqlx::query_scalar("select metadata from chat_channels where id = $1 limit 1")
-            .bind(channel_id)
-            .fetch_optional(&ctx.db)
-            .await?;
+) -> Result<(), DbErr> {
+    let conn = orm(&ctx.db);
+    let metadata: Option<Option<Value>> = chat_channels::Entity::find()
+        .select_only()
+        .column(Channel::Metadata)
+        .filter(Channel::Id.eq(channel_id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(metadata) = metadata else {
         return Ok(());
     };
-    let trigger: Option<(String, String, String, Option<String>)> = sqlx::query_as(
-        "select author_id, author_type, author_name, parent_id from chat_messages where id = $1",
-    )
-    .bind(message_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let trigger: Option<(String, String, String, Option<String>)> = chat_messages::Entity::find()
+        .select_only()
+        .columns([
+            ChatMessage::AuthorId,
+            ChatMessage::AuthorType,
+            ChatMessage::AuthorName,
+            ChatMessage::ParentId,
+        ])
+        .filter(ChatMessage::Id.eq(message_id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some((author_id, author_type, author_name, parent_id)) = trigger else {
         return Ok(());
     };
@@ -194,17 +211,19 @@ pub async fn dispatch_agent_mentions(
 pub fn dispatch_agent_room_replies(
     ctx: &RoomCtx,
     input: RoomInput,
-) -> BoxFuture<'_, Result<(), sqlx::Error>> {
+) -> BoxFuture<'_, Result<(), DbErr>> {
     Box::pin(async move {
         if input.reply_policy == "none" || input.hop > input.max_hops {
             return Ok(());
         }
-        let members: Vec<String> = sqlx::query_scalar(
-            "select user_id from chat_channel_members where channel_id = $1 and member_type = 'agent'",
-        )
-        .bind(&input.channel_id)
-        .fetch_all(&ctx.db)
-        .await?;
+        let members: Vec<String> = chat_channel_members::Entity::find()
+            .select_only()
+            .column(Member::UserId)
+            .filter(Member::ChannelId.eq(&input.channel_id))
+            .filter(Member::MemberType.eq("agent"))
+            .into_tuple()
+            .all(&orm(&ctx.db))
+            .await?;
         if members.is_empty() {
             return Ok(());
         }
@@ -260,13 +279,26 @@ pub fn dispatch_agent_room_replies(
 
 /// `describeRoom`: what the room is, for the agent's instructions. A record
 /// chat names its record, so the agent can look it up with its tools.
-pub async fn describe_room(db: &PgPool, channel_id: &str) -> Result<String, sqlx::Error> {
-    let room: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, type, entity_type, entity_id, entity_display_name from chat_channels where id = $1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn describe_room(db: &PgPool, channel_id: &str) -> Result<String, DbErr> {
+    let room: Option<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = chat_channels::Entity::find()
+        .select_only()
+        .columns([
+            Channel::Name,
+            Channel::Type,
+            Channel::EntityType,
+            Channel::EntityId,
+            Channel::EntityDisplayName,
+        ])
+        .filter(Channel::Id.eq(channel_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((name, kind, entity_type, entity_id, display)) = room else {
         return Ok("You are in a WeldChat room.".to_owned());
     };
@@ -282,7 +314,7 @@ pub async fn describe_room(db: &PgPool, channel_id: &str) -> Result<String, sqlx
 }
 
 /// The quote shown above an agent's reply: the message it answers.
-async fn load_reply_reference(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn load_reply_reference(db: &PgPool, message_id: &str) -> Result<Option<Value>, DbErr> {
     let target: Option<(
         String,
         String,
@@ -291,13 +323,22 @@ async fn load_reply_reference(db: &PgPool, message_id: &str) -> Result<Option<Va
         String,
         bool,
         Option<Value>,
-    )> = sqlx::query_as(
-        "select id, author_id, author_name, author_avatar, content, has_attachments, metadata
-         from chat_messages where id = $1 and deleted_at is null",
-    )
-    .bind(message_id)
-    .fetch_optional(db)
-    .await?;
+    )> = chat_messages::Entity::find()
+        .select_only()
+        .columns([
+            ChatMessage::Id,
+            ChatMessage::AuthorId,
+            ChatMessage::AuthorName,
+            ChatMessage::AuthorAvatar,
+            ChatMessage::Content,
+            ChatMessage::HasAttachments,
+            ChatMessage::Metadata,
+        ])
+        .filter(ChatMessage::Id.eq(message_id))
+        .filter(ChatMessage::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(target.map(
         |(id, author_id, name, avatar, content, attachments, metadata)| {
             build_reply_reference(
@@ -320,18 +361,31 @@ async fn load_room_context(
     channel_id: &str,
     exclude_message_id: &str,
     thread_id: Option<&str>,
-) -> Result<Vec<ChatMsg>, sqlx::Error> {
-    let rows: Vec<(String, String, String, String, Option<Value>)> = sqlx::query_as(
-        "select id, author_name, author_type, content, metadata from chat_messages
-         where channel_id = $1 and deleted_at is null
-           and (case when $2::text is null then parent_id is null else (id = $2 or parent_id = $2) end)
-         order by created_at desc limit $3",
-    )
-    .bind(channel_id)
-    .bind(thread_id)
-    .bind(ROOM_CONTEXT_LIMIT)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<ChatMsg>, DbErr> {
+    // The thread (its opening message and replies), else the main conversation.
+    let in_place = match thread_id {
+        None => ChatMessage::ParentId.is_null(),
+        Some(thread) => {
+            sea_orm::ExprTrait::or(ChatMessage::Id.eq(thread), ChatMessage::ParentId.eq(thread))
+        }
+    };
+    let rows: Vec<(String, String, String, String, Option<Value>)> = chat_messages::Entity::find()
+        .select_only()
+        .columns([
+            ChatMessage::Id,
+            ChatMessage::AuthorName,
+            ChatMessage::AuthorType,
+            ChatMessage::Content,
+            ChatMessage::Metadata,
+        ])
+        .filter(ChatMessage::ChannelId.eq(channel_id))
+        .filter(ChatMessage::DeletedAt.is_null())
+        .filter(in_place)
+        .order_by_desc(ChatMessage::CreatedAt)
+        .limit(ROOM_CONTEXT_LIMIT)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .rev()
@@ -381,9 +435,10 @@ async fn post_agent_message(
     reply_to: Option<&Value>,
     notify_user_ids: &[String],
     extra: Value,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("msg");
-    let now = crate::now();
+    let now = weldsuite_db::utc_now();
+    let conn = orm(db);
     let named = extract_chat_mentions(content, &[]);
     let all = extract_chat_mentions(content, notify_user_ids);
     let mut metadata = extra.as_object().cloned().unwrap_or_default();
@@ -392,53 +447,59 @@ async fn post_agent_message(
     }
     metadata.insert("agentHop".into(), json!(hop));
     metadata.insert("invokerUserId".into(), json!(invoker_user_id));
-    sqlx::query(
-        "insert into chat_messages (id, channel_id, author_id, author_name, author_avatar, author_type, content,
-           parent_id, mentions, mentions_everyone, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, false, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(channel_id)
-    .bind(agent.id)
-    .bind(agent.name)
-    .bind(agent.icon)
-    .bind(content)
-    .bind(parent_id)
-    .bind((!all.is_empty()).then(|| json!(all)))
-    .bind(Value::Object(metadata.clone()))
-    .bind(&now)
-    .execute(db)
+    chat_messages::Entity::insert(chat_messages::ActiveModel {
+        id: Set(id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        author_id: Set(agent.id.to_owned()),
+        author_name: Set(agent.name.to_owned()),
+        author_avatar: Set(agent.icon.map(str::to_owned)),
+        author_type: Set("agent".to_owned()),
+        content: Set(content.to_owned()),
+        parent_id: Set(parent_id.map(str::to_owned)),
+        mentions: Set((!all.is_empty()).then(|| json!(all))),
+        mentions_everyone: Set(false),
+        metadata: Set(Some(Value::Object(metadata.clone()))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&conn)
     .await?;
     let preview = format_message_preview(content, &HashMap::new());
-    sqlx::query(
-        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
-           message_count = message_count + 1, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(channel_id)
-    .bind(&now)
-    .bind(&preview)
-    .execute(db)
-    .await?;
-    if let Some(parent) = parent_id {
-        sqlx::query(
-            "update chat_messages set thread_reply_count = thread_reply_count + 1,
-               thread_last_reply_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+    chat_channels::Entity::update_many()
+        .col_expr(Channel::LastMessageAt, Expr::value(now))
+        .col_expr(Channel::LastMessagePreview, Expr::value(&preview))
+        .col_expr(
+            Channel::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(Channel::MessageCount), 1),
         )
-        .bind(parent)
-        .bind(&now)
-        .execute(db)
+        .col_expr(Channel::UpdatedAt, Expr::value(now))
+        .filter(Channel::Id.eq(channel_id))
+        .exec(&conn)
         .await?;
+    if let Some(parent) = parent_id {
+        chat_messages::Entity::update_many()
+            .col_expr(
+                ChatMessage::ThreadReplyCount,
+                sea_orm::ExprTrait::add(Expr::col(ChatMessage::ThreadReplyCount), 1),
+            )
+            .col_expr(ChatMessage::ThreadLastReplyAt, Expr::value(now))
+            .col_expr(ChatMessage::UpdatedAt, Expr::value(now))
+            .filter(ChatMessage::Id.eq(parent))
+            .exec(&conn)
+            .await?;
     }
-    let members: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select user_id, member_type from chat_channel_members where channel_id = $1",
-    )
-    .bind(channel_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_else(|error| {
-        tracing::error!(%error, "[chat-domain] agent message roster lookup failed");
-        Vec::new()
-    });
+    let members: Vec<(String, Option<String>)> = chat_channel_members::Entity::find()
+        .select_only()
+        .columns([Member::UserId, Member::MemberType])
+        .filter(Member::ChannelId.eq(channel_id))
+        .into_tuple()
+        .all(&conn)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "[chat-domain] agent message roster lookup failed");
+            Vec::new()
+        });
     let rt = Realtime::new(notifier.realtime.clone());
     if rt.is_on() {
         let mut payload = serde_json::Map::new();
@@ -536,15 +597,17 @@ async fn notify_mentioned_people(
         .map(String::as_str)
         .filter(|m| is_person_mention(m) && people.contains(m))
         .collect();
+    let conn = orm(db);
     for user_id in &recipients {
-        if let Err(error) = sqlx::query(
-            "update chat_channel_members set unread_mention_count = unread_mention_count + 1
-             where channel_id = $1 and user_id = $2",
-        )
-        .bind(post.channel_id)
-        .bind(user_id)
-        .execute(db)
-        .await
+        if let Err(error) = chat_channel_members::Entity::update_many()
+            .col_expr(
+                Member::UnreadMentionCount,
+                sea_orm::ExprTrait::add(Expr::col(Member::UnreadMentionCount), 1),
+            )
+            .filter(Member::ChannelId.eq(post.channel_id))
+            .filter(Member::UserId.eq(*user_id))
+            .exec(&conn)
+            .await
         {
             tracing::error!(%error, "[chat-domain] agent mention count increment failed");
         }
@@ -663,7 +726,7 @@ async fn reply_as_agent(
     recent: &[ChatMsg],
     reply_to: Option<&Value>,
     brief: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let db = &ctx.db;
     let agent_id = agent["id"].as_str().unwrap_or_default();
     let who = RoomAgent {
@@ -941,7 +1004,7 @@ pub async fn post_agent_text(
     invoker_user_id: &str,
     content: &str,
     hop: u32,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let who = RoomAgent {
         id: agent["id"].as_str().unwrap_or_default(),
         name: agent["name"].as_str().unwrap_or("Agent"),

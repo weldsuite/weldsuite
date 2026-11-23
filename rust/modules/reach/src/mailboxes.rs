@@ -12,12 +12,18 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     REACH_MAILBOX_CREATED, REACH_MAILBOX_DELETED, REACH_MAILBOX_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::{orm, orm_error};
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{Data, List, NoContent, Pagination, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -27,7 +33,11 @@ use weldsuite_reach_domain::mailboxes::{WarmupSource, without_credentials};
 use weldsuite_reach_domain::schemas::sending;
 use weldsuite_reach_domain::warmup::gate;
 use weldsuite_reach_domain::warmup_pool::{self, PoolError, RegisterInput};
-use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, int, iso, text};
+use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, int, text};
+use weldsuite_schema::master::reach_routes;
+use weldsuite_schema::tenant::{
+    reach_campaign_mailboxes, reach_domains, reach_enrollments, reach_mailboxes,
+};
 
 use crate::account::get_or_create_settings;
 use crate::billing::{BillingError, adjust_inboxes, release_inbox};
@@ -35,7 +45,9 @@ use crate::domains::mailpool_of;
 use crate::mailpool::{
     Mailpool, MailpoolError, id_text, imap_credentials_of, smtp_credentials_of, upstream,
 };
-use crate::{Caller, ReachState, account_workspace, respond, validate, validate_query};
+use crate::{
+    Caller, ReachState, account_workspace, db_error, respond, row_json, validate, validate_query,
+};
 
 const STATUSES: &[&str] = &[
     "provisioning",
@@ -166,13 +178,14 @@ pub(crate) fn resume_status_for(mailbox: &Value) -> &'static str {
 
 /// `requireMailbox(db, id)`.
 async fn require_mailbox(db: &PgPool, id: &str) -> ReachResult<Value> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_mailboxes t where t.id = $1 and t.status <> 'deleted' limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(weldsuite_db::js_row).ok_or_else(|| {
+    let row = reach_mailboxes::Entity::find_by_id(id.to_owned())
+        .filter(reach_mailboxes::Column::Status.ne("deleted"))
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?
+        .map(row_json)
+        .transpose()?;
+    row.ok_or_else(|| {
         ReachError::new(
             404,
             "NOT_FOUND",
@@ -223,7 +236,7 @@ pub(crate) async fn register_in_pool(
     .await
     .map(|_| ())
     .map_err(|error| match error {
-        PoolError::Database(error) => error.into(),
+        PoolError::Database(error) => db_error(orm_error(error)),
         other => ReachError::unexpected(&other),
     })
 }
@@ -359,6 +372,9 @@ async fn create(
     )
 }
 
+/// The master routes of a mailbox.
+const MAILBOX_ROUTE_KINDS: [&str; 2] = ["mailpool_mailbox", "inbound_token"];
+
 /// What a failed create takes back (`CreateUndo`).
 #[derive(Default)]
 struct Undo {
@@ -398,12 +414,13 @@ async fn create_mailbox(
         ));
     }
     // 1. Checks.
-    let domain: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-            .bind(&input.domain_id)
-            .fetch_optional(db)
-            .await?;
-    let Some(domain) = domain.map(weldsuite_db::js_row) else {
+    let domain = reach_domains::Entity::find_by_id(input.domain_id.clone())
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?
+        .map(row_json)
+        .transpose()?;
+    let Some(domain) = domain else {
         return Err(ReachError::new(
             404,
             "DOMAIN_NOT_FOUND",
@@ -420,7 +437,7 @@ async fn create_mailbox(
             "The domain is not active yet. Wait until it is connected.",
         ));
     };
-    let existing = live_inbox_count(db).await?;
+    let existing = live_inbox_count(db).await.map_err(db_error)?;
     if existing >= limits.max_mailboxes {
         return Err(ReachError::new(
             403,
@@ -443,11 +460,14 @@ async fn create_mailbox(
         input.local_part,
         text(&domain, "name").unwrap_or_default()
     );
-    let taken: Option<String> =
-        sqlx::query_scalar("select id from reach_mailboxes where email = $1 limit 1")
-            .bind(&email)
-            .fetch_optional(db)
-            .await?;
+    let taken: Option<String> = reach_mailboxes::Entity::find()
+        .select_only()
+        .column(reach_mailboxes::Column::Id)
+        .filter(reach_mailboxes::Column::Email.eq(&email))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     if taken.is_some() {
         return Err(ReachError::new(
             409,
@@ -568,34 +588,30 @@ async fn provision(
     };
     let (smtp_sealed, imap_sealed) = (sealed(&smtp)?, sealed(&imap)?);
     let default_cap = int(settings, "defaultMailboxDailyCap");
-    let row: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into reach_mailboxes (id, domain_id, mailpool_mailbox_id, email, first_name, last_name, signature, type,
-             status, warmup_status, smtp_credentials, imap_credentials, inbound_token, warmup_started_at, daily_cap,
-             ramp_current, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::timestamptz, $15, $16, $17)
-         returning to_jsonb(reach_mailboxes)",
-    )
-    .bind(mailbox_id)
-    .bind(&input.domain_id)
-    .bind(undo.mailpool_mailbox_id.as_deref())
-    .bind(email)
-    .bind(&input.first_name)
-    .bind(&input.last_name)
-    .bind(&input.signature)
-    .bind(&input.kind)
-    .bind(if logins.is_some() { "warming" } else { "provisioning" })
-    .bind(logins.is_some().then_some("waiting"))
-    .bind(&smtp_sealed)
-    .bind(&imap_sealed)
-    .bind(inbound_token)
-    .bind(logins.is_some().then(|| iso(now)))
-    .bind(i32::try_from(default_cap).unwrap_or(30))
-    .bind(i32::try_from(sending::RAMP_START.min(default_cap)).unwrap_or(10))
-    .bind(&caller.user_id)
-    .fetch_one(db)
+    let row = reach_mailboxes::Entity::insert(reach_mailboxes::ActiveModel {
+        id: Set(mailbox_id.to_owned()),
+        domain_id: Set(input.domain_id.clone()),
+        mailpool_mailbox_id: Set(undo.mailpool_mailbox_id.clone()),
+        email: Set(email.to_owned()),
+        first_name: Set(input.first_name.clone()),
+        last_name: Set(input.last_name.clone()),
+        signature: Set(input.signature.clone()),
+        type_: Set(input.kind.clone()),
+        status: Set(if logins.is_some() { "warming" } else { "provisioning" }.to_owned()),
+        warmup_status: Set(logins.is_some().then(|| "waiting".to_owned())),
+        smtp_credentials: Set(smtp_sealed),
+        imap_credentials: Set(imap_sealed),
+        inbound_token: Set(inbound_token.to_owned()),
+        warmup_started_at: Set(logins.is_some().then_some(now)),
+        daily_cap: Set(i32::try_from(default_cap).unwrap_or(30)),
+        ramp_current: Set(i32::try_from(sending::RAMP_START.min(default_cap)).unwrap_or(10)),
+        created_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await;
     let row = match row {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row_json(row)?,
         Err(error) if weldsuite_db::is_unique_violation(&error) => {
             return Err(ReachError::new(
                 409,
@@ -603,7 +619,7 @@ async fn provision(
                 format!("{email} already exists. Choose another name."),
             ));
         }
-        Err(error) => return Err(error.into()),
+        Err(error) => return Err(db_error(error)),
     };
     undo.tenant_row = true;
     if let Some((Some(smtp), Some(imap))) = logins {
@@ -624,20 +640,24 @@ async fn provision(
         )
         .await?;
     }
-    sqlx::query(
-        "insert into reach_routes (id, kind, external_id, workspace_id, clerk_org_id, tenant_entity_id, mailbox_type, status)
-         values ($1, 'mailpool_mailbox', $3, $5, $6, $7, $8, 'active'), ($2, 'inbound_token', $4, $5, $6, $7, $8, 'active')",
-    )
-    .bind(generate_id("rrt"))
-    .bind(generate_id("rrt"))
-    .bind(undo.mailpool_mailbox_id.as_deref())
-    .bind(inbound_token)
-    .bind(workspace_id)
-    .bind(&caller.clerk_org_id)
-    .bind(mailbox_id)
-    .bind(&input.kind)
-    .execute(master)
-    .await?;
+    let route = |kind: &str, external_id: Option<String>| reach_routes::ActiveModel {
+        id: Set(generate_id("rrt")),
+        kind: Set(kind.to_owned()),
+        external_id: Set(external_id.unwrap_or_default()),
+        workspace_id: Set(workspace_id.to_owned()),
+        clerk_org_id: Set(caller.clerk_org_id.clone()),
+        tenant_entity_id: Set(mailbox_id.to_owned()),
+        mailbox_type: Set(Some(input.kind.clone())),
+        status: Set("active".to_owned()),
+        ..Default::default()
+    };
+    reach_routes::Entity::insert_many([
+        route("mailpool_mailbox", undo.mailpool_mailbox_id.clone()),
+        route("inbound_token", Some(inbound_token.to_owned())),
+    ])
+    .exec_without_returning(&orm(master))
+    .await
+    .map_err(db_error)?;
     undo.routes = true;
     weldsuite_db::due_index::mark_due(
         master,
@@ -692,21 +712,18 @@ async fn rollback(
         log("warmup pool", &error);
     }
     if (undo.routes || undo.tenant_row)
-        && let Err(error) = sqlx::query(
-            "delete from reach_routes where workspace_id = $1 and tenant_entity_id = $2
-                 and kind in ('mailpool_mailbox', 'inbound_token')",
-        )
-        .bind(workspace_id)
-        .bind(mailbox_id)
-        .execute(master)
-        .await
+        && let Err(error) = reach_routes::Entity::delete_many()
+            .filter(reach_routes::Column::WorkspaceId.eq(workspace_id))
+            .filter(reach_routes::Column::TenantEntityId.eq(mailbox_id))
+            .filter(reach_routes::Column::Kind.is_in(MAILBOX_ROUTE_KINDS))
+            .exec(&orm(master))
+            .await
     {
         log("master routes", &error);
     }
     if undo.tenant_row
-        && let Err(error) = sqlx::query("delete from reach_mailboxes where id = $1")
-            .bind(mailbox_id)
-            .execute(&caller.db)
+        && let Err(error) = reach_mailboxes::Entity::delete_by_id(mailbox_id.to_owned())
+            .exec(&orm(&caller.db))
             .await
     {
         log("tenant row", &error);
@@ -832,24 +849,9 @@ async fn update_one(
             let ramp = input
                 .daily_cap
                 .filter(|cap| int(&row, "rampCurrent") > *cap);
-            let updated: Option<Value> = sqlx::query_scalar(
-                "update reach_mailboxes set updated_at = $2::timestamptz,
-                     first_name = coalesce($3, first_name), last_name = coalesce($4, last_name),
-                     signature = case when $5 then $6 else signature end,
-                     daily_cap = coalesce($7, daily_cap), ramp_current = coalesce($8, ramp_current)
-                 where id = $1 returning to_jsonb(reach_mailboxes)",
-            )
-            .bind(&id)
-            .bind(iso(caller.now()))
-            .bind(&input.first_name)
-            .bind(&input.last_name)
-            .bind(input.signature.is_some())
-            .bind(input.signature.clone().flatten())
-            .bind(input.daily_cap.map(|n| i32::try_from(n).unwrap_or(50)))
-            .bind(ramp.map(|n| i32::try_from(n).unwrap_or(50)))
-            .fetch_optional(db)
-            .await?;
-            let row = updated.map_or(row, weldsuite_db::js_row);
+            let row = update_fields(db, &id, &input, ramp, caller.now())
+                .await?
+                .unwrap_or(row);
             caller.sink(&state).emit(ReachEvent::new(
                 REACH_MAILBOX_UPDATED,
                 &id,
@@ -864,13 +866,58 @@ async fn update_one(
     )
 }
 
+/// `update reach_mailboxes set first_name = coalesce(…), …` with the
+/// fields the body sent: the row as the routes answer it, `None` when it is
+/// gone.
+async fn update_fields(
+    db: &PgPool,
+    id: &str,
+    input: &UpdateInput,
+    ramp: Option<i64>,
+    at: OffsetDateTime,
+) -> ReachResult<Option<Value>> {
+    use reach_mailboxes::Column;
+    let mut update =
+        reach_mailboxes::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(at));
+    if let Some(first) = &input.first_name {
+        update = update.col_expr(Column::FirstName, Expr::value(first));
+    }
+    if let Some(last) = &input.last_name {
+        update = update.col_expr(Column::LastName, Expr::value(last));
+    }
+    if let Some(signature) = &input.signature {
+        update = update.col_expr(Column::Signature, Expr::value(signature.clone()));
+    }
+    if let Some(cap) = input.daily_cap {
+        update = update.col_expr(
+            Column::DailyCap,
+            Expr::value(i32::try_from(cap).unwrap_or(50)),
+        );
+    }
+    if let Some(ramp) = ramp {
+        update = update.col_expr(
+            Column::RampCurrent,
+            Expr::value(i32::try_from(ramp).unwrap_or(50)),
+        );
+    }
+    update
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()
+}
+
 /// `pauseMailbox(deps, id)`.
 pub(crate) async fn pause_mailbox(
     db: &PgPool,
     master: &PgPool,
     clerk_org_id: &str,
     id: &str,
-    at: &str,
+    at: OffsetDateTime,
 ) -> ReachResult<Value> {
     let row = require_mailbox(db, id).await?;
     let status = text(&row, "status").unwrap_or_default();
@@ -885,15 +932,34 @@ pub(crate) async fn pause_mailbox(
         ));
     }
     warmup_pool::pause(master, clerk_org_id, id, pause_reasons::USER).await?;
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update reach_mailboxes set status = 'paused', paused_reason = 'user', updated_at = $2::timestamptz
-         where id = $1 returning to_jsonb(reach_mailboxes)",
-    )
-    .bind(id)
-    .bind(at)
-    .fetch_optional(db)
-    .await?;
-    Ok(updated.map_or(row, weldsuite_db::js_row))
+    let updated = set_status(db, id, "paused", Some("user"), at).await?;
+    Ok(updated.unwrap_or(row))
+}
+
+/// `update reach_mailboxes set status, paused_reason, updated_at … returning *`:
+/// the row as the routes answer it, `None` when it is gone.
+async fn set_status(
+    db: &PgPool,
+    id: &str,
+    status: &str,
+    paused_reason: Option<&str>,
+    at: OffsetDateTime,
+) -> ReachResult<Option<Value>> {
+    reach_mailboxes::Entity::update_many()
+        .col_expr(reach_mailboxes::Column::Status, Expr::value(status))
+        .col_expr(
+            reach_mailboxes::Column::PausedReason,
+            Expr::value(paused_reason.map(str::to_owned)),
+        )
+        .col_expr(reach_mailboxes::Column::UpdatedAt, Expr::value(at))
+        .filter(reach_mailboxes::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()
 }
 
 async fn pause(
@@ -910,7 +976,7 @@ async fn pause(
                 &master,
                 &caller.clerk_org_id,
                 &id,
-                &iso(caller.now()),
+                caller.now(),
             )
             .await?;
             caller.sink(&state).emit(ReachEvent::new(
@@ -952,25 +1018,20 @@ async fn resume(
                         format!("A {status} mailbox cannot be resumed."),
                     ));
                 }
-                let domain_status: Option<String> =
-                    sqlx::query_scalar("select status from reach_domains where id = $1 limit 1")
-                        .bind(text(&row, "domainId"))
-                        .fetch_optional(db)
-                        .await?;
+                let domain_status: Option<String> = reach_domains::Entity::find()
+                    .select_only()
+                    .column(reach_domains::Column::Status)
+                    .filter(reach_domains::Column::Id.eq(text(&row, "domainId")))
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await
+                    .map_err(db_error)?;
                 if domain_status.as_deref() != Some("active") {
                     return Err(ReachError::new(409, "DOMAIN_NOT_ACTIVE", "The domain of this mailbox is not active."));
                 }
                 warmup_pool::resume(&master, &caller.clerk_org_id, &id).await?;
-                let updated: Option<Value> = sqlx::query_scalar(
-                    "update reach_mailboxes set status = $2, paused_reason = null, updated_at = $3::timestamptz
-                     where id = $1 returning to_jsonb(reach_mailboxes)",
-                )
-                .bind(&id)
-                .bind(resume_status_for(&row))
-                .bind(iso(caller.now()))
-                .fetch_optional(db)
-                .await?;
-                updated.map_or(row, weldsuite_db::js_row)
+                let updated = set_status(db, &id, resume_status_for(&row), None, caller.now()).await?;
+                updated.unwrap_or(row)
             };
             caller
                 .sink(&state)
@@ -993,60 +1054,59 @@ async fn delete_one(
             let master = crate::require_master(&caller, &state)?;
             let mailpool = mailpool_of(&caller, &state)?;
             let db = &caller.db;
-            let at = iso(caller.now());
+            let at = caller.now();
             let row = require_mailbox(db, &id).await?;
             if text(&row, "status") != Some("deleting") {
-                sqlx::query("update reach_mailboxes set status = 'deleting', updated_at = $2::timestamptz where id = $1")
-                    .bind(&id)
-                    .bind(&at)
-                    .execute(db)
-                    .await?;
+                set_status_only(db, &id, Some("deleting"), at).await?;
             }
             if let Some(mailpool_id) = text(&row, "mailpoolMailboxId")
                 && let Err(error) = mailpool.delete_mailbox(mailpool_id).await
                 && !error.is_not_found()
             {
-                sqlx::query("update reach_mailboxes set status = $2, updated_at = $3::timestamptz where id = $1")
-                    .bind(&id)
-                    .bind(text(&row, "status"))
-                    .bind(&at)
-                    .execute(db)
-                    .await?;
+                set_status_only(db, &id, text(&row, "status"), at).await?;
                 return Err(upstream(&error));
             }
             warmup_pool::remove(&master, &caller.clerk_org_id, &id).await?;
-            sqlx::query(
-                "update reach_routes set status = 'deleted', updated_at = $3::timestamptz
-                 where workspace_id = $1 and tenant_entity_id = $2 and kind in ('mailpool_mailbox', 'inbound_token')",
-            )
-            .bind(&workspace_id)
-            .bind(&id)
-            .bind(&at)
-            .execute(&master)
-            .await?;
-            sqlx::query("delete from reach_campaign_mailboxes where mailbox_id = $1")
-                .bind(&id)
-                .execute(db)
-                .await?;
-            sqlx::query(
-                "update reach_enrollments set mailbox_id = null, updated_at = $2::timestamptz
-                 where mailbox_id = $1 and status in ('queued', 'active', 'paused')",
-            )
-            .bind(&id)
-            .bind(&at)
-            .execute(db)
-            .await?;
-            let deleted: Option<Value> = sqlx::query_scalar(
-                "update reach_mailboxes set status = 'deleted', deleted_at = $2::timestamptz, smtp_credentials = null,
-                     imap_credentials = null, paused_reason = null, updated_at = $2::timestamptz
-                 where id = $1 returning to_jsonb(reach_mailboxes)",
-            )
-            .bind(&id)
-            .bind(&at)
-            .fetch_optional(db)
-            .await?;
+            reach_routes::Entity::update_many()
+                .col_expr(reach_routes::Column::Status, Expr::value("deleted"))
+                .col_expr(reach_routes::Column::UpdatedAt, Expr::value(at))
+                .filter(reach_routes::Column::WorkspaceId.eq(&workspace_id))
+                .filter(reach_routes::Column::TenantEntityId.eq(&id))
+                .filter(reach_routes::Column::Kind.is_in(MAILBOX_ROUTE_KINDS))
+                .exec(&orm(&master))
+                .await
+                .map_err(db_error)?;
+            reach_campaign_mailboxes::Entity::delete_many()
+                .filter(reach_campaign_mailboxes::Column::MailboxId.eq(&id))
+                .exec(&orm(db))
+                .await
+                .map_err(db_error)?;
+            reach_enrollments::Entity::update_many()
+                .col_expr(reach_enrollments::Column::MailboxId, Expr::null())
+                .col_expr(reach_enrollments::Column::UpdatedAt, Expr::value(at))
+                .filter(reach_enrollments::Column::MailboxId.eq(&id))
+                .filter(reach_enrollments::Column::Status.is_in(["queued", "active", "paused"]))
+                .exec(&orm(db))
+                .await
+                .map_err(db_error)?;
+            let deleted = reach_mailboxes::Entity::update_many()
+                .col_expr(reach_mailboxes::Column::Status, Expr::value("deleted"))
+                .col_expr(reach_mailboxes::Column::DeletedAt, Expr::value(at))
+                .col_expr(reach_mailboxes::Column::SmtpCredentials, Expr::null())
+                .col_expr(reach_mailboxes::Column::ImapCredentials, Expr::null())
+                .col_expr(reach_mailboxes::Column::PausedReason, Expr::null())
+                .col_expr(reach_mailboxes::Column::UpdatedAt, Expr::value(at))
+                .filter(reach_mailboxes::Column::Id.eq(&id))
+                .exec_with_returning(&orm(db))
+                .await
+                .map_err(db_error)?
+                .into_iter()
+                .next();
             release_inbox(&caller, &state, &id).await;
-            let deleted = deleted.map_or(row, weldsuite_db::js_row);
+            let deleted = match deleted {
+                Some(deleted) => row_json(deleted)?,
+                None => row,
+            };
             caller
                 .sink(&state)
                 .emit(ReachEvent::new(REACH_MAILBOX_DELETED, text(&deleted, "id").unwrap_or(&id), without_credentials(&deleted)));
@@ -1056,12 +1116,90 @@ async fn delete_one(
     )
 }
 
+/// A text column as `$patch::jsonb->>'key'` reads it.
+fn patch_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// `update reach_mailboxes m set <column> = case when $patch ? '<key>' then
+/// $patch->>'<key>' else m.<column> end, …, updated_at = at where m.id = id
+/// returning *` (the warmup sweep's `save` and the webhook's
+/// `updateMailbox`): the columns the patch names (camelCase keys), the row
+/// as the routes answer it, `None` when it is gone.
+pub(crate) async fn patch_mailbox(
+    db: &PgPool,
+    id: &str,
+    patch: &Map<String, Value>,
+    at: OffsetDateTime,
+) -> ReachResult<Option<Value>> {
+    use reach_mailboxes::Column;
+    let whole = |value: &Value| value.as_i64().map(|n| i32::try_from(n).unwrap_or_default());
+    let instant = |value: &Value| value.as_str().and_then(weldsuite_reach_domain::parse_iso);
+    let numeric = |value: &Value| match value {
+        Value::Number(n) => n.to_string().parse::<sea_orm::prelude::BigDecimal>().ok(),
+        _ => None,
+    };
+    let mut update = reach_mailboxes::Entity::update_many();
+    for (key, value) in patch {
+        let (column, expr) = match key.as_str() {
+            "status" => (Column::Status, Expr::value(patch_text(value))),
+            "pausedReason" => (Column::PausedReason, Expr::value(patch_text(value))),
+            "lastError" => (Column::LastError, Expr::value(patch_text(value))),
+            "smtpCredentials" => (Column::SmtpCredentials, Expr::value(patch_text(value))),
+            "imapCredentials" => (Column::ImapCredentials, Expr::value(patch_text(value))),
+            "warmupStartedAt" => (Column::WarmupStartedAt, Expr::value(instant(value))),
+            "warmupStatus" => (Column::WarmupStatus, Expr::value(patch_text(value))),
+            "warmupDay" => (Column::WarmupDay, Expr::value(whole(value))),
+            "warmupInboxRate" => (Column::WarmupInboxRate, Expr::value(numeric(value))),
+            "rampCurrent" => (Column::RampCurrent, Expr::value(whole(value))),
+            "rampUpdatedAt" => (Column::RampUpdatedAt, Expr::value(instant(value))),
+            _ => continue,
+        };
+        update = update.col_expr(column, expr);
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(crate::effects::to_ms(at)))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()
+}
+
+/// `update reach_mailboxes set status = …, updated_at = … where id = …`.
+async fn set_status_only(
+    db: &PgPool,
+    id: &str,
+    status: Option<&str>,
+    at: OffsetDateTime,
+) -> ReachResult<()> {
+    reach_mailboxes::Entity::update_many()
+        .col_expr(
+            reach_mailboxes::Column::Status,
+            Expr::value(status.map(str::to_owned)),
+        )
+        .col_expr(reach_mailboxes::Column::UpdatedAt, Expr::value(at))
+        .filter(reach_mailboxes::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
+    Ok(())
+}
+
 /// The workspace's inboxes that count (every one not deleted): what an
 /// inbox subscription bills.
-pub async fn live_inbox_count(db: &PgPool) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from reach_mailboxes where status <> 'deleted' and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await
+pub async fn live_inbox_count(db: &PgPool) -> Result<i64, DbErr> {
+    let count = reach_mailboxes::Entity::find()
+        .filter(reach_mailboxes::Column::Status.ne("deleted"))
+        .filter(reach_mailboxes::Column::DeletedAt.is_null())
+        .count(&orm(db))
+        .await?;
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
 }

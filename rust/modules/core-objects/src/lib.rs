@@ -212,7 +212,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// becomes the route's 500.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl Refusal {
@@ -243,9 +243,17 @@ impl Refusal {
     }
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the transactions `atomically_with` opens, report
+/// through the same error as the ORM queries.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -350,6 +358,18 @@ pub(crate) fn row(value: Value, timestamps: &[&str]) -> Value {
 
 /// The timestamp columns most tables have.
 pub(crate) const STAMPS: [&str; 3] = ["created_at", "updated_at", "deleted_at"];
+
+/// An entity row as Drizzle returns it: the entity serializes as the
+/// TypeScript route's row did.
+pub(crate) fn json_row(model: impl serde::Serialize) -> Result<Value, sea_orm::DbErr> {
+    serde_json::to_value(model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+}
+
+/// A whole number for an `integer` column, as `$n::int` cast it: out of
+/// range is a database error (the route's 500), as Postgres refused it.
+pub(crate) fn int4(value: i64) -> Result<i32, sea_orm::DbErr> {
+    i32::try_from(value).map_err(|_| sea_orm::DbErr::Custom("integer out of range".to_owned()))
+}
 
 /// A list without paging: `list(c, rows, cursorPagination(rows.length, false, null))`.
 pub(crate) fn all(rows: Vec<Value>) -> Response {

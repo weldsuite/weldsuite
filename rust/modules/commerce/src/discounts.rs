@@ -11,21 +11,31 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use sqlx::{Postgres, Transaction};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{DISCOUNT_CREATED, DISCOUNT_DELETED, DISCOUNT_UPDATED};
 use weldsuite_catalogs::permission_keys::{
     DISCOUNTS_CREATE, DISCOUNTS_DELETE, DISCOUNTS_READ, DISCOUNTS_UPDATE,
 };
 use weldsuite_commerce_domain::discount::effective_status;
 use weldsuite_commerce_domain::money;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{discount_redemptions, discounts, orders};
 
+use crate::args::{after_cursor, utc_now_sql};
 use crate::js::query_set;
 use crate::tables::DISCOUNTS;
-use crate::wire::{amount, invalid, iso, read_currency, read_date, read_money, read_text};
+use crate::wire::{amount, invalid, read_currency, read_date, read_money, read_text};
 use crate::{Caller, CommerceState, Refusal, internal, now, validate};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
@@ -55,22 +65,67 @@ where
 
 // ── presenting ──────────────────────────────────────────────────────────────
 
-/// The row plus the flags the dates give, read before Drizzle's shaping.
-const SELECT: &str = concat!(
-    "(",
-    row_of!(discounts),
-    " || jsonb_build_object(\
-       'not_started', coalesce(t.starts_at > (now() at time zone 'utc'), false), \
-       'expired', coalesce(t.ends_at <= (now() at time zone 'utc'), false)))"
-);
+/// A discount with the flags its dates give (`startsAt` still ahead,
+/// `endsAt` passed), worked out on the database's clock.
+#[derive(Debug, FromQueryResult)]
+struct Found {
+    #[sea_orm(nested)]
+    discount: discounts::Model,
+    not_started: bool,
+    expired: bool,
+}
+
+impl Found {
+    /// Drizzle's row with the two flags, as [`present`] reads it.
+    fn raw(&self) -> Result<Value, DbErr> {
+        let mut row = DISCOUNTS.model(&self.discount)?;
+        if let Value::Object(fields) = &mut row {
+            fields.insert("not_started".to_owned(), json!(self.not_started));
+            fields.insert("expired".to_owned(), json!(self.expired));
+        }
+        Ok(row)
+    }
+}
+
+/// `coalesce(t.starts_at > now, false)` (`after_now`) or
+/// `coalesce(t.ends_at <= now, false)`, `now` the UTC wall clock.
+fn dated(column: discounts::Column, after_now: bool) -> Expr {
+    let at = Expr::col((discounts::Entity, column));
+    let compared = if after_now {
+        sea_orm::ExprTrait::gt(at, utc_now_sql())
+    } else {
+        sea_orm::ExprTrait::lte(at, utc_now_sql())
+    };
+    Func::coalesce([compared, Expr::val(false)]).into()
+}
+
+/// The discounts with their date flags ([`Found`]).
+fn with_flags() -> Select<discounts::Entity> {
+    discounts::Entity::find()
+        .column_as(dated(discounts::Column::StartsAt, true), "not_started")
+        .column_as(dated(discounts::Column::EndsAt, false), "expired")
+}
 
 /// `effectiveStatus` in SQL (mirrors `commerce_domain::discount::effective_status`).
-const EFFECTIVE_SQL: &str = "(case t.status when 'archived' then 'archived' when 'active' then \
-      (case when coalesce(t.ends_at <= (now() at time zone 'utc'), false) then 'expired' \
-            when t.usage_limit is not null and coalesce(t.usage_count, 0) >= t.usage_limit then 'used_up' \
-            when coalesce(t.starts_at > (now() at time zone 'utc'), false) then 'scheduled' \
-            else 'active' end) \
-      else 'draft' end)";
+fn effective() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let column = |column: discounts::Column| Expr::col((discounts::Entity, column));
+    let used: Expr = Func::coalesce([column(discounts::Column::UsageCount), Expr::val(0)]).into();
+    let active = Expr::case(dated(discounts::Column::EndsAt, false), "expired")
+        .case(
+            Condition::all()
+                .add(column(discounts::Column::UsageLimit).is_not_null())
+                .add(used.gte(column(discounts::Column::UsageLimit))),
+            "used_up",
+        )
+        .case(dated(discounts::Column::StartsAt, true), "scheduled")
+        .finally("active");
+    let status = column(discounts::Column::Status);
+    Expr::case(status.clone().eq("archived"), "archived")
+        .case(status.eq("active"), active)
+        .finally("draft")
+        .into()
+}
 
 fn strings(value: &Value) -> Value {
     if value.is_array() {
@@ -83,7 +138,7 @@ fn strings(value: &Value) -> Value {
 fn present(raw: &Value) -> Value {
     let flag = |key: &str| raw.get(key).and_then(Value::as_bool).unwrap_or(false);
     let (not_started, expired) = (flag("not_started"), flag("expired"));
-    let row = DISCOUNTS.js(raw.clone());
+    let row = raw;
     let usage = row["usageCount"].as_i64().unwrap_or(0);
     let used_up = row["usageLimit"]
         .as_i64()
@@ -126,25 +181,44 @@ fn event(discount: &Value) -> Value {
     })
 }
 
-async fn find(
-    conn: &mut sqlx::PgConnection,
-    id: &str,
-    lock: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let tail = if lock { " for update of t" } else { "" };
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {SELECT} from discounts t where t.id = $1 and t.deleted_at is null{tail}"
-    )))
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await
+/// The live discount `id` (locked until the transaction ends with `lock`),
+/// as [`present`] reads it.
+async fn find<C: ConnectionTrait>(db: &C, id: &str, lock: bool) -> Result<Option<Value>, DbErr> {
+    let mut found = with_flags()
+        .filter(discounts::Column::Id.eq(id))
+        .filter(discounts::Column::DeletedAt.is_null());
+    if lock {
+        found = found.lock_exclusive();
+    }
+    found
+        .into_model::<Found>()
+        .one(db)
+        .await?
+        .map(|found| found.raw())
+        .transpose()
 }
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-const WHERE_SQL: &str = " where t.deleted_at is null \
-    and ($1::text is null or t.name ilike $1 or t.code ilike $1) \
-    and ($2::text is null or t.status = $2)";
+/// The list's filters: live, `search` on name and code, `status`,
+/// `effectiveStatus`.
+fn filters(search: Option<&str>, status: Option<String>, effective_status: Option<String>) -> Condition {
+    let mut all = Condition::all().add(discounts::Column::DeletedAt.is_null());
+    if let Some(search) = search {
+        all = all.add(
+            Condition::any()
+                .add(discounts::Column::Name.ilike(search))
+                .add(discounts::Column::Code.ilike(search)),
+        );
+    }
+    if let Some(status) = status {
+        all = all.add(discounts::Column::Status.eq(status));
+    }
+    if let Some(wanted) = effective_status {
+        all = all.add(sea_orm::ExprTrait::eq(effective(), wanted));
+    }
+    all
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list discounts";
@@ -152,28 +226,37 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let param = |name: &str| query_set(query, name);
     let limit = weldsuite_kit::parse_limit(param("limit").as_deref(), 50, 100);
     let search = param("search").map(|s| format!("%{}%", crate::rules::like_literal(&s)));
-    let filter = " and ($3::text is null or {E} = $3)".replace("{E}", EFFECTIVE_SQL);
-    let select = format!(
-        "select {SELECT} from discounts t{WHERE_SQL}{filter} \
-         and ($4::text is null or not exists (select 1 from discounts where id = $4) \
-           or (t.created_at, t.id) < (select c.created_at, c.id from discounts c where c.id = $4)) \
-         order by t.created_at desc, t.id desc limit $5"
-    );
-    let count = format!("select count(*) from discounts t{WHERE_SQL}{filter}");
     let cursor = param("cursor");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(select))
-        .bind(search.as_deref())
-        .bind(param("status"))
-        .bind(param("effectiveStatus"))
-        .bind(cursor.as_deref())
-        .bind(i64::from(limit) + 1)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(count))
-        .bind(search.as_deref())
-        .bind(param("status"))
-        .bind(param("effectiveStatus"))
-        .fetch_one(&caller.db)
+    let conditions = filters(
+        search.as_deref(),
+        param("status"),
+        param("effectiveStatus"),
+    );
+    let mut page = with_flags().filter(conditions.clone());
+    if let Some(cursor) = &cursor {
+        page = page.filter(after_cursor::<discounts::Entity>(
+            discounts::Column::CreatedAt,
+            discounts::Column::Id,
+            cursor,
+            true,
+        ));
+    }
+    let db = orm(&caller.db);
+    let rows = async {
+        page.order_by_desc(discounts::Column::CreatedAt)
+            .order_by_desc(discounts::Column::Id)
+            .limit(u64::from(limit) + 1)
+            .into_model::<Found>()
+            .all(&db)
+            .await?
+            .iter()
+            .map(Found::raw)
+            .collect::<Result<Vec<Value>, DbErr>>()
+    }
+    .await;
+    let total = discounts::Entity::find()
+        .filter(conditions)
+        .count(&db)
         .await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
@@ -181,7 +264,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
             usize::try_from(limit).unwrap_or(50),
             |row: &Value| row["id"].as_str().unwrap_or_default(),
         )
-        .into_list(u64::try_from(total).unwrap_or(0))
+        .into_list(total)
         .into_response(),
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -189,12 +272,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch discount";
-    let found = async {
-        let mut conn = caller.db.acquire().await?;
-        find(&mut conn, &id, false).await
-    }
-    .await;
-    match found {
+    match find(&orm(&caller.db), &id, false).await {
         Ok(Some(row)) => Data(present(&row)).into_response(),
         Ok(None) => Refusal::not_found("Discount", &id).respond(FAILED),
         Err(error) => internal(&error, FAILED),
@@ -210,53 +288,89 @@ async fn redemptions(
     let query = query.as_deref();
     let cursor = query_set(query, "cursor");
     let limit = weldsuite_kit::parse_limit(query_set(query, "limit").as_deref(), 50, 100);
-    let exists: Result<bool, sqlx::Error> = sqlx::query_scalar(
-        "select exists (select 1 from discounts where id = $1 and deleted_at is null)",
-    )
-    .bind(&id)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let exists: Result<Option<String>, DbErr> = discounts::Entity::find_by_id(id.as_str())
+        .filter(discounts::Column::DeletedAt.is_null())
+        .select_only()
+        .column(discounts::Column::Id)
+        .into_tuple()
+        .one(&db)
+        .await;
     match exists {
-        Ok(true) => {}
-        Ok(false) => return Refusal::not_found("Discount", &id).respond(FAILED),
+        Ok(Some(_)) => {}
+        Ok(None) => return Refusal::not_found("Discount", &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object('id', r.id, 'orderId', r.order_id, 'orderNumber', o.order_number, \
-           'customerEmail', r.customer_email, 'personId', r.person_id, 'amount', r.amount::text, \
-           'currency', r.currency, 'createdAt', to_jsonb(r.created_at)) \
-         from discount_redemptions r left join orders o on o.id = r.order_id \
-         where r.discount_id = $1 \
-           and ($2::text is null or not exists (select 1 from discount_redemptions where id = $2) \
-             or (r.created_at, r.id) < (select c.created_at, c.id from discount_redemptions c where c.id = $2)) \
-         order by r.created_at desc, r.id desc limit $3",
-    )
-    .bind(&id)
-    .bind(cursor.as_deref())
-    .bind(i64::from(limit) + 1)
-    .fetch_all(&caller.db)
+    let mut page = discount_redemptions::Entity::find()
+        .select_only()
+        .columns([
+            discount_redemptions::Column::Id,
+            discount_redemptions::Column::OrderId,
+            discount_redemptions::Column::CustomerEmail,
+            discount_redemptions::Column::PersonId,
+            discount_redemptions::Column::Amount,
+            discount_redemptions::Column::Currency,
+            discount_redemptions::Column::CreatedAt,
+        ])
+        .column_as(orders::Column::OrderNumber, "order_number")
+        .join(
+            JoinType::LeftJoin,
+            discount_redemptions::Entity::belongs_to(orders::Entity)
+                .from(discount_redemptions::Column::OrderId)
+                .to(orders::Column::Id)
+                .into(),
+        )
+        .filter(discount_redemptions::Column::DiscountId.eq(id.as_str()));
+    if let Some(cursor) = &cursor {
+        page = page.filter(after_cursor::<discount_redemptions::Entity>(
+            discount_redemptions::Column::CreatedAt,
+            discount_redemptions::Column::Id,
+            cursor,
+            true,
+        ));
+    }
+    let rows = async {
+        page.order_by_desc(discount_redemptions::Column::CreatedAt)
+            .order_by_desc(discount_redemptions::Column::Id)
+            .limit(u64::from(limit) + 1)
+            .into_model::<Redemption>()
+            .all(&db)
+            .await?
+            .iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<Value>, DbErr>>()
+    }
     .await;
-    let total: Result<i64, sqlx::Error> =
-        sqlx::query_scalar("select count(*) from discount_redemptions where discount_id = $1")
-            .bind(&id)
-            .fetch_one(&caller.db)
-            .await;
+    let total = discount_redemptions::Entity::find()
+        .filter(discount_redemptions::Column::DiscountId.eq(id.as_str()))
+        .count(&db)
+        .await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
-            rows.into_iter()
-                .map(|mut row| {
-                    let stamp = iso(&row["createdAt"]);
-                    row["createdAt"] = stamp;
-                    row
-                })
-                .collect(),
+            rows,
             usize::try_from(limit).unwrap_or(50),
             |row: &Value| row["id"].as_str().unwrap_or_default(),
         )
-        .into_list(u64::try_from(total).unwrap_or(0))
+        .into_list(total)
         .into_response(),
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
+}
+
+/// A redemption as the list shows it, with its order's number.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Redemption {
+    id: String,
+    order_id: String,
+    order_number: Option<String>,
+    customer_email: Option<String>,
+    person_id: Option<String>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    amount: BigDecimal,
+    currency: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
 }
 
 // ── writes ──────────────────────────────────────────────────────────────────
@@ -477,29 +591,27 @@ fn code_taken() -> Refusal {
     .into()
 }
 
-fn refusal_of(error: &sqlx::Error) -> Option<Refusal> {
-    match error {
-        sqlx::Error::Database(db) if db.constraint() == Some("discounts_code_uidx") => {
-            Some(code_taken())
-        }
-        _ => None,
-    }
+fn refusal_of(error: &DbErr) -> Option<Refusal> {
+    (weldsuite_db::pg_constraint(error).as_deref() == Some("discounts_code_uidx"))
+        .then(code_taken)
 }
 
-async fn ensure_free(
-    tx: &mut Transaction<'_, Postgres>,
-    code: &str,
-    except: &str,
-) -> Result<(), Refusal> {
-    let taken: bool = sqlx::query_scalar(
-        "select exists (select 1 from discounts where deleted_at is null and status <> 'archived' \
-           and lower(trim(code)) = lower(trim($1)) and id <> $2)",
-    )
-    .bind(code)
-    .bind(except)
-    .fetch_one(&mut **tx)
-    .await?;
-    if taken { Err(code_taken()) } else { Ok(()) }
+async fn ensure_free<C: ConnectionTrait>(db: &C, code: &str, except: &str) -> Result<(), Refusal> {
+    let trimmed = |value: Expr| Expr::from(Func::lower(Func::cust("trim").arg(value)));
+    let taken: Option<String> = discounts::Entity::find()
+        .select_only()
+        .column(discounts::Column::Id)
+        .filter(discounts::Column::DeletedAt.is_null())
+        .filter(discounts::Column::Status.ne("archived"))
+        .filter(sea_orm::ExprTrait::eq(
+            trimmed(Expr::col((discounts::Entity, discounts::Column::Code))),
+            trimmed(Expr::val(code)),
+        ))
+        .filter(discounts::Column::Id.ne(except))
+        .into_tuple()
+        .one(db)
+        .await?;
+    if taken.is_some() { Err(code_taken()) } else { Ok(()) }
 }
 
 async fn create(
@@ -542,22 +654,25 @@ async fn create(
             return Err(invalid(field, message));
         }
         let mut tx = caller.db.begin().await?;
-        if candidate["status"] != "archived" {
-            ensure_free(&mut tx, candidate["code"].as_str().unwrap_or_default(), &id).await?;
-        }
-        let row = DISCOUNTS
-            .insert(
-                &mut *tx,
-                values,
-                &["createdAt", "updatedAt", "startsAt", "endsAt"],
-            )
-            .await;
-        let row = match row {
-            Ok(row) => row,
-            Err(crate::table::WriteError::Database(error)) => {
-                return Err(refusal_of(&error).unwrap_or(Refusal::from(error)));
+        let row = {
+            let db = OrmConn::new(&mut tx);
+            if candidate["status"] != "archived" {
+                ensure_free(&db, candidate["code"].as_str().unwrap_or_default(), &id).await?;
             }
-            Err(other) => return Err(other.into()),
+            let row = DISCOUNTS
+                .insert_on(
+                    &db,
+                    values,
+                    &["createdAt", "updatedAt", "startsAt", "endsAt"],
+                )
+                .await;
+            match row {
+                Ok(row) => row,
+                Err(crate::table::WriteError::Database(error)) => {
+                    return Err(refusal_of(&error).unwrap_or(Refusal::from(error)));
+                }
+                Err(other) => return Err(other.into()),
+            }
         };
         tx.commit().await?;
         Ok(row)
@@ -594,7 +709,8 @@ async fn update(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let Some(current) = find(&mut tx, &id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        let Some(current) = find(&db, &id, true).await? else {
             return Err(Refusal::not_found("Discount", &id));
         };
         let mut values = columns(body, false);
@@ -622,11 +738,11 @@ async fn update(
         }
         let code_or_status = values.contains_key("code") || values.contains_key("status");
         if code_or_status && merged["status"] != "archived" {
-            ensure_free(&mut tx, merged["code"].as_str().unwrap_or_default(), &id).await?;
+            ensure_free(&db, merged["code"].as_str().unwrap_or_default(), &id).await?;
         }
         let row = DISCOUNTS
-            .patch(
-                &mut *tx,
+            .patch_on(
+                &db,
                 &id,
                 values,
                 true,
@@ -648,12 +764,7 @@ async fn update(
     match result {
         Ok(row) => {
             caller.publish(&state, DISCOUNT_UPDATED, &id, &event(&row));
-            let fresh = async {
-                let mut conn = caller.db.acquire().await?;
-                find(&mut conn, &id, false).await
-            }
-            .await;
-            match fresh {
+            match find(&orm(&caller.db), &id, false).await {
                 Ok(Some(raw)) => Data(present(&raw)).into_response(),
                 Ok(None) => Refusal::not_found("Discount", &id).respond(FAILED),
                 Err(error) => internal(&error, FAILED),
