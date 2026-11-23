@@ -1070,6 +1070,27 @@ function InlineAiBar({
   );
 }
 
+/**
+ * The desktop header's close/done pair. Embedded outside WeldMail (`onClose`),
+ * close is a back arrow to the embedding view; in WeldMail it closes the message.
+ */
+function MessageCloseDoneButtons({
+  onClose,
+  onDone,
+  labels,
+}: Readonly<{ onClose?: () => void; onDone: () => void; labels: { back: string; close: string; done: string } }>) {
+  return (
+    <CloseDoneButtons
+      className="hidden md:flex"
+      onClose={onClose ?? (() => window.history.back())}
+      back={Boolean(onClose)}
+      closeLabel={onClose ? labels.back : labels.close}
+      onDone={onDone}
+      doneLabel={labels.done}
+    />
+  );
+}
+
 interface MessageDetailProps {
   message: EmailMessage;
   thread?: EmailMessage[];
@@ -2317,13 +2338,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
           </Button>
           {/* Desktop close/done buttons */}
-          <CloseDoneButtons
-            className="hidden md:flex"
-            onClose={onClose ?? (() => window.history.back())}
-            back={Boolean(onClose)}
-            closeLabel={onClose ? t.mail.messageDetail.backToList : t.mail.toolbar.close}
+          <MessageCloseDoneButtons
+            onClose={onClose}
             onDone={handleArchiveAndNext}
-            doneLabel={t.mail.messageDetail.markDone}
+            labels={{ back: t.mail.messageDetail.backToList, close: t.mail.toolbar.close, done: t.mail.messageDetail.markDone }}
           />
           <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate min-w-24" title={message.subject}>{message.subject}</h1>
           {/* Label badges - hidden on mobile */}
