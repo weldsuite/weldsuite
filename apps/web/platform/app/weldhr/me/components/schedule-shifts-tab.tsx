@@ -17,7 +17,7 @@ import {
 import { useMyHrAttendance } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { errorMessage, formatWeekdayDate } from '../../components/shared';
+import { listLoadError, formatWeekdayDate } from '../../components/shared';
 import { PeriodSelect, periodRange, type MyPeriod } from './schedule-period';
 
 export type MyShift = HrSelfAttendance['shifts'][number];
@@ -64,7 +64,7 @@ export function MyShiftsList({
     { id: 'past', label: t('weldhr.me.schedule.groups.past'), sortOrder: 2, filter: (s) => !isUpcoming(s, now) },
   ];
 
-  const clients = [...new Set(shifts.map((s) => s.companyName).filter((name): name is string => !!name))].sort();
+  const clients = [...new Set(shifts.map((s) => s.companyName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'when',
@@ -143,7 +143,7 @@ export function MyShiftsList({
       <PanelEntityList<MyShift>
         items={shifts}
         isLoading={isLoading}
-        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.attendance.loadFailed'))) : null}
+        error={listLoadError(data, error, t('weldhr.me.attendance.loadFailed'))}
         columns={columns}
         onRowClick={(s) => openPanel({ type: MY_SHIFT_PANEL_TYPE, id: s.id })}
         objectPanel={{ type: MY_SHIFT_PANEL_TYPE }}

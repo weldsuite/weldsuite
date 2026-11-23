@@ -23,7 +23,7 @@ import {
 import { useMyHrAnnouncements, useMyHrMarkAnnouncementRead } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { errorMessage, formatDate } from '../../components/shared';
+import { errorMessage, listLoadError, formatDate } from '../../components/shared';
 
 /** Marks an announcement as read once (a refetch in flight does not send it twice), with a toast when that fails. */
 export function useMarkMyAnnouncementRead() {
@@ -68,7 +68,7 @@ export function MyAnnouncementsList() {
     { id: 'other', label: t('weldhr.announcements.groups.other'), sortOrder: 2, filter: (a) => !a.pinned },
   ];
 
-  const authors = [...new Set(announcements.map((a) => a.createdByName).filter((name): name is string => !!name))].sort();
+  const authors = [...new Set(announcements.map((a) => a.createdByName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'status',
@@ -143,7 +143,7 @@ export function MyAnnouncementsList() {
       <PanelEntityList<HrSelfAnnouncement>
         items={announcements}
         isLoading={isLoading}
-        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.announcements.loadFailed'))) : null}
+        error={listLoadError(data, error, t('weldhr.me.announcements.loadFailed'))}
         columns={columns}
         onRowClick={(a) => openPanel({ type: MY_ANNOUNCEMENT_PANEL_TYPE, id: a.id })}
         objectPanel={{ type: MY_ANNOUNCEMENT_PANEL_TYPE }}

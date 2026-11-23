@@ -101,7 +101,7 @@ export function MyPayoutsList({
   // Nothing declared yet: the empty state, rather than two empty "still to come" rows.
   const rows: ListedPayoutRow[] =
     declarations.length > 0 ? payoutRows(declarations).map((row) => ({ ...row, label: label(row) })) : [];
-  const years = [...new Set(rows.map((row) => row.month?.slice(0, 4)).filter((y): y is string => !!y))].sort().reverse();
+  const years = [...new Set(rows.map((row) => row.month?.slice(0, 4)).filter((y): y is string => !!y))].sort((a, b) => a.localeCompare(b)).reverse();
 
   const kindLabel = (kind: PayoutKind) =>
     kind === 'paid' ? t('weldhr.me.declarations.payouts.groups.paid') : t(`weldhr.me.declarations.groups.${kind}`);

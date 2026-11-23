@@ -178,14 +178,11 @@ function MyDetailsTab({
   const latestScore = latest?.overallScore;
   const totalMilestones = overview.milestones.achieved + overview.milestones.open;
   const { coaching, evaluations } = overview.toAcknowledge;
+  const evaluationsKey =
+    evaluations === 1 ? 'weldhr.me.overview.record.toAcknowledgeEvaluation' : 'weldhr.me.overview.record.toAcknowledgeEvaluations';
   const toAcknowledgeParts = [
     coaching > 0 ? t('weldhr.me.overview.record.toAcknowledgeCoaching', { count: coaching }) : null,
-    evaluations > 0
-      ? t(
-          evaluations === 1 ? 'weldhr.me.overview.record.toAcknowledgeEvaluation' : 'weldhr.me.overview.record.toAcknowledgeEvaluations',
-          { count: evaluations },
-        )
-      : null,
+    evaluations > 0 ? t(evaluationsKey, { count: evaluations }) : null,
   ].filter((part): part is string => part !== null);
 
   let clockValue = t('weldhr.me.overview.record.notClockedIn');
@@ -408,7 +405,7 @@ function MyShiftsTab({ shifts }: Readonly<{ shifts: Shift[] }>) {
   const timeFormat = useTimeFormat();
 
   const clients = useMemo(
-    () => [...new Set(shifts.map((shift) => shift.companyName).filter((name): name is string => !!name))].sort(),
+    () => [...new Set(shifts.map((shift) => shift.companyName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b)),
     [shifts],
   );
   const filterConfigs = useMemo<FilterConfig[]>(

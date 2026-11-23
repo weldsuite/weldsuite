@@ -55,8 +55,8 @@ export default function WeldHrAnnouncementsPage() {
   }
 
   const all = data ?? [];
-  const departments = [...new Set(all.flatMap((a) => a.departmentNames))].sort();
-  const authors = [...new Set(all.map((a) => a.createdByName).filter((name): name is string => !!name))].sort();
+  const departments = [...new Set(all.flatMap((a) => a.departmentNames))].sort((a, b) => a.localeCompare(b));
+  const authors = [...new Set(all.map((a) => a.createdByName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'audience',

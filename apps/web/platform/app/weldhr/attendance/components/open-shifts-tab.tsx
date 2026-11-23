@@ -35,7 +35,7 @@ function displayStatus(shift: HrOpenShift): 'open' | 'full' | 'cancelled' {
 
 /** Distinct non-empty values, sorted, as filter options. */
 function optionsOf(values: Array<string | null>): Array<{ value: string; label: string }> {
-  return [...new Set(values.filter((v): v is string => !!v))].sort().map((value) => ({ value, label: value }));
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
 }
 
 export function OpenShiftsTab() {

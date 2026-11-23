@@ -41,7 +41,7 @@ import {
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { errorMessage, formatDateTime, formatWeekdayDate, useFormatTime } from '../../components/shared';
+import { errorMessage, listLoadError, formatDateTime, formatWeekdayDate, useFormatTime } from '../../components/shared';
 
 const REQUEST_TONE = { approved: 'default', rejected: 'destructive' } as const;
 
@@ -138,7 +138,7 @@ export function MyOpenShiftsList() {
     { id: 'open', label: t('weldhr.me.schedule.groups.open'), sortOrder: 2, filter: (s) => !activeRequest(s) },
   ];
 
-  const clients = [...new Set(shifts.map((s) => s.companyName).filter((name): name is string => !!name))].sort();
+  const clients = [...new Set(shifts.map((s) => s.companyName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'state',
@@ -226,7 +226,7 @@ export function MyOpenShiftsList() {
         <PanelEntityList<HrSelfOpenShift>
           items={shifts}
           isLoading={isLoading}
-          error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.openShifts.loadFailed'))) : null}
+          error={listLoadError(data, error, t('weldhr.me.openShifts.loadFailed'))}
           columns={columns}
           onRowClick={(s) => openPanel({ type: MY_OPEN_SHIFT_PANEL_TYPE, id: s.id })}
           objectPanel={{ type: MY_OPEN_SHIFT_PANEL_TYPE }}

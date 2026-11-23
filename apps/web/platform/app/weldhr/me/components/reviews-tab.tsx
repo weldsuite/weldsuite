@@ -22,7 +22,7 @@ import {
 import { useMyHrCoaching, useMyHrEvaluations } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { ScoreBadge, StatusBadge, errorMessage, formatDate } from '../../components/shared';
+import { ScoreBadge, StatusBadge, listLoadError, formatDate } from '../../components/shared';
 import { AcknowledgeDialog, type AcknowledgeTarget } from './acknowledge-dialog';
 
 /** An evaluation shared with you that you have not acknowledged yet. */
@@ -55,7 +55,7 @@ export function AcknowledgeMenuItem({ onSelect }: Readonly<{ onSelect: () => voi
 
 /** Distinct non-empty values, sorted, as filter options. */
 function optionsOf(values: Array<string | null>): Array<{ value: string; label: string }> {
-  return [...new Set(values.filter((v): v is string => !!v))].sort().map((value) => ({ value, label: value }));
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
 }
 
 export function MyEvaluationsList() {
@@ -136,7 +136,7 @@ export function MyEvaluationsList() {
         <PanelEntityList<HrSelfEvaluation>
           items={evaluations}
           isLoading={isLoading}
-          error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.reviews.evaluations.loadFailed'))) : null}
+          error={listLoadError(data, error, t('weldhr.me.reviews.evaluations.loadFailed'))}
           columns={columns}
           onRowClick={(e) => openPanel({ type: MY_EVALUATION_PANEL_TYPE, id: e.id })}
           objectPanel={{ type: MY_EVALUATION_PANEL_TYPE }}
@@ -254,7 +254,7 @@ export function MyCoachingList() {
         <PanelEntityList<HrSelfCoachingLog>
           items={logs}
           isLoading={isLoading}
-          error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.reviews.coaching.loadFailed'))) : null}
+          error={listLoadError(data, error, t('weldhr.me.reviews.coaching.loadFailed'))}
           columns={columns}
           onRowClick={(l) => openPanel({ type: MY_COACHING_PANEL_TYPE, id: l.id })}
           objectPanel={{ type: MY_COACHING_PANEL_TYPE }}

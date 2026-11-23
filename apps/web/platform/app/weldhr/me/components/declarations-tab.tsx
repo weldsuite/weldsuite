@@ -149,7 +149,7 @@ export function MyDeclarationsList({
   ];
 
   const declarations = data?.declarations ?? [];
-  const paidMonths = [...new Set(declarations.map(paidMonthOf).filter((m): m is string => m !== null))].sort().reverse();
+  const paidMonths = [...new Set(declarations.map(paidMonthOf).filter((m): m is string => m !== null))].sort((a, b) => a.localeCompare(b)).reverse();
   if (paidMonths.length > 0) {
     filters.push({
       field: 'paidMonth',

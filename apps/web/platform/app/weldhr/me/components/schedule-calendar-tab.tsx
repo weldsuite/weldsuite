@@ -75,6 +75,13 @@ function clientOf(item: DayItem): string | null {
   return null;
 }
 
+/** The start and end an item has on the clock; time off has none. */
+function clockTimesOf(item: DayItem): Array<string | null | undefined> {
+  if (item.kind === 'shift') return [item.shift.startsAt, item.shift.endsAt];
+  if (item.kind === 'record') return [item.record.clockIn, item.record.clockOut];
+  return [];
+}
+
 /** Hours since midnight now, ticking every minute. */
 function useNowHours(): number {
   const [now, setNow] = useState(() => new Date());
@@ -181,7 +188,7 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
         (name): name is string => !!name,
       ),
     ),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
   const filterConfigs: FilterConfig[] = [
     {
       field: 'show',
@@ -317,17 +324,10 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
     let from = 8;
     let to = 18;
     for (const day of days) {
-      for (const item of itemsByDay.get(day) ?? []) {
-        const span =
-          item.kind === 'shift'
-            ? [item.shift.startsAt, item.shift.endsAt]
-            : item.kind === 'record'
-              ? [item.record.clockIn, item.record.clockOut]
-              : [];
-        for (const iso of span) if (iso) {
-          from = Math.min(from, Math.floor(hoursIntoDay(iso, day)));
-          to = Math.max(to, Math.ceil(hoursIntoDay(iso, day)));
-        }
+      const times = (itemsByDay.get(day) ?? []).flatMap(clockTimesOf).filter((iso): iso is string => !!iso);
+      for (const iso of times) {
+        from = Math.min(from, Math.floor(hoursIntoDay(iso, day)));
+        to = Math.max(to, Math.ceil(hoursIntoDay(iso, day)));
       }
     }
     from = Math.max(0, from);

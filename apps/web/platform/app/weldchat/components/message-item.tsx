@@ -46,6 +46,12 @@ type PreviewAttachment = { id: string; fileName: string; fileSize: number; mimeT
 
 const NO_FILES: MessageFile[] = [];
 
+/** Whether a message mentions the user, by name or with @everyone. */
+function mentionsUser(content: string | null | undefined, userId: string | null | undefined): boolean {
+  if (!userId || !content) return false;
+  return content.includes(`<@${userId}>`) || content.includes('<@everyone>');
+}
+
 /**
  * A message body rendered with the files its text places inline
  * (`<@file:id>`, an image pasted mid-sentence), plus the files it doesn't
@@ -791,10 +797,7 @@ export function MessageItem({
     // Agents answer in markdown; people type plain text.
     message.authorType === 'agent',
   );
-  const isMentioned =
-    userId &&
-    (message.content?.includes(`<@${userId}>`) ||
-      message.content?.includes('<@everyone>'));
+  const isMentioned = mentionsUser(message.content, userId);
   const handleAuthorClick = () => {
     if (!message.authorId) return;
     // A workflow-posted message (authorId "workflow:<id>") has no profile

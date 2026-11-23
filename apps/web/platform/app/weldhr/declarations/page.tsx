@@ -70,7 +70,7 @@ export default function WeldHrDeclarationsPage() {
   ];
 
   const rows = declarations ?? [];
-  const employees = [...new Set(rows.map((d) => d.employeeName).filter((name): name is string => !!name))].sort();
+  const employees = [...new Set(rows.map((d) => d.employeeName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'status',

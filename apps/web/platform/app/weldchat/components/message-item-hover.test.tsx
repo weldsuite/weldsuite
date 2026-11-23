@@ -71,7 +71,7 @@ describe('the hover bar of a message', () => {
     hoverAndOpenMenu();
     pointerOnRow(true);
     fireEvent.click(screen.getByRole('button', { name: 'Close menu' }));
-    expect(screen.queryByTestId('message-actions')).not.toBeNull();
+    expect(screen.getByTestId('message-actions')).toBeInTheDocument();
   });
 
   it('goes when a menu closes with the pointer elsewhere', () => {

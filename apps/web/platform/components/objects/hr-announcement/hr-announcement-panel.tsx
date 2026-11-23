@@ -84,7 +84,7 @@ function ReadsTab({ rows, showReadOn, emptyTitle }: Readonly<{ rows: ReadRow[]; 
   const reportDisplayed = useObjectPanelNavigationReporter<ReadRow>({ type: HR_EMPLOYEE_PANEL_TYPE });
 
   const filterConfigs = useMemo<FilterConfig[]>(() => {
-    const departments = [...new Set(rows.map((r) => r.departmentName).filter(Boolean))].sort();
+    const departments = [...new Set(rows.map((r) => r.departmentName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
     return departments.length > 0
       ? [{ field: 'department', label: t('weldhr.employees.filters.departmentLabel'), options: departments.map((d) => ({ value: d, label: d })) }]
       : [];

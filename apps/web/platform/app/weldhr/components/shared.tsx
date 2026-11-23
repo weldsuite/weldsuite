@@ -26,6 +26,15 @@ export function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+/**
+ * The error a list shows: none while it has data (a failed refetch keeps the
+ * rows on screen), otherwise the query's error with a readable message.
+ */
+export function listLoadError(data: unknown, err: unknown, fallback: string): Error | null {
+  if (data || !err) return null;
+  return new Error(errorMessage(err, fallback));
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------

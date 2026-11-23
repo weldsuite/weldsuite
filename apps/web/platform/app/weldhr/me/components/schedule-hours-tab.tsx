@@ -15,7 +15,7 @@ import {
 import { useMyHrAttendance } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, errorMessage, formatMinutes, formatWeekdayDate, useFormatTime } from '../../components/shared';
+import { StatusBadge, listLoadError, formatMinutes, formatWeekdayDate, useFormatTime } from '../../components/shared';
 import { PeriodSelect, periodRange, type MyPeriod } from './schedule-period';
 
 export type MyAttendanceRecord = HrSelfAttendance['records'][number];
@@ -51,7 +51,7 @@ export function MyHoursList({ period, onPeriodChange }: Readonly<{ period: MyPer
   ];
 
   const statuses = [...new Set(records.map((r) => r.status))];
-  const clients = [...new Set(records.map((r) => r.companyName).filter((name): name is string => !!name))].sort();
+  const clients = [...new Set(records.map((r) => r.companyName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
   const filters: FilterConfig[] = [
     {
       field: 'status',
@@ -137,7 +137,7 @@ export function MyHoursList({ period, onPeriodChange }: Readonly<{ period: MyPer
       <PanelEntityList<MyAttendanceRecord>
         items={records}
         isLoading={isLoading}
-        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.attendance.loadFailed'))) : null}
+        error={listLoadError(data, error, t('weldhr.me.attendance.loadFailed'))}
         columns={columns}
         onRowClick={(r) => openPanel({ type: MY_ATTENDANCE_PANEL_TYPE, id: r.id })}
         objectPanel={{ type: MY_ATTENDANCE_PANEL_TYPE }}

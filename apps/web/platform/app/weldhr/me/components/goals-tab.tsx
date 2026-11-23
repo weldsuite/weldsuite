@@ -19,7 +19,7 @@ import {
 import { useMyHrPerformance } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, errorMessage, formatDate, formatKpiValue } from '../../components/shared';
+import { StatusBadge, listLoadError, formatDate, formatKpiValue } from '../../components/shared';
 
 export type MyKpiResult = HrSelfPerformance['kpis'][number];
 export type MyMilestone = HrSelfPerformance['milestones'][number];
@@ -145,7 +145,7 @@ export function MyKpisList() {
       <PanelEntityList<KpiRow>
         items={rows}
         isLoading={isLoading}
-        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.goals.loadFailed'))) : null}
+        error={listLoadError(data, error, t('weldhr.me.goals.loadFailed'))}
         columns={columns}
         onRowClick={(kpi) => openPanel({ type: MY_KPI_PANEL_TYPE, id: kpi.kpiId })}
         objectPanel={{ type: MY_KPI_PANEL_TYPE }}
@@ -263,7 +263,7 @@ export function MyMilestonesList() {
       <PanelEntityList<MyMilestone>
         items={milestones}
         isLoading={isLoading}
-        error={data ? null : error ? new Error(errorMessage(error, t('weldhr.me.goals.loadFailed'))) : null}
+        error={listLoadError(data, error, t('weldhr.me.goals.loadFailed'))}
         columns={columns}
         onRowClick={(m) => openPanel({ type: MY_MILESTONE_PANEL_TYPE, id: m.id })}
         objectPanel={{ type: MY_MILESTONE_PANEL_TYPE }}

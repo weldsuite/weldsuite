@@ -52,6 +52,8 @@ export function DatePicker({
   ...props
 }: Readonly<DatePickerProps>) {
   const [open, setOpen] = React.useState(false)
+  let label: React.ReactNode = <span>{placeholder}</span>
+  if (date) label = formatDate ? formatDate(date) : format(date, "PPP", { locale })
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -66,7 +68,7 @@ export function DatePicker({
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? (formatDate ? formatDate(date) : format(date, "PPP", { locale })) : <span>{placeholder}</span>}
+          {label}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">
