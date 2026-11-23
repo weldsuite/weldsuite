@@ -52,11 +52,11 @@ use weldsuite_ai::{
 use weldsuite_catalogs::entity_events::{
     AI_PROVIDER_KEY_REMOVED, AI_PROVIDER_KEY_SET, AI_SETTINGS_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_emails::ai::{ProviderEnabled, provider_enabled};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_kit::validation::json_body;
 use weldsuite_kit::{ApiError, Data, NoContent};
-use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::master::workspaces;
 use weldsuite_schema::tenant::workspace_members;

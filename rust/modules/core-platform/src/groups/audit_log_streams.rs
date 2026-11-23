@@ -25,9 +25,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
-use sea_orm::sea_query::{
-    Expr, InsertStatement, Order, Query, SelectStatement, UpdateStatement,
-};
+use sea_orm::sea_query::{Expr, InsertStatement, Order, Query, SelectStatement, UpdateStatement};
 use sea_orm::{ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryResult, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
@@ -199,9 +197,7 @@ impl StreamView {
 /// `select <view> from audit_log_streams s …`.
 fn view_select() -> SelectStatement {
     let mut select = Query::select();
-    select
-        .exprs(view_columns())
-        .from(audit_log_streams::Entity);
+    select.exprs(view_columns()).from(audit_log_streams::Entity);
     select
 }
 
@@ -832,7 +828,10 @@ mod tests {
             let view = statement
                 .rsplit_once("RETURNING ")
                 .map_or(statement.as_str(), |(_, view)| view);
-            assert!(view.contains(r#""token_encrypted" IS NOT NULL"#), "{statement}");
+            assert!(
+                view.contains(r#""token_encrypted" IS NOT NULL"#),
+                "{statement}"
+            );
             assert_eq!(view.matches("token_encrypted").count(), 1, "{statement}");
         }
         assert!(

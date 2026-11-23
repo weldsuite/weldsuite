@@ -591,8 +591,7 @@ async fn sso_row(master: &DatabaseConnection, workspace_id: &str) -> Result<Opti
 /// `loadSsoContext` for the workspace `filter` finds: `None` without one.
 async fn context_where(master: &PgPool, filter: Condition) -> Result<Option<Context>, DbErr> {
     let db = orm(master);
-    let Some((id, clerk_org_id, plan_id, is_active, deleted)) =
-        workspace_row(&db, filter).await?
+    let Some((id, clerk_org_id, plan_id, is_active, deleted)) = workspace_row(&db, filter).await?
     else {
         return Ok(None);
     };
@@ -896,11 +895,11 @@ async fn ensure_row(master: &PgPool, workspace: &Workspace) -> PlatformResult<Ss
         .exec_without_returning(&db)
         .await?;
     sso_row(&db, &workspace.id).await?.ok_or_else(|| {
-            PlatformError::internal(
-                "Internal server error",
-                format!("Could not create the SSO row of workspace {}", workspace.id),
-            )
-        })
+        PlatformError::internal(
+            "Internal server error",
+            format!("Could not create the SSO row of workspace {}", workspace.id),
+        )
+    })
 }
 
 /// `setSsoDomain`: the same domain again keeps its token; another starts over.

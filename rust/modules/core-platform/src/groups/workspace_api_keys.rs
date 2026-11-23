@@ -183,10 +183,8 @@ async fn update(
                 Expr::value(utc_now().assume_utc()),
             );
             if let Some(name) = &data.name {
-                update = update.col_expr(
-                    workspace_api_keys::Column::Name,
-                    Expr::value(name.clone()),
-                );
+                update =
+                    update.col_expr(workspace_api_keys::Column::Name, Expr::value(name.clone()));
             }
             if let Some(description) = &data.description {
                 update = update.col_expr(

@@ -173,14 +173,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     // so milliseconds) and its id.
     let mut after: Option<(OffsetDateTime, String)> = None;
     if let Some(cursor) = &cursor {
-        let found: Result<Option<(OffsetDateTime, String)>, DbErr> =
-            notifications::Entity::find()
-                .select_only()
-                .columns([notifications::Column::CreatedAt, notifications::Column::Id])
-                .filter(notifications::Column::Id.eq(cursor))
-                .into_tuple()
-                .one(&orm(&caller.db))
-                .await;
+        let found: Result<Option<(OffsetDateTime, String)>, DbErr> = notifications::Entity::find()
+            .select_only()
+            .columns([notifications::Column::CreatedAt, notifications::Column::Id])
+            .filter(notifications::Column::Id.eq(cursor))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
         match found {
             Ok(found) => {
                 after = found.map(|(at, id)| (utc_timestamp(at).assume_utc(), id));
@@ -217,11 +216,9 @@ async fn page(
     let mut select = notifications::Entity::find().filter(live_of(&caller.user_id, is_read));
     if let Some((at, id)) = after {
         select = select.filter(
-            Condition::any().add(N::CreatedAt.lt(at)).add(
-                Condition::all()
-                    .add(N::CreatedAt.eq(at))
-                    .add(N::Id.lt(id)),
-            ),
+            Condition::any()
+                .add(N::CreatedAt.lt(at))
+                .add(Condition::all().add(N::CreatedAt.eq(at)).add(N::Id.lt(id))),
         );
     }
     let rows = select
@@ -372,9 +369,7 @@ async fn mark_read(
                 .map_err(|error| PlatformError::internal(FAILED, error))?
                 .into_iter()
                 .next();
-            let row = row_json(
-                row.ok_or_else(|| PlatformError::internal(FAILED, "row vanished"))?,
-            );
+            let row = row_json(row.ok_or_else(|| PlatformError::internal(FAILED, "row vanished"))?);
             caller.publish(
                 &state,
                 NOTIFICATION_UPDATED,
@@ -501,10 +496,7 @@ fn text_of(values: &Map<String, Value>, name: &str) -> Option<String> {
 /// A boolean column's value (`($1->>'column')::boolean`, already read as
 /// Postgres reads it), else its default.
 fn flag_of(values: &Map<String, Value>, name: &str, default: bool) -> bool {
-    values
-        .get(name)
-        .and_then(Value::as_bool)
-        .unwrap_or(default)
+    values.get(name).and_then(Value::as_bool).unwrap_or(default)
 }
 
 /// The inserted row: `{ id, ...data, createdAt: now }`, the defaults where

@@ -236,14 +236,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         && let Some(cursor) = supplied(&query, "cursor")
     {
         // Its time as the route reads it (a `Date`, so milliseconds).
-        let found: Result<Option<(PrimitiveDateTime, String)>, DbErr> =
-            audit_logs::Entity::find()
-                .select_only()
-                .columns([audit_logs::Column::CreatedAt, audit_logs::Column::Id])
-                .filter(audit_logs::Column::Id.eq(&cursor))
-                .into_tuple()
-                .one(&orm(&caller.db))
-                .await;
+        let found: Result<Option<(PrimitiveDateTime, String)>, DbErr> = audit_logs::Entity::find()
+            .select_only()
+            .columns([audit_logs::Column::CreatedAt, audit_logs::Column::Id])
+            .filter(audit_logs::Column::Id.eq(&cursor))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
         match found {
             Ok(found) => after = found.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)),
             Err(error) => return PlatformError::Database(error).respond(),
@@ -287,10 +286,7 @@ async fn list_page(
         .await
         .map_err(failed)?;
     // The count reflects the filters only, never the cursor window.
-    let total = filtered(filters)
-        .count(&db)
-        .await
-        .map_err(failed)?;
+    let total = filtered(filters).count(&db).await.map_err(failed)?;
 
     let mut rows: Vec<Value> = rows.into_iter().map(row_json).collect();
     let total_count = total;

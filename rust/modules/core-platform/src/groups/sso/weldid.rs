@@ -24,18 +24,18 @@
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
-use sea_orm::{ColumnTrait, Condition};
 use weldsuite_db::sso_settings::{SSO_DEFAULT_ROLES, set_sso_default_role, sso_default_role};
 use weldsuite_db::{PgPool, orm_error};
-use weldsuite_schema::master::workspaces;
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
     IdentityError, NewSsoConnection, SamlMetadata, SsoConnection, SsoConnectionChanges,
     SsoDirectory, SsoProtocol,
 };
+use weldsuite_schema::master::workspaces;
 
 use super::{
     Context, HTTPS_URL, PUBLIC_EMAIL_DOMAINS, changed_meanwhile, domain_in_use,

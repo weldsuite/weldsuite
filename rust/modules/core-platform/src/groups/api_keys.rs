@@ -424,7 +424,8 @@ async fn update(
                 );
             }
             if let Some(scopes) = &data.scopes {
-                update = update.col_expr(api_keys::Column::Scopes, Expr::value(scopes_json(scopes)));
+                update =
+                    update.col_expr(api_keys::Column::Scopes, Expr::value(scopes_json(scopes)));
             }
             update
                 .filter(api_keys::Column::Id.eq(&id))

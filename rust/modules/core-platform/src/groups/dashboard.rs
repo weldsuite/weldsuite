@@ -189,10 +189,8 @@ async fn chart_points(caller: &Caller) -> Result<BTreeMap<String, ChartPoint>, D
             Expr::from(Func::sum(total)),
             Expr::value(0),
         ]));
-        let revenue = sea_orm::ExprTrait::cast_as(
-            sea_orm::ExprTrait::cast_as(revenue, "numeric"),
-            "text",
-        );
+        let revenue =
+            sea_orm::ExprTrait::cast_as(sea_orm::ExprTrait::cast_as(revenue, "numeric"), "text");
         let rows: Vec<(String, i32, String)> = orders::Entity::find()
             .select_only()
             .expr(day_of(O::CreatedAt))
@@ -472,10 +470,12 @@ async fn accessible_account_ids(
         .await?;
     let role = role.flatten().map(|role| role.to_uppercase());
     let is_admin = matches!(role.as_deref(), Some("OWNER" | "ADMIN"));
-    let mut visible = Condition::any().add(A::IsShared.eq(true)).add(PgExpr::contains(
-        Expr::col(A::AssignedUserIds),
-        json!([user_id]),
-    ));
+    let mut visible = Condition::any()
+        .add(A::IsShared.eq(true))
+        .add(PgExpr::contains(
+            Expr::col(A::AssignedUserIds),
+            json!([user_id]),
+        ));
     if is_admin {
         visible = visible.add(sea_orm::ExprTrait::is_in(
             json_list(A::AssignedUserIds),
@@ -563,7 +563,9 @@ async fn checklist_count(db: &DatabaseConnection, item: &str) -> Result<Option<i
         "project_created" => {
             count_where::<projects::Entity>(db, projects::Column::DeletedAt.is_null()).await
         }
-        "task_created" => count_where::<tasks::Entity>(db, tasks::Column::DeletedAt.is_null()).await,
+        "task_created" => {
+            count_where::<tasks::Entity>(db, tasks::Column::DeletedAt.is_null()).await
+        }
         "host_domain_added" => {
             count_where::<domains::Entity>(db, domains::Column::DeletedAt.is_null()).await
         }

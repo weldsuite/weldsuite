@@ -126,13 +126,12 @@ async fn list(
 
 /// `GET /stats`: totals by status and type.
 async fn stats(State(state): State<CorePlatformState>, caller: Caller) -> Response {
-    let rows: Result<Vec<(FeatureStatus, FeatureType)>, DbErr> =
-        feature_requests::Entity::find()
-            .select_only()
-            .columns([Column::Status, Column::Type])
-            .into_tuple()
-            .all(&orm(&caller.master(&state)))
-            .await;
+    let rows: Result<Vec<(FeatureStatus, FeatureType)>, DbErr> = feature_requests::Entity::find()
+        .select_only()
+        .columns([Column::Status, Column::Type])
+        .into_tuple()
+        .all(&orm(&caller.master(&state)))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => {
@@ -247,8 +246,8 @@ async fn create(
                 .exec_with_returning(&orm(&caller.master(&state)))
                 .await
                 .map_err(failed)?;
-            let mut created = serde_json::to_value(created)
-                .map_err(|e| failed(DbErr::Json(e.to_string())))?;
+            let mut created =
+                serde_json::to_value(created).map_err(|e| failed(DbErr::Json(e.to_string())))?;
             created["hasVoted"] = Value::Bool(false);
             Ok(Created(created).into_response())
         }

@@ -518,10 +518,7 @@ async fn send_message_inner(state: &CorePlatformState, caller: &Caller, body: &[
 
     let stamp = utc_now();
     support_channels::Entity::update_many()
-        .col_expr(
-            support_channels::Column::LastMessageAt,
-            Expr::value(stamp),
-        )
+        .col_expr(support_channels::Column::LastMessageAt, Expr::value(stamp))
         .col_expr(
             support_channels::Column::LastMessagePreview,
             Expr::value(preview),
