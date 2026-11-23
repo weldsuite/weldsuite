@@ -280,6 +280,49 @@ export function useCreatePerson() {
   });
 }
 
+/**
+ * Makes sure a CRM person exists for an email the platform met without one
+ * (WeldDesk's customer panel creates the sender of a conversation): creates
+ * it, quietly, since nobody asked for this create. The new person goes into
+ * the by-email lookup's cache at once, so a panel that mounts again finds it
+ * instead of creating it twice. A 409 (it exists already, e.g. created
+ * meanwhile) reads that lookup again.
+ */
+export function useEnsurePersonForEmail() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CreatePersonInput & { email: string }) => {
+      const client = await getClient();
+      return client.post<DataEnvelope<Person>>(`/people`, data);
+    },
+    onSuccess: (result, variables) => {
+      const person = result?.data;
+      if (person) {
+        qc.setQueryData<PersonSummaryEnvelope>(personKeys.byEmails([variables.email]), {
+          data: [
+            {
+              id: person.id,
+              displayName: person.displayName,
+              firstName: person.firstName ?? null,
+              lastName: person.lastName ?? null,
+              email: person.email ?? variables.email,
+              avatarUrl: person.avatarUrl ?? null,
+            },
+          ],
+        });
+      }
+      qc.invalidateQueries({ queryKey: personKeys.lists() });
+      invalidateOnboardingChecklist(qc);
+    },
+    onError: (err, variables) => {
+      if (isApiError(err) && err.status === 409) {
+        void qc.invalidateQueries({ queryKey: personKeys.byEmails([variables.email]) });
+      }
+    },
+  });
+}
+
 export function useUpdatePerson() {
   const t = useTranslations();
   const { getClient } = useAppApiClient();

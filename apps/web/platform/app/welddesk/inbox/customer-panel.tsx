@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   CalendarClock,
@@ -14,6 +14,8 @@ import {
   Ticket,
   UserRound,
 } from 'lucide-react';
+import { isApiError } from '@weldsuite/api-client';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { getTranslations } from '@/lib/i18n';
@@ -21,7 +23,7 @@ import { cn } from '@/lib/utils';
 import { Link } from '@/lib/router';
 import { ObjectPanelTabs } from '@/components/object-panel';
 import { PersonPanel, type PersonPanelExtraTab } from '@/components/objects/person/person-panel';
-import { useCreatePerson, usePeopleByEmails } from '@/components/objects/person/use-person-data';
+import { useEnsurePersonForEmail, usePeopleByEmails } from '@/components/objects/person/use-person-data';
 import { PanelRow } from '@/components/objects/_shared/record-panel-parts';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import {
@@ -199,42 +201,38 @@ function TicketTab({ conversation, members }: Readonly<Omit<CustomerPanelProps, 
 /**
  * The CRM person the conversation is with: the linked contact, else the person
  * with the visitor's email, else one created from that email (as WeldMail's
- * customer panel does). A visitor without an email has none.
+ * customer panel does) when the agent may create people. A visitor without an
+ * email has none.
  */
-function useConversationPerson(conversation: DeskConversation): {
-  personId: string | null;
-  resolving: boolean;
-} {
+function useConversationPerson(conversation: DeskConversation): { personId: string | null; resolving: boolean } {
+  const { can } = usePermissions();
+  const canCreate = can('people:create');
   const email = conversation.contactId ? null : conversation.email?.trim() || null;
   const lookup = usePeopleByEmails(email ? [email] : [], Boolean(email));
   const found = lookup.data?.data?.[0]?.id ?? null;
-  const { mutate: createPerson, isError: createFailed } = useCreatePerson();
-  const [created, setCreated] = useState<{ email: string; id: string } | null>(null);
-  // One create per email, however often the effect runs.
+  const ensure = useEnsurePersonForEmail();
+  const { mutate: ensurePerson } = ensure;
+  // One create per email per mount; a created person lands in the lookup's cache, so a remount finds it.
   const attemptedFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!email || !lookup.isSuccess || found || attemptedFor.current === email) return;
+    if (!email || !canCreate || !lookup.isSuccess || lookup.isFetching || found || attemptedFor.current === email) {
+      return;
+    }
     attemptedFor.current = email;
     const parts = (conversation.name ?? '').trim().split(/\s+/).filter(Boolean);
-    createPerson(
-      {
-        firstName: parts[0] ?? email.split('@')[0] ?? email,
-        lastName: parts.slice(1).join(' ') || undefined,
-        email,
-      },
-      {
-        onSuccess: (result) => {
-          const id = result?.data?.id;
-          if (id) setCreated({ email, id });
-        },
-      },
-    );
-  }, [email, lookup.isSuccess, found, conversation.name, createPerson]);
+    ensurePerson({
+      firstName: parts[0] ?? email.split('@')[0] ?? email,
+      lastName: parts.slice(1).join(' ') || undefined,
+      email,
+    });
+  }, [email, canCreate, lookup.isSuccess, lookup.isFetching, found, conversation.name, ensurePerson]);
 
-  const createdId = created && created.email === email ? created.id : null;
-  const personId = conversation.contactId ?? found ?? createdId;
-  const resolving = !personId && Boolean(email) && !lookup.isError && !createFailed;
+  // A 409 means the person exists; the lookup is read again, so keep waiting for it.
+  const conflict = ensure.isError && isApiError(ensure.error) && ensure.error.status === 409;
+  const createFailed = ensure.isError && !conflict;
+  const personId = conversation.contactId ?? found;
+  const resolving = !personId && Boolean(email) && !lookup.isError && (canCreate ? !createFailed : lookup.isLoading);
   return { personId, resolving };
 }
 
