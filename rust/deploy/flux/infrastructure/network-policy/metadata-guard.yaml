@@ -1,0 +1,137 @@
+# The metadata guard: one iptables rule on every node that rejects traffic
+# from the pod network to the metadata service,
+#
+#   FORWARD -s <pod network> -d 169.254.169.254/32 -j REJECT
+#           (comment weldsuite-metadata-guard)
+#
+# for the first second of every pod's life. kube-router enforces a pod's
+# NetworkPolicies only once it has built that pod's chain, about a second
+# after the pod starts (measured on the EU test cluster: a probe looping
+# every 0.2 s from container start reached 169.254.169.254 at t=0 and was
+# refused from t=1 s). Enough for a start command to fetch
+# /hetzner/v1/userdata, the node's Talos machine configuration with its
+# secrets, and enough to make the WeldAgent sandbox's isolation check, which
+# runs in a fresh pod, pass or fail at random.
+#
+# The rule sits at the top of FORWARD, where kube-router puts its own jump
+# too (whichever comes first, both are before anything that accepts pod
+# traffic). kube-router accepts a pod's traffic only once the pod's chain
+# exists and its policies allow it, so until then the packet falls through to
+# this rule and is refused; afterwards the pod's policies decide, as before
+# (block-metadata-service in metadata-service.yaml). kube-router's own
+# --netpol-default-deny would close the window too, but by rejecting
+# everything a new pod sends, in every namespace, until its chain exists.
+#
+# metadata-guard.sh checks the rule every 15 seconds and puts it back if
+# kube-router or Flannel rewrote the chain without it. It never removes it: a
+# stopping pod (an upgrade, a rolling update, a drain) leaves it in place, so
+# there is no gap. Removing the layer leaves it too, until the node reboots,
+# like kube-router's rules (the README, "Agent sandbox", step 2).
+#
+# The pod network is Flannel's FLANNEL_NETWORK, read from /run/flannel/subnet.env
+# on the node (a read-only hostPath; no API access, no RBAC). Until Flannel has
+# written it, the pod logs why and isn't ready. The readiness probe checks the
+# rule itself, so `kubectl -n kube-system get ds metadata-guard` shows a node
+# that isn't guarded, and NetworkPolicyEnforcementDegraded
+# (monitoring-config/rules/network-policy.yaml) fires for it.
+#
+# Only NET_ADMIN: iptables-nft talks to nf_tables over netlink, which checks
+# CAP_NET_ADMIN and nothing else. NET_RAW is for iptables-legacy's raw socket,
+# which this never runs (it calls iptables-nft by name). Root in the
+# container, because a non-root process doesn't keep an added capability.
+#
+# hostNetwork pods (LiveKit, the MTA, Fluent Bit, the node exporter, Flannel,
+# kube-proxy, kube-router, this) send from the node itself, through OUTPUT,
+# not FORWARD: neither this nor any NetworkPolicy covers them.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: metadata-guard
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: metadata-guard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metadata-guard
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metadata-guard
+    spec:
+      priorityClassName: system-node-critical
+      # It writes the node's own netfilter tables. No API access.
+      hostNetwork: true
+      dnsPolicy: Default
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 5
+      nodeSelector:
+        kubernetes.io/os: linux
+      # Every node, the tainted ones too (control planes, Postgres, mail):
+      # a node without it has the first-second gap.
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: guard
+          # kube-router's image (kube-router.yaml): iptables-nft, a shell.
+          image: docker.io/cloudnativelabs/kube-router:v2.11.2
+          command: ["/bin/sh", "/opt/metadata-guard/metadata-guard.sh", "run"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GUARD_INTERVAL
+              value: "15"
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "/opt/metadata-guard/metadata-guard.sh", "check"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [NET_ADMIN]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: script
+              mountPath: /opt/metadata-guard
+              readOnly: true
+            # A writable /run of its own under the read-only root, for
+            # anything iptables keeps there (iptables-nft takes no lock).
+            - name: run
+              mountPath: /run
+            - name: flannel
+              mountPath: /run/flannel
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: metadata-guard-script
+            defaultMode: 0555
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        # Flannel's runtime folder, where it writes subnet.env when it
+        # starts: the folder, not the file, so a file written later shows.
+        - name: flannel
+          hostPath:
+            path: /run/flannel
+            type: DirectoryOrCreate

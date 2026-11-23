@@ -209,7 +209,8 @@ interface ShapeSpec {
 }
 
 /** `billing.dunning`'s kind from its flags: none is a failed charge. */
-function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
+function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' | 'upcoming' {
+  if (flags.has('upcoming')) return 'upcoming';
   if (flags.has('ended')) return 'ended';
   if (flags.has('reminder')) return 'reminder';
   return 'failed';
@@ -469,10 +470,16 @@ const SPECS: Spec[] = [
   },
   // EU plan billing (ADR BILL-014): a failed charge, the reminder halfway
   // through the grace period, and the plan ending on Free. No flag: failed.
+  // `upcoming`: the notice before the renewal of a plan without a payment
+  // method; `nomethod`: a failed charge or its reminder for want of one.
   {
     id: 'billing.dunning',
-    flags: ['reminder', 'ended'],
+    flags: ['reminder', 'ended', 'upcoming', 'nomethod'],
     fields: ['workspace_name', 'plan_name', 'amount', 'ends_on', 'url'],
+    // One kind at a time; `nomethod` only words `failed` and `reminder`.
+    exclude: (f) =>
+      ['reminder', 'ended', 'upcoming'].filter((k) => f.has(k)).length > 1 ||
+      (f.has('nomethod') && (f.has('ended') || f.has('upcoming'))),
     props: (f) => ({
       kind: dunningKind(f),
       workspaceName: S('workspace_name'),
@@ -480,6 +487,7 @@ const SPECS: Spec[] = [
       amount: S('amount'),
       endsOn: S('ends_on'),
       url: S('url'),
+      noMethod: f.has('nomethod'),
     }),
   },
   // The invoice of a paid charge (ADR BILL-014, decision 5). The VAT line is

@@ -62,6 +62,7 @@ describe('runtime config (/config.json)', () => {
         audienceScope: null,
         organizationScope: null,
         accountUrl: 'https://auth.example.eu/account',
+        identityProvider: 'weldid',
         workspaceSource: 'header',
       },
     });
@@ -70,6 +71,7 @@ describe('runtime config (/config.json)', () => {
       audienceScope: null,
       organizationScope: null,
       accountUrl: 'https://auth.example.eu/account',
+      identityProvider: 'weldid',
       workspaceSource: 'header',
     });
   });
@@ -77,6 +79,12 @@ describe('runtime config (/config.json)', () => {
   it('treats an unknown workspaceSource as absent (today\'s claim behaviour)', () => {
     const config = parseRuntimeConfig({ auth: { ...OIDC, workspaceSource: 'magic' } });
     expect(config?.auth && 'workspaceSource' in config.auth ? config.auth.workspaceSource : undefined).toBeUndefined();
+  });
+
+  it('treats an identity provider this build does not know as some other provider', () => {
+    const config = parseRuntimeConfig({ auth: { ...OIDC, identityProvider: 'keycloak' } });
+    expect(config?.auth).toMatchObject({ provider: 'oidc' });
+    expect(config?.auth && 'identityProvider' in config.auth ? config.auth.identityProvider : undefined).toBeUndefined();
   });
 
   it('refuses a document that breaks the contract', () => {

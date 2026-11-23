@@ -73,6 +73,17 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
   });
 
+  it('offers the services-outside-the-EU settings on the EU edition only (ADR OPS-026)', () => {
+    expect(routeRequirement('/settings/outside-eu')).toEqual({ feature: 'outside-eu-services' });
+    // Global: in GLOBAL_UNAVAILABLE_FEATURES.
+    expect(isRouteOffered('/settings/outside-eu')).toBe(false);
+    // Self-hosted lists it as unavailable; the EU edition doesn't.
+    setRuntimeConfig({ backend: 'rust', edition: 'self-hosted', unavailableFeatures: ['outside-eu-services'] });
+    expect(isRouteOffered('/settings/outside-eu')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', edition: 'eu', unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/outside-eu')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();

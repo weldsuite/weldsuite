@@ -1,7 +1,13 @@
 /**
- * Pressure test for the first-party API: the module workers the platform SPA
- * and the mobile apps call (crm-api, desk-api, flow-api, commerce-api) plus
- * app-api, authenticated as a real member through a Clerk session.
+ * Pressure test for the first-party API: what the platform SPA and the mobile
+ * apps call, authenticated as a real member.
+ *
+ * - Global: the module workers (crm-api, desk-api, flow-api, stash-api) plus
+ *   app-api, each on its own host, through a Clerk session.
+ * - EU: the Rust server, every path on one host (api.test.weldsuite.eu),
+ *   through a WeldID session, with the workspace named in X-Weld-Workspace
+ *   (several workspaces: the VUs spread over them). It serves the same
+ *   /api/<object> paths (rust/modules/*), so the mix is the same on both.
  *
  * Each iteration is one "user action", picked by weight: mostly list/search
  * reads, and WRITE_RATIO of the time a full create → read → update → delete
@@ -12,7 +18,21 @@
  */
 
 import { sleep } from 'k6';
-import { assertSafeTarget, baseOptions, isWriteIteration, MARKER, pickWeighted, platformHost, random, thinkTime, uniqueSuffix } from '../lib/config.js';
+import {
+  assertSafeTarget,
+  baseOptions,
+  IS_EU,
+  isWriteIteration,
+  MARKER,
+  pickWeighted,
+  platformHost,
+  random,
+  TARGET_LABEL,
+  thinkTime,
+  uniqueSuffix,
+  workspaceHeaders,
+  WORKSPACES,
+} from '../lib/config.js';
 import { bearerToken, initialToken } from '../lib/auth.js';
 import { createClient, endpointMetrics, jsonField } from '../lib/http.js';
 import { summaryOutputs } from '../lib/summary.js';
@@ -32,13 +52,18 @@ export const options = baseOptions(API, 'run');
 
 export function setup() {
   assertSafeTarget();
+  console.log(`Target: ${TARGET_LABEL}`);
   const token = initialToken();
   // Fail fast on a wrong host, revoked session or missing permission instead of
-  // spending ten minutes producing 401s.
+  // spending ten minutes producing 401s. On EU, in every workspace: a 403
+  // there means the member isn't in that workspace.
   const api = client(token);
-  const res = api.get('my_role', 'app', '/api/my-role');
-  if (res.status !== 200) {
-    throw new Error(`Pre-flight GET /api/my-role returned ${res.status}: ${String(res.body).slice(0, 300)}`);
+  for (const workspace of IS_EU ? WORKSPACES : [undefined]) {
+    const res = api.get('my_role', 'app', '/api/my-role', { headers: workspaceHeaders(workspace) });
+    if (res.status !== 200) {
+      const where = workspace ? ` in workspace ${workspace}` : '';
+      throw new Error(`Pre-flight GET /api/my-role${where} returned ${res.status}: ${String(res.body).slice(0, 300)}`);
+    }
   }
   return token;
 }
@@ -48,7 +73,7 @@ function client(shared) {
     api: API,
     metrics,
     hostFor: platformHost,
-    headers: () => ({ Authorization: `Bearer ${bearerToken(shared)}` }),
+    headers: () => ({ Authorization: `Bearer ${bearerToken(shared)}`, ...workspaceHeaders() }),
   });
 }
 
@@ -70,7 +95,8 @@ const READS = [
   { weight: 12, run: (api) => api.get('tickets_list', 'desk', '/api/tickets?limit=25') },
   { weight: 10, run: (api) => api.get('tasks_list', 'flow', '/api/tasks?limit=50') },
   { weight: 5, run: (api) => api.get('projects_list', 'flow', '/api/projects?limit=25') },
-  { weight: 5, run: (api) => api.get('products_list', 'commerce', '/api/products?limit=25') },
+  // The product catalogue is WeldStash's while WeldCommerce is rebuilt (commerce-api is gone).
+  { weight: 5, run: (api) => api.get('products_list', 'stash', '/api/products?limit=25') },
   { weight: 8, run: (api) => api.get('notifications_unread', 'app', '/api/notifications/unread-count') },
   { weight: 3, run: (api) => api.get('notifications_list', 'app', '/api/notifications?limit=25') },
   { weight: 4, run: (api) => api.get('my_role', 'app', '/api/my-role') },

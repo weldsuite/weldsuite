@@ -1,0 +1,32 @@
+# NetworkPolicy enforcement (../network-policy, opt-in): kube-router and the
+# metadata guard, a DaemonSet each in kube-system, on every node. A node
+# without a ready kube-router enforces stale policies or none for new pods; a
+# node without a ready metadata guard lets every new pod reach the metadata
+# service for its first second. The guard is ready only while its rule is in
+# place. Nothing matches on a cluster without the layer. What to do:
+# ALERTS.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-network-policy
+  namespace: monitoring
+spec:
+  groups:
+    - name: weldsuite-network-policy
+      rules:
+        - alert: NetworkPolicyEnforcementDegraded
+          expr: |
+            (
+              kube_daemonset_status_desired_number_scheduled{namespace="kube-system", daemonset=~"kube-router|metadata-guard"}
+                - kube_daemonset_status_number_ready{namespace="kube-system", daemonset=~"kube-router|metadata-guard"}
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "kube-system/{{ $labels.daemonset }} isn't ready on {{ $value }} node(s)"
+            description: >-
+              Pods on those nodes aren't fully held to their NetworkPolicies
+              (kube-router), or can reach the metadata service in their first
+              second (metadata-guard).
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#networkpolicyenforcementdegraded

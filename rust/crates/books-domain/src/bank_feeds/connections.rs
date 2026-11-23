@@ -308,6 +308,7 @@ pub async fn create_link_session(
     args: LinkSessionArgs,
 ) -> Result<Value, ServiceError> {
     let provider = ctx.provider(&args.provider_id)?;
+    ctx.outside_eu(provider.id).await?;
     let mut stored = None;
     if args.mode != "create" {
         let Some(connection_id) = args.connection_id.as_deref().filter(|c| !c.is_empty()) else {
@@ -385,6 +386,7 @@ pub async fn complete_link(
     user_id: Option<&str>,
 ) -> Result<Linked, ServiceError> {
     let provider = ctx.provider(provider_id)?;
+    ctx.outside_eu(provider.id).await?;
     let mut client = rec(Some(payload));
     client.remove("connection");
     let mut existing: Option<Value> = None;
@@ -884,6 +886,10 @@ async fn revoke(ctx: &FeedContext, row: &Value) -> Result<(), ServiceError> {
     let Ok(provider) = ctx.provider(text(row, "provider").unwrap_or_default()) else {
         return Ok(());
     };
+    // Revoking goes through even for a provider outside the EU the workspace
+    // has switched off (ADR OPS-026: disconnects and deletes stay open):
+    // it is what stops the provider reading the bank data, and the caller
+    // drops the credentials after it, so this is the only chance to revoke.
     let ids: Vec<String> = stored_feed_accounts(row)
         .iter()
         .filter_map(|a| text(a, "providerAccountId").map(str::to_owned))

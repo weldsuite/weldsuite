@@ -349,6 +349,9 @@ export const weldpanelCollab = {
         resolved: 'Weer normaal',
         error: 'Controle mislukt',
       },
+      historySearch: 'Geschiedenis zoeken',
+      historyNoMatch: 'Geen gebeurtenissen gevonden',
+      historyColumns: { event: 'Gebeurtenis', value: 'Waarde', time: 'Wanneer' },
       valueBound: 'waarde {value}, grens {bound}',
     },
     form: {

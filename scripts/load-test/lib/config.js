@@ -3,10 +3,17 @@
  * production guard, load profiles and pass/fail thresholds.
  *
  * Everything is read from environment variables (k6 exposes them as
- * `__ENV`); `run.mjs` loads them from `scripts/load-test/.env`.
+ * `__ENV`); `run.mjs` loads them from `scripts/load-test/.env`. The hosts
+ * and the production rule live in `targets.mjs`, which the runner shares.
  */
 
-export const WELD_ENV = (__ENV.WELD_ENV || 'test').toLowerCase();
+import { describeTarget, envOf, platformBase, productionRefusal, publicBase, targetOf } from './targets.mjs';
+
+export const WELD_ENV = envOf(__ENV);
+/** `global` (Cloudflare Workers + Clerk) or `eu` (the Rust server + WeldID). */
+export const WELD_TARGET = targetOf(__ENV);
+export const IS_EU = WELD_TARGET === 'eu';
+export const TARGET_LABEL = describeTarget(__ENV);
 export const PROFILE = (__ENV.PROFILE || 'smoke').toLowerCase();
 export const RUN_ID = __ENV.RUN_ID || String(Date.now());
 export const SCALE = Number(__ENV.SCALE || 1);
@@ -15,34 +22,60 @@ export const WRITE_RATIO = clamp(Number(__ENV.WRITE_RATIO ?? 0.2), 0, 1);
 /** Marker on every record the test creates; `cleanup` deletes by it. */
 export const MARKER = 'loadtest';
 
-const HOST_SUFFIX = WELD_ENV === 'production' ? '' : `-${WELD_ENV}`;
-
 /**
- * Host for a first-party module worker (`crm` → crm-api-test.weldsuite.org,
- * `app` → app-api-test.weldsuite.org). The platform SPA is deployed with
- * VITE_API_MODULES=all, so it calls the module workers directly; that is the
- * default here too. VIA_APP_API=1 routes everything through app-api's
- * forwarder instead, and BASE_URL pins a single host (e.g. local
- * `pnpm dev:api` on http://localhost:8789).
+ * Host for a first-party module (`crm`, `desk`, `flow`, `stash`, `app`).
+ * Global: the module's worker (crm-api-test.weldsuite.org), as the platform
+ * SPA calls it, or app-api's forwarder with VIA_APP_API=1. EU: the one
+ * server (api.test.weldsuite.eu) for every module. BASE_URL pins one host.
  */
 export function platformHost(module) {
-  if (__ENV.BASE_URL) return __ENV.BASE_URL.replace(/\/$/, '');
-  if (truthy(__ENV.VIA_APP_API)) return `https://app-api${HOST_SUFFIX}.weldsuite.org`;
-  return `https://${module}-api${HOST_SUFFIX}.weldsuite.org`;
+  return platformBase(__ENV, module);
 }
 
+/** Public API base; the scenario adds `/v1/…`. On EU the same host as the platform's. */
 export function publicApiHost() {
-  if (__ENV.PUBLIC_API_URL) return __ENV.PUBLIC_API_URL.replace(/\/$/, '');
-  return `https://api${HOST_SUFFIX}.weldsuite.org`;
+  return publicBase(__ENV);
 }
 
-/** Refuse to run against production unless explicitly allowed. */
+/** A comma-separated setting as a list. */
+export function listOf(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** This VU's entry of a list: VUs spread evenly over it (setup takes the first). */
+export function forThisVu(list) {
+  if (list.length === 0) return undefined;
+  const vu = typeof __VU === 'number' && __VU > 0 ? __VU - 1 : 0;
+  return list[vu % list.length];
+}
+
+/**
+ * EU: the test workspaces (WELD_WORKSPACE, `ws_…` ids or slugs, comma
+ * separated). Each server pod holds one connection per workspace database
+ * (the chart's tenantPoolMaxConnections), so one workspace measures what a
+ * single busy workspace gets; several measure the cluster.
+ */
+export const WORKSPACES = listOf(__ENV.WELD_WORKSPACE);
+
+/**
+ * Headers that pick the workspace. EU runs WeldID in membership mode: the
+ * token names no workspace, so every request names it in X-Weld-Workspace
+ * (`workspaces.id`, or its slug), as the platform does
+ * (apps/web/platform/lib/api/workspace-header.ts), and the server checks the
+ * member belongs to it. Global takes the workspace from the Clerk session's
+ * org claim instead.
+ */
+export function workspaceHeaders(workspace = forThisVu(WORKSPACES)) {
+  return IS_EU && workspace ? { 'X-Weld-Workspace': workspace } : {};
+}
+
+/** Refuse to run against production unless explicitly allowed (targets.mjs). */
 export function assertSafeTarget() {
-  if (WELD_ENV === 'production' && __ENV.ALLOW_PRODUCTION !== 'yes') {
-    throw new Error(
-      'Refusing to pressure-test production. Set ALLOW_PRODUCTION=yes if you really mean it.',
-    );
-  }
+  const refusal = productionRefusal(__ENV);
+  if (refusal) throw new Error(refusal);
 }
 
 /** Seconds of "user think time" between iterations (VU-based profiles only). */
@@ -120,8 +153,9 @@ export function scenarioFor(exec) {
 }
 
 /**
- * Pass/fail criteria. Only requests tagged with `api` count, so the Clerk
- * token calls never skew the result. On `breakpoint` the latency and error
+ * Pass/fail criteria. Only requests tagged with `api` count, so the token
+ * calls (Clerk, the local WeldID token broker) never skew the result. On
+ * `breakpoint` the latency and error
  * limits abort the run: the moment they trip is the answer.
  */
 export function thresholdsFor(api) {
@@ -177,10 +211,6 @@ export function random() {
 /** Whether this iteration runs a write flow instead of a read. */
 export function isWriteIteration() {
   return random() < WRITE_RATIO;
-}
-
-function truthy(value) {
-  return value === '1' || value === 'true' || value === 'yes';
 }
 
 function clamp(n, min, max) {

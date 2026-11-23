@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
+vi.mock('@/hooks/queries/use-billing-queries', () => ({
+  useCreateSetupIntent: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSubscription: () => ({ data: null }),
+}));
 vi.mock('@/lib/i18n/provider', async () => {
   const { en } = await import('@weldsuite/i18n/locales/en');
   const { interpolate } = await import('@weldsuite/i18n/provider');
@@ -17,6 +21,7 @@ const outstanding = {
   payUrl: 'https://app.weldsuite.eu/public/billing/pay/tok',
   since: '2027-01-14T10:30:00Z',
 };
+const methodNeeded = { dueAt: '2027-01-28T10:30:00Z', pastDue: true };
 const scheduledChange = {
   planId: 'plan_team',
   planName: 'Team',
@@ -43,6 +48,36 @@ describe('MollieBillingNotices', () => {
     render(<MollieBillingNotices outstanding={outstanding} canPay={false} />);
     expect(screen.getByText(ts.pastDueTitle)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: ts.payNow })).not.toBeInTheDocument();
+  });
+
+  it('asks a billing manager for a payment method instead of repeating the past-due charge', () => {
+    render(
+      <MollieBillingNotices
+        outstanding={outstanding}
+        paymentMethodRequired={methodNeeded}
+        planName="Business"
+        canPay
+      />,
+    );
+    const banner = screen.getByTestId('payment-method-needed-banner');
+    expect(banner).toHaveTextContent(ts.methodNeededPastDueTitle);
+    expect(banner).toHaveTextContent('28 January 2027');
+    expect(screen.getByRole('button', { name: ts.addPaymentMethod })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: ts.payNow })).toHaveAttribute('href', outstanding.payUrl);
+    expect(screen.queryByText(ts.pastDueTitle)).not.toBeInTheDocument();
+  });
+
+  it('shows the payment-method notice only to whoever may add one', () => {
+    render(
+      <MollieBillingNotices
+        outstanding={outstanding}
+        paymentMethodRequired={methodNeeded}
+        planName="Business"
+        canPay={false}
+      />,
+    );
+    expect(screen.queryByTestId('payment-method-needed-banner')).not.toBeInTheDocument();
+    expect(screen.getByText(ts.pastDueTitle)).toBeInTheDocument();
   });
 
   it('says what changes at the period end', () => {

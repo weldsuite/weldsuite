@@ -348,6 +348,10 @@ config:
     sellerCountry: "NL"
     # Days a past-due plan keeps working before it ends on Free (1 to 90).
     graceDays: 14
+    # Days before its renewal that a paid plan without a payment method (a
+    # workspace moved from Global) is warned: one email, and a banner for
+    # billing managers through the grace period (1 to 60).
+    renewalNoticeDays: 14
     # Where checkouts return (empty: <publicUrl>/settings/billing).
     returnUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):
@@ -1012,7 +1016,8 @@ consume:
   enabled: false
   replicaCount: 2
   # The subscribers to run; empty runs every ported one (audit, search-index,
-  # webhooks, realtime, and reach-send: WeldReach's sends, which the
+  # webhooks, realtime, moneybird-sync: WeldBooks changes on to Moneybird,
+  # ADR INT-013, and reach-send: WeldReach's sends, which the
   # reach-send-sweep cron then queues on NATS; and reach-warmup-send and
   # reach-warmup-engage, which reach-warmup-dispatch queues). search-index needs
   # config.ai with an embedding model, or `embeddings` below.

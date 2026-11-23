@@ -38,6 +38,7 @@ import { SubscriptionFormDialog } from '../subscriptions/subscription-form-dialo
 import { CommentsPanel } from './comments-panel';
 import { SharePanel } from './share-dialog';
 import { useMembers } from './use-members';
+import { panelAlertHref } from '@/components/objects/panel-alert/panel-alert-tabs';
 
 export type ReportPanelTab = 'comments' | 'history' | 'alerts' | 'schedules' | 'share';
 
@@ -174,7 +175,7 @@ function AlertsTab({ report }: Readonly<{ report: PanelReportDto }>) {
               </div>
               <AlertStateBadge alert={alert} />
               <Button asChild size="sm" variant="ghost">
-                <Link href={`/weldpanel/alerts?alert=${encodeURIComponent(alert.id)}`}>{tp.manage}</Link>
+                <Link href={panelAlertHref(alert.id)}>{tp.manage}</Link>
               </Button>
             </li>
           ))}

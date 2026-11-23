@@ -3,14 +3,18 @@
  * A new analysis is saved as a report first (a dashboard tile is a report), so
  * "Add to dashboard" on an unsaved analysis asks for a name too.
  *
- * Also the collaboration entry points of every builder: "Annotations" (the
- * project's chart annotations), and on a saved report "Share" (public links)
- * and the side panel with comments, history, alerts and schedules. Their
- * dialogs mount only when opened.
+ * Also the collaboration entry points of every builder on a saved report:
+ * "Share" (public links) and the side panel with comments, history, alerts
+ * and schedules. Their dialogs mount only when opened. Annotations are added
+ * and listed from the charts themselves (`charts/chart-annotations.tsx`).
+ *
+ * A page with the settings sidebar puts `ReportTools` (without "Add to
+ * dashboard") on the left of its toolbar and `ReportSaveButtons` on the right;
+ * `ReportActions` is all of them in one row.
  */
 
 import { lazy, Suspense, useState } from 'react';
-import { LayoutDashboard, Loader2, MessageSquare, Save, Share2, StickyNote } from 'lucide-react';
+import { LayoutDashboard, Loader2, MessageSquare, Save, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelReportSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
@@ -31,7 +35,6 @@ import { Link } from '@/lib/router';
 import { NameDialog } from './name-dialog';
 
 // Loaded when opened: they bring the collaboration hooks and forms along.
-const AnnotationsListDialog = lazy(() => import('./annotation-dialogs').then((m) => ({ default: m.AnnotationsListDialog })));
 const ReportSidePanel = lazy(() => import('./report-side-panel').then((m) => ({ default: m.ReportSidePanel })));
 const ShareDialog = lazy(() => import('./share-dialog').then((m) => ({ default: m.ShareDialog })));
 
@@ -142,18 +145,13 @@ function AddToDashboardDialog({
   );
 }
 
-export function ReportActions(props: Readonly<ReportActionsProps>) {
-  const { projectId, spec, report, defaultName, onSaved } = props;
+/** "Save as report" (or "Save as new"), then "Save changes" on a saved report so the main button ends the row; with the name dialog. */
+export function ReportSaveButtons({ projectId, spec, report, defaultName, onSaved }: Readonly<ReportActionsProps>) {
   const { t } = useI18n();
   const ts = t.weldpanel.analytics.save;
   const canCreate = useCan('panel_reports:create');
   const canUpdate = useCan('panel_reports:update');
   const [saving, setSaving] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [annotating, setAnnotating] = useState(false);
-  const tcol = t.weldpanel.collab;
   const createReport = useCreateWeldPanelReport();
   const updateReport = useUpdateWeldPanelReport(report?.id ?? '');
   const complete = spec !== null;
@@ -170,44 +168,18 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
+      {canCreate && (
+        <Button type="button" size="sm" variant={report ? 'outline' : 'default'} disabled={!complete} onClick={() => setSaving(true)}>
+          {report ? ts.saveAsNew : ts.saveReport}
+        </Button>
+      )}
       {report && canUpdate && (
         <Button type="button" size="sm" disabled={!complete || updateReport.isPending} onClick={() => void saveChanges()}>
           {updateReport.isPending ? <Loader2 className="animate-spin" /> : <Save />}
           {ts.updateReport}
         </Button>
       )}
-      {canCreate && (
-        <Button type="button" size="sm" variant={report ? 'outline' : 'default'} disabled={!complete} onClick={() => setSaving(true)}>
-          {!report && <Save />}
-          {report ? ts.saveAsNew : ts.saveReport}
-        </Button>
-      )}
-      {(canCreate || canUpdate) && (
-        <Button type="button" size="sm" variant="outline" disabled={!complete} onClick={() => setAdding(true)}>
-          <LayoutDashboard />
-          {ts.addToDashboard}
-        </Button>
-      )}
-      {(canCreate || canUpdate) && (
-        <Button type="button" size="sm" variant="outline" onClick={() => setAnnotating(true)}>
-          <StickyNote />
-          {tcol.annotations.button}
-        </Button>
-      )}
-      {report && (
-        <>
-          <Button type="button" size="sm" variant="outline" onClick={() => setSharing(true)}>
-            <Share2 />
-            {tcol.share.button}
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setPanelOpen(true)}>
-            <MessageSquare />
-            {tcol.sidePanel.open}
-          </Button>
-        </>
-      )}
-
       <NameDialog
         open={saving}
         onOpenChange={setSaving}
@@ -236,9 +208,52 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
           }
         }}
       />
-      {adding && <AddToDashboardDialog {...props} open={adding} onOpenChange={setAdding} />}
+    </>
+  );
+}
+
+interface ReportToolsProps extends Pick<ReportActionsProps, 'projectId' | 'report' | 'defaultName' | 'onSaved'> {
+  /** Only needed with `withDashboard`: the analysis to put on a dashboard. */
+  spec?: PanelReportSpec | null;
+  /** Start with "Add to dashboard". */
+  withDashboard?: boolean;
+}
+
+/** On a saved report "Share" and the side panel; with `withDashboard` "Add to dashboard" first. */
+export function ReportTools({ withDashboard = false, ...props }: Readonly<ReportToolsProps>) {
+  const { spec = null, report } = props;
+  const { t } = useI18n();
+  const ts = t.weldpanel.analytics.save;
+  const tcol = t.weldpanel.collab;
+  const canCreate = useCan('panel_reports:create');
+  const canUpdate = useCan('panel_reports:update');
+  const [adding, setAdding] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  return (
+    <>
+      {withDashboard && (canCreate || canUpdate) && (
+        <Button type="button" size="sm" variant="outline" disabled={spec === null} onClick={() => setAdding(true)}>
+          <LayoutDashboard />
+          {ts.addToDashboard}
+        </Button>
+      )}
+      {report && (
+        <>
+          <Button type="button" size="sm" variant="outline" onClick={() => setSharing(true)}>
+            <Share2 />
+            {tcol.share.button}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setPanelOpen(true)}>
+            <MessageSquare />
+            {tcol.sidePanel.open}
+          </Button>
+        </>
+      )}
+
+      {adding && <AddToDashboardDialog {...props} spec={spec} open={adding} onOpenChange={setAdding} />}
       <Suspense fallback={null}>
-        {annotating && <AnnotationsListDialog open={annotating} onOpenChange={setAnnotating} projectId={projectId} reportId={report?.id ?? null} />}
         {report && sharing && (
           <ShareDialog
             open={sharing}
@@ -248,6 +263,16 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
         )}
         {report && panelOpen && <ReportSidePanel report={report} open={panelOpen} onOpenChange={setPanelOpen} />}
       </Suspense>
+    </>
+  );
+}
+
+/** Every action in one row, saving first: for a page without the settings sidebar (Performance). */
+export function ReportActions(props: Readonly<ReportActionsProps>) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <ReportSaveButtons {...props} />
+      <ReportTools {...props} withDashboard />
     </div>
   );
 }

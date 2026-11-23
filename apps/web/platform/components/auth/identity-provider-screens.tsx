@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { completeSignIn, getAccountUrl, redirectToSignIn, usesBrowserSignIn } from '@/lib/auth';
+import { completeSignIn, getAccountUrl, isWeldIdProvider, redirectToSignIn, usesBrowserSignIn } from '@/lib/auth';
 import { sameOriginPath } from '@/lib/auth/same-origin-path';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
@@ -68,26 +68,44 @@ export function HostedSignInCallback() {
   );
 }
 
+type ManagedTopic = 'account' | 'invitations';
+type IdentityProviderCopy = ReturnType<typeof getTranslations<'common'>>['auth']['identityProvider'];
+
+/**
+ * What the screen says. On WeldID, WeldSuite's own provider, the account
+ * lives in WeldID, and invitations are WeldSuite's (membership mode), so a
+ * link without one is incomplete rather than the provider's business.
+ */
+function managedCopy(topic: ManagedTopic, copy: IdentityProviderCopy) {
+  if (isWeldIdProvider()) {
+    const weldId = copy.weldId;
+    return topic === 'invitations'
+      ? { title: weldId.invitationIncompleteTitle, description: weldId.invitationIncomplete, openAccount: null }
+      : { title: weldId.managedTitle, description: weldId.managedDescription, openAccount: weldId.openAccount };
+  }
+  return topic === 'invitations'
+    ? { title: copy.managedTitle, description: copy.invitationsManaged, openAccount: null }
+    : { title: copy.managedTitle, description: copy.managedDescription, openAccount: copy.openAccount };
+}
+
 /**
  * Account security (password, 2FA, passkeys, sessions) or workspace
  * invitations, when the provider owns them: say so, and link to the
  * provider's account page when the deployment names one.
  */
-export function ManagedByIdentityProvider({ topic = 'account' }: Readonly<{ topic?: 'account' | 'invitations' }>) {
+export function ManagedByIdentityProvider({ topic = 'account' }: Readonly<{ topic?: ManagedTopic }>) {
   const t = getTranslations('common');
   const accountUrl = getAccountUrl();
-  const copy = t.auth.identityProvider;
+  const { title, description, openAccount } = managedCopy(topic, t.auth.identityProvider);
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-3 p-6">
-      <h2 className="text-lg font-semibold">{copy.managedTitle}</h2>
-      <p className="text-sm text-muted-foreground">
-        {topic === 'invitations' ? copy.invitationsManaged : copy.managedDescription}
-      </p>
-      {accountUrl && topic === 'account' ? (
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="text-sm text-muted-foreground">{description}</p>
+      {accountUrl && openAccount ? (
         <div>
           <Button asChild variant="outline">
             <a href={accountUrl} target="_blank" rel="noreferrer">
-              {copy.openAccount}
+              {openAccount}
             </a>
           </Button>
         </div>

@@ -213,6 +213,9 @@ async fn build_authorize_url(
             Err(()) => return Err(MergeError::Unexpected("Invalid URL".to_owned()).into()),
         }
     }
+    // ADR OPS-026: no round trip to a provider outside the EU the workspace
+    // hasn't switched on.
+    crate::require_provider(&caller.db, provider, host).await?;
     let id = create_state(caller, state, provider, purpose, safe_return_to(return_to)).await?;
     let env = |name: &str| overrides.env_set(state, name);
     Ok(Some(providers::authorize_url(
@@ -590,6 +593,9 @@ async fn validate_gitlab_token(
     let (true, Ok(normalized)) = (https, normalize_gitlab_host(Some(host))) else {
         return Ok(Err("The GitLab host must be an https URL".to_owned()));
     };
+    // ADR OPS-026: GitLab.com only once switched on; a self-managed host is
+    // the workspace's own server.
+    crate::require_provider(&caller.db, "gitlab", Some(host)).await?;
     let http = caller
         .overrides
         .outbound(state)
@@ -748,6 +754,7 @@ pub(crate) async fn azure_organization(
     let Some(connection) = connection else {
         return Err(Refusal::not_found("Connection", Some(&connection_id)));
     };
+    crate::require_provider(db, "azure_devops", None).await?;
     let not_accessible = || {
         Refusal::unprocessable(
             "Azure DevOps does not give this account access to that organisation",
@@ -850,6 +857,8 @@ pub(crate) async fn callback(
     if oauth.purpose == "connection" && !can_connect {
         return Err(not_yours());
     }
+    // ADR OPS-026: switched off since the round trip started.
+    crate::require_provider(&caller.db, &oauth.provider, None).await?;
     let overrides = &caller.overrides;
     let http = overrides
         .outbound(&state)

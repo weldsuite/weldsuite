@@ -279,6 +279,7 @@ export const emails = {
     plan: 'Plan',
     amount: 'Amount due',
     endsOn: 'Plan ends on',
+    renewsOn: 'Renews on',
     failed: {
       subject: 'Payment failed for "{workspace}"',
       preview: 'Pay {amount} before {date} to keep {plan}.',
@@ -302,6 +303,30 @@ export const emails = {
       body: 'A payment of {amount} for the {plan} plan of {workspace} stayed open, so the workspace moved to the Free plan. Your data is kept. Choose a plan again to get your seats and features back.',
       note: 'You get this email because you manage billing for the workspace.',
       button: 'Choose a plan',
+    },
+    upcoming: {
+      subject: 'Add a payment method for "{workspace}" before {date}',
+      preview: 'Add a payment method before {date} to keep {plan}.',
+      heading: 'Add a payment method before {date}',
+      body: 'The {plan} plan of {workspace} renews on {date}, but there is no payment method on file to charge it to. Add a payment method before {date} to keep {plan}.',
+      note: 'If the renewal can’t be charged, your plan keeps working for a short grace period and then moves to the Free plan. You get this email because you manage billing for the workspace.',
+      button: 'Add payment method',
+    },
+    failedNoMethod: {
+      subject: 'Add a payment method for "{workspace}"',
+      preview: 'Add a payment method before {date} to keep {plan}.',
+      heading: 'Your plan needs a payment method',
+      body: 'The {plan} plan of {workspace} renewed, but there is no payment method on file to charge {amount} to. Your plan keeps working until {date}. Add a payment method before then to keep it.',
+      note: 'Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.',
+      button: 'Pay and add payment method',
+    },
+    reminderNoMethod: {
+      subject: 'Reminder: "{workspace}" still needs a payment method',
+      preview: 'Add a payment method before {date} to keep {plan}.',
+      heading: 'Your plan still needs a payment method',
+      body: 'The {plan} plan of {workspace} still has {amount} open because there is no payment method on file. If it isn’t paid by {date}, the workspace moves to the Free plan.',
+      note: 'Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.',
+      button: 'Pay and add payment method',
     },
   },
   billingInvoice: {

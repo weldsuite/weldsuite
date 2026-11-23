@@ -1,162 +1,34 @@
 /**
  * Alerts: every alert of the current project with its state, and the actions
- * on each (edit, history, test, snooze, turn on or off, delete).
- * `?alert=<id>` opens one in the side sheet: the link alert emails and
- * notifications carry.
+ * on each (edit, history, test, snooze, turn on or off, delete). A row opens
+ * the alert's record panel (`?stack=panel_alert:<id>`); `?alert=<id>`, the
+ * link alert emails and notifications carry, opens it too.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PanelAlertDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
 import { useCan } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { FilterSelect } from '@weldsuite/ui/components/filter-select';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
-import { useDeleteWeldPanelAlert, useSnoozeWeldPanelAlert, useTestWeldPanelAlert, useUpdateWeldPanelAlert, useWeldPanelAlerts } from '@/hooks/queries/use-weldpanel-collab-queries';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { PANEL_ALERT_TYPE, panelAlertHref } from '@/components/objects/panel-alert/panel-alert-tabs';
+import { useDeleteWeldPanelAlert, useWeldPanelAlerts } from '@/hooks/queries/use-weldpanel-collab-queries';
 import { useWeldPanelReports } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { AnalyticsListPage } from '../components/analytics-page';
-import { deliveryReportText } from '../components/delivery-channels-fields';
 import { useMembers } from '../components/use-members';
-import { daysFromNow } from '../lib/date-input';
 import { formatDateTime } from '../lib/format';
-import { AlertDetailSheet } from './alert-detail-sheet';
 import { AlertFormDialog } from './alert-form-dialog';
+import { AlertMenuItems } from './alert-menu';
 import { AlertStateBadge, useConditionText, useWatchText } from './alert-text';
 
 type Scope = 'all' | 'mine';
-
-const HOUR_MS = 3_600_000;
-
-interface AlertMenuItemsProps {
-  alert: PanelAlertDto;
-  canChange: boolean;
-  canDelete: boolean;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}
-
-/** The row's menu: history, edit, test, snooze, turn on or off, delete. */
-function AlertMenuItems({ alert, canChange, canDelete, onOpen, onEdit, onDelete }: Readonly<AlertMenuItemsProps>) {
-  const { t, format } = useI18n();
-  const ta = t.weldpanel.collab.alerts;
-  const tch = t.weldpanel.collab.channels.delivery;
-  const update = useUpdateWeldPanelAlert();
-  const snooze = useSnoozeWeldPanelAlert();
-  const test = useTestWeldPanelAlert();
-  const snoozed = alert.snoozedUntil !== null && Date.parse(alert.snoozedUntil) > Date.now();
-
-  async function run(action: () => Promise<unknown>, done: string) {
-    try {
-      await action();
-      toast.success(done);
-    } catch {
-      toast.error(ta.failed);
-    }
-  }
-
-  async function sendTest() {
-    try {
-      const report = await test.mutateAsync(alert.id);
-      toast.success(ta.tested, {
-        description: deliveryReportText(report, tch, format),
-      });
-    } catch {
-      toast.error(ta.testFailed);
-    }
-  }
-
-  return (
-    <>
-      <DropdownMenuItem onSelect={onOpen}>{ta.actions.history}</DropdownMenuItem>
-      {canChange && (
-        <>
-          <DropdownMenuItem onSelect={onEdit}>{ta.actions.edit}</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void sendTest()}>{ta.actions.test}</DropdownMenuItem>
-          {snoozed ? (
-            <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: null }), ta.unsnoozedToast)}>{ta.actions.unsnooze}</DropdownMenuItem>
-          ) : (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>{ta.actions.snooze}</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    void run(
-                      () =>
-                        snooze.mutateAsync({
-                          id: alert.id,
-                          until: new Date(Date.now() + HOUR_MS).toISOString(),
-                        }),
-                      ta.snoozedToast,
-                    )
-                  }
-                >
-                  {ta.actions.snooze1h}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    void run(
-                      () =>
-                        snooze.mutateAsync({
-                          id: alert.id,
-                          until: daysFromNow(1),
-                        }),
-                      ta.snoozedToast,
-                    )
-                  }
-                >
-                  {ta.actions.snooze1d}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    void run(
-                      () =>
-                        snooze.mutateAsync({
-                          id: alert.id,
-                          until: daysFromNow(7),
-                        }),
-                      ta.snoozedToast,
-                    )
-                  }
-                >
-                  {ta.actions.snooze1w}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          )}
-          <DropdownMenuItem
-            onSelect={() =>
-              void run(
-                () =>
-                  update.mutateAsync({
-                    id: alert.id,
-                    enabled: !alert.enabled,
-                  }),
-                alert.enabled ? ta.disabledToast : ta.enabledToast,
-              )
-            }
-          >
-            {alert.enabled ? ta.actions.disable : ta.actions.enable}
-          </DropdownMenuItem>
-        </>
-      )}
-      {canDelete && (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
-            {ta.actions.delete}
-          </DropdownMenuItem>
-        </>
-      )}
-    </>
-  );
-}
 
 function AlertsList({
   projectId,
@@ -188,7 +60,14 @@ function AlertsList({
   const watchText = useWatchText();
   const reportsById = useMemo(() => new Map((reports ?? []).map((r) => [r.id, r])), [reports]);
 
-  const setOpen = (id: string | null) => router.replace(id ? `/weldpanel/alerts?alert=${encodeURIComponent(id)}` : '/weldpanel/alerts');
+  // The open alert panel is kept in the URL (`?stack=`), so it survives a reload and can be linked to.
+  useObjectPanelUrlSync('/weldpanel/alerts');
+  const { stack, open: openPanel, closeAll } = useObjectPanel();
+  // Alert emails and notifications link to `?alert=<id>`: show that alert's panel instead.
+  useEffect(() => {
+    if (openId) router.replace(panelAlertHref(openId));
+  }, [openId, router]);
+  const openAlert = (id: string, tab?: 'history') => openPanel({ type: PANEL_ALERT_TYPE, id, initialTab: tab });
   const mayChange = (alert: PanelAlertDto) => alert.ownerUserId === me || canManage;
 
   const columns: ColumnDef<PanelAlertDto>[] = [
@@ -267,7 +146,7 @@ function AlertsList({
             alert={alert}
             canChange={canUpdate && mayChange(alert)}
             canDelete={canDelete && mayChange(alert)}
-            onOpen={() => setOpen(alert.id)}
+            onOpen={() => openAlert(alert.id, 'history')}
             onEdit={() => setEditing(alert)}
             onDelete={() => setDeleting(alert)}
           />
@@ -283,7 +162,7 @@ function AlertsList({
             options={[{ value: 'mine', label: ta.scopes.mine }]}
           />
         }
-        onRowClick={(alert) => setOpen(alert.id)}
+        onRowClick={(alert) => openAlert(alert.id)}
         createButton={createAction}
         emptyState={{
           icon: <Bell className="size-8 text-muted-foreground" />,
@@ -298,7 +177,6 @@ function AlertsList({
         }}
       />
 
-      <AlertDetailSheet alertId={openId} onClose={() => setOpen(null)} reports={reportsById} />
       <AlertFormDialog open={creating} onOpenChange={onCreatingChange} projectId={projectId} />
       <AlertFormDialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} projectId={projectId} alert={editing} />
       <ConfirmDialog
@@ -314,7 +192,7 @@ function AlertsList({
           try {
             await remove.mutateAsync(deleting.id);
             toast.success(ta.deleted);
-            if (openId === deleting.id) setOpen(null);
+            if (stack.some((handle) => handle.type === PANEL_ALERT_TYPE && handle.id === deleting.id)) closeAll();
             setDeleting(null);
           } catch {
             toast.error(ta.deleteFailed);

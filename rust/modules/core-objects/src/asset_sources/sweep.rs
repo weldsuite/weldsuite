@@ -122,6 +122,17 @@ async fn sweep_workspace(
     max_steps: usize,
 ) -> Result<WorkspaceSweep, StepFailure> {
     let db = &tenant.db;
+    // ADR OPS-026: no import reaches Microsoft while the workspace has it
+    // off; its sources wait, and a run under way picks up where it was.
+    if !weldsuite_outside_eu::allowed(
+        db,
+        weldsuite_outside_eu::ServiceId::Microsoft,
+        &format!("asset import sweep {}", tenant.clerk_org_id),
+    )
+    .await
+    {
+        return Ok(WorkspaceSweep::default());
+    }
     let stamp = iso_timestamp(now);
     let mut result = WorkspaceSweep::default();
     let mut throttled_until: HashMap<String, OffsetDateTime> = HashMap::new();

@@ -140,6 +140,16 @@ pub(crate) fn queue_deletes(state: &CalendarState, caller: &Caller, event_ids: V
 
 /// `pushCalendarEventToGoogle`: every active connection, each on its own.
 async fn push_event(context: &PushContext, event_id: &str, action: PushAction, data: &Ordered) {
+    // ADR OPS-026: nothing goes to Google while the workspace has it off.
+    if !weldsuite_outside_eu::allowed(
+        &context.db,
+        weldsuite_outside_eu::ServiceId::Google,
+        &format!("calendar google push {event_id}"),
+    )
+    .await
+    {
+        return;
+    }
     let connections: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
         "select to_jsonb(c) from integration_connections c
          where provider = 'google_calendar' and status = 'active' and deleted_at is null",

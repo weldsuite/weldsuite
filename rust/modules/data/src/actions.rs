@@ -56,6 +56,9 @@ pub(crate) struct ActionContext<'a> {
     pub(crate) siblings: &'a HashMap<String, String>,
     /// The model the `ai` action calls; `None` with AI off.
     pub(crate) ai: Option<&'a AiModel>,
+    /// The workspace's tenant database: its outside-EU switches (ADR
+    /// OPS-026). `None` checks nothing.
+    pub(crate) tenant: Option<&'a weldsuite_db::PgPool>,
 }
 
 /// The model of a run's `ai` cells: the install's AI and who the run is
@@ -345,6 +348,14 @@ async fn email_finder(ctx: &ActionContext<'_>) -> Result<ActionResult, String> {
         else {
             return Err("Prospeo is not configured (missing PROSPEO_API_KEY)".to_owned());
         };
+        // Prospeo is outside the EU (ADR OPS-026): on the EU edition the
+        // cell shows why instead, until the workspace switches it on.
+        if let Some(db) = ctx.tenant
+            && let Err(error) =
+                weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Prospeo).await
+        {
+            return Err(error.to_string());
+        }
         let request = HttpRequest::json(
             "POST",
             "https://api.prospeo.io/email-finder",
@@ -833,6 +844,7 @@ mod tests {
             lead: &lead,
             siblings: &siblings,
             ai,
+            tenant: None,
         };
         run_action("ai", &ctx).await
     }

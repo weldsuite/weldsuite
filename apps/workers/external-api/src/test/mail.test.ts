@@ -109,9 +109,16 @@ function mailEnv() {
   const sent: { from: string; to: string }[] = [];
   const STORAGE = memoryBucket();
   const env: Partial<Env> = {
-    SEND_EMAIL: { send: async (msg: { from: string; to: string }) => void sent.push(msg) } as unknown as SendEmail,
+    // `sent` on the binding: conformance drops the TypeScript run's envelopes
+    // from it, so the test counts the sends of the backend it checks.
+    SEND_EMAIL: { sent, send: async (msg: { from: string; to: string }) => void sent.push(msg) } as unknown as SendEmail,
     // Every recipient domain resolves (cached MX hit), so no DNS is queried.
-    WORKSPACE_CACHE: { get: async () => '1', put: async () => undefined } as unknown as KVNamespace,
+    // KV-shaped (`delete` too), so conformance serves it to the Rust backend.
+    WORKSPACE_CACHE: {
+      get: async () => '1',
+      put: async () => undefined,
+      delete: async () => undefined,
+    } as unknown as KVNamespace,
     STORAGE: STORAGE as unknown as R2Bucket,
   };
   return { env, sent, STORAGE };
@@ -312,7 +319,10 @@ describe('organize', () => {
       body: JSON.stringify({ isRead: true, isStarred: true }),
     });
     expect(patched.status).toBe(200);
-    expect((await json(patched)).data).toMatchObject({ isRead: true, isStarred: true });
+    const patchedData = (await json(patched)).data;
+    expect(patchedData).toMatchObject({ isRead: true, isStarred: true });
+    // The raw attachment rows (with their storage paths) never come back.
+    expect(patchedData).not.toHaveProperty('attachments');
 
     const labelled = await request(`/v1/mail-messages/${id}/labels`, {
       method: 'POST',
@@ -527,5 +537,159 @@ describe('sending', () => {
       body: JSON.stringify({ to: ['rcpt@example.com'], subject: 'No binding', body: 'x' }),
     });
     expect(res.status).toBe(503);
+  });
+
+  it('forwards a shared message to new recipients', async () => {
+    const { env, sent } = mailEnv();
+    const res = await app(workspaceKey(), env)(`/v1/mail-messages/${ids.sharedMsg}/forward`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ to: ['colleague@example.com'], body: 'FYI' }),
+    });
+    expect(res.status).toBe(200);
+    const data = (await json(res)).data;
+    expect(data).toMatchObject({ forwardedFrom: ids.sharedMsg, subject: 'Fwd: Shared question', replayed: false });
+    expect(sent.map((m) => m.to)).toEqual(['colleague@example.com']);
+  });
+});
+
+describe('organize mailboxes', () => {
+  const post = (path: string, body: unknown) =>
+    app(workspaceKey())(path, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+  const patch = (path: string, body: unknown) =>
+    app(workspaceKey())(path, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(body) });
+  const remove = (path: string) => app(workspaceKey())(path, { method: 'DELETE' });
+
+  it('applies bulk actions to shared messages', async () => {
+    await seedMessage('msg_t_bulk_a', ids.shared, 'Bulk A');
+    await seedMessage('msg_t_bulk_b', ids.shared, 'Bulk B');
+    const bulk = (action: string) => post('/v1/mail-messages/bulk', { ids: ['msg_t_bulk_a', 'msg_t_bulk_b'], action });
+    for (const action of ['markRead', 'star', 'flag', 'archive']) {
+      const res = await bulk(action);
+      expect(res.status, action).toBe(200);
+      expect((await json(res)).data).toEqual({ affected: 2, action });
+    }
+    const [row] = await db
+      .select({ isRead: mailMessages.isRead, isFlagged: mailMessages.isFlagged, labels: mailMessages.labels })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, 'msg_t_bulk_a'));
+    expect(row).toMatchObject({ isRead: true, isFlagged: true });
+    expect(row?.labels).toEqual(expect.arrayContaining(['STARRED', 'ARCHIVE']));
+    expect((await bulk('delete')).status).toBe(200);
+    expect((await app(workspaceKey())('/v1/mail-messages/msg_t_bulk_a')).status).toBe(404);
+  });
+
+  it('reads a thread, labels it and moves it by its labels', async () => {
+    await seedMessage('msg_t_thread_c', ids.shared, 'Thread C');
+    const read = await post('/v1/mail-threads/msg_t_thread_c/read', { accountId: ids.shared });
+    expect(read.status).toBe(200);
+    expect((await json(read)).data).toEqual({ threadId: 'msg_t_thread_c', accountId: ids.shared, isRead: true, updatedCount: 1 });
+
+    const labelled = await post('/v1/mail-threads/msg_t_thread_c/labels', { accountId: ids.shared, add: ['Followup', 'archive'] });
+    expect(labelled.status).toBe(200);
+    expect((await json(labelled)).data).toEqual({ threadId: 'msg_t_thread_c', accountId: ids.shared, affected: 1 });
+
+    const wrongWay = await post('/v1/mail-threads/msg_t_thread_c/labels', { accountId: ids.shared, remove: ['inbox'] });
+    expect(wrongWay.status).toBe(400);
+
+    const thread = await app(workspaceKey())(`/v1/mail-threads/msg_t_thread_c?accountId=${ids.shared}`);
+    expect(thread.status).toBe(200);
+    const messages = (await json<{ data: { messages: Record<string, unknown>[] } }>(thread)).data.messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).not.toHaveProperty('rawMessage');
+    expect(messages[0]?.labels).toEqual(expect.arrayContaining(['Followup', 'ARCHIVE']));
+  });
+
+  it('creates, renames and deletes a label; a duplicate name is a conflict', async () => {
+    const created = await post('/v1/mail-labels', { accountId: ids.shared, name: 'Receipts', color: '#4F46E5' });
+    expect(created.status).toBe(201);
+    const label = (await json(created)).data;
+    expect(label).toMatchObject({ accountId: ids.shared, name: 'Receipts' });
+
+    expect((await post('/v1/mail-labels', { accountId: ids.shared, name: 'receipts' })).status).toBe(409);
+    expect((await post('/v1/mail-labels', { accountId: ids.shared, name: 'x', color: 'blue' })).status).toBe(400);
+
+    const renamed = await patch(`/v1/mail-labels/${label.id as string}`, { name: 'Receipts 2026' });
+    expect(renamed.status).toBe(200);
+    expect((await json(renamed)).data).toMatchObject({ name: 'Receipts 2026' });
+
+    expect((await remove(`/v1/mail-labels/${label.id as string}`)).status).toBe(204);
+    expect((await app(workspaceKey())(`/v1/mail-labels/${label.id as string}`)).status).toBe(404);
+  });
+
+  it('creates, updates and deletes a folder, its parent in the same mailbox', async () => {
+    const created = await post('/v1/mail-folders', { accountId: ids.shared, name: 'Projects', position: 3 });
+    expect(created.status).toBe(201);
+    const folder = (await json(created)).data;
+    expect(folder).toMatchObject({ accountId: ids.shared, name: 'Projects', type: 'custom', position: 3 });
+
+    const elsewhere = await post('/v1/mail-folders', { accountId: ids.shared, name: 'Child', parentId: ids.privateFolder });
+    expect(elsewhere.status).toBe(400);
+    const child = await post('/v1/mail-folders', { accountId: ids.shared, name: 'Child', parentId: folder.id });
+    expect(child.status).toBe(201);
+
+    const updated = await patch(`/v1/mail-folders/${folder.id as string}`, { color: '#22C55E', icon: 'folder' });
+    expect(updated.status).toBe(200);
+    expect((await json(updated)).data).toMatchObject({ color: '#22C55E', icon: 'folder' });
+    expect((await patch(`/v1/mail-folders/${folder.id as string}`, {})).status).toBe(400);
+
+    expect((await remove(`/v1/mail-folders/${folder.id as string}`)).status).toBe(204);
+    expect((await app(workspaceKey())(`/v1/mail-folders/${folder.id as string}`)).status).toBe(404);
+  });
+
+  it('updates and deletes a draft; moving it needs the other mailbox too', async () => {
+    const created = await post('/v1/mail-drafts', { accountId: ids.shared, subject: 'Draft one', inReplyTo: '<x@example.com>' });
+    expect(created.status).toBe(201);
+    const draft = (await json(created)).data;
+    expect(draft).toMatchObject({ isReply: true, hasAttachments: false, attachmentCount: 0 });
+
+    const updated = await patch(`/v1/mail-drafts/${draft.id as string}`, {
+      subject: 'Draft two',
+      to: ['rcpt@example.com'],
+      attachmentIds: ['mupl_abcdefgh123'],
+    });
+    expect(updated.status).toBe(200);
+    expect((await json(updated)).data).toMatchObject({
+      subject: 'Draft two',
+      to: ['rcpt@example.com'],
+      hasAttachments: true,
+      attachmentCount: 1,
+    });
+    expect((await patch(`/v1/mail-drafts/${draft.id as string}`, { accountId: ids.private })).status).toBe(404);
+
+    expect((await remove(`/v1/mail-drafts/${draft.id as string}`)).status).toBe(204);
+    expect((await app(workspaceKey())(`/v1/mail-drafts/${draft.id as string}`)).status).toBe(404);
+  });
+
+  it('lists and downloads a shared attachment', async () => {
+    const { env, STORAGE } = mailEnv();
+    await seedMessage('msg_t_with_file', ids.shared, 'With a file');
+    await db.update(mailMessages).set({ hasAttachments: true, attachmentCount: 1 }).where(eq(mailMessages.id, 'msg_t_with_file'));
+    const storagePath = `workspaces/${ORG_ID}/mail/notes.txt`;
+    await STORAGE.put(storagePath, 'meeting notes', { httpMetadata: { contentType: 'text/plain' } });
+    await db.insert(mailAttachments).values({
+      id: 'attach_t_shared',
+      messageId: 'msg_t_with_file',
+      fileName: 'notes.txt',
+      contentType: 'text/plain',
+      size: 13,
+      storagePath,
+    });
+    const request = app(workspaceKey(), env);
+
+    const listed = await request('/v1/mail-messages/msg_t_with_file/attachments');
+    expect(listed.status).toBe(200);
+    const files = (await json<{ data: Record<string, unknown>[] }>(listed)).data;
+    expect(files.map((f) => f.fileName)).toEqual(['notes.txt']);
+    expect(files[0]).not.toHaveProperty('storagePath');
+
+    const message = (await json(await request('/v1/mail-messages/msg_t_with_file?includeHtml=false'))).data;
+    expect((message.attachments as Record<string, unknown>[]).map((f) => f.id)).toEqual(['attach_t_shared']);
+
+    const download = await request('/v1/mail-attachments/attach_t_shared/download');
+    expect(download.status).toBe(200);
+    expect(download.headers.get('Content-Disposition')).toContain('filename="notes.txt"');
+    expect(download.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(await download.text()).toBe('meeting notes');
   });
 });

@@ -2653,9 +2653,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -7268,9 +7268,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -7555,6 +7555,7 @@ dependencies = [
  "weldsuite-mollie",
  "weldsuite-mta",
  "weldsuite-notifications",
+ "weldsuite-outside-eu",
  "weldsuite-panel",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -7628,6 +7629,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -7646,6 +7648,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-ports",
 ]
 
@@ -7805,6 +7808,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -7843,6 +7847,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
@@ -7997,6 +8002,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mail-domain",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -8031,6 +8037,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "url",
  "uuid",
@@ -8040,6 +8047,7 @@ dependencies = [
  "weldsuite-desk-domain",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -8172,6 +8180,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "url",
  "weldsuite-ads-domain",
@@ -8190,6 +8199,7 @@ dependencies = [
  "weldsuite-mail-domain",
  "weldsuite-merge-domain",
  "weldsuite-notifications",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-subscribers",
@@ -8344,6 +8354,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -8376,6 +8387,7 @@ dependencies = [
  "axum",
  "http",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8392,8 +8404,10 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mollie",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8510,6 +8524,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -8537,6 +8552,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8569,6 +8585,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-mail-domain",
  "weldsuite-notifications",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",
@@ -8709,7 +8726,9 @@ dependencies = [
  "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-know-domain",
+ "weldsuite-mail-domain",
  "weldsuite-notifications",
+ "weldsuite-outside-eu",
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-social-domain",
@@ -8826,6 +8845,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -8887,6 +8907,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-ports",
 ]
 
@@ -9031,6 +9052,7 @@ name = "weldsuite-mail-domain"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "jiff",
  "lettre",
  "regex",
  "sea-orm",
@@ -9044,6 +9066,7 @@ dependencies = [
  "uuid",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-kit",
  "weldsuite-ports",
  "weldsuite-schema",
@@ -9166,6 +9189,7 @@ dependencies = [
  "weldsuite-know-domain",
  "weldsuite-mail-domain",
  "weldsuite-merge-domain",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]
@@ -9247,6 +9271,23 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-outside-eu"
+version = "0.0.0"
+dependencies = [
+ "http",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9450,6 +9491,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mail-inbound",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
@@ -9609,6 +9651,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-social-domain",

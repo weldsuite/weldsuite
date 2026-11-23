@@ -458,8 +458,18 @@ with publishing through `social-domain`), WeldBooks
 (knowledge-spaces and -pages, on `know-domain`'s access rules), the
 drive (files with their content, folders, drive aggregates), WeldConnect
 (webhooks with the event catalog in its declared order, workflows with
-schedules and executions)
-and WeldFlow's project-sheets list (with `sheets`).
+schedules and executions),
+WeldFlow's project-sheets list (with `sheets`), and WeldMail
+(`modules/external-api/src/mail`: mail-accounts, -messages, -threads,
+-labels, -folders, -drafts and -attachments, and sending: uploads,
+compose, reply, forward and draft-send, under the API's policies of a
+verified sender domain and the account's daily limit). A workspace key or
+an app token acts as the workspace there and opens shared mailboxes only;
+a personal key opens what WeldMail opens for its member. The shared mail
+logic (the principal's access, the public account shape, folders, drafts,
+uploads, forward) is `weldsuite-mail-domain`, which WeldMail's own routes
+send through too; an attachment the virus scan locked downloads as 403 or
+409, as in WeldMail.
 WeldDesk's BI connector, the read-only OData 4.0 feed at `/v1/odata`
 (`modules/external-api/src/odata`), is mounted with desk's groups: its
 tables come from `catalogs/odata.json`, which `pnpm rust:catalogs` exports
@@ -470,7 +480,7 @@ Their bodies are validated with the client packages'
 Zod schemas, which `modules/external-api/tools/generate.mts` writes out as
 data (`schemas_gen.rs`, read by `zod.rs`), with the tables' insert and patch
 statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
-yet: mail (8 groups), custom-objects and reach.
+yet: custom-objects and reach.
 
 The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
 is served at `/mcp` (with the EU values on a host of its own, `mcp.<domain>`,
@@ -614,6 +624,11 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/outside-eu/    services outside the EU (ADR OPS-026): the one list of them (by company: where, what
+                        data, what uses it), a workspace's opt-ins (workspace_settings.features.outsideEu), and
+                        the check every call path makes on the EU edition (`require` in routes, `allowed` in jobs;
+                        installed from EDITION in main.rs, off in conformance builds); routes in
+                        modules/core-platform (`/api/outside-eu-services`), staff command `weldsuite admin outside-eu`
   crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
                         legal_entity_context layer and record guard for books and hr, the core service
                         (entities, registrations, bank accounts, access) and its request schemas
@@ -950,6 +965,13 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   through Mollie (the credit note is made in WeldBooks, in the issuer
   workspace) and `retry-now` (charge a past-due workspace's open charge
   again). `bins/weldsuite/src/admin_billing.rs`.
+- **`outside-eu`**: a workspace's services outside the EU (ADR OPS-026,
+  `crates/outside-eu`): `list`, and `on`/`off` with
+  `--service <id>[,<id>…]`. `on --via move` records an integration the
+  workspace had connected on Global before it moved (OPS-025 decision 6).
+  The switch lives in the workspace's own database
+  (`workspace_settings.features.outsideEu`), so it and its audit row are two
+  writes. `bins/weldsuite/src/admin_outside_eu.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
@@ -1121,7 +1143,7 @@ log none.
 | `S3_PUBLIC_VIA_SERVER` | `true`: serve the public bucket's objects at `/api/storage/public/<key>` to anyone, for an object store with no public endpoint of its own (the bundled one, unless `config.files.publicUrl` names one; the chart then points `S3_PUBLIC_URL` there). Unset, that route answers only local development, as in TypeScript |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
 | `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: the platform's `/invite` with `OIDC_SIGN_IN=platform`, else Zitadel's page) |
-| `IDENTITY_PROVIDER`, `WELDID_ADMIN_URL`, `WELDID_CLIENT_ID`, `WELDID_CLIENT_KEY` | `zitadel` or `weldid` (unset: Zitadel when `ZITADEL_*` is set). `weldid` (`crates/adapters-oss/src/weldid.rs`): users and sessions through WeldID's admin API at `WELDID_ADMIN_URL` (in-cluster; sent with `OIDC_ISSUER`'s host), as the `private_key_jwt` client `WELDID_CLIENT_ID` signing with the ES256 key `WELDID_CLIENT_KEY` (PEM, a Secret); workspaces, memberships and the seat limit from WeldSuite's own tables; `identity-sync` reads WeldID's event feed (watermark `identity_sync.weldid_watermark`). Needs `AUTH_PROVIDER=oidc`, `OIDC_SIGN_IN=provider` (WeldID shows its own screens) and header mode; `/config.json` names `accountUrl` (`{OIDC_ISSUER}/account`). Invitations answer unavailable until the master table for pending invitations exists |
+| `IDENTITY_PROVIDER`, `WELDID_ADMIN_URL`, `WELDID_CLIENT_ID`, `WELDID_CLIENT_KEY` | `zitadel` or `weldid` (unset: Zitadel when `ZITADEL_*` is set). `weldid` (`crates/adapters-oss/src/weldid.rs`): users and sessions through WeldID's admin API at `WELDID_ADMIN_URL` (in-cluster; sent with `OIDC_ISSUER`'s host), as the `private_key_jwt` client `WELDID_CLIENT_ID` signing with the ES256 key `WELDID_CLIENT_KEY` (PEM, a Secret); workspaces, memberships and the seat limit from WeldSuite's own tables; `identity-sync` reads WeldID's event feed (watermark `identity_sync.weldid_watermark`). Needs `AUTH_PROVIDER=oidc`, `OIDC_SIGN_IN=provider` (WeldID shows its own screens) and header mode; `/config.json` names `accountUrl` (`{OIDC_ISSUER}/account`) and `identityProvider: "weldid"`. Invitations answer unavailable until the master table for pending invitations exists |
 | `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |
 | `PARTNER_PORTAL_URL` | the reseller portal named in a territory request's email (default `https://partner.weldsuite.org`) |
 | `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
@@ -1483,13 +1505,25 @@ install leaves it off: its seats and modules come from its licence.
   through the grace period (`BILLING_GRACE_DAYS`, 14) a reminder, then the
   plan ends on Free (`applySubscriptionEnded`). Saving a new payment method
   charges the open amount again at once.
+- **No payment method yet** (`modules/core-billing/src/payment_method.rs`):
+  workspaces that move from Global keep their plan but not their Stripe
+  card, so their account has no mandate. `BILLING_RENEWAL_NOTICE_DAYS` (14)
+  before the renewal the billing owners get one email (`billing.dunning`,
+  `upcoming`; the renewal it was sent for is kept in
+  `billing_accounts.dunning_reminded_at`, claimed before sending, so
+  overlapping runs send it once), and `GET /api/billing/subscription`
+  answers `paymentMethodRequired: { dueAt, pastDue }`, which the platform
+  shows billing managers as a banner. A renewal refused for want of a
+  mandate words its failure email and reminder as "add a payment method";
+  the pay link creates the Mollie customer when there is none yet.
 - **Staff**: `weldsuite admin billing show|comp|uncomp|refund|retry-now`
   (see "Staff work").
 
 Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
 `MOLLIE_WEBHOOK_URL`, `MOLLIE_API_URL`), `BILLING_ISSUER_WORKSPACE_ID`,
 `BILLING_ISSUER_ENTITY_ID`, `BILLING_PAY_LINK_KEY`, `BILLING_SELLER_COUNTRY`,
-`BILLING_GRACE_DAYS`, `BILLING_RETURN_URL`, and `PUBLIC_URL` for the links.
+`BILLING_GRACE_DAYS`, `BILLING_RENEWAL_NOTICE_DAYS`, `BILLING_RETURN_URL`, and
+`PUBLIC_URL` for the links.
 `BILLING_PROVIDER=mollie` with one missing stops the start. Chart:
 `config.billing` and `cron.jobs.billing-renewals`. Credit top-ups join plan
 billing: a package's price is before VAT, so `POST /api/credits/checkout`

@@ -15,7 +15,7 @@ use crate::{McpSession, McpState, call, user_apps};
 const WORKSPACE_INFO_URI: &str = "weldsuite://workspace/info";
 
 /// A thrown `McpError`: its code, and the message as the SDK words it.
-fn mcp_error(code: i64, message: &str) -> (i64, String) {
+pub(crate) fn mcp_error(code: i64, message: &str) -> (i64, String) {
     (code, format!("MCP error {code}: {message}"))
 }
 
@@ -53,7 +53,7 @@ pub(crate) async fn handle(
 
 /// `_oninitialize`: the client's version when the SDK supports it, else the
 /// latest.
-fn initialize(params: &Value) -> Value {
+pub(crate) fn initialize(params: &Value) -> Value {
     let mut result = catalog().initialize.clone();
     let requested = params.get("protocolVersion").and_then(Value::as_str);
     let version = requested

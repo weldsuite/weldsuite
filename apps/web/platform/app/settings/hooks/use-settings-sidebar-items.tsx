@@ -35,6 +35,7 @@ import {
   Laptop,
   Route,
   Sparkles,
+  Globe,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon, resolveAppCode } from '@/lib/apps/app-registry';
@@ -188,6 +189,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
           // Kubernetes editions with AI configured (hidden elsewhere by the edition check below).
           ...(canManageAi ? [{ title: ts.menu.ai, href: '/settings/ai', icon: Sparkles }] : []),
+          // The EU edition only (ADR OPS-026; hidden elsewhere by the edition check below).
+          { title: ts.menu.outsideEu, href: '/settings/outside-eu', icon: Globe },
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },

@@ -181,6 +181,15 @@ export const EDITION_FEATURES = [
    */
   'stash-replenishment',
   /**
+   * Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
+   * EU edition each is off until a workspace admin switches it on under
+   * Settings › Services outside the EU, and the integrations that use one
+   * carry a "Leaves the EU" label. A self-hosted install lists it as
+   * unavailable (its operator decides), and Global has it in
+   * `GLOBAL_UNAVAILABLE_FEATURES` (nothing changes there).
+   */
+  'outside-eu-services',
+  /**
    * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */
@@ -201,6 +210,14 @@ export const EDITION_FEATURES = [
    * where the chart runs clamd (`mailInbound.clamav`).
    */
   'mail-threat-protection',
+  /**
+   * Two-way Moneybird sync (ADR INT-013): live webhook updates and sending
+   * contacts, products, invoices and bills made in WeldBooks to Moneybird, per
+   * object direction. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the Moneybird connection screen
+   * keeps its one-way import.
+   */
+  'moneybirdTwoWay',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

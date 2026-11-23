@@ -8956,6 +8956,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.1.11
         version: 4.2.1
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.2(@testing-library/dom@10.4.0)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@turbo/gen':
         specifier: ^2.9.14
         version: 2.11.10(@types/node@20.19.27)
@@ -8971,18 +8974,27 @@ importers:
       '@types/react-dom':
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.7)
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/eslint-config':
         specifier: workspace:*
         version: link:../../config/eslint-config
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       tailwindcss:
         specifier: ^4.1.11
         version: 4.2.1
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   packages/design/weldmeet-ui:
     dependencies:
@@ -9697,6 +9709,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config

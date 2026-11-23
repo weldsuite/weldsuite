@@ -14,9 +14,14 @@
 //! `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization id),
 //! checked against WeldSuite's own `user_workspaces` like the header
 //! ([`McpAuth::membership`]). A plain `/mcp` takes the user's only
-//! workspace; someone in several is told which URL to use. With a token
-//! that names its workspace (claim mode, Clerk) a workspace URL must name
-//! that same one.
+//! workspace; someone in several gets the workspace picker
+//! ([`crate::picker`]): connected, with one tool that lists their
+//! workspaces and the URL of each, never a workspace they didn't choose.
+//! With a token that names its workspace (claim mode, Clerk) a workspace
+//! URL must name that same one.
+//!
+//! Every refusal is logged with its reason (`mcp auth: 401`, `mcp auth:
+//! 403`): an MCP client shows the person only that it couldn't connect.
 //!
 //! RFC 9728: every URL the endpoint answers on is its own resource, so the
 //! 401's `WWW-Authenticate` points at the metadata for the URL the client
@@ -48,6 +53,7 @@ use weldsuite_db::{SoleWorkspace, Tenant, WorkspaceError, WorkspaceSelector};
 use weldsuite_permissions::resolve_effective_permissions;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
 
+use crate::picker::{self, WorkspaceChoice};
 use crate::{McpSession, McpState};
 
 /// The scopes Global's discovery advertises (Clerk's).
@@ -66,14 +72,14 @@ const RATE_WINDOW_SECONDS: u64 = 60;
 /// The endpoint (`lib.rs`'s router); `/mcp/w/<workspace>` names a workspace.
 pub const MCP_PATH: &str = "/mcp";
 /// What follows [`MCP_PATH`] when the URL names a workspace.
-const WORKSPACE_PREFIX: &str = "/w/";
+pub(crate) const WORKSPACE_PREFIX: &str = "/w/";
 /// The longest workspace reference (the columns are 255 wide).
 const MAX_WORKSPACE_REFERENCE: usize = 255;
 
 /// A workspace path segment as it may appear in the endpoint's URL: a
 /// `workspaces.id`, slug or organization id, in URL-unreserved characters
 /// only, so it needs no decoding and the resource echoes it exactly.
-fn is_workspace_segment(segment: &str) -> bool {
+pub(crate) fn is_workspace_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment.len() <= MAX_WORKSPACE_REFERENCE
         && segment
@@ -282,7 +288,11 @@ pub fn bearer_challenge(server_url: &str, path: &str) -> Option<HeaderValue> {
     .ok()
 }
 
+/// A 403, logged: the client shows the person only that it couldn't
+/// connect, so the log is where the reason is found. The messages name no
+/// person or workspace.
 fn forbidden(message: &str) -> Response {
+    tracing::warn!(diagnostic = message, "mcp auth: 403");
     jsonrpc_error(StatusCode::FORBIDDEN, -32003, message)
 }
 
@@ -301,28 +311,33 @@ fn names_tenant(reference: &str, tenant: &Tenant) -> bool {
     reference == tenant.workspace_id || tenant.clerk_org_id.as_deref() == Some(reference)
 }
 
+/// What membership mode selected for a request.
+enum Selected {
+    /// A workspace: the organization reference its tenant is found by.
+    Workspace(String),
+    /// None: a plain `/mcp` for someone in several workspaces, who gets the
+    /// picker ([`crate::picker`]).
+    Choice,
+}
+
 /// Membership mode: the workspace the URL names, or the user's only one,
 /// checked against WeldSuite's memberships like the platform's
-/// `X-Weld-Workspace`. The organization reference the tenant is found by.
+/// `X-Weld-Workspace`.
 async fn membership_workspace(
     selector: &WorkspaceSelector,
     user_id: &str,
     named: Option<&str>,
-    server_url: &str,
-) -> Result<String, Response> {
+) -> Result<Selected, Response> {
     if let Some(reference) = named {
         return match selector.resolve(user_id, reference).await {
-            Ok(Some(org)) => Ok(org),
+            Ok(Some(org)) => Ok(Selected::Workspace(org)),
             Ok(None) => Err(forbidden("You are not a member of this workspace.")),
             Err(error) => Err(workspace_lookup_failed(&error)),
         };
     }
     match selector.sole_workspace(user_id).await {
-        Ok(SoleWorkspace::One(org)) => Ok(org),
-        Ok(SoleWorkspace::Several) => Err(forbidden(&format!(
-            "Your account belongs to several workspaces, so this address doesn't say which one to use. Connect your MCP client to {}{MCP_PATH}{WORKSPACE_PREFIX}<workspace> instead, where <workspace> is the workspace's slug (as in WeldSuite's /w/<slug> addresses) or its id.",
-            server_url.trim_end_matches('/')
-        ))),
+        Ok(SoleWorkspace::One(org)) => Ok(Selected::Workspace(org)),
+        Ok(SoleWorkspace::Several) => Ok(Selected::Choice),
         Ok(SoleWorkspace::None) => Err(forbidden(
             "You are not a member of any workspace yet. Create or join one in WeldSuite first.",
         )),
@@ -384,15 +399,24 @@ pub async fn authenticate(
         }
     };
     let org = if let Some(selector) = &auth.membership {
-        match membership_workspace(
-            selector,
-            &context.user_id,
-            named_workspace.as_deref(),
-            &auth.server_url,
-        )
-        .await
-        {
-            Ok(org) => org,
+        match membership_workspace(selector, &context.user_id, named_workspace.as_deref()).await {
+            Ok(Selected::Workspace(org)) => org,
+            Ok(Selected::Choice) => {
+                // No workspace, so no tenant, permissions or rate limit: the
+                // picker only lists the user's own workspaces.
+                return match selector
+                    .member_workspace_list(&context.user_id, picker::MAX_LISTED)
+                    .await
+                {
+                    Ok(workspaces) => {
+                        request
+                            .extensions_mut()
+                            .insert(WorkspaceChoice::new(&auth.server_url, &workspaces));
+                        next.run(request).await
+                    }
+                    Err(error) => workspace_lookup_failed(&error),
+                };
+            }
             Err(refused) => return refused,
         }
     } else {
@@ -407,11 +431,7 @@ pub async fn authenticate(
     let tenant = match state.workspaces.tenant(&org).await {
         Ok(tenant) => tenant,
         Err(WorkspaceError::NotFound | WorkspaceError::NoDatabase) => {
-            return jsonrpc_error(
-                StatusCode::FORBIDDEN,
-                -32003,
-                "No WeldSuite workspace is linked to the selected organization.",
-            );
+            return forbidden("No WeldSuite workspace is linked to the selected organization.");
         }
         Err(error) => return workspace_lookup_failed(&error),
     };
@@ -458,21 +478,13 @@ pub async fn authenticate(
         }
     };
     if resolved.role.is_empty() {
-        return jsonrpc_error(
-            StatusCode::FORBIDDEN,
-            -32003,
-            "You are not a member of this workspace.",
-        );
+        return forbidden("You are not a member of this workspace.");
     }
     if resolved.permissions.is_empty() {
-        return jsonrpc_error(
-            StatusCode::FORBIDDEN,
-            -32003,
-            &format!(
-                "Your workspace role ({}) grants no permissions, so no tools are available. Expected one of OWNER, ADMIN, MEMBER or VIEWER, or a custom role with permissions assigned.",
-                resolved.role
-            ),
-        );
+        return forbidden(&format!(
+            "Your workspace role ({}) grants no permissions, so no tools are available. Expected one of OWNER, ADMIN, MEMBER or VIEWER, or a custom role with permissions assigned.",
+            resolved.role
+        ));
     }
     let (name, tier) = workspace_name_and_tier(&state, &tenant).await;
     let session = McpSession {
@@ -1002,7 +1014,8 @@ mod workspace_tests {
     use http::Request;
     use tower::ServiceExt;
     use weldsuite_db::{
-        Keyring, MembershipFuture, MembershipLookup, MembershipsFuture, WorkspaceConfig, Workspaces,
+        Keyring, MemberWorkspace, MemberWorkspacesFuture, MembershipFuture, MembershipLookup,
+        MembershipsFuture, WorkspaceConfig, Workspaces,
     };
 
     use super::*;
@@ -1054,6 +1067,31 @@ mod workspace_tests {
                 }
                 orgs.truncate(usize::from(limit));
                 Ok(orgs)
+            };
+            Box::pin(std::future::ready(result))
+        }
+
+        /// One workspace per org, its first reference as slug and name.
+        fn member_workspace_list<'a>(
+            &'a self,
+            user_id: &'a str,
+            limit: u64,
+        ) -> MemberWorkspacesFuture<'a> {
+            let result = if self.down {
+                Err(WorkspaceError::NoDatabase)
+            } else {
+                let mut listed: Vec<MemberWorkspace> = Vec::new();
+                for (user, reference, org) in &self.granted {
+                    if user == user_id && !listed.iter().any(|known| known.id == *org) {
+                        listed.push(MemberWorkspace {
+                            id: (*org).to_owned(),
+                            slug: (*reference).to_owned(),
+                            name: reference.to_uppercase(),
+                        });
+                    }
+                }
+                listed.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+                Ok(listed)
             };
             Box::pin(std::future::ready(result))
         }
@@ -1113,11 +1151,29 @@ mod workspace_tests {
             .merge(well_known_router(auth))
     }
 
+    /// A ping to `path`.
     async fn send(
         app: &Router,
         method: &str,
         path: &str,
         token: Option<&str>,
+    ) -> (StatusCode, Option<String>, String) {
+        send_body(
+            app,
+            method,
+            path,
+            token,
+            r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
+        )
+        .await
+    }
+
+    async fn send_body(
+        app: &Router,
+        method: &str,
+        path: &str,
+        token: Option<&str>,
+        body: &str,
     ) -> (StatusCode, Option<String>, String) {
         let mut request = Request::builder()
             .method(method)
@@ -1129,11 +1185,7 @@ mod workspace_tests {
         }
         let response = app
             .clone()
-            .oneshot(
-                request
-                    .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#))
-                    .expect("request"),
-            )
+            .oneshot(request.body(Body::from(body.to_owned())).expect("request"))
             .await
             .expect("response");
         let status = response.status();
@@ -1262,22 +1314,55 @@ mod workspace_tests {
     }
 
     #[tokio::test]
-    async fn without_a_workspace_in_the_url_several_memberships_are_told_how_to_pick() {
+    async fn without_a_workspace_in_the_url_several_memberships_get_the_picker() {
         let fixture = fixture();
         let user = fixture["user"].as_str().expect("user");
         let token = fixture["tokens"]["longLived"].as_str().expect("token");
 
-        let several = app(selector(&[(user, "ws_a", "ws_a"), (user, "ws_b", "ws_b")]));
+        let several = app(selector(&[(user, "acme", "ws_a"), (user, "beta", "ws_b")]));
+        // Connected, though no workspace (and no tenant database, which this
+        // app hasn't got) is looked up.
         let (status, _, body) = send(&several, "POST", "/mcp", Some(token)).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-        assert!(body.contains("several workspaces"), "{body}");
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, _, body) = send_body(
+            &several,
+            "POST",
+            "/mcp",
+            Some(token),
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let tools: Value = serde_json::from_str(&body).expect("json");
+        let names: Vec<&str> = tools["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert_eq!(names, ["list_workspaces"]);
+        // Its one tool names each workspace with the address that selects it.
+        let (status, _, body) = send_body(
+            &several,
+            "POST",
+            "/mcp",
+            Some(token),
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
         assert!(
-            body.contains("https://app.example.eu/mcp/w/<workspace>"),
+            body.contains("ACME: https://app.example.eu/mcp/w/acme"),
             "{body}"
         );
-        // Naming one of them works.
-        let (status, _, body) = send(&several, "POST", "/mcp/w/ws_b", Some(token)).await;
+        assert!(
+            body.contains("BETA: https://app.example.eu/mcp/w/beta"),
+            "{body}"
+        );
+        // Naming one of them works: on to its tenant database.
+        let (status, _, body) = send(&several, "POST", "/mcp/w/beta", Some(token)).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(body.contains("Could not resolve workspace"), "{body}");
 
         let none = app(selector(&[]));
         let (status, _, body) = send(&none, "POST", "/mcp", Some(token)).await;

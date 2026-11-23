@@ -1183,6 +1183,7 @@ export const commerce = {
     title: 'WeldCommerce',
     description: 'Ordernummering en de standaardwaarden waarmee WeldCommerce begint.',
     loadFailed: 'De WeldCommerce-instellingen konden niet worden geladen.',
+    noPermission: 'Je hebt geen toegang tot de WeldCommerce-instellingen.',
     readOnly: 'Je kunt deze instellingen bekijken maar niet wijzigen.',
     sectionNumbering: 'Ordernummers',
     sectionNumberingDescription: 'Orders krijgen een voorvoegsel en een oplopend nummer, zoals WC-1001.',

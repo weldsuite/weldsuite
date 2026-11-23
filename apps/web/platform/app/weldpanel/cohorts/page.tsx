@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -13,7 +13,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { PanelEntityList, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/panel-entity-list';
 import { useCreateWeldPanelCohort, useDeleteWeldPanelCohort, useUpdateWeldPanelCohort, useWeldPanelCohorts } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { AnalyticsListPage } from '../components/analytics-page';
@@ -24,6 +24,25 @@ import { EventPicker, PropertyPicker } from '../components/pickers';
 import { cohortFilterFromDraft, draftFromCohortFilter, emptyCohortDraft, emptyCondition, summariseCohortFilter, type CohortDraft, type ConditionDraft } from '../lib/cohort-draft';
 import { operatorNeedsValue } from '../lib/filters';
 import { formatDate } from '../lib/format';
+
+/** Whether a cohort passes one complete pill: its match (all / any) or a kind of condition it uses; an unfinished pill lets everything through. */
+export function matchesCohortFilter(cohort: Pick<PanelCohortDto, 'filter'>, filter: ActiveFilter): boolean {
+  if (!filter.value) return true;
+  let hit = false;
+  if (filter.field === 'match') hit = cohort.filter.match === filter.value;
+  else if (filter.field === 'condition') {
+    const conditions = Array.isArray(cohort.filter.conditions) ? (cohort.filter.conditions as { type?: unknown }[]) : [];
+    hit = conditions.some((condition) => condition?.type === filter.value);
+  }
+  return filter.operator === 'is not' ? !hit : hit;
+}
+
+/** Whether the search text is in the cohort's name or description (case-insensitive). */
+export function matchesCohortSearch(cohort: Pick<PanelCohortDto, 'name' | 'description'>, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return true;
+  return cohort.name.toLowerCase().includes(needle) || (cohort.description ?? '').toLowerCase().includes(needle);
+}
 
 interface CohortEditorProps {
   projectId: string;
@@ -332,7 +351,29 @@ function CohortsList({
   const canDelete = useCan('panel_reports:delete');
   const { data: cohorts, isLoading, isError, refetch } = useWeldPanelCohorts(projectId);
   const [deleting, setDeleting] = useState<PanelCohortDto | null>(null);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const [search, setSearch] = useState('');
   const remove = useDeleteWeldPanelCohort();
+
+  const shown = useMemo(
+    () => (cohorts ?? []).filter((cohort) => matchesCohortSearch(cohort, search) && activeFilters.every((filter) => matchesCohortFilter(cohort, filter))),
+    [cohorts, search, activeFilters],
+  );
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: 'match',
+      label: tc.match,
+      options: [
+        { value: 'all', label: tc.matchAll },
+        { value: 'any', label: tc.matchAny },
+      ],
+    },
+    {
+      field: 'condition',
+      label: tc.conditions,
+      options: (['person_property', 'performed'] as const).map((type) => ({ value: type, label: tc.conditionTypes[type] })),
+    },
+  ];
 
   const columns: ColumnDef<PanelCohortDto>[] = [
     {
@@ -368,12 +409,16 @@ function CohortsList({
   return (
     <>
       <PanelEntityList<PanelCohortDto>
-        items={cohorts ?? []}
+        items={shown}
         isLoading={false}
         columns={columns}
-        hideFilter
+        filters={filterConfigs}
+        activeFilters={activeFilters}
+        onFiltersChange={setActiveFilters}
+        searchQuery={search}
+        onSearchChange={setSearch}
         searchFields={['name', 'description']}
-        searchPlaceholder={t.common.actions.search}
+        searchPlaceholder={tc.search}
         onRowClick={canUpdate ? onEdit : undefined}
         onEdit={canUpdate ? onEdit : undefined}
         onDelete={canDelete ? setDeleting : undefined}
@@ -384,11 +429,7 @@ function CohortsList({
           description: tc.emptyDescription,
           action: canCreate ? { label: tc.newCohort, onClick: onCreate } : undefined,
         }}
-        noResultsState={{
-          icon: <UsersRound className="size-8 text-muted-foreground" />,
-          title: tc.emptyTitle,
-          description: tc.emptyDescription,
-        }}
+        noResultsState={{ title: tc.noMatchTitle, description: tc.noMatchDescription }}
       />
       <ConfirmDialog
         open={deleting !== null}

@@ -27,6 +27,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: state.replace }),
   useSearchParams: () => new URLSearchParams(state.search),

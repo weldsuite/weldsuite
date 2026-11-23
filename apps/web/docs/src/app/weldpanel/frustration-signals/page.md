@@ -35,11 +35,11 @@ Error messages have email addresses and long numbers masked. With each error Wel
 
 Open **Frustration** under **Behaviour** and pick the date range at the top right. Use **Filter** to look at one device, or at pages whose path contains a text; every number on the page follows. Search narrows the pages and elements lists.
 
-- A tile per signal shows how many there were in the period. Click a tile to look at that signal.
-- **Trend** charts every signal over time.
+- The row of signals shows how many of each there were in the period, and how that compares with the period before. More than before shows in red. Click a signal to look at it; it gets a line under it.
+- Under it, the chosen signal's chart shows this period as a line and the period before as a dashed line.
 - **Pages with the most signals** and **Elements with the most signals** list where the chosen signal happens most. Elements come from clicks only, so that list is empty for quick backs, excessive scrolling and errors.
 
-Click **Watch recordings** to open the recordings with the chosen signal, or the link next to a page to see only the visits where it happened on that page. You need permission to watch recordings.
+Click **Watch recordings** to open the recordings with the chosen signal, or click a page in the list to see only the visits where it happened on that page. You need permission to watch recordings.
 
 ---
 

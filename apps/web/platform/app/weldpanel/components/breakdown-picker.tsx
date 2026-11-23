@@ -132,9 +132,11 @@ interface BreakdownPickerProps {
   allowBuckets?: boolean;
   /** The label of the source select. */
   label?: string;
+  /** One field under the other, for a narrow column such as a report's settings sidebar. */
+  stacked?: boolean;
 }
 
-export function BreakdownPicker({ projectId, value, onChange, idPrefix = 'weldpanel-breakdown', allowNone = true, allowBuckets = true, label }: Readonly<BreakdownPickerProps>) {
+export function BreakdownPicker({ projectId, value, onChange, idPrefix = 'weldpanel-breakdown', allowNone = true, allowBuckets = true, label, stacked = false }: Readonly<BreakdownPickerProps>) {
   const { t } = useI18n();
   const tb = t.weldpanel.analytics.breakdown;
   const tf = t.weldpanel.analytics.filters;
@@ -153,7 +155,7 @@ export function BreakdownPicker({ projectId, value, onChange, idPrefix = 'weldpa
   const showGroup = groupTypes.length > 0 || value?.source === 'group';
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className={stacked ? 'grid gap-3' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
       <div className="grid gap-1.5">
         <Label htmlFor={`${idPrefix}-source`}>{label ?? tb.label}</Label>
         <Select value={value?.source ?? NONE} onValueChange={changeSource}>
@@ -266,10 +268,12 @@ interface BreakdownsPickerProps {
   onChange: (value: BreakdownValue[]) => void;
   idPrefix?: string;
   max?: number;
+  /** Each breakdown's fields one under the other, for a narrow column. */
+  stacked?: boolean;
 }
 
 /** Up to {@link PANEL_MAX_BREAKDOWNS} breakdowns, each a row with a remove button. */
-export function BreakdownsPicker({ projectId, value, onChange, idPrefix = 'weldpanel-breakdowns', max = PANEL_MAX_BREAKDOWNS }: Readonly<BreakdownsPickerProps>) {
+export function BreakdownsPicker({ projectId, value, onChange, idPrefix = 'weldpanel-breakdowns', max = PANEL_MAX_BREAKDOWNS, stacked = false }: Readonly<BreakdownsPickerProps>) {
   const { t } = useI18n();
   const tb = t.weldpanel.analytics.breakdown;
   const tx = t.weldpanel.explore.breakdown;
@@ -286,6 +290,7 @@ export function BreakdownsPicker({ projectId, value, onChange, idPrefix = 'weldp
               allowNone={false}
               label={index === 0 ? tb.label : tx.thenBy}
               idPrefix={`${idPrefix}-${index}`}
+              stacked={stacked}
               onChange={(next) => (next ? onChange(value.map((b, i) => (i === index ? next : b))) : onChange(value.filter((_, i) => i !== index)))}
             />
           </div>

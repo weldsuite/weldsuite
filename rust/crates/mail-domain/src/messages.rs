@@ -90,7 +90,7 @@ macro_rules! recipient_equals {
 }
 
 /// `buildMessageConditions(filters, labelNames)` over `mail_messages m`,
-/// parameters `$1`–`$14` (see [`MessageFilters::bind`]).
+/// parameters `$1`–`$16` (see [`MessageFilters::bind`]).
 macro_rules! message_conditions {
     () => {
         concat!(
@@ -122,7 +122,9 @@ macro_rules! message_conditions {
             recipient_equals!("m.cc", "$14"),
             " or ",
             recipient_equals!("m.bcc", "$14"),
-            "))"
+            "))
+             and (not $15::bool or not coalesce(m.labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb)
+             and (not $16::bool or not coalesce(m.labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb)"
         )
     };
 }
@@ -163,6 +165,10 @@ pub struct MessageFilters {
     pub label: Option<String>,
     pub from: Option<String>,
     pub counterparty: Option<String>,
+    /// `excludeTrash`: leave out trashed messages (by their label).
+    pub exclude_trash: bool,
+    /// `excludeSpam`: leave out spam (by its label).
+    pub exclude_spam: bool,
     /// `cursorValue`: `(sentDate as an ISO string, id)`.
     pub cursor: Option<(String, String)>,
 }
@@ -230,6 +236,8 @@ macro_rules! bind_conditions {
             .bind(label.important)
             .bind($values.from.clone())
             .bind($values.counterparty.clone())
+            .bind($filters.exclude_trash)
+            .bind($filters.exclude_spam)
     }};
 }
 
@@ -256,9 +264,9 @@ pub async fn list_messages_wide(
             wide_row!(),
             " from mail_messages m where ",
             message_conditions!(),
-            " and ($15::timestamp is null or (m.sent_date < $15::timestamp
-                   or (m.sent_date = $15::timestamp and m.id < $16)))
-             order by m.sent_date desc, m.id desc limit $17"
+            " and ($17::timestamp is null or (m.sent_date < $17::timestamp
+                   or (m.sent_date = $17::timestamp and m.id < $18)))
+             order by m.sent_date desc, m.id desc limit $19"
         )),
         values,
         filters

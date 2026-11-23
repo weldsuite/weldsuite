@@ -394,6 +394,10 @@ export const weldpanelObserve = {
   frustration: {
     title: 'Frustratie',
     description: 'Rage clicks, dode klikken, snelle terugkeer, overmatig scrollen en fouten, en de opnames erachter.',
+    signals: 'Signalen',
+    versusBefore: '{change} t.o.v. de periode ervoor',
+    noneBefore: 'Geen in de periode ervoor',
+    periodBefore: 'De periode ervoor',
     device: 'Apparaat',
     search: 'Pagina’s en elementen zoeken',
     types: { rage: 'Rage clicks', dead: 'Dode klikken', quickback: 'Snelle terugkeer', excessive_scroll: 'Overmatig scrollen', errors: 'Fouten' },

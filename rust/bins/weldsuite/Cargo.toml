@@ -73,6 +73,7 @@ weldsuite-forms = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-staff-domain = { workspace = true }
 weldsuite-reach = { workspace = true }

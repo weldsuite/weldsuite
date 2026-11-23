@@ -738,6 +738,46 @@ pub(crate) enum MergeError {
     },
     /// Anything else the worker would throw.
     Unexpected(String),
+    /// ADR OPS-026: the provider's company is outside the EU and the
+    /// workspace hasn't switched it on (403 `OUTSIDE_EU_SERVICE_OFF`).
+    OutsideEu(weldsuite_outside_eu::ServiceId),
+}
+
+/// The service outside the EU a provider connection sends data to (ADR
+/// OPS-026): GitHub, GitLab.com, Bitbucket (Atlassian) and Azure DevOps
+/// (Microsoft). `None` for a self-managed GitLab, the workspace's own
+/// server.
+pub(crate) fn provider_service(
+    provider: &str,
+    host: Option<&str>,
+) -> Option<weldsuite_outside_eu::ServiceId> {
+    if provider == "gitlab"
+        && let Ok(Some(_)) = oauth::normalize_gitlab_host(host)
+    {
+        return None;
+    }
+    weldsuite_outside_eu::ServiceId::for_integration(provider)
+}
+
+/// Whether the workspace may reach `provider` (ADR OPS-026; enforced on the
+/// EU edition, elsewhere this never reads the database).
+pub(crate) async fn require_provider(
+    db: &PgPool,
+    provider: &str,
+    host: Option<&str>,
+) -> Result<(), MergeError> {
+    let Some(service) = provider_service(provider, host) else {
+        return Ok(());
+    };
+    match weldsuite_outside_eu::require(db, service).await {
+        Ok(()) => Ok(()),
+        Err(weldsuite_outside_eu::OutsideEuError::Off(service)) => {
+            Err(MergeError::OutsideEu(service))
+        }
+        Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => {
+            Err(MergeError::Unexpected(error.to_string()))
+        }
+    }
 }
 
 impl From<sqlx::Error> for MergeError {
@@ -823,6 +863,9 @@ impl MergeError {
                 format!("{provider} does not support {capability}"),
             )
             .into_response(),
+            Self::OutsideEu(service) => weldsuite_outside_eu::OutsideEuError::Off(service)
+                .to_api_error()
+                .into_response(),
             Self::Db(error) => {
                 tracing::error!(%error, "merge: a statement failed");
                 unexpected()

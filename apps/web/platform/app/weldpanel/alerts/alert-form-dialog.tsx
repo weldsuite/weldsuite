@@ -22,9 +22,10 @@ import {
 import { trendsSpecSchema, type PanelTrendsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelReportDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
 import { Button } from '@weldsuite/ui/components/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
+import { InfoTooltip } from '@weldsuite/ui/components/info-tooltip';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -269,10 +270,9 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
 
   return (
     <Dialog open={open} onOpenChange={(next) => (submitting ? undefined : onOpenChange(next))}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{alert ? tf.editTitle : tf.createTitle}</DialogTitle>
-          <DialogDescription>{ta.description}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={submit} noValidate className="grid gap-4">
@@ -457,7 +457,10 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                 name="checkInterval"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{tf.intervalLabel}</FormLabel>
+                    <div className="flex items-center gap-1.5">
+                      <FormLabel>{tf.intervalLabel}</FormLabel>
+                      <InfoTooltip content={tf.intervalHint} />
+                    </div>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger>
@@ -472,7 +475,6 @@ export function AlertFormDialog({ open, onOpenChange, projectId, alert, reportId
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>{tf.intervalHint}</FormDescription>
                   </FormItem>
                 )}
               />

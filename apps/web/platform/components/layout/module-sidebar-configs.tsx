@@ -277,12 +277,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       if (!isFeatureAvailable('panel-analytics')) return [{ group: t.navigation.moduleSidebar.groups.general, items: [projects] }];
       return [
         {
-          group: t.navigation.moduleSidebar.groups.general,
-          items: [{ title: nav.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' }],
-        },
-        {
           group: nav.groups.analyse,
           items: [
+            { title: nav.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' },
             { title: nav.insights, href: '/weldpanel/insights', icon: TrendingUp, permission: 'panel_reports:read' },
             { title: nav.funnels, href: '/weldpanel/funnels', icon: Filter, permission: 'panel_reports:read' },
             { title: nav.retention, href: '/weldpanel/retention', icon: Repeat, permission: 'panel_reports:read' },

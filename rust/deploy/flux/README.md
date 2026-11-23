@@ -25,8 +25,9 @@ infrastructure/
                 "Offsite copy"); its alert is in monitoring-config
   network-policy/
                 OPT-IN: kube-router's network policy controller beside Flannel, so NetworkPolicies are
-                enforced, and a policy per namespace that keeps pods off the metadata service
-                (clusters/example/network-policy.yaml; ../hetzner/README.md, "Agent sandbox")
+                enforced, a policy per namespace that keeps pods off the metadata service, and the
+                metadata guard, a rule on every node for a pod's first second, before kube-router
+                knows it (clusters/example/network-policy.yaml; ../hetzner/README.md, "Agent sandbox")
   weldid/       OPT-IN: WeldID, WeldSuite's own OIDC provider replacing Zitadel (ADR SEC-019), with its
                 namespace (namespace/), CNPG cluster, backups, alerts; README.md there says how to turn it
                 on and switch to it (clusters/example/weldid.yaml, weldid-switch.yaml)
@@ -42,7 +43,9 @@ secrets/        the secrets layer: the ClusterSecretStore (the cluster's secret 
                 own layer; store.example.yaml: every value the store holds
 scripts/        seed-secrets.mjs: fills a cluster's secret store (--import: from a SOPS file),
                 --check: the secrets layer against store.example.yaml;
-                ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic
+                ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic;
+                restore-workspace.sh: one workspace's database back to a point in time
+                (rust/deploy/hetzner/README.md, "Restoring one workspace")
 ```
 
 To run your own cluster, copy `clusters/example` to `clusters/<name>` in your
