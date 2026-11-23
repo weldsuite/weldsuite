@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Info, MessageSquare, Users, LayoutGrid } from 'lucide-react';
+import { Info, MessageSquare, Minimize, Users, LayoutGrid } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useIsMobile } from '../hooks/use-is-mobile';
@@ -38,6 +38,14 @@ export interface MeetingHeaderProps {
   mobileOverflowActions?: boolean;
   /** Shown right after the title, e.g. the connection indicator. */
   statusSlot?: ReactNode;
+  /** When set, a Minimize button closes the row: the call shrinks to the host's minimized widget. */
+  onMinimize?: () => void;
+  /**
+   * Borderless icon buttons on every screen size (the phone look), instead of
+   * bordered text buttons on desktop. The label stays as the tooltip and the
+   * accessible name.
+   */
+  iconButtons?: boolean;
 }
 
 type HeaderButtonVariant = 'secondary' | 'ghost' | 'outline';
@@ -227,6 +235,7 @@ function HeaderPanelButton({
       className={cn(!isMobile && 'border')}
       onClick={onClick}
       title={title}
+      aria-label={isMobile ? label : undefined}
     >
       {isMobile ? icon : label}
     </Button>
@@ -257,6 +266,7 @@ function PeopleButton({
       className={cn("relative overflow-visible max-md:h-9 max-md:min-w-9", !isMobile && 'border', !isMobile && hasCount && 'pr-[10px]')}
       onClick={onClick}
       title="People"
+      aria-label={isMobile ? label : undefined}
     >
       {isMobile ? <Users className="h-4 w-4" /> : label}
       {hasCount && (
@@ -295,8 +305,12 @@ export function MeetingHeader({
   showToolsButton = true,
   mobileOverflowActions = false,
   statusSlot,
+  onMinimize,
+  iconButtons = false,
 }: Readonly<MeetingHeaderProps>) {
   const isMobile = useIsMobile();
+  // The buttons take the phone's icon-only look on a phone, or everywhere when asked.
+  const iconOnly = isMobile || iconButtons;
   const overflowed = isMobile && mobileOverflowActions;
   const hasRecordingCue = !!isRecording || recordingState === 'STARTING';
 
@@ -330,11 +344,11 @@ export function MeetingHeader({
           {statusSlot}
         </div>
       )}
-      <div className={cn('flex items-center', isMobile ? 'gap-1 flex-shrink-0' : 'gap-1.5')}>
+      <div className={cn('flex items-center', iconOnly ? 'gap-1 flex-shrink-0' : 'gap-1.5')}>
         {showInfoButton && !overflowed && (
           <HeaderPanelButton
             active={rightPanel === 'info'}
-            isMobile={isMobile}
+            isMobile={iconOnly}
             icon={<Info className="h-4 w-4" />}
             label={headerLabels?.details ?? 'Details'}
             title="Meeting details"
@@ -344,7 +358,7 @@ export function MeetingHeader({
         {showPeopleButton && (
           <PeopleButton
             active={rightPanel === 'people'}
-            isMobile={isMobile}
+            isMobile={iconOnly}
             label={headerLabels?.people ?? 'People'}
             participantsCount={participantsCount}
             waitlistedCount={waitlistedCount}
@@ -354,8 +368,9 @@ export function MeetingHeader({
         {showChatButton && (
           <HeaderPanelButton
             active={showChat}
-            isMobile={isMobile}
-            mobileSize="icon"
+            isMobile={iconOnly}
+            // The phone's larger tap target only on a phone; on desktop it matches its neighbours.
+            mobileSize={isMobile ? 'icon' : 'icon-sm'}
             icon={<MessageSquare className="h-4 w-4" />}
             label={headerLabels?.chat ?? 'Chat'}
             title="Chat"
@@ -365,7 +380,7 @@ export function MeetingHeader({
         {showToolsButton && !overflowed && (
           <HeaderPanelButton
             active={rightPanel === 'tools'}
-            isMobile={isMobile}
+            isMobile={iconOnly}
             icon={<LayoutGrid className="h-4 w-4" />}
             label={headerLabels?.tools ?? 'Tools'}
             title="Meeting tools"
@@ -374,6 +389,19 @@ export function MeetingHeader({
         )}
         {/* Host controls (Settings) moved into the 3-dots More-options menu in
             CallControlsBar — kept off the header to declutter. */}
+        {onMinimize && (
+          // Icon only, at the end of the row: the call keeps running in the minimized widget.
+          <Button
+            variant={iconOnly ? 'ghost' : 'outline'}
+            size="icon-sm"
+            className={cn(!iconOnly && 'border')}
+            onClick={onMinimize}
+            title={headerLabels?.minimize ?? 'Minimize'}
+            aria-label={headerLabels?.minimize ?? 'Minimize'}
+          >
+            <Minimize className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

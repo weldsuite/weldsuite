@@ -89,7 +89,10 @@ function PiPCallWidgetInner() {
   // Show when: connected, not fullscreen, and either explicitly minimized OR
   // navigated away from the call's conversation. Otherwise the inline room
   // view is on screen (and plays the call's audio itself).
-  const isOnCallPage = isOnCallConversation(pathname, channelId, otherMember?.userId);
+  // A DM with yourself has no other member: its page is at your own user id
+  // (once the members have loaded), so the widget doesn't show over the call itself.
+  const dmPageUserId = otherMember?.userId ?? (isDm && membersData ? user?.id : undefined);
+  const isOnCallPage = isOnCallConversation(pathname, channelId, dmPageUserId);
   const shouldShow = status === 'connected' && !isFullscreen && (isPiP || !isOnCallPage);
 
   const labels = useMemo<MinimizedCallWidgetLabels>(() => {

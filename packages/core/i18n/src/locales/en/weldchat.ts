@@ -83,6 +83,7 @@ export const weldchat = {
       joinCall: 'Join call',
     },
     calling: {
+      minimize: 'Minimize',
       ringing: 'Ringing…',
       /** On a call tile: someone already in the call whose connection is not up yet. */
       connecting: 'Connecting…',
@@ -877,8 +878,10 @@ export const weldchat = {
       meetingNamed: 'the meeting "{title}"',
     },
     dropZone: {
-      uploadFile: 'Upload a file',
-      dropToAttach: 'Drop to attach it to your next message',
+      uploadFile: 'Upload files',
+      uploadTo: 'Upload to {name}',
+      dropToAttach: 'They wait in your message, so you can add a note before you send.',
+      thread: 'this thread',
     },
     memberList: {
       header: 'Members',

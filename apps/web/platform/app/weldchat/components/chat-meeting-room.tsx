@@ -139,7 +139,7 @@ function ChatMeetingRoomAdapter() {
   } = useWeldChatCall();
 
   const { t } = useI18n();
-  const { isDmOrGroup, otherMembers, title: meetingTitle } = useCallChannelInfo();
+  const { isDm, isDmOrGroup, otherMembers, title: meetingTitle } = useCallChannelInfo();
 
   const [participants, setParticipants] = useState<RtkPerson[]>([]);
   const [showEffects, setShowEffects] = useState(false);
@@ -476,6 +476,13 @@ function ChatMeetingRoomAdapter() {
       onLeave={leaveCall}
       onToggleFullscreen={toggleFullscreen}
       onPictureInPicture={minimizeToPiP}
+      // A visible Minimize in the header (the ⋮ menu's "Picture in picture" does the same):
+      // the conversation comes back and the call carries on in the minimized widget, as a
+      // minimized WeldMeet meeting does. Only once connected, which is when that widget shows.
+      onMinimize={status === 'connected' ? minimizeToPiP : undefined}
+      headerLabels={{ minimize: t.weldchat.calling.minimize }}
+      // People, Chat and Minimize as quiet icon buttons, not bordered text buttons.
+      iconHeaderButtons
       onToggleEffects={() => setShowEffects((v) => !v)}
       effectsOpen={showEffects}
       backgroundEffectsSlot={backgroundEffectsSlot}
@@ -492,6 +499,8 @@ function ChatMeetingRoomAdapter() {
       // Lean chat-call chrome otherwise: people panel + channel chat only. No
       // info / host / tools / recording / share-link — none apply to ad-hoc calls.
       showInfoButton={false}
+      // A 1:1 DM call only ever has you and the person you called: no People panel.
+      showPeopleButton={!isDm}
       showHostControlsButton={false}
       showToolsButton={false}
       showControlBarRecording={false}

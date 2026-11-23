@@ -83,6 +83,7 @@ export const weldchat = {
       joinCall: 'Deelnemen aan gesprek',
     },
     calling: {
+      minimize: 'Minimaliseren',
       ringing: 'Gaat over…',
       connecting: 'Verbinden…',
       autoEnded: 'Gesprek automatisch beëindigd na 3 minuten alleen.',
@@ -876,8 +877,10 @@ export const weldchat = {
       meetingNamed: 'de vergadering "{title}"',
     },
     dropZone: {
-      uploadFile: 'Bestand uploaden',
-      dropToAttach: 'Laat los om bij je volgende bericht te voegen',
+      uploadFile: 'Bestanden uploaden',
+      uploadTo: 'Uploaden naar {name}',
+      dropToAttach: 'Ze wachten in je bericht, zodat je er nog iets bij kunt schrijven.',
+      thread: 'deze thread',
     },
     memberList: {
       header: 'Leden',
