@@ -13,6 +13,7 @@ import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { useMarkReadOnOpen } from '@/hooks/weldchat/use-mark-read-on-open';
 import { ChannelHeader } from '../components/channel-header';
+import { ChatDropZone } from '../components/chat-drop-zone';
 import { PinnedMessagesBar } from '../components/pinned-messages-bar';
 import { MessageList } from '../components/message-list';
 import { MessageInput } from '../components/message-input';
@@ -100,20 +101,22 @@ export default function GroupConversationPage() {
 
   return (
     <div className={cn('flex flex-col h-full', returningFromCall && RETURN_FROM_CALL_CLASS)}>
-      {!isInCall && (
-        <ChannelHeader channel={channel} />
-      )}
       {isInCall ? (
         <Suspense fallback={null}>
           <InlineCallView />
         </Suspense>
       ) : (
-        <>
+        // The whole conversation, header included, takes dropped files (see ChatDropZone).
+        <ChatDropZone
+          channelId={channelId}
+          targetName={channel.name || st('sweep.weldchat.groupConversation.defaultName')}
+        >
+          <ChannelHeader channel={channel} />
           <PinnedMessagesBar channelId={channelId} />
           {/* Distinct keys per sibling: see channel/page.tsx. */}
           <MessageList key={`list:${channelId}`} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
           <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
-        </>
+        </ChatDropZone>
       )}
     </div>
   );

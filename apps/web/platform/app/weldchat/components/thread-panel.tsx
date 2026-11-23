@@ -1,5 +1,6 @@
 import { MessageList } from './message-list';
 import { MessageInput } from './message-input';
+import { ChatDropZone } from './chat-drop-zone';
 import { X, ChevronRight, Hash, Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
@@ -144,10 +145,13 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
           <X className="h-4 w-4" />
         </Button>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto">
-        <MessageList channelId={channelId} parentId={messageId} />
-      </div>
-      <MessageInput channelId={channelId} parentId={messageId} />
+      {/* Files dropped on the thread go to the thread's composer. */}
+      <ChatDropZone channelId={channelId} parentId={messageId} targetName={t.weldchat.dropZone.thread}>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <MessageList channelId={channelId} parentId={messageId} />
+        </div>
+        <MessageInput channelId={channelId} parentId={messageId} />
+      </ChatDropZone>
     </div>
   );
 }

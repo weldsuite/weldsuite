@@ -174,13 +174,14 @@ export default function ChannelPage() {
 
   return (
     <div className={cn('flex flex-col h-full', returningFromCall && RETURN_FROM_CALL_CLASS)}>
-      {!isInCall && <ChannelHeader channel={channel} />}
       {isInCall ? (
         <Suspense fallback={null}>
           <InlineCallView />
         </Suspense>
       ) : (
-        <ChatDropZone channelId={channelId}>
+        // The whole conversation, header included, takes dropped files (see ChatDropZone).
+        <ChatDropZone channelId={channelId} targetName={channel.name ? `#${channel.name}` : null}>
+          <ChannelHeader channel={channel} />
           <PinnedMessagesBar channelId={channelId} />
           {/* Keyed by channel: the list's scroll/jump state and the composer's
               text and draft belong to one channel, never carried to the next.
