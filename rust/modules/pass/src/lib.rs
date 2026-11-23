@@ -20,11 +20,6 @@
 //! events: WeldPass writes its own trail (`weldpass_audit_events`,
 //! `weldpass_vault_events`), reveals and 2FA codes included.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod audit;
 #[cfg(test)]
 mod cases;
