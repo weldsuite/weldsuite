@@ -16,9 +16,9 @@ use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
-use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::enums::{SocialApprovalStatus, SocialPostStatus};
 use weldsuite_schema::tenant::{social_approvals, social_posts};
@@ -505,7 +505,10 @@ async fn reject_inner(
     }
     let now = weldsuite_db::utc_now();
     let (next, status) = if revision {
-        ("revision_requested", SocialApprovalStatus::RevisionRequested)
+        (
+            "revision_requested",
+            SocialApprovalStatus::RevisionRequested,
+        )
     } else {
         ("rejected", SocialApprovalStatus::Rejected)
     };
@@ -526,7 +529,10 @@ async fn reject_inner(
             social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Draft)),
         )
         .col_expr(social_posts::Column::RejectedAt, Expr::val(rejected_at))
-        .col_expr(social_posts::Column::RejectedByUserId, Expr::val(rejected_by))
+        .col_expr(
+            social_posts::Column::RejectedByUserId,
+            Expr::val(rejected_by),
+        )
         .col_expr(social_posts::Column::RejectionReason, Expr::val(reason))
         .col_expr(social_posts::Column::UpdatedAt, Expr::val(now))
         .filter(social_posts::Column::Id.eq(&post_id))

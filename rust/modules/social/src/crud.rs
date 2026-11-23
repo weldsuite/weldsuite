@@ -316,12 +316,10 @@ async fn fetch(crud: Handler, caller: &Caller, query: Option<&str>) -> Result<Re
         .collect();
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
     let cursor_row = match &cursor {
-        Some(cursor) => cursor_row(db, crud.table, cursor)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "social: cursor lookup failed");
-                ListError::Cursor
-            })?,
+        Some(cursor) => cursor_row(db, crud.table, cursor).await.map_err(|error| {
+            tracing::error!(%error, "social: cursor lookup failed");
+            ListError::Cursor
+        })?,
         None => None,
     };
     let mut active = vec![true];
