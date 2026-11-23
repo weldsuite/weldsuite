@@ -22,7 +22,7 @@ use weldsuite_crm_domain::activities::create_activity;
 use weldsuite_crm_domain::tables::CRM_ACTIVITIES;
 use weldsuite_crm_domain::to_iso;
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{orm, orm_error, utc_now};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
 use weldsuite_schema::tenant::crm_activities;
 
@@ -200,9 +200,7 @@ async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
         .map(|row| json(serde_json::to_value(row)))
         .collect::<Result<Vec<_>, DbErr>>()?;
     let (data, has_more, next) = cut(rows, limit);
-    let data = hydrate(&caller.db, "activity", data, None)
-        .await
-        .map_err(orm_error)?;
+    let data = hydrate(&caller.db, "activity", data, None).await?;
     Ok(page(
         data,
         i64::try_from(total).unwrap_or(i64::MAX),
@@ -219,9 +217,7 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         let Some(row) = live(&caller, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Activity", Some(&id)).into_response());
         };
-        let row = hydrate_one(&caller.db, "activity", Some(row))
-            .await
-            .map_err(orm_error)?;
+        let row = hydrate_one(&caller.db, "activity", Some(row)).await?;
         Ok(Data(row.unwrap_or(Value::Null)).into_response())
     }
     .await;

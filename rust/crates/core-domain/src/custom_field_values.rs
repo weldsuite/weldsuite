@@ -12,7 +12,9 @@
 use std::collections::HashMap;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, RuntimeErr,
+};
 use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
@@ -363,6 +365,12 @@ impl std::fmt::Display for ValuesError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Invalid(message) => f.write_str(message),
+            // The statement's own error, as sqlx wrote it.
+            Self::Database(
+                DbErr::Conn(RuntimeErr::SqlxError(error))
+                | DbErr::Exec(RuntimeErr::SqlxError(error))
+                | DbErr::Query(RuntimeErr::SqlxError(error)),
+            ) => error.fmt(f),
             Self::Database(error) => error.fmt(f),
         }
     }

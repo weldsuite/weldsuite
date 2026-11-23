@@ -20,6 +20,27 @@ fn set(value: Option<&String>) -> Option<&str> {
     value.map(String::as_str).filter(|id| !id.is_empty())
 }
 
+const SPRINT: [sprints::Column; 3] = [
+    sprints::Column::Id,
+    sprints::Column::ProjectId,
+    sprints::Column::DeletedAt,
+];
+const MILESTONE: [milestones::Column; 3] = [
+    milestones::Column::Id,
+    milestones::Column::ProjectId,
+    milestones::Column::DeletedAt,
+];
+const DELIVERABLE: [project_deliverables::Column; 3] = [
+    project_deliverables::Column::Id,
+    project_deliverables::Column::ProjectId,
+    project_deliverables::Column::DeletedAt,
+];
+const STAGE: [project_pipeline_stages::Column; 3] = [
+    project_pipeline_stages::Column::Id,
+    project_pipeline_stages::Column::ProjectId,
+    project_pipeline_stages::Column::DeletedAt,
+];
+
 /// `select id from <table> where id = $1 and project_id = $2 and deleted_at
 /// is null limit 1` found a row. `columns` are the table's `id`,
 /// `project_id` and `deleted_at`.
@@ -56,17 +77,7 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be added to a sprint".to_owned(),
             ));
         };
-        if !exists_in_project::<sprints::Entity>(
-            db,
-            [
-                sprints::Column::Id,
-                sprints::Column::ProjectId,
-                sprints::Column::DeletedAt,
-            ],
-            sprint_id,
-            project_id,
-        )
-        .await?
+        if !exists_in_project::<sprints::Entity>(db, SPRINT, sprint_id, project_id).await?
         {
             return Ok(Some(format!("Sprint {sprint_id} not found in this project")));
         }
@@ -77,17 +88,8 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be added to a milestone".to_owned(),
             ));
         };
-        if !exists_in_project::<milestones::Entity>(
-            db,
-            [
-                milestones::Column::Id,
-                milestones::Column::ProjectId,
-                milestones::Column::DeletedAt,
-            ],
-            milestone_id,
-            project_id,
-        )
-        .await?
+        if !exists_in_project::<milestones::Entity>(db, MILESTONE, milestone_id, project_id)
+            .await?
         {
             return Ok(Some(format!(
                 "Milestone {milestone_id} not found in this project"
@@ -102,11 +104,7 @@ pub async fn find_invalid_task_reference(
         };
         if !exists_in_project::<project_deliverables::Entity>(
             db,
-            [
-                project_deliverables::Column::Id,
-                project_deliverables::Column::ProjectId,
-                project_deliverables::Column::DeletedAt,
-            ],
+            DELIVERABLE,
             deliverable_id,
             project_id,
         )
@@ -123,17 +121,8 @@ pub async fn find_invalid_task_reference(
                 "A task without a project cannot be placed in a pipeline stage".to_owned(),
             ));
         };
-        if !exists_in_project::<project_pipeline_stages::Entity>(
-            db,
-            [
-                project_pipeline_stages::Column::Id,
-                project_pipeline_stages::Column::ProjectId,
-                project_pipeline_stages::Column::DeletedAt,
-            ],
-            stage_id,
-            project_id,
-        )
-        .await?
+        if !exists_in_project::<project_pipeline_stages::Entity>(db, STAGE, stage_id, project_id)
+            .await?
         {
             return Ok(Some(format!(
                 "Pipeline stage {stage_id} not found in this project"

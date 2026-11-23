@@ -10,15 +10,30 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    Select,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::drive_access::{
     VisibleFiles, load_drive_access_for_user, visible_files,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::has_any_app_permission;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::enums::{HostDomainRegistrationStatus, HostDomainStatus};
+use weldsuite_schema::tenant::{
+    bills, chat_channel_members, chat_channels, companies, crm_leads, crm_opportunities,
+    desk_conversations, docs, domains, files, form_access, forms, helpdesk_articles,
+    helpdesk_tickets, invoices, knowledge_pages, knowledge_spaces, meetings, merge_issues,
+    merge_pull_requests, merge_repositories, merge_teams, orders, panel_projects, people,
+    products, projects, reach_campaigns, sheets, sign_envelopes, sign_recipients, tasks,
+    warehouses, weldagent_agent_members, weldagent_agents, welddata_lists, whiteboards, workflows,
+    workspace_installed_apps, workspace_members,
+};
 use weldsuite_subscribers::search::ai::{WorkspaceEmbeddings, index_model};
 use weldsuite_subscribers::search::backfill::{BackfillCursor, backfill_batch};
 
@@ -249,9 +264,9 @@ pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -
 
 // ── The per-type queries ───────────────────────────────────────────────────
 
-/// What every query binds: `$1` the lower-cased term, `$2` the prefix
-/// pattern, `$3` the substring pattern (the term is not escaped, as in
-/// TypeScript), `$4` the row limit (one more than asked, for `hasMore`).
+/// What every query matches and scores on: the lower-cased term, the prefix
+/// pattern, the substring pattern (the term is not escaped, as in
+/// TypeScript), and the row limit (one more than asked, for `hasMore`).
 struct Term {
     lower: String,
     prefix: String,
@@ -259,440 +274,515 @@ struct Term {
     limit: i64,
 }
 
-async fn fetch(db: &PgPool, sql: &'static str, term: &Term) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(sql)
-        .bind(&term.lower)
-        .bind(&term.prefix)
-        .bind(&term.contains)
-        .bind(term.limit)
-        .fetch_all(db)
-        .await
+/// How a column scores: `scoreText` (1.0 exact, 0.9 prefix, 0.6 substring)
+/// or an e-mail column (1.0, 0.7, 0.3).
+#[derive(Clone, Copy)]
+enum Scored {
+    Text,
+    Email,
 }
 
-const CONTACTS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(full_name) = $1 then 1.0 when lower(full_name) like $2 then 0.9
-             when lower(full_name) like $3 then 0.6 else 0 end,
-        case when lower(first_name) = $1 then 1.0 when lower(first_name) like $2 then 0.9
-             when lower(first_name) like $3 then 0.6 else 0 end,
-        case when lower(last_name) = $1 then 1.0 when lower(last_name) like $2 then 0.9
-             when lower(last_name) like $3 then 0.6 else 0 end,
-        case when lower(email) = $1 then 1.0 when lower(email) like $2 then 0.7
-             when lower(email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
-        'fullName', full_name, 'email', email, 'title', title) as row
-    from people
-    where deleted_at is null and (lower(full_name) like $3 or lower(first_name) like $3
-      or lower(last_name) like $3 or lower(email) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
+/// A column of the type's table as an expression.
+fn col(column: impl ColumnTrait) -> Expr {
+    column.into_expr()
+}
 
-const CUSTOMERS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(name) = $1 then 1.0 when lower(name) like $2 then 0.9
-             when lower(name) like $3 then 0.6 else 0 end,
-        case when lower(trading_name) = $1 then 1.0 when lower(trading_name) like $2 then 0.9
-             when lower(trading_name) like $3 then 0.6 else 0 end,
-        case when lower(email) = $1 then 1.0 when lower(email) like $2 then 0.7
-             when lower(email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'name', name, 'tradingName', trading_name,
-        'email', email) as row
-    from companies
-    where deleted_at is null and (lower(name) like $3 or lower(trading_name) like $3
-      or lower(email) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
+/// `lower(expr)`.
+fn lower(expr: Expr) -> Expr {
+    Func::lower(expr).into()
+}
 
-const LEADS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(full_name) = $1 then 1.0 when lower(full_name) like $2 then 0.9
-             when lower(full_name) like $3 then 0.6 else 0 end,
-        case when lower(first_name) = $1 then 1.0 when lower(first_name) like $2 then 0.9
-             when lower(first_name) like $3 then 0.6 else 0 end,
-        case when lower(last_name) = $1 then 1.0 when lower(last_name) like $2 then 0.9
-             when lower(last_name) like $3 then 0.6 else 0 end,
-        case when lower(company_name) = $1 then 1.0 when lower(company_name) like $2 then 0.9
-             when lower(company_name) like $3 then 0.6 else 0 end,
-        case when lower(email) = $1 then 1.0 when lower(email) like $2 then 0.7
-             when lower(email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
-        'fullName', full_name, 'companyName', company_name, 'email', email) as row
-    from crm_leads
-    where deleted_at is null and (lower(full_name) like $3 or lower(first_name) like $3
-      or lower(last_name) like $3 or lower(company_name) like $3 or lower(email) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
+/// `lower(expr) like pattern`.
+fn like(expr: Expr, pattern: &str) -> Expr {
+    sea_orm::ExprTrait::like(lower(expr), pattern)
+}
 
-const OPPORTUNITIES: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(name) = $1 then 1.0 when lower(name) like $2 then 0.9
-             when lower(name) like $3 then 0.6 else 0 end,
-        case when lower(customer_name) = $1 then 1.0 when lower(customer_name) like $2 then 0.9
-             when lower(customer_name) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'name', name, 'customerName', customer_name,
-        'stage', stage) as row
-    from crm_opportunities
-    where deleted_at is null and (lower(name) like $3 or lower(customer_name) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const TICKETS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(subject) = $1 then 1.0 when lower(subject) like $2 then 0.9
-             when lower(subject) like $3 then 0.6 else 0 end,
-        case when lower(ticket_number) = $1 then 1.0 when lower(ticket_number) like $2 then 0.9
-             when lower(ticket_number) like $3 then 0.6 else 0 end,
-        case when lower(customer_name) = $1 then 1.0 when lower(customer_name) like $2 then 0.9
-             when lower(customer_name) like $3 then 0.6 else 0 end,
-        case when lower(customer_email) = $1 then 1.0 when lower(customer_email) like $2 then 0.7
-             when lower(customer_email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'ticketNumber', ticket_number, 'subject', subject,
-        'status', status, 'customerName', customer_name) as row
-    from helpdesk_tickets
-    where deleted_at is null and (lower(subject) like $3 or lower(ticket_number) like $3
-      or lower(customer_name) like $3 or lower(customer_email) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const ARTICLES: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(title) = $1 then 1.0 when lower(title) like $2 then 0.9
-             when lower(title) like $3 then 0.6 else 0 end,
-        case when lower(slug) = $1 then 1.0 when lower(slug) like $2 then 0.9
-             when lower(slug) like $3 then 0.6 else 0 end,
-        case when lower(category_name) = $1 then 1.0 when lower(category_name) like $2 then 0.9
-             when lower(category_name) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'title', title, 'slug', slug, 'excerpt', excerpt,
-        'categoryName', category_name) as row
-    from helpdesk_articles
-    where deleted_at is null and (lower(title) like $3 or lower(slug) like $3
-      or lower(category_name) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const KNOWLEDGE_PAGES: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select p.id, p.updated_at, greatest(
-        case when lower(p.title) = $1 then 1.0 when lower(p.title) like $2 then 0.9
-             when lower(p.title) like $3 then 0.6 else 0 end,
-        case when lower(p.content_text) = $1 then 1.0 when lower(p.content_text) like $2 then 0.9
-             when lower(p.content_text) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', p.id, 'title', p.title, 'contentText', p.content_text,
-        'spaceName', s.name) as row
-    from knowledge_pages p
-    join knowledge_spaces s on p.space_id = s.id
-    where p.deleted_at is null and s.deleted_at is null and s.kind = 'team'
-      and s.visibility = 'open'
-      and (lower(p.title) like $3 or lower(p.content_text) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const PRODUCTS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(name) = $1 then 1.0 when lower(name) like $2 then 0.9
-             when lower(name) like $3 then 0.6 else 0 end,
-        case when lower(sku) = $1 then 1.0 when lower(sku) like $2 then 0.9
-             when lower(sku) like $3 then 0.6 else 0 end,
-        case when lower(barcode) = $1 then 1.0 when lower(barcode) like $2 then 0.9
-             when lower(barcode) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'name', name, 'sku', sku,
-        'shortDescription', short_description) as row
-    from products
-    where deleted_at is null and (lower(name) like $3 or lower(sku) like $3
-      or lower(barcode) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const ORDERS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(order_number) = $1 then 1.0 when lower(order_number) like $2 then 0.9
-             when lower(order_number) like $3 then 0.6 else 0 end,
-        case when lower(customer_name) = $1 then 1.0 when lower(customer_name) like $2 then 0.9
-             when lower(customer_name) like $3 then 0.6 else 0 end,
-        case when lower(customer_email) = $1 then 1.0 when lower(customer_email) like $2 then 0.7
-             when lower(customer_email) like $3 then 0.3 else 0 end,
-        case when lower(external_order_id) = $1 then 1.0 when lower(external_order_id) like $2 then 0.9
-             when lower(external_order_id) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'orderNumber', order_number, 'customerName', customer_name,
-        'customerEmail', customer_email, 'total', total::text, 'currency', currency) as row
-    from orders
-    where deleted_at is null and (lower(order_number) like $3 or lower(customer_name) like $3
-      or lower(customer_email) like $3 or lower(external_order_id) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const INVOICES: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(invoice_number) = $1 then 1.0 when lower(invoice_number) like $2 then 0.9
-             when lower(invoice_number) like $3 then 0.6 else 0 end,
-        case when lower(contact_name) = $1 then 1.0 when lower(contact_name) like $2 then 0.9
-             when lower(contact_name) like $3 then 0.6 else 0 end,
-        case when lower(contact_email) = $1 then 1.0 when lower(contact_email) like $2 then 0.7
-             when lower(contact_email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'invoiceNumber', invoice_number,
-        'contactName', contact_name, 'status', status) as row
-    from invoices
-    where deleted_at is null and (lower(invoice_number) like $3 or lower(contact_name) like $3
-      or lower(contact_email) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const BILLS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(bill_number) = $1 then 1.0 when lower(bill_number) like $2 then 0.9
-             when lower(bill_number) like $3 then 0.6 else 0 end,
-        case when lower(contact_name) = $1 then 1.0 when lower(contact_name) like $2 then 0.9
-             when lower(contact_name) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'billNumber', bill_number, 'contactName', contact_name,
-        'status', status) as row
-    from bills
-    where deleted_at is null and (lower(bill_number) like $3 or lower(contact_name) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const PROJECTS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(name) = $1 then 1.0 when lower(name) like $2 then 0.9
-             when lower(name) like $3 then 0.6 else 0 end,
-        case when lower(code) = $1 then 1.0 when lower(code) like $2 then 0.9
-             when lower(code) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'name', name, 'code', code, 'status', status) as row
-    from projects
-    where deleted_at is null and (lower(name) like $3 or lower(code) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const TASKS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(title) = $1 then 1.0 when lower(title) like $2 then 0.9
-             when lower(title) like $3 then 0.6 else 0 end,
-        case when lower(key) = $1 then 1.0 when lower(key) like $2 then 0.9
-             when lower(key) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'title', title, 'key', key, 'number', number,
-        'status', status) as row
-    from tasks
-    where deleted_at is null and (lower(title) like $3 or lower(key) like $3
-      or ($5::bigint is not null and number = $5))) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const DOMAINS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(full_domain) = $1 then 1.0 when lower(full_domain) like $2 then 0.9
-             when lower(full_domain) like $3 then 0.6 else 0 end,
-        case when lower(name) = $1 then 1.0 when lower(name) like $2 then 0.9
-             when lower(name) like $3 then 0.6 else 0 end,
-        case when lower(tld) = $1 then 1.0 when lower(tld) like $2 then 0.9
-             when lower(tld) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', id, 'fullDomain', full_domain, 'name', name, 'tld', tld,
-        'status', status, 'registrar', registrar) as row
-    from domains
-    where deleted_at is null
-      and registration_status is distinct from 'pending_payment'
-      and not (status = 'cancelled' and registration_status is not distinct from 'failed')
-      and (lower(full_domain) like $3 or lower(name) like $3 or lower(tld) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-/// WeldMerge issues by title or key (`PLAT-209`, or a part of it); `$5` is
-/// the escaped substring pattern (`escapeLike`), the scores use the raw term.
-const MERGE_ISSUES: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select i.id, i.updated_at, greatest(
-        case when lower(i.title) = $1 then 1.0 when lower(i.title) like $2 then 0.9
-             when lower(i.title) like $3 then 0.6 else 0 end,
-        case when lower(t.key || '-' || i.number::text) = $1 then 1.0
-             when lower(t.key || '-' || i.number::text) like $2 then 0.9
-             when lower(t.key || '-' || i.number::text) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', i.id, 'title', i.title, 'key', t.key || '-' || i.number::text,
-        'status', i.status) as row
-    from merge_issues i
-    join merge_teams t on t.id = i.team_id
-    where i.deleted_at is null and t.deleted_at is null
-      and (lower(i.title) like $5 or lower(t.key || '-' || i.number::text) like $5)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-/// WeldMerge pull requests of repositories still connected, by title, branch
-/// or number (`#123`, `123`: `$6`); `$5` as for issues.
-const MERGE_PULL_REQUESTS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select p.id, p.provider_updated_at, greatest(
-        case when lower(p.title) = $1 then 1.0 when lower(p.title) like $2 then 0.9
-             when lower(p.title) like $3 then 0.6 else 0 end,
-        case when lower(p.head_ref) = $1 then 1.0 when lower(p.head_ref) like $2 then 0.9
-             when lower(p.head_ref) like $3 then 0.6 else 0 end) as score,
-      jsonb_build_object('id', p.id, 'title', p.title, 'number', p.number, 'state', p.state,
-        'repository', r.full_name) as row
-    from merge_pull_requests p
-    join merge_repositories r on r.id = p.repository_id
-    where r.deleted_at is null
-      and (lower(p.title) like $5 or lower(p.head_ref) like $5
-        or ($6::int is not null and p.number = $6))) s
-  order by score desc, provider_updated_at desc, id desc limit $4";
-
-/// `scoreText(col)`: 1.0 exact, 0.9 prefix, 0.6 substring, on `$1`, `$2`, `$3`.
-macro_rules! score {
-    ($col:literal) => {
-        concat!(
-            "case when lower(",
-            $col,
-            ") = $1 then 1.0 when lower(",
-            $col,
-            ") like $2 then 0.9
-             when lower(",
-            $col,
-            ") like $3 then 0.6 else 0 end"
-        )
+/// `case when lower(col) = $1 then 1.0 when lower(col) like $2 then 0.9
+/// when lower(col) like $3 then 0.6 else 0 end` (an e-mail column: 0.7, 0.3).
+fn score(expr: &Expr, kind: Scored, term: &Term) -> Expr {
+    let (prefix, contains) = match kind {
+        Scored::Text => (0.9, 0.6),
+        Scored::Email => (0.7, 0.3),
     };
+    Expr::case(
+        sea_orm::ExprTrait::eq(lower(expr.clone()), term.lower.as_str()),
+        1.0,
+    )
+    .case(like(expr.clone(), &term.prefix), prefix)
+    .case(like(expr.clone(), &term.contains), contains)
+    .finally(0.0)
+    .into()
 }
 
-/// WeldDesk conversations by title, customer, e-mail or number (`$5`, the
-/// number a query names, as for pull requests). Every conversation, as
-/// desk-api's inbox lists them.
-const CONVERSATIONS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(",
-    score!("title"),
-    ",",
-    score!("name"),
-    ",
-        case when lower(email) = $1 then 1.0 when lower(email) like $2 then 0.7
-             when lower(email) like $3 then 0.3 else 0 end,
-        case when $5::int is not null and conversation_number = $5 then 1.0 else 0 end) as score,
-      jsonb_build_object('id', id, 'title', title, 'name', name, 'email', email,
-        'conversationNumber', conversation_number) as row
-    from desk_conversations
-    where lower(title) like $3 or lower(name) like $3 or lower(email) like $3
-      or ($5::int is not null and conversation_number = $5)) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+/// `greatest(score(a), score(b), …)`, or the one column's score.
+fn best_score(columns: &[(Expr, Scored)], term: &Term) -> Expr {
+    let mut scores: Vec<Expr> = columns
+        .iter()
+        .map(|(expr, kind)| score(expr, *kind, term))
+        .collect();
+    if scores.len() == 1 {
+        return scores.remove(0);
+    }
+    Func::greatest(scores).into()
+}
+
+/// `lower(a) like $3 or lower(b) like $3 or …`.
+fn any_like(columns: &[(Expr, Scored)], pattern: &str) -> Condition {
+    columns.iter().fold(Condition::any(), |any, (expr, _)| {
+        any.add(like(expr.clone(), pattern))
+    })
+}
+
+/// One type's rows, each `{ row, score }`: `rows` (the type's table, joins,
+/// filters and the `row` fields under their names) by `score`, best first,
+/// then by `then` (last change, id), newest first; `limit` of them.
+async fn ranked<E: EntityTrait>(
+    db: &PgPool,
+    rows: Select<E>,
+    score: Expr,
+    then: [Expr; 2],
+    limit: i64,
+) -> Result<Vec<Value>, DbErr> {
+    let [changed, id] = then;
+    let rows = rows
+        .expr_as(score.clone(), "score")
+        .order_by_desc(score)
+        .order_by_desc(changed)
+        .order_by_desc(id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_json()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|mut row| {
+            let score = row
+                .as_object_mut()
+                .and_then(|fields| fields.remove("score"))
+                .unwrap_or(Value::Null);
+            json!({ "row": row, "score": score })
+        })
+        .collect())
+}
+
+/// People by name or e-mail.
+async fn search_contacts(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use people::Column as C;
+    let columns = [
+        (col(C::FullName), Scored::Text),
+        (col(C::FirstName), Scored::Text),
+        (col(C::LastName), Scored::Text),
+        (col(C::Email), Scored::Email),
+    ];
+    let rows = people::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::FirstName, "firstName")
+        .column_as(C::LastName, "lastName")
+        .column_as(C::FullName, "fullName")
+        .column_as(C::Email, "email")
+        .column_as(C::Title, "title")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Companies by name, trading name or e-mail.
+async fn search_customers(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use companies::Column as C;
+    let columns = [
+        (col(C::Name), Scored::Text),
+        (col(C::TradingName), Scored::Text),
+        (col(C::Email), Scored::Email),
+    ];
+    let rows = companies::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::TradingName, "tradingName")
+        .column_as(C::Email, "email")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Leads by name, company or e-mail.
+async fn search_leads(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use crm_leads::Column as C;
+    let columns = [
+        (col(C::FullName), Scored::Text),
+        (col(C::FirstName), Scored::Text),
+        (col(C::LastName), Scored::Text),
+        (col(C::CompanyName), Scored::Text),
+        (col(C::Email), Scored::Email),
+    ];
+    let rows = crm_leads::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::FirstName, "firstName")
+        .column_as(C::LastName, "lastName")
+        .column_as(C::FullName, "fullName")
+        .column_as(C::CompanyName, "companyName")
+        .column_as(C::Email, "email")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Opportunities by name or customer.
+async fn search_opportunities(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use crm_opportunities::Column as C;
+    let columns = [
+        (col(C::Name), Scored::Text),
+        (col(C::CustomerName), Scored::Text),
+    ];
+    let rows = crm_opportunities::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::CustomerName, "customerName")
+        .column_as(C::Stage, "stage")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Tickets by subject, number or customer.
+async fn search_tickets(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use helpdesk_tickets::Column as C;
+    let columns = [
+        (col(C::Subject), Scored::Text),
+        (col(C::TicketNumber), Scored::Text),
+        (col(C::CustomerName), Scored::Text),
+        (col(C::CustomerEmail), Scored::Email),
+    ];
+    let rows = helpdesk_tickets::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::TicketNumber, "ticketNumber")
+        .column_as(C::Subject, "subject")
+        .column_as(C::Status, "status")
+        .column_as(C::CustomerName, "customerName")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Help center articles by title, slug or category.
+async fn search_articles(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use helpdesk_articles::Column as C;
+    let columns = [
+        (col(C::Title), Scored::Text),
+        (col(C::Slug), Scored::Text),
+        (col(C::CategoryName), Scored::Text),
+    ];
+    let rows = helpdesk_articles::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Slug, "slug")
+        .column_as(C::Excerpt, "excerpt")
+        .column_as(C::CategoryName, "categoryName")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Knowledge pages of open team spaces, by title or text.
+async fn search_knowledge_pages(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use knowledge_pages::Column as C;
+    use knowledge_spaces::Column as S;
+    let columns = [
+        (col(C::Title), Scored::Text),
+        (col(C::ContentText), Scored::Text),
+    ];
+    let rows = knowledge_pages::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::ContentText, "contentText")
+        .column_as(S::Name, "spaceName")
+        .join(
+            JoinType::InnerJoin,
+            knowledge_pages::Entity::belongs_to(knowledge_spaces::Entity)
+                .from(C::SpaceId)
+                .to(S::Id)
+                .into(),
+        )
+        .filter(C::DeletedAt.is_null())
+        .filter(S::DeletedAt.is_null())
+        .filter(S::Kind.eq("team"))
+        .filter(S::Visibility.eq("open"))
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Products by name, SKU or barcode.
+async fn search_products(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use products::Column as C;
+    let columns = [
+        (col(C::Name), Scored::Text),
+        (col(C::Sku), Scored::Text),
+        (col(C::Barcode), Scored::Text),
+    ];
+    let rows = products::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Sku, "sku")
+        .column_as(C::ShortDescription, "shortDescription")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Orders by number, customer or external id; the total as Postgres prints it.
+async fn search_orders(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use orders::Column as C;
+    let columns = [
+        (col(C::OrderNumber), Scored::Text),
+        (col(C::CustomerName), Scored::Text),
+        (col(C::CustomerEmail), Scored::Email),
+        (col(C::ExternalOrderId), Scored::Text),
+    ];
+    let rows = orders::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::OrderNumber, "orderNumber")
+        .column_as(C::CustomerName, "customerName")
+        .column_as(C::CustomerEmail, "customerEmail")
+        .expr_as(Func::cast_as(col(C::Total), "text"), "total")
+        .column_as(C::Currency, "currency")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Invoices by number or contact.
+async fn search_invoices(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use invoices::Column as C;
+    let columns = [
+        (col(C::InvoiceNumber), Scored::Text),
+        (col(C::ContactName), Scored::Text),
+        (col(C::ContactEmail), Scored::Email),
+    ];
+    let rows = invoices::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::InvoiceNumber, "invoiceNumber")
+        .column_as(C::ContactName, "contactName")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Bills by number or contact.
+async fn search_bills(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use bills::Column as C;
+    let columns = [
+        (col(C::BillNumber), Scored::Text),
+        (col(C::ContactName), Scored::Text),
+    ];
+    let rows = bills::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::BillNumber, "billNumber")
+        .column_as(C::ContactName, "contactName")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Projects by name or code.
+async fn search_projects(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use projects::Column as C;
+    let columns = [(col(C::Name), Scored::Text), (col(C::Code), Scored::Text)];
+    let rows = projects::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Code, "code")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Domains by name, without the unpaid ones and the cancelled failures.
+async fn search_domains(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use domains::Column as C;
+    let columns = [
+        (col(C::FullDomain), Scored::Text),
+        (col(C::Name), Scored::Text),
+        (col(C::Tld), Scored::Text),
+    ];
+    let rows = domains::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::FullDomain, "fullDomain")
+        .column_as(C::Name, "name")
+        .column_as(C::Tld, "tld")
+        .column_as(C::Status, "status")
+        .column_as(C::Registrar, "registrar")
+        .filter(C::DeletedAt.is_null())
+        // `registration_status is distinct from 'pending_payment'`
+        .filter(
+            Condition::any()
+                .add(C::RegistrationStatus.is_null())
+                .add(C::RegistrationStatus.ne(HostDomainRegistrationStatus::PendingPayment)),
+        )
+        // `not (status = 'cancelled' and registration_status is not distinct from 'failed')`
+        .filter(
+            Condition::any()
+                .add(C::Status.ne(HostDomainStatus::Cancelled))
+                .add(C::RegistrationStatus.is_null())
+                .add(C::RegistrationStatus.ne(HostDomainRegistrationStatus::Failed)),
+        )
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
 /// WeldStash warehouses by name or code.
-const WAREHOUSES: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(",
-    score!("name"),
-    ",",
-    score!("code"),
-    ") as score,
-      jsonb_build_object('id', id, 'name', name, 'code', code, 'city', city) as row
-    from warehouses
-    where deleted_at is null and (lower(name) like $3 or lower(code) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+async fn search_warehouses(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use warehouses::Column as C;
+    let columns = [(col(C::Name), Scored::Text), (col(C::Code), Scored::Text)];
+    let rows = warehouses::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Code, "code")
+        .column_as(C::City, "city")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
-/// WeldConnect workflows by name, without the CRM sequences that share the table.
-const WORKFLOWS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("name"),
-    " as score,
-      jsonb_build_object('id', id, 'name', name, 'status', status) as row
-    from workflows
-    where deleted_at is null and lower(name) like $3
-      and not jsonb_exists(coalesce(tags, '[]'::jsonb), '__type:sequence')) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+/// WeldConnect workflows by name, without the CRM sequences that share the
+/// table (`not (coalesce(tags, '[]') ? '__type:sequence')`, tags being an
+/// array of strings).
+async fn search_workflows(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    use workflows::Column as C;
+    let columns = [(col(C::Name), Scored::Text)];
+    let tags = Expr::from(Func::coalesce([col(C::Tags), Expr::val(json!([]))]));
+    let rows = workflows::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains))
+        .filter(
+            Condition::all()
+                .add(PgExpr::contains(tags, Expr::val(json!(["__type:sequence"]))))
+                .not(),
+        );
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
 /// WeldReach campaigns by name.
-const REACH_CAMPAIGNS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("name"),
-    " as score,
-      jsonb_build_object('id', id, 'name', name, 'status', status) as row
-    from reach_campaigns
-    where deleted_at is null and lower(name) like $3) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+async fn search_reach_campaigns(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use reach_campaigns::Column as C;
+    let columns = [(col(C::Name), Scored::Text)];
+    let rows = reach_campaigns::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
 /// WeldData lists by name.
-const DATA_LISTS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("name"),
-    " as score,
-      jsonb_build_object('id', id, 'name', name, 'description', description) as row
-    from welddata_lists
-    where deleted_at is null and lower(name) like $3) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+async fn search_data_lists(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use welddata_lists::Column as C;
+    let columns = [(col(C::Name), Scored::Text)];
+    let rows = welddata_lists::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Description, "description")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
 /// WeldPanel tracked projects by name.
-const PANEL_PROJECTS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("name"),
-    " as score,
-      jsonb_build_object('id', id, 'name', name, 'kind', kind, 'status', status) as row
-    from panel_projects
-    where deleted_at is null and lower(name) like $3) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+async fn search_panel_projects(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use panel_projects::Column as C;
+    let columns = [(col(C::Name), Scored::Text)];
+    let rows = panel_projects::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Kind, "kind")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
 
-/// WeldForms forms by title: `$5` the caller holds `forms:manage`, `$6` the
-/// caller. Anyone else sees the forms open to the workspace, their own and
-/// those they are on the access list of.
-const FORMS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("title"),
-    " as score,
-      jsonb_build_object('id', id, 'title', title, 'status', status) as row
-    from forms
-    where lower(title) like $3
-      and ($5::bool or access = 'workspace' or owner_user_id = $6
-        or id in (select form_id from form_access where user_id = $6))) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
-
-/// WeldMeet meetings by title: `$5` the caller holds `meetings:scope:all`,
-/// `$6` the caller (organisers see their own).
-const MEETINGS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("title"),
-    " as score,
-      jsonb_build_object('id', id, 'title', title, 'status', status) as row
-    from meetings
-    where deleted_at is null and lower(title) like $3
-      and ($5::bool or organizer_id = $6)) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
-
-/// WeldSign signature requests by title: `$5` the caller holds
-/// `sign_envelopes:manage`, `$6` the caller, `$7` their e-mail address (a sent
-/// request with a recipient there is theirs too).
-const SIGN_ENVELOPES: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, ",
-    score!("title"),
-    " as score,
-      jsonb_build_object('id', id, 'title', title, 'status', status) as row
-    from sign_envelopes
-    where kind = 'envelope' and deleted_at is null and lower(title) like $3
-      and ($5::bool or sender_user_id = $6
-        or ($7::text is not null and status <> 'draft'
-            and id in (select envelope_id from sign_recipients where email = $7)))) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
-
-/// WeldChat channels by name: public ones, and the private ones `$5` (the
-/// caller) has joined. Direct messages and record channels are no channels here.
-const CHAT_CHANNELS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select c.id, c.updated_at, ",
-    score!("c.name"),
-    " as score,
-      jsonb_build_object('id', c.id, 'name', c.name, 'topic', c.topic,
-        'description', c.description) as row
-    from chat_channels c
-    where c.deleted_at is null and lower(c.name) like $3
-      and (c.type = 'public'
-        or (c.type = 'private' and exists (select 1 from chat_channel_members m
-            where m.channel_id = c.id and m.user_id = $5)))) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
-
-/// WeldAgent agents by name: `$5` the caller holds `weldagent:manage`, `$6`
-/// the caller (`agentVisibleTo`: their own, the workspace's, and the `members`
-/// agents they are listed on).
-const AGENTS: &str = concat!(
-    "select jsonb_build_object('row', row, 'score', score) from (
-    select a.id, a.updated_at, ",
-    score!("a.name"),
-    " as score,
-      jsonb_build_object('id', a.id, 'name', a.name, 'description', a.description) as row
-    from weldagent_agents a
-    where a.deleted_at is null and lower(a.name) like $3
-      and ($5::bool or a.owner_id = $6 or a.visibility = 'workspace'
-        or (a.visibility = 'members' and exists (select 1 from weldagent_agent_members m
-            where m.agent_id = a.id and m.user_id = $6)))) s
-  order by score desc, updated_at desc, id desc limit $4"
-);
+/// WeldDesk conversations by title, customer, e-mail or the number a query
+/// names (as for pull requests). Every conversation, as desk-api's inbox
+/// lists them.
+async fn search_conversations(
+    db: &PgPool,
+    term: &Term,
+    number: Option<i32>,
+) -> Result<Vec<Value>, DbErr> {
+    use desk_conversations::Column as C;
+    let columns = [
+        (col(C::Title), Scored::Text),
+        (col(C::Name), Scored::Text),
+        (col(C::Email), Scored::Email),
+    ];
+    let mut matching = any_like(&columns, &term.contains);
+    let mut scores: Vec<Expr> = columns
+        .iter()
+        .map(|(expr, kind)| score(expr, *kind, term))
+        .collect();
+    // `case when $5 is not null and conversation_number = $5 then 1.0 else 0 end`:
+    // without a number it is 0, which no greatest of scores falls below.
+    if let Some(number) = number {
+        matching = matching.add(C::ConversationNumber.eq(number));
+        scores.push(
+            Expr::case(C::ConversationNumber.eq(number), 1.0)
+                .finally(0.0)
+                .into(),
+        );
+    }
+    let rows = desk_conversations::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Name, "name")
+        .column_as(C::Email, "email")
+        .column_as(C::ConversationNumber, "conversationNumber")
+        .filter(matching);
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, Func::greatest(scores).into(), then, term.limit).await
+}
 
 /// `a || b || …`: the first non-empty string, else `None`.
 fn first<'a>(values: &[Option<&'a str>]) -> Option<&'a str> {
@@ -1003,7 +1093,7 @@ enum Drive {
 
 impl Searcher<'_> {
     /// `visibleFilesCondition` for this caller (`None`: an admin sees every file).
-    async fn visible_files(&mut self, db: &PgPool) -> Result<Option<VisibleFiles>, sqlx::Error> {
+    async fn visible_files(&mut self, db: &PgPool) -> Result<Option<VisibleFiles>, DbErr> {
         if matches!(self.drive, Drive::Unloaded) {
             let access = load_drive_access_for_user(db, self.user_id).await?;
             self.drive = match visible_files(&access) {
@@ -1031,25 +1121,30 @@ fn escaped_term(q: &str, limit: usize) -> Term {
     }
 }
 
-/// The rows of one type, each `{ row, score }`.
 /// Whether the workspace has WeldCommerce installed (an active
 /// `workspace_installed_apps` row), as `listMemberAppCodes` reads it.
-async fn commerce_installed(db: &PgPool) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists(select 1 from workspace_installed_apps
-          where app_code = 'weldcommerce' and is_active and deleted_at is null)",
-    )
-    .fetch_one(db)
-    .await
+async fn commerce_installed(db: &PgPool) -> Result<bool, DbErr> {
+    use workspace_installed_apps::Column as C;
+    let found: Option<String> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .column(C::AppCode)
+        .filter(C::AppCode.eq("weldcommerce"))
+        .filter(C::IsActive.eq(true))
+        .filter(C::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
 }
 
+/// The rows of one type, each `{ row, score }`.
 async fn search_rows(
     db: &PgPool,
     kind: SearchType,
     q: &str,
     limit: usize,
     who: &mut Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let lower = q.to_lowercase();
     let term = Term {
         prefix: format!("{lower}%"),
@@ -1057,84 +1152,42 @@ async fn search_rows(
         lower,
         limit: i64::try_from(limit + 1).unwrap_or(i64::MAX),
     };
-    let sql = match kind {
-        SearchType::Contact => CONTACTS,
-        SearchType::Customer => CUSTOMERS,
-        SearchType::Lead => LEADS,
-        SearchType::Opportunity => OPPORTUNITIES,
-        SearchType::Ticket => TICKETS,
-        SearchType::Article => ARTICLES,
-        SearchType::KnowledgePage => KNOWLEDGE_PAGES,
-        SearchType::Product => PRODUCTS,
-        SearchType::Order => ORDERS,
-        SearchType::Invoice => INVOICES,
-        SearchType::Bill => BILLS,
-        SearchType::Project => PROJECTS,
-        SearchType::Domain => DOMAINS,
-        SearchType::Task => return search_tasks(db, q, &term).await,
-        SearchType::MergeIssue | SearchType::MergePullRequest => {
-            return search_merge(db, kind, q, &term).await;
-        }
-        SearchType::Sheet => return search_files(db, FileKind::Sheet, q, limit, who).await,
-        SearchType::Board => return search_files(db, FileKind::Board, q, limit, who).await,
-        SearchType::Document => return search_files(db, FileKind::Document, q, limit, who).await,
-        SearchType::DriveFile => return search_files(db, FileKind::File, q, limit, who).await,
-        SearchType::Warehouse => return fetch(db, WAREHOUSES, &escaped_term(q, limit)).await,
-        SearchType::Workflow => return fetch(db, WORKFLOWS, &escaped_term(q, limit)).await,
-        SearchType::ReachCampaign => {
-            return fetch(db, REACH_CAMPAIGNS, &escaped_term(q, limit)).await;
-        }
-        SearchType::DataList => return fetch(db, DATA_LISTS, &escaped_term(q, limit)).await,
-        SearchType::PanelProject => {
-            return fetch(db, PANEL_PROJECTS, &escaped_term(q, limit)).await;
-        }
+    match kind {
+        SearchType::Contact => search_contacts(db, &term).await,
+        SearchType::Customer => search_customers(db, &term).await,
+        SearchType::Lead => search_leads(db, &term).await,
+        SearchType::Opportunity => search_opportunities(db, &term).await,
+        SearchType::Ticket => search_tickets(db, &term).await,
+        SearchType::Article => search_articles(db, &term).await,
+        SearchType::KnowledgePage => search_knowledge_pages(db, &term).await,
+        SearchType::Product => search_products(db, &term).await,
+        SearchType::Order => search_orders(db, &term).await,
+        SearchType::Invoice => search_invoices(db, &term).await,
+        SearchType::Bill => search_bills(db, &term).await,
+        SearchType::Project => search_projects(db, &term).await,
+        SearchType::Domain => search_domains(db, &term).await,
+        SearchType::Task => search_tasks(db, q, &term).await,
+        SearchType::MergeIssue => search_merge_issues(db, q, &term).await,
+        SearchType::MergePullRequest => search_merge_pull_requests(db, q, &term).await,
+        SearchType::Sheet => search_files(db, FileKind::Sheet, q, limit, who).await,
+        SearchType::Board => search_files(db, FileKind::Board, q, limit, who).await,
+        SearchType::Document => search_files(db, FileKind::Document, q, limit, who).await,
+        SearchType::DriveFile => search_files(db, FileKind::File, q, limit, who).await,
+        SearchType::Warehouse => search_warehouses(db, &escaped_term(q, limit)).await,
+        SearchType::Workflow => search_workflows(db, &escaped_term(q, limit)).await,
+        SearchType::ReachCampaign => search_reach_campaigns(db, &escaped_term(q, limit)).await,
+        SearchType::DataList => search_data_lists(db, &escaped_term(q, limit)).await,
+        SearchType::PanelProject => search_panel_projects(db, &escaped_term(q, limit)).await,
         SearchType::Conversation => {
             // The number a query names ("#42"), as for pull requests.
-            return fetch_with(
-                db,
-                CONVERSATIONS,
-                &escaped_term(q, limit),
-                vec![Arg::Int(pull_request_number(q))],
-            )
-            .await;
+            search_conversations(db, &escaped_term(q, limit), pull_request_number(q)).await
         }
-        SearchType::Form => return search_forms(db, q, limit, who).await,
-        SearchType::Meeting => return search_meetings(db, q, limit, who).await,
-        SearchType::SignEnvelope => return search_sign_envelopes(db, q, limit, who).await,
-        SearchType::ChatChannel => return search_chat_channels(db, q, limit, who).await,
-        SearchType::Agent => return search_agents(db, q, limit, who).await,
-    };
-    let rows = fetch(db, sql, &term).await?;
-    Ok(rows)
-}
-
-/// An extra bind, `$5` on.
-enum Arg {
-    Bool(bool),
-    Text(Option<String>),
-    Int(Option<i32>),
-}
-
-/// [`fetch`] with more binds.
-async fn fetch_with(
-    db: &PgPool,
-    sql: &'static str,
-    term: &Term,
-    more: Vec<Arg>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let mut query = sqlx::query_scalar(sql)
-        .bind(&term.lower)
-        .bind(&term.prefix)
-        .bind(&term.contains)
-        .bind(term.limit);
-    for arg in more {
-        query = match arg {
-            Arg::Bool(value) => query.bind(value),
-            Arg::Text(value) => query.bind(value),
-            Arg::Int(value) => query.bind(value),
-        };
+        SearchType::Form => search_forms(db, q, limit, who).await,
+        SearchType::Meeting => search_meetings(db, q, limit, who).await,
+        SearchType::SignEnvelope => search_sign_envelopes(db, q, limit, who).await,
+        SearchType::ChatChannel => search_chat_channels(db, q, limit, who).await,
+        SearchType::Agent => search_agents(db, q, limit, who).await,
     }
-    query.fetch_all(db).await
 }
 
 /// Forms by title (`searchForms`): `forms:manage` sees every form, anyone else
@@ -1144,18 +1197,37 @@ async fn search_forms(
     q: &str,
     limit: usize,
     who: &Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use forms::Column as C;
     let Some(user) = who.user_id else {
         return Ok(Vec::new());
     };
-    let manage = (who.can)("forms:manage");
-    fetch_with(
-        db,
-        FORMS,
-        &escaped_term(q, limit),
-        vec![Arg::Bool(manage), Arg::Text(Some(user.to_owned()))],
-    )
-    .await
+    let term = escaped_term(q, limit);
+    let columns = [(col(C::Title), Scored::Text)];
+    let mut rows = forms::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Status, "status")
+        .filter(any_like(&columns, &term.contains));
+    if !(who.can)("forms:manage") {
+        rows = rows.filter(
+            Condition::any()
+                .add(C::Access.eq("workspace"))
+                .add(C::OwnerUserId.eq(user))
+                .add(
+                    C::Id.in_subquery(
+                        Query::select()
+                            .column(form_access::Column::FormId)
+                            .from(form_access::Entity)
+                            .and_where(form_access::Column::UserId.eq(user))
+                            .to_owned(),
+                    ),
+                ),
+        );
+    }
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, &term), then, term.limit).await
 }
 
 /// Meetings by title (`searchMeetings`): the organiser's own, unless the caller
@@ -1165,19 +1237,26 @@ async fn search_meetings(
     q: &str,
     limit: usize,
     who: &Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use meetings::Column as C;
     let all = (who.can)("weldmeet:meetings:scope:all");
     if who.user_id.is_none() && !all {
         return Ok(Vec::new());
     }
-    let user = who.user_id.map(str::to_owned);
-    fetch_with(
-        db,
-        MEETINGS,
-        &escaped_term(q, limit),
-        vec![Arg::Bool(all), Arg::Text(user)],
-    )
-    .await
+    let term = escaped_term(q, limit);
+    let columns = [(col(C::Title), Scored::Text)];
+    let mut rows = meetings::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    if !all {
+        rows = rows.filter(C::OrganizerId.eq(who.user_id));
+    }
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, &term), then, term.limit).await
 }
 
 /// Signature requests by title (`searchSignEnvelopes`): the sender's own and
@@ -1188,74 +1267,145 @@ async fn search_sign_envelopes(
     q: &str,
     limit: usize,
     who: &Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use sign_envelopes::Column as C;
     let manage = (who.can)("sign_envelopes:manage");
     if who.user_id.is_none() && !manage {
         return Ok(Vec::new());
     }
     let mut email: Option<String> = None;
     if let (false, Some(user)) = (manage, who.user_id) {
-        let member: Option<Option<String>> = sqlx::query_scalar(
-            "select email from workspace_members where user_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(user)
-        .fetch_optional(db)
-        .await?;
+        let member: Option<Option<String>> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Email)
+            .filter(workspace_members::Column::UserId.eq(user))
+            .filter(workspace_members::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         email = member.flatten().map(|email| email.to_lowercase());
     }
-    let user = who.user_id.map(str::to_owned);
-    fetch_with(
-        db,
-        SIGN_ENVELOPES,
-        &escaped_term(q, limit),
-        vec![Arg::Bool(manage), Arg::Text(user), Arg::Text(email)],
-    )
-    .await
+    let term = escaped_term(q, limit);
+    let columns = [(col(C::Title), Scored::Text)];
+    let mut rows = sign_envelopes::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Status, "status")
+        .filter(C::Kind.eq("envelope"))
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    if !manage {
+        let mut theirs = Condition::any().add(C::SenderUserId.eq(who.user_id));
+        if let Some(email) = email {
+            theirs = theirs.add(
+                Condition::all().add(C::Status.ne("draft")).add(
+                    C::Id.in_subquery(
+                        Query::select()
+                            .column(sign_recipients::Column::EnvelopeId)
+                            .from(sign_recipients::Entity)
+                            .and_where(sign_recipients::Column::Email.eq(email))
+                            .to_owned(),
+                    ),
+                ),
+            );
+        }
+        rows = rows.filter(theirs);
+    }
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, &term), then, term.limit).await
 }
 
 /// Channels by name (`searchChatChannels`): public ones and the private ones
-/// the caller has joined.
+/// the caller has joined. Direct messages and record channels are no channels
+/// here.
 async fn search_chat_channels(
     db: &PgPool,
     q: &str,
     limit: usize,
     who: &Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use chat_channels::Column as C;
     let Some(user) = who.user_id else {
         return Ok(Vec::new());
     };
-    fetch_with(
-        db,
-        CHAT_CHANNELS,
-        &escaped_term(q, limit),
-        vec![Arg::Text(Some(user.to_owned()))],
-    )
-    .await
+    let term = escaped_term(q, limit);
+    let columns = [(col(C::Name), Scored::Text)];
+    let joined = C::Id.in_subquery(
+        Query::select()
+            .column(chat_channel_members::Column::ChannelId)
+            .from(chat_channel_members::Entity)
+            .and_where(chat_channel_members::Column::UserId.eq(user))
+            .to_owned(),
+    );
+    let rows = chat_channels::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Topic, "topic")
+        .column_as(C::Description, "description")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains))
+        .filter(
+            Condition::any().add(C::Type.eq("public")).add(
+                Condition::all()
+                    .add(C::Type.eq("private"))
+                    .add(joined),
+            ),
+        );
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, &term), then, term.limit).await
 }
 
-/// Agents by name (`searchAgents`): `agentVisibleTo` for the caller.
+/// Agents by name (`searchAgents`): `agentVisibleTo` for the caller (their
+/// own, the workspace's, and the `members` agents they are listed on).
 async fn search_agents(
     db: &PgPool,
     q: &str,
     limit: usize,
     who: &Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use weldagent_agents::Column as C;
     let manage = (who.can)("weldagent:manage");
     if who.user_id.is_none() && !manage {
         return Ok(Vec::new());
     }
-    let user = who.user_id.unwrap_or_default().to_owned();
-    fetch_with(
-        db,
-        AGENTS,
-        &escaped_term(q, limit),
-        vec![Arg::Bool(manage), Arg::Text(Some(user))],
-    )
-    .await
+    let user = who.user_id.unwrap_or_default();
+    let term = escaped_term(q, limit);
+    let columns = [(col(C::Name), Scored::Text)];
+    let mut rows = weldagent_agents::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Name, "name")
+        .column_as(C::Description, "description")
+        .filter(C::DeletedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    if !manage {
+        let listed = C::Id.in_subquery(
+            Query::select()
+                .column(weldagent_agent_members::Column::AgentId)
+                .from(weldagent_agent_members::Entity)
+                .and_where(weldagent_agent_members::Column::UserId.eq(user))
+                .to_owned(),
+        );
+        rows = rows.filter(
+            Condition::any()
+                .add(C::OwnerId.eq(user))
+                .add(C::Visibility.eq("workspace"))
+                .add(
+                    Condition::all()
+                        .add(C::Visibility.eq("members"))
+                        .add(listed),
+                ),
+        );
+    }
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, &term), then, term.limit).await
 }
 
-/// Tasks also match by number: "TASK-1042", "#1042" or "1042".
-async fn search_tasks(db: &PgPool, q: &str, term: &Term) -> Result<Vec<Value>, sqlx::Error> {
+/// Tasks by title or key, and by number: "TASK-1042", "#1042" or "1042".
+async fn search_tasks(db: &PgPool, q: &str, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use tasks::Column as C;
     let reference = q.trim();
     let reference = reference.strip_prefix('#').unwrap_or(reference);
     let reference = if reference.len() >= 5 && reference[..5].eq_ignore_ascii_case("task-") {
@@ -1266,40 +1416,94 @@ async fn search_tasks(db: &PgPool, q: &str, term: &Term) -> Result<Vec<Value>, s
     let number = (!reference.is_empty() && reference.bytes().all(|b| b.is_ascii_digit()))
         .then(|| reference.parse::<i64>().ok())
         .flatten();
-    sqlx::query_scalar(TASKS)
-        .bind(&term.lower)
-        .bind(&term.prefix)
-        .bind(&term.contains)
-        .bind(term.limit)
-        .bind(number)
-        .fetch_all(db)
-        .await
+    let columns = [(col(C::Title), Scored::Text), (col(C::Key), Scored::Text)];
+    let mut matching = any_like(&columns, &term.contains);
+    if let Some(number) = number {
+        matching = matching.add(C::Number.eq(number));
+    }
+    let rows = tasks::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Key, "key")
+        .column_as(C::Number, "number")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(matching);
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
 
-/// WeldMerge issues and pull requests (`searchMergeIssues`,
-/// `searchMergePullRequests`): the `WHERE` matches the escaped term, the
-/// score the raw one, as in TypeScript.
-async fn search_merge(
+/// WeldMerge issues by title or key (`PLAT-209`, or a part of it)
+/// (`searchMergeIssues`): the `WHERE` matches the escaped term, the score
+/// the raw one, as in TypeScript.
+async fn search_merge_issues(db: &PgPool, q: &str, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use merge_issues::Column as C;
+    use merge_teams::Column as T;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let contains = format!("%{}%", escape_like(&q.to_lowercase()));
+    // `t.key || '-' || i.number::text`
+    let key = || {
+        PgExpr::concat(
+            PgExpr::concat(col(T::Key), Expr::val("-")),
+            Func::cast_as(col(C::Number), "text"),
+        )
+    };
+    let columns = [(col(C::Title), Scored::Text), (key(), Scored::Text)];
+    let rows = merge_issues::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .expr_as(key(), "key")
+        .column_as(C::Status, "status")
+        .join(
+            JoinType::InnerJoin,
+            merge_issues::Entity::belongs_to(merge_teams::Entity)
+                .from(C::TeamId)
+                .to(T::Id)
+                .into(),
+        )
+        .filter(C::DeletedAt.is_null())
+        .filter(T::DeletedAt.is_null())
+        .filter(any_like(&columns, &contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// WeldMerge pull requests of repositories still connected, by title, branch
+/// or number (`#123`, `123`) (`searchMergePullRequests`): the `WHERE`
+/// matches the escaped term, the score the raw one, as in TypeScript.
+async fn search_merge_pull_requests(
     db: &PgPool,
-    kind: SearchType,
     q: &str,
     term: &Term,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use merge_pull_requests::Column as C;
+    use merge_repositories::Column as R;
     let contains = format!("%{}%", escape_like(&q.to_lowercase()));
-    let query = sqlx::query_scalar(if kind == SearchType::MergeIssue {
-        MERGE_ISSUES
-    } else {
-        MERGE_PULL_REQUESTS
-    })
-    .bind(&term.lower)
-    .bind(&term.prefix)
-    .bind(&term.contains)
-    .bind(term.limit)
-    .bind(&contains);
-    if kind == SearchType::MergeIssue {
-        return query.fetch_all(db).await;
+    let columns = [(col(C::Title), Scored::Text), (col(C::HeadRef), Scored::Text)];
+    let mut matching = any_like(&columns, &contains);
+    if let Some(number) = pull_request_number(q) {
+        matching = matching.add(C::Number.eq(number));
     }
-    query.bind(pull_request_number(q)).fetch_all(db).await
+    let rows = merge_pull_requests::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::Title, "title")
+        .column_as(C::Number, "number")
+        .column_as(C::State, "state")
+        .column_as(R::FullName, "repository")
+        .join(
+            JoinType::InnerJoin,
+            merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+                .from(C::RepositoryId)
+                .to(R::Id)
+                .into(),
+        )
+        .filter(R::DeletedAt.is_null())
+        .filter(matching);
+    let then = [col(C::ProviderUpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
 
 /// `/^#?(\d{1,9})$/.exec(q.trim())`: the number a query names.
@@ -1333,46 +1537,84 @@ enum FileKind {
     File,
 }
 
-impl FileKind {
-    /// The rows, with the file as `f` (and the record as `s`, but for files).
-    fn source(self) -> &'static str {
-        match self {
-            Self::Sheet => "sheets s join files f on f.id = s.file_id",
-            Self::Board => "whiteboards s join files f on f.id = s.file_id",
-            Self::Document => "docs s join files f on f.id = s.file_id",
-            Self::File => "files f",
-        }
-    }
+/// A kind's rows on their Drive file (the record joined with `files`, or the
+/// files themselves): the id a result carries and when the record last
+/// changed.
+struct FileRows<E: EntityTrait> {
+    rows: Select<E>,
+    id: Expr,
+    changed: Expr,
+}
 
-    /// The id a result carries.
-    fn id(self) -> &'static str {
-        match self {
-            Self::File => "f.id",
-            _ => "s.id",
-        }
+/// A record kind (`sheets`, `whiteboards`, `docs`) joined with its file:
+/// the record's id, and `greatest(s.updated_at, f.updated_at)`.
+fn record_files<E: EntityTrait>(
+    id: E::Column,
+    file_id: E::Column,
+    updated_at: E::Column,
+) -> FileRows<E> {
+    FileRows {
+        rows: E::find().select_only().join(
+            JoinType::InnerJoin,
+            E::belongs_to(files::Entity)
+                .from(file_id)
+                .to(files::Column::Id)
+                .into(),
+        ),
+        id: col(id),
+        changed: Func::greatest([col(updated_at), col(files::Column::UpdatedAt)]).into(),
     }
+}
 
-    /// When the record last changed.
-    fn changed(self) -> &'static str {
-        match self {
-            Self::File => "f.updated_at",
-            _ => "greatest(s.updated_at, f.updated_at)",
-        }
+/// `visibleFilesCondition`: a project's file, the caller's own, one shared
+/// with them, one in a folder that grants them a role, or one open to the
+/// workspace outside any folder or in an open one.
+fn visible_condition(visible: &VisibleFiles) -> Condition {
+    let mut any = Condition::any().add(files::Column::EntityType.is_not_null());
+    if let Some(user_id) = &visible.user_id {
+        any = any.add(files::Column::UploadedById.eq(user_id));
     }
+    // `= any('{}')` matches nothing: an empty list adds no way in.
+    if !visible.file_share_ids.is_empty() {
+        any = any.add(files::Column::Id.is_in(&visible.file_share_ids));
+    }
+    if !visible.granted_folder_ids.is_empty() {
+        any = any.add(files::Column::FolderId.is_in(&visible.granted_folder_ids));
+    }
+    let mut folder = Condition::any().add(files::Column::FolderId.is_null());
+    if !visible.open_folder_ids.is_empty() {
+        folder = folder.add(files::Column::FolderId.is_in(&visible.open_folder_ids));
+    }
+    any.add(
+        Condition::all()
+            .add(files::Column::GeneralAccess.ne("restricted"))
+            .add(folder),
+    )
+}
 
-    /// What else makes a row one of this kind: a document has a checkpoint
-    /// (older ones of WeldFlow do not), a file is none of the record kinds.
-    fn only(self) -> &'static str {
-        match self {
-            Self::Document => " and s.snapshot_key is not null",
-            Self::File => {
-                " and not exists (select 1 from docs d where d.file_id = f.id)
-                  and not exists (select 1 from sheets d where d.file_id = f.id)
-                  and not exists (select 1 from whiteboards d where d.file_id = f.id)"
-            }
-            _ => "",
-        }
-    }
+/// A file none of the record kinds stands on:
+/// `not exists (select 1 from docs d where d.file_id = f.id)`, and for
+/// sheets and boards (`file_id` is never null in any of them).
+fn no_record() -> Condition {
+    Condition::all()
+        .add(files::Column::Id.not_in_subquery(
+            Query::select()
+                .column(docs::Column::FileId)
+                .from(docs::Entity)
+                .to_owned(),
+        ))
+        .add(files::Column::Id.not_in_subquery(
+            Query::select()
+                .column(sheets::Column::FileId)
+                .from(sheets::Entity)
+                .to_owned(),
+        ))
+        .add(files::Column::Id.not_in_subquery(
+            Query::select()
+                .column(whiteboards::Column::FileId)
+                .from(whiteboards::Entity)
+                .to_owned(),
+        ))
 }
 
 /// Spreadsheets, boards, documents or files, by the name of their Drive file,
@@ -1384,66 +1626,78 @@ async fn search_files(
     q: &str,
     limit: usize,
     who: &mut Searcher<'_>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if who.user_id.is_none() {
         return Ok(Vec::new());
     }
-    let (from, id, only) = (kind.source(), kind.id(), kind.only());
-    let term = q.to_lowercase();
-    let escaped = escape_like(&term);
-    let contains = format!("%{escaped}%");
-    let starts_with = format!("{escaped}%");
+    let term = escaped_term(q, limit);
+    match kind {
+        FileKind::Sheet => {
+            use sheets::Column as C;
+            let rows = record_files::<sheets::Entity>(C::Id, C::FileId, C::UpdatedAt);
+            search_file_rows(db, rows, Condition::all(), &term, who).await
+        }
+        FileKind::Board => {
+            use whiteboards::Column as C;
+            let rows = record_files::<whiteboards::Entity>(C::Id, C::FileId, C::UpdatedAt);
+            search_file_rows(db, rows, Condition::all(), &term, who).await
+        }
+        FileKind::Document => {
+            use docs::Column as C;
+            let rows = record_files::<docs::Entity>(C::Id, C::FileId, C::UpdatedAt);
+            // A document has a checkpoint (older ones of WeldFlow do not).
+            let only = Condition::all().add(C::SnapshotKey.is_not_null());
+            search_file_rows(db, rows, only, &term, who).await
+        }
+        FileKind::File => {
+            let rows = FileRows {
+                rows: files::Entity::find().select_only(),
+                id: col(files::Column::Id),
+                changed: col(files::Column::UpdatedAt),
+            };
+            search_file_rows(db, rows, no_record(), &term, who).await
+        }
+    }
+}
+
+/// [`search_files`] on one kind's rows; `only` is what else makes a row one
+/// of the kind.
+async fn search_file_rows<E: EntityTrait>(
+    db: &PgPool,
+    source: FileRows<E>,
+    only: Condition,
+    term: &Term,
+    who: &mut Searcher<'_>,
+) -> Result<Vec<Value>, DbErr> {
+    let name = || col(files::Column::FileName);
+    let matching = Condition::all()
+        .add(files::Column::DeletedAt.is_null())
+        .add(files::Column::EntityType.is_null())
+        .add(only)
+        .add(like(name(), &term.contains));
     // Most keystrokes match nothing: skip the access rules until a row does.
-    // The tables come from the closed `FileKind` set, never from input.
-    let candidate: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {id} from {from}
-         where f.deleted_at is null and f.entity_type is null{only}
-           and lower(f.file_name) like $1
-         limit 1"
-    )))
-    .bind(&contains)
-    .fetch_optional(db)
-    .await?;
+    let candidate: Option<String> = source
+        .rows
+        .clone()
+        .expr_as(source.id.clone(), "id")
+        .filter(matching.clone())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if candidate.is_none() {
         return Ok(Vec::new());
     }
-    // `visibleFilesCondition` on `files f`, bound as `$4` (admin) … `$8` (open folders).
-    let visible = who.visible_files(db).await?;
-    let admin = visible.is_none();
-    let visible = visible.unwrap_or_default();
-    let changed = kind.changed();
-    let limit = i64::try_from(limit + 1).unwrap_or(i64::MAX);
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select jsonb_build_object(
-                'row', jsonb_build_object('id', {id}, 'name', f.file_name),
-                'score', case when lower(f.file_name) = $1 then 1.0
-                              when lower(f.file_name) like $2 then 0.9
-                              when lower(f.file_name) like $3 then 0.6 else 0 end)
-         from {from}
-         where f.deleted_at is null and f.entity_type is null{only}
-           and lower(f.file_name) like $3
-           and ($4::bool or f.entity_type is not null
-             or ($5::text is not null and f.uploaded_by_id = $5)
-             or f.id = any($6::text[]) or f.folder_id = any($7::text[])
-             or (f.general_access <> 'restricted'
-                 and (f.folder_id is null or f.folder_id = any($8::text[]))))
-         order by case when lower(f.file_name) = $1 then 1.0
-                       when lower(f.file_name) like $2 then 0.9
-                       when lower(f.file_name) like $3 then 0.6 else 0 end desc,
-                  {changed} desc, {id} desc
-         limit $9"
-    )))
-    .bind(&term)
-    .bind(&starts_with)
-    .bind(&contains)
-    .bind(admin)
-    .bind(&visible.user_id)
-    .bind(&visible.file_share_ids)
-    .bind(&visible.granted_folder_ids)
-    .bind(&visible.open_folder_ids)
-    .bind(limit)
-    .fetch_all(db)
-    .await
+    let mut filter = matching;
+    if let Some(visible) = who.visible_files(db).await? {
+        filter = filter.add(visible_condition(&visible));
+    }
+    let rows = source
+        .rows
+        .expr_as(source.id.clone(), "id")
+        .column_as(files::Column::FileName, "name")
+        .filter(filter);
+    let score = score(&name(), Scored::Text, term);
+    ranked(db, rows, score, [source.changed, source.id], term.limit).await
 }
 
 // ── The route ──────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ use weldsuite_catalogs::permission_keys::{
 use weldsuite_core_domain::drive_access::{
     DriveFile, can_edit, container_role, file_role, get_file, load_drive_access_for_user,
 };
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_schema::tenant::{companies, crm_opportunities, folders, people, person_companies};
 
@@ -60,12 +60,10 @@ pub(crate) async fn visible_drive_file(
     user_id: &str,
     file_id: &str,
 ) -> SignResult<Option<DriveFile>> {
-    let Some(file) = get_file(db, file_id).await.map_err(orm_error)? else {
+    let Some(file) = get_file(db, file_id).await? else {
         return Ok(None);
     };
-    let access = load_drive_access_for_user(db, Some(user_id))
-        .await
-        .map_err(orm_error)?;
+    let access = load_drive_access_for_user(db, Some(user_id)).await?;
     Ok(file_role(&access, &file.r#ref).is_some().then_some(file))
 }
 
@@ -82,9 +80,7 @@ pub(crate) async fn can_file_into(db: &PgPool, user_id: &str, folder_id: &str) -
     if folder.is_none() {
         return Ok(false);
     }
-    let access = load_drive_access_for_user(db, Some(user_id))
-        .await
-        .map_err(orm_error)?;
+    let access = load_drive_access_for_user(db, Some(user_id)).await?;
     Ok(can_edit(container_role(&access, Some(folder_id))))
 }
 
@@ -115,10 +111,7 @@ pub(crate) async fn source_name(
     entity_id: &str,
 ) -> SignResult<Option<String>> {
     match entity_type {
-        "file" => Ok(get_file(db, entity_id)
-            .await
-            .map_err(orm_error)?
-            .map(|f| f.file_name)),
+        "file" => Ok(get_file(db, entity_id).await?.map(|f| f.file_name)),
         "company" => {
             use companies::Column;
             name_of::<companies::Entity>(db, Column::Name, Column::Id, Column::DeletedAt, entity_id)

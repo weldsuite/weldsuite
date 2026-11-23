@@ -685,7 +685,7 @@ pub async fn apply_approved_change(
         db,
         change_id,
         now_ms,
-        write_approved_change(db, change_id, actor_id, now_ms),
+        Box::pin(write_approved_change(db, change_id, actor_id, now_ms)),
     )
     .await
 }
@@ -753,8 +753,8 @@ struct ApprovalWrites<'a> {
     now: OffsetDateTime,
 }
 
-/// [`ApprovalWrites`] on one transaction.
-async fn write_approval(tx: &impl ConnectionTrait, w: ApprovalWrites<'_>) -> Result<(), DbErr> {
+/// The milestones and deliverables the change moves, and those it removes.
+async fn write_plan_moves(tx: &impl ConnectionTrait, w: &ApprovalWrites<'_>) -> Result<(), DbErr> {
     let now = w.now;
     let wall = weldsuite_db::utc_timestamp(now);
     for (id, to) in w.milestone_moves {
@@ -812,6 +812,14 @@ async fn write_approval(tx: &impl ConnectionTrait, w: ApprovalWrites<'_>) -> Res
             .exec(tx)
             .await?;
     }
+    Ok(())
+}
+
+/// [`ApprovalWrites`] on one transaction, in this order.
+async fn write_approval(tx: &impl ConnectionTrait, w: ApprovalWrites<'_>) -> Result<(), DbErr> {
+    let now = w.now;
+    let wall = weldsuite_db::utc_timestamp(now);
+    write_plan_moves(tx, &w).await?;
     for deliverable in w.added {
         project_deliverables::Entity::insert(deliverable)
             .exec_without_returning(tx)
@@ -1129,7 +1137,7 @@ pub async fn record_rejected_change(
         db,
         change_id,
         now_ms,
-        write_rejected_change(db, change_id, actor_id, rows, now_ms),
+        Box::pin(write_rejected_change(db, change_id, actor_id, rows, now_ms)),
     )
     .await
 }

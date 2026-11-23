@@ -196,6 +196,7 @@ async fn insert_task(
     user_id: &str,
     fixed_id: Option<&str>,
 ) -> Result<Option<CreatedTask>, CreateError> {
+    use tasks::Column as C;
     let project_id = project_id
         .map(str::to_owned)
         .or_else(|| text(data, "projectId").map(str::to_owned));
@@ -245,7 +246,6 @@ async fn insert_task(
         .filter(|r| !r.is_empty())
         .unwrap_or(user_id);
 
-    use tasks::Column as C;
     let mut insert = Query::insert();
     insert
         .into_table(tasks::Entity)
@@ -411,13 +411,47 @@ pub async fn create_next_occurrence(
     let stage_id = stage_for_status(db, project_id, None, "todo").await?;
     let id = generate_id("task");
     let now = timestamp_of_millis(now_ms).ok_or(CreateError::InvalidDate)?;
+    let insert = occurrence_insert(
+        source,
+        repeat,
+        &Occurrence {
+            id: &id,
+            number,
+            stage_id: stage_id.as_deref(),
+            next_start: next_start.as_deref(),
+            next_due: &next_due,
+            position,
+            now,
+        },
+    )?;
+    run_insert(&orm(db), &insert).await?;
+    Ok(read_back(db, &id).await?)
+}
+
+/// The copy [`create_next_occurrence`] writes, beside its source's columns.
+struct Occurrence<'a> {
+    id: &'a str,
+    number: i64,
+    stage_id: Option<&'a str>,
+    next_start: Option<&'a str>,
+    next_due: &'a str,
+    position: i32,
+    now: time::PrimitiveDateTime,
+}
+
+/// The next occurrence's insert: the source's columns, `todo`, the new dates.
+fn occurrence_insert(
+    source: &Map<String, Value>,
+    repeat: &Value,
+    o: &Occurrence<'_>,
+) -> Result<sea_orm::sea_query::InsertStatement, DbErr> {
+    use tasks::Column as C;
     let or_default = |key: &str, fallback: &str| {
         text(source, key)
             .filter(|v| !v.is_empty())
             .unwrap_or(fallback)
             .to_owned()
     };
-    use tasks::Column as C;
     let mut insert = Query::insert();
     insert
         .into_table(tasks::Entity)
@@ -456,10 +490,10 @@ pub async fn create_next_occurrence(
             C::UpdatedAt,
         ])
         .values([
-            Expr::val(&id),
-            Expr::val(number),
+            Expr::val(o.id),
+            Expr::val(o.number),
             Expr::val(text(source, "projectId")),
-            Expr::val(stage_id),
+            Expr::val(o.stage_id),
             Expr::val(text(source, "sprintId")),
             Expr::val(text(source, "milestoneId")),
             Expr::val(text(source, "parentTaskId")),
@@ -474,8 +508,8 @@ pub async fn create_next_occurrence(
             Expr::val(text(source, "assigneeId")),
             Expr::val(json_column(source, "assigneeIds")),
             Expr::val(text(source, "reporterId")),
-            timestamp_text(next_start.as_deref()),
-            timestamp_text(Some(&next_due)),
+            timestamp_text(o.next_start),
+            timestamp_text(Some(o.next_due)),
             json_cast(&nullable(source, "estimatedHours"), "numeric"),
             json_cast(&nullable(source, "duration"), "int"),
             json_cast(&nullable(source, "storyPoints"), "int"),
@@ -489,12 +523,11 @@ pub async fn create_next_occurrence(
             ),
             Expr::val(whole(repeat.clone())),
             Expr::val(json_column(source, "customFields")),
-            Expr::val(position),
+            Expr::val(o.position),
             zero_progress(),
-            Expr::val(now),
-            Expr::val(now),
+            Expr::val(o.now),
+            Expr::val(o.now),
         ])
         .map_err(|error| DbErr::Custom(error.to_string()))?;
-    run_insert(&orm(db), &insert).await?;
-    Ok(read_back(db, &id).await?)
+    Ok(insert)
 }

@@ -13,7 +13,7 @@
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QuerySelect, TryInsertResult,
+    QuerySelect, RuntimeErr, TryInsertResult,
 };
 use serde_json::Value;
 use time::{Month, OffsetDateTime};
@@ -33,6 +33,12 @@ impl std::fmt::Display for CreditsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Invalid(message) => f.write_str(message),
+            // The statement's own error, as sqlx wrote it.
+            Self::Database(
+                DbErr::Conn(RuntimeErr::SqlxError(error))
+                | DbErr::Exec(RuntimeErr::SqlxError(error))
+                | DbErr::Query(RuntimeErr::SqlxError(error)),
+            ) => error.fmt(f),
             Self::Database(error) => error.fmt(f),
         }
     }

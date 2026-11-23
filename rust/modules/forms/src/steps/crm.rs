@@ -37,7 +37,7 @@ use weldsuite_schema::tenant::{
     person_companies,
 };
 
-use crate::common::{Fail, FormsResult, js_slice, row_json, text};
+use crate::common::{Fail, FormsResult, db_error_text, js_slice, row_json, text};
 use crate::creator_access::{CreatorAccess, CreatorForbidden, load_creator_access};
 use crate::integration_config::{CrmConfig, crm_config};
 use crate::integration_support::{
@@ -813,7 +813,7 @@ async fn create_lead_for(
         .await
         .map_err(|error| match error {
             cfv::ValuesError::Invalid(message) => StepFail::Error(message),
-            cfv::ValuesError::Database(error) => StepFail::Error(error.to_string()),
+            cfv::ValuesError::Database(error) => StepFail::Error(db_error_text(&error)),
         })?;
     }
     emit_record_event(

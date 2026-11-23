@@ -13,6 +13,7 @@ use weldsuite_legal_entities::{
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::http::Caller;
+use crate::orm_bridge::sqlx_error;
 
 /// `legalEntityContext({ app: 'weldbooks', scoped: true })`'s options, as
 /// books-api mounts it on `/api/*` (`src/index.ts`): only entities WeldBooks
@@ -129,6 +130,7 @@ pub async fn entity_access(caller: &Caller) -> Result<Arc<EntityAccess>, sqlx::E
             )
             .await
             .map(Arc::new)
+            .map_err(sqlx_error)
         })
         .await
         .cloned()
@@ -174,7 +176,9 @@ pub async fn records_in_entity(
         return Ok(true);
     }
     let request = request_entity(caller).await?;
-    weldsuite_legal_entities::records_in_entity(&caller.db, &request, table, ids).await
+    weldsuite_legal_entities::records_in_entity(&caller.db, &request, table, ids)
+        .await
+        .map_err(sqlx_error)
 }
 
 /// `entityExists(db, id)`: an accounting entity of this workspace that isn't

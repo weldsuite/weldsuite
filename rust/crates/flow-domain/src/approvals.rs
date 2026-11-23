@@ -885,14 +885,9 @@ pub async fn request_approvals(
             ..Default::default()
         });
     }
-    // `approval_request_error` refused an empty list already.
-    let inserted = if models.is_empty() {
-        Vec::new()
-    } else {
-        flow_approvals::Entity::insert_many(models)
-            .exec_with_returning_many(&orm(db))
-            .await?
-    };
+    let inserted = flow_approvals::Entity::insert_many(models)
+        .exec_with_returning(&orm(db))
+        .await?;
     let mut rows = approval_rows(inserted);
     rows.sort_by_key(|row| row.step);
     Ok(RequestApprovalsResult::Requested(rows))
@@ -1295,6 +1290,10 @@ mod tests {
 
     fn at(iso: &str) -> i64 {
         millis_of(iso).expect("a timestamp")
+    }
+
+    fn iso(millis: i64) -> String {
+        iso_from_millis(millis).unwrap_or_default()
     }
 
     fn now() -> i64 {

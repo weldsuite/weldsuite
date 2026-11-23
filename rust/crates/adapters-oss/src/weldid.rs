@@ -1511,12 +1511,17 @@ async fn insert_invitation(
         .invited_by
         .as_deref()
         .or(new.invitation.inviter_user_id.as_deref());
-    // `(select id from users where id = $7)`.
-    let known_inviter = Query::select()
-        .column(users::Column::Id)
-        .from(users::Entity)
-        .and_where(users::Column::Id.eq(inviter.map(str::to_owned)))
-        .to_owned();
+    // `(select id from users where id = $7)`: null for a user WeldSuite
+    // doesn't know, or none.
+    let known_inviter = match inviter {
+        Some(inviter) => Query::select()
+            .column(users::Column::Id)
+            .from(users::Entity)
+            .and_where(users::Column::Id.eq(inviter))
+            .to_owned()
+            .into(),
+        None => Expr::val(Option::<String>::None),
+    };
     // `now() + make_interval(days => $8)`.
     let expires_at = Expr::current_timestamp().add(Func::cust("make_interval").args([
         Expr::val(0),
@@ -1549,7 +1554,7 @@ async fn insert_invitation(
                     .clone()
                     .unwrap_or_else(|| json!({})),
             ),
-            known_inviter.into(),
+            known_inviter,
             expires_at,
         ])
         .map_err(|error| DbErr::Custom(error.to_string()))?
@@ -1827,6 +1832,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn epoch_milliseconds_round_as_postgres_casts_numeric() {
+        let at = |nanos: i128| OffsetDateTime::from_unix_timestamp_nanos(nanos).expect("valid");
+        assert_eq!(epoch_ms(at(1_700_000_000_123_456_000)), 1_700_000_000_123);
+        assert_eq!(epoch_ms(at(1_500_000)), 2);
+        assert_eq!(epoch_ms(at(1_499_000)), 1);
+        assert_eq!(epoch_ms(at(-1_500_000)), -2);
+        assert_eq!(epoch_ms(at(-1_499_000)), -1);
+        assert_eq!(epoch_ms(at(-500_000)), -1);
+        assert_eq!(
+            timestamp_epoch_ms(time::macros::datetime!(2024-01-02 03:04:05.6785)),
+            1_704_164_645_679
+        );
+    }
+
+    #[test]
     fn users_read_in_either_case_and_deleted_ones_are_gone() {
         let camel = json!({
             "id": "usr_1", "email": "ann@acme.test", "givenName": "Ann",
@@ -1953,170 +1973,5 @@ mod tests {
             )
         );
         assert_eq!(accept_link("not a url", "inv_x", "a@b.test", "A"), None);
-    }
-}
-
-#[cfg(test)]
-mod sql_preview_tmp {
-    use super::*;
-    use sea_orm::{DbBackend, QueryTrait};
-
-    #[test]
-    fn preview() {
-        use sea_orm::ExprTrait as _;
-        let pg = DbBackend::Postgres;
-        {
-            use workspaces::Column;
-            let org = "org_1";
-            let query = workspaces::Entity::find()
-                .select_only()
-                .column(Column::Id)
-                .column_as(organization_id(), "org")
-                .columns([Column::Name, Column::Slug])
-                .filter(
-                    Condition::any()
-                        .add(Column::Id.eq(org))
-                        .add(Column::ClerkOrgId.eq(org)),
-                )
-                .filter(Column::DeletedAt.is_null())
-                .order_by_desc(Expr::col((workspaces::Entity, Column::Id)).eq(org))
-                .limit(1);
-            println!("WORKSPACE: {}\n", query.build(pg));
-        }
-        let q = active_members()
-            .filter(user_workspaces::Column::WorkspaceId.eq("ws"))
-            .limit(Some(5u64))
-            .offset(0u64);
-        println!("MEMBERS: {}\n", q.build(pg));
-        let q = active_members()
-            .filter(user_workspaces::Column::WorkspaceId.eq("ws"))
-            .limit(None::<u64>)
-            .offset(3u64);
-        println!("MEMBERS nolimit: {}\n", q.build(pg));
-        let q = user_workspaces::Entity::find()
-            .select_only()
-            .column(user_workspaces::Column::Status)
-            .filter(user_workspaces::Column::UserId.eq("u"));
-        println!("STATUS: {}\n", q.build(pg));
-        {
-            use user_workspaces::Column;
-            let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
-            let current = |column: Column| Expr::col((user_workspaces::Entity, column));
-            let rejoin = OnConflict::columns([Column::UserId, Column::WorkspaceId])
-                .update_column(Column::Role)
-                .value(
-                    Column::Status,
-                    Column::Status.save_as(Expr::value(MembershipStatus::ACTIVE)),
-                )
-                .value(
-                    Column::JoinedAt,
-                    Func::coalesce([current(Column::JoinedAt), excluded(Column::JoinedAt)]),
-                )
-                .value(Column::UpdatedAt, Expr::current_timestamp())
-                .to_owned();
-            let ins = user_workspaces::Entity::insert(user_workspaces::ActiveModel {
-                id: Set("uw_1".to_owned()),
-                user_id: Set("u".to_owned()),
-                workspace_id: Set("w".to_owned()),
-                role: Set("org:member".to_owned()),
-                status: Set(MembershipStatus::ACTIVE),
-                joined_at: Set(Some(utc_now())),
-                ..Default::default()
-            })
-            .on_conflict(rejoin);
-            println!("UPSERT: {}\n", ins.build(pg));
-            let upd = user_workspaces::Entity::update_many()
-                .col_expr(Column::Role, Expr::value("r"))
-                .col_expr(Column::UpdatedAt, Expr::current_timestamp())
-                .filter(Column::WorkspaceId.eq("w"))
-                .filter(Column::Status.eq(MembershipStatus::ACTIVE));
-            println!("SETROLE: {}\n", upd.build(pg));
-        }
-        {
-            use workspace_invitations::Column;
-            let filter = Condition::all()
-                .add(Column::WorkspaceId.eq("w"))
-                .add(invitation_status().eq("expired"));
-            let q = invitation_rows()
-                .filter(filter.clone())
-                .order_by_desc(Column::CreatedAt)
-                .order_by_asc(Column::Id)
-                .limit(Some(5u64))
-                .offset(0u64);
-            println!("INVITATIONS: {}\n", q.build(pg));
-            println!(
-                "INVCOUNT: {}\n",
-                workspace_invitations::Entity::find().filter(filter).build(pg)
-            );
-            let q = invitation_rows()
-                .column_as(organization_id(), "org")
-                .column_as(workspaces::Column::Name, "org_name")
-                .column_as(workspaces::Column::Slug, "org_slug")
-                .join(JoinType::InnerJoin, live_workspace_of_invitation())
-                .filter(workspaces::Column::DeletedAt.is_null())
-                .filter(workspace_invitations::Column::Id.eq("inv"));
-            println!("FIND: {}\n", q.build(pg));
-            let q = workspace_invitations::Entity::find()
-                .select_only()
-                .column(Column::Status)
-                .column_as(
-                    Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
-                        .lte(Expr::current_timestamp()),
-                    "expired",
-                )
-                .columns([Column::EmailNormalized, Column::WorkspaceId])
-                .join(JoinType::InnerJoin, live_workspace_of_invitation())
-                .filter(workspaces::Column::DeletedAt.is_null())
-                .filter(Column::Id.eq("inv"));
-            println!("STATE: {}\n", q.build(pg));
-            let upd = workspace_invitations::Entity::update_many()
-                .col_expr(Column::Status, Expr::value("revoked"))
-                .col_expr(Column::RevokedAt, Expr::current_timestamp())
-                .filter(Column::WorkspaceId.eq("w"))
-                .filter(Column::Status.eq("pending"))
-                .filter(
-                    Expr::col((workspace_invitations::Entity, Column::ExpiresAt))
-                        .lte(Expr::current_timestamp()),
-                );
-            println!("REVOKE: {}\n", upd.build(pg));
-            let inviter: Option<&str> = None;
-            let known_inviter = Query::select()
-                .column(users::Column::Id)
-                .from(users::Entity)
-                .and_where(users::Column::Id.eq(inviter.map(str::to_owned)))
-                .to_owned();
-            let expires_at = Expr::current_timestamp().add(Func::cust("make_interval").args([
-                Expr::val(0),
-                Expr::val(0),
-                Expr::val(0),
-                Expr::val(INVITATION_DAYS),
-            ]));
-            let mut insert = Query::insert();
-            insert
-                .into_table(workspace_invitations::Entity)
-                .columns([Column::Id, Column::InvitedBy, Column::ExpiresAt, Column::PublicMetadata])
-                .values([Expr::val("i"), known_inviter.into(), expires_at, Expr::val(json!({}))])
-                .unwrap()
-                .returning_all();
-            println!("INSERT: {}\n", pg.build(&insert));
-        }
-        {
-            let ins = users::Entity::insert(users::ActiveModel {
-                id: Set("u".to_owned()),
-                email: Set("e".to_owned()),
-                first_name: Set(None),
-                last_name: Set(None),
-                image_url: Set(None),
-                ..Default::default()
-            })
-            .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned());
-            println!("USERINS: {}\n", ins.build(pg));
-        }
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_500_000).unwrap()) == 2);
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_499_000).unwrap()) == 1);
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-1_500_000).unwrap()) == -2);
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-1_499_000).unwrap()) == -1);
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(-500_000).unwrap()) == -1);
-        assert!(epoch_ms(OffsetDateTime::from_unix_timestamp_nanos(1_700_000_000_123_456_000).unwrap()) == 1_700_000_000_123);
     }
 }

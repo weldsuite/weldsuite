@@ -199,8 +199,7 @@ fn check_field_type(
 async fn custom_field_ids(db: &PgPool, entity: &str) -> FormsResult<Vec<String>> {
     Ok(
         weldsuite_core_domain::custom_field_values::definitions(db, entity)
-            .await
-            .map_err(weldsuite_db::orm_error)?
+            .await?
             .into_iter()
             .map(|definition| definition.id)
             .collect(),

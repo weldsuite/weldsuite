@@ -25,7 +25,7 @@ use weldsuite_core_domain::drive_access::{
     load_drive_access_for_user,
 };
 use weldsuite_core_domain::files::{NewFile, create_file};
-use weldsuite_db::{PgPool, orm, orm_error, utc_minutes_ago, utc_now};
+use weldsuite_db::{PgPool, orm, utc_minutes_ago, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -278,9 +278,7 @@ async fn guard(caller: &Caller, file_id: &str, mode: Mode) -> Result<Option<Resp
         return Ok(None);
     };
     if entity_type.as_deref().is_none_or(str::is_empty) {
-        let index = load_drive_access_for_user(&caller.db, caller.user())
-            .await
-            .map_err(orm_error)?;
+        let index = load_drive_access_for_user(&caller.db, caller.user()).await?;
         let role = file_role(
             &index,
             &DriveFileRef {
