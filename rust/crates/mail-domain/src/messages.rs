@@ -1170,19 +1170,10 @@ pub async fn change_message_labels(
         remove_labels(&current, &labels)
     };
     let flags = flags_for_label_change(&labels, add);
-    let mut update = mail_messages::Entity::update_many()
+    let update = mail_messages::Entity::update_many()
         .col_expr(Column::Labels, Expr::value(labels::labels_value(&next)));
-    for (column, value) in [
-        (Column::IsStarred, flags.is_starred),
-        (Column::IsImportant, flags.is_important),
-        (Column::IsTrash, flags.is_trash),
-        (Column::IsSpam, flags.is_spam),
-    ] {
-        if let Some(value) = value {
-            update = update.col_expr(column, Expr::value(value));
-        }
-    }
-    let update = update.col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)));
+    let update = labels::with_flags(update, flags)
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)));
     update_message(db, id, update).await?;
     Ok(Some(next))
 }

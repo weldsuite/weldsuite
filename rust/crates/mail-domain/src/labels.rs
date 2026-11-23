@@ -943,7 +943,7 @@ async fn update_label_message_count(
 
 /// The mirrored flags a label change writes (`coalesce($flag, column)`):
 /// only those it sets.
-fn with_flags(
+pub(crate) fn with_flags(
     mut update: sea_orm::UpdateMany<mail_messages::Entity>,
     flags: LabelFlags,
 ) -> sea_orm::UpdateMany<mail_messages::Entity> {
