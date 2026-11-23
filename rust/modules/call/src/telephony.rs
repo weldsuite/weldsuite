@@ -18,12 +18,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     VOIP_PHONE_NUMBER_CREATED, VOIP_PHONE_NUMBER_DELETED, VOIP_PHONE_NUMBER_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data};
+use weldsuite_schema::master::{phone_number_registry, telephony_service_rates as rates};
+use weldsuite_schema::tenant::{voip_phone_numbers as voip_numbers, voip_porting_orders};
 
 use crate::calls::query_param;
 use crate::numbers::{self, PriceRow};
@@ -31,7 +37,7 @@ use crate::porting::{FormFile, read_form_file};
 use crate::registry::{self, Entry};
 use crate::sip_trunks::{TRUNK_NUMBER_REFUSAL, TRUNK_PROVIDER};
 use crate::telnyx::{Body, COUNTRIES_REQUIRING_ADDRESS};
-use crate::{CallState, Caller, internal, js, now, validate};
+use crate::{CallState, Caller, internal, js, validate};
 
 const NOT_ACTIVATED: &str = "Phone service is not activated";
 
@@ -43,14 +49,36 @@ pub(crate) async fn configured(State(state): State<CallState>, caller: Caller) -
 /// A live number: `(phoneNumber, status, countryCode, numberType, provider)`.
 type LiveNumber = (String, String, String, Option<String>, String);
 
-async fn live_number(caller: &Caller, id: &str) -> Result<Option<LiveNumber>, sqlx::Error> {
-    sqlx::query_as(
-        "select phone_number, status, country_code, number_type, provider from voip_phone_numbers
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+async fn live_number(caller: &Caller, id: &str) -> Result<Option<LiveNumber>, DbErr> {
+    voip_numbers::Entity::find()
+        .select_only()
+        .columns([
+            voip_numbers::Column::PhoneNumber,
+            voip_numbers::Column::Status,
+            voip_numbers::Column::CountryCode,
+            voip_numbers::Column::NumberType,
+            voip_numbers::Column::Provider,
+        ])
+        .filter(voip_numbers::Column::Id.eq(id))
+        .filter(voip_numbers::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
+}
+
+/// `update voip_phone_numbers set … where id = $1`: the columns of `set`
+/// on the one number.
+async fn update_number_row(
+    caller: &Caller,
+    id: &str,
+    set: voip_numbers::ActiveModel,
+) -> Result<(), DbErr> {
+    voip_numbers::Entity::update_many()
+        .set(set)
+        .filter(voip_numbers::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `PUT /api/telephony/phone-numbers/:id { displayName?, isDefault? }`.
@@ -76,26 +104,24 @@ pub(crate) async fn update_number(
         let Some((phone, status, _, _, _)) = live_number(&caller, &id).await? else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update voip_phone_numbers set updated_at = $2::timestamp,
-                 display_name = case when $3 then $4 else display_name end,
-                 is_default = coalesce($5, is_default)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(!display_name.is_absent())
-        .bind(display_name.as_set())
-        .bind(is_default)
-        .execute(&caller.db)
-        .await?;
+        let mut set = voip_numbers::ActiveModel {
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        };
+        if !display_name.is_absent() {
+            set.display_name = Set(display_name.as_set().cloned());
+        }
+        if let Some(is_default) = is_default {
+            set.is_default = Set(Some(is_default));
+        }
+        update_number_row(&caller, &id, set).await?;
         caller.publish(
             &state,
             VOIP_PHONE_NUMBER_UPDATED,
             &id,
             &json!({ "id": id, "phoneNumber": phone, "status": status }),
         );
-        Ok::<_, sqlx::Error>(Data(json!({ "success": true })).into_response())
+        Ok::<_, DbErr>(Data(json!({ "success": true })).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Failed to update phone number"))

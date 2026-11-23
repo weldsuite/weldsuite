@@ -11,7 +11,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use regex::Regex;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     EMAIL_TEMPLATE_CREATED, EMAIL_TEMPLATE_DELETED, EMAIL_TEMPLATE_UPDATED,
 };
@@ -19,13 +25,15 @@ use weldsuite_catalogs::permission_keys::{
     TEMPLATES_CREATE, TEMPLATES_DELETE, TEMPLATES_READ, TEMPLATES_UPDATE,
 };
 use weldsuite_core_domain::js::{Js, as_text, parse_body};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::MailTemplateType;
+use weldsuite_schema::tenant::mail_templates::{self, Column};
 
 use crate::util::{
-    MailError, MailResult, answer, list_response, now, page, strings, validate, validate_query,
+    MailError, MailResult, answer, list_response, page, strings, validate, validate_query,
 };
 use crate::{Caller, MailState};
 
@@ -74,33 +82,46 @@ where
         .with_state(state)
 }
 
-async fn template_row(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from mail_templates t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// A template row as the routes return it (`to_jsonb(t)`).
+fn template_json(row: mail_templates::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
-async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar("select to_jsonb(t) from mail_templates t where t.id = $1")
-        .bind(id)
-        .fetch_one(&caller.db)
-        .await?;
-    Ok(js_row(row))
+async fn template_row(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    mail_templates::Entity::find_by_id(id)
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(template_json)
+        .transpose()
+}
+
+/// The row just written, deleted or not (a missing row is the route's 500).
+async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, DbErr> {
+    let row = mail_templates::Entity::find_by_id(id)
+        .one(&orm(&caller.db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail_templates {id}")))?;
+    template_json(row)
+}
+
+/// A `type` from the body or query (already one of [`TYPES`]).
+fn template_type(kind: &str) -> Result<MailTemplateType, DbErr> {
+    MailTemplateType::try_from_value(&kind.to_owned())
 }
 
 /// `GET /categories` (`listTemplateCategories`).
 async fn categories(caller: Caller) -> Response {
     let result = async {
-        let rows: Vec<Option<String>> = sqlx::query_scalar(
-            "select category from mail_templates
-             where deleted_at is null and category is not null group by category",
-        )
-        .fetch_all(&caller.db)
-        .await?;
+        let rows: Vec<Option<String>> = mail_templates::Entity::find()
+            .select_only()
+            .column(Column::Category)
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Category.is_not_null())
+            .group_by(Column::Category)
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         let rows: Vec<String> = rows
             .into_iter()
             .flatten()
@@ -151,56 +172,75 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let result = async {
         let limit = limit.unwrap_or(50).min(100);
         let category = category.filter(|c| !c.is_empty());
-        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
-        {
-            Some(cursor) => {
-                sqlx::query_as(
-                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                         from mail_templates where id = $1 limit 1",
-                )
-                .bind(cursor)
-                .fetch_optional(&caller.db)
-                .await?
-            }
+        let kind = kind.as_deref().map(template_type).transpose()?;
+        let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+        if let Some(kind) = kind {
+            filters = filters.add(Column::Type.eq(kind));
+        }
+        if let Some(category) = category {
+            filters = filters.add(Column::Category.eq(category));
+        }
+        if let Some(active) = active {
+            filters = filters.add(Column::IsActive.eq(active));
+        }
+        let cursor = match cursor.as_deref().filter(|c| !c.is_empty()) {
+            Some(cursor) => cursor_position(&caller, cursor).await?,
             None => None,
         };
-        let (cursor_at, cursor_id) = cursor_row.unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from mail_templates t
-             where t.deleted_at is null
-               and ($1::text is null or t.type = $1::mail_template_type)
-               and ($2::text is null or t.category = $2)
-               and ($3::bool is null or t.is_active = $3)
-               and ($4::timestamp is null or (t.created_at < $4::timestamp
-                    or (t.created_at = $4::timestamp and t.id < $5)))
-             order by t.created_at desc, t.id desc limit $6",
-        )
-        .bind(&kind)
-        .bind(&category)
-        .bind(active)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(
-            "select count(*)::int from mail_templates t
-             where t.deleted_at is null
-               and ($1::text is null or t.type = $1::mail_template_type)
-               and ($2::text is null or t.category = $2)
-               and ($3::bool is null or t.is_active = $3)",
-        )
-        .bind(&kind)
-        .bind(&category)
-        .bind(active)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(js_row).collect();
+        let mut rows = mail_templates::Entity::find().filter(filters.clone());
+        if let Some((at, id)) = cursor {
+            rows = rows.filter(
+                Condition::any().add(Column::CreatedAt.lt(at)).add(
+                    Condition::all()
+                        .add(Column::CreatedAt.eq(at))
+                        .add(Column::Id.lt(id)),
+                ),
+            );
+        }
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .all(&orm(&caller.db))
+            .await?;
+        let total = mail_templates::Entity::find()
+            .filter(filters)
+            .count(&orm(&caller.db))
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(template_json)
+            .collect::<Result<Vec<_>, _>>()?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, i64::from(total), has_more, next))
+        Ok(list_response(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     answer(result, "Failed to list templates")
+}
+
+/// The cursor row's `created_at` (to the millisecond, as
+/// `to_char(created_at, '…MS')` printed it) and id.
+async fn cursor_position(
+    caller: &Caller,
+    cursor: &str,
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = mail_templates::Entity::find_by_id(cursor)
+        .select_only()
+        .columns([Column::CreatedAt, Column::Id])
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(|(at, id)| {
+        (
+            at.replace_millisecond(at.millisecond()).unwrap_or(at),
+            id,
+        )
+    }))
 }
 
 /// `GET /:id`.
@@ -394,29 +434,28 @@ async fn create(
     };
     let result = async {
         let id = generate_id("tpl");
-        sqlx::query(
-            "insert into mail_templates (id, name, subject, html_content, text_content, category,
-               description, type, purpose, variables, required_variables, tags, is_active,
-               is_default, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::mail_template_type, $9, $10, $11, $12, $13, $14,
-               $15::timestamp, $15::timestamp)",
-        )
-        .bind(&id)
-        .bind(text(&data, "name"))
-        .bind(text(&data, "subject"))
-        .bind(text(&data, "htmlContent"))
-        .bind(text(&data, "textContent"))
-        .bind(text(&data, "category"))
-        .bind(text(&data, "description"))
-        .bind(text(&data, "type").unwrap_or("custom"))
-        .bind(text(&data, "purpose"))
-        .bind(data.get("variables").cloned())
-        .bind(data.get("requiredVariables").cloned())
-        .bind(data.get("tags").cloned())
-        .bind(flag(&data, "isActive").unwrap_or(true))
-        .bind(flag(&data, "isDefault").unwrap_or(false))
-        .bind(now())
-        .execute(&caller.db)
+        let owned = |key: &str| text(&data, key).map(str::to_owned);
+        let at = utc_now();
+        mail_templates::Entity::insert(mail_templates::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(owned("name").unwrap_or_default()),
+            subject: Set(owned("subject").unwrap_or_default()),
+            html_content: Set(owned("htmlContent").unwrap_or_default()),
+            text_content: Set(owned("textContent")),
+            category: Set(owned("category")),
+            description: Set(owned("description")),
+            type_: Set(template_type(text(&data, "type").unwrap_or("custom"))?),
+            purpose: Set(owned("purpose")),
+            variables: Set(data.get("variables").cloned()),
+            required_variables: Set(data.get("requiredVariables").cloned()),
+            tags: Set(data.get("tags").cloned()),
+            is_active: Set(flag(&data, "isActive").unwrap_or(true)),
+            is_default: Set(Some(flag(&data, "isDefault").unwrap_or(false))),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = row_by_id(&caller, &id).await?;
         caller.publish(&state, EMAIL_TEMPLATE_CREATED, &id, &event(&row, &id));
@@ -444,40 +483,61 @@ async fn update(
         if template_row(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Template", None));
         }
-        sqlx::query(
-            "update mail_templates set updated_at = $2::timestamp,
-               name = coalesce($3, name), subject = coalesce($4, subject),
-               html_content = coalesce($5, html_content), text_content = coalesce($6, text_content),
-               category = coalesce($7, category), description = coalesce($8, description),
-               type = coalesce($9::mail_template_type, type), purpose = coalesce($10, purpose),
-               variables = coalesce($11, variables),
-               required_variables = coalesce($12, required_variables), tags = coalesce($13, tags),
-               is_active = coalesce($14, is_active), is_default = coalesce($15, is_default)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text(&data, "name"))
-        .bind(text(&data, "subject"))
-        .bind(text(&data, "htmlContent"))
-        .bind(text(&data, "textContent"))
-        .bind(text(&data, "category"))
-        .bind(text(&data, "description"))
-        .bind(text(&data, "type"))
-        .bind(text(&data, "purpose"))
-        .bind(data.get("variables").cloned())
-        .bind(data.get("requiredVariables").cloned())
-        .bind(data.get("tags").cloned())
-        .bind(flag(&data, "isActive"))
-        .bind(flag(&data, "isDefault"))
-        .execute(&caller.db)
-        .await?;
+        update_template(&caller, &id, &data).await?;
         let after = row_by_id(&caller, &id).await?;
         caller.publish(&state, EMAIL_TEMPLATE_UPDATED, &id, &event(&after, &id));
         Ok(Data(after).into_response())
     }
     .await;
     answer(result, "Failed to update template")
+}
+
+/// `updateTemplate`'s write: `updated_at`, and each field the body sent.
+async fn update_template(caller: &Caller, id: &str, data: &Map<String, Value>) -> Result<(), DbErr> {
+    let mut update = mail_templates::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("name", Column::Name),
+        ("subject", Column::Subject),
+        ("htmlContent", Column::HtmlContent),
+        ("textContent", Column::TextContent),
+        ("category", Column::Category),
+        ("description", Column::Description),
+        ("purpose", Column::Purpose),
+    ] {
+        if let Some(value) = text(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(kind) = text(data, "type") {
+        // The value as the `mail_template_type` enum.
+        update = update.col_expr(
+            Column::Type,
+            Column::Type.save_as(Expr::val(template_type(kind)?)),
+        );
+    }
+    for (key, column) in [
+        ("variables", Column::Variables),
+        ("requiredVariables", Column::RequiredVariables),
+        ("tags", Column::Tags),
+    ] {
+        if let Some(value) = data.get(key) {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    for (key, column) in [
+        ("isActive", Column::IsActive),
+        ("isDefault", Column::IsDefault),
+    ] {
+        if let Some(value) = flag(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    update
+        .filter(Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `DELETE /:id` (`softDeleteTemplate`).
@@ -490,13 +550,13 @@ async fn remove(
         let Some(existing) = template_row(&caller, &id).await? else {
             return Err(MailError::not_found("Template", Some(&id)));
         };
-        sqlx::query(
-            "update mail_templates set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_templates::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, EMAIL_TEMPLATE_DELETED, &id, &event(&existing, &id));
         Ok(NoContent.into_response())
     }
@@ -515,20 +575,7 @@ async fn duplicate(
             return Err(MailError::not_found("Template", None));
         }
         let new_id = generate_id("tpl");
-        sqlx::query(
-            "insert into mail_templates (id, name, subject, html_content, text_content, category,
-               description, variables, required_variables, type, purpose, tags, is_active,
-               is_default, created_at, updated_at)
-             select $2, name || ' (Copy)', subject, html_content, text_content, category,
-               description, variables, required_variables, type, purpose, tags, is_active, false,
-               $3::timestamp, $3::timestamp
-             from mail_templates where id = $1",
-        )
-        .bind(&id)
-        .bind(&new_id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        copy_template(&caller, &id, &new_id).await?;
         let row = row_by_id(&caller, &new_id).await?;
         caller.publish(
             &state,
@@ -540,6 +587,51 @@ async fn duplicate(
     }
     .await;
     answer(result, "Failed to duplicate template")
+}
+
+/// `insert … select` from the template: its copy, named `<name> (Copy)`,
+/// never the default.
+async fn copy_template(caller: &Caller, id: &str, new_id: &str) -> Result<(), DbErr> {
+    let at = utc_now();
+    let copied = [
+        Column::Subject,
+        Column::HtmlContent,
+        Column::TextContent,
+        Column::Category,
+        Column::Description,
+        Column::Variables,
+        Column::RequiredVariables,
+        Column::Type,
+        Column::Purpose,
+        Column::Tags,
+        Column::IsActive,
+    ];
+    let source = Query::select()
+        .expr(Expr::val(new_id))
+        .expr(sea_orm::sea_query::extension::postgres::PgExpr::concat(
+            Expr::col(Column::Name),
+            Expr::val(" (Copy)"),
+        ))
+        .columns(copied)
+        .expr(Expr::val(false))
+        .expr(Expr::val(at))
+        .expr(Expr::val(at))
+        .from(mail_templates::Entity)
+        .and_where(Column::Id.eq(id))
+        .to_owned();
+    let insert = Query::insert()
+        .into_table(mail_templates::Entity)
+        .columns(
+            [Column::Id, Column::Name]
+                .into_iter()
+                .chain(copied)
+                .chain([Column::IsDefault, Column::CreatedAt, Column::UpdatedAt]),
+        )
+        .select_from(source)
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .to_owned();
+    orm(&caller.db).execute(&insert).await?;
+    Ok(())
 }
 
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
@@ -623,16 +715,23 @@ async fn render(
             .as_str()
             .filter(|t| !t.is_empty())
             .map(|t| substitute(t, &vars, false));
-        let at = now();
-        sqlx::query(
-            "update mail_templates set usage_count = coalesce(usage_count, 0) + 1,
-               last_used_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_templates::Entity::update_many()
+            .col_expr(
+                Column::UsageCount,
+                sea_orm::ExprTrait::add(
+                    Expr::from(Func::coalesce([
+                        Expr::col(Column::UsageCount),
+                        Expr::val(0),
+                    ])),
+                    1,
+                ),
+            )
+            .col_expr(Column::LastUsedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(
             Data(json!({ "subject": subject, "htmlContent": html, "textContent": text }))
                 .into_response(),
