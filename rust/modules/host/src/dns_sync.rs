@@ -237,15 +237,7 @@ pub(crate) async fn sync_zone(
     let (mut added, mut updated) = (0, 0);
     for m in &mapped {
         seen.push(m.external_id.clone());
-        match reconcile(
-            db,
-            zone_id,
-            m,
-            by_external.get(&m.external_id).copied(),
-            at,
-        )
-        .await?
-        {
+        match reconcile(db, zone_id, m, by_external.get(&m.external_id).copied(), at).await? {
             "added" => added += 1,
             "updated" => updated += 1,
             _ => {}
@@ -285,12 +277,13 @@ pub(crate) async fn sync_zone(
         .exec(&orm(db))
         .await?;
     // `reconcileSystemLocks`: failures are logged, never returned.
-    let zone_name: Result<Option<String>, DbErr> = dns_zones::Entity::find_by_id(zone_id.to_owned())
-        .select_only()
-        .column(dns_zones::Column::Name)
-        .into_tuple()
-        .one(&orm(db))
-        .await;
+    let zone_name: Result<Option<String>, DbErr> =
+        dns_zones::Entity::find_by_id(zone_id.to_owned())
+            .select_only()
+            .column(dns_zones::Column::Name)
+            .into_tuple()
+            .one(&orm(db))
+            .await;
     match zone_name {
         Ok(Some(name)) => {
             if let Err(error) = detect_system_locks(db, zone_id, &name).await {

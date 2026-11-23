@@ -9,7 +9,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
-use sea_orm::{ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{DNS_ZONE_CREATED, DNS_ZONE_DELETED, DNS_ZONE_UPDATED};
 use weldsuite_db::{orm, utc_now};
@@ -20,7 +22,7 @@ use weldsuite_schema::tenant::dns_zones;
 use weldsuite_schema::tenant::enums::{HostDnsProvider, HostDnsZoneStatus};
 
 use crate::listing::list;
-use crate::rows::{live_zone, live_zone_of_domain, timestamp_of};
+use crate::rows::{js, live_zone, live_zone_of_domain, timestamp_of};
 use crate::weldreach::{changes_zone_routing, domain_in_use, is_domain_used};
 use crate::{Caller, HostState, internal, validate, validate_query};
 
@@ -105,6 +107,7 @@ async fn list_zones(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             conditions,
             cursor.as_deref().filter(|c| !c.is_empty()),
             limit,
+            |row| js!(row),
         )
         .await
     }

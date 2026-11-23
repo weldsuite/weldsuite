@@ -12,7 +12,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
-use sea_orm::{ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{DOMAIN_TRANSFER_CREATED, DOMAIN_TRANSFER_UPDATED};
 use weldsuite_db::{PgPool, orm, utc_now};
@@ -31,7 +33,7 @@ use crate::listing::list;
 use crate::registrar::{
     Outcome, RealtimeRegistrar, RtrError, platform_contacts, privacy_protect_for_domain,
 };
-use crate::rows::{js_option, live_domain, timestamp_of};
+use crate::rows::{js, js_option, live_domain, timestamp_of};
 use crate::weldreach::{domain_in_use, is_domain_name_used, is_domain_used};
 use crate::{Caller, HostState, error_response, internal, validate, validate_query};
 
@@ -79,7 +81,7 @@ async fn by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let row = domain_transfers::Entity::find_by_id(id.to_owned())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A validated `status` as the column's enum.
@@ -155,6 +157,7 @@ async fn list_transfers(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             conditions,
             cursor.as_deref().filter(|c| !c.is_empty()),
             limit.unwrap_or(25).min(100),
+            |row| js!(row),
         )
         .await
     }

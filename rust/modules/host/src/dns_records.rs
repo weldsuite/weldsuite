@@ -163,11 +163,7 @@ async fn ready_by_domain(
 }
 
 /// `resolveCloudflareReadyByZone(db, zoneId, token)`.
-async fn ready_by_zone(
-    db: &PgPool,
-    zone_id: &str,
-    providers: &Providers,
-) -> Result<Ready, DbErr> {
+async fn ready_by_zone(db: &PgPool, zone_id: &str, providers: &Providers) -> Result<Ready, DbErr> {
     let Some(zone) = live_zone(db, zone_id).await? else {
         return Ok(Ready::NotFound);
     };

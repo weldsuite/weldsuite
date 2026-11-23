@@ -10,21 +10,23 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
-use sea_orm::{ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EMAIL_FORWARD_CREATED, EMAIL_FORWARD_DELETED, EMAIL_FORWARD_UPDATED,
 };
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
-use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::email_forwards;
 use weldsuite_schema::tenant::enums::HostEmailForwardStatus;
 
 use crate::dns_zones::limit_param;
 use crate::listing::list;
-use crate::rows::js_option;
+use crate::rows::{js, js_option};
 use crate::{Caller, HostState, internal, validate, validate_query};
 
 const STATUSES: [&str; 4] = ["active", "pending", "disabled", "error"];
@@ -51,7 +53,7 @@ async fn live(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
         .filter(email_forwards::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A forward, deleted or not.
@@ -59,7 +61,7 @@ async fn any(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let row = email_forwards::Entity::find_by_id(id.to_owned())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A validated `status` as the column's enum.
@@ -112,6 +114,7 @@ async fn list_forwards(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             conditions,
             cursor.as_deref().filter(|c| !c.is_empty()),
             limit.unwrap_or(25).min(100),
+            |row| js!(row),
         )
         .await
     }
@@ -327,7 +330,12 @@ async fn remove(
             .filter(email_forwards::Column::Id.eq(&id))
             .exec(&orm(&caller.db))
             .await?;
-        caller.publish(&state, EMAIL_FORWARD_DELETED, &id, &event_data(&id, &existing));
+        caller.publish(
+            &state,
+            EMAIL_FORWARD_DELETED,
+            &id,
+            &event_data(&id, &existing),
+        );
         Ok(NoContent.into_response())
     }
     .await;

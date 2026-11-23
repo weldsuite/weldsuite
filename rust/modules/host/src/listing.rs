@@ -12,8 +12,6 @@ use serde_json::Value;
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm, utc_timestamp};
 
-use crate::rows::js;
-
 /// One page: rows, total, whether there is more, and the next cursor.
 pub(crate) struct Page {
     pub(crate) rows: Vec<Value>,
@@ -22,19 +20,21 @@ pub(crate) struct Page {
     pub(crate) cursor: Option<String>,
 }
 
-/// One list of `E`, paged by its `created_at` and `id` columns.
-/// `conditions` are the service's, in its order (the live-only condition
-/// first where the table has one), `None` where a filter wasn't given.
+/// One list of `E`, paged by its `created_at` and `id` columns, each row
+/// as `to_json` writes it. `conditions` are the service's, in its order (the
+/// live-only condition first where the table has one), `None` where a
+/// filter wasn't given.
 pub(crate) async fn list<E>(
     db: &PgPool,
     (created_at, id): (E::Column, E::Column),
     conditions: Vec<Option<Condition>>,
     cursor: Option<&str>,
     limit: i64,
+    to_json: impl Fn(E::Model) -> Result<Value, DbErr>,
 ) -> Result<Page, DbErr>
 where
     E: EntityTrait,
-    E::Model: serde::Serialize + Sync,
+    E::Model: Sync,
 {
     let db = orm(db);
     let at = match cursor {
@@ -69,7 +69,7 @@ where
     let all = |conditions: Vec<Condition>| {
         conditions
             .into_iter()
-            .fold(Condition::all(), |all, condition| all.add(condition))
+            .fold(Condition::all(), Condition::add)
     };
     let page = E::find()
         .filter(all(present))
@@ -79,7 +79,7 @@ where
         .all(&db)
         .await?;
     let total = E::find().filter(all(counted)).count(&db).await?;
-    let mut rows: Vec<Value> = page.into_iter().map(js).collect::<Result<_, _>>()?;
+    let mut rows: Vec<Value> = page.into_iter().map(to_json).collect::<Result<_, _>>()?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     rows.truncate(usize::try_from(limit).unwrap_or(0));
     let cursor = if has_more {

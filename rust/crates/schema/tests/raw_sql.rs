@@ -49,7 +49,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/ads",
     "modules/core-files",
     "modules/docs",
-    "modules/host",
     "modules/mcp",
     "modules/sheets",
     "modules/social",

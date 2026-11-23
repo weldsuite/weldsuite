@@ -5,9 +5,7 @@
 
 use axum::response::Response;
 use http::StatusCode;
-use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef,
-};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::Value;
 use weldsuite_db::{PgPool, is_missing_table, orm};
 use weldsuite_schema::tenant::{dns_zones, reach_domains};
@@ -181,10 +179,7 @@ pub(crate) fn duplicates_record(domain_name: &str, kind: &str, name: &str, value
 }
 
 /// `markWeldReachRecords`: each record with `managedBy`.
-pub(crate) async fn mark_records(
-    db: &PgPool,
-    records: Vec<Value>,
-) -> Result<Vec<Value>, DbErr> {
+pub(crate) async fn mark_records(db: &PgPool, records: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     let Some(first) = records.first() else {
         return Ok(Vec::new());
     };

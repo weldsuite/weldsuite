@@ -8,15 +8,23 @@ use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_schema::tenant::{dns_records, dns_zones, domains};
 
-/// A row as the API returns it: Drizzle's JSON shape, decided by the entity.
-pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+/// A row as the API returns it: Drizzle's JSON shape, decided by the entity
+/// (`Result<Value, DbErr>`). A macro, so the entity's `Serialize` is checked
+/// where it is used.
+macro_rules! js {
+    ($model:expr) => {
+        serde_json::to_value($model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+    };
 }
+pub(crate) use js;
 
-/// [`js`] of a row that may be missing.
-pub(crate) fn js_option<M: serde::Serialize>(model: Option<M>) -> Result<Option<Value>, DbErr> {
-    model.map(js).transpose()
+/// [`js`] of a row that may be missing (`Result<Option<Value>, DbErr>`).
+macro_rules! js_option {
+    ($model:expr) => {
+        $model.map(|row| $crate::rows::js!(row)).transpose()
+    };
 }
+pub(crate) use js_option;
 
 /// `$n::timestamp` of a `toISOString()` the route wrote: its UTC wall
 /// clock. A text Postgres can't read is the failed cast (the route's 500).
@@ -36,7 +44,7 @@ pub(crate) async fn live_domain(db: &PgPool, id: &str) -> Result<Option<Value>, 
         .filter(domains::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A domain, deleted or not.
@@ -44,7 +52,7 @@ pub(crate) async fn any_domain(db: &PgPool, id: &str) -> Result<Option<Value>, D
     let row = domains::Entity::find_by_id(id.to_owned())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A live zone by id (`getDnsZone`).
@@ -53,7 +61,7 @@ pub(crate) async fn live_zone(db: &PgPool, id: &str) -> Result<Option<Value>, Db
         .filter(dns_zones::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A zone, deleted or not.
@@ -61,7 +69,7 @@ pub(crate) async fn any_zone(db: &PgPool, id: &str) -> Result<Option<Value>, DbE
     let row = dns_zones::Entity::find_by_id(id.to_owned())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A domain's live zone (`getDnsZoneByDomain`).
@@ -74,7 +82,7 @@ pub(crate) async fn live_zone_of_domain(
         .filter(dns_zones::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A record by id (`loadDnsRecordWithZone`'s first read).
@@ -82,7 +90,7 @@ pub(crate) async fn any_record(db: &PgPool, id: &str) -> Result<Option<Value>, D
     let row = dns_records::Entity::find_by_id(id.to_owned())
         .one(&orm(db))
         .await?;
-    js_option(row)
+    js_option!(row)
 }
 
 /// A zone's records (`select().from(hostDnsRecords).where(eq(zoneId))`).
@@ -92,7 +100,7 @@ pub(crate) async fn zone_records(db: &PgPool, zone_id: &str) -> Result<Vec<Value
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(js)
+        .map(|row| js!(row))
         .collect()
 }
 
@@ -113,7 +121,7 @@ pub(crate) async fn domain_with_zone(
         .filter(domains::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?;
-    row.map(|(domain, zone)| Ok((js(domain)?, js_option(zone)?)))
+    row.map(|(domain, zone)| Ok((js!(domain)?, js_option!(zone)?)))
         .transpose()
 }
 
