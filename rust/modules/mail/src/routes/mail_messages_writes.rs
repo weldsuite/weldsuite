@@ -6,7 +6,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{EMAIL_DELETED, EMAIL_UPDATED};
@@ -170,7 +170,7 @@ const BULK_ACTIONS: [&str; 9] = [
 ];
 
 /// `bulkOpFor(action, ids)` applied to one mailbox's ids.
-async fn apply_bulk(caller: &Caller, action: &str, ids: &[String]) -> Result<(), sqlx::Error> {
+async fn apply_bulk(caller: &Caller, action: &str, ids: &[String]) -> Result<(), DbErr> {
     let now = OffsetDateTime::now_utc();
     match action {
         "markRead" | "markUnread" | "flag" | "unflag" => {

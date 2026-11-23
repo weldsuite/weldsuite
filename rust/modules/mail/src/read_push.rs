@@ -7,7 +7,7 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_mail_domain::access::{AccountAccess, accessible_account_ids, has_access_to_account};
 use weldsuite_mail_domain::messages::message_stats;
 use weldsuite_ports::OutboundHttp;
@@ -211,9 +211,7 @@ async fn weldmail_tokens(db: &PgPool) -> Result<Vec<(String, Vec<String>)>, DbEr
 
 /// The member's unread inbox count across the mailboxes they may open.
 async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, DbErr> {
-    let accounts = accessible_account_ids(db, user_id)
-        .await
-        .map_err(orm_error)?;
-    let stats = message_stats(db, &accounts).await.map_err(orm_error)?;
+    let accounts = accessible_account_ids(db, user_id).await?;
+    let stats = message_stats(db, &accounts).await?;
     Ok(stats["inboxUnread"].as_i64().unwrap_or(0))
 }

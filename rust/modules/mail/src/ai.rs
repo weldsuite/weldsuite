@@ -77,13 +77,6 @@ impl From<DbErr> for MailAiError {
     }
 }
 
-/// The mailbox rules in `weldsuite-mail-domain` (not on the ORM yet).
-impl From<sqlx::Error> for MailAiError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::from(weldsuite_db::orm_error(error))
-    }
-}
-
 impl From<AiError> for MailAiError {
     fn from(error: AiError) -> Self {
         Self::Ai(error)

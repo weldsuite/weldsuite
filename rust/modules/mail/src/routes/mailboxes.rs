@@ -17,7 +17,7 @@ use sea_orm::{
 };
 use serde_json::{Value, json};
 use weldsuite_auth::AuthContext;
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::access::is_admin_or_owner;
 use weldsuite_schema::master::enums::MembershipStatus;
@@ -113,7 +113,7 @@ type MembershipRow = (
 /// `accountsForWorkspace`: the first 100 mailboxes the user may open there
 /// (`listMailAccounts(db, userId, { limit: 100 })`), as directory entries.
 async fn accounts(db: &PgPool, user_id: &str) -> Result<Vec<Value>, DbErr> {
-    let admin = is_admin_or_owner(db, user_id).await.map_err(orm_error)?;
+    let admin = is_admin_or_owner(db, user_id).await?;
     // Shared, assigned to the user (`assigned_user_ids @> [user]`), or, for
     // an admin or owner, assigned to nobody (`coalesce(…, '[]')` is `[]` or
     // JSON `null`).
