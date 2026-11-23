@@ -164,6 +164,7 @@ export function OpenShiftDialog({ shift, onClose }: Readonly<{ shift?: HrOpenShi
                 <Label htmlFor="hr-open-shift-break-start">{t('weldhr.attendance.openShifts.form.breakStart')}</Label>
                 <HrTimeInput
                   id="hr-open-shift-break-start"
+                  clearable
                   value={breakStart}
                   disabled={timesLocked}
                   aria-invalid={!breakValid}
@@ -174,6 +175,7 @@ export function OpenShiftDialog({ shift, onClose }: Readonly<{ shift?: HrOpenShi
                 <Label htmlFor="hr-open-shift-break-end">{t('weldhr.attendance.openShifts.form.breakEnd')}</Label>
                 <HrTimeInput
                   id="hr-open-shift-break-end"
+                  clearable
                   value={breakEnd}
                   disabled={timesLocked}
                   aria-invalid={!breakValid}

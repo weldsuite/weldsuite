@@ -194,6 +194,7 @@ export function ShiftDialog({
                 <Label htmlFor="hr-shift-break-start">{t('weldhr.attendance.schedule.form.breakStart')}</Label>
                 <HrTimeInput
                   id="hr-shift-break-start"
+                  clearable
                   value={breakStart}
                   aria-invalid={!breakValid}
                   onChange={setBreakStart}
@@ -203,6 +204,7 @@ export function ShiftDialog({
                 <Label htmlFor="hr-shift-break-end">{t('weldhr.attendance.schedule.form.breakEnd')}</Label>
                 <HrTimeInput
                   id="hr-shift-break-end"
+                  clearable
                   value={breakEnd}
                   aria-invalid={!breakValid}
                   onChange={setBreakEnd}

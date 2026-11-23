@@ -80,10 +80,11 @@ export function HrDateInput({ value, onChange, min, max, placeholder, yearPicker
 
 type HrTimeInputProps = Omit<
   ComponentProps<typeof TimePicker>,
-  'onChange' | 'hourCycle' | 'hourLabel' | 'minuteLabel' | 'value'
+  'onChange' | 'hourCycle' | 'hourLabel' | 'minuteLabel' | 'clearLabel' | 'value'
 > & {
   /** "HH:mm", 24-hour, or empty for no time. */
   value?: string | null;
+  /** The picked time as "HH:mm"; '' when a `clearable` field is cleared. */
   onChange: (value: string) => void;
 };
 
@@ -98,6 +99,7 @@ export function HrTimeInput({ value, onChange, placeholder, ...props }: Readonly
       hourCycle={timeFormat === '24h' ? 24 : 12}
       hourLabel={t('weldhr.common.hour')}
       minuteLabel={t('weldhr.common.minute')}
+      clearLabel={t('common.ui.form.clear')}
       placeholder={placeholder ?? t('weldhr.common.pickTime')}
     />
   );

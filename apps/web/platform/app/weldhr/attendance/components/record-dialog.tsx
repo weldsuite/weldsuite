@@ -146,7 +146,7 @@ export function AttendanceRecordDialog({
             </div>
             <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-out">{t('weldhr.attendance.records.form.clockOut')}</Label>
-              <HrTimeInput id="hr-att-out" value={clockOut} onChange={setClockOut} />
+              <HrTimeInput id="hr-att-out" value={clockOut} clearable onChange={setClockOut} />
               {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.records.form.nextDay')}</p>}
             </div>
           </div>

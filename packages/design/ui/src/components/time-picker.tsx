@@ -16,6 +16,13 @@ export interface TimePickerProps
   /** Column headings of the picker; English when left out (the library holds no translations). */
   hourLabel?: string;
   minuteLabel?: string;
+  /**
+   * For an optional time: while one is set, a Clear button under the columns
+   * empties the field (`onChange('')`). Picking an hour or a minute can't.
+   */
+  clearable?: boolean;
+  /** The Clear button's text; English when left out. */
+  clearLabel?: string;
 }
 
 function hourText(hour: number, hourCycle: 12 | 24): string {
@@ -35,6 +42,8 @@ export function TimePicker({
   hourCycle = 12,
   hourLabel = 'Hour',
   minuteLabel = 'Min',
+  clearable,
+  clearLabel = 'Clear',
   className,
   ...props
 }: Readonly<TimePickerProps>) {
@@ -136,6 +145,23 @@ export function TimePicker({
             </div>
           </ScrollArea>
         </div>
+        {clearable && value && (
+          <div className="border-t p-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                onChange?.('');
+                // Closing hands focus back to the field.
+                setOpen(false);
+              }}
+            >
+              {clearLabel}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
