@@ -202,143 +202,50 @@ async fn titles_of(
     table: Table,
     ids: &[String],
 ) -> Result<Vec<Titled>, DbErr> {
+    // `id, <title>, <fallback>` of the table's live rows (`deleted_at is null`).
+    macro_rules! live {
+        ($table:ident, $title:ident, $fallback:ident) => {{
+            use $table::{Column, Entity};
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::$title,
+                Some(Column::$fallback),
+                Some(Column::DeletedAt),
+            )
+            .await
+        }};
+        ($table:ident, $title:ident) => {{
+            use $table::{Column, Entity};
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::$title,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
+        }};
+    }
     match table {
-        Table::Companies => {
-            use companies::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Name,
-                Some(Column::DisplayName),
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::People => {
-            use people::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::FullName,
-                Some(Column::DisplayName),
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Leads => {
-            use crm_leads::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::FullName,
-                Some(Column::Email),
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Opportunities => {
-            use crm_opportunities::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Name,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Quotes => {
-            use crm_quotes::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Name,
-                Some(Column::QuoteNumber),
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Tickets => {
-            use helpdesk_tickets::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Subject,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
+        Table::Companies => live!(companies, Name, DisplayName),
+        Table::People => live!(people, FullName, DisplayName),
+        Table::Leads => live!(crm_leads, FullName, Email),
+        Table::Opportunities => live!(crm_opportunities, Name),
+        Table::Quotes => live!(crm_quotes, Name, QuoteNumber),
+        Table::Tickets => live!(helpdesk_tickets, Subject),
+        // Conversations are not soft-deleted: every row counts.
         Table::Conversations => {
             use desk_conversations::{Column, Entity};
             titled::<Entity>(db, ids, Column::Id, Column::Title, None, None).await
         }
-        Table::Projects => {
-            use projects::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Name,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Tasks => {
-            use tasks::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Title,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Products => {
-            use products::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::Name,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Orders => {
-            use orders::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::OrderNumber,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
-        Table::Invoices => {
-            use invoices::{Column, Entity};
-            titled::<Entity>(
-                db,
-                ids,
-                Column::Id,
-                Column::InvoiceNumber,
-                None,
-                Some(Column::DeletedAt),
-            )
-            .await
-        }
+        Table::Projects => live!(projects, Name),
+        Table::Tasks => live!(tasks, Title),
+        Table::Products => live!(products, Name),
+        Table::Orders => live!(orders, OrderNumber),
+        Table::Invoices => live!(invoices, InvoiceNumber),
     }
 }
 

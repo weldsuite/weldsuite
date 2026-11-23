@@ -20,11 +20,6 @@
 //! events are the TypeScript routes'; their tests run against this crate in
 //! the `core: objects` conformance suites.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod asset_sources;
 mod fields;
 mod grid_views;
