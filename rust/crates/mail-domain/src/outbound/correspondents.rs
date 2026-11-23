@@ -156,11 +156,8 @@ pub async fn add_suppression(
             OnConflict::column(Column::Email)
                 .value(
                     Column::Reason,
-                    Expr::case(
-                        Expr::val(rank).gte(current_rank),
-                        excluded(Column::Reason),
-                    )
-                    .finally(current(Column::Reason)),
+                    Expr::case(Expr::val(rank).gte(current_rank), excluded(Column::Reason))
+                        .finally(current(Column::Reason)),
                 )
                 .value(
                     Column::SenderEmail,

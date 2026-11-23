@@ -9,9 +9,7 @@
 use std::collections::HashMap;
 
 use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, Query, SelectStatement};
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_db::{PgPool, orm, orm_error, utc_timestamp};
@@ -608,10 +606,7 @@ pub async fn mailbox_message(
 /// `getThread(db, messageId)` as the store hands it out
 /// (`getThreadOfMessage`): the conversation of a message, oldest first, as
 /// records with bodies. A message without a thread is a thread of one.
-pub async fn thread_of_message(
-    db: &PgPool,
-    message_id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub async fn thread_of_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, DbErr> {
     let conn = orm(db);
     let anchor: Option<(Option<String>, String)> = mail_messages::Entity::find()
         .select_only()
@@ -684,9 +679,8 @@ pub async fn message_stats(db: &PgPool, account_ids: &[String]) -> Result<Value,
         return Ok(Value::Object(zero));
     }
     // `count(*) filter (where …)::int`.
-    let count_if = |condition: Condition| -> Expr {
-        Func::count(Expr::case(condition, 1)).cast_as("int")
-    };
+    let count_if =
+        |condition: Condition| -> Expr { Func::count(Expr::case(condition, 1)).cast_as("int") };
     let unread = || Column::IsRead.eq(false);
     let live = || in_trash_or_spam().not();
     let in_folder = |label: &str| Condition::all().add(carries(label));
@@ -1071,8 +1065,8 @@ pub async fn update_message_flags(
         None => (None, patch.is_trash, patch.is_spam),
     };
     // Each flag only when the patch (or the labels it mirrors) sets it.
-    let mut update =
-        mail_messages::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)));
+    let mut update = mail_messages::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)));
     for (column, value) in [
         (Column::IsRead, patch.is_read),
         (Column::IsStarred, patch.is_starred),

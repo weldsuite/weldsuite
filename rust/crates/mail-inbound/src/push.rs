@@ -108,7 +108,7 @@ async fn send_expo_push(
 
 /// `workspaceInboxUnread(db, userId)`: the unread inbox count across the
 /// mailboxes the member may open.
-async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, sqlx::Error> {
+async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, sea_orm::DbErr> {
     let accounts = weldsuite_mail_domain::access::accessible_account_ids(db, user_id).await?;
     let stats = weldsuite_mail_domain::messages::message_stats(db, &accounts).await?;
     Ok(stats["inboxUnread"].as_i64().unwrap_or(0))

@@ -109,6 +109,45 @@ pub fn initials_avatar_svg(name: &str) -> String {
     .concat()
 }
 
+/// The `people` row a new address becomes: its names derived from the
+/// display name or the address, `nullif(name, '')` for an empty part.
+fn new_person(
+    id: &str,
+    email: &str,
+    name: Option<&str>,
+    now: time::PrimitiveDateTime,
+) -> people::ActiveModel {
+    let (first, last) = derive_names(email, name);
+    let full = if last.is_empty() {
+        first.clone()
+    } else {
+        format!("{first} {last}").trim().to_owned()
+    };
+    let display = {
+        let combined = format!("{first} {last}").trim().to_owned();
+        if combined.is_empty() {
+            email.to_owned()
+        } else {
+            combined
+        }
+    };
+    let part = |text: String| Some(text).filter(|text| !text.is_empty());
+    people::ActiveModel {
+        id: Set(id.to_owned()),
+        first_name: Set(part(first)),
+        last_name: Set(part(last)),
+        full_name: Set(part(full)),
+        display_name: Set(display),
+        email: Set(Some(email.to_owned())),
+        status: Set("active".to_owned()),
+        in_crm: Set(false),
+        created_at: Set(now),
+        updated_at: Set(now),
+        version: Set(1),
+        ..Default::default()
+    }
+}
+
 /// `upsertMailContactsBatch(db, addresses)`: `(contact id, email, created)`.
 async fn upsert_batch(
     db: &PgPool,
@@ -136,7 +175,10 @@ async fn upsert_batch(
         .select_only()
         .columns([people::Column::Id, people::Column::Email])
         .filter(sea_orm::ExprTrait::is_in(
-            Expr::from(Func::lower(Expr::col((people::Entity, people::Column::Email)))),
+            Expr::from(Func::lower(Expr::col((
+                people::Entity,
+                people::Column::Email,
+            )))),
             emails,
         ))
         .filter(people::Column::DeletedAt.is_null())
@@ -156,42 +198,12 @@ async fn upsert_batch(
             continue;
         }
         let id = generate_id("person");
-        let (first, last) = derive_names(&email, name.as_deref());
-        let full = if last.is_empty() {
-            first.clone()
-        } else {
-            format!("{first} {last}").trim().to_owned()
-        };
-        let display = {
-            let combined = format!("{first} {last}").trim().to_owned();
-            if combined.is_empty() {
-                email.clone()
-            } else {
-                combined
-            }
-        };
-        rows.push((id.clone(), first, last, full, display, email.clone()));
+        rows.push((new_person(&id, &email, name.as_deref(), now), email.clone()));
         results.push((id, email, true));
     }
-    for (id, first, last, full, display, email) in rows {
+    for (person, email) in rows {
         // Row by row, as the batch's per-row fallback: a concurrent insert of
         // the same address loses to the winner.
-        // `nullif(name, '')`: an empty name part is stored as null.
-        let part = |text: String| Some(text).filter(|text| !text.is_empty());
-        let person = people::ActiveModel {
-            id: Set(id),
-            first_name: Set(part(first)),
-            last_name: Set(part(last)),
-            full_name: Set(part(full)),
-            display_name: Set(display),
-            email: Set(Some(email.clone())),
-            status: Set("active".to_owned()),
-            in_crm: Set(false),
-            created_at: Set(now),
-            updated_at: Set(now),
-            version: Set(1),
-            ..Default::default()
-        };
         let inserted = people::Entity::insert(person)
             .exec_without_returning(&conn)
             .await;

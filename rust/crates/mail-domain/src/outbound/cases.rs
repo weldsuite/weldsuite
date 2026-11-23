@@ -55,11 +55,7 @@ pub async fn open_outbound_case(db: &PgPool, input: &OpenCase, now_ms: i64) -> O
 }
 
 #[allow(clippy::too_many_lines)] // one insert, column for column, then the trail
-async fn insert_case(
-    db: &PgPool,
-    input: &OpenCase,
-    now_ms: i64,
-) -> Result<Option<String>, DbErr> {
+async fn insert_case(db: &PgPool, input: &OpenCase, now_ms: i64) -> Result<Option<String>, DbErr> {
     let fingerprint = input.template.as_ref().map(|t| t.fingerprint.clone());
     let dedupe: String = [
         subject_id(input.subject.as_ref()),

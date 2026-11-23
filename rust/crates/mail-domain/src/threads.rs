@@ -26,8 +26,8 @@ use crate::labels::{
     thread_key_of, to_system_label,
 };
 use crate::messages::{
-    contains_pattern, enrich_sender_contacts, in_trash_or_spam, message_record,
-    message_rows, recipient_matches, search_patterns, search_term, sender_matches, wide_rows,
+    contains_pattern, enrich_sender_contacts, in_trash_or_spam, message_record, message_rows,
+    recipient_matches, search_patterns, search_term, sender_matches, wide_rows,
 };
 use crate::outbound::clock::{parse_iso, timestamp};
 
@@ -262,11 +262,7 @@ fn field_pattern(value: Option<&str>) -> Option<String> {
 }
 
 /// `buildThreadScope(db, accountScope, input)`.
-async fn build_scope(
-    db: &PgPool,
-    account_ids: &[String],
-    q: &ThreadQuery,
-) -> Result<Scope, DbErr> {
+async fn build_scope(db: &PgPool, account_ids: &[String], q: &ThreadQuery) -> Result<Scope, DbErr> {
     let search = search_patterns(q.search.as_deref());
     let system = to_system_label(&q.label_slug);
     let mut scope = Scope {
@@ -343,13 +339,11 @@ pub async fn wake_due_snoozed(
     if let Some(account_ids) = account_ids {
         update = update.filter(Column::AccountId.is_in(account_ids));
     }
-    let rows = update_returning(
-        db,
-        update.into_query(),
-        [Column::AccountId, Column::Id],
-    )
-    .await?;
-    Ok(rows.into_iter().map(|[account, id]| (account, id)).collect())
+    let rows = update_returning(db, update.into_query(), [Column::AccountId, Column::Id]).await?;
+    Ok(rows
+        .into_iter()
+        .map(|[account, id]| (account, id))
+        .collect())
 }
 
 /// One page of threads.

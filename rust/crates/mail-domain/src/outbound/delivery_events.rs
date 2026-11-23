@@ -150,8 +150,7 @@ fn sent_to(recipient: &str) -> SelectStatement {
         .expr(Expr::val(1))
         .from_function(Func::cust("jsonb_array_elements").arg(lines), r.clone())
         .cond_where(
-            Expr::from(Func::lower(PgExpr::cast_json_field(Expr::col(r), "email")))
-                .eq(recipient),
+            Expr::from(Func::lower(PgExpr::cast_json_field(Expr::col(r), "email"))).eq(recipient),
         )
         .to_owned()
 }
@@ -190,7 +189,10 @@ pub async fn mark_sent_copy(
     }
     mail_messages::Entity::update_many()
         .col_expr(Column::DeliveryStatus, Expr::value(next))
-        .col_expr(Column::DeliveryUpdatedAt, Expr::value(timestamp(event.at_ms)))
+        .col_expr(
+            Column::DeliveryUpdatedAt,
+            Expr::value(timestamp(event.at_ms)),
+        )
         .col_expr(Column::DeliveryDetail, Expr::value(event.detail.clone()))
         .filter(Column::Id.eq(id))
         .exec(&conn)
@@ -224,7 +226,11 @@ async fn resolve_sender(master: &PgPool, sender: &str) -> Result<Option<SenderRo
     use mail_account_registry::Column;
     let row: Option<RegistryRow> = mail_account_registry::Entity::find()
         .select_only()
-        .columns([Column::WorkspaceId, Column::PersonalAccountId, Column::AccountId])
+        .columns([
+            Column::WorkspaceId,
+            Column::PersonalAccountId,
+            Column::AccountId,
+        ])
         .column(workspaces::Column::ClerkOrgId)
         .join(JoinType::LeftJoin, registry_workspace())
         .filter(Column::Email.eq(sender))

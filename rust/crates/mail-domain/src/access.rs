@@ -106,7 +106,12 @@ pub async fn accessible_account_ids(db: &PgPool, user_id: &str) -> Result<Vec<St
 /// (`assigned_user_ids @> [userId]`), or for an admin or owner assigned to
 /// nobody (`coalesce(assigned_user_ids, '[]')` is `[]` or JSON `null`).
 fn user_access_condition(user_id: &str, admin: bool) -> Condition {
-    let assigned = || Expr::col((mail_accounts::Entity, mail_accounts::Column::AssignedUserIds));
+    let assigned = || {
+        Expr::col((
+            mail_accounts::Entity,
+            mail_accounts::Column::AssignedUserIds,
+        ))
+    };
     let mut open = Condition::any()
         .add(mail_accounts::Column::IsShared.eq(true))
         .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
