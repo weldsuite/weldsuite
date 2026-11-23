@@ -8,6 +8,12 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Test-only, from the binary's `conformance` feature: auto-add is off by
+# default, as on Global, which has no auto-add, so the conformance suites
+# compare mail, meetings and the helpdesk without its extra events.
+conformance = []
+
 [dependencies]
 weldsuite-catalogs = { workspace = true }
 weldsuite-core-domain = { workspace = true }

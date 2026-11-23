@@ -93,7 +93,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Off in conformance builds, which are compared with Global,
+            // where there is no auto-add (the `conformance` feature).
+            enabled: !cfg!(feature = "conformance"),
             create_companies: false,
             sources: Sources::default(),
         }
