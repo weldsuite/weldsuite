@@ -24,10 +24,14 @@ use axum::routing::post;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Presence, Text};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::meeting_sessions::{self, Column as Session};
 use weldsuite_video_rooms::WebhookRegistration;
 
 use crate::js::{iso_of_ms, now_ms, origin_for_path_from, parse_ms, present, request_origin, text};
@@ -716,18 +720,20 @@ async fn update_participants(
         if !changed {
             return Ok(None);
         }
-        let written: Option<String> = sqlx::query_scalar(
-            "update meeting_sessions set participants = $2, updated_at = $3::timestamp
-             where id = $1 and status <> 'ended' and participants = $4::jsonb returning id",
-        )
-        .bind(session_id)
-        .bind(Value::Array(participants.clone()))
-        .bind(crate::now())
-        .bind(Value::Array(current).to_string())
-        .fetch_optional(db)
-        .await
-        .map_err(|e| e.to_string())?;
-        if written.is_some() {
+        // Only while the list is still the one read (`participants = $read`).
+        let written = meeting_sessions::Entity::update_many()
+            .col_expr(
+                Session::Participants,
+                Expr::value(Value::Array(participants.clone())),
+            )
+            .col_expr(Session::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .filter(Session::Id.eq(session_id))
+            .filter(Session::Status.ne("ended"))
+            .filter(Session::Participants.eq(Value::Array(current)))
+            .exec(&orm(db))
+            .await
+            .map_err(|e| e.to_string())?;
+        if written.rows_affected > 0 {
             return Ok(Some((session, participants, flag)));
         }
     }
@@ -1290,15 +1296,21 @@ async fn setup(State(state): State<MeetState>, request: axum::extract::Request) 
 
 /// `legacyRecordingCandidates(db, limit)`: how many sessions still carry
 /// only a legacy recording marker (at most `limit`).
-async fn legacy_candidates(db: &PgPool) -> Result<i64, sqlx::Error> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from meeting_sessions
-         where recording_status is null and (recording_url is not null or recording_key is not null)
-         order by created_at asc limit $1",
-    )
-    .bind(BACKFILL_PER_RUN)
-    .fetch_all(db)
-    .await?;
+async fn legacy_candidates(db: &PgPool) -> Result<i64, DbErr> {
+    let ids: Vec<String> = meeting_sessions::Entity::find()
+        .select_only()
+        .column(Session::Id)
+        .filter(Session::RecordingStatus.is_null())
+        .filter(
+            sea_orm::Condition::any()
+                .add(Session::RecordingUrl.is_not_null())
+                .add(Session::RecordingKey.is_not_null()),
+        )
+        .order_by_asc(Session::CreatedAt)
+        .limit(u64::try_from(BACKFILL_PER_RUN).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(i64::try_from(ids.len()).unwrap_or(0))
 }
 
@@ -1348,10 +1360,13 @@ async fn backfill(State(state): State<MeetState>, request: axum::extract::Reques
         let Some(master) = request_parts.master(&state) else {
             return weldsuite_kit::ApiError::internal().into_response();
         };
-        let rows: Result<Vec<Option<String>>, sqlx::Error> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where is_active = true")
-                .fetch_all(&master)
-                .await;
+        let rows: Result<Vec<Option<String>>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .filter(workspaces::Column::IsActive.eq(true))
+            .into_tuple()
+            .all(&orm(&master))
+            .await;
         let Ok(rows) = rows.inspect_err(|error| {
             tracing::error!(%error, "[RTK Webhook Backfill] workspace list failed");
         }) else {

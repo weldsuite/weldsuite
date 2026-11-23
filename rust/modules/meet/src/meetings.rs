@@ -13,26 +13,38 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait as _,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{MEETING_CREATED, MEETING_DELETED, MEETING_UPDATED};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::meetings::{self, Column as Meeting};
+use weldsuite_schema::tenant::{
+    crm_transcriptions, meeting_sessions, user_preferences, workspace_members,
+};
 use weldsuite_video_rooms::{HOST_PRESET, NewParticipant, RoomOptions};
 
 use crate::attendees::{self, Attendee, Invitee, ResolvedInvitee};
 use crate::billing::{self, BillingError};
 use crate::invitations;
-use crate::js::{iso_of_ms, js_limit, now_ms, query_param, sql_limit, text, truthy};
+use crate::js::{iso_of_ms, js_limit, now_ms, query_param, text};
 use crate::lifecycle;
 use crate::participants::{self, Input};
 use crate::recording::{self, Outcome};
 use crate::sessions::{
-    avatars, build_participant, ensure_presets, leave_other_calls_later, page_of, write_mappings,
+    CursorRow, avatars, before, build_participant, ensure_presets, leave_other_calls_later,
+    limit_of, page_and_count, page_of, write_mappings,
 };
+use crate::table::{iso, js_instant, now_both, row_json, sql_timestamp};
 use crate::tables::MEETINGS;
-use crate::{Caller, MeetState, internal, now, publish, validate};
+use crate::{Caller, MeetState, internal, publish, validate};
 
 const MEETING_DENIED: &str = "You do not have access to this meeting";
 
@@ -142,33 +154,41 @@ async fn live_meeting(
     db: &PgPool,
     id: &str,
     scope: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meetings t
-         where t.id = $1 and t.deleted_at is null and ($2::text is null or t.organizer_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| MEETINGS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    let mut find = meetings::Entity::find_by_id(id.to_owned()).filter(Meeting::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        find = find.filter(Meeting::OrganizerId.eq(scope));
+    }
+    find.one(&orm(db)).await?.map(row_json).transpose()
+}
+
+/// Meetings as Drizzle's `select()` returned them.
+fn js_rows(rows: Vec<meetings::Model>) -> Result<Vec<Value>, DbErr> {
+    rows.into_iter().map(row_json).collect()
+}
+
+/// `{ ...updated columns, updatedAt }` on meeting `id`.
+async fn set_meeting(
+    db: &PgPool,
+    id: &str,
+    values: Vec<(Meeting, Expr)>,
+    live_only: bool,
+) -> Result<(), DbErr> {
+    let mut update = meetings::Entity::update_many();
+    for (column, value) in values {
+        update = update.col_expr(column, value);
+    }
+    update = update.filter(Meeting::Id.eq(id));
+    if live_only {
+        update = update.filter(Meeting::DeletedAt.is_null());
+    }
+    update.exec(&orm(db)).await?;
+    Ok(())
 }
 
 // ============================================================================
 // GET /
 // ============================================================================
-
-const LIST_SQL: &str = "select to_jsonb(t) from meetings t
-     where ($1::boolean or t.deleted_at is null)
-       and ($2::boolean or t.organizer_id = $3)
-       and ($4::boolean or t.title like $5)
-       and ($6::boolean or t.status = any($7))
-       and ($8::boolean or t.attendees @> $9::jsonb)
-       and ($10::boolean or (t.attendees @> $11::jsonb or t.attendees @> $12::jsonb))
-       and ($13::boolean or (t.status in ('scheduled', 'in_progress') and (t.status = 'in_progress' or t.scheduled_start is null or coalesce(t.scheduled_end, t.scheduled_start + interval '1 hour') >= (now() at time zone 'utc'))))
-       and ($14::boolean or (t.status in ('completed', 'failed', 'cancelled') or exists (select 1 from meeting_sessions ms where ms.meeting_id = t.id and ms.status = 'ended')))
-       and ($15::boolean or t.created_at < $16::timestamp or (t.created_at = $16::timestamp and t.id < $17))
-     order by t.created_at desc, t.id desc limit $18";
 
 /// The list's filter values, in the order the route pushes its conditions.
 struct Filters {
@@ -176,53 +196,104 @@ struct Filters {
     search: Option<String>,
     statuses: Option<Vec<String>>,
     counterparty: Option<String>,
-    person: Option<(String, String)>,
+    person: Option<String>,
     upcoming: bool,
     history: bool,
-    cursor: Option<(String, String)>,
+    cursor: Option<CursorRow>,
+}
+
+/// `t.attendees @> '[{ <key>: <value> }]'`.
+fn attendee_with(key: &str, value: &str) -> Condition {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    Condition::all().add(PgExpr::contains(
+        Expr::col((meetings::Entity, Meeting::Attendees)),
+        json!([{ key: value }]),
+    ))
+}
+
+/// `view=upcoming`: scheduled or live, and not over yet (`coalesce(end,
+/// start + 1 hour) >= now() at time zone 'utc'`; a live or unscheduled
+/// meeting always counts).
+fn upcoming_condition() -> Condition {
+    use sea_orm::ExprTrait as _;
+    let start = || Expr::col((meetings::Entity, Meeting::ScheduledStart));
+    let end_or_hour = Func::coalesce([
+        Expr::col((meetings::Entity, Meeting::ScheduledEnd)),
+        start().add(Expr::val("1 hour").cast_as("interval")),
+    ]);
+    let now_utc = Func::cust("timezone")
+        .arg("utc")
+        .arg(Expr::current_timestamp());
+    Condition::all()
+        .add(Meeting::Status.is_in(["scheduled", "in_progress"]))
+        .add(
+            Condition::any()
+                .add(Meeting::Status.eq("in_progress"))
+                .add(Meeting::ScheduledStart.is_null())
+                .add(Expr::expr(end_or_hour).gte(now_utc)),
+        )
+}
+
+/// `view=history`: over, or with an ended session.
+fn history_condition() -> Condition {
+    let ended_session = Query::select()
+        .column((meeting_sessions::Entity, meeting_sessions::Column::Id))
+        .from(meeting_sessions::Entity)
+        .and_where(
+            Expr::col((meeting_sessions::Entity, meeting_sessions::Column::MeetingId))
+                .equals((meetings::Entity, Meeting::Id)),
+        )
+        .and_where(meeting_sessions::Column::Status.eq("ended"))
+        .to_owned();
+    Condition::any()
+        .add(Meeting::Status.is_in(["completed", "failed", "cancelled"]))
+        .add(Expr::exists(ended_session))
 }
 
 impl Filters {
-    /// Whether each condition is there (`[live, scope, search, status,
-    /// counterparty, person, upcoming, history, cursor]`).
-    fn active(&self) -> [bool; 9] {
-        [
-            true,
-            self.scope.is_some(),
-            self.search.is_some(),
-            self.statuses.is_some(),
-            self.counterparty.is_some(),
-            self.person.is_some(),
-            self.upcoming,
-            self.history,
-            self.cursor.is_some(),
+    /// The conditions in the route's order (`[live, scope, search, status,
+    /// counterparty, person, upcoming, history, cursor]`), `None` where the
+    /// query left one out.
+    fn conditions(&self) -> Vec<Option<Condition>> {
+        let one = |condition| Some(Condition::all().add(condition));
+        vec![
+            one(Meeting::DeletedAt.is_null()),
+            self.scope
+                .as_ref()
+                .and_then(|scope| one(Meeting::OrganizerId.eq(scope))),
+            self.search
+                .as_ref()
+                .and_then(|search| one(Meeting::Title.like(search))),
+            self.statuses
+                .as_ref()
+                .and_then(|statuses| one(Meeting::Status.is_in(statuses.clone()))),
+            self.counterparty
+                .as_deref()
+                .map(|id| attendee_with("counterpartyId", id)),
+            self.person.as_deref().map(|id| {
+                Condition::any()
+                    .add(attendee_with("personId", id))
+                    .add(attendee_with("contactId", id))
+            }),
+            self.upcoming.then(upcoming_condition),
+            self.history.then(history_condition),
+            self.cursor
+                .as_ref()
+                .map(|row| before(Meeting::CreatedAt, Meeting::Id, row)),
         ]
     }
+}
 
-    fn bind(
-        &self,
-        sql: &'static str,
-        skip: &[bool; 9],
-    ) -> sqlx::query::QueryScalar<'static, sqlx::Postgres, Value, sqlx::postgres::PgArguments> {
-        sqlx::query_scalar(sql)
-            .bind(skip[0])
-            .bind(skip[1])
-            .bind(self.scope.clone())
-            .bind(skip[2])
-            .bind(self.search.clone())
-            .bind(skip[3])
-            .bind(self.statuses.clone())
-            .bind(skip[4])
-            .bind(self.counterparty.clone())
-            .bind(skip[5])
-            .bind(self.person.as_ref().map(|(a, _)| a.clone()))
-            .bind(self.person.as_ref().map(|(_, b)| b.clone()))
-            .bind(skip[6])
-            .bind(skip[7])
-            .bind(skip[8])
-            .bind(self.cursor.as_ref().map(|(at, _)| at.clone()))
-            .bind(self.cursor.as_ref().map(|(_, id)| id.clone()))
-    }
+/// `select createdAt, id from meetings where id = cursor`.
+async fn cursor_row(db: &PgPool, cursor: &str) -> Result<Option<CursorRow>, DbErr> {
+    let row: Option<CursorRow> = meetings::Entity::find()
+        .select_only()
+        .columns([Meeting::CreatedAt, Meeting::Id])
+        .filter(Meeting::Id.eq(cursor))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(at, id)| (js_instant(at), id)))
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -242,62 +313,40 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let view = query_param(query, "view");
     let cursor = value("cursor");
     let cursor_row = match &cursor {
-        Some(cursor) => {
-            let row: Result<Option<(Option<String>, String)>, sqlx::Error> = sqlx::query_as(
-                "select to_jsonb(t.created_at)#>>'{}', t.id from meetings t where t.id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(db)
-            .await;
-            match row {
-                Ok(row) => row.and_then(|(at, id)| {
-                    at.and_then(|s| weldsuite_db::js_timestamp(&s))
-                        .map(|at| (at, id))
-                }),
-                Err(error) => {
-                    tracing::error!(%error, "meet: cursor lookup failed");
-                    return ApiError::internal().into_response();
-                }
+        Some(cursor) => match cursor_row(db, cursor).await {
+            Ok(row) => row,
+            Err(error) => {
+                tracing::error!(%error, "meet: cursor lookup failed");
+                return ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
     let filters = Filters {
         scope: scope(&caller),
         search: value("search").map(|s| format!("%{s}%")),
         statuses,
-        counterparty: value("counterpartyId")
-            .map(|id| json!([{ "counterpartyId": id }]).to_string()),
-        person: value("personId").map(|id| {
-            (
-                json!([{ "personId": id }]).to_string(),
-                json!([{ "contactId": id }]).to_string(),
-            )
-        }),
+        counterparty: value("counterpartyId"),
+        person: value("personId"),
         upcoming: view.as_deref() == Some("upcoming"),
         history: view.as_deref() == Some("history"),
         cursor: cursor_row,
     };
-    let active = filters.active();
-    let page = active.map(|a| !a);
-    let mut count = page;
-    if cursor.is_some()
-        && let Some(last) = count.iter().rposition(|skip| !skip)
-    {
-        count[last] = true;
-    }
-    let rows: Result<Vec<Value>, sqlx::Error> = filters
-        .bind(LIST_SQL, &page)
-        .bind(sql_limit(limit + 1.0))
-        .fetch_all(db)
-        .await;
-    let total: Result<Value, sqlx::Error> =
-        filters.bind(COUNT_SQL_JSON, &count).fetch_one(db).await;
+    let (page, count) = page_and_count(filters.conditions(), cursor.is_some());
+    let tenant = &orm(db);
+    let rows = meetings::Entity::find()
+        .filter(page)
+        .order_by_desc(Meeting::CreatedAt)
+        .order_by_desc(Meeting::Id)
+        .limit(limit_of(limit + 1.0))
+        .all(tenant)
+        .await
+        .and_then(js_rows);
+    let total = meetings::Entity::find().filter(count).count(tenant).await;
     let (rows, total) = match (rows, total) {
-        (Ok(rows), Ok(total)) => (rows, total.as_i64().unwrap_or(0)),
+        (Ok(rows), Ok(total)) => (rows, i64::try_from(total).unwrap_or(i64::MAX)),
         (Err(error), _) | (_, Err(error)) => return internal(&error, "Failed to list meetings"),
     };
-    let rows: Vec<Value> = rows.into_iter().map(|r| MEETINGS.js(r)).collect();
     let include_last = query_param(query, "include")
         .unwrap_or_default()
         .split(',')
@@ -308,18 +357,6 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     }
 }
 
-/// The list's count as a JSON scalar, so both statements bind alike.
-const COUNT_SQL_JSON: &str = "select to_jsonb(c.n) from (select count(*) as n from meetings t
-     where ($1::boolean or t.deleted_at is null)
-       and ($2::boolean or t.organizer_id = $3)
-       and ($4::boolean or t.title like $5)
-       and ($6::boolean or t.status = any($7))
-       and ($8::boolean or t.attendees @> $9::jsonb)
-       and ($10::boolean or (t.attendees @> $11::jsonb or t.attendees @> $12::jsonb))
-       and ($13::boolean or (t.status in ('scheduled', 'in_progress') and (t.status = 'in_progress' or t.scheduled_start is null or coalesce(t.scheduled_end, t.scheduled_start + interval '1 hour') >= (now() at time zone 'utc'))))
-       and ($14::boolean or (t.status in ('completed', 'failed', 'cancelled') or exists (select 1 from meeting_sessions ms where ms.meeting_id = t.id and ms.status = 'ended')))
-       and ($15::boolean or t.created_at < $16::timestamp or (t.created_at = $16::timestamp and t.id < $17))) c";
-
 /// `decorateMeetings(db, rows, include)`: each meeting's `organizer` and,
 /// with `?include=lastSession`, its newest session.
 async fn decorate(
@@ -327,7 +364,8 @@ async fn decorate(
     master: Option<&PgPool>,
     rows: &[Value],
     include_last: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    let tenant = &orm(db);
     let mut organizer_ids: Vec<String> = Vec::new();
     for row in rows {
         if let Some(id) = text(row, "organizerId")
@@ -338,12 +376,18 @@ async fn decorate(
     }
     let mut organizers: HashMap<String, Value> = HashMap::new();
     if !organizer_ids.is_empty() {
-        let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, email from workspace_members where user_id = any($1)",
-        )
-        .bind(&organizer_ids)
-        .fetch_all(db)
-        .await?;
+        let members: Vec<(String, Option<String>, Option<String>)> =
+            workspace_members::Entity::find()
+                .select_only()
+                .columns([
+                    workspace_members::Column::UserId,
+                    workspace_members::Column::Name,
+                    workspace_members::Column::Email,
+                ])
+                .filter(workspace_members::Column::UserId.is_in(organizer_ids.clone()))
+                .into_tuple()
+                .all(tenant)
+                .await?;
         // Avatars are account pictures, not the member row's copy.
         let pictures = weldsuite_db::AccountPictures::load(master, &organizer_ids).await;
         for (user, name, email) in members {
@@ -363,16 +407,17 @@ async fn decorate(
             .iter()
             .filter_map(|r| text(r, "id").map(str::to_owned))
             .collect();
-        let sessions: Vec<Value> = sqlx::query_scalar(
-            "select distinct on (t.meeting_id) to_jsonb(t) from meeting_sessions t
-             where t.meeting_id = any($1)
-             order by t.meeting_id, t.created_at desc, t.id desc",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?;
+        // `distinct on (meeting_id)`: each meeting's newest session.
+        let sessions = meeting_sessions::Entity::find()
+            .distinct_on([meeting_sessions::Column::MeetingId])
+            .filter(meeting_sessions::Column::MeetingId.is_in(ids))
+            .order_by_asc(meeting_sessions::Column::MeetingId)
+            .order_by_desc(meeting_sessions::Column::CreatedAt)
+            .order_by_desc(meeting_sessions::Column::Id)
+            .all(tenant)
+            .await?;
         for session in sessions {
-            let s = crate::tables::MEETING_SESSIONS.js(session);
+            let s = row_json(session)?;
             let participants: Vec<Value> = s["participants"]
                 .as_array()
                 .map(|all| {
@@ -459,28 +504,44 @@ async fn upcoming(caller: Caller, RawQuery(query): RawQuery) -> Response {
     }
     #[allow(clippy::cast_possible_truncation)]
     let future = iso_of_ms(future as i64);
-    let needle = json!([{ "userId": caller.user_id }]).to_string();
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from meetings t
-         where t.deleted_at is null and (t.status = 'scheduled' or t.status = 'in_progress')
-           and (t.organizer_id = $1 or t.attendees::jsonb @> $2::jsonb)
-           and t.scheduled_start >= $3::timestamp and t.scheduled_start <= $4::timestamp
-         order by t.scheduled_start limit $5",
-    )
-    .bind(&caller.user_id)
-    .bind(&needle)
-    .bind(iso_of_ms(now))
-    .bind(&future)
-    .bind(sql_limit(limit))
-    .fetch_all(&caller.db)
-    .await;
+    let rows = upcoming_rows(&caller, &iso_of_ms(now), &future, limit).await;
     match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter().map(|r| MEETINGS.js(r)).collect(),
-        ))
-        .into_response(),
+        Ok(rows) => Data(Value::Array(rows)).into_response(),
         Err(error) => internal(&error, "Failed to list upcoming meetings"),
     }
+}
+
+/// The caller's live meetings (organized, or attended) starting between
+/// `from` and `to` (`toISOString()` texts), soonest first.
+async fn upcoming_rows(
+    caller: &Caller,
+    from: &str,
+    to: &str,
+    limit: f64,
+) -> Result<Vec<Value>, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let rows = meetings::Entity::find()
+        .filter(Meeting::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(Meeting::Status.eq("scheduled"))
+                .add(Meeting::Status.eq("in_progress")),
+        )
+        .filter(
+            Condition::any()
+                .add(Meeting::OrganizerId.eq(&caller.user_id))
+                .add(PgExpr::contains(
+                    Expr::col((meetings::Entity, Meeting::Attendees)),
+                    json!([{ "userId": caller.user_id }]),
+                )),
+        )
+        .filter(Meeting::ScheduledStart.gte(sql_timestamp(from)?))
+        .filter(Meeting::ScheduledStart.lte(sql_timestamp(to)?))
+        .order_by_asc(Meeting::ScheduledStart)
+        .limit(limit_of(limit))
+        .all(&orm(&caller.db))
+        .await?;
+    js_rows(rows)
 }
 
 async fn recordings(caller: Caller) -> Response {
@@ -488,58 +549,118 @@ async fn recordings(caller: Caller) -> Response {
         return *response;
     }
     let scope = scope(&caller);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object(
-             'sessionId', ms.id,
-             'meetingId', ms.meeting_id,
-             'cfAppId', ms.cf_app_id,
-             'recordingStatus', ms.recording_status,
-             'recordingAudioKey', ms.recording_audio_key,
-             'recordingDurationSeconds', ms.recording_duration_seconds,
-             'recordingSizeBytes', ms.recording_size_bytes,
-             'summaryStatus', ms.summary_status,
-             'hasTranscript', exists (select 1 from crm_transcriptions ct where ct.activity_id = ms.id and ct.status = 'completed'),
-             'startedAt', ms.started_at,
-             'endedAt', ms.ended_at,
-             'duration', ms.duration,
-             'maxParticipants', ms.max_participants,
-             'meetingTitle', t.title,
-             'meetingType', t.meeting_type)
-         from meeting_sessions ms inner join meetings t on ms.meeting_id = t.id
-         where (ms.recording_status is not null or ms.recording_url is not null or ms.recording_key is not null)
-           and (ms.recording_status is null or ms.recording_status <> 'deleted')
-           and t.deleted_at is null
-           and ($1::text is null or t.organizer_id = $1)
-         order by ms.started_at desc limit 50",
-    )
-    .bind(scope)
-    .fetch_all(&caller.db)
-    .await;
-    let rows = match rows {
+    let rows = match recorded_sessions(&caller.db, scope.as_deref()).await {
         Ok(rows) => rows,
         Err(error) => return internal(&error, "Failed to list recordings"),
     };
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|mut row| {
-            let audio = row
-                .as_object_mut()
-                .and_then(|o| o.remove("recordingAudioKey"));
-            let summary = row.as_object_mut().and_then(|o| o.remove("summaryStatus"));
-            for key in ["startedAt", "endedAt"] {
-                if let Some(stamp) = row[key].as_str().and_then(weldsuite_db::js_timestamp) {
-                    row[key] = json!(stamp);
-                }
-            }
-            row["recordingUrl"] = Value::Null;
-            row["recordingKey"] = Value::Null;
-            row["hasAudio"] = json!(truthy(audio.as_ref()));
-            row["hasSummary"] =
-                json!(summary.as_ref().and_then(Value::as_str) == Some("completed"));
-            row
-        })
-        .collect();
+    let items: Vec<Value> = rows.into_iter().map(RecordedSession::into_json).collect();
     Data(Value::Array(items)).into_response()
+}
+
+/// A session with recorder state, with its meeting's title and type.
+#[derive(Debug, FromQueryResult)]
+struct RecordedSession {
+    session_id: String,
+    meeting_id: String,
+    cf_app_id: Option<String>,
+    recording_status: Option<String>,
+    recording_audio_key: Option<String>,
+    recording_duration_seconds: Option<i32>,
+    recording_size_bytes: Option<i64>,
+    summary_status: Option<String>,
+    has_transcript: bool,
+    started_at: Option<PrimitiveDateTime>,
+    ended_at: Option<PrimitiveDateTime>,
+    duration: Option<i32>,
+    max_participants: i32,
+    meeting_title: String,
+    meeting_type: String,
+}
+
+impl RecordedSession {
+    /// The list item: the audio key and summary status become flags, the
+    /// legacy URL and key are never shown.
+    fn into_json(self) -> Value {
+        json!({
+            "sessionId": self.session_id,
+            "meetingId": self.meeting_id,
+            "cfAppId": self.cf_app_id,
+            "recordingStatus": self.recording_status,
+            "recordingDurationSeconds": self.recording_duration_seconds,
+            "recordingSizeBytes": self.recording_size_bytes,
+            "hasTranscript": self.has_transcript,
+            "startedAt": self.started_at.map(iso),
+            "endedAt": self.ended_at.map(iso),
+            "duration": self.duration,
+            "maxParticipants": self.max_participants,
+            "meetingTitle": self.meeting_title,
+            "meetingType": self.meeting_type,
+            "recordingUrl": null,
+            "recordingKey": null,
+            "hasAudio": self.recording_audio_key.is_some_and(|key| !key.is_empty()),
+            "hasSummary": self.summary_status.as_deref() == Some("completed"),
+        })
+    }
+}
+
+/// The 50 latest recorded sessions of live meetings (`scope`'s only when
+/// given), newest first; deleted recordings left out.
+async fn recorded_sessions(
+    db: &PgPool,
+    scope: Option<&str>,
+) -> Result<Vec<RecordedSession>, DbErr> {
+    use meeting_sessions::Column as S;
+    let transcribed = Query::select()
+        .column((crm_transcriptions::Entity, crm_transcriptions::Column::Id))
+        .from(crm_transcriptions::Entity)
+        .and_where(
+            Expr::col((crm_transcriptions::Entity, crm_transcriptions::Column::ActivityId))
+                .equals((meeting_sessions::Entity, S::Id)),
+        )
+        .and_where(crm_transcriptions::Column::Status.eq("completed"))
+        .to_owned();
+    let meeting = meeting_sessions::Entity::belongs_to(meetings::Entity)
+        .from(S::MeetingId)
+        .to(Meeting::Id)
+        .into();
+    let mut find = meeting_sessions::Entity::find()
+        .select_only()
+        .column_as(S::Id, "session_id")
+        .column_as(S::MeetingId, "meeting_id")
+        .column(S::CfAppId)
+        .column(S::RecordingStatus)
+        .column(S::RecordingAudioKey)
+        .column(S::RecordingDurationSeconds)
+        .column(S::RecordingSizeBytes)
+        .column(S::SummaryStatus)
+        .column_as(Expr::exists(transcribed), "has_transcript")
+        .column(S::StartedAt)
+        .column(S::EndedAt)
+        .column(S::Duration)
+        .column(S::MaxParticipants)
+        .column_as(Meeting::Title, "meeting_title")
+        .column_as(Meeting::MeetingType, "meeting_type")
+        .join(JoinType::InnerJoin, meeting)
+        .filter(
+            Condition::any()
+                .add(S::RecordingStatus.is_not_null())
+                .add(S::RecordingUrl.is_not_null())
+                .add(S::RecordingKey.is_not_null()),
+        )
+        .filter(
+            Condition::any()
+                .add(S::RecordingStatus.is_null())
+                .add(S::RecordingStatus.ne("deleted")),
+        )
+        .filter(Meeting::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        find = find.filter(Meeting::OrganizerId.eq(scope));
+    }
+    find.order_by_desc(S::StartedAt)
+        .limit(50)
+        .into_model::<RecordedSession>()
+        .all(&orm(db))
+        .await
 }
 
 async fn ai_pricing(State(state): State<MeetState>, caller: Caller) -> Response {
@@ -575,14 +696,14 @@ async fn join_code(caller: Caller, Path(code): Path<String>) -> Response {
     if let Err(response) = org_of(&caller) {
         return *response;
     }
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from meetings t where t.join_code = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(&code)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = meetings::Entity::find()
+        .filter(Meeting::JoinCode.eq(&code))
+        .filter(Meeting::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(row_json).transpose());
     match row {
-        Ok(Some(row)) => Data(MEETINGS.js(row)).into_response(),
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => ApiError::not_found("Meeting", None).into_response(),
         Err(error) => internal(&error, "Failed to resolve join code"),
     }
@@ -664,12 +785,17 @@ async fn instant(
     started: i64,
 ) -> Result<Response, String> {
     let db = &caller.db;
-    let member: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, email from workspace_members where user_id = $1 limit 1")
-            .bind(&caller.user_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?;
+    let member: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(&caller.user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     let (name, email) = member.unwrap_or((None, None));
     // The avatar is the account picture, not the member row's copy.
     let picture =
@@ -680,7 +806,7 @@ async fn instant(
     let meeting_id = generate_id("mtg");
     let session_id = generate_id("msess");
     let join_code = join_code_new();
-    let now = now();
+    let (now, stamp) = now_both();
     let title = input
         .title
         .clone()
@@ -757,40 +883,46 @@ async fn instant(
     if let Some(person) = link.person_id.as_deref().filter(|p| !p.is_empty()) {
         organizer.insert("personId".into(), json!(person));
     }
-    sqlx::query(
-        "insert into meetings (id, title, organizer_id, attendees, meeting_type, status, access_type,
-             waiting_room, allow_recording, join_code, active_session_id, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, 'in_progress', $6, $7, true, $8, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&meeting_id)
-    .bind(&title)
-    .bind(&caller.user_id)
-    .bind(json!([organizer]))
-    .bind(&meeting_type)
-    .bind(&access_type)
-    .bind(waiting_room)
-    .bind(&join_code)
-    .bind(&session_id)
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "insert into meeting_sessions (id, meeting_id, session_type, status, cf_app_id, started_by,
-             started_by_name, participants, max_participants, started_at, created_at, updated_at)
-         values ($1, $2, $3, 'active', $4, $5, $6, $7, 1, $8::timestamp, $8::timestamp, $8::timestamp)",
-    )
-    .bind(&session_id)
-    .bind(&meeting_id)
-    .bind(&meeting_type)
-    .bind(&room)
-    .bind(&caller.user_id)
-    .bind(&user_name)
-    .bind(json!([first]))
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let tenant = &orm(db);
+    let meeting = meetings::ActiveModel {
+        id: Set(meeting_id.clone()),
+        title: Set(title.clone()),
+        organizer_id: Set(caller.user_id.clone()),
+        attendees: Set(Some(json!([organizer]))),
+        meeting_type: Set(meeting_type.clone()),
+        status: Set("in_progress".to_owned()),
+        access_type: Set(access_type),
+        waiting_room: Set(Some(waiting_room)),
+        allow_recording: Set(Some(true)),
+        join_code: Set(Some(join_code.clone())),
+        active_session_id: Set(Some(session_id.clone())),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    };
+    meetings::Entity::insert(meeting)
+        .exec_without_returning(tenant)
+        .await
+        .map_err(|e| e.to_string())?;
+    let session = meeting_sessions::ActiveModel {
+        id: Set(session_id.clone()),
+        meeting_id: Set(meeting_id.clone()),
+        session_type: Set(meeting_type),
+        status: Set("active".to_owned()),
+        cf_app_id: Set(Some(room.clone())),
+        started_by: Set(caller.user_id.clone()),
+        started_by_name: Set(user_name),
+        participants: Set(Some(json!([first]))),
+        max_participants: Set(1),
+        started_at: Set(Some(stamp)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    };
+    meeting_sessions::Entity::insert(session)
+        .exec_without_returning(tenant)
+        .await
+        .map_err(|e| e.to_string())?;
     timings.insert("dbWrite".into(), json!(now_ms() - t0));
     write_mappings(state, caller, &room, org, &session_id, &meeting_id);
     timings.insert("total".into(), json!(now_ms() - t0));
@@ -827,7 +959,7 @@ async fn cancel(
         Ok(org) => org,
         Err(response) => return *response,
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(existing) = live_meeting(&caller.db, &id, None).await? else {
             return Ok(ApiError::not_found("Meeting", Some(&id)).into_response());
         };
@@ -839,11 +971,16 @@ async fn cancel(
         if text(&existing, "status") == Some("cancelled") {
             return Ok(ApiError::bad_request("Meeting is already cancelled").into_response());
         }
-        sqlx::query("update meetings set status = 'cancelled', updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        set_meeting(
+            &caller.db,
+            &id,
+            vec![
+                (Meeting::Status, Expr::value("cancelled")),
+                (Meeting::UpdatedAt, Expr::value(weldsuite_db::utc_now())),
+            ],
+            false,
+        )
+        .await?;
         publish::meeting_updated(&state, &org, json!({ "meetingId": id, "status": "cancelled" })).await;
         caller.publish(
             &state,
@@ -985,12 +1122,14 @@ async fn invite_people(
             .as_deref()
             .filter(|m| !m.is_empty())
         {
-            let user: Option<String> =
-                sqlx::query_scalar("select user_id from workspace_members where id = $1 limit 1")
-                    .bind(member)
-                    .fetch_optional(db)
-                    .await
-                    .map_err(|e| e.to_string())?;
+            let user: Option<String> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::UserId)
+                .filter(workspace_members::Column::Id.eq(member))
+                .into_tuple()
+                .one(&orm(db))
+                .await
+                .map_err(|e| e.to_string())?;
             user_id = user.unwrap_or_default();
         }
         let name = link
@@ -1011,13 +1150,15 @@ async fn invite_people(
     let (all, added, already) = attendees::merge_invitees(&current, &resolved);
     if !added.is_empty() {
         let list: Vec<Value> = all.iter().cloned().map(Value::Object).collect();
-        sqlx::query(
-            "update meetings set attendees = $2, updated_at = $3::timestamp where id = $1 and deleted_at is null",
+        set_meeting(
+            db,
+            id,
+            vec![
+                (Meeting::Attendees, Expr::value(Value::Array(list))),
+                (Meeting::UpdatedAt, Expr::value(weldsuite_db::utc_now())),
+            ],
+            true,
         )
-        .bind(id)
-        .bind(Value::Array(list))
-        .bind(now())
-        .execute(db)
         .await
         .map_err(|e| e.to_string())?;
         caller.publish(
@@ -1034,15 +1175,28 @@ async fn invite_people(
         .await;
         crate::crm::auto_add_invitees(state, caller, db, &added).await;
     }
-    let people: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select wm.user_id, wm.name, wm.email, up.timezone from workspace_members wm
-         left join user_preferences up on up.user_id = wm.user_id
-         where wm.user_id = any($1)",
-    )
-    .bind(vec![caller.user_id.clone(), organizer_id.clone()])
-    .fetch_all(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let preferences = workspace_members::Entity::belongs_to(user_preferences::Entity)
+        .from(workspace_members::Column::UserId)
+        .to(user_preferences::Column::UserId)
+        .into();
+    let people: Vec<(String, Option<String>, Option<String>, Option<String>)> =
+        workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .column(user_preferences::Column::Timezone)
+            .join(JoinType::LeftJoin, preferences)
+            .filter(
+                workspace_members::Column::UserId
+                    .is_in([caller.user_id.clone(), organizer_id.clone()]),
+            )
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(|e| e.to_string())?;
     let inviter = people.iter().find(|p| p.0 == caller.user_id);
     let organizer = people.iter().find(|p| p.0 == organizer_id).or(inviter);
     let portal = invitations::portal_url(caller.parts.env("MEETING_PORTAL_URL").as_deref());
@@ -1112,13 +1266,15 @@ async fn recorded_session(
     meeting_id: &str,
     legacy_ok: bool,
 ) -> Result<Result<Option<Value>, Response>, String> {
-    let organizer: Option<String> = sqlx::query_scalar(
-        "select organizer_id from meetings where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(meeting_id)
-    .fetch_optional(&caller.db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let organizer: Option<String> = meetings::Entity::find()
+        .select_only()
+        .column(Meeting::OrganizerId)
+        .filter(Meeting::Id.eq(meeting_id))
+        .filter(Meeting::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(organizer) = organizer else {
         return Ok(Err(
             ApiError::not_found("Meeting", Some(meeting_id)).into_response()
@@ -1605,11 +1761,13 @@ async fn create(
         && asked != caller.user_id
         && scope(&caller).is_none()
     {
-        let member: Result<Option<String>, sqlx::Error> =
-            sqlx::query_scalar("select id from workspace_members where user_id = $1 limit 1")
-                .bind(asked)
-                .fetch_optional(db)
-                .await;
+        let member: Result<Option<String>, DbErr> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Id)
+            .filter(workspace_members::Column::UserId.eq(asked))
+            .into_tuple()
+            .one(&orm(db))
+            .await;
         match member {
             Ok(Some(_)) => organizer_id = asked.to_owned(),
             Ok(None) => {
@@ -1661,7 +1819,7 @@ async fn create(
         .map_err(|e| e.to_string())?;
         let table = &MEETINGS;
         let mut values = writable(&body, resolved.as_deref());
-        let now = now();
+        let now = crate::now();
         table.set(&mut values, "title", title.clone());
         table.set(
             &mut values,
@@ -1738,7 +1896,7 @@ async fn update(
         };
         let table = &MEETINGS;
         let mut values = writable(&body, resolved.as_deref());
-        table.set(&mut values, "updatedAt", json!(now()));
+        table.set(&mut values, "updatedAt", json!(crate::now()));
         let changed: Option<String> = {
             let row = table
                 .patch(db, &id, values, true, TRUSTED)
@@ -1806,7 +1964,7 @@ async fn host_controls(
         }
         let table = &MEETINGS;
         let mut values = Map::new();
-        table.set(&mut values, "updatedAt", json!(now()));
+        table.set(&mut values, "updatedAt", json!(crate::now()));
         for (key, value) in &input {
             table.set(&mut values, key, value.clone());
         }
@@ -1845,16 +2003,21 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let scope = scope(&caller);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(existing) = live_meeting(&caller.db, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Meeting", Some(&id)).into_response());
         };
-        let now = now();
-        sqlx::query("update meetings set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+        let now = weldsuite_db::utc_now();
+        set_meeting(
+            &caller.db,
+            &id,
+            vec![
+                (Meeting::DeletedAt, Expr::value(now)),
+                (Meeting::UpdatedAt, Expr::value(now)),
+            ],
+            false,
+        )
+        .await?;
         caller.publish(
             &state,
             MEETING_DELETED,

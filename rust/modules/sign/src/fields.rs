@@ -10,10 +10,15 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use time::Duration;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{Data, generate_id};
+use weldsuite_schema::tenant::sign_fields;
 
 use crate::envelopes::{
     field_dto, list_documents, list_fields, list_recipients, load_draft, load_template,
@@ -183,72 +188,66 @@ async fn replace_fields(
         ids.push(id);
     }
 
+    let orm = &orm(db);
     if !fields.is_empty() {
         // One statement, as Drizzle's multi-row insert. Fields are listed by
         // `created_at`, so new ones are a millisecond apart in the order sent
         // (as `replaceFields` stamps them); a kept field keeps its own.
-        sqlx::query(
-            "insert into sign_fields
-                 (id, created_at, envelope_id, document_id, recipient_id, type, page, x, y,
-                  width, height, required, label)
-             select u.id, $13::timestamptz + (u.n - 1) * interval '1 millisecond', $2,
-                    u.document_id, u.recipient_id, u.type, u.page, u.x, u.y, u.width,
-                    u.height, u.required, u.label
-             from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::varchar[], $6::int[],
-                         $7::float8[], $8::float8[], $9::float8[], $10::float8[], $11::bool[],
-                         $12::varchar[]) with ordinality
-                  as u(id, document_id, recipient_id, type, page, x, y, width, height, required,
-                       label, n)
-             on conflict (id) do update set
-                 document_id = excluded.document_id,
-                 recipient_id = excluded.recipient_id,
-                 type = excluded.type,
-                 page = excluded.page,
-                 x = excluded.x,
-                 y = excluded.y,
-                 width = excluded.width,
-                 height = excluded.height,
-                 required = excluded.required,
-                 label = excluded.label,
-                 updated_at = $13::timestamptz",
-        )
-        .bind(&ids)
-        .bind(envelope_id)
-        .bind(
-            fields
-                .iter()
-                .map(|f| f.document_id.clone())
-                .collect::<Vec<_>>(),
-        )
-        .bind(
-            fields
-                .iter()
-                .map(|f| f.recipient_id.clone())
-                .collect::<Vec<_>>(),
-        )
-        .bind(fields.iter().map(|f| f.kind.clone()).collect::<Vec<_>>())
-        .bind(
-            fields
-                .iter()
-                .map(|f| i32::try_from(f.page).unwrap_or(i32::MAX))
-                .collect::<Vec<_>>(),
-        )
-        .bind(fields.iter().map(|f| f.x).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.y).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.width).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.height).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.required).collect::<Vec<_>>())
-        .bind(fields.iter().map(|f| f.label.clone()).collect::<Vec<_>>())
-        .bind(crate::now())
-        .execute(db)
-        .await?;
+        let now = crate::now();
+        let rows = fields.into_iter().zip(&ids).zip(0i64..).map(|((f, id), n)| {
+            sign_fields::ActiveModel {
+                id: Set(id.clone()),
+                created_at: Set(now + Duration::milliseconds(n)),
+                envelope_id: Set(envelope_id.to_owned()),
+                document_id: Set(f.document_id),
+                recipient_id: Set(f.recipient_id),
+                type_: Set(f.kind),
+                page: Set(i32::try_from(f.page).unwrap_or(i32::MAX)),
+                x: Set(real(f.x)),
+                y: Set(real(f.y)),
+                width: Set(real(f.width)),
+                height: Set(real(f.height)),
+                required: Set(f.required),
+                label: Set(f.label),
+                ..Default::default()
+            }
+        });
+        let upsert = OnConflict::column(sign_fields::Column::Id)
+            .update_columns([
+                sign_fields::Column::DocumentId,
+                sign_fields::Column::RecipientId,
+                sign_fields::Column::Type,
+                sign_fields::Column::Page,
+                sign_fields::Column::X,
+                sign_fields::Column::Y,
+                sign_fields::Column::Width,
+                sign_fields::Column::Height,
+                sign_fields::Column::Required,
+                sign_fields::Column::Label,
+            ])
+            .value(sign_fields::Column::UpdatedAt, Expr::value(now))
+            .to_owned();
+        sign_fields::Entity::insert_many(rows)
+            .on_conflict(upsert)
+            .exec_without_returning(orm)
+            .await?;
     }
-    sqlx::query("delete from sign_fields where envelope_id = $1 and not (id = any($2))")
-        .bind(envelope_id)
-        .bind(&ids)
-        .execute(db)
+    sign_fields::Entity::delete_many()
+        .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_fields::Column::Id.is_not_in(ids.iter().map(String::as_str)))
+        .exec(orm)
         .await?;
     list_fields(db, envelope_id).await
+}
+
+/// A coordinate as the `real` column stores it (Postgres's `float8` to
+/// `float4` assignment rounds to the nearest, as `as` does).
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "a point on a page, bounded by its size"
+)]
+fn real(n: f64) -> f32 {
+    n as f32
 }
 
 /// `PUT /api/sign/envelopes/:id/fields`.

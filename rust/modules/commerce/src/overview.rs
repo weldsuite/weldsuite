@@ -127,7 +127,7 @@ async fn order_counts(db: &DatabaseConnection) -> Result<Value, DbErr> {
 
 /// Revenue of the last 30 days in one currency.
 #[derive(Debug, FromQueryResult, Serialize)]
-struct Revenue {
+struct CurrencyRevenue {
     currency: String,
     orders: i32,
     #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
@@ -177,7 +177,7 @@ fn revenue_statement() -> SelectStatement {
 /// Revenue of the last 30 days per currency, as decimal strings (numeric
 /// columns are never floats here), biggest first.
 async fn revenue(db: &DatabaseConnection) -> Result<Value, DbErr> {
-    let rows = Revenue::find_by_statement(DbBackend::Postgres.build(&revenue_statement()))
+    let rows = CurrencyRevenue::find_by_statement(DbBackend::Postgres.build(&revenue_statement()))
         .all(db)
         .await?;
     serde_json::to_value(rows).map_err(|error| DbErr::Json(error.to_string()))

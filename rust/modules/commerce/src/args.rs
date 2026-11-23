@@ -290,6 +290,28 @@ mod tests {
         );
     }
 
+    /// The rows after the cursor's in a keyset order, every row when the
+    /// cursor's row is gone.
+    #[test]
+    fn a_cursor_compares_the_keyset_with_its_row() {
+        use sea_orm::{DbBackend, QueryTrait};
+        use weldsuite_schema::tenant::discounts;
+        let statement = discounts::Entity::find()
+            .select_only()
+            .column(discounts::Column::Id)
+            .filter(after_cursor::<discounts::Entity>(
+                discounts::Column::CreatedAt,
+                discounts::Column::Id,
+                "disc_1",
+                true,
+            ))
+            .build(DbBackend::Postgres);
+        assert_eq!(
+            statement.sql,
+            r#"SELECT "discounts"."id" FROM "discounts" WHERE (NOT EXISTS(SELECT $1 FROM "discounts" WHERE "discounts"."id" = $2)) OR ("discounts"."created_at", "discounts"."id") < (SELECT "c"."created_at", "c"."id" FROM "discounts" AS "c" WHERE "c"."id" = $3)"#
+        );
+    }
+
     #[test]
     fn a_count_drops_the_last_condition_on_a_cursor() {
         assert_eq!(sliced(vec![true, false, true, false], true), [

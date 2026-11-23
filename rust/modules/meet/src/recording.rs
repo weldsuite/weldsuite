@@ -22,10 +22,16 @@ use axum::routing::{delete, get, post};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::HeaderMap;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    crm_transcript_segments, crm_transcriptions, meeting_sessions, meetings,
+};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, CreditShortfall, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -34,8 +40,8 @@ use weldsuite_video_rooms::RoomOptions;
 use crate::billing::{self, BillingError};
 use crate::js::{iso_of_ms, now_ms, origin_for_path_from, parse_ms, text, truthy};
 use crate::lifecycle;
-use crate::table::WriteError;
-use crate::tables::{CRM_TRANSCRIPTIONS, MEETING_SESSIONS};
+use crate::table::{WriteError, row_json};
+use crate::tables::MEETING_SESSIONS;
 use crate::{Caller, MeetState, internal, now, optional_json, validate};
 
 /// `RECORDING_DENIED`.
@@ -105,7 +111,7 @@ where
 pub(crate) type Outcome = Result<Response, String>;
 
 #[allow(clippy::needless_pass_by_value)] // `map_err(db_error)`
-fn db_error(error: sqlx::Error) -> String {
+fn db_error(error: DbErr) -> String {
     error.to_string()
 }
 
@@ -294,14 +300,13 @@ pub(crate) fn safe_filename(title: Option<&str>, ext: &str) -> String {
 pub(crate) async fn find_transcription(
     db: &PgPool,
     activity_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_transcriptions t where t.activity_id = $1 limit 1",
-    )
-    .bind(activity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| CRM_TRANSCRIPTIONS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    crm_transcriptions::Entity::find()
+        .filter(crm_transcriptions::Column::ActivityId.eq(activity_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 fn or_null(value: Option<&Value>) -> Value {
@@ -317,7 +322,7 @@ fn iso(value: &Value) -> Value {
 }
 
 /// `buildRecordingInfo(db, session)`.
-pub(crate) async fn recording_info(db: &PgPool, session: &Value) -> Result<Value, sqlx::Error> {
+pub(crate) async fn recording_info(db: &PgPool, session: &Value) -> Result<Value, DbErr> {
     let id = text(session, "id").unwrap_or_default();
     let transcription = find_transcription(db, id).await?;
     let parts: Vec<Value> = session["recordingParts"]
@@ -859,13 +864,17 @@ async fn start_recording(state: &MeetState, caller: &Caller, id: &str, input: &A
     let Some(session) = lifecycle::session_row(db, id).await.map_err(db_error)? else {
         return Ok(ApiError::not_found("Session", Some(id)).into_response());
     };
-    let meeting: Option<(String, Option<bool>)> = sqlx::query_as(
-        "select organizer_id, allow_participant_record from meetings where id = $1 limit 1",
-    )
-    .bind(text(&session, "meetingId").unwrap_or_default())
-    .fetch_optional(db)
-    .await
-    .map_err(db_error)?;
+    let meeting: Option<(String, Option<bool>)> = meetings::Entity::find()
+        .select_only()
+        .columns([
+            meetings::Column::OrganizerId,
+            meetings::Column::AllowParticipantRecord,
+        ])
+        .filter(meetings::Column::Id.eq(text(&session, "meetingId").unwrap_or_default()))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     if let Some((organizer, allow)) = &meeting
         && *organizer != caller.user_id
         && !allow.unwrap_or(false)
@@ -971,24 +980,28 @@ fn cleared_columns() -> Vec<(&'static str, Value)> {
 }
 
 /// `deleteSessionTranscripts(db, activityId)`.
-pub(crate) async fn delete_transcripts(db: &PgPool, activity_id: &str) -> Result<u64, sqlx::Error> {
-    let ids: Vec<String> =
-        sqlx::query_scalar("select id from crm_transcriptions where activity_id = $1")
-            .bind(activity_id)
-            .fetch_all(db)
-            .await?;
+pub(crate) async fn delete_transcripts(db: &PgPool, activity_id: &str) -> Result<u64, DbErr> {
+    let db = &orm(db);
+    let ids: Vec<String> = crm_transcriptions::Entity::find()
+        .select_only()
+        .column(crm_transcriptions::Column::Id)
+        .filter(crm_transcriptions::Column::ActivityId.eq(activity_id))
+        .into_tuple()
+        .all(db)
+        .await?;
     if ids.is_empty() {
         return Ok(0);
     }
-    sqlx::query("delete from crm_transcript_segments where transcription_id = any($1)")
-        .bind(&ids)
-        .execute(db)
+    let count = u64::try_from(ids.len()).unwrap_or(0);
+    crm_transcript_segments::Entity::delete_many()
+        .filter(crm_transcript_segments::Column::TranscriptionId.is_in(ids.clone()))
+        .exec(db)
         .await?;
-    sqlx::query("delete from crm_transcriptions where id = any($1)")
-        .bind(&ids)
-        .execute(db)
+    crm_transcriptions::Entity::delete_many()
+        .filter(crm_transcriptions::Column::Id.is_in(ids))
+        .exec(db)
         .await?;
-    Ok(u64::try_from(ids.len()).unwrap_or(0))
+    Ok(count)
 }
 
 async fn remove(
@@ -1069,15 +1082,16 @@ pub(crate) fn whisper_language(code: Option<&str>) -> Option<String> {
     (valid && base != "auto").then_some(base)
 }
 
-/// `removeTranscription(db, id)`.
-async fn remove_transcription(db: &PgPool, id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from crm_transcript_segments where transcription_id = $1")
-        .bind(id)
-        .execute(db)
+/// `removeTranscription(db, id)`: its segments, then the row.
+pub(crate) async fn remove_transcription(db: &PgPool, id: &str) -> Result<(), DbErr> {
+    let db = &orm(db);
+    crm_transcript_segments::Entity::delete_many()
+        .filter(crm_transcript_segments::Column::TranscriptionId.eq(id))
+        .exec(db)
         .await?;
-    sqlx::query("delete from crm_transcriptions where id = $1")
-        .bind(id)
-        .execute(db)
+    crm_transcriptions::Entity::delete_many()
+        .filter(crm_transcriptions::Column::Id.eq(id))
+        .exec(db)
         .await?;
     Ok(())
 }
@@ -1136,23 +1150,14 @@ pub(crate) async fn transcribe_session(
     }
     let requested = language.flatten();
     let transcription_id = generate_id("trans");
-    let now = now();
     let stored_language: String = whisper_language(requested.as_deref())
         .unwrap_or_else(|| "en".to_owned())
         .chars()
         .take(10)
         .collect();
-    sqlx::query(
-        "insert into crm_transcriptions (id, activity_id, status, language, created_at, updated_at)
-         values ($1, $2, 'pending', $3, $4::timestamp, $4::timestamp)",
-    )
-    .bind(&transcription_id)
-    .bind(&id)
-    .bind(&stored_language)
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(db_error)?;
+    insert_pending_transcription(db, &transcription_id, &id, stored_language)
+        .await
+        .map_err(db_error)?;
     let mut params = Map::new();
     params.insert("kind".into(), json!("whisper-transcribe"));
     params.insert("orgId".into(), json!(org));
@@ -1179,6 +1184,29 @@ pub(crate) async fn transcribe_session(
         &[("transcriptionStatus", json!("pending"))],
     );
     Ok(Created(json!({ "id": transcription_id, "status": "pending" })).into_response())
+}
+
+/// A `pending` transcription row of `activity_id`, created now.
+pub(crate) async fn insert_pending_transcription(
+    db: &PgPool,
+    id: &str,
+    activity_id: &str,
+    language: String,
+) -> Result<(), DbErr> {
+    let now = weldsuite_db::utc_now();
+    let row = crm_transcriptions::ActiveModel {
+        id: Set(id.to_owned()),
+        activity_id: Set(activity_id.to_owned()),
+        status: Set("pending".to_owned()),
+        language: Set(Some(language)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    crm_transcriptions::Entity::insert(row)
+        .exec_without_returning(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// The body of a transcribe route (`transcribeRecordingSchema`).
@@ -1316,17 +1344,10 @@ pub(crate) async fn transcription_payload(
     db: &PgPool,
     transcription: &Value,
     session: Option<&Value>,
-) -> Result<Value, sqlx::Error> {
-    let segments: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from crm_transcript_segments s where s.transcription_id = $1
-         order by s.sequence_number asc",
-    )
-    .bind(text(transcription, "id").unwrap_or_default())
-    .fetch_all(db)
-    .await?;
+) -> Result<Value, DbErr> {
+    let segments = segment_rows(db, text(transcription, "id").unwrap_or_default()).await?;
     let segments: Vec<Value> = segments
         .into_iter()
-        .map(|row| crate::tables::CRM_TRANSCRIPT_SEGMENTS.js(row))
         .map(|seg| {
             json!({
                 "id": seg["id"],
@@ -1364,6 +1385,19 @@ pub(crate) async fn transcription_payload(
         "summary": summary,
         "summaryStatus": summary_status,
     }))
+}
+
+/// A transcription's segments in order, as Drizzle's `select()` returned
+/// them.
+pub(crate) async fn segment_rows(db: &PgPool, transcription_id: &str) -> Result<Vec<Value>, DbErr> {
+    crm_transcript_segments::Entity::find()
+        .filter(crm_transcript_segments::Column::TranscriptionId.eq(transcription_id))
+        .order_by_asc(crm_transcript_segments::Column::SequenceNumber)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 /// `buildTranscriptionStatus(transcription, session)`.
@@ -1428,16 +1462,15 @@ async fn transcription_status_route(caller: Caller, Path(id): Path<String>) -> R
 pub(crate) async fn latest_recorded_session(
     db: &PgPool,
     meeting_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_sessions t
-         where t.meeting_id = $1 and t.recording_status is not null
-         order by t.created_at desc limit 1",
-    )
-    .bind(meeting_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| MEETING_SESSIONS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    meeting_sessions::Entity::find()
+        .filter(meeting_sessions::Column::MeetingId.eq(meeting_id))
+        .filter(meeting_sessions::Column::RecordingStatus.is_not_null())
+        .order_by_desc(meeting_sessions::Column::CreatedAt)
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 #[cfg(test)]

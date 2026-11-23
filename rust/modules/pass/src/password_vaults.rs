@@ -7,22 +7,81 @@
 //!
 //! A vault the caller cannot see is a 404, never a 403.
 
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Unchanged, ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, Select, Set,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    weldpass_items, weldpass_vault_members as members, weldpass_vaults as vaults,
+    workspace_members,
+};
 
 use crate::envelope::{Key, RootKeyring, create_vault_key, unwrap_vault_key};
-use crate::{PassError, PassResult, dated, now};
+use crate::projects::workspace_of;
+use crate::{PassError, PassResult, now, row_json};
 
-macro_rules! vault_json {
-    () => {
-        "jsonb_build_object('id', v.id, 'kind', v.kind, 'ownerId', v.owner_id, 'name', v.name, \
-         'description', v.description, 'createdBy', v.created_by, 'createdAt', v.created_at, \
-         'updatedAt', v.updated_at)"
-    };
+use members::Column as M;
+use vaults::Column as V;
+
+/// `vaultColumns`: never the wrapped key.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VaultRow {
+    id: String,
+    kind: String,
+    owner_id: Option<String>,
+    name: String,
+    description: Option<String>,
+    created_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
 }
 
-const TIMES: [&str; 2] = ["createdAt", "updatedAt"];
+impl VaultRow {
+    fn select() -> Select<vaults::Entity> {
+        vaults::Entity::find().select_only().columns([
+            V::Id,
+            V::Kind,
+            V::OwnerId,
+            V::Name,
+            V::Description,
+            V::CreatedBy,
+            V::CreatedAt,
+            V::UpdatedAt,
+        ])
+    }
+}
+
+impl From<vaults::Model> for VaultRow {
+    fn from(row: vaults::Model) -> Self {
+        Self {
+            id: row.id,
+            kind: row.kind,
+            owner_id: row.owner_id,
+            name: row.name,
+            description: row.description,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// A vault and the caller's membership role (`listVaults`' left join).
+#[derive(Debug, FromQueryResult)]
+struct VaultWithRole {
+    #[sea_orm(nested)]
+    vault: VaultRow,
+    role: Option<String>,
+}
 
 /// A vault's client-safe columns (`vaultColumns`).
 #[derive(Debug, Clone)]
@@ -34,14 +93,12 @@ pub(crate) struct Vault {
 }
 
 impl Vault {
-    fn from_row(row: Value) -> Self {
-        let row = dated(row, &TIMES);
-        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    fn from_row(row: VaultRow) -> Self {
         Self {
-            id: text("id"),
-            kind: text("kind"),
-            name: text("name"),
-            json: row,
+            json: row_json(&row),
+            id: row.id,
+            kind: row.kind,
+            name: row.name,
         }
     }
 
@@ -84,17 +141,16 @@ pub(crate) async fn require_vault_access(
     vault_id: &str,
     can_manage_all: bool,
 ) -> PassResult<VaultAccess> {
-    let row: Option<(Value, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        vault_json!(),
-        ", v.owner_id from weldpass_vaults v where v.id = $1 and v.workspace_id = $2 \
-         and v.deleted_at is null limit 1"
-    ))
-    .bind(vault_id)
-    .bind(workspace)
-    .fetch_optional(db)
-    .await?;
-    let (row, owner) = row.ok_or_else(|| PassError::not_found("vault", vault_id))?;
+    let db = orm(db);
+    let row = VaultRow::select()
+        .filter(V::Id.eq(vault_id))
+        .filter(V::WorkspaceId.eq(workspace))
+        .filter(V::DeletedAt.is_null())
+        .into_model::<VaultRow>()
+        .one(&db)
+        .await?
+        .ok_or_else(|| PassError::not_found("vault", vault_id))?;
+    let owner = row.owner_id.clone();
     let vault = Vault::from_row(row);
     if vault.is_personal() {
         if owner.as_deref() != Some(user_id) {
@@ -105,13 +161,14 @@ pub(crate) async fn require_vault_access(
             role: Some("manager".to_owned()),
         });
     }
-    let membership: Option<String> = sqlx::query_scalar(
-        "select role from weldpass_vault_members where vault_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(vault_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let membership: Option<String> = members::Entity::find()
+        .select_only()
+        .column(M::Role)
+        .filter(M::VaultId.eq(vault_id))
+        .filter(M::UserId.eq(user_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     match membership {
         Some(role) => Ok(VaultAccess {
             vault,
@@ -160,11 +217,13 @@ pub(crate) async fn open_password_vault(
     keyring: &RootKeyring,
     vault_id: &str,
 ) -> PassResult<Key> {
-    let wrapped: Option<String> =
-        sqlx::query_scalar("select kek_wrapped from weldpass_vaults where id = $1 limit 1")
-            .bind(vault_id)
-            .fetch_optional(db)
-            .await?;
+    let wrapped: Option<String> = vaults::Entity::find()
+        .select_only()
+        .column(V::KekWrapped)
+        .filter(V::Id.eq(vault_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let wrapped = wrapped.ok_or_else(|| PassError::not_found("vault", vault_id))?;
     Ok(unwrap_vault_key(keyring, vault_id, &wrapped)?)
 }
@@ -177,31 +236,36 @@ pub(crate) async fn ensure_personal_vault(
     keyring: &RootKeyring,
     user_id: &str,
 ) -> PassResult<()> {
+    let db = orm(db);
     let find = || {
-        sqlx::query_scalar::<_, String>(
-            "select id from weldpass_vaults where workspace_id = $1 and kind = 'personal' \
-             and owner_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(workspace)
-        .bind(user_id)
-        .fetch_optional(db)
+        vaults::Entity::find()
+            .select_only()
+            .column(V::Id)
+            .filter(V::WorkspaceId.eq(workspace))
+            .filter(V::Kind.eq("personal"))
+            .filter(V::OwnerId.eq(user_id))
+            .filter(V::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
     };
     if find().await?.is_some() {
         return Ok(());
     }
     let id = generate_id("wpk");
     let key = create_vault_key(keyring, &id)?;
-    sqlx::query(
-        "insert into weldpass_vaults \
-         (id, workspace_id, kind, owner_id, name, kek_wrapped, root_key_version, created_by) \
-         values ($1, $2, 'personal', $3, 'Personal', $4, $5, $3) on conflict do nothing",
-    )
-    .bind(&id)
-    .bind(workspace)
-    .bind(user_id)
-    .bind(&key.kek_wrapped)
-    .bind(key.root_key_version)
-    .execute(db)
+    vaults::Entity::insert(vaults::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace_of(workspace, "weldpass_vaults")?),
+        kind: Set("personal".to_owned()),
+        owner_id: Set(Some(user_id.to_owned())),
+        name: Set("Personal".to_owned()),
+        kek_wrapped: Set(key.kek_wrapped),
+        root_key_version: Set(key.root_key_version.to_owned()),
+        created_by: Set(Some(user_id.to_owned())),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&db)
     .await?;
     if find().await?.is_none() {
         return Err(PassError::not_found("vault", &id));
@@ -217,45 +281,63 @@ pub(crate) async fn list_vaults(
     user_id: &str,
     can_manage_all: bool,
 ) -> PassResult<Vec<Value>> {
-    let rows: Vec<(Value, Option<String>)> = sqlx::query_as(concat!(
-        "select ",
-        vault_json!(),
-        ", m.role from weldpass_vaults v \
-         left join weldpass_vault_members m on m.vault_id = v.id and m.user_id = $2 \
-         where v.workspace_id = $1 and v.deleted_at is null \
-         and ((v.kind = 'personal' and v.owner_id = $2) or (v.kind = 'shared' and ($3 or m.id is not null))) \
-         order by v.name asc"
-    ))
-    .bind(workspace)
-    .bind(user_id)
-    .bind(can_manage_all)
-    .fetch_all(db)
-    .await?;
-    let ids: Vec<String> = rows
-        .iter()
-        .map(|(row, _)| row["id"].as_str().unwrap_or_default().to_owned())
-        .collect();
-    let counts = |sql: &'static str| {
-        let ids = ids.clone();
-        async move {
-            if ids.is_empty() {
-                return Ok::<Vec<(String, i64)>, sqlx::Error>(Vec::new());
-            }
-            sqlx::query_as::<_, (String, i64)>(sql)
-                .bind(ids)
-                .fetch_all(db)
-                .await
-        }
+    let db = orm(db);
+    let member = user_id.to_owned();
+    // `m.vault_id = v.id and m.user_id = $2`.
+    let membership: RelationDef = vaults::Entity::belongs_to(members::Entity)
+        .from(V::Id)
+        .to(M::VaultId)
+        .on_condition(move |_, _| Condition::all().add(M::UserId.eq(member.clone())))
+        .into();
+    let rows = VaultRow::select()
+        .column(M::Role)
+        .join(JoinType::LeftJoin, membership)
+        .filter(V::WorkspaceId.eq(workspace))
+        .filter(V::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(V::Kind.eq("personal"))
+                        .add(V::OwnerId.eq(user_id)),
+                )
+                .add(
+                    Condition::all().add(V::Kind.eq("shared")).add(
+                        Condition::any()
+                            .add(Expr::val(can_manage_all))
+                            .add(M::Id.is_not_null()),
+                    ),
+                ),
+        )
+        .order_by_asc(V::Name)
+        .into_model::<VaultWithRole>()
+        .all(&db)
+        .await?;
+    let ids: Vec<String> = rows.iter().map(|row| row.vault.id.clone()).collect();
+    let (items, memberships) = if ids.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
+        let items: Vec<(String, i64)> = weldpass_items::Entity::find()
+            .select_only()
+            .column(weldpass_items::Column::VaultId)
+            .column_as(Func::count(Expr::col(Asterisk)), "count")
+            .filter(weldpass_items::Column::VaultId.is_in(ids.clone()))
+            .filter(weldpass_items::Column::DeletedAt.is_null())
+            .group_by(weldpass_items::Column::VaultId)
+            .into_tuple()
+            .all(&db)
+            .await?;
+        let memberships: Vec<(String, i64)> = members::Entity::find()
+            .select_only()
+            .column(M::VaultId)
+            .column_as(Func::count(Expr::col(Asterisk)), "count")
+            .filter(M::VaultId.is_in(ids))
+            .group_by(M::VaultId)
+            .into_tuple()
+            .all(&db)
+            .await?;
+        (items, memberships)
     };
-    let items = counts(
-        "select vault_id, count(*) from weldpass_items where vault_id = any($1) \
-         and deleted_at is null group by vault_id",
-    )
-    .await?;
-    let members = counts(
-        "select vault_id, count(*) from weldpass_vault_members where vault_id = any($1) group by vault_id",
-    )
-    .await?;
     let count_of = |list: &[(String, i64)], id: &str| {
         list.iter()
             .find(|(vault, _)| vault == id)
@@ -263,7 +345,7 @@ pub(crate) async fn list_vaults(
     };
     let mut summaries: Vec<(bool, Value)> = rows
         .into_iter()
-        .map(|(row, role)| {
+        .map(|VaultWithRole { vault: row, role }| {
             let vault = Vault::from_row(row);
             let personal = vault.is_personal();
             let mut json = vault.json;
@@ -276,7 +358,7 @@ pub(crate) async fn list_vaults(
             json["memberCount"] = json!(if personal {
                 1
             } else {
-                count_of(&members, &vault.id)
+                count_of(&memberships, &vault.id)
             });
             (personal, json)
         })
@@ -297,32 +379,32 @@ pub(crate) async fn create_shared_vault(
 ) -> PassResult<Vault> {
     let id = generate_id("wpk");
     let key = create_vault_key(keyring, &id)?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with v as (insert into weldpass_vaults \
-         (id, workspace_id, kind, owner_id, name, description, kek_wrapped, root_key_version, created_by) \
-         values ($1, $2, 'shared', null, $3, $4, $5, $6, $7) returning *) select ",
-        vault_json!(),
-        " from v"
-    ))
-    .bind(&id)
-    .bind(workspace)
-    .bind(name)
-    .bind(description)
-    .bind(&key.kek_wrapped)
-    .bind(key.root_key_version)
-    .bind(created_by)
-    .fetch_one(db)
+    let db = orm(db);
+    let row = vaults::Entity::insert(vaults::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace_of(workspace, "weldpass_vaults")?),
+        kind: Set("shared".to_owned()),
+        owner_id: Set(None),
+        name: Set(name.to_owned()),
+        description: Set(description.map(str::to_owned)),
+        kek_wrapped: Set(key.kek_wrapped),
+        root_key_version: Set(key.root_key_version.to_owned()),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&db)
     .await?;
-    sqlx::query(
-        "insert into weldpass_vault_members (id, vault_id, user_id, role, added_by) \
-         values ($1, $2, $3, 'manager', $3)",
-    )
-    .bind(generate_id("wpm"))
-    .bind(&id)
-    .bind(created_by)
-    .execute(db)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(generate_id("wpm")),
+        vault_id: Set(id),
+        user_id: Set(created_by.to_owned()),
+        role: Set("manager".to_owned()),
+        added_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
-    Ok(Vault::from_row(row))
+    Ok(Vault::from_row(row.into()))
 }
 
 /// `updateVault`: the fields given.
@@ -333,55 +415,87 @@ pub(crate) async fn update_vault(
     name: Option<&str>,
     description: Option<Option<&str>>,
 ) -> PassResult<Vault> {
-    let row: Value = sqlx::query_scalar(concat!(
-        "with v as (update weldpass_vaults set name = coalesce($2, name), \
-         description = case when $3 then $4 else description end, updated_at = $5::timestamptz \
-         where id = $1 returning *) select ",
-        vault_json!(),
-        " from v"
-    ))
-    .bind(vault_id)
-    .bind(name)
-    .bind(description.is_some())
-    .bind(description.flatten())
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Vault::from_row(row))
+    let mut patch = vaults::ActiveModel {
+        id: Unchanged(vault_id.to_owned()),
+        ..Default::default()
+    };
+    if let Some(name) = name {
+        patch.name = Set(name.to_owned());
+    }
+    if let Some(description) = description {
+        patch.description = Set(description.map(str::to_owned));
+    }
+    patch.updated_at = Set(now());
+    let row = vaults::Entity::update(patch).exec(&orm(db)).await?;
+    Ok(Vault::from_row(row.into()))
 }
 
 /// `deleteVault`: soft, with its items; the members stay for a restore.
 pub(crate) async fn delete_vault(db: &PgPool, vault_id: &str) -> PassResult<()> {
     let now = now();
-    sqlx::query(
-        "update weldpass_items set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where vault_id = $1 and deleted_at is null",
-    )
-    .bind(vault_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update weldpass_vaults set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(vault_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let db = orm(db);
+    weldpass_items::Entity::update_many()
+        .col_expr(weldpass_items::Column::DeletedAt, Expr::value(now))
+        .col_expr(weldpass_items::Column::UpdatedAt, Expr::value(now))
+        .filter(weldpass_items::Column::VaultId.eq(vault_id))
+        .filter(weldpass_items::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
+    vaults::Entity::update_many()
+        .col_expr(V::DeletedAt, Expr::value(now))
+        .col_expr(V::UpdatedAt, Expr::value(now))
+        .filter(V::Id.eq(vault_id))
+        .exec(&db)
+        .await?;
     Ok(())
+}
+
+/// An active, internal workspace member (`status = 'ACTIVE'`,
+/// `memberType = 'INTERNAL'`, not deleted).
+fn teammate() -> Condition {
+    use workspace_members::Column as W;
+    Condition::all()
+        .add(W::Status.eq("ACTIVE"))
+        .add(W::MemberType.eq("INTERNAL"))
+        .add(W::DeletedAt.is_null())
+}
+
+/// A vault member as `listVaultMembers` returns it: the picture is filled in
+/// from the account afterwards.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemberRow {
+    user_id: String,
+    role: String,
+    name: Option<String>,
+    email: Option<String>,
+    #[sea_orm(skip)]
+    picture: Option<String>,
+    added_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
 }
 
 /// `listTeammates`: active, internal workspace members, with their account
 /// pictures (`master`).
 pub(crate) async fn list_teammates(db: &PgPool, master: Option<&PgPool>) -> PassResult<Vec<Value>> {
-    let mut rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', w.user_id, 'name', w.name, 'email', w.email, \
-         'picture', null) from workspace_members w \
-         where w.status = 'ACTIVE' and w.member_type = 'INTERNAL' and w.deleted_at is null \
-         order by w.name asc, w.email asc",
-    )
-    .fetch_all(db)
-    .await?;
+    use workspace_members::Column as W;
+    let teammates: Vec<(String, Option<String>, Option<String>)> =
+        workspace_members::Entity::find()
+            .select_only()
+            .columns([W::UserId, W::Name, W::Email])
+            .filter(teammate())
+            .order_by_asc(W::Name)
+            .order_by_asc(W::Email)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
+    let mut rows: Vec<Value> = teammates
+        .into_iter()
+        .map(|(user_id, name, email)| {
+            json!({ "userId": user_id, "name": name, "email": email, "picture": null })
+        })
+        .collect();
     weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
     Ok(rows)
 }
@@ -395,13 +509,14 @@ pub(crate) async fn first_non_teammate(
     if user_ids.is_empty() {
         return Ok(None);
     }
-    let found: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = any($1) and status = 'ACTIVE' \
-         and member_type = 'INTERNAL' and deleted_at is null",
-    )
-    .bind(user_ids)
-    .fetch_all(db)
-    .await?;
+    let found: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(user_ids.iter().map(String::as_str)))
+        .filter(teammate())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(user_ids.iter().find(|id| !found.contains(id)).cloned())
 }
 
@@ -412,19 +527,25 @@ pub(crate) async fn list_vault_members(
     master: Option<&PgPool>,
     vault_id: &str,
 ) -> PassResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', m.user_id, 'role', m.role, 'name', w.name, \
-         'email', w.email, 'picture', null, 'addedBy', m.added_by, 'createdAt', m.created_at) \
-         from weldpass_vault_members m left join workspace_members w on w.user_id = m.user_id \
-         where m.vault_id = $1 order by w.name asc, m.created_at asc",
-    )
-    .bind(vault_id)
-    .fetch_all(db)
-    .await?;
-    let mut rows: Vec<Value> = rows
-        .into_iter()
-        .map(|row| dated(row, &["createdAt"]))
-        .collect();
+    let rows = members::Entity::find()
+        .select_only()
+        .columns([M::UserId, M::Role])
+        .columns([workspace_members::Column::Name, workspace_members::Column::Email])
+        .columns([M::AddedBy, M::CreatedAt])
+        .join(
+            JoinType::LeftJoin,
+            members::Entity::belongs_to(workspace_members::Entity)
+                .from(M::UserId)
+                .to(workspace_members::Column::UserId)
+                .into(),
+        )
+        .filter(M::VaultId.eq(vault_id))
+        .order_by_asc(workspace_members::Column::Name)
+        .order_by_asc(M::CreatedAt)
+        .into_model::<MemberRow>()
+        .all(&orm(db))
+        .await?;
+    let mut rows: Vec<Value> = rows.iter().map(row_json).collect();
     weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
     Ok(rows)
 }
@@ -438,37 +559,41 @@ pub(crate) async fn add_vault_member(
     role: &str,
     added_by: &str,
 ) -> PassResult<bool> {
-    let teammate: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = $1 and status = 'ACTIVE' \
-         and member_type = 'INTERNAL' and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let pool = db;
+    let db = orm(pool);
+    let teammate: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(teammate())
+        .into_tuple()
+        .one(&db)
+        .await?;
     if teammate.is_none() {
         return Err(PassError::not_found("vault member", user_id));
     }
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from weldpass_vault_members where vault_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(vault_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = members::Entity::find()
+        .select_only()
+        .column(M::Id)
+        .filter(M::VaultId.eq(vault_id))
+        .filter(M::UserId.eq(user_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if existing.is_some() {
-        set_vault_member_role(db, vault_id, user_id, role).await?;
+        set_vault_member_role(pool, vault_id, user_id, role).await?;
         return Ok(false);
     }
-    sqlx::query(
-        "insert into weldpass_vault_members (id, vault_id, user_id, role, added_by) \
-         values ($1, $2, $3, $4, $5) on conflict do nothing",
-    )
-    .bind(generate_id("wpm"))
-    .bind(vault_id)
-    .bind(user_id)
-    .bind(role)
-    .bind(added_by)
-    .execute(db)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(generate_id("wpm")),
+        vault_id: Set(vault_id.to_owned()),
+        user_id: Set(user_id.to_owned()),
+        role: Set(role.to_owned()),
+        added_by: Set(Some(added_by.to_owned())),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&db)
     .await?;
     Ok(true)
 }
@@ -478,24 +603,27 @@ async fn require_membership(
     vault_id: &str,
     user_id: &str,
 ) -> PassResult<(String, String)> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "select id, role from weldpass_vault_members where vault_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(vault_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(String, String)> = members::Entity::find()
+        .select_only()
+        .columns([M::Id, M::Role])
+        .filter(M::VaultId.eq(vault_id))
+        .filter(M::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     row.ok_or_else(|| PassError::not_found("vault member", user_id))
 }
 
 /// `assertNotLastManager`: a vault always keeps one manager.
 async fn assert_not_last_manager(db: &PgPool, vault_id: &str, user_id: &str) -> PassResult<()> {
-    let managers: Vec<String> = sqlx::query_scalar(
-        "select user_id from weldpass_vault_members where vault_id = $1 and role = 'manager'",
-    )
-    .bind(vault_id)
-    .fetch_all(db)
-    .await?;
+    let managers: Vec<String> = members::Entity::find()
+        .select_only()
+        .column(M::UserId)
+        .filter(M::VaultId.eq(vault_id))
+        .filter(M::Role.eq("manager"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if managers.len() == 1 && managers[0] == user_id {
         return Err(PassError::Conflict(
             "This is the vault’s only manager. Make someone else a manager first.".to_owned(),
@@ -515,14 +643,12 @@ pub(crate) async fn set_vault_member_role(
     if previous == "manager" && role != "manager" {
         assert_not_last_manager(db, vault_id, user_id).await?;
     }
-    sqlx::query(
-        "update weldpass_vault_members set role = $2, updated_at = $3::timestamptz where id = $1",
-    )
-    .bind(&membership)
-    .bind(role)
-    .bind(now())
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(M::Role, Expr::value(role))
+        .col_expr(M::UpdatedAt, Expr::value(now()))
+        .filter(M::Id.eq(membership))
+        .exec(&orm(db))
+        .await?;
     Ok(previous)
 }
 
@@ -536,9 +662,9 @@ pub(crate) async fn remove_vault_member(
     if role == "manager" {
         assert_not_last_manager(db, vault_id, user_id).await?;
     }
-    sqlx::query("delete from weldpass_vault_members where id = $1")
-        .bind(&membership)
-        .execute(db)
+    members::Entity::delete_many()
+        .filter(M::Id.eq(membership))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
