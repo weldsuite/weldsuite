@@ -12,17 +12,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MAIL_SIGNATURE_CREATED, MAIL_SIGNATURE_DELETED, MAIL_SIGNATURE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{ACCOUNTS_READ, MESSAGES_CREATE};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{MailSignaturePosition, MailSignatureType};
+use weldsuite_schema::tenant::mail_signatures;
 
-use crate::util::{MailError, answer, list_response, now, page, strings, validate, validate_query};
+use crate::routes::mail_drafts::to_millis;
+use crate::util::{MailError, answer, list_response, page, strings, validate, validate_query};
 use crate::{Caller, MailState};
 
 const TYPES: [&str; 3] = ["personal", "company", "department"];
@@ -54,11 +63,43 @@ where
         .with_state(state)
 }
 
-/// `visibleTo(userId)` over `mail_signatures s`, the user as `$1`.
-macro_rules! visible {
-    () => {
-        "(s.type <> 'personal' or s.user_ids @> jsonb_build_array($1::text))"
-    };
+/// `user_ids @> jsonb_build_array(userId)`.
+fn lists_user(user_id: &str) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(
+        Expr::col(mail_signatures::Column::UserIds),
+        Expr::value(json!([user_id])),
+    )
+}
+
+/// `visibleTo(userId)`: shared, or the user's own.
+fn visible(user_id: &str) -> Condition {
+    Condition::any()
+        .add(mail_signatures::Column::Type.ne(MailSignatureType::Personal))
+        .add(lists_user(user_id))
+}
+
+/// A signature row as Drizzle returns it.
+fn js(signature: mail_signatures::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(signature).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// The signature `id` just written, deleted or not.
+async fn written_signature(caller: &Caller, id: &str) -> Result<Value, DbErr> {
+    let row = mail_signatures::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail signature {id}")))?;
+    js(row)
+}
+
+/// A `type` the body chose (one of `TYPES`).
+fn signature_type(kind: &str) -> Result<MailSignatureType, DbErr> {
+    MailSignatureType::try_from_value(&kind.to_owned())
+}
+
+/// A `position` the body chose (`above` or `below`).
+fn signature_position(position: &str) -> Result<MailSignaturePosition, DbErr> {
+    MailSignaturePosition::try_from_value(&position.to_owned())
 }
 
 fn is_shared(kind: &str) -> bool {
@@ -74,18 +115,13 @@ fn accounts_overlap(a: &[String], b: &[String]) -> bool {
 }
 
 /// `getSignature(db, userId, id)`.
-async fn get_signature(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(s) from mail_signatures s
-         where s.id = $2 and s.deleted_at is null and ",
-        visible!(),
-        " limit 1"
-    ))
-    .bind(&caller.user_id)
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+async fn get_signature(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_signatures::Entity::find_by_id(id.to_owned())
+        .filter(mail_signatures::Column::DeletedAt.is_null())
+        .filter(visible(&caller.user_id))
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(js).transpose()
 }
 
 /// `GET /` (`listSignatures`).
@@ -116,51 +152,69 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = limit.unwrap_or(50).min(100);
-        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
-        {
-            Some(cursor) => {
-                sqlx::query_as(
-                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                         from mail_signatures where id = $1 limit 1",
-                )
-                .bind(cursor)
-                .fetch_optional(&caller.db)
-                .await?
-            }
-            None => None,
-        };
-        let (cursor_at, cursor_id) = cursor_row.unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(s) from mail_signatures s
-             where s.deleted_at is null and ",
-            visible!(),
-            " and ($2::text is null or s.type = $2::mail_signature_type)
-               and ($3::timestamp is null or (s.created_at < $3::timestamp
-                    or (s.created_at = $3::timestamp and s.id < $4)))
-             order by s.created_at desc, s.id desc limit $5"
-        ))
-        .bind(&caller.user_id)
-        .bind(&kind)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(concat!(
-            "select count(*)::int from mail_signatures s where s.deleted_at is null and ",
-            visible!(),
-            " and ($2::text is null or s.type = $2::mail_signature_type)"
-        ))
-        .bind(&caller.user_id)
-        .bind(&kind)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(js_row).collect();
+        let (rows, total) =
+            list_page(&caller, kind.as_deref(), limit, cursor.as_deref()).await?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, i64::from(total), has_more, next))
+        Ok(list_response(data, total, has_more, next))
     }
     .await;
     answer(result, "Failed to list signatures")
+}
+
+/// `listSignatures`' page (`limit + 1` rows after the cursor) and its total.
+async fn list_page(
+    caller: &Caller,
+    kind: Option<&str>,
+    limit: i64,
+    cursor: Option<&str>,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(&caller.db);
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty()) {
+        Some(cursor) => {
+            mail_signatures::Entity::find_by_id(cursor.to_owned())
+                .select_only()
+                .columns([
+                    mail_signatures::Column::CreatedAt,
+                    mail_signatures::Column::Id,
+                ])
+                .into_tuple()
+                .one(&db)
+                .await?
+        }
+        None => None,
+    };
+    let mut scope = Condition::all()
+        .add(mail_signatures::Column::DeletedAt.is_null())
+        .add(visible(&caller.user_id));
+    if let Some(kind) = kind {
+        scope = scope.add(mail_signatures::Column::Type.eq(signature_type(kind)?));
+    }
+    let mut page_scope = scope.clone();
+    if let Some((at, id)) = cursor_row {
+        let at = to_millis(at);
+        page_scope = page_scope.add(
+            Condition::any()
+                .add(mail_signatures::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(mail_signatures::Column::CreatedAt.eq(at))
+                        .add(mail_signatures::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = mail_signatures::Entity::find()
+        .filter(page_scope)
+        .order_by_desc(mail_signatures::Column::CreatedAt)
+        .order_by_desc(mail_signatures::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = mail_signatures::Entity::find()
+        .filter(scope)
+        .count(&db)
+        .await?;
+    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 /// `GET /:id`.
@@ -248,18 +302,27 @@ async fn clear_competing_defaults(
     id: &str,
     kind: &str,
     account_ids: &[String],
-) -> Result<(), sqlx::Error> {
-    let defaults: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, account_ids from mail_signatures
-         where deleted_at is null and is_default = true and id <> $1
-           and (case when $2 then type <> 'personal'
-                else type = 'personal' and user_ids @> jsonb_build_array($3::text) end)",
-    )
-    .bind(id)
-    .bind(is_shared(kind))
-    .bind(&caller.user_id)
-    .fetch_all(&caller.db)
-    .await?;
+) -> Result<(), DbErr> {
+    let scope = if is_shared(kind) {
+        Condition::all().add(mail_signatures::Column::Type.ne(MailSignatureType::Personal))
+    } else {
+        Condition::all()
+            .add(mail_signatures::Column::Type.eq(MailSignatureType::Personal))
+            .add(lists_user(&caller.user_id))
+    };
+    let defaults: Vec<(String, Option<Value>)> = mail_signatures::Entity::find()
+        .select_only()
+        .columns([
+            mail_signatures::Column::Id,
+            mail_signatures::Column::AccountIds,
+        ])
+        .filter(mail_signatures::Column::DeletedAt.is_null())
+        .filter(mail_signatures::Column::IsDefault.eq(true))
+        .filter(mail_signatures::Column::Id.ne(id))
+        .filter(scope)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     let competing: Vec<String> = defaults
         .into_iter()
         .filter(|(_, accounts)| {
@@ -273,14 +336,12 @@ async fn clear_competing_defaults(
     if competing.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update mail_signatures set is_default = false, updated_at = $2::timestamp
-         where id = any($1::text[])",
-    )
-    .bind(&competing)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    mail_signatures::Entity::update_many()
+        .col_expr(mail_signatures::Column::IsDefault, Expr::value(false))
+        .col_expr(mail_signatures::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(mail_signatures::Column::Id.is_in(competing))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(())
 }
 
@@ -318,37 +379,30 @@ async fn create(
         } else {
             Some(json!([caller.user_id]))
         };
-        sqlx::query(
-            "insert into mail_signatures (id, name, content, is_default, account_ids, user_ids,
-               type, include_in_replies, include_in_forwards, position, tags, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7::mail_signature_type, coalesce($8, true),
-               coalesce($9, true), coalesce($10::mail_signature_position, 'below'), $11,
-               $12::timestamp, $12::timestamp)",
-        )
-        .bind(&id)
-        .bind(text(&data, "name"))
-        .bind(text(&data, "content"))
-        .bind(flag(&data, "isDefault").unwrap_or(false))
-        .bind(data.get("accountIds").cloned())
-        .bind(user_ids)
-        .bind(&kind)
-        .bind(flag(&data, "includeInReplies"))
-        .bind(flag(&data, "includeInForwards"))
-        .bind(text(&data, "position"))
-        .bind(data.get("tags").cloned())
-        .bind(now())
-        .execute(&caller.db)
+        let at = utc_now();
+        mail_signatures::Entity::insert(mail_signatures::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(text(&data, "name").unwrap_or_default().to_owned()),
+            content: Set(text(&data, "content").unwrap_or_default().to_owned()),
+            is_default: Set(flag(&data, "isDefault").unwrap_or(false)),
+            account_ids: Set(data.get("accountIds").cloned()),
+            user_ids: Set(user_ids),
+            type_: Set(signature_type(&kind)?),
+            include_in_replies: Set(flag(&data, "includeInReplies").unwrap_or(true)),
+            include_in_forwards: Set(flag(&data, "includeInForwards").unwrap_or(true)),
+            position: Set(signature_position(text(&data, "position").unwrap_or("below"))?),
+            tags: Set(data.get("tags").cloned()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         if flag(&data, "isDefault") == Some(true) {
             let accounts = data.get("accountIds").map(strings).unwrap_or_default();
             clear_competing_defaults(&caller, &id, &kind, &accounts).await?;
         }
-        let row: Value =
-            sqlx::query_scalar("select to_jsonb(s) from mail_signatures s where s.id = $1")
-                .bind(&id)
-                .fetch_one(&caller.db)
-                .await?;
-        let row = js_row(row);
+        let row = written_signature(&caller, &id).await?;
         caller.publish(
             &state,
             MAIL_SIGNATURE_CREATED,
@@ -401,40 +455,8 @@ async fn update(
         } else {
             Some(Some(json!([caller.user_id])))
         };
-        sqlx::query(
-            "update mail_signatures set updated_at = $2::timestamp,
-               name = coalesce($3, name), content = coalesce($4, content),
-               is_default = coalesce($5, is_default),
-               type = coalesce($6::mail_signature_type, type),
-               account_ids = coalesce($7, account_ids),
-               user_ids = case when $8 then $9 else user_ids end,
-               include_in_replies = coalesce($10, include_in_replies),
-               include_in_forwards = coalesce($11, include_in_forwards),
-               position = coalesce($12::mail_signature_position, position),
-               tags = coalesce($13, tags)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text(&data, "name"))
-        .bind(text(&data, "content"))
-        .bind(flag(&data, "isDefault"))
-        .bind(text(&data, "type"))
-        .bind(data.get("accountIds").cloned())
-        .bind(user_ids.is_some())
-        .bind(user_ids.flatten())
-        .bind(flag(&data, "includeInReplies"))
-        .bind(flag(&data, "includeInForwards"))
-        .bind(text(&data, "position"))
-        .bind(data.get("tags").cloned())
-        .execute(&caller.db)
-        .await?;
-        let after: Value =
-            sqlx::query_scalar("select to_jsonb(s) from mail_signatures s where s.id = $1")
-                .bind(&id)
-                .fetch_one(&caller.db)
-                .await?;
-        let after = js_row(after);
+        write_update(&caller, &id, &data, user_ids).await?;
+        let after = written_signature(&caller, &id).await?;
         let reconsider = flag(&data, "isDefault") == Some(true)
             || data.contains_key("accountIds")
             || data.contains_key("type");
@@ -455,6 +477,66 @@ async fn update(
     answer(result, "Failed to update signature")
 }
 
+/// `updateSignature`'s write: the fields the body sent, `userIds` when
+/// decided (`Some(None)` clears it), and `updatedAt`.
+async fn write_update(
+    caller: &Caller,
+    id: &str,
+    data: &Map<String, Value>,
+    user_ids: Option<Option<Value>>,
+) -> Result<(), DbErr> {
+    let mut update = mail_signatures::Entity::update_many()
+        .col_expr(mail_signatures::Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("name", mail_signatures::Column::Name),
+        ("content", mail_signatures::Column::Content),
+    ] {
+        if let Some(value) = text(data, key) {
+            update = update.col_expr(column, Expr::value(value.to_owned()));
+        }
+    }
+    if let Some(value) = flag(data, "isDefault") {
+        update = update.col_expr(mail_signatures::Column::IsDefault, Expr::value(value));
+    }
+    if let Some(kind) = text(data, "type") {
+        update = update.col_expr(
+            mail_signatures::Column::Type,
+            mail_signatures::Column::Type.save_as(Expr::value(signature_type(kind)?)),
+        );
+    }
+    if let Some(accounts) = data.get("accountIds") {
+        update = update.col_expr(
+            mail_signatures::Column::AccountIds,
+            Expr::value(accounts.clone()),
+        );
+    }
+    if let Some(user_ids) = user_ids {
+        update = update.col_expr(mail_signatures::Column::UserIds, Expr::value(user_ids));
+    }
+    for (key, column) in [
+        ("includeInReplies", mail_signatures::Column::IncludeInReplies),
+        ("includeInForwards", mail_signatures::Column::IncludeInForwards),
+    ] {
+        if let Some(value) = flag(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(position) = text(data, "position") {
+        update = update.col_expr(
+            mail_signatures::Column::Position,
+            mail_signatures::Column::Position.save_as(Expr::value(signature_position(position)?)),
+        );
+    }
+    if let Some(tags) = data.get("tags") {
+        update = update.col_expr(mail_signatures::Column::Tags, Expr::value(tags.clone()));
+    }
+    update
+        .filter(mail_signatures::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
 /// `DELETE /:id` (`softDeleteSignature`).
 async fn remove(
     State(state): State<MailState>,
@@ -470,14 +552,13 @@ async fn remove(
         {
             return Err(MailError::forbidden(SHARED_ONLY));
         }
-        sqlx::query(
-            "update mail_signatures set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_signatures::Entity::update_many()
+            .col_expr(mail_signatures::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_signatures::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_signatures::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             MAIL_SIGNATURE_DELETED,

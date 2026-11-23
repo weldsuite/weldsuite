@@ -15,10 +15,10 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
-use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
     QueryFilter, QueryOrder, QuerySelect, RelationDef,
 };
 use serde_json::{Map, Value, json};
@@ -498,26 +498,37 @@ pub(crate) async fn link(
     let Some(target) = find_pull_request(db, &pull_request_id).await? else {
         return Err(Refusal::not_found("Pull request", Some(&pull_request_id)));
     };
-    let existing: Option<(String, bool)> = sqlx::query_as(
-        "select id, dismissed_at is not null from merge_issue_pull_requests \
-         where issue_id = $1 and pull_request_id = $2 limit 1",
-    )
-    .bind(&id)
-    .bind(&pull_request_id)
-    .fetch_optional(db)
-    .await?;
+    let orm_db = orm(db);
+    let existing = merge_issue_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_issue_pull_requests::Column::Id)
+        .column(merge_issue_pull_requests::Column::DismissedAt)
+        .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+        .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pull_request_id))
+        .into_tuple::<(String, Option<OffsetDateTime>)>()
+        .one(&orm_db)
+        .await?
+        .map(|(link_id, dismissed_at)| (link_id, dismissed_at.is_some()));
     let mut events: Vec<PendingEvent> = Vec::new();
     if let Some((link_id, true)) = &existing {
         // A dismissed automatic link, linked again by hand: it is a manual link now, and new.
-        sqlx::query(
-            "update merge_issue_pull_requests set source = 'manual', closes = $2, dismissed_at = null, \
-               created_by_user_id = $3 where id = $1",
-        )
-        .bind(link_id)
-        .bind(closes)
-        .bind(&caller.user_id)
-        .execute(db)
-        .await?;
+        merge_issue_pull_requests::Entity::update_many()
+            .col_expr(
+                merge_issue_pull_requests::Column::Source,
+                Expr::value("manual"),
+            )
+            .col_expr(merge_issue_pull_requests::Column::Closes, Expr::value(closes))
+            .col_expr(
+                merge_issue_pull_requests::Column::DismissedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
+            .col_expr(
+                merge_issue_pull_requests::Column::CreatedByUserId,
+                Expr::value(caller.user_id.clone()),
+            )
+            .filter(merge_issue_pull_requests::Column::Id.eq(link_id))
+            .exec(&orm_db)
+            .await?;
         let phase = phase_of(&target.pr);
         let mut links = [LinkedIssue {
             closes,
@@ -527,22 +538,23 @@ pub(crate) async fn link(
         }];
         events = run_automation(db, &target.pr, Some(phase), &mut links, None).await?;
     } else if let Some((link_id, false)) = existing {
-        sqlx::query("update merge_issue_pull_requests set closes = $2 where id = $1")
-            .bind(&link_id)
-            .bind(closes)
-            .execute(db)
+        merge_issue_pull_requests::Entity::update_many()
+            .col_expr(merge_issue_pull_requests::Column::Closes, Expr::value(closes))
+            .filter(merge_issue_pull_requests::Column::Id.eq(link_id))
+            .exec(&orm_db)
             .await?;
     } else {
-        sqlx::query(
-            "insert into merge_issue_pull_requests (id, issue_id, pull_request_id, source, closes, created_by_user_id) \
-             values ($1, $2, $3, 'manual', $4, $5) on conflict do nothing",
-        )
-        .bind(generate_id("mip"))
-        .bind(&id)
-        .bind(&pull_request_id)
-        .bind(closes)
-        .bind(&caller.user_id)
-        .execute(db)
+        merge_issue_pull_requests::Entity::insert(merge_issue_pull_requests::ActiveModel {
+            id: Set(generate_id("mip")),
+            issue_id: Set(id.clone()),
+            pull_request_id: Set(pull_request_id.clone()),
+            source: Set("manual".to_owned()),
+            closes: Set(closes),
+            created_by_user_id: Set(Some(caller.user_id.clone())),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm_db)
         .await?;
         let phase = phase_of(&target.pr);
         let mut links = [LinkedIssue {
@@ -580,27 +592,31 @@ pub(crate) async fn unlink(
     let Some(issue) = find_issue(db, &id).await? else {
         return Err(Refusal::not_found("Issue", Some(&id)));
     };
-    let mut removed: Vec<String> = sqlx::query_scalar(
-        "update merge_issue_pull_requests set dismissed_at = $3::timestamptz \
-         where issue_id = $1 and pull_request_id = $2 and dismissed_at is null and source = 'auto' \
-         returning id",
-    )
-    .bind(&id)
-    .bind(&pr_id)
-    .bind(crate::now())
-    .fetch_all(db)
-    .await?;
-    if removed.is_empty() {
-        removed = sqlx::query_scalar(
-            "delete from merge_issue_pull_requests where issue_id = $1 and pull_request_id = $2 \
-             and dismissed_at is null and source = 'manual' returning id",
+    let orm_db = orm(db);
+    let (_, at) = now_at();
+    let mut removed = merge_issue_pull_requests::Entity::update_many()
+        .col_expr(
+            merge_issue_pull_requests::Column::DismissedAt,
+            Expr::value(at),
         )
-        .bind(&id)
-        .bind(&pr_id)
-        .fetch_all(db)
-        .await?;
+        .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+        .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pr_id))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_issue_pull_requests::Column::Source.eq("auto"))
+        .exec(&orm_db)
+        .await?
+        .rows_affected;
+    if removed == 0 {
+        removed = merge_issue_pull_requests::Entity::delete_many()
+            .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+            .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pr_id))
+            .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+            .filter(merge_issue_pull_requests::Column::Source.eq("manual"))
+            .exec(&orm_db)
+            .await?
+            .rows_affected;
     }
-    if removed.is_empty() {
+    if removed == 0 {
         return Err(Refusal::not_found("Pull request link", Some(&pr_id)));
     }
     let team_key = match find_team(db, text(&issue, "teamId")).await? {

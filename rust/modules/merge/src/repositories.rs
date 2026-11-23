@@ -32,7 +32,7 @@ use weldsuite_schema::tenant::{merge_connections, merge_pull_requests, merge_rep
 
 use crate::connections::find_connection;
 use crate::credentials::adapter_context;
-use crate::db::{Row, text};
+use crate::db::{Row, json_row, text};
 use crate::issues::diff_fields;
 use crate::mappers::{repository_dto, repository_event_data};
 use crate::pr_sync::{UpsertStatus, upsert_mirror};
@@ -40,13 +40,9 @@ use crate::providers::{self, AdapterContext, RepositoryRef, issue_sync_modes, re
 use crate::schemas::{ISSUE_SYNC_MODES, nothing_to_update};
 use crate::teams::find_team;
 use crate::webhooks::{register_repository_webhook, unregister_repository_webhook};
-use crate::{Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, publish, validate};
-
-/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
-/// of the model).
-fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
-    row.map_err(|error| DbErr::Json(error.to_string()))
-}
+use crate::{
+    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, all, publish, validate,
+};
 
 /// The row a `.returning()` update answers with: none is the error
 /// `fetch_one` raised (the route's 500).
@@ -55,7 +51,7 @@ fn returned(rows: Vec<merge_repositories::Model>) -> Result<Row, DbErr> {
         .into_iter()
         .next()
         .ok_or_else(|| DbErr::RecordNotFound("merge_repositories".to_owned()))?;
-    js(serde_json::to_value(repository))
+    json_row(serde_json::to_value(repository))
 }
 
 /// Open pull requests per repository.
@@ -90,7 +86,7 @@ pub(crate) async fn find_repository(db: &PgPool, id: &str) -> Result<Option<Row>
         .filter(merge_repositories::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(|repository| js(serde_json::to_value(repository)))
+        .map(|repository| json_row(serde_json::to_value(repository)))
         .transpose()
 }
 
@@ -104,11 +100,10 @@ fn repository_event(row: &Row, action: &'static str) -> PendingEvent {
 }
 
 pub(crate) async fn list(caller: Caller) -> Answer {
-    let connection: RelationDef =
-        merge_repositories::Entity::belongs_to(merge_connections::Entity)
-            .from(merge_repositories::Column::ConnectionId)
-            .to(merge_connections::Column::Id)
-            .into();
+    let connection: RelationDef = merge_repositories::Entity::belongs_to(merge_connections::Entity)
+        .from(merge_repositories::Column::ConnectionId)
+        .to(merge_connections::Column::Id)
+        .into();
     let rows = merge_repositories::Entity::find()
         .join(JoinType::InnerJoin, connection)
         .filter(merge_repositories::Column::DeletedAt.is_null())
@@ -118,7 +113,7 @@ pub(crate) async fn list(caller: Caller) -> Answer {
         .all(&orm(&caller.db))
         .await?
         .into_iter()
-        .map(|repository| js(serde_json::to_value(repository)))
+        .map(|repository| json_row(serde_json::to_value(repository)))
         .collect::<Result<Vec<Row>, DbErr>>()?;
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
     let counts = open_pull_request_counts(&caller.db, &ids).await?;
@@ -240,9 +235,15 @@ pub(crate) async fn add(
         return Err(Refusal::not_found("Repository", Some(&external_id)));
     };
     // A provider without the repository's name: the insert's not-null refusal (500).
-    let full_name = remote.full_name.as_str().map(str::to_owned).ok_or_else(|| {
-        DbErr::Custom("null value in column \"full_name\" of relation \"merge_repositories\"".to_owned())
-    })?;
+    let full_name = remote
+        .full_name
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            DbErr::Custom(
+                "null value in column \"full_name\" of relation \"merge_repositories\"".to_owned(),
+            )
+        })?;
     let at = utc_now().assume_utc();
     let inserted = merge_repositories::Entity::insert(merge_repositories::ActiveModel {
         id: Set(generate_id("mrp")),
@@ -266,7 +267,7 @@ pub(crate) async fn add(
     .exec_with_returning(&orm(db))
     .await;
     let mut repository = match inserted {
-        Ok(row) => js(serde_json::to_value(row))?,
+        Ok(row) => json_row(serde_json::to_value(row))?,
         Err(error) if weldsuite_db::is_unique_violation(&error) => {
             return Err(Refusal::conflict("This repository is already tracked"));
         }
@@ -416,7 +417,7 @@ pub(crate) async fn remove(
     let Some(repository) = rows.into_iter().next() else {
         return Err(Refusal::not_found("Repository", Some(&id)));
     };
-    let repository = js(serde_json::to_value(repository))?;
+    let repository = json_row(serde_json::to_value(repository))?;
     publish(
         &state,
         &caller.events,

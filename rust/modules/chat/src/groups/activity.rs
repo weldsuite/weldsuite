@@ -173,7 +173,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .column_as(chat_channels::Column::Name, "channel_name")
             .filter(feed(&caller.user_id, &types));
         // `left join chat_channels c on c.id = (t.data->>'channelId')`.
-        rows.query().join(
+        QueryTrait::query(&mut rows).join(
             JoinType::LeftJoin,
             chat_channels::Entity,
             sea_orm::ExprTrait::eq(

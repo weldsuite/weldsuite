@@ -81,6 +81,11 @@ pub(crate) fn date(text: &str) -> Result<time::Date, DbErr> {
         .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{text}\"")))
 }
 
+/// A whole number bound as `$n::int`: one out of range is Postgres's error.
+pub(crate) fn int4(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
+}
+
 /// `case when $n::text is null then <column> is null else <column> = $n end`.
 pub(crate) fn same_or_null<C: ColumnTrait>(column: C, value: Option<&str>) -> Condition {
     match value {

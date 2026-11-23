@@ -28,6 +28,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
 use http::request::Parts;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::{Map, Value, json};
 use weldsuite_chat_domain::Realtime;
 use weldsuite_chat_domain::calls::{
@@ -39,7 +42,7 @@ use weldsuite_chat_domain::calls::{
 };
 use weldsuite_chat_domain::can_access_channel;
 use weldsuite_chat_domain::publish::object;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm, orm_error};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, RequestEnv, generate_id};
 use weldsuite_notifications::{ApnsConfig, Notifier};
@@ -51,11 +54,15 @@ use weldsuite_ports::{
     BoxFuture, DynCache, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
     RequestCache,
 };
+use weldsuite_schema::tenant::{
+    chat_calls, chat_channel_members as members, chat_channels, workspace_members,
+};
 use weldsuite_video_rooms::{RealtimeKit, RealtimeKitConfig};
 
 pub use ring::{CALL_RING_TIMEOUT_JOB, CallRingTimeoutJob};
 
 use crate::access::{Caller, ChatError, ChatResult, answer, validate};
+use crate::groups::channels::{js, timestamp_of};
 use crate::{ChatState, LeaveMeetings};
 
 /// The `RealtimeKit` presets marker (`ensurePresets`'s KV key, shared with
@@ -258,12 +265,14 @@ async fn presets_ready(video: &Arc<dyn DynVideoRooms>, cache: Option<&Arc<dyn Dy
 async fn member(
     caller: &crate::access::Caller,
     user_id: &str,
-) -> Result<(Option<String>, Option<String>), sqlx::Error> {
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(&caller.db)
-            .await?;
+) -> Result<(Option<String>, Option<String>), DbErr> {
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let picture = weldsuite_db::load_account_picture(caller.master(), user_id).await;
     Ok((name.flatten(), picture))
 }
@@ -304,33 +313,53 @@ fn disabled_call_message(
     None
 }
 
-async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-    weldsuite_chat_domain::access::is_member(db, channel_id, user_id).await
+async fn is_member(db: &PgPool, channel_id: &str, user_id: &str) -> Result<bool, DbErr> {
+    weldsuite_chat_domain::access::is_member(db, channel_id, user_id)
+        .await
+        .map_err(orm_error)
 }
 
 /// `(voice_calls_enabled, video_calls_enabled, type)` of the channel.
 async fn channel_settings(
     db: &PgPool,
     channel_id: &str,
-) -> Result<Option<(bool, bool, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select voice_calls_enabled, video_calls_enabled, type from chat_channels where id = $1 limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<(bool, bool, String)>, DbErr> {
+    chat_channels::Entity::find()
+        .select_only()
+        .columns([
+            chat_channels::Column::VoiceCallsEnabled,
+            chat_channels::Column::VideoCallsEnabled,
+            chat_channels::Column::Type,
+        ])
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// The channel's ringing or active call, as Drizzle reads it.
-async fn live_call_in(db: &PgPool, channel_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from chat_calls t
-         where t.channel_id = $1 and t.status in ('ringing', 'active') limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn live_call_in(db: &PgPool, channel_id: &str) -> Result<Option<Value>, DbErr> {
+    chat_calls::Entity::find()
+        .filter(chat_calls::Column::ChannelId.eq(channel_id))
+        .filter(chat_calls::Column::Status.is_in(["ringing", "active"]))
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
+}
+
+/// `update chat_calls set participants = $2, max_participants = $3 … where
+/// id = $1`: the join's participant list; the caller adds the rest.
+fn set_participants(
+    participants: Vec<Value>,
+    max: i32,
+) -> sea_orm::UpdateMany<chat_calls::Entity> {
+    chat_calls::Entity::update_many()
+        .col_expr(
+            chat_calls::Column::Participants,
+            Expr::value(Value::Array(participants)),
+        )
+        .col_expr(chat_calls::Column::MaxParticipants, Expr::value(max))
 }
 
 /// `endStaleCall`: end a call that looks abandoned unless the provider still
@@ -532,19 +561,22 @@ async fn start_inner(
     map_room_to_call(ports.cache.as_ref(), &room, org, &call_id, channel_id)
         .await
         .map_err(|error| internal(&error, "Failed to start call"))?;
-    sqlx::query(
-        "insert into chat_calls (id, channel_id, call_type, status, cf_app_id, initiator_id,
-             initiator_name, participants, max_participants, created_at, updated_at)
-         values ($1, $2, $3, 'ringing', $4, $5, $6, '[]'::jsonb, 0, $7::timestamp, $7::timestamp)",
-    )
-    .bind(&call_id)
-    .bind(channel_id)
-    .bind(call_type)
-    .bind(&room)
-    .bind(user)
-    .bind(&initiator_name)
-    .bind(&now)
-    .execute(db)
+    let stamp = timestamp_of(&now)?;
+    chat_calls::Entity::insert(chat_calls::ActiveModel {
+        id: Set(call_id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        call_type: Set(call_type.to_owned()),
+        status: Set("ringing".to_owned()),
+        cf_app_id: Set(Some(room.clone())),
+        initiator_id: Set(user.to_owned()),
+        initiator_name: Set(initiator_name.clone()),
+        participants: Set(Some(json!([]))),
+        max_participants: Set(0),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let message_id = generate_id("msg");
     insert_call_notice(
@@ -559,10 +591,13 @@ async fn start_inner(
         &now,
     )
     .await?;
-    sqlx::query("update chat_calls set start_message_id = $2 where id = $1")
-        .bind(&call_id)
-        .bind(&message_id)
-        .execute(db)
+    chat_calls::Entity::update_many()
+        .col_expr(
+            chat_calls::Column::StartMessageId,
+            Expr::value(message_id.clone()),
+        )
+        .filter(chat_calls::Column::Id.eq(&call_id))
+        .exec(&orm(db))
         .await?;
 
     // `publishCallStarted`: the events, then for a DM the ring of every
@@ -761,17 +796,17 @@ async fn join_existing_call(
         };
         announce_join(&ports, &joined, &replaced).await;
         let max = max_participants(&call, &merged);
-        if let Err(error) = sqlx::query(
-            "update chat_calls set participants = $2, max_participants = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&call_id)
-        .bind(Value::Array(merged))
-        .bind(max)
-        .bind(iso_of_ms(now_ms()))
-        .execute(&db)
-        .await
-        {
+        let write = async {
+            set_participants(merged, max)
+                .col_expr(
+                    chat_calls::Column::UpdatedAt,
+                    Expr::value(timestamp_of(&iso_of_ms(now_ms()))?),
+                )
+                .filter(chat_calls::Column::Id.eq(&call_id))
+                .exec(&orm(&db))
+                .await
+        };
+        if let Err(error) = write.await {
             tracing::error!(%error, "[Chat:Calls] Background join-existing tasks failed");
         }
         settle_join(
@@ -913,20 +948,23 @@ async fn start_new_call(
     let mut participant = new_participant(user, &initiator_name, picture.as_deref(), &now, "");
 
     // The call record, its notice and the room mapping.
-    sqlx::query(
-        "insert into chat_calls (id, channel_id, call_type, status, cf_app_id, initiator_id,
-             initiator_name, participants, max_participants, started_at, created_at, updated_at)
-         values ($1, $2, $3, 'active', $4, $5, $6, $7, 1, $8::timestamp, $8::timestamp, $8::timestamp)",
-    )
-    .bind(&call_id)
-    .bind(channel_id)
-    .bind(call_type)
-    .bind(&room)
-    .bind(user)
-    .bind(&initiator_name)
-    .bind(Value::Array(vec![participant.clone()]))
-    .bind(&now)
-    .execute(db)
+    let stamp = timestamp_of(&now)?;
+    chat_calls::Entity::insert(chat_calls::ActiveModel {
+        id: Set(call_id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        call_type: Set(call_type.to_owned()),
+        status: Set("active".to_owned()),
+        cf_app_id: Set(Some(room.clone())),
+        initiator_id: Set(user.to_owned()),
+        initiator_name: Set(initiator_name.clone()),
+        participants: Set(Some(Value::Array(vec![participant.clone()]))),
+        max_participants: Set(1),
+        started_at: Set(Some(stamp)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     insert_call_notice(
         db,
@@ -1059,16 +1097,11 @@ async fn start_new_call(
         let before = fresh.as_ref().map(participants_of).unwrap_or_default();
         let (next, _) = upsert_participant(&before, participant);
         let max = max_participants(fresh.as_ref().unwrap_or(&Value::Null), &next);
-        if let Err(error) = sqlx::query(
-            "update chat_calls set participants = $2, max_participants = $3, start_message_id = $4
-             where id = $1",
-        )
-        .bind(&call_id)
-        .bind(Value::Array(next))
-        .bind(max)
-        .bind(&message_id)
-        .execute(&db_c)
-        .await
+        if let Err(error) = set_participants(next, max)
+            .col_expr(chat_calls::Column::StartMessageId, Expr::value(message_id))
+            .filter(chat_calls::Column::Id.eq(&call_id))
+            .exec(&orm(&db_c))
+            .await
         {
             tracing::error!(%error, "[Chat:Calls] Background tasks failed");
         }
@@ -1119,10 +1152,10 @@ async fn add_caller_to_room(
                 .create_room(title)
                 .await
                 .map_err(|e| e.to_string())?;
-            sqlx::query("update chat_calls set cf_app_id = $2 where id = $1")
-                .bind(call_id)
-                .bind(&fresh)
-                .execute(db)
+            chat_calls::Entity::update_many()
+                .col_expr(chat_calls::Column::CfAppId, Expr::value(fresh.clone()))
+                .filter(chat_calls::Column::Id.eq(call_id))
+                .exec(&orm(db))
                 .await
                 .map_err(|e| e.to_string())?;
             map_room_to_call(ports.cache.as_ref(), &fresh, org, call_id, channel_id)
@@ -1371,20 +1404,22 @@ async fn join_inner(
         };
         announce_join(&ports, &joined, &replaced).await;
         let max = max_participants(&call, &participants);
-        if let Err(error) = sqlx::query(
-            "update chat_calls set participants = $2, max_participants = $3, updated_at = $4::timestamp,
-                 status = case when $5 then 'active' else status end,
-                 started_at = case when $5 then $4::timestamp else started_at end
-             where id = $1",
-        )
-        .bind(&call_id)
-        .bind(Value::Array(participants))
-        .bind(max)
-        .bind(&now)
-        .bind(ringing)
-        .execute(&db)
-        .await
-        {
+        let write = async {
+            let stamp = timestamp_of(&now)?;
+            let mut update = set_participants(participants, max)
+                .col_expr(chat_calls::Column::UpdatedAt, Expr::value(stamp));
+            // The answer of a ringing call starts it.
+            if ringing {
+                update = update
+                    .col_expr(chat_calls::Column::Status, Expr::value("active"))
+                    .col_expr(chat_calls::Column::StartedAt, Expr::value(stamp));
+            }
+            update
+                .filter(chat_calls::Column::Id.eq(&call_id))
+                .exec(&orm(&db))
+                .await
+        };
+        if let Err(error) = write.await {
             tracing::error!(%error, "[Chat:Calls] Background join tasks failed");
         }
         settle_join(
@@ -1457,14 +1492,18 @@ async fn leave_inner(
         })
         .collect();
     let nobody_left = active_participant_count(&participants) == 0;
-    sqlx::query(
-        "update chat_calls set participants = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(call_id)
-    .bind(Value::Array(participants))
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
+    chat_calls::Entity::update_many()
+        .col_expr(
+            chat_calls::Column::Participants,
+            Expr::value(Value::Array(participants)),
+        )
+        .col_expr(
+            chat_calls::Column::UpdatedAt,
+            Expr::value(timestamp_of(&now)?),
+        )
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(&caller.db))
+        .await?;
     let ports = request.ports(state);
     let channel_id = text(&call, "channelId").unwrap_or_default();
     weldsuite_chat_domain::calls::publish_participant_left(
@@ -1558,14 +1597,21 @@ async fn active_calls(request: CallRequest) -> Response {
     }
     let result = async {
         let caller = &request.caller;
-        let channels: Vec<String> =
-            sqlx::query_scalar("select channel_id from chat_channel_members where user_id = $1")
-                .bind(&caller.user_id)
-                .fetch_all(&caller.db)
-                .await?;
+        let db = orm(&caller.db);
+        let channels: Vec<String> = members::Entity::find()
+            .select_only()
+            .column(members::Column::ChannelId)
+            .filter(members::Column::UserId.eq(&caller.user_id))
+            .into_tuple()
+            .all(&db)
+            .await?;
         if channels.is_empty() {
             return Ok(Data(json!([])).into_response());
         }
+        let channel: RelationDef = chat_calls::Entity::belongs_to(chat_channels::Entity)
+            .from(chat_calls::Column::ChannelId)
+            .to(chat_channels::Column::Id)
+            .into();
         let rows: Vec<(
             String,
             String,
@@ -1575,15 +1621,24 @@ async fn active_calls(request: CallRequest) -> Response {
             String,
             String,
             String,
-        )> = sqlx::query_as(
-            "select c.channel_id, c.id, c.call_type, c.status, c.participants, c.initiator_id,
-                        c.initiator_name, ch.type
-                 from chat_calls c inner join chat_channels ch on ch.id = c.channel_id
-                 where c.channel_id = any($1) and c.status in ('ringing', 'active')",
-        )
-        .bind(&channels)
-        .fetch_all(&caller.db)
-        .await?;
+        )> = chat_calls::Entity::find()
+            .select_only()
+            .columns([
+                chat_calls::Column::ChannelId,
+                chat_calls::Column::Id,
+                chat_calls::Column::CallType,
+                chat_calls::Column::Status,
+                chat_calls::Column::Participants,
+                chat_calls::Column::InitiatorId,
+                chat_calls::Column::InitiatorName,
+            ])
+            .column(chat_channels::Column::Type)
+            .join(JoinType::InnerJoin, channel)
+            .filter(chat_calls::Column::ChannelId.is_in(channels.iter().map(String::as_str)))
+            .filter(chat_calls::Column::Status.is_in(["ringing", "active"]))
+            .into_tuple()
+            .all(&db)
+            .await?;
         let calls: Vec<Value> = rows
             .into_iter()
             .map(

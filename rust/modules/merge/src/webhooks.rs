@@ -19,7 +19,7 @@ use weldsuite_schema::master::merge_provider_index;
 use weldsuite_schema::tenant::merge_repositories;
 
 use crate::credentials::adapter_context;
-use crate::db::{Row, opt_text, text};
+use crate::db::{Row, json_row, opt_text, text};
 use crate::providers::shared::trim_trailing_slashes;
 use crate::providers::{self, AdapterContext, RepositoryRef, WebhookTarget};
 use crate::{MergeError, MergeState, Overrides};
@@ -127,7 +127,10 @@ pub(crate) async fn register_repository_webhook(
                 Expr::value(webhook_id.clone()),
             )
             .col_expr(merge_repositories::Column::WebhookKey, Expr::value(key))
-            .col_expr(merge_repositories::Column::WebhookSecret, Expr::value(sealed))
+            .col_expr(
+                merge_repositories::Column::WebhookSecret,
+                Expr::value(sealed),
+            )
             .col_expr(
                 merge_repositories::Column::UpdatedAt,
                 Expr::value(utc_now().assume_utc()),
@@ -140,7 +143,7 @@ pub(crate) async fn register_repository_webhook(
             .into_iter()
             .next()
             .ok_or_else(|| DbErr::RecordNotFound("merge_repositories".to_owned()))?;
-        serde_json::to_value(row).map_err(|error| MergeError::Db(DbErr::Json(error.to_string())))
+        Ok::<Row, MergeError>(json_row(serde_json::to_value(row))?)
     }
     .await;
     match stored {

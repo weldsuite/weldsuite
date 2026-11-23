@@ -26,16 +26,10 @@ use weldsuite_schema::tenant::{
     merge_cycles, merge_issues, merge_labels, merge_repositories, merge_teams,
 };
 
-use crate::db::{Row, int, text};
+use crate::db::{Row, int, json_row, text};
 use crate::mappers::team_dto;
 use crate::schemas::{color, nothing_to_update, team_key};
 use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate};
-
-/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
-/// of the model).
-fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
-    row.map_err(|error| DbErr::Json(error.to_string()))
-}
 
 /// The row a `.returning()` update answers with: none is the error
 /// `fetch_one` raised (the route's 500).
@@ -44,7 +38,7 @@ fn returned(rows: Vec<merge_teams::Model>) -> Result<Row, DbErr> {
         .into_iter()
         .next()
         .ok_or_else(|| DbErr::RecordNotFound("merge_teams".to_owned()))?;
-    js(serde_json::to_value(team))
+    json_row(serde_json::to_value(team))
 }
 
 /// Open (not done or canceled, not deleted) issue counts by team id.
@@ -75,7 +69,7 @@ pub(crate) async fn find_team(db: &PgPool, id: &str) -> Result<Option<Row>, DbEr
         .filter(merge_teams::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(|team| js(serde_json::to_value(team)))
+        .map(|team| json_row(serde_json::to_value(team)))
         .transpose()
 }
 
@@ -116,7 +110,7 @@ pub(crate) async fn list(caller: Caller) -> Response {
             .all(&orm(&caller.db))
             .await?
             .into_iter()
-            .map(|team| js(serde_json::to_value(team)))
+            .map(|team| json_row(serde_json::to_value(team)))
             .collect::<Result<Vec<Row>, DbErr>>()?;
         let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
         let counts = open_issue_counts(&caller.db, &ids).await?;
@@ -215,7 +209,7 @@ pub(crate) async fn create(
     .exec_with_returning(&orm(&caller.db))
     .await;
     let row = match inserted {
-        Ok(row) => js(serde_json::to_value(row))?,
+        Ok(row) => json_row(serde_json::to_value(row))?,
         Err(error) if is_unique_violation(&error) => {
             return Err(Refusal::conflict("A team with this key already exists"));
         }

@@ -37,7 +37,8 @@ use weldsuite_schema::tenant::{
 
 use crate::automation::{StatusTimestamps, status_timestamps};
 use crate::db::{
-    Row, col, date, ilike, instant_opt, json_row, json_rows, like_pattern, now_at, opt_text, text,
+    Row, col, date, ilike, instant_opt, int4, json_row, json_rows, like_pattern, now_at, opt_text,
+    text,
 };
 use crate::keys::parse_issue_key;
 use crate::labels::count_usable;
@@ -1265,11 +1266,6 @@ pub(crate) async fn update_issue(
         issue,
         team_key,
     }))
-}
-
-/// A whole number bound as `$n::int`: one out of range is Postgres's error.
-fn int4(value: i64) -> Result<i32, DbErr> {
-    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
 }
 
 /// The status timestamps onto an issue being written.

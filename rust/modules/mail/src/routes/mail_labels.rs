@@ -10,6 +10,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
@@ -19,6 +20,7 @@ use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE, MESSAGES_READ,
     MESSAGES_UPDATE,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data};
 use weldsuite_mail_domain::access::{accessible_account_ids, check_account_access};
@@ -30,6 +32,7 @@ use weldsuite_mail_domain::threads::{
     ThreadQuery, decode_thread_cursor, encode_thread_cursor, list_threads,
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::mail_messages;
 
 use crate::util::{
     MailError, MailResult, answer, bump_mailbox_directory, unhandled, validate, validate_query,
@@ -202,18 +205,17 @@ async fn threads(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 /// `canAccessMessageAccounts(db, access, ids)`: every mailbox the ids sit in
 /// (deleted messages included) is open to the caller.
-pub(crate) async fn can_access_message_accounts(
-    caller: &Caller,
-    ids: &[String],
-) -> Result<bool, sqlx::Error> {
+pub(crate) async fn can_access_message_accounts(caller: &Caller, ids: &[String]) -> MailResult<bool> {
     if ids.is_empty() {
         return Ok(true);
     }
-    let rows: Vec<String> =
-        sqlx::query_scalar("select account_id from mail_messages where id = any($1::text[])")
-            .bind(ids)
-            .fetch_all(&caller.db)
-            .await?;
+    let rows: Vec<String> = mail_messages::Entity::find()
+        .select_only()
+        .column(mail_messages::Column::AccountId)
+        .filter(mail_messages::Column::Id.is_in(ids.iter().cloned()))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     let mut seen: Vec<String> = Vec::new();
     for account in rows {
         if seen.contains(&account) {

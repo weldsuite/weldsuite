@@ -49,14 +49,16 @@ use weldsuite_schema::tenant::{
 };
 
 use crate::connections::find_connection;
-use crate::db::{Row, col, opt_text, text};
+use crate::db::{Row, col, json_row, opt_text, text};
 use crate::github_client::{GithubClient, encode_uri_component};
 use crate::issues::{diff_fields, hydrate_issues, limit_of};
 use crate::mappers::pull_request_summary;
 use crate::record_links::TitleAccess;
 use crate::schemas::nothing_to_update;
 use crate::teams::find_team;
-use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, page, publish, validate, validate_query};
+use crate::{
+    Answer, Caller, MergeState, PendingEvent, Refusal, page, publish, validate, validate_query,
+};
 
 pub(crate) use notes::generate_notes;
 pub(crate) use publish::publish_release;
@@ -126,12 +128,6 @@ fn release_title(row: &Row) -> String {
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
-/// of the model).
-fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
-    row.map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// The row a `.returning()` update answers with: none is the error
 /// `fetch_one` raised (the route's 500).
 fn returned(rows: Vec<merge_releases::Model>) -> Result<Row, DbErr> {
@@ -139,7 +135,7 @@ fn returned(rows: Vec<merge_releases::Model>) -> Result<Row, DbErr> {
         .into_iter()
         .next()
         .ok_or_else(|| DbErr::RecordNotFound("merge_releases".to_owned()))?;
-    js(serde_json::to_value(release))
+    json_row(serde_json::to_value(release))
 }
 
 /// `findRelease(db, id)`: a live release.
@@ -148,7 +144,7 @@ pub(crate) async fn find_release(db: &PgPool, id: &str) -> Result<Option<Row>, D
         .filter(merge_releases::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(|release| js(serde_json::to_value(release)))
+        .map(|release| json_row(serde_json::to_value(release)))
         .transpose()
 }
 
@@ -236,10 +232,11 @@ async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, DbE
             .from(merge_pull_requests::Column::Id)
             .to(merge_release_pull_requests::Column::PullRequestId)
             .into();
-    let repository: RelationDef = merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
-        .from(merge_pull_requests::Column::RepositoryId)
-        .to(merge_repositories::Column::Id)
-        .into();
+    let repository: RelationDef =
+        merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+            .from(merge_pull_requests::Column::RepositoryId)
+            .to(merge_repositories::Column::Id)
+            .into();
     let prs = merge_pull_requests::Entity::find()
         .column_as(merge_repositories::Column::FullName, "repository_full_name")
         .join(JoinType::InnerJoin, in_release)
@@ -254,7 +251,7 @@ async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, DbE
         .into_iter()
         .map(|pr| {
             Ok((
-                js(serde_json::to_value(pr.pull_request))?,
+                json_row(serde_json::to_value(pr.pull_request))?,
                 pr.repository_full_name,
             ))
         })
@@ -283,7 +280,7 @@ async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, DbE
         .all(&orm)
         .await?
         .into_iter()
-        .map(|issue| js(serde_json::to_value(issue)))
+        .map(|issue| json_row(serde_json::to_value(issue)))
         .collect::<Result<Vec<Row>, DbErr>>()?;
     let mut issues = hydrate_issues(db, &issue_rows).await?;
     issues.sort_by(|a, b| {
@@ -393,7 +390,7 @@ async fn find_live_repository(db: &PgPool, id: &str) -> Result<Option<Row>, DbEr
         .filter(merge_repositories::Column::DeletedAt.is_null())
         .one(&orm(db))
         .await?
-        .map(|repository| js(serde_json::to_value(repository)))
+        .map(|repository| json_row(serde_json::to_value(repository)))
         .transpose()
 }
 
@@ -439,7 +436,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(|release| js(serde_json::to_value(release)))
+        .map(|release| json_row(serde_json::to_value(release)))
         .collect::<Result<Vec<Row>, DbErr>>()?;
     let size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > size;
@@ -547,7 +544,7 @@ pub(crate) async fn create(
     })
     .exec_with_returning(&orm(db))
     .await?;
-    let release = js(serde_json::to_value(row))?;
+    let release = json_row(serde_json::to_value(row))?;
     publish(
         &state,
         &caller.events,
@@ -672,7 +669,7 @@ pub(crate) async fn remove(
     let Some(release) = rows.into_iter().next() else {
         return Err(Refusal::not_found("Release", Some(&id)));
     };
-    let release = js(serde_json::to_value(release))?;
+    let release = json_row(serde_json::to_value(release))?;
     publish(
         &state,
         &caller.events,
@@ -795,7 +792,7 @@ async fn merged_by_compare(
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(|pr| js(serde_json::to_value(pr)))
+        .map(|pr| json_row(serde_json::to_value(pr)))
         .collect()
 }
 
@@ -827,7 +824,7 @@ async fn merged_since(db: &PgPool, release: &Row) -> Result<Vec<Row>, DbErr> {
         .all(&orm)
         .await?
         .into_iter()
-        .map(|pr| js(serde_json::to_value(pr)))
+        .map(|pr| json_row(serde_json::to_value(pr)))
         .collect()
 }
 
@@ -953,7 +950,7 @@ pub(crate) async fn ship(
     let Some(row) = rows.into_iter().next() else {
         return Err(Refusal::conflict("The release is already shipped"));
     };
-    let shipped = js(serde_json::to_value(row))?;
+    let shipped = json_row(serde_json::to_value(row))?;
     let data = shipped_event_data(db, &shipped).await?;
     publish(
         &state,

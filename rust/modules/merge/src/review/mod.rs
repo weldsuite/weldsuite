@@ -42,7 +42,7 @@ use weldsuite_kit::{Created, Data};
 use weldsuite_schema::tenant::{merge_connections, merge_pull_requests, merge_repositories};
 
 use crate::credentials::{connection_token, member_token};
-use crate::db::{Row, opt_text, text};
+use crate::db::{Row, json_row, opt_text, text};
 use crate::hooks::HookContext;
 use crate::mappers::pull_request_event_data;
 use crate::providers::{self, AdapterContext, RepositoryRef};
@@ -339,12 +339,6 @@ impl Target {
     }
 }
 
-/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
-/// of the model).
-fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
-    row.map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// `loadTarget`'s row: the pull request, and its repository's and
 /// connection's whole rows under their prefixes.
 #[derive(FromQueryResult)]
@@ -370,10 +364,11 @@ fn with_row_of<E: EntityTrait>(
 
 /// `loadTarget(db, id)`: of a live repository on a live connection.
 async fn load_target(db: &PgPool, id: &str) -> Result<Option<Target>, DbErr> {
-    let repository: RelationDef = merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
-        .from(merge_pull_requests::Column::RepositoryId)
-        .to(merge_repositories::Column::Id)
-        .into();
+    let repository: RelationDef =
+        merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+            .from(merge_pull_requests::Column::RepositoryId)
+            .to(merge_repositories::Column::Id)
+            .into();
     let connection: RelationDef = merge_repositories::Entity::belongs_to(merge_connections::Entity)
         .from(merge_repositories::Column::ConnectionId)
         .to(merge_connections::Column::Id)
@@ -393,9 +388,9 @@ async fn load_target(db: &PgPool, id: &str) -> Result<Option<Target>, DbErr> {
         .await?;
     row.map(|row| {
         Ok(Target {
-            pr: js(serde_json::to_value(row.pr))?,
-            repository: js(serde_json::to_value(row.repository))?,
-            connection: js(serde_json::to_value(row.connection))?,
+            pr: json_row(serde_json::to_value(row.pr))?,
+            repository: json_row(serde_json::to_value(row.repository))?,
+            connection: json_row(serde_json::to_value(row.connection))?,
         })
     })
     .transpose()
@@ -540,7 +535,7 @@ impl Review<'_> {
         let Some(row) = rows.into_iter().next() else {
             return Ok(Vec::new());
         };
-        let row = js(serde_json::to_value(row))?;
+        let row = json_row(serde_json::to_value(row))?;
         let id = text(&row, "id").to_owned();
         let issues = linked_issues(self.db(), std::slice::from_ref(&id)).await?;
         let issue_ids: Vec<String> = issues

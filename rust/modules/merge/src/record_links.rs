@@ -36,7 +36,7 @@ use weldsuite_schema::tenant::{
     merge_releases, merge_teams,
 };
 
-use crate::db::{Row, text};
+use crate::db::{Row, json_row, text};
 use crate::github::millis_of;
 use crate::issues::find_issue;
 use crate::mappers::{record_link_dto, record_link_event_data};
@@ -89,12 +89,6 @@ pub(crate) fn read_link(issues: &mut Issues, item: &Value) -> Option<RecordLinkI
     read_link_fields(issues, fields)
 }
 
-/// A row as Drizzle returned it: the entity's JSON (`serde_json::to_value`
-/// of the model).
-fn js(row: serde_json::Result<Value>) -> Result<Row, DbErr> {
-    row.map_err(|error| DbErr::Json(error.to_string()))
-}
-
 /// `insertRecordLinks(db, issueId, links, userId)`: a repeated record is
 /// stored once (the first mention wins: it may carry the title), and a record
 /// the issue is already linked to is skipped (`onConflictDoNothing`). The
@@ -143,7 +137,7 @@ pub(crate) async fn insert_record_links(
         .await?;
     let mut rows = inserted
         .into_iter()
-        .map(|link| js(serde_json::to_value(link)))
+        .map(|link| json_row(serde_json::to_value(link)))
         .collect::<Result<Vec<Row>, DbErr>>()?;
     // In the order they were given.
     rows.sort_by_key(|row| {
@@ -163,7 +157,7 @@ pub(crate) async fn list_record_links(db: &PgPool, issue_id: &str) -> Result<Vec
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(|link| js(serde_json::to_value(link)))
+        .map(|link| json_row(serde_json::to_value(link)))
         .collect()
 }
 
@@ -324,7 +318,7 @@ pub(crate) async fn remove(
     merge_record_links::Entity::delete_by_id(link_id.clone())
         .exec(&orm(db))
         .await?;
-    let link = js(serde_json::to_value(link))?;
+    let link = json_row(serde_json::to_value(link))?;
     publish(&state, &caller.events, vec![link_event(&link, "deleted")]);
     Ok(NoContent.into_response())
 }
@@ -348,12 +342,11 @@ async fn shipped_releases(
         return Ok(HashMap::new());
     }
     // `merge_releases r` ⋈ `merge_release_pull_requests rp` ⋈ `merge_issue_pull_requests l`.
-    let release_pull_requests: RelationDef = merge_releases::Entity::belongs_to(
-        merge_release_pull_requests::Entity,
-    )
-    .from(merge_releases::Column::Id)
-    .to(merge_release_pull_requests::Column::ReleaseId)
-    .into();
+    let release_pull_requests: RelationDef =
+        merge_releases::Entity::belongs_to(merge_release_pull_requests::Entity)
+            .from(merge_releases::Column::Id)
+            .to(merge_release_pull_requests::Column::ReleaseId)
+            .into();
     let issue_links: RelationDef =
         merge_release_pull_requests::Entity::belongs_to(merge_issue_pull_requests::Entity)
             .from(merge_release_pull_requests::Column::PullRequestId)
@@ -375,7 +368,7 @@ async fn shipped_releases(
         link_issue_id: issue_id,
     } in rows
     {
-        let release = js(serde_json::to_value(release))?;
+        let release = json_row(serde_json::to_value(release))?;
         let shipped_at = release.get("shippedAt").cloned().unwrap_or(Value::Null);
         let at = shipped_at.as_str().and_then(millis_of).unwrap_or(0.0);
         let id = text(&release, "id").to_owned();
@@ -452,7 +445,7 @@ pub(crate) async fn list_linked_issues(
             let issue_id = row.link.issue_id.clone();
             let team_key = row.team_key;
             Ok(json!({
-                "link": record_link_dto(&js(serde_json::to_value(row.link))?),
+                "link": record_link_dto(&json_row(serde_json::to_value(row.link))?),
                 "issue": {
                     "id": issue_id,
                     "key": format!("{team_key}-{}", row.issue_number),

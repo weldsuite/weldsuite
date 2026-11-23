@@ -10,23 +10,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MAIL_DRAFT_CREATED, MAIL_DRAFT_DELETED, MAIL_DRAFT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     MESSAGES_CREATE, MESSAGES_DELETE, MESSAGES_READ, MESSAGES_UPDATE,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::{accessible_account_ids, check_account_access};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::mail_drafts;
 
 use crate::routes::mail_labels::NO_ACCESS;
-use crate::util::{
-    MailError, MailResult, answer, list_response, now, page, validate, validate_query,
-};
+use crate::util::{MailError, MailResult, answer, list_response, page, validate, validate_query};
 use crate::{Caller, MailState};
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -60,6 +65,17 @@ where
         .with_state(state)
 }
 
+/// A draft row as Drizzle returns it.
+fn js(draft: mail_drafts::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(draft).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// The cursor's `updated_at` as the keyset compares it: the
+/// `to_char(…, '…SS.MS')` text, so to the millisecond (truncated).
+pub(crate) fn to_millis(at: PrimitiveDateTime) -> PrimitiveDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
+}
+
 /// `listDrafts(db, filters)`: newest edit first.
 async fn list_drafts(
     caller: &Caller,
@@ -67,48 +83,57 @@ async fn list_drafts(
     accessible: Option<&[String]>,
     limit: i64,
     cursor: Option<&str>,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let limit = limit.min(100);
-    let cursor_row: Option<(String, String)> = match cursor.filter(|c| !c.is_empty()) {
+    let db = orm(&caller.db);
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty())
+    {
         Some(cursor) => {
-            sqlx::query_as(
-                "select to_char(updated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                 from mail_drafts where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await?
+            mail_drafts::Entity::find_by_id(cursor.to_owned())
+                .select_only()
+                .columns([mail_drafts::Column::UpdatedAt, mail_drafts::Column::Id])
+                .into_tuple()
+                .one(&db)
+                .await?
         }
         None => None,
     };
-    let (cursor_at, cursor_id) = cursor_row.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from mail_drafts d
-         where d.deleted_at is null and ($1::text is null or d.account_id = $1)
-           and ($2::text[] is null or d.account_id = any($2::text[]))
-           and ($3::timestamp is null or (d.updated_at < $3::timestamp
-                or (d.updated_at = $3::timestamp and d.id < $4)))
-         order by d.updated_at desc, d.id desc limit $5",
-    )
-    .bind(account)
-    .bind(accessible)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i32 = sqlx::query_scalar(
-        "select count(*)::int from mail_drafts d
-         where d.deleted_at is null and ($1::text is null or d.account_id = $1)
-           and ($2::text[] is null or d.account_id = any($2::text[]))",
-    )
-    .bind(account)
-    .bind(accessible)
-    .fetch_one(&caller.db)
-    .await?;
-    let rows = rows.into_iter().map(js_row).collect();
+    let mut scope = Condition::all().add(mail_drafts::Column::DeletedAt.is_null());
+    if let Some(account) = account {
+        scope = scope.add(mail_drafts::Column::AccountId.eq(account));
+    }
+    if let Some(accessible) = accessible {
+        scope = scope.add(mail_drafts::Column::AccountId.is_in(accessible.iter().cloned()));
+    }
+    let mut page_scope = scope.clone();
+    if let Some((at, id)) = cursor_row {
+        let at = to_millis(at);
+        page_scope = page_scope.add(
+            Condition::any()
+                .add(mail_drafts::Column::UpdatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(mail_drafts::Column::UpdatedAt.eq(at))
+                        .add(mail_drafts::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = mail_drafts::Entity::find()
+        .filter(page_scope)
+        .order_by_desc(mail_drafts::Column::UpdatedAt)
+        .order_by_desc(mail_drafts::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = mail_drafts::Entity::find().filter(scope).count(&db).await?;
+    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
     let (data, has_more, next) = page(rows, limit);
-    Ok(list_response(data, i64::from(total), has_more, next))
+    Ok(list_response(
+        data,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 /// `GET /`.
@@ -160,24 +185,22 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 async fn locate(caller: &Caller, id: &str) -> MailResult<Value> {
     let accessible = accessible_account_ids(&caller.db, &caller.user_id).await?;
     if !accessible.is_empty() {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from mail_drafts d
-             where d.id = $1 and d.deleted_at is null and d.account_id = any($2::text[]) limit 1",
-        )
-        .bind(id)
-        .bind(&accessible)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row = mail_drafts::Entity::find_by_id(id.to_owned())
+            .filter(mail_drafts::Column::DeletedAt.is_null())
+            .filter(mail_drafts::Column::AccountId.is_in(accessible))
+            .one(&orm(&caller.db))
+            .await?;
         if let Some(row) = row {
-            return Ok(js_row(row));
+            return Ok(js(row)?);
         }
     }
-    let exists: Option<String> = sqlx::query_scalar(
-        "select id from mail_drafts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let exists: Option<String> = mail_drafts::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(mail_drafts::Column::Id)
+        .filter(mail_drafts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     match exists {
         None => Err(MailError::not_found("Draft", Some(id))),
         Some(_) => Err(MailError::forbidden(NO_ACCESS)),
@@ -264,20 +287,22 @@ fn flag(data: &Map<String, Value>, key: &str) -> Option<bool> {
     data.get(key).and_then(Value::as_bool)
 }
 
-fn attachment_count(data: &Map<String, Value>) -> Option<i64> {
+fn attachment_count(data: &Map<String, Value>) -> Option<i32> {
     data.get("attachmentIds")
         .and_then(Value::as_array)
-        .map(|ids| i64::try_from(ids.len()).unwrap_or_default())
+        .map(|ids| i32::try_from(ids.len()).unwrap_or(i32::MAX))
 }
 
-async fn draft_row(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from mail_drafts d where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+fn owned(data: &Map<String, Value>, key: &str) -> Option<String> {
+    text(data, key).map(str::to_owned)
+}
+
+async fn draft_row(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_drafts::Entity::find_by_id(id.to_owned())
+        .filter(mail_drafts::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(js).transpose()
 }
 
 /// `POST /` (`createDraft`).
@@ -309,35 +334,34 @@ async fn create(
         }
         let id = generate_id("draft");
         let count = attachment_count(&data).unwrap_or(0);
-        sqlx::query(
-            "insert into mail_drafts (id, account_id, subject, \"to\", cc, bcc, reply_to, body,
-               html_body, importance, labels, attachment_ids, in_reply_to, original_message_id,
-               is_reply, is_forward, has_attachments, attachment_count, last_auto_saved_at,
-               created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce($10, 'normal'), $11, $12, $13,
-               $14, coalesce($15, false), coalesce($16, false), $17, $18, $19::timestamp,
-               $19::timestamp, $19::timestamp)",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(text(&data, "subject"))
-        .bind(data.get("to").cloned())
-        .bind(data.get("cc").cloned())
-        .bind(data.get("bcc").cloned())
-        .bind(data.get("replyTo").cloned())
-        .bind(text(&data, "body"))
-        .bind(text(&data, "htmlBody"))
-        .bind(text(&data, "importance"))
-        .bind(data.get("labels").cloned())
-        .bind(data.get("attachmentIds").cloned())
-        .bind(text(&data, "inReplyTo"))
-        .bind(text(&data, "originalMessageId"))
-        .bind(flag(&data, "isReply"))
-        .bind(flag(&data, "isForward"))
-        .bind(count > 0)
-        .bind(count)
-        .bind(now())
-        .execute(&caller.db)
+        let at = utc_now();
+        mail_drafts::Entity::insert(mail_drafts::ActiveModel {
+            id: Set(id.clone()),
+            account_id: Set(account.clone()),
+            subject: Set(owned(&data, "subject")),
+            to: Set(data.get("to").cloned()),
+            cc: Set(data.get("cc").cloned()),
+            bcc: Set(data.get("bcc").cloned()),
+            reply_to: Set(data.get("replyTo").cloned()),
+            body: Set(owned(&data, "body")),
+            html_body: Set(owned(&data, "htmlBody")),
+            importance: Set(Some(
+                text(&data, "importance").unwrap_or("normal").to_owned(),
+            )),
+            labels: Set(data.get("labels").cloned()),
+            attachment_ids: Set(data.get("attachmentIds").cloned()),
+            in_reply_to: Set(owned(&data, "inReplyTo")),
+            original_message_id: Set(owned(&data, "originalMessageId")),
+            is_reply: Set(Some(flag(&data, "isReply").unwrap_or(false))),
+            is_forward: Set(Some(flag(&data, "isForward").unwrap_or(false))),
+            has_attachments: Set(Some(count > 0)),
+            attachment_count: Set(Some(count)),
+            last_auto_saved_at: Set(Some(at)),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = draft_row(&caller, &id)
             .await?
@@ -382,39 +406,7 @@ async fn update(
         if draft_row(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Draft", Some(&id)));
         }
-        let count = attachment_count(&data);
-        sqlx::query(
-            "update mail_drafts set updated_at = $2::timestamp, last_auto_saved_at = $2::timestamp,
-               subject = coalesce($3, subject), \"to\" = coalesce($4, \"to\"), cc = coalesce($5, cc),
-               bcc = coalesce($6, bcc), reply_to = coalesce($7, reply_to), body = coalesce($8, body),
-               html_body = coalesce($9, html_body), importance = coalesce($10, importance),
-               labels = coalesce($11, labels), attachment_ids = coalesce($12, attachment_ids),
-               in_reply_to = coalesce($13, in_reply_to),
-               original_message_id = coalesce($14, original_message_id),
-               is_reply = coalesce($15, is_reply), is_forward = coalesce($16, is_forward),
-               has_attachments = case when $17::bigint is null then has_attachments else $17 > 0 end,
-               attachment_count = coalesce($17::int, attachment_count)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text(&data, "subject"))
-        .bind(data.get("to").cloned())
-        .bind(data.get("cc").cloned())
-        .bind(data.get("bcc").cloned())
-        .bind(data.get("replyTo").cloned())
-        .bind(text(&data, "body"))
-        .bind(text(&data, "htmlBody"))
-        .bind(text(&data, "importance"))
-        .bind(data.get("labels").cloned())
-        .bind(data.get("attachmentIds").cloned())
-        .bind(text(&data, "inReplyTo"))
-        .bind(text(&data, "originalMessageId"))
-        .bind(flag(&data, "isReply"))
-        .bind(flag(&data, "isForward"))
-        .bind(count)
-        .execute(&caller.db)
-        .await?;
+        write_update(&caller, &id, &data).await?;
         let after = draft_row(&caller, &id)
             .await?
             .filter(|row| row["accountId"].as_str() == Some(account.as_str()));
@@ -433,6 +425,57 @@ async fn update(
     answer(result, "Failed to update draft")
 }
 
+/// `updateDraft`'s write: the fields the body sent, `updatedAt` and
+/// `lastAutoSavedAt`.
+async fn write_update(caller: &Caller, id: &str, data: &Map<String, Value>) -> Result<(), DbErr> {
+    let at = utc_now();
+    let mut update = mail_drafts::Entity::update_many()
+        .col_expr(mail_drafts::Column::UpdatedAt, Expr::value(at))
+        .col_expr(mail_drafts::Column::LastAutoSavedAt, Expr::value(at));
+    for (key, column) in [
+        ("subject", mail_drafts::Column::Subject),
+        ("body", mail_drafts::Column::Body),
+        ("htmlBody", mail_drafts::Column::HtmlBody),
+        ("importance", mail_drafts::Column::Importance),
+        ("inReplyTo", mail_drafts::Column::InReplyTo),
+        ("originalMessageId", mail_drafts::Column::OriginalMessageId),
+    ] {
+        if let Some(value) = owned(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    for (key, column) in [
+        ("to", mail_drafts::Column::To),
+        ("cc", mail_drafts::Column::Cc),
+        ("bcc", mail_drafts::Column::Bcc),
+        ("replyTo", mail_drafts::Column::ReplyTo),
+        ("labels", mail_drafts::Column::Labels),
+        ("attachmentIds", mail_drafts::Column::AttachmentIds),
+    ] {
+        if let Some(value) = data.get(key) {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    for (key, column) in [
+        ("isReply", mail_drafts::Column::IsReply),
+        ("isForward", mail_drafts::Column::IsForward),
+    ] {
+        if let Some(value) = flag(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(count) = attachment_count(data) {
+        update = update
+            .col_expr(mail_drafts::Column::HasAttachments, Expr::value(count > 0))
+            .col_expr(mail_drafts::Column::AttachmentCount, Expr::value(count));
+    }
+    update
+        .filter(mail_drafts::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
 /// `DELETE /:id` (`softDeleteDraft`).
 async fn remove(
     State(state): State<MailState>,
@@ -442,16 +485,15 @@ async fn remove(
     let result = async {
         let located = locate(&caller, &id).await?;
         let account = located["accountId"].as_str().unwrap_or_default().to_owned();
-        let at = now();
-        let done = sqlx::query(
-            "update mail_drafts set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
-        if done.rows_affected() == 0 {
+        let at = utc_now();
+        let done = mail_drafts::Entity::update_many()
+            .col_expr(mail_drafts::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_drafts::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_drafts::Column::Id.eq(&id))
+            .filter(mail_drafts::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
+        if done.rows_affected == 0 {
             return Err(MailError::not_found("Draft", Some(&id)));
         }
         caller.publish(
