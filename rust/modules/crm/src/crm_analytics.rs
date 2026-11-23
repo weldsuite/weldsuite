@@ -234,7 +234,10 @@ pub(crate) async fn create(
     };
     let result = async {
         let id = generate_id("rpt");
-        let title = data.get("title").and_then(Value::as_str).unwrap_or_default();
+        let title = data
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let now = utc_now();
         reports::Entity::insert(reports::ActiveModel {
             id: Set(id.clone()),
@@ -512,9 +515,14 @@ fn chart_update(data: &Map<String, Value>) -> Result<sea_orm::UpdateMany<charts:
             "aggregation" => (Column::Aggregation, Expr::value(text(value))),
             "sortOrder" => (Column::SortOrder, Expr::value(text(value))),
             "limit" => {
-                let limit = value.as_i64().and_then(|n| i32::try_from(n).ok()).ok_or_else(|| {
-                    DbErr::Type(format!("invalid input syntax for type integer: \"{value}\""))
-                })?;
+                let limit = value
+                    .as_i64()
+                    .and_then(|n| i32::try_from(n).ok())
+                    .ok_or_else(|| {
+                        DbErr::Type(format!(
+                            "invalid input syntax for type integer: \"{value}\""
+                        ))
+                    })?;
                 (Column::Limit, Expr::value(limit))
             }
             "compareWith" => (Column::CompareWith, Expr::value(text(value))),

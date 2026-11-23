@@ -92,7 +92,10 @@ pub(crate) async fn create(
         let now = utc_now();
         let person_id = text(&data, "personId").unwrap_or_default();
         let company_id = text(&data, "companyId").unwrap_or_default();
-        let is_primary = data.get("isPrimary").and_then(Value::as_bool).unwrap_or(false);
+        let is_primary = data
+            .get("isPrimary")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let started = date_or_null(data.get("startedAt"))?;
         let ended = date_or_null(data.get("endedAt"))?;
         links::Entity::insert(links::ActiveModel {
@@ -153,8 +156,8 @@ pub(crate) async fn update(
         let started = timestamp_or_null(&date_or_null(data.get("startedAt"))?)?;
         let ended = timestamp_or_null(&date_or_null(data.get("endedAt"))?)?;
         // Only the fields the body sent change.
-        let mut update = links::Entity::update_many()
-            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        let mut update =
+            links::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
         if data.contains_key("role") {
             update = update.col_expr(
                 Column::Role,

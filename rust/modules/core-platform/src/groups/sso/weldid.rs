@@ -26,8 +26,10 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
-use weldsuite_db::PgPool;
+use sea_orm::{ColumnTrait, Condition};
 use weldsuite_db::sso_settings::{SSO_DEFAULT_ROLES, set_sso_default_role, sso_default_role};
+use weldsuite_db::{PgPool, orm_error};
+use weldsuite_schema::master::workspaces;
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
@@ -36,8 +38,8 @@ use weldsuite_ports::{
 };
 
 use super::{
-    Context, HTTPS_URL, PUBLIC_EMAIL_DOMAINS, Workspace, WorkspaceRow, changed_meanwhile,
-    domain_in_use, domain_not_verified, normalize_sso_domain, refusal, require_entitled,
+    Context, HTTPS_URL, PUBLIC_EMAIL_DOMAINS, changed_meanwhile, domain_in_use,
+    domain_not_verified, normalize_sso_domain, refusal, require_entitled,
 };
 use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, validate};
 
@@ -57,36 +59,13 @@ struct Loaded {
 
 /// `loadSsoContext` by `workspaces.id` (the tenant WeldID knows).
 async fn context_by_id(master: &PgPool, workspace_id: &str) -> PlatformResult<Context> {
-    let workspace: Option<WorkspaceRow> = sqlx::query_as(
-        "select id, clerk_org_id, plan_id, is_active, deleted_at is not null
-         from workspaces where id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    let Some((id, clerk_org_id, plan_id, is_active, deleted)) = workspace else {
-        return Err(refusal(
+    let filter = Condition::all().add(workspaces::Column::Id.eq(workspace_id));
+    super::context_where(master, filter).await?.ok_or_else(|| {
+        refusal(
             StatusCode::NOT_FOUND,
             "WORKSPACE_NOT_FOUND",
             "Workspace not found.",
-        ));
-    };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workspace_sso s where workspace_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(master)
-    .await?;
-    let plan_includes_sso = super::plan_includes_sso(master, plan_id.as_deref()).await?;
-    Ok(Context {
-        workspace: Workspace {
-            id,
-            clerk_org_id,
-            is_active,
-            deleted,
-        },
-        row: row.map(|row| super::SsoRow::from_row(&weldsuite_db::js_row(row))),
-        plan_includes_sso,
+        )
     })
 }
 
@@ -103,7 +82,7 @@ async fn load(
         .map_err(|error| failure(&error, Step::Read))?
         .into_iter()
         .next();
-    let default_role = sso_default_role(&caller.db).await?;
+    let default_role = sso_default_role(&caller.db).await.map_err(orm_error)?;
     Ok(Loaded {
         ctx,
         connection,
@@ -585,8 +564,10 @@ pub(super) async fn save_connection(
         }
     };
     if let Some(role) = &input.default_role {
-        set_sso_default_role(&caller.db, role, &generate_id("ws")).await?;
-        loaded.default_role = sso_default_role(&caller.db).await?;
+        set_sso_default_role(&caller.db, role, &generate_id("ws"))
+            .await
+            .map_err(orm_error)?;
+        loaded.default_role = sso_default_role(&caller.db).await.map_err(orm_error)?;
     }
     Ok(changed(state, caller, kind, &loaded))
 }

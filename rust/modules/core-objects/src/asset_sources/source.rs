@@ -4,16 +4,23 @@
 //! `@weldsuite/core-domain/asset-sources`).
 //!
 //! `secret_encrypted` is never part of the row: every statement here selects
-//! the row without it, with a `has_secret` flag in its place. The import and
-//! the test routes read the sealed secret on its own
-//! ([`stored_secret`]).
+//! (or returns) the row without it, with a `has_secret` flag in its place
+//! ([`COLUMNS`], [`has_secret`]). The import and the test routes read the
+//! sealed secret on its own ([`stored_secret`]).
 
+use sea_orm::sea_query::{Expr, Func, ReturningClause};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    QueryFilter, QueryOrder, QueryResult, QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::asset_sources::{self, Column, Entity};
+use weldsuite_schema::tenant::integration_entity_mappings as mappings;
 
 use super::microsoft::{SourceError, parse_stored_error};
 
@@ -27,7 +34,46 @@ pub(crate) const INTUNE_DEVICE_ENTITY_TYPE: &str = "intune_device";
 
 const TIMESTAMPS: [&str; 4] = ["created_at", "updated_at", "next_sync_at", "last_sync_at"];
 
-/// The row without the sealed secret, with `has_secret` in its place.
+/// Every column but the sealed secret, in the order [`Source`] reads them;
+/// [`has_secret`] comes after them.
+const COLUMNS: [Column; 16] = [
+    Column::Id,
+    Column::CreatedAt,
+    Column::UpdatedAt,
+    Column::Type,
+    Column::Name,
+    Column::ObjectSlug,
+    Column::Config,
+    Column::Enabled,
+    Column::IntervalHours,
+    Column::NextSyncAt,
+    Column::SyncState,
+    Column::LastSyncAt,
+    Column::LastStatus,
+    Column::LastError,
+    Column::LastStats,
+    Column::CreatedById,
+];
+
+/// `secret_encrypted is not null`: the flag that stands in for the secret.
+fn has_secret() -> Expr {
+    Column::SecretEncrypted.is_not_null()
+}
+
+/// `returning` the row without the sealed secret ([`COLUMNS`], then
+/// [`has_secret`]).
+fn returning() -> ReturningClause {
+    ReturningClause::Exprs(
+        COLUMNS
+            .iter()
+            .map(|column| Expr::col(*column))
+            .chain([has_secret()])
+            .collect(),
+    )
+}
+
+/// The row without the sealed secret, with `has_secret` in its place, as
+/// the lease claim ([`claim_step`]) returns it.
 macro_rules! columns {
     () => {
         "((to_jsonb(s) - 'secret_encrypted') \
@@ -38,6 +84,21 @@ macro_rules! columns {
 /// An ISO time (`toISOString()`) as an instant.
 pub(crate) fn instant(iso: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(iso, &Rfc3339).ok()
+}
+
+/// An ISO time as the `timestamp` it is written as (`$n::timestamp`); text
+/// that is no time is the database error Postgres answered it with.
+fn timestamp(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    instant(iso).map(utc_timestamp).ok_or_else(|| {
+        DbErr::Type(format!(
+            "invalid input syntax for type timestamp: \"{iso}\""
+        ))
+    })
+}
+
+/// A `timestamp` column as `toISOString()` writes it.
+fn iso(at: PrimitiveDateTime) -> String {
+    iso_timestamp(at.assume_utc())
 }
 
 /// `new Date()`: an instant cut to the millisecond, as JavaScript holds it.
@@ -87,6 +148,43 @@ pub(crate) struct Source {
     pub(crate) created_by_id: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+/// A row read as [`COLUMNS`] then [`has_secret`], by position (the flag has
+/// no column name in a `returning`).
+impl FromQueryResult for Source {
+    fn from_query_result(row: &QueryResult, _pre: &str) -> Result<Self, DbErr> {
+        let json = |index: usize| -> Result<Option<Value>, DbErr> {
+            let value: Option<Value> = row.try_get_by_index(index)?;
+            Ok(value.filter(|value| !value.is_null()))
+        };
+        let stamp = |index: usize| -> Result<Option<String>, DbErr> {
+            let at: Option<PrimitiveDateTime> = row.try_get_by_index(index)?;
+            Ok(at.map(iso))
+        };
+        let created_at: PrimitiveDateTime = row.try_get_by_index(1)?;
+        let updated_at: PrimitiveDateTime = row.try_get_by_index(2)?;
+        let interval_hours: i32 = row.try_get_by_index(8)?;
+        Ok(Self {
+            id: row.try_get_by_index(0)?,
+            kind: row.try_get_by_index(3)?,
+            name: row.try_get_by_index(4)?,
+            object_slug: row.try_get_by_index(5)?,
+            config: row.try_get_by_index(6)?,
+            enabled: row.try_get_by_index(7)?,
+            interval_hours: i64::from(interval_hours),
+            next_sync_at: stamp(9)?,
+            sync_state: json(10)?,
+            last_sync_at: stamp(11)?,
+            last_status: row.try_get_by_index(12)?,
+            last_error: row.try_get_by_index(13)?,
+            last_stats: json(14)?,
+            created_by_id: row.try_get_by_index(15)?,
+            has_secret: row.try_get_by_index(16)?,
+            created_at: iso(created_at),
+            updated_at: iso(updated_at),
+        })
+    }
 }
 
 impl Source {
@@ -188,51 +286,61 @@ impl Source {
     }
 }
 
+/// `select <the row without the secret> from asset_sources`.
+fn select() -> sea_orm::Select<Entity> {
+    Entity::find()
+        .select_only()
+        .columns(COLUMNS)
+        .expr(has_secret())
+}
+
+/// Run a write that `returning` the row ([`returning`]): the row as stored
+/// afterwards, or `None` when the write matched none.
+async fn written(
+    db: &PgPool,
+    statement: &impl sea_orm::StatementBuilder,
+) -> Result<Option<Source>, DbErr> {
+    let row = orm(db).query_one(statement).await?;
+    row.map(|row| Source::from_query_result(&row, "")).transpose()
+}
+
 /// Every source, oldest first.
-pub(crate) async fn list(db: &PgPool) -> Result<Vec<Source>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        columns!(),
-        " from asset_sources s order by s.created_at asc, s.id asc"
-    ))
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(Source::from_row).collect())
+pub(crate) async fn list(db: &PgPool) -> Result<Vec<Source>, DbErr> {
+    select()
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .into_model()
+        .all(&orm(db))
+        .await
 }
 
 /// The sources of one type (the one-source-per-app-registration check).
-pub(crate) async fn of_type(db: &PgPool, kind: &str) -> Result<Vec<Source>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        columns!(),
-        " from asset_sources s where s.type = $1"
-    ))
-    .bind(kind)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(Source::from_row).collect())
+pub(crate) async fn of_type(db: &PgPool, kind: &str) -> Result<Vec<Source>, DbErr> {
+    select()
+        .filter(Column::Type.eq(kind))
+        .into_model()
+        .all(&orm(db))
+        .await
 }
 
-pub(crate) async fn by_id(db: &PgPool, id: &str) -> Result<Option<Source>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        columns!(),
-        " from asset_sources s where s.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(Source::from_row))
+pub(crate) async fn by_id(db: &PgPool, id: &str) -> Result<Option<Source>, DbErr> {
+    select()
+        .filter(Column::Id.eq(id))
+        .into_model()
+        .one(&orm(db))
+        .await
 }
 
 /// The sealed client secret of a source, for the caller to open and use at
 /// once; `None` when none is stored.
-pub(crate) async fn stored_secret(db: &PgPool, id: &str) -> Result<Option<String>, sqlx::Error> {
-    let secret: Option<Option<String>> =
-        sqlx::query_scalar("select secret_encrypted from asset_sources where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+pub(crate) async fn stored_secret(db: &PgPool, id: &str) -> Result<Option<String>, DbErr> {
+    let secret: Option<Option<String>> = Entity::find()
+        .select_only()
+        .column(Column::SecretEncrypted)
+        .filter(Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(secret.flatten())
 }
 
@@ -252,30 +360,28 @@ pub(crate) struct NewSource<'a> {
     pub(crate) now: &'a str,
 }
 
-pub(crate) async fn insert(db: &PgPool, new: NewSource<'_>) -> Result<Source, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(concat!(
-        "insert into asset_sources as s \
-           (id, type, name, object_slug, config, secret_encrypted, enabled, interval_hours, \
-            next_sync_at, created_by_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10, $11::timestamp, \
-                 $11::timestamp) \
-         returning ",
-        columns!()
-    ))
-    .bind(new.id)
-    .bind(new.kind)
-    .bind(new.name)
-    .bind(new.object_slug)
-    .bind(new.config)
-    .bind(new.secret_encrypted)
-    .bind(new.enabled)
-    .bind(new.interval_hours)
-    .bind(new.next_sync_at)
-    .bind(new.created_by_id)
-    .bind(new.now)
-    .fetch_one(db)
-    .await?;
-    Ok(Source::from_row(row))
+pub(crate) async fn insert(db: &PgPool, new: NewSource<'_>) -> Result<Source, DbErr> {
+    let now = timestamp(new.now)?;
+    let mut statement = Entity::insert(asset_sources::ActiveModel {
+        id: Set(new.id.to_owned()),
+        type_: Set(new.kind.to_owned()),
+        name: Set(new.name.to_owned()),
+        object_slug: Set(new.object_slug.to_owned()),
+        config: Set(new.config),
+        secret_encrypted: Set(Some(new.secret_encrypted.to_owned())),
+        enabled: Set(new.enabled),
+        interval_hours: Set(new.interval_hours),
+        next_sync_at: Set(new.next_sync_at.map(timestamp).transpose()?),
+        created_by_id: Set(Some(new.created_by_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .into_query();
+    statement.returning(returning());
+    written(db, &statement)
+        .await?
+        .ok_or(DbErr::RecordNotInserted)
 }
 
 /// What a `PATCH` changes: `None` keeps the column.
@@ -296,36 +402,30 @@ pub(crate) async fn update(
     id: &str,
     now: &str,
     changes: Changes<'_>,
-) -> Result<Option<Source>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update asset_sources as s set \
-           updated_at = $2::timestamp, \
-           name = case when $3 then $4 else s.name end, \
-           config = case when $5 then $6 else s.config end, \
-           secret_encrypted = case when $7 then $8 else s.secret_encrypted end, \
-           enabled = case when $9 then $10 else s.enabled end, \
-           interval_hours = case when $11 then $12 else s.interval_hours end, \
-           next_sync_at = case when $13 then $14::timestamp else s.next_sync_at end \
-         where s.id = $1 returning ",
-        columns!()
-    ))
-    .bind(id)
-    .bind(now)
-    .bind(changes.name.is_some())
-    .bind(changes.name)
-    .bind(changes.config.is_some())
-    .bind(changes.config)
-    .bind(changes.secret_encrypted.is_some())
-    .bind(changes.secret_encrypted)
-    .bind(changes.enabled.is_some())
-    .bind(changes.enabled)
-    .bind(changes.interval_hours.is_some())
-    .bind(changes.interval_hours)
-    .bind(!changes.next_sync_at.is_absent())
-    .bind(changes.next_sync_at.as_set().copied())
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(Source::from_row))
+) -> Result<Option<Source>, DbErr> {
+    let mut update = Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(timestamp(now)?));
+    if let Some(name) = changes.name {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if let Some(config) = changes.config {
+        update = update.col_expr(Column::Config, Expr::value(config));
+    }
+    if let Some(sealed) = changes.secret_encrypted {
+        update = update.col_expr(Column::SecretEncrypted, Expr::value(sealed));
+    }
+    if let Some(enabled) = changes.enabled {
+        update = update.col_expr(Column::Enabled, Expr::value(enabled));
+    }
+    if let Some(hours) = changes.interval_hours {
+        update = update.col_expr(Column::IntervalHours, Expr::value(hours));
+    }
+    if !changes.next_sync_at.is_absent() {
+        let next = changes.next_sync_at.as_set().copied().map(timestamp).transpose()?;
+        update = update.col_expr(Column::NextSyncAt, Expr::value(next));
+    }
+    let mut statement = update.filter(Column::Id.eq(id)).into_query();
+    statement.returning(returning());
+    written(db, &statement).await
 }
 
 /// `startAssetImport(db, source, { now, startedById })`: start an import by
@@ -336,7 +436,7 @@ pub(crate) async fn start_import(
     id: &str,
     now: &str,
     started_by: Option<&str>,
-) -> Result<Option<Source>, sqlx::Error> {
+) -> Result<Option<Source>, DbErr> {
     let state = json!({
         "startedAt": now,
         "nextLink": null,
@@ -344,19 +444,16 @@ pub(crate) async fn start_import(
         "stats": zero_stats(),
         "startedById": started_by,
     });
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update asset_sources as s set \
-           sync_state = $2, last_status = 'running', last_error = null, \
-           updated_at = $3::timestamp \
-         where s.id = $1 and s.sync_state is null returning ",
-        columns!()
-    ))
-    .bind(id)
-    .bind(state)
-    .bind(now)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(Source::from_row))
+    let mut statement = Entity::update_many()
+        .col_expr(Column::SyncState, Expr::value(state))
+        .col_expr(Column::LastStatus, Expr::value("running"))
+        .col_expr(Column::LastError, Expr::value(Option::<String>::None))
+        .col_expr(Column::UpdatedAt, Expr::value(timestamp(now)?))
+        .filter(Column::Id.eq(id))
+        .filter(Column::SyncState.is_null())
+        .into_query();
+    statement.returning(returning());
+    written(db, &statement).await
 }
 
 /// `claimStep`: take the run for one step. A compare-and-set that goes
@@ -364,12 +461,17 @@ pub(crate) async fn start_import(
 /// writes `lease` as the state's `leaseUntil`. The source as stored then (the
 /// step works from it, not from what its caller read earlier), or `None`:
 /// another step is at work, or no run is under way any more.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a compare-and-set claim in one statement that compares the stored lease \
+              `collate \"C\"` (byte order), which the query builder cannot express"
+)]
 pub(crate) async fn claim_step(
     db: &PgPool,
     id: &str,
     now: &str,
     lease: &str,
-) -> Result<Option<Source>, sqlx::Error> {
+) -> Result<Option<Source>, DbErr> {
     // ISO times of one form order as text; no lease reads as the empty string.
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "update asset_sources as s set \
@@ -383,8 +485,20 @@ pub(crate) async fn claim_step(
     .bind(lease)
     .bind(now)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(row.map(Source::from_row))
+}
+
+/// `sync_state->>'leaseUntil' = lease`: the run is still this step's.
+fn holds_lease(lease: &str) -> Expr {
+    sea_orm::ExprTrait::eq(
+        sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+            Expr::col((Entity, Column::SyncState)),
+            "leaseUntil",
+        ),
+        lease,
+    )
 }
 
 /// `saveState`: where the run stopped, for the next step. Written by the
@@ -396,31 +510,29 @@ pub(crate) async fn save_state(
     state: &Value,
     now: &str,
     lease: &str,
-) -> Result<bool, sqlx::Error> {
-    let saved = sqlx::query(
-        "update asset_sources set sync_state = $2, updated_at = $3::timestamp \
-          where id = $1 and sync_state->>'leaseUntil' = $4",
-    )
-    .bind(id)
-    .bind(state)
-    .bind(now)
-    .bind(lease)
-    .execute(db)
-    .await?;
-    Ok(saved.rows_affected() > 0)
+) -> Result<bool, DbErr> {
+    let saved = Entity::update_many()
+        .col_expr(Column::SyncState, Expr::value(state.clone()))
+        .col_expr(Column::UpdatedAt, Expr::value(timestamp(now)?))
+        .filter(Column::Id.eq(id))
+        .filter(holds_lease(lease))
+        .exec(&orm(db))
+        .await?;
+    Ok(saved.rows_affected > 0)
 }
 
 /// `releaseLease`: give the lease up and leave everything else as it is (a
 /// throttled step waits).
-pub(crate) async fn release_lease(db: &PgPool, id: &str, lease: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update asset_sources set sync_state = sync_state - 'leaseUntil' \
-          where id = $1 and sync_state->>'leaseUntil' = $2",
-    )
-    .bind(id)
-    .bind(lease)
-    .execute(db)
-    .await?;
+pub(crate) async fn release_lease(db: &PgPool, id: &str, lease: &str) -> Result<(), DbErr> {
+    // `sync_state - 'leaseUntil'`: the key removed.
+    let without_lease =
+        sea_orm::ExprTrait::sub(Expr::col((Entity, Column::SyncState)), "leaseUntil");
+    Entity::update_many()
+        .col_expr(Column::SyncState, without_lease)
+        .filter(Column::Id.eq(id))
+        .filter(holds_lease(lease))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -437,44 +549,70 @@ pub(crate) async fn end_run(
     now: OffsetDateTime,
     failure: Option<&SourceError>,
     lease: &str,
-) -> Result<Option<Source>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update asset_sources as s set \
-           sync_state = null, last_sync_at = $2::timestamp, last_status = $3, last_error = $4, \
-           last_stats = $5, \
-           next_sync_at = case when s.enabled \
-             then $2::timestamp + s.interval_hours * interval '1 hour' else null end, \
-           updated_at = $2::timestamp \
-         where s.id = $1 and s.sync_state->>'leaseUntil' = $6 returning ",
-        columns!()
-    ))
-    .bind(id)
-    .bind(iso_timestamp(now))
-    .bind(if failure.is_some() { "failed" } else { "ok" })
-    .bind(failure.map(SourceError::stored))
-    .bind(stats)
-    .bind(lease)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(Source::from_row))
+) -> Result<Option<Source>, DbErr> {
+    let at = utc_timestamp(now);
+    // `$at + interval_hours * interval '1 hour'` while the schedule is on.
+    let after_interval = sea_orm::ExprTrait::add(
+        Expr::val(at),
+        Func::cust("make_interval").args([
+            Expr::val(0),
+            Expr::val(0),
+            Expr::val(0),
+            Expr::val(0),
+            Expr::col((Entity, Column::IntervalHours)),
+        ]),
+    );
+    let next_sync_at = Expr::case(Expr::col((Entity, Column::Enabled)), after_interval)
+        .finally(Expr::null());
+    let mut statement = Entity::update_many()
+        .col_expr(Column::SyncState, Expr::value(Option::<Value>::None))
+        .col_expr(Column::LastSyncAt, Expr::value(at))
+        .col_expr(
+            Column::LastStatus,
+            Expr::value(if failure.is_some() { "failed" } else { "ok" }),
+        )
+        .col_expr(Column::LastError, Expr::value(failure.map(SourceError::stored)))
+        .col_expr(Column::LastStats, Expr::value(stats.cloned()))
+        .col_expr(Column::NextSyncAt, next_sync_at.into())
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .filter(holds_lease(lease))
+        .into_query();
+    statement.returning(returning());
+    written(db, &statement).await
 }
 
 /// The source goes with its mappings; the asset records it imported stay.
-pub(crate) async fn delete(db: &PgPool, id: &str) -> Result<(), sqlx::Error> {
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "delete from integration_entity_mappings \
-                  where connection_id = $1 and external_entity_type = $2",
-            )
-            .bind(id)
-            .bind(INTUNE_DEVICE_ENTITY_TYPE),
-            sqlx::query("delete from asset_sources where id = $1").bind(id),
-        ],
-    )
-    .await?;
-    Ok(())
+pub(crate) async fn delete(db: &PgPool, id: &str) -> Result<(), DbErr> {
+    let mappings = mappings::Entity::delete_many()
+        .filter(mappings::Column::ConnectionId.eq(id))
+        .filter(mappings::Column::ExternalEntityType.eq(INTUNE_DEVICE_ENTITY_TYPE));
+    let source = Entity::delete_many().filter(Column::Id.eq(id));
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            mappings.exec(&tx).await?;
+            source.exec(&tx).await?;
+            Ok::<_, Transaction>(())
+        })
+    })
+    .await
+    .map_err(|Transaction(error)| error)
+}
+
+/// A transaction's failure: a statement's, or opening or committing it.
+struct Transaction(DbErr);
+
+impl From<DbErr> for Transaction {
+    fn from(error: DbErr) -> Self {
+        Self(error)
+    }
+}
+
+impl From<sqlx::Error> for Transaction {
+    fn from(error: sqlx::Error) -> Self {
+        Self(orm_error(error))
+    }
 }
 
 #[cfg(test)]

@@ -35,14 +35,24 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{ASSET_SOURCE_UPDATED, CUSTOM_FIELD_CREATED};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, is_unique_violation};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, is_unique_violation, orm, orm_error};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventType, iso_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    custom_field_definitions as definitions, custom_field_values as values,
+    custom_object_links as links, custom_object_records as records,
+    custom_object_relations as relations, integration_entity_mappings as mappings, people,
+};
 
 use super::device::{
     CHECK_IN_SLUG, COMPLIANCE_OPTIONS, CREATED_STATUS, MappedDevice, map_intune_device, text,
@@ -54,7 +64,7 @@ use super::source::{self, INTUNE_DEVICE_ENTITY_TYPE, Source, instant};
 use crate::js::{Js, js_date};
 use crate::objects::{CustomObject, object_by_slug};
 use crate::records::{create_record_as, update_record_as};
-use crate::values::{ValuesError, definitions};
+use crate::values::{ValuesError, js_timestamp, timestamp_of};
 
 /// `ASSET_IMPORT_MAX_WRITES`: record writes (creates and updates) in one
 /// step.
@@ -185,7 +195,7 @@ impl StepResult {
 /// next tick repeats the step.
 #[derive(Debug)]
 pub(crate) enum StepFailure {
-    Database(sqlx::Error),
+    Database(DbErr),
     /// A page entry no device can be read from (`null`): reading its id
     /// throws before any device is handled.
     Page,
@@ -200,8 +210,8 @@ impl std::fmt::Display for StepFailure {
     }
 }
 
-impl From<sqlx::Error> for StepFailure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for StepFailure {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -219,8 +229,8 @@ impl From<SourceError> for Stop {
     }
 }
 
-impl From<sqlx::Error> for Stop {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Stop {
+    fn from(error: DbErr) -> Self {
         Self::Failed(StepFailure::Database(error))
     }
 }
@@ -250,7 +260,7 @@ impl Run<'_> {
         &self,
         stats: Option<&Value>,
         failure: Option<&SourceError>,
-    ) -> Result<StepResult, sqlx::Error> {
+    ) -> Result<StepResult, DbErr> {
         let stored = source::end_run(
             self.ctx.db,
             &self.source.id,
@@ -265,7 +275,7 @@ impl Run<'_> {
 
     /// `saveState`: where the run stands, for the next step; the lease goes
     /// with the write.
-    async fn save(&self, next: Value) -> Result<StepResult, sqlx::Error> {
+    async fn save(&self, next: Value) -> Result<StepResult, DbErr> {
         let saved = source::save_state(
             self.ctx.db,
             &self.source.id,
@@ -291,7 +301,7 @@ impl Run<'_> {
         counters: Map<String, Value>,
         within: Option<usize>,
         next_link: Option<String>,
-    ) -> Result<StepResult, sqlx::Error> {
+    ) -> Result<StepResult, DbErr> {
         let mut next = self.state.as_object().cloned().unwrap_or_default();
         next.insert("stats".to_owned(), Value::Object(counters));
         if let Some(index) = within {
@@ -453,21 +463,25 @@ async fn page_matches(
         .iter()
         .filter_map(|device| text(device.get("id")))
         .collect();
-    let mut mappings: HashMap<String, Mapping> = HashMap::new();
+    let db = &orm(db);
+    let mut by_device: HashMap<String, Mapping> = HashMap::new();
     if !ids.is_empty() {
-        let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
-            "select id, external_entity_id, internal_entity_id, sync_checksum
-               from integration_entity_mappings
-              where connection_id = $1 and external_entity_type = $2
-                and external_entity_id = any($3)",
-        )
-        .bind(&source.id)
-        .bind(INTUNE_DEVICE_ENTITY_TYPE)
-        .bind(&ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, String, String, Option<String>)> = mappings::Entity::find()
+            .select_only()
+            .columns([
+                mappings::Column::Id,
+                mappings::Column::ExternalEntityId,
+                mappings::Column::InternalEntityId,
+                mappings::Column::SyncChecksum,
+            ])
+            .filter(mappings::Column::ConnectionId.eq(&source.id))
+            .filter(mappings::Column::ExternalEntityType.eq(INTUNE_DEVICE_ENTITY_TYPE))
+            .filter(mappings::Column::ExternalEntityId.is_in(ids))
+            .into_tuple()
+            .all(db)
+            .await?;
         for (id, external_id, internal_entity_id, sync_checksum) in rows {
-            mappings.insert(
+            by_device.insert(
                 external_id,
                 Mapping {
                     id,
@@ -477,23 +491,25 @@ async fn page_matches(
             );
         }
     }
-    let mut records: HashMap<String, bool> = HashMap::new();
-    if !mappings.is_empty() {
-        let record_ids: Vec<String> = mappings
+    let mut deleted: HashMap<String, bool> = HashMap::new();
+    if !by_device.is_empty() {
+        let record_ids = by_device
             .values()
-            .map(|mapping| mapping.internal_entity_id.clone())
-            .collect();
-        let rows: Vec<(String, bool)> = sqlx::query_as(
-            "select id, deleted_at is not null from custom_object_records
-              where entity_key = $1 and id = any($2)",
-        )
-        .bind(entity_key)
-        .bind(&record_ids)
-        .fetch_all(db)
-        .await?;
-        records.extend(rows);
+            .map(|mapping| mapping.internal_entity_id.as_str());
+        let rows: Vec<(String, Option<PrimitiveDateTime>)> = records::Entity::find()
+            .select_only()
+            .columns([records::Column::Id, records::Column::DeletedAt])
+            .filter(records::Column::EntityKey.eq(entity_key))
+            .filter(records::Column::Id.is_in(record_ids))
+            .into_tuple()
+            .all(db)
+            .await?;
+        deleted.extend(
+            rows.into_iter()
+                .map(|(id, deleted_at)| (id, deleted_at.is_some())),
+        );
     }
-    Ok((mappings, records))
+    Ok((by_device, deleted))
 }
 
 /// What a step keeps of the page it reads while it goes through the
@@ -604,14 +620,17 @@ async fn ensure_import_fields(
     db: &PgPool,
     entity_key: &str,
     now: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let existing: Vec<(String, Option<i32>)> = sqlx::query_as(
-        "select slug, sort_order from custom_field_definitions
-          where entity_type = $1 and deleted_at is null",
-    )
-    .bind(entity_key)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Value>, DbErr> {
+    let db = &orm(db);
+    let now = timestamp_of(now)?;
+    let existing: Vec<(String, Option<i32>)> = definitions::Entity::find()
+        .select_only()
+        .columns([definitions::Column::Slug, definitions::Column::SortOrder])
+        .filter(definitions::Column::EntityType.eq(entity_key))
+        .filter(definitions::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     let mut sort_order = existing
         .iter()
         .map(|(_, sort_order)| sort_order.unwrap_or(0))
@@ -647,21 +666,20 @@ async fn ensure_import_fields(
         if let Some(options) = &options {
             definition["options"] = options.clone();
         }
-        let inserted = sqlx::query(
-            "insert into custom_field_definitions
-                 (id, entity_type, name, slug, field_type, options, required, sort_order,
-                  created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, false, $7, $8::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(entity_key)
-        .bind(name)
-        .bind(slug)
-        .bind(field_type)
-        .bind(&options)
-        .bind(position)
-        .bind(now)
-        .execute(db)
+        let inserted = definitions::Entity::insert(definitions::ActiveModel {
+            id: Set(id.clone()),
+            entity_type: Set(entity_key.to_owned()),
+            name: Set(name.to_owned()),
+            slug: Set(slug.to_owned()),
+            field_type: Set(field_type.to_owned()),
+            options: Set(options),
+            required: Set(Some(false)),
+            sort_order: Set(Some(position)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(db)
         .await;
         match inserted {
             Ok(_) => created.push(definition),
@@ -710,28 +728,35 @@ struct Lookups {
     owner_link: Option<(String, String)>,
 }
 
-async fn prepare_lookups(db: &PgPool, entity_key: &str) -> Result<Lookups, sqlx::Error> {
-    let fields: Vec<(String, String, String)> = sqlx::query_as(
-        "select id, slug, field_type from custom_field_definitions
-          where entity_type = $1 and slug = any($2) and deleted_at is null",
-    )
-    .bind(entity_key)
-    .bind(vec!["serial_number", CHECK_IN_SLUG])
-    .fetch_all(db)
-    .await?;
+async fn prepare_lookups(db: &PgPool, entity_key: &str) -> Result<Lookups, DbErr> {
+    let db = &orm(db);
+    let fields: Vec<(String, String, String)> = definitions::Entity::find()
+        .select_only()
+        .columns([
+            definitions::Column::Id,
+            definitions::Column::Slug,
+            definitions::Column::FieldType,
+        ])
+        .filter(definitions::Column::EntityType.eq(entity_key))
+        .filter(definitions::Column::Slug.is_in(["serial_number", CHECK_IN_SLUG]))
+        .filter(definitions::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     let field = |slug: &str| fields.iter().find(|(_, found, _)| found == slug);
     let serial_field_id = field("serial_number").map(|(id, _, _)| id.clone());
     let check_in_field = field(CHECK_IN_SLUG).and_then(|(id, _, field_type)| {
         check_in_column_of(field_type).map(|column| (id.clone(), column))
     });
-    let owner_link: Option<(String, String)> = sqlx::query_as(
-        "select id, target_entity_key from custom_object_links
-          where source_entity_key = $1 and slug = 'owner' and deleted_at is null
-          limit 1",
-    )
-    .bind(entity_key)
-    .fetch_optional(db)
-    .await?;
+    let owner_link: Option<(String, String)> = links::Entity::find()
+        .select_only()
+        .columns([links::Column::Id, links::Column::TargetEntityKey])
+        .filter(links::Column::SourceEntityKey.eq(entity_key))
+        .filter(links::Column::Slug.eq("owner"))
+        .filter(links::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     Ok(Lookups {
         serial_field_id,
         check_in_field,
@@ -766,7 +791,7 @@ enum DeviceError {
     NoId,
     /// A value the object's fields refuse, or an event that cannot go out.
     Refused(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for DeviceError {
@@ -779,8 +804,8 @@ impl std::fmt::Display for DeviceError {
     }
 }
 
-impl From<sqlx::Error> for DeviceError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for DeviceError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -874,17 +899,14 @@ impl Job<'_> {
             &Field::Absent,
         )
         .await?;
-        sqlx::query(
-            "update integration_entity_mappings
-                set sync_checksum = $2, last_synced_at = $3::timestamp,
-                    updated_at = $3::timestamp
-              where id = $1",
-        )
-        .bind(&mapping.id)
-        .bind(&checksum)
-        .bind(self.now)
-        .execute(db)
-        .await?;
+        let now = timestamp_of(self.now)?;
+        mappings::Entity::update_many()
+            .col_expr(mappings::Column::SyncChecksum, Expr::value(checksum.as_str()))
+            .col_expr(mappings::Column::LastSyncedAt, Expr::value(now))
+            .col_expr(mappings::Column::UpdatedAt, Expr::value(now))
+            .filter(mappings::Column::Id.eq(&mapping.id))
+            .exec(&orm(db))
+            .await?;
         if let Some(kept) = work.mappings.get_mut(&mapped.external_id) {
             kept.sync_checksum = Some(checksum);
         }
@@ -909,7 +931,7 @@ impl Job<'_> {
         mapping: &Mapping,
         checksum: &str,
         work: &mut PageWork,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, DbErr> {
         if work.stored_check_ins.is_none() {
             work.stored_check_ins = Some(self.load_stored_check_ins(&work.records).await?);
         }
@@ -936,7 +958,7 @@ impl Job<'_> {
     async fn load_stored_check_ins(
         &self,
         records: &HashMap<String, bool>,
-    ) -> Result<HashMap<String, String>, sqlx::Error> {
+    ) -> Result<HashMap<String, String>, DbErr> {
         let ids: Vec<&str> = records
             .iter()
             .filter(|(_, deleted)| !**deleted)
@@ -948,23 +970,24 @@ impl Job<'_> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select entity_id, to_jsonb(value_date) #>> '{}', value_text
-               from custom_field_values
-              where field_id = $1 and entity_type = $2 and entity_id = any($3)",
-        )
-        .bind(field_id)
-        .bind(&self.object.entity_key)
-        .bind(&ids)
-        .fetch_all(self.ctx.db)
-        .await?;
+        let rows: Vec<(String, Option<PrimitiveDateTime>, Option<String>)> = values::Entity::find()
+            .select_only()
+            .columns([
+                values::Column::EntityId,
+                values::Column::ValueDate,
+                values::Column::ValueText,
+            ])
+            .filter(values::Column::FieldId.eq(field_id))
+            .filter(values::Column::EntityType.eq(&self.object.entity_key))
+            .filter(values::Column::EntityId.is_in(ids))
+            .into_tuple()
+            .all(&orm(self.ctx.db))
+            .await?;
         let mut stored = HashMap::new();
         for (record_id, date, text) in rows {
             let value = match column {
                 // `row.date?.toISOString()`.
-                CheckInColumn::Date => {
-                    date.map(|stamp| weldsuite_db::js_timestamp(&stamp).unwrap_or(stamp))
-                }
+                CheckInColumn::Date => date.map(js_timestamp),
                 CheckInColumn::Text => text,
             };
             if let Some(value) = value.filter(|value| !value.is_empty()) {
@@ -981,10 +1004,15 @@ impl Job<'_> {
     /// row, and a value that is current is left as it is. No record is
     /// written (its `updated_at` stays), no event goes out, and it does not
     /// count against the step's writes.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "one bulk upsert from `unnest`ed arrays that writes only the values that \
+                  differ (`on conflict … do update … where … is distinct from`)"
+    )]
     async fn refresh_check_ins(
         &self,
         check_ins: &BTreeMap<String, String>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let Some((field_id, column)) = self.lookups.check_in_field.as_ref() else {
             return Ok(());
         };
@@ -1024,16 +1052,22 @@ impl Job<'_> {
             .bind(&record_ids)
             .bind(&stamps)
             .execute(self.ctx.db)
-            .await?;
+            .await
+            .map_err(orm_error)?;
         Ok(())
     }
 
     /// `replaceChecksums`: put the checksum without the check-in in place
     /// of each one of the old kind this step recognised. One statement.
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "one bulk `update … from unnest(…)`: each mapping its own checksum, in one \
+                  statement"
+    )]
     async fn replace_checksums(
         &self,
         replaced: &BTreeMap<String, String>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         if replaced.is_empty() {
             return Ok(());
         }
@@ -1049,7 +1083,8 @@ impl Job<'_> {
         .bind(&ids)
         .bind(&checksums)
         .execute(self.ctx.db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
         Ok(())
     }
 
@@ -1097,7 +1132,7 @@ impl Job<'_> {
             Js::String(mapped.asset_type.to_owned()),
         ));
         fields.push(("status".to_owned(), Js::String(CREATED_STATUS.to_owned())));
-        let definitions = definitions(db, &self.object.entity_key).await?;
+        let definitions = crate::values::definitions(db, &self.object.entity_key).await?;
         let created =
             create_record_as(db, self.user_id, self.object, &definitions, fields, None).await?;
         let record_id = created["id"].as_str().unwrap_or_default().to_owned();
@@ -1121,27 +1156,25 @@ impl Job<'_> {
         external_id: &str,
         record_id: &str,
         checksum: &str,
-        mappings: &mut HashMap<String, Mapping>,
-    ) -> Result<(), sqlx::Error> {
+        known: &mut HashMap<String, Mapping>,
+    ) -> Result<(), DbErr> {
         let id = generate_id("iem");
-        sqlx::query(
-            "insert into integration_entity_mappings
-                 (id, connection_id, external_entity_type, external_entity_id,
-                  internal_entity_type, internal_entity_id, sync_checksum, last_synced_at,
-                  created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $8::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(&self.source.id)
-        .bind(INTUNE_DEVICE_ENTITY_TYPE)
-        .bind(external_id)
-        .bind(&self.object.entity_key)
-        .bind(record_id)
-        .bind(checksum)
-        .bind(self.now)
-        .execute(self.ctx.db)
+        let now = timestamp_of(self.now)?;
+        mappings::Entity::insert(mappings::ActiveModel {
+            id: Set(id.clone()),
+            connection_id: Set(self.source.id.clone()),
+            external_entity_type: Set(INTUNE_DEVICE_ENTITY_TYPE.to_owned()),
+            external_entity_id: Set(external_id.to_owned()),
+            internal_entity_type: Set(self.object.entity_key.clone()),
+            internal_entity_id: Set(record_id.to_owned()),
+            sync_checksum: Set(Some(checksum.to_owned())),
+            last_synced_at: Set(Some(now)),
+            created_at: Set(now),
+            updated_at: Set(now),
+        })
+        .exec_without_returning(&orm(self.ctx.db))
         .await?;
-        mappings.insert(
+        known.insert(
             external_id.to_owned(),
             Mapping {
                 id,
@@ -1159,27 +1192,37 @@ impl Job<'_> {
         &self,
         serial: Option<&str>,
         claimed: &HashSet<String>,
-    ) -> Result<Option<String>, sqlx::Error> {
+    ) -> Result<Option<String>, DbErr> {
         let (Some(serial), Some(serial_field_id)) = (
             serial.filter(|serial| !serial.is_empty()),
             self.lookups.serial_field_id.as_deref(),
         ) else {
             return Ok(None);
         };
-        let db = self.ctx.db;
-        let candidates: Vec<String> = sqlx::query_scalar(
-            "select r.id
-               from custom_field_values v
-               inner join custom_object_records r on r.id = v.entity_id
-              where v.field_id = $1 and v.entity_type = $2 and v.value_text = $3
-                and r.entity_key = $2 and r.deleted_at is null
-              order by r.created_at asc, r.id asc",
-        )
-        .bind(serial_field_id)
-        .bind(&self.object.entity_key)
-        .bind(serial)
-        .fetch_all(db)
-        .await?;
+        let db = &orm(self.ctx.db);
+        let key = self.object.entity_key.as_str();
+        // The records whose serial number value matches: value rows joined
+        // to their (live) records.
+        let candidates: Vec<String> = records::Entity::find()
+            .select_only()
+            .column(records::Column::Id)
+            .join(
+                JoinType::InnerJoin,
+                records::Entity::belongs_to(values::Entity)
+                    .from(records::Column::Id)
+                    .to(values::Column::EntityId)
+                    .into(),
+            )
+            .filter(values::Column::FieldId.eq(serial_field_id))
+            .filter(values::Column::EntityType.eq(key))
+            .filter(values::Column::ValueText.eq(serial))
+            .filter(records::Column::EntityKey.eq(key))
+            .filter(records::Column::DeletedAt.is_null())
+            .order_by_asc(records::Column::CreatedAt)
+            .order_by_asc(records::Column::Id)
+            .into_tuple()
+            .all(db)
+            .await?;
         let free: Vec<String> = candidates
             .into_iter()
             .filter(|id| !claimed.contains(id))
@@ -1187,53 +1230,57 @@ impl Job<'_> {
         if free.is_empty() {
             return Ok(None);
         }
-        let taken: Vec<String> = sqlx::query_scalar(
-            "select internal_entity_id from integration_entity_mappings
-              where connection_id = $1 and external_entity_type = $2
-                and internal_entity_id = any($3)",
-        )
-        .bind(&self.source.id)
-        .bind(INTUNE_DEVICE_ENTITY_TYPE)
-        .bind(&free)
-        .fetch_all(db)
-        .await?;
+        let taken: Vec<String> = mappings::Entity::find()
+            .select_only()
+            .column(mappings::Column::InternalEntityId)
+            .filter(mappings::Column::ConnectionId.eq(&self.source.id))
+            .filter(mappings::Column::ExternalEntityType.eq(INTUNE_DEVICE_ENTITY_TYPE))
+            .filter(mappings::Column::InternalEntityId.is_in(free.iter().map(String::as_str)))
+            .into_tuple()
+            .all(db)
+            .await?;
         Ok(free.into_iter().find(|id| !taken.contains(id)))
     }
 
     /// `attachOwner`: the `owner` link to the one person with the device
     /// user's email; none or several: no owner.
-    async fn attach_owner(&self, record_id: &str, email: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn attach_owner(&self, record_id: &str, email: Option<&str>) -> Result<(), DbErr> {
         let (Some((link_id, target_entity_key)), Some(email)) = (
             self.lookups.owner_link.as_ref(),
             email.filter(|email| !email.is_empty()),
         ) else {
             return Ok(());
         };
-        let db = self.ctx.db;
-        let matches: Vec<String> = sqlx::query_scalar(
-            "select id from people where deleted_at is null and lower(email) = $1 limit 2",
-        )
-        .bind(email)
-        .fetch_all(db)
-        .await?;
+        let db = &orm(self.ctx.db);
+        // `lower(email) = $email`.
+        let same_email = sea_orm::ExprTrait::eq(
+            Expr::expr(Func::lower(Expr::col((people::Entity, people::Column::Email)))),
+            email,
+        );
+        let matches: Vec<String> = people::Entity::find()
+            .select_only()
+            .column(people::Column::Id)
+            .filter(people::Column::DeletedAt.is_null())
+            .filter(same_email)
+            .limit(2)
+            .into_tuple()
+            .all(db)
+            .await?;
         let [person] = matches.as_slice() else {
             return Ok(());
         };
-        sqlx::query(
-            "insert into custom_object_relations
-                 (id, link_id, source_entity_key, source_id, target_entity_key, target_id,
-                  created_by, created_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp)",
-        )
-        .bind(generate_id("corl"))
-        .bind(link_id)
-        .bind(&self.object.entity_key)
-        .bind(record_id)
-        .bind(target_entity_key)
-        .bind(person)
-        .bind(self.user_id)
-        .bind(self.now)
-        .execute(db)
+        relations::Entity::insert(relations::ActiveModel {
+            id: Set(generate_id("corl")),
+            link_id: Set(link_id.clone()),
+            source_entity_key: Set(self.object.entity_key.clone()),
+            source_id: Set(record_id.to_owned()),
+            target_entity_key: Set(target_entity_key.clone()),
+            target_id: Set(person.clone()),
+            created_by: Set(Some(self.user_id.to_owned())),
+            created_at: Set(timestamp_of(self.now)?),
+            ..Default::default()
+        })
+        .exec_without_returning(db)
         .await?;
         Ok(())
     }

@@ -272,14 +272,12 @@ async fn titled<E: EntityTrait>(
     if let Some(deleted_at) = deleted_at {
         query = query.filter(deleted_at.is_null());
     }
-    match fallback {
-        Some(fallback) => query.column(fallback).into_tuple().all(db).await,
-        None => {
-            let rows: Vec<(String, Option<String>)> = query.into_tuple().all(db).await?;
-            Ok(rows
-                .into_iter()
-                .map(|(id, title)| (id, title, None))
-                .collect())
-        }
+    if let Some(fallback) = fallback {
+        return query.column(fallback).into_tuple().all(db).await;
     }
+    let rows: Vec<(String, Option<String>)> = query.into_tuple().all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, title)| (id, title, None))
+        .collect())
 }

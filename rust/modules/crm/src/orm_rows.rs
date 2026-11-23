@@ -42,7 +42,11 @@ pub(crate) async fn cursor_row<E: EntityTrait>(
 
 /// `at < cursor or (at = cursor and id < cursorId)`: past the cursor,
 /// newest first.
-pub(crate) fn before<C: ColumnTrait>(at: C, id: C, (cursor_at, cursor_id): &CursorRow) -> Condition {
+pub(crate) fn before<C: ColumnTrait>(
+    at: C,
+    id: C,
+    (cursor_at, cursor_id): &CursorRow,
+) -> Condition {
     Condition::any().add(at.lt(*cursor_at)).add(
         Condition::all()
             .add(at.eq(*cursor_at))

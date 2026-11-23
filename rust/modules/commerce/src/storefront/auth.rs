@@ -18,14 +18,19 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::header::{self, HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use weldsuite_commerce_domain::carts;
+use weldsuite_db::orm;
 use weldsuite_events::EventContext;
+use weldsuite_schema::master::storefront_key_registry as registry;
+use weldsuite_schema::tenant::commerce_channel_keys;
 
 use super::{Principal, StorefrontState, fail, internal, limit};
+use crate::args::utc_now_sql;
 
 const KEY_CACHE_TTL: Duration = Duration::from_secs(30);
 const ALLOW_HEADERS: &str =
@@ -118,7 +123,7 @@ fn inactive() -> Response {
 
 /// The registry entry of a key hash, from the cache or the master database;
 /// `None` for an unknown or revoked key.
-async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, sqlx::Error> {
+async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, DbErr> {
     let cache_key = format!("sfk:{hash}");
     if let Some(cache) = &state.cache
         && let Ok(Some(raw)) = cache.get_boxed(&cache_key).await
@@ -126,15 +131,31 @@ async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, sq
     {
         return Ok(Some(entry));
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'kind', kind, 'workspaceId', workspace_id, \
-           'channelId', channel_id, 'origins', allowed_origins) \
-         from storefront_key_registry where key_hash = $1 and revoked_at is null",
-    )
-    .bind(hash)
-    .fetch_optional(&state.master)
-    .await?;
-    let entry = row.and_then(|row| serde_json::from_value::<Entry>(row).ok());
+    let row: Option<(String, String, String, String, Value)> = registry::Entity::find()
+        .select_only()
+        .columns([
+            registry::Column::Id,
+            registry::Column::Kind,
+            registry::Column::WorkspaceId,
+            registry::Column::ChannelId,
+            registry::Column::AllowedOrigins,
+        ])
+        .filter(registry::Column::KeyHash.eq(hash))
+        .filter(registry::Column::RevokedAt.is_null())
+        .into_tuple()
+        .one(&orm(&state.master))
+        .await?;
+    // Origins that are not a list of strings make no entry, as reading the
+    // row as an `Entry` refused them.
+    let entry = row.and_then(|(id, kind, workspace_id, channel_id, origins)| {
+        Some(Entry {
+            id,
+            kind,
+            workspace_id,
+            channel_id,
+            origins: serde_json::from_value(origins).ok()?,
+        })
+    });
     if let (Some(entry), Some(cache)) = (&entry, &state.cache)
         && let Ok(raw) = serde_json::to_string(entry)
         && let Err(error) = cache.put_boxed(&cache_key, &raw, Some(KEY_CACHE_TTL)).await
@@ -160,21 +181,19 @@ async fn touch(state: &StorefrontState, entry: &Entry, tenant: &weldsuite_db::Pg
     }
     let (master, tenant, id) = (state.master.clone(), tenant.clone(), entry.id.clone());
     state.events.tracker().spawn(async move {
-        if let Err(error) = sqlx::query(
-            "update commerce_channel_keys set last_used_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&id)
-        .execute(&tenant)
-        .await
+        if let Err(error) = commerce_channel_keys::Entity::update_many()
+            .col_expr(commerce_channel_keys::Column::LastUsedAt, utc_now_sql())
+            .filter(commerce_channel_keys::Column::Id.eq(id.as_str()))
+            .exec(&orm(&tenant))
+            .await
         {
             tracing::warn!(%error, "[storefront] last_used_at not updated");
         }
-        if let Err(error) = sqlx::query(
-            "update storefront_key_registry set last_used_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&id)
-        .execute(&master)
-        .await
+        if let Err(error) = registry::Entity::update_many()
+            .col_expr(registry::Column::LastUsedAt, utc_now_sql())
+            .filter(registry::Column::Id.eq(id.as_str()))
+            .exec(&orm(&master))
+            .await
         {
             tracing::warn!(%error, "[storefront] registry last_used_at not updated");
         }

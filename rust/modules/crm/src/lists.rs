@@ -22,9 +22,7 @@ use weldsuite_kit::validation::{Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_schema::tenant::{companies, list_members, lists, people};
 
-use crate::orm_rows::{
-    before, cursor_row, insert_values, js_date, json, probe_limit, set_values,
-};
+use crate::orm_rows::{before, cursor_row, insert_values, js_date, json, probe_limit, set_values};
 use crate::schema::{Kind, OPT, REQ, Spec, partial, s};
 use crate::{Answer, Caller, CrmState, Refusal, answer, cut, now, page, validate_specs};
 

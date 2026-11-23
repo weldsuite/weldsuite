@@ -47,11 +47,10 @@ use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_db::{PgPool, Tenant};
 use weldsuite_events::{
-    EntityEvent, EntityEventPublisher, EventContext, EventType, iso_timestamp, publish_entity_event,
+    EntityEvent, EntityEventPublisher, EventContext, EventType, publish_entity_event,
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
@@ -276,12 +275,6 @@ pub(crate) fn answer(result: Answer, fallback: &str) -> Response {
     result.unwrap_or_else(|refusal| refusal.respond(fallback))
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds. Bound as text
-/// and cast with `::timestamp` (or `::timestamptz`).
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
-}
-
 /// A response a check answers with instead of the route (400, 403, 404).
 pub(crate) type Rejected = Box<Response>;
 
@@ -355,9 +348,6 @@ pub(crate) fn row(value: Value, timestamps: &[&str]) -> Value {
     }
     Value::Object(out)
 }
-
-/// The timestamp columns most tables have.
-pub(crate) const STAMPS: [&str; 3] = ["created_at", "updated_at", "deleted_at"];
 
 /// An entity row as Drizzle returns it: the entity serializes as the
 /// TypeScript route's row did.

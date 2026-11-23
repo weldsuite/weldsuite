@@ -41,6 +41,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_ai::policy::{self, offered_key_sources};
@@ -55,7 +56,10 @@ use weldsuite_emails::ai::{ProviderEnabled, provider_enabled};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
 use weldsuite_kit::validation::json_body;
 use weldsuite_kit::{ApiError, Data, NoContent};
+use weldsuite_db::orm;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now};
 
@@ -501,6 +505,10 @@ impl Applied {
 
 // ── the owners' email ───────────────────────────────────────────────────────
 
+/// Two optional text columns of a member (an owner's email and name, the
+/// actor's name and email).
+type NameAndEmail = (Option<String>, Option<String>);
+
 /// Emails every workspace owner that a provider outside the EU was enabled
 /// and by whom (`ai.provider-enabled`). A failure is logged, never raised.
 async fn notify_owners(
@@ -508,43 +516,53 @@ async fn notify_owners(
     caller: &Caller,
     enabled: &[(ProviderId, KeySource)],
 ) {
+    use workspace_members::Column as M;
     let Some(transport) = state.mail.as_deref() else {
         tracing::warn!("ai-settings: no system mail configured; the owners were not told");
         return;
     };
-    let owners: Vec<(Option<String>, Option<String>)> = match sqlx::query_as(
-        "select email, name from workspace_members
-         where role = 'OWNER' and status = 'ACTIVE' and deleted_at is null
-           and email is not null and email <> ''
-         order by created_at asc",
-    )
-    .fetch_all(&caller.db)
-    .await
-    {
+    let db = orm(&caller.db);
+    let owners: Result<Vec<NameAndEmail>, DbErr> = workspace_members::Entity::find()
+        .select_only()
+        .columns([M::Email, M::Name])
+        .filter(M::Role.eq("OWNER"))
+        .filter(M::Status.eq("ACTIVE"))
+        .filter(M::DeletedAt.is_null())
+        .filter(M::Email.is_not_null())
+        .filter(M::Email.ne(""))
+        .order_by_asc(M::CreatedAt)
+        .into_tuple()
+        .all(&db)
+        .await;
+    let owners = match owners {
         Ok(rows) => rows,
         Err(error) => {
             tracing::error!(%error, "ai-settings: could not read the workspace owners");
             return;
         }
     };
-    let actor: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, email from workspace_members where user_id = $1 limit 1")
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await
-            .unwrap_or(None);
+    let actor: Option<NameAndEmail> = workspace_members::Entity::find()
+        .select_only()
+        .columns([M::Name, M::Email])
+        .filter(M::UserId.eq(&caller.user_id))
+        .into_tuple()
+        .one(&db)
+        .await
+        .unwrap_or(None);
     let enabled_by = actor
         .and_then(|(name, email)| {
             name.filter(|n| !n.trim().is_empty())
                 .or_else(|| email.filter(|e| !e.trim().is_empty()))
         })
         .unwrap_or_else(|| caller.user_id.clone());
-    let workspace_name: Option<String> =
-        sqlx::query_scalar("select name from workspaces where id = $1")
-            .bind(&caller.workspace_id)
-            .fetch_optional(&caller.master(state))
-            .await
-            .unwrap_or(None);
+    let workspace_name: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Name)
+        .filter(workspaces::Column::Id.eq(&caller.workspace_id))
+        .into_tuple()
+        .one(&orm(&caller.master(state)))
+        .await
+        .unwrap_or(None);
     let workspace_name = workspace_name.unwrap_or_else(|| caller.workspace_id.clone());
     let base = caller
         .env_value("PUBLIC_APP_URL")

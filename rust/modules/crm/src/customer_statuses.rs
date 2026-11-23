@@ -7,7 +7,9 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CUSTOMER_STATUS_CREATED, CUSTOMER_STATUS_DELETED, CUSTOMER_STATUS_UPDATED,
@@ -201,7 +203,9 @@ pub(crate) async fn create(
             return Ok(ApiError::conflict(format!("Slug '{slug}' is reserved")).into_response());
         }
         if slug_taken(&caller, slug, None).await? {
-            return Ok(ApiError::conflict(format!("Slug '{slug}' is already in use")).into_response());
+            return Ok(
+                ApiError::conflict(format!("Slug '{slug}' is already in use")).into_response(),
+            );
         }
         let id = generate_id("ccst");
         let now = utc_now();
@@ -269,8 +273,8 @@ pub(crate) async fn update(
             }
         }
         // `coalesce(<sent>, <column>)`: only what the body sent changes.
-        let mut update = statuses::Entity::update_many()
-            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        let mut update =
+            statuses::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
         for (key, column) in [
             ("name", Column::Name),
             ("slug", Column::Slug),

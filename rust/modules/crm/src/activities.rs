@@ -8,7 +8,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ACTIVITY_COMPLETED, ACTIVITY_CREATED, ACTIVITY_DELETED, ACTIVITY_UPDATED,
@@ -110,8 +113,8 @@ const DATE_FIELDS: [&str; 4] = ["dueDate", "startTime", "endTime", "followUpDate
 /// The live activity, within the assignee scope.
 async fn live(caller: &Caller, id: &str, scope: Option<&str>) -> Result<Option<Value>, DbErr> {
     use crm_activities::Column;
-    let mut find = crm_activities::Entity::find_by_id(id.to_owned())
-        .filter(Column::DeletedAt.is_null());
+    let mut find =
+        crm_activities::Entity::find_by_id(id.to_owned()).filter(Column::DeletedAt.is_null());
     if let Some(scope) = scope {
         find = find.filter(Column::AssignedToId.eq(scope));
     }
