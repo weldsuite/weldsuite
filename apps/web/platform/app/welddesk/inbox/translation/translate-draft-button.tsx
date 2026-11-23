@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Languages, Loader2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
+import { composerIconButtonClass } from '@weldsuite/ui/components/composer';
 import { useDeskConversation } from '@/hooks/queries/use-desk-queries';
 import { conversationLanguage, useTranslateDeskReply } from '@/hooks/queries/use-desk-translation-queries';
 import {
@@ -71,14 +72,14 @@ export function TranslateDraftButton({ conversationId, body, disabled, onTransla
       type="button"
       variant="ghost"
       size="icon"
-      className="h-7 w-7 text-muted-foreground"
+      className={composerIconButtonClass}
       onClick={() => void run()}
       disabled={!language || !text || alreadyTranslated || translate.isPending}
       title={label}
       aria-label={label}
       data-testid="desk-inbox-composer-translate"
     >
-      {translate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
+      {translate.isPending ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Languages className="h-[18px] w-[18px]" />}
     </Button>
   );
 }

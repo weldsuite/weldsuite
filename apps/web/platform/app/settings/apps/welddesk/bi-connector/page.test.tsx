@@ -17,7 +17,6 @@ vi.mock('@/lib/i18n/provider', async () => {
   const { en: english } = await import('@weldsuite/i18n/locales/en');
   return { useI18n: () => ({ t: english, language: 'en' }) };
 });
-vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/runtime-config', () => ({ publicEnv: () => state.env }));
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (

@@ -74,9 +74,9 @@ test.describe('WeldDesk · saved replies — create button', () => {
     await page.goto('/welddesk/saved-replies');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
-    // The page header has a "Create Reply" button (Plus icon + text).
-    // When there are no replies the empty state also renders a "Create Reply"
-    // button — either is acceptable as a stable CTA target.
+    // The list toolbar has a "Create Reply" button (Plus icon + text).
+    // When there are no replies the empty state also renders a "Create First
+    // Reply" button; the toolbar one is the stable CTA target.
     const createBtn = page
       .getByRole('button', { name: /create reply/i })
       .first();

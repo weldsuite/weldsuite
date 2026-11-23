@@ -22,6 +22,8 @@ interface RowOverlayButtonProps {
   label: string;
   onClick: () => void;
   onDoubleClick?: () => void;
+  /** For a row that opens and closes in place (a folder): whether it is open. */
+  expanded?: boolean;
   className?: string;
 }
 
@@ -32,11 +34,12 @@ interface RowOverlayButtonProps {
  * those controls (or `KEEP_CONTROLS_ABOVE_OVERLAY` on the row) so they stay
  * above the overlay and keep their own clicks.
  */
-export function RowOverlayButton({ label, onClick, onDoubleClick, className }: Readonly<RowOverlayButtonProps>) {
+export function RowOverlayButton({ label, onClick, onDoubleClick, expanded, className }: Readonly<RowOverlayButtonProps>) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-expanded={expanded}
       data-row-overlay=""
       onClick={onClick}
       onDoubleClick={onDoubleClick}

@@ -1861,6 +1861,7 @@ export const settings = {
         channels: 'Channels',
         ai: 'AI',
         ticketsRouting: 'Tickets & routing',
+        reports: 'Reports',
       },
       chatWidgetTitle: 'Chat widget',
       chatWidgetDescription: 'Design the live chat widget and install it on your website.',
