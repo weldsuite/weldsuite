@@ -252,11 +252,7 @@ async fn install(
             .iter()
             .map(|_| generate_id("cfld"))
             .collect();
-        let link_ids: Vec<String> = template
-            .links
-            .iter()
-            .map(|_| generate_id("colk"))
-            .collect();
+        let link_ids: Vec<String> = template.links.iter().map(|_| generate_id("colk")).collect();
         let title_field_id = template
             .fields
             .iter()
@@ -397,19 +393,21 @@ fn template_rows(
         .iter()
         .zip(ids.fields)
         .enumerate()
-        .map(|(index, (field, id))| custom_field_definitions::ActiveModel {
-            id: Set(id.clone()),
-            entity_type: Set(ids.entity_key.to_owned()),
-            name: Set(field.name.to_owned()),
-            slug: Set(field.slug.to_owned()),
-            field_type: Set(field.field_type.to_owned()),
-            options: Set(options_json(field)),
-            required: Set(Some(field.required)),
-            sort_order: Set(Some(i32::try_from(index).unwrap_or(i32::MAX))),
-            created_at: Set(now),
-            updated_at: Set(now),
-            ..Default::default()
-        })
+        .map(
+            |(index, (field, id))| custom_field_definitions::ActiveModel {
+                id: Set(id.clone()),
+                entity_type: Set(ids.entity_key.to_owned()),
+                name: Set(field.name.to_owned()),
+                slug: Set(field.slug.to_owned()),
+                field_type: Set(field.field_type.to_owned()),
+                options: Set(options_json(field)),
+                required: Set(Some(field.required)),
+                sort_order: Set(Some(i32::try_from(index).unwrap_or(i32::MAX))),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
         .collect();
     let links = template
         .links

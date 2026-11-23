@@ -286,11 +286,7 @@ async fn valid_target(db: &PgPool, target_entity_key: &str) -> Result<bool, DbEr
 
 /// `listRelated`: what a source record is linked to through one link, with
 /// targets that no longer resolve left out.
-async fn list_related(
-    db: &PgPool,
-    link: &Link,
-    source_id: &str,
-) -> Result<Vec<Value>, DbErr> {
+async fn list_related(db: &PgPool, link: &Link, source_id: &str) -> Result<Vec<Value>, DbErr> {
     let edges: Vec<(String, String)> = relations::Entity::find()
         .select_only()
         .columns([relations::Column::Id, relations::Column::TargetId])
@@ -646,7 +642,11 @@ async fn create_link(
 
 /// The row a `POST` inserts: what the body set, the schema's defaults for
 /// the rest.
-fn new_link(id: &str, source_entity_key: &str, input: &LinkInput) -> Result<links::ActiveModel, DbErr> {
+fn new_link(
+    id: &str,
+    source_entity_key: &str,
+    input: &LinkInput,
+) -> Result<links::ActiveModel, DbErr> {
     let now = utc_now();
     Ok(links::ActiveModel {
         id: Set(id.to_owned()),
@@ -747,8 +747,7 @@ async fn delete_link(
         let db = &caller.db;
         let link = scoped_link(db, &object_id, &link_id).await?;
         let now = utc_now();
-        let edges = relations::Entity::delete_many()
-            .filter(relations::Column::LinkId.eq(&link_id));
+        let edges = relations::Entity::delete_many().filter(relations::Column::LinkId.eq(&link_id));
         let definition = links::Entity::update_many()
             .col_expr(links::Column::DeletedAt, Expr::value(now))
             .col_expr(links::Column::UpdatedAt, Expr::value(now))

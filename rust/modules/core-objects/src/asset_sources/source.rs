@@ -17,12 +17,12 @@ use serde_json::{Map, Value, json};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_timestamp};
-use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::Field;
 use weldsuite_schema::tenant::asset_sources::{self, Column, Entity};
 use weldsuite_schema::tenant::integration_entity_mappings as mappings;
 
 use super::microsoft::{SourceError, parse_stored_error};
+use crate::{iso, timestamp};
 
 /// The due index kind of the import sweep (`markWorkspaceDue(d1, 'asset_import', …)`).
 pub const DUE_KIND: &str = "asset_import";
@@ -84,21 +84,6 @@ macro_rules! columns {
 /// An ISO time (`toISOString()`) as an instant.
 pub(crate) fn instant(iso: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(iso, &Rfc3339).ok()
-}
-
-/// An ISO time as the `timestamp` it is written as (`$n::timestamp`); text
-/// that is no time is the database error Postgres answered it with.
-fn timestamp(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
-    instant(iso).map(utc_timestamp).ok_or_else(|| {
-        DbErr::Type(format!(
-            "invalid input syntax for type timestamp: \"{iso}\""
-        ))
-    })
-}
-
-/// A `timestamp` column as `toISOString()` writes it.
-fn iso(at: PrimitiveDateTime) -> String {
-    iso_timestamp(at.assume_utc())
 }
 
 /// `new Date()`: an instant cut to the millisecond, as JavaScript holds it.
@@ -301,7 +286,8 @@ async fn written(
     statement: &impl sea_orm::StatementBuilder,
 ) -> Result<Option<Source>, DbErr> {
     let row = orm(db).query_one(statement).await?;
-    row.map(|row| Source::from_query_result(&row, "")).transpose()
+    row.map(|row| Source::from_query_result(&row, ""))
+        .transpose()
 }
 
 /// Every source, oldest first.
@@ -403,7 +389,8 @@ pub(crate) async fn update(
     now: &str,
     changes: Changes<'_>,
 ) -> Result<Option<Source>, DbErr> {
-    let mut update = Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(timestamp(now)?));
+    let mut update =
+        Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(timestamp(now)?));
     if let Some(name) = changes.name {
         update = update.col_expr(Column::Name, Expr::value(name));
     }
@@ -420,7 +407,12 @@ pub(crate) async fn update(
         update = update.col_expr(Column::IntervalHours, Expr::value(hours));
     }
     if !changes.next_sync_at.is_absent() {
-        let next = changes.next_sync_at.as_set().copied().map(timestamp).transpose()?;
+        let next = changes
+            .next_sync_at
+            .as_set()
+            .copied()
+            .map(timestamp)
+            .transpose()?;
         update = update.col_expr(Column::NextSyncAt, Expr::value(next));
     }
     let mut statement = update.filter(Column::Id.eq(id)).into_query();
@@ -562,8 +554,8 @@ pub(crate) async fn end_run(
             Expr::col((Entity, Column::IntervalHours)),
         ]),
     );
-    let next_sync_at = Expr::case(Expr::col((Entity, Column::Enabled)), after_interval)
-        .finally(Expr::null());
+    let next_sync_at =
+        Expr::case(Expr::col((Entity, Column::Enabled)), after_interval).finally(Expr::null());
     let mut statement = Entity::update_many()
         .col_expr(Column::SyncState, Expr::value(Option::<Value>::None))
         .col_expr(Column::LastSyncAt, Expr::value(at))
@@ -571,7 +563,10 @@ pub(crate) async fn end_run(
             Column::LastStatus,
             Expr::value(if failure.is_some() { "failed" } else { "ok" }),
         )
-        .col_expr(Column::LastError, Expr::value(failure.map(SourceError::stored)))
+        .col_expr(
+            Column::LastError,
+            Expr::value(failure.map(SourceError::stored)),
+        )
         .col_expr(Column::LastStats, Expr::value(stats.cloned()))
         .col_expr(Column::NextSyncAt, next_sync_at.into())
         .col_expr(Column::UpdatedAt, Expr::value(at))
@@ -672,6 +667,11 @@ mod tests {
             })
         );
         assert!(columns!().contains("- 'secret_encrypted'"));
+        assert!(
+            COLUMNS
+                .iter()
+                .all(|column| sea_orm::IdenStatic::as_str(column) != "secret_encrypted")
+        );
     }
 
     #[test]

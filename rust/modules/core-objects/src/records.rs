@@ -233,9 +233,7 @@ impl Filters {
                 "false" => Test::Flag(false),
                 _ => return false,
             },
-            Column::Json => {
-                Test::Contains(stringify(&Js::Array(vec![Js::String(raw.to_owned())])))
-            }
+            Column::Json => Test::Contains(stringify(&Js::Array(vec![Js::String(raw.to_owned())]))),
             Column::Ref => Test::Ref(raw.to_owned()),
             Column::Text => Test::Like(format!("%{raw}%")),
         };
@@ -489,10 +487,7 @@ impl PageQuery<'_> {
 
 /// The page's rows (up to `limit + 1`, to tell whether there is more) and
 /// the total count.
-async fn fetch_page(
-    db: &PgPool,
-    q: &PageQuery<'_>,
-) -> Result<(Vec<records::Model>, i64), DbErr> {
+async fn fetch_page(db: &PgPool, q: &PageQuery<'_>) -> Result<(Vec<records::Model>, i64), DbErr> {
     let db = &orm(db);
     let rows = q
         .order(records::Entity::find().filter(q.condition()))
@@ -850,10 +845,7 @@ pub(crate) async fn update_record_as(
         update = update.col_expr(records::Column::OwnerId, Expr::value(owner));
     }
     let conn = &orm(db);
-    update
-        .filter(records::Column::Id.eq(id))
-        .exec(conn)
-        .await?;
+    update.filter(records::Column::Id.eq(id)).exec(conn).await?;
     let mut record = record_row(conn, id).await?;
     record["fields"] = Value::Object(fields);
     Ok(record)

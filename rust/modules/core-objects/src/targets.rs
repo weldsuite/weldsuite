@@ -205,27 +205,75 @@ async fn titles_of(
     match table {
         Table::Companies => {
             use companies::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Name, Some(Column::DisplayName), Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Name,
+                Some(Column::DisplayName),
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::People => {
             use people::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::FullName, Some(Column::DisplayName), Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::FullName,
+                Some(Column::DisplayName),
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Leads => {
             use crm_leads::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::FullName, Some(Column::Email), Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::FullName,
+                Some(Column::Email),
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Opportunities => {
             use crm_opportunities::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Name, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Name,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Quotes => {
             use crm_quotes::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Name, Some(Column::QuoteNumber), Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Name,
+                Some(Column::QuoteNumber),
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Tickets => {
             use helpdesk_tickets::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Subject, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Subject,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Conversations => {
             use desk_conversations::{Column, Entity};
@@ -233,23 +281,63 @@ async fn titles_of(
         }
         Table::Projects => {
             use projects::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Name, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Name,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Tasks => {
             use tasks::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Title, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Title,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Products => {
             use products::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::Name, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::Name,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Orders => {
             use orders::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::OrderNumber, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::OrderNumber,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
         Table::Invoices => {
             use invoices::{Column, Entity};
-            titled::<Entity>(db, ids, Column::Id, Column::InvoiceNumber, None, Some(Column::DeletedAt)).await
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::InvoiceNumber,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
         }
     }
 }

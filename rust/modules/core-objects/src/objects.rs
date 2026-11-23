@@ -140,10 +140,7 @@ impl CustomObject {
 }
 
 /// The live object that `condition` picks.
-async fn live_object(
-    db: &PgPool,
-    condition: Condition,
-) -> Result<Option<CustomObject>, DbErr> {
+async fn live_object(db: &PgPool, condition: Condition) -> Result<Option<CustomObject>, DbErr> {
     let object = custom_objects::Entity::find()
         .filter(condition)
         .filter(custom_objects::Column::DeletedAt.is_null())
@@ -158,11 +155,12 @@ pub(crate) async fn object_by_id(db: &PgPool, id: &str) -> Result<Option<CustomO
 }
 
 /// The live object with this slug (`getCustomObjectBySlug`).
-pub(crate) async fn object_by_slug(
-    db: &PgPool,
-    slug: &str,
-) -> Result<Option<CustomObject>, DbErr> {
-    live_object(db, Condition::all().add(custom_objects::Column::Slug.eq(slug))).await
+pub(crate) async fn object_by_slug(db: &PgPool, slug: &str) -> Result<Option<CustomObject>, DbErr> {
+    live_object(
+        db,
+        Condition::all().add(custom_objects::Column::Slug.eq(slug)),
+    )
+    .await
 }
 
 /// The object with this id, deleted or not, as Drizzle returns it.
@@ -247,7 +245,9 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         use custom_objects::Column;
         let rows = custom_objects::Entity::find()
             .filter(Column::DeletedAt.is_null())
-            .apply_if(status, |query, status| query.filter(Column::Status.eq(status)))
+            .apply_if(status, |query, status| {
+                query.filter(Column::Status.eq(status))
+            })
             .order_by_asc(Column::SortOrder)
             .order_by_asc(Column::LabelPlural)
             .all(&orm(&caller.db))
@@ -623,14 +623,20 @@ async fn create(
         let db = &orm(&caller.db);
         let existing: Option<(String, Option<PrimitiveDateTime>)> = custom_objects::Entity::find()
             .select_only()
-            .columns([custom_objects::Column::Id, custom_objects::Column::DeletedAt])
+            .columns([
+                custom_objects::Column::Id,
+                custom_objects::Column::DeletedAt,
+            ])
             .filter(custom_objects::Column::Slug.eq(&input.slug))
             .into_tuple()
             .one(db)
             .await?;
         if let Some((_, deleted_at)) = existing {
             return Err(Refusal::conflict(if deleted_at.is_some() {
-                format!("The name '{}' belonged to a deleted object and cannot be reused", input.slug)
+                format!(
+                    "The name '{}' belonged to a deleted object and cannot be reused",
+                    input.slug
+                )
             } else {
                 taken.clone()
             }));
@@ -648,9 +654,16 @@ async fn create(
         }
         let created = object_row(db, &id).await?;
         let Some(created) = created else {
-            return Err(ApiError::internal().with_message("Failed to create custom object").into());
+            return Err(ApiError::internal()
+                .with_message("Failed to create custom object")
+                .into());
         };
-        caller.publish(&state, CUSTOM_FIELD_CREATED, &id, &event_data(&id, "custom_object", &input.data));
+        caller.publish(
+            &state,
+            CUSTOM_FIELD_CREATED,
+            &id,
+            &event_data(&id, "custom_object", &input.data),
+        );
         Ok(Created(created).into_response())
     }
     .await;
@@ -681,7 +694,11 @@ fn new_object(
         enable_search: Set(flag(&input.enable_search, false)),
         enable_agent_tools: Set(flag(&input.enable_agent_tools, false)),
         enable_external_api: Set(flag(&input.enable_external_api, false)),
-        list_config: Set(input.list_config.as_set().cloned().unwrap_or_else(|| json!({}))),
+        list_config: Set(input
+            .list_config
+            .as_set()
+            .cloned()
+            .unwrap_or_else(|| json!({}))),
         sort_order: Set(int4(input.sort_order.as_set().copied().unwrap_or(0))?),
         created_by: Set(Some(user_id.to_owned())),
         created_at: Set(now),
@@ -841,7 +858,10 @@ async fn delete_object(db: &PgPool, object: &CustomObject) -> Result<(), Refusal
         .filter(
             custom_field_values::Column::EntityId.in_subquery(
                 Query::select()
-                    .column((custom_object_records::Entity, custom_object_records::Column::Id))
+                    .column((
+                        custom_object_records::Entity,
+                        custom_object_records::Column::Id,
+                    ))
                     .from(custom_object_records::Entity)
                     .and_where(custom_object_records::Column::EntityKey.eq(&key))
                     .to_owned(),
@@ -865,11 +885,17 @@ async fn delete_object(db: &PgPool, object: &CustomObject) -> Result<(), Refusal
         .col_expr(custom_object_records::Column::UpdatedAt, Expr::value(now))
         .filter(custom_object_records::Column::EntityKey.eq(&key));
     let fields = custom_field_definitions::Entity::update_many()
-        .col_expr(custom_field_definitions::Column::DeletedAt, Expr::value(now))
-        .col_expr(custom_field_definitions::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            custom_field_definitions::Column::DeletedAt,
+            Expr::value(now),
+        )
+        .col_expr(
+            custom_field_definitions::Column::UpdatedAt,
+            Expr::value(now),
+        )
         .filter(custom_field_definitions::Column::EntityType.eq(&key));
-    let index = search_index::Entity::delete_many()
-        .filter(search_index::Column::EntityType.eq(&key));
+    let index =
+        search_index::Entity::delete_many().filter(search_index::Column::EntityType.eq(&key));
     let definition = custom_objects::Entity::update_many()
         .col_expr(custom_objects::Column::DeletedAt, Expr::value(now))
         .col_expr(custom_objects::Column::UpdatedAt, Expr::value(now))

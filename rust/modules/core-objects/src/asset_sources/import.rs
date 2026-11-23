@@ -64,7 +64,8 @@ use super::source::{self, INTUNE_DEVICE_ENTITY_TYPE, Source, instant};
 use crate::js::{Js, js_date};
 use crate::objects::{CustomObject, object_by_slug};
 use crate::records::{create_record_as, update_record_as};
-use crate::values::{ValuesError, js_timestamp, timestamp_of};
+use crate::values::ValuesError;
+use crate::{iso, timestamp};
 
 /// `ASSET_IMPORT_MAX_WRITES`: record writes (creates and updates) in one
 /// step.
@@ -622,7 +623,7 @@ async fn ensure_import_fields(
     now: &str,
 ) -> Result<Vec<Value>, DbErr> {
     let db = &orm(db);
-    let now = timestamp_of(now)?;
+    let now = timestamp(now)?;
     let existing: Vec<(String, Option<i32>)> = definitions::Entity::find()
         .select_only()
         .columns([definitions::Column::Slug, definitions::Column::SortOrder])
@@ -899,9 +900,12 @@ impl Job<'_> {
             &Field::Absent,
         )
         .await?;
-        let now = timestamp_of(self.now)?;
+        let now = timestamp(self.now)?;
         mappings::Entity::update_many()
-            .col_expr(mappings::Column::SyncChecksum, Expr::value(checksum.as_str()))
+            .col_expr(
+                mappings::Column::SyncChecksum,
+                Expr::value(checksum.as_str()),
+            )
             .col_expr(mappings::Column::LastSyncedAt, Expr::value(now))
             .col_expr(mappings::Column::UpdatedAt, Expr::value(now))
             .filter(mappings::Column::Id.eq(&mapping.id))
@@ -987,7 +991,7 @@ impl Job<'_> {
         for (record_id, date, text) in rows {
             let value = match column {
                 // `row.date?.toISOString()`.
-                CheckInColumn::Date => date.map(js_timestamp),
+                CheckInColumn::Date => date.map(iso),
                 CheckInColumn::Text => text,
             };
             if let Some(value) = value.filter(|value| !value.is_empty()) {
@@ -1009,10 +1013,7 @@ impl Job<'_> {
         reason = "one bulk upsert from `unnest`ed arrays that writes only the values that \
                   differ (`on conflict … do update … where … is distinct from`)"
     )]
-    async fn refresh_check_ins(
-        &self,
-        check_ins: &BTreeMap<String, String>,
-    ) -> Result<(), DbErr> {
+    async fn refresh_check_ins(&self, check_ins: &BTreeMap<String, String>) -> Result<(), DbErr> {
         let Some((field_id, column)) = self.lookups.check_in_field.as_ref() else {
             return Ok(());
         };
@@ -1064,10 +1065,7 @@ impl Job<'_> {
         reason = "one bulk `update … from unnest(…)`: each mapping its own checksum, in one \
                   statement"
     )]
-    async fn replace_checksums(
-        &self,
-        replaced: &BTreeMap<String, String>,
-    ) -> Result<(), DbErr> {
+    async fn replace_checksums(&self, replaced: &BTreeMap<String, String>) -> Result<(), DbErr> {
         if replaced.is_empty() {
             return Ok(());
         }
@@ -1159,7 +1157,7 @@ impl Job<'_> {
         known: &mut HashMap<String, Mapping>,
     ) -> Result<(), DbErr> {
         let id = generate_id("iem");
-        let now = timestamp_of(self.now)?;
+        let now = timestamp(self.now)?;
         mappings::Entity::insert(mappings::ActiveModel {
             id: Set(id.clone()),
             connection_id: Set(self.source.id.clone()),
@@ -1254,7 +1252,10 @@ impl Job<'_> {
         let db = &orm(self.ctx.db);
         // `lower(email) = $email`.
         let same_email = sea_orm::ExprTrait::eq(
-            Expr::expr(Func::lower(Expr::col((people::Entity, people::Column::Email)))),
+            Expr::expr(Func::lower(Expr::col((
+                people::Entity,
+                people::Column::Email,
+            )))),
             email,
         );
         let matches: Vec<String> = people::Entity::find()
@@ -1277,7 +1278,7 @@ impl Job<'_> {
             target_entity_key: Set(target_entity_key.clone()),
             target_id: Set(person.clone()),
             created_by: Set(Some(self.user_id.to_owned())),
-            created_at: Set(timestamp_of(self.now)?),
+            created_at: Set(timestamp(self.now)?),
             ..Default::default()
         })
         .exec_without_returning(db)

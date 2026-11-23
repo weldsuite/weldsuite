@@ -255,7 +255,9 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result: Answer = async {
-        fetch(&caller.db, &id).await?.ok_or_else(|| Refusal::not_found("CRM template", &id))?;
+        fetch(&caller.db, &id)
+            .await?
+            .ok_or_else(|| Refusal::not_found("CRM template", &id))?;
         let now = utc_now();
         Entity::update_many()
             .col_expr(Column::DeletedAt, Expr::value(now))

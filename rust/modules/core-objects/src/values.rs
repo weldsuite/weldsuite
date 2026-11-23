@@ -12,7 +12,6 @@ use sea_orm::{
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm, utc_now};
-use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number;
 use weldsuite_schema::tenant::{custom_field_definitions, custom_field_values};
@@ -77,10 +76,7 @@ type DefinitionRow = (
 
 /// The live definitions of an entity type, in the table's order
 /// (`getDefinitionsForEntityType` has no `order by`).
-pub(crate) async fn definitions(
-    db: &PgPool,
-    entity_type: &str,
-) -> Result<Vec<Definition>, DbErr> {
+pub(crate) async fn definitions(db: &PgPool, entity_type: &str) -> Result<Vec<Definition>, DbErr> {
     use custom_field_definitions::Column;
     let rows: Vec<DefinitionRow> = custom_field_definitions::Entity::find()
         .select_only()
@@ -123,12 +119,6 @@ type ValueRow = (
     Option<String>,
 );
 
-/// A `timestamp` value as the TypeScript route's `Date` serializes:
-/// `toISOString()` (Drizzle reads it as UTC).
-pub(crate) fn js_timestamp(at: PrimitiveDateTime) -> String {
-    iso_timestamp(at.assume_utc())
-}
-
 /// `{ [entityId]: { [slug]: value } }` for `ids` (`getValuesForEntities`):
 /// every id gets a map; a value whose definition is gone is left out.
 pub(crate) async fn values_for(
@@ -168,7 +158,7 @@ pub(crate) async fn values_for(
         };
         let value = match Column::of(&definition.field_type) {
             Column::Number => number.map_or(Value::Null, number_value),
-            Column::Date => date.map_or(Value::Null, |at| Value::String(js_timestamp(at))),
+            Column::Date => date.map_or(Value::Null, |at| Value::String(crate::iso(at))),
             Column::Bool => flag.map_or(Value::Null, Value::Bool),
             Column::Json => json.unwrap_or(Value::Null),
             Column::Ref => reference.map_or(Value::Null, Value::String),
@@ -386,15 +376,6 @@ pub(crate) async fn set_values(
     failure.map_or(Ok(()), |error| Err(ValuesError::Database(error)))
 }
 
-/// `toISOString()` text as the `timestamp` it is written as (`$n::timestamp`
-/// reads the UTC wall-clock time); text Postgres would refuse is the same
-/// database error.
-pub(crate) fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
-    time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
-        .map(weldsuite_db::utc_timestamp)
-        .map_err(|error| DbErr::Type(format!("invalid input syntax for type timestamp: {error}")))
-}
-
 /// Delete, update or insert the value row of one field.
 async fn persist(
     db: &impl ConnectionTrait,
@@ -420,7 +401,7 @@ async fn persist(
     match stored {
         Stored::Text(value) => text = Some(value),
         Stored::Number(value) => number = Some(value),
-        Stored::Date(value) => date = Some(timestamp_of(&value)?),
+        Stored::Date(value) => date = Some(crate::timestamp(&value)?),
         Stored::Bool(value) => flag = Some(value),
         Stored::Json(value) => json = Some(value),
         Stored::Ref(value) => reference = Some(value),

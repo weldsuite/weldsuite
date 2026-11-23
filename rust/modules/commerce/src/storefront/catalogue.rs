@@ -20,12 +20,20 @@ use axum::Extension;
 use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_commerce_domain::money::{self, Cents};
 use weldsuite_commerce_domain::prices::{self, Price, Target};
+use weldsuite_db::{OrmConn, orm};
+use weldsuite_schema::tenant::{categories, category_products, product_variants, products};
 
 use super::{Principal, data, fail, internal, validation};
+use crate::args::utc_now_sql;
 use crate::rules::{rules_match, rules_param, stored_rules};
 
 fn text(row: &Value, key: &str) -> Option<String> {
@@ -51,19 +59,74 @@ pub(crate) async fn channel(Extension(principal): Extension<Principal>) -> Respo
 
 // ── categories ──────────────────────────────────────────────────────────────
 
-const VISIBLE_CATEGORY: &str = "c.deleted_at is null and coalesce(c.is_active, 1) = 1 \
-     and (c.published_at is null or c.published_at <= now() at time zone 'utc')";
+/// A category the storefront shows: live, active, published.
+#[derive(Debug, FromQueryResult)]
+struct Visible {
+    id: String,
+    slug: String,
+    name: String,
+    description: Option<String>,
+    parent_id: Option<String>,
+    position: i32,
+    kind: String,
+    rules: Option<Value>,
+    rules_match: String,
+}
 
-async fn visible_categories(conn: &mut PgConnection) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select jsonb_build_object('id', c.id, 'slug', c.slug, 'name', c.name, \
-           'description', c.description, 'parentId', c.parent_id, \
-           'position', coalesce(c.position, 0), 'type', coalesce(c.type, 'manual'), \
-           'rules', c.rules, 'rulesMatch', coalesce(c.rules_match, 'all')) \
-         from categories c where {VISIBLE_CATEGORY} order by coalesce(c.position, 0), c.name, c.id"
-    )))
-    .fetch_all(&mut *conn)
-    .await
+/// The visible categories by `position`, name and id: `{ id, slug, name,
+/// description, parentId, position, type, rules, rulesMatch }`.
+async fn visible_categories<C: ConnectionTrait>(db: &C) -> Result<Vec<Value>, DbErr> {
+    let column = |column: categories::Column| Expr::col((categories::Entity, column));
+    let or = |name: categories::Column, fallback: sea_orm::Value| {
+        Expr::from(Func::coalesce([column(name), Expr::val(fallback)]))
+    };
+    let published = Condition::any()
+        .add(categories::Column::PublishedAt.is_null())
+        .add(sea_orm::ExprTrait::lte(
+            column(categories::Column::PublishedAt),
+            utc_now_sql(),
+        ));
+    let rows: Vec<Visible> = categories::Entity::find()
+        .select_only()
+        .columns([
+            categories::Column::Id,
+            categories::Column::Slug,
+            categories::Column::Name,
+            categories::Column::Description,
+            categories::Column::ParentId,
+        ])
+        .column_as(or(categories::Column::Position, 0.into()), "position")
+        .column_as(or(categories::Column::Type, "manual".into()), "kind")
+        .column(categories::Column::Rules)
+        .column_as(or(categories::Column::RulesMatch, "all".into()), "rules_match")
+        .filter(categories::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(
+            or(categories::Column::IsActive, 1.into()),
+            1,
+        ))
+        .filter(published)
+        .order_by_asc(or(categories::Column::Position, 0.into()))
+        .order_by_asc(categories::Column::Name)
+        .order_by_asc(categories::Column::Id)
+        .into_model()
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "id": row.id,
+                "slug": row.slug,
+                "name": row.name,
+                "description": row.description,
+                "parentId": row.parent_id,
+                "position": row.position,
+                "type": row.kind,
+                "rules": row.rules,
+                "rulesMatch": row.rules_match,
+            })
+        })
+        .collect())
 }
 
 /// A category and its descendants as the storefront shows them.
@@ -108,10 +171,7 @@ fn tree(rows: &[Value]) -> (Vec<usize>, HashMap<String, Vec<usize>>) {
 }
 
 pub(crate) async fn categories(Extension(principal): Extension<Principal>) -> Response {
-    let rows = match principal.db.acquire().await {
-        Ok(mut conn) => visible_categories(&mut conn).await,
-        Err(error) => Err(error),
-    };
+    let rows = visible_categories(&orm(&principal.db)).await;
     match rows {
         Ok(rows) => {
             let (roots, by_parent) = tree(&rows);
@@ -130,10 +190,7 @@ pub(crate) async fn category(
     Extension(principal): Extension<Principal>,
     Path(id_or_slug): Path<String>,
 ) -> Response {
-    let rows = match principal.db.acquire().await {
-        Ok(mut conn) => visible_categories(&mut conn).await,
-        Err(error) => Err(error),
-    };
+    let rows = visible_categories(&orm(&principal.db)).await;
     match rows {
         Ok(rows) => {
             let (_, by_parent) = tree(&rows);
@@ -178,6 +235,45 @@ const CANDIDATES_SQL: &str = concat!(
     " else true end)"
 );
 
+/// [`CANDIDATES_SQL`]: `{ id, name, createdAt, hasVariants }` of each
+/// product the filters match.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "an automated category's rules are evaluated in SQL from one bound jsonb (crate::rules::rules_match!), a CASE per rule the query builder cannot express"
+)]
+async fn candidates(
+    conn: &mut PgConnection,
+    rules: &Value,
+    any: bool,
+    search: Option<String>,
+    manual: Option<&str>,
+    automated: bool,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(CANDIDATES_SQL)
+        .bind(rules)
+        .bind(if any { "any" } else { "all" })
+        .bind(search)
+        .bind(manual)
+        .bind(automated)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(weldsuite_db::orm_error)
+}
+
+/// The products a shop may show: live, `active`, not hidden.
+fn listable() -> Select<products::Entity> {
+    products::Entity::find()
+        .filter(products::Column::DeletedAt.is_null())
+        .filter(products::Column::Status.eq("active"))
+        .filter(sea_orm::ExprTrait::ne(
+            Func::coalesce([
+                Expr::col((products::Entity, products::Column::Visibility)),
+                Expr::val("visible"),
+            ]),
+            "hidden",
+        ))
+}
+
 /// A priced product on the channel.
 #[derive(Debug, Clone)]
 struct Listed {
@@ -187,18 +283,37 @@ struct Listed {
     price: Cents,
 }
 
+/// `coalesce(v.position, 0)`.
+fn variant_position() -> Expr {
+    Func::coalesce([
+        Expr::col((product_variants::Entity, product_variants::Column::Position)),
+        Expr::val(0),
+    ])
+    .into()
+}
+
+/// The live, active variants of the products (at least one), in their order.
+fn active_variants(product_ids: &[String]) -> Select<product_variants::Entity> {
+    product_variants::Entity::find()
+        .filter(product_variants::Column::ProductId.is_in(product_ids.iter().map(String::as_str)))
+        .filter(product_variants::Column::Status.eq("active"))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .order_by_asc(product_variants::Column::ProductId)
+        .order_by_asc(variant_position())
+        .order_by_asc(product_variants::Column::CreatedAt)
+        .order_by_asc(product_variants::Column::Id)
+}
+
 async fn variant_targets(
     conn: &mut PgConnection,
     product_ids: &[String],
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select v.product_id, v.id from product_variants v \
-         where v.product_id = any($1) and v.status = 'active' and v.deleted_at is null \
-         order by v.product_id, coalesce(v.position, 0), v.created_at, v.id",
-    )
-    .bind(product_ids)
-    .fetch_all(&mut *conn)
-    .await
+) -> Result<Vec<(String, String)>, DbErr> {
+    active_variants(product_ids)
+        .select_only()
+        .columns([product_variants::Column::ProductId, product_variants::Column::Id])
+        .into_tuple()
+        .all(&OrmConn::new(conn))
+        .await
 }
 
 /// Which of `rows` (`{ id, hasVariants }`) are sellable in `currency`, with
@@ -447,7 +562,7 @@ async fn list(
     // The category filter: manual members, or the rules of an automated one.
     let (mut rules, mut any, mut manual, mut automated) = (json!([]), false, None::<String>, false);
     if let Some(wanted) = &query.category {
-        let rows = visible_categories(&mut conn).await?;
+        let rows = visible_categories(&OrmConn::new(&mut conn)).await?;
         let found = rows
             .iter()
             .find(|r| text(r, "id").as_deref() == Some(wanted.as_str()))
@@ -466,14 +581,15 @@ async fn list(
             manual = text(category, "id");
         }
     }
-    let candidates: Vec<Value> = sqlx::query_scalar(CANDIDATES_SQL)
-        .bind(&rules)
-        .bind(if any { "any" } else { "all" })
-        .bind(query.search.as_deref().map(like))
-        .bind(&manual)
-        .bind(automated)
-        .fetch_all(&mut *conn)
-        .await?;
+    let candidates = candidates(
+        &mut conn,
+        &rules,
+        any,
+        query.search.as_deref().map(like),
+        manual.as_deref(),
+        automated,
+    )
+    .await?;
     let lowest = price_products(&mut conn, &candidates, currency).await?;
     let mut listed: Vec<Listed> = candidates
         .iter()
@@ -509,15 +625,19 @@ pub(crate) async fn product(
 ) -> Response {
     let found = async {
         let mut conn = principal.db.acquire().await?;
-        let id: Option<String> = sqlx::query_scalar(
-            "select t.id from products t where (t.id = $1 or t.slug = $1) \
-               and t.deleted_at is null and t.status = 'active' \
-               and coalesce(t.visibility, 'visible') <> 'hidden' \
-             order by (t.id = $1) desc, t.created_at asc limit 1",
-        )
-        .bind(&id_or_slug)
-        .fetch_optional(&mut *conn)
-        .await?;
+        let id: Option<String> = listable()
+            .select_only()
+            .column(products::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(products::Column::Id.eq(id_or_slug.as_str()))
+                    .add(products::Column::Slug.eq(id_or_slug.as_str())),
+            )
+            .order_by_desc(products::Column::Id.eq(id_or_slug.as_str()))
+            .order_by_asc(products::Column::CreatedAt)
+            .into_tuple()
+            .one(&OrmConn::new(&mut conn))
+            .await?;
         let Some(id) = id else {
             return Ok::<_, weldsuite_commerce_domain::Error>(None);
         };
@@ -562,38 +682,53 @@ fn option_values(value: Option<&Value>) -> Value {
     Value::Object(out)
 }
 
+/// Which of the live products `ids` an automated category's rules match.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "an automated category's rules are evaluated in SQL from one bound jsonb (crate::rules::rules_match!), a CASE per rule the query builder cannot express"
+)]
+async fn rule_members(
+    conn: &mut PgConnection,
+    rules: &Value,
+    any: bool,
+    ids: &[String],
+) -> Result<Vec<String>, DbErr> {
+    sqlx::query_scalar(concat!(
+        "select t.id from products t where t.id = any($3) and t.deleted_at is null and ",
+        rules_match!()
+    ))
+    .bind(rules)
+    .bind(if any { "any" } else { "all" })
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(weldsuite_db::orm_error)
+}
+
 /// The categories (`{ id, slug, name }`) each product is in, manual and
 /// automated, visible ones only.
 async fn product_categories(
     conn: &mut PgConnection,
     ids: &[String],
-) -> Result<HashMap<String, Vec<Value>>, sqlx::Error> {
-    let categories = visible_categories(conn).await?;
+) -> Result<HashMap<String, Vec<Value>>, DbErr> {
+    let categories = visible_categories(&OrmConn::new(&mut *conn)).await?;
     let mut members: HashMap<String, HashSet<String>> = HashMap::new();
-    let manual: Vec<(String, String)> = sqlx::query_as(
-        "select category_id, product_id from category_products where product_id = any($1)",
-    )
-    .bind(ids)
-    .fetch_all(&mut *conn)
-    .await?;
+    let manual: Vec<(String, String)> = category_products::Entity::find()
+        .select_only()
+        .columns([
+            category_products::Column::CategoryId,
+            category_products::Column::ProductId,
+        ])
+        .filter(category_products::Column::ProductId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&OrmConn::new(&mut *conn))
+        .await?;
     for (category, product) in manual {
         members.entry(category).or_default().insert(product);
     }
     for category in categories.iter().filter(|c| c["type"] == "automated") {
         let rules = rules_param(&stored_rules(category.get("rules")));
-        let matched: Vec<String> = sqlx::query_scalar(concat!(
-            "select t.id from products t where t.id = any($3) and t.deleted_at is null and ",
-            rules_match!()
-        ))
-        .bind(&rules)
-        .bind(if category["rulesMatch"] == "any" {
-            "any"
-        } else {
-            "all"
-        })
-        .bind(ids)
-        .fetch_all(&mut *conn)
-        .await?;
+        let matched = rule_members(conn, &rules, category["rulesMatch"] == "any", ids).await?;
         if let Some(id) = text(category, "id") {
             members.entry(id).or_default().extend(matched);
         }
@@ -615,18 +750,54 @@ async fn product_categories(
     Ok(out)
 }
 
-const PRODUCT_ROWS_SQL: &str = "select jsonb_build_object('id', t.id, 'slug', t.slug, \
-       'name', t.name, 'description', t.description, 'featuredImageUrl', t.featured_image_url, \
-       'images', t.images, 'options', t.options, 'hasVariants', coalesce(t.has_variants, false), \
-       'track', t.track_inventory, 'qty', t.inventory_quantity, 'backorder', t.allow_backorder) \
-     from products t where t.id = any($1) and t.deleted_at is null";
+/// The live products `ids` (at least one): `{ id, slug, name, description,
+/// featuredImageUrl, images, options, hasVariants, track, qty, backorder }`.
+async fn product_rows(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    let rows = products::Entity::find()
+        .filter(products::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(products::Column::DeletedAt.is_null())
+        .all(&OrmConn::new(conn))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "id": row.id,
+                "slug": row.slug,
+                "name": row.name,
+                "description": row.description,
+                "featuredImageUrl": row.featured_image_url,
+                "images": row.images,
+                "options": row.options,
+                "hasVariants": row.has_variants.unwrap_or(false),
+                "track": row.track_inventory,
+                "qty": row.inventory_quantity,
+                "backorder": row.allow_backorder,
+            })
+        })
+        .collect())
+}
 
-const VARIANT_ROWS_SQL: &str = "select jsonb_build_object('id', v.id, 'productId', v.product_id, \
-       'name', v.name, 'sku', v.sku, 'optionValues', v.option_values, \
-       'track', v.track_inventory, 'qty', v.inventory_quantity, 'backorder', v.allow_backorder) \
-     from product_variants v where v.product_id = any($1) and v.status = 'active' \
-       and v.deleted_at is null \
-     order by v.product_id, coalesce(v.position, 0), v.created_at, v.id";
+/// The active variants of the products `ids` (at least one), in their
+/// order: `{ id, productId, name, sku, optionValues, track, qty, backorder }`.
+async fn variant_rows(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    let rows = active_variants(ids).all(&OrmConn::new(conn)).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "id": row.id,
+                "productId": row.product_id,
+                "name": row.name,
+                "sku": row.sku,
+                "optionValues": row.option_values,
+                "track": row.track_inventory,
+                "qty": row.inventory_quantity,
+                "backorder": row.allow_backorder,
+            })
+        })
+        .collect())
+}
 
 #[allow(
     clippy::too_many_lines,
@@ -642,14 +813,8 @@ async fn build(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(PRODUCT_ROWS_SQL)
-        .bind(ids)
-        .fetch_all(&mut *conn)
-        .await?;
-    let variant_rows: Vec<Value> = sqlx::query_scalar(VARIANT_ROWS_SQL)
-        .bind(ids)
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows = product_rows(conn, ids).await?;
+    let variant_rows = variant_rows(conn, ids).await?;
     let mut targets: Vec<Target> = Vec::new();
     for row in &rows {
         let id = text(row, "id").unwrap_or_default();

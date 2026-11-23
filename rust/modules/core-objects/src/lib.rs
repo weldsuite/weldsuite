@@ -361,6 +361,25 @@ pub(crate) fn int4(value: i64) -> Result<i32, sea_orm::DbErr> {
     i32::try_from(value).map_err(|_| sea_orm::DbErr::Custom("integer out of range".to_owned()))
 }
 
+/// `toISOString()` text as the `timestamp` Drizzle wrote it as (`$n::timestamp`
+/// reads its UTC wall-clock time); text that is no time is the database error
+/// Postgres refused it with.
+pub(crate) fn timestamp(iso: &str) -> Result<time::PrimitiveDateTime, sea_orm::DbErr> {
+    time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .map(weldsuite_db::utc_timestamp)
+        .map_err(|_| {
+            sea_orm::DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
+}
+
+/// A `timestamp` column as the TypeScript route's `Date` serializes:
+/// `toISOString()` (Drizzle reads it as UTC).
+pub(crate) fn iso(at: time::PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
+
 /// A list without paging: `list(c, rows, cursorPagination(rows.length, false, null))`.
 pub(crate) fn all(rows: Vec<Value>) -> Response {
     let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);

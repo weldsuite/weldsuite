@@ -374,46 +374,31 @@ fn count_conds(conds: &[Condition], cursor: bool) -> &[Condition] {
 
 /// `(select count(*) from sequence_enrollments s where s.sequence_id = w.id
 /// and <status>)`: the sequence's enrollments in that status.
-fn enrollment_count(status: Condition) -> Expr {
-    use enrollments::Column;
+fn enrollment_count(status: Expr) -> Expr {
     let mut select = Query::select();
     select
         .expr(Func::count(Expr::col(Asterisk)))
         .from(enrollments::Entity)
         .and_where(sea_orm::ExprTrait::equals(
-            Expr::col((enrollments::Entity, Column::SequenceId)),
+            Expr::col((enrollments::Entity, enrollments::Column::SequenceId)),
             (workflows::Entity, workflows::Column::Id),
         ))
-        .cond_where(status);
+        .and_where(status);
     Expr::SubQuery(None, Box::new(SubQueryStatement::SelectStatement(select)))
 }
 
-/// The counts a sequence is listed with, by key.
-fn enrollment_counts(statuses: &[(&'static str, Condition)]) -> Vec<(&'static str, Expr)> {
-    statuses
-        .iter()
-        .map(|(name, status)| (*name, enrollment_count(status.clone())))
-        .collect()
-}
-
-/// `!= 'unenrolled'`, then the statuses by name: what `enrolledCount` and
-/// each `<status>EnrolledCount` count.
-fn counted(statuses: &[&'static str]) -> Vec<(&'static str, Condition)> {
+/// The counts a sequence is read with, by key: `enrolled_count` (every
+/// status but `unenrolled`), then one per `(key, status)`.
+fn enrollment_counts(statuses: &[(&'static str, &str)]) -> Vec<(&'static str, Expr)> {
     use enrollments::Column;
-    let mut out = vec![(
+    let mut counts = vec![(
         "enrolled_count",
-        Condition::all().add(Column::Status.ne("unenrolled")),
+        enrollment_count(Column::Status.ne("unenrolled")),
     )];
-    for status in statuses {
-        let name = match *status {
-            "active" => "active_enrolled_count",
-            "pending" => "pending_enrolled_count",
-            "completed" => "completed_enrolled_count",
-            _ => "failed_enrolled_count",
-        };
-        out.push((name, Condition::all().add(Column::Status.eq(*status))));
+    for (key, status) in statuses {
+        counts.push((key, enrollment_count(Column::Status.eq(*status))));
     }
-    out
+    counts
 }
 
 /// A sequence with its enrollment counts.
@@ -519,14 +504,17 @@ async fn run_list(caller: &Caller, raw: Option<&str>) -> Answer {
         conds.push(before(Column::CreatedAt, Column::Id, &row));
     }
     let db = orm(&caller.db);
-    let rows = sequences_with(enrollment_counts(&counted(&["active", "pending"])))
-        .filter(all_of(&conds))
-        .order_by_desc(Column::CreatedAt)
-        .order_by_desc(Column::Id)
-        .limit(sql_limit(limit.map(|n| n + 1)))
-        .into_model::<ListedSequence>()
-        .all(&db)
-        .await?;
+    let rows = sequences_with(enrollment_counts(&[
+        ("active_enrolled_count", "active"),
+        ("pending_enrolled_count", "pending"),
+    ]))
+    .filter(all_of(&conds))
+    .order_by_desc(Column::CreatedAt)
+    .order_by_desc(Column::Id)
+    .limit(sql_limit(limit.map(|n| n + 1)))
+    .into_model::<ListedSequence>()
+    .all(&db)
+    .await?;
     let total = Entity::find()
         .filter(all_of(count_conds(&conds, cursor.is_some())))
         .count(&db)
@@ -582,12 +570,12 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 async fn run_detail(caller: &Caller, id: &str) -> Answer {
-    let row = sequences_with(enrollment_counts(&counted(&[
-        "active",
-        "pending",
-        "completed",
-        "failed",
-    ])))
+    let row = sequences_with(enrollment_counts(&[
+        ("active_enrolled_count", "active"),
+        ("pending_enrolled_count", "pending"),
+        ("completed_enrolled_count", "completed"),
+        ("failed_enrolled_count", "failed"),
+    ]))
     .filter(workflows::Column::Id.eq(id))
     .filter(workflows::Column::DeletedAt.is_null())
     .into_model::<DetailedSequence>()
