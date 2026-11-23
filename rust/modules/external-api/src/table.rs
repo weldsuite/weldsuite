@@ -59,6 +59,7 @@ pub(crate) struct Column {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Table {
     /// The table, for a reader of the generated file.
+    #[allow(dead_code)] // read by the test that holds each table to its entity
     pub(crate) name: &'static str,
     /// The table's entity: the statements, and the row as Drizzle returns it.
     pub(crate) entity: JsonTable,
@@ -285,8 +286,6 @@ impl Table {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// The generated tables keep Drizzle's properties; their columns are the
     /// entities', so a schema change shows up here.
     #[test]

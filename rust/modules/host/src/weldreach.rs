@@ -1,12 +1,16 @@
 //! WeldReach hooks into WeldHost (`lib/weldreach.ts`): a domain is connected
 //! while its tenant has a `reach_domains` row for it that is not
-//! `disconnecting`. Read with SQL against the tenant (WeldReach itself is
-//! ported later); a tenant without the table has no connected domains.
+//! `disconnecting`. Read from the tenant's `reach_domains`; a tenant without
+//! the table has no connected domains.
 
 use axum::response::Response;
 use http::StatusCode;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef,
+};
 use serde_json::Value;
-use weldsuite_db::{PgPool, is_missing_table};
+use weldsuite_db::{PgPool, is_missing_table, orm};
+use weldsuite_schema::tenant::{dns_zones, reach_domains};
 
 use crate::error_response;
 
@@ -32,8 +36,11 @@ pub(crate) fn record_managed() -> Response {
     )
 }
 
+/// A `reach_domains` status that no longer holds its domain.
+const DISCONNECTING: &str = "disconnecting";
+
 /// `orNone`: a missing table reads as `fallback`.
-fn or_none<T>(result: Result<T, sqlx::Error>, fallback: T) -> Result<T, sqlx::Error> {
+fn or_none<T>(result: Result<T, DbErr>, fallback: T) -> Result<T, DbErr> {
     match result {
         Ok(value) => Ok(value),
         Err(error) if is_missing_table(&error) => Ok(fallback),
@@ -45,22 +52,23 @@ fn or_none<T>(result: Result<T, sqlx::Error>, fallback: T) -> Result<T, sqlx::Er
 pub(crate) async fn connected_domain_ids(
     db: &PgPool,
     domain_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if domain_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = sqlx::query_scalar::<_, String>(
-        "select host_domain_id from reach_domains
-         where host_domain_id = any($1) and status <> 'disconnecting'",
-    )
-    .bind(domain_ids)
-    .fetch_all(db)
-    .await;
+    let rows = reach_domains::Entity::find()
+        .select_only()
+        .column(reach_domains::Column::HostDomainId)
+        .filter(reach_domains::Column::HostDomainId.is_in(domain_ids))
+        .filter(reach_domains::Column::Status.ne(DISCONNECTING))
+        .into_tuple::<String>()
+        .all(&orm(db))
+        .await;
     or_none(rows, Vec::new())
 }
 
 /// `isDomainUsedByWeldReach`.
-pub(crate) async fn is_domain_used(db: &PgPool, domain_id: &str) -> Result<bool, sqlx::Error> {
+pub(crate) async fn is_domain_used(db: &PgPool, domain_id: &str) -> Result<bool, DbErr> {
     Ok(connected_domain_ids(db, &[domain_id.to_owned()])
         .await?
         .iter()
@@ -68,13 +76,15 @@ pub(crate) async fn is_domain_used(db: &PgPool, domain_id: &str) -> Result<bool,
 }
 
 /// `isDomainNameUsedByWeldReach`.
-pub(crate) async fn is_domain_name_used(db: &PgPool, name: &str) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query_scalar::<_, String>(
-        "select id from reach_domains where name = $1 and status <> 'disconnecting' limit 1",
-    )
-    .bind(crate::js::js_trim(name).to_lowercase())
-    .fetch_optional(db)
-    .await;
+pub(crate) async fn is_domain_name_used(db: &PgPool, name: &str) -> Result<bool, DbErr> {
+    let row = reach_domains::Entity::find()
+        .select_only()
+        .column(reach_domains::Column::Id)
+        .filter(reach_domains::Column::Name.eq(crate::js::js_trim(name).to_lowercase()))
+        .filter(reach_domains::Column::Status.ne(DISCONNECTING))
+        .into_tuple::<String>()
+        .one(&orm(db))
+        .await;
     or_none(row.map(|row| row.is_some()), false)
 }
 
@@ -82,15 +92,24 @@ pub(crate) async fn is_domain_name_used(db: &PgPool, name: &str) -> Result<bool,
 pub(crate) async fn domain_name_for_zone(
     db: &PgPool,
     zone_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let row = sqlx::query_as::<_, (String, Option<String>)>(
-        "select z.name, r.id from dns_zones z
-         left join reach_domains r on r.host_domain_id = z.domain_id and r.status <> 'disconnecting'
-         where z.id = $1 limit 1",
-    )
-    .bind(zone_id)
-    .fetch_optional(db)
-    .await;
+) -> Result<Option<String>, DbErr> {
+    // `left join reach_domains on host_domain_id = domain_id and status <> 'disconnecting'`.
+    let connected: RelationDef = dns_zones::Entity::belongs_to(reach_domains::Entity)
+        .from(dns_zones::Column::DomainId)
+        .to(reach_domains::Column::HostDomainId)
+        .on_condition(|_, _| {
+            sea_orm::Condition::all().add(reach_domains::Column::Status.ne(DISCONNECTING))
+        })
+        .into();
+    let row = dns_zones::Entity::find()
+        .select_only()
+        .column(dns_zones::Column::Name)
+        .column(reach_domains::Column::Id)
+        .join(JoinType::LeftJoin, connected)
+        .filter(dns_zones::Column::Id.eq(zone_id))
+        .into_tuple::<(String, Option<String>)>()
+        .one(&orm(db))
+        .await;
     or_none(
         row.map(|row| row.and_then(|(name, reach)| reach.map(|_| name))),
         None,
@@ -165,7 +184,7 @@ pub(crate) fn duplicates_record(domain_name: &str, kind: &str, name: &str, value
 pub(crate) async fn mark_records(
     db: &PgPool,
     records: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let Some(first) = records.first() else {
         return Ok(Vec::new());
     };

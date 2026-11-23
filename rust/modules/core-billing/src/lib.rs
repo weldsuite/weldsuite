@@ -45,6 +45,7 @@ mod credits;
 pub mod engine;
 pub mod lines;
 mod notify;
+mod orm_bridge;
 pub mod paylink;
 pub mod period;
 mod plans;

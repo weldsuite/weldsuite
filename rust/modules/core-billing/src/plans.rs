@@ -9,10 +9,11 @@
 //! (ADR BILL-014, simpler first version). The amount is charged as is: there
 //! are no price objects at Mollie.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
-use sqlx::FromRow;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_mollie::Money;
+use weldsuite_schema::master::plans;
 
 use crate::period::Cycle;
 
@@ -22,7 +23,7 @@ pub(crate) const CURRENCY: &str = "EUR";
 
 /// A `plans` row, numerics as text.
 #[allow(clippy::struct_excessive_bools)] // the table's flags
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub(crate) struct Plan {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -44,13 +45,31 @@ pub(crate) struct Plan {
     pub(crate) badge: Option<String>,
 }
 
-macro_rules! columns {
-    () => {
-        "id, name, slug, description, price_monthly::text as price_monthly,
-    price_yearly::text as price_yearly, currency,
-    included_users, monthly_credits, features, max_users, max_custom_domains, remove_branding,
-    is_active, is_default, has_api_access, sort_order, badge"
-    };
+impl From<plans::Model> for Plan {
+    /// The prices as `price_monthly::text` printed them: `numeric(18, 2)`,
+    /// two decimals.
+    fn from(row: plans::Model) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            description: row.description,
+            price_monthly: row.price_monthly.with_scale(2).to_plain_string(),
+            price_yearly: row.price_yearly.with_scale(2).to_plain_string(),
+            currency: row.currency,
+            included_users: row.included_users,
+            monthly_credits: row.monthly_credits,
+            features: row.features,
+            max_users: row.max_users,
+            max_custom_domains: row.max_custom_domains,
+            remove_branding: row.remove_branding,
+            is_active: row.is_active,
+            is_default: row.is_default,
+            has_api_access: row.has_api_access,
+            sort_order: row.sort_order,
+            badge: row.badge,
+        }
+    }
 }
 
 fn cents(text: &str) -> i64 {
@@ -58,37 +77,32 @@ fn cents(text: &str) -> i64 {
 }
 
 impl Plan {
-    pub(crate) async fn load(master: &PgPool, id: &str) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from plans where id = $1 limit 1"
-        ))
-        .bind(id)
-        .fetch_optional(master)
-        .await
+    pub(crate) async fn load(master: &PgPool, id: &str) -> Result<Option<Self>, DbErr> {
+        let row = plans::Entity::find_by_id(id.to_owned())
+            .one(&orm(master))
+            .await?;
+        Ok(row.map(Self::from))
     }
 
     /// The Free plan new workspaces start on (`slug = 'free'`).
-    pub(crate) async fn free(master: &PgPool) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from plans where slug = 'free' and deleted_at is null limit 1"
-        ))
-        .fetch_optional(master)
-        .await
+    pub(crate) async fn free(master: &PgPool) -> Result<Option<Self>, DbErr> {
+        let row = plans::Entity::find()
+            .filter(plans::Column::Slug.eq("free"))
+            .filter(plans::Column::DeletedAt.is_null())
+            .one(&orm(master))
+            .await?;
+        Ok(row.map(Self::from))
     }
 
     /// Active plans in ladder order (Free included).
-    pub(crate) async fn active(master: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from plans where is_active and deleted_at is null order by sort_order"
-        ))
-        .fetch_all(master)
-        .await
+    pub(crate) async fn active(master: &PgPool) -> Result<Vec<Self>, DbErr> {
+        let rows = plans::Entity::find()
+            .filter(plans::Column::IsActive.eq(true))
+            .filter(plans::Column::DeletedAt.is_null())
+            .order_by_asc(plans::Column::SortOrder)
+            .all(&orm(master))
+            .await?;
+        Ok(rows.into_iter().map(Self::from).collect())
     }
 
     pub(crate) fn is_free(&self) -> bool {

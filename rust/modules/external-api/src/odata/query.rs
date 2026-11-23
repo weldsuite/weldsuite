@@ -420,13 +420,13 @@ pub(crate) fn parse_query_options<'a>(
 /// What can go wrong while reading rows.
 #[derive(Debug)]
 pub(crate) enum ReadError {
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     /// A row or a catalogue entry that cannot be: answered as a 500.
     Unreadable,
 }
 
-impl From<sqlx::Error> for ReadError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for ReadError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }

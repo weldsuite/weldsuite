@@ -12,9 +12,16 @@
 //! state under a row lock, so a second delivery, or the return page settling
 //! first, changes nothing.
 
-use serde_json::Value;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, SelectExt,
+};
+use serde_json::{Value, json};
 use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_mollie::{Payment, PaymentStatus};
+use weldsuite_schema::master::{billing_accounts, billing_invoices, billing_payments, workspaces};
 
 use crate::account::{self, Account};
 use crate::engine::{self, BRAND};
@@ -59,7 +66,6 @@ fn text(value: Option<&Value>) -> Option<&str> {
 
 /// Applies `payment` to its charge. `Err` only when something should be
 /// retried (the database unreachable); the webhook then answers 5xx.
-#[allow(clippy::too_many_lines)] // one state machine, one place
 pub async fn settle_payment(
     state: &BillingState,
     payment: &Payment,
@@ -82,127 +88,11 @@ pub async fn settle_payment(
     };
     let master = &state.master;
     let mut tx = master.begin().await?;
-    let Some(row) = ChargeRow::lock(&mut tx, row_id).await? else {
-        return Ok(Settled::Ignored("unknown charge row"));
-    };
-    if text(payment.metadata.get("workspaceId")) != Some(row.workspace_id.as_str()) {
-        tracing::warn!(payment = %payment.id, row = %row.id, "billing: payment and row name different workspaces");
-        return Ok(Settled::Ignored("workspace mismatch"));
-    }
-    if row
-        .provider_payment_id
-        .as_deref()
-        .is_some_and(|id| id != payment.id)
-    {
-        tracing::warn!(payment = %payment.id, row = %row.id, "billing: the row was sent as another payment");
-        return Ok(Settled::Ignored("payment mismatch"));
-    }
-    let amount = payment.amount.as_ref().map_or(-1, |money| money.cents);
-    if amount != i64::from(row.amount) {
-        tracing::warn!(payment = %payment.id, row = %row.id, amount, expected = row.amount, "billing: amount mismatch");
-        return Ok(Settled::Ignored("amount mismatch"));
-    }
-    let Some(meta) = row.meta() else {
-        return Ok(Settled::Ignored("the row has no metadata"));
-    };
-    if top_up != (meta.purpose == Purpose::Credits) {
-        tracing::warn!(payment = %payment.id, row = %row.id, "billing: a top-up and a plan charge crossed");
-        return Ok(Settled::Ignored("purpose mismatch"));
-    }
-    // A duplicate checkout is settled for good: refunded, never applied.
-    // Mollie calls again (when the refund goes through, say); that changes
-    // nothing, and asks for no second refund.
-    if row.status == "duplicate" {
-        return Ok(Settled::Recorded("duplicate"));
-    }
-    if row.provider_payment_id.is_none() {
-        sqlx::query("update billing_payments set provider_payment_id = $2 where id = $1")
-            .bind(&row.id)
-            .bind(&payment.id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    let paid_at = payment
-        .paid_at
-        .as_deref()
-        .and_then(parse_iso)
-        .unwrap_or(now);
-    let reversed = payment.reversed_cents();
-
-    let settled = if payment.status == PaymentStatus::Paid && !row.is_paid() {
-        ChargeRow::record(
-            &mut tx,
-            &row.id,
-            "succeeded",
-            &payment.details,
-            None,
-            Some(paid_at),
-            reversed,
-        )
-        .await?;
-        paid(state, &mut tx, &row, &meta, payment, paid_at, now).await?
-    } else if payment.status == PaymentStatus::Paid {
-        ChargeRow::record(
-            &mut tx,
-            &row.id,
-            "succeeded",
-            &payment.details,
-            None,
-            None,
-            reversed,
-        )
-        .await?;
-        if payment.charged_back() && meta.charged_back != Some(true) && reopens(meta.purpose) {
-            sqlx::query(
-                "update billing_payments set metadata = jsonb_set(metadata, '{chargedBack}', 'true') where id = $1",
-            )
-            .bind(&row.id)
-            .execute(&mut *tx)
-            .await?;
-            go_past_due(&mut tx, &row.workspace_id, &row.id, now).await?;
-            Settled::PastDue
-        } else {
-            Settled::Recorded("already paid")
-        }
-    } else if payment.status.is_final_failure() && !row.is_paid() {
-        ChargeRow::record(
-            &mut tx,
-            &row.id,
-            status_of(&payment.status),
-            &payment.details,
-            payment.failure_reason.as_deref(),
-            None,
-            0,
-        )
-        .await?;
-        let applied_on_acceptance = meta.applied == Some(true);
-        match meta.purpose {
-            Purpose::Renewal => {
-                go_past_due(&mut tx, &row.workspace_id, &row.id, now).await?;
-                Settled::PastDue
-            }
-            // Granted at acceptance (the plan change, the inbox): the charge
-            // that fails afterwards is owed.
-            Purpose::Change | Purpose::Addon if applied_on_acceptance => {
-                go_past_due(&mut tx, &row.workspace_id, &row.id, now).await?;
-                Settled::PastDue
-            }
-            _ => Settled::Recorded("not paid"),
-        }
-    } else {
-        if !row.is_paid() {
-            ChargeRow::record(
-                &mut tx,
-                &row.id,
-                status_of(&payment.status),
-                &payment.details,
-                None,
-                None,
-                0,
-            )
-            .await?;
-        }
-        Settled::Recorded("in progress")
+    let locked = settle_locked(state, &OrmConn::new(&mut tx), payment, row_id, top_up, now).await?;
+    let (row, meta, settled) = match locked {
+        Ok(settled) => settled,
+        // Nothing was written: the transaction rolls back.
+        Err(ignored) => return Ok(ignored),
     };
     tx.commit().await?;
 
@@ -227,6 +117,152 @@ pub async fn settle_payment(
     Ok(settled)
 }
 
+/// [`settle_payment`] under the row lock, inside its transaction: the row,
+/// its metadata and what settling did, or `Err` with why the payment is
+/// ignored (nothing written).
+#[allow(clippy::too_many_lines)] // one state machine, one place
+async fn settle_locked(
+    state: &BillingState,
+    tx: &impl ConnectionTrait,
+    payment: &Payment,
+    row_id: &str,
+    top_up: bool,
+    now: OffsetDateTime,
+) -> BillingResult<Result<(ChargeRow, ChargeMeta, Settled), Settled>> {
+    let Some(row) = ChargeRow::lock(tx, row_id).await? else {
+        return Ok(Err(Settled::Ignored("unknown charge row")));
+    };
+    if text(payment.metadata.get("workspaceId")) != Some(row.workspace_id.as_str()) {
+        tracing::warn!(payment = %payment.id, row = %row.id, "billing: payment and row name different workspaces");
+        return Ok(Err(Settled::Ignored("workspace mismatch")));
+    }
+    if row
+        .provider_payment_id
+        .as_deref()
+        .is_some_and(|id| id != payment.id)
+    {
+        tracing::warn!(payment = %payment.id, row = %row.id, "billing: the row was sent as another payment");
+        return Ok(Err(Settled::Ignored("payment mismatch")));
+    }
+    let amount = payment.amount.as_ref().map_or(-1, |money| money.cents);
+    if amount != i64::from(row.amount) {
+        tracing::warn!(payment = %payment.id, row = %row.id, amount, expected = row.amount, "billing: amount mismatch");
+        return Ok(Err(Settled::Ignored("amount mismatch")));
+    }
+    let Some(meta) = row.meta() else {
+        return Ok(Err(Settled::Ignored("the row has no metadata")));
+    };
+    if top_up != (meta.purpose == Purpose::Credits) {
+        tracing::warn!(payment = %payment.id, row = %row.id, "billing: a top-up and a plan charge crossed");
+        return Ok(Err(Settled::Ignored("purpose mismatch")));
+    }
+    // A duplicate checkout is settled for good: refunded, never applied.
+    // Mollie calls again (when the refund goes through, say); that changes
+    // nothing, and asks for no second refund.
+    if row.status == "duplicate" {
+        return Ok(Err(Settled::Recorded("duplicate")));
+    }
+    if row.provider_payment_id.is_none() {
+        billing_payments::Entity::update_many()
+            .col_expr(
+                billing_payments::Column::ProviderPaymentId,
+                Expr::value(payment.id.clone()),
+            )
+            .filter(billing_payments::Column::Id.eq(&row.id))
+            .exec(tx)
+            .await?;
+    }
+    let paid_at = payment
+        .paid_at
+        .as_deref()
+        .and_then(parse_iso)
+        .unwrap_or(now);
+    let reversed = payment.reversed_cents();
+
+    let settled = if payment.status == PaymentStatus::Paid && !row.is_paid() {
+        ChargeRow::record(
+            tx,
+            &row.id,
+            "succeeded",
+            &payment.details,
+            None,
+            Some(paid_at),
+            reversed,
+        )
+        .await?;
+        paid(state, tx, &row, &meta, payment, paid_at, now).await?
+    } else if payment.status == PaymentStatus::Paid {
+        ChargeRow::record(
+            tx,
+            &row.id,
+            "succeeded",
+            &payment.details,
+            None,
+            None,
+            reversed,
+        )
+        .await?;
+        if payment.charged_back() && meta.charged_back != Some(true) && reopens(meta.purpose) {
+            billing_payments::Entity::update_many()
+                .col_expr(
+                    billing_payments::Column::Metadata,
+                    crate::store::jsonb_set(
+                        Expr::col(billing_payments::Column::Metadata),
+                        "chargedBack",
+                        Expr::val(json!(true)),
+                    ),
+                )
+                .filter(billing_payments::Column::Id.eq(&row.id))
+                .exec(tx)
+                .await?;
+            go_past_due(tx, &row.workspace_id, &row.id, now).await?;
+            Settled::PastDue
+        } else {
+            Settled::Recorded("already paid")
+        }
+    } else if payment.status.is_final_failure() && !row.is_paid() {
+        ChargeRow::record(
+            tx,
+            &row.id,
+            status_of(&payment.status),
+            &payment.details,
+            payment.failure_reason.as_deref(),
+            None,
+            0,
+        )
+        .await?;
+        let applied_on_acceptance = meta.applied == Some(true);
+        match meta.purpose {
+            Purpose::Renewal => {
+                go_past_due(tx, &row.workspace_id, &row.id, now).await?;
+                Settled::PastDue
+            }
+            // Granted at acceptance (the plan change, the inbox): the charge
+            // that fails afterwards is owed.
+            Purpose::Change | Purpose::Addon if applied_on_acceptance => {
+                go_past_due(tx, &row.workspace_id, &row.id, now).await?;
+                Settled::PastDue
+            }
+            _ => Settled::Recorded("not paid"),
+        }
+    } else {
+        if !row.is_paid() {
+            ChargeRow::record(
+                tx,
+                &row.id,
+                status_of(&payment.status),
+                &payment.details,
+                None,
+                None,
+                0,
+            )
+            .await?;
+        }
+        Settled::Recorded("in progress")
+    };
+    Ok(Ok((row, meta, settled)))
+}
+
 /// Refunds a duplicate checkout in full. A refusal is logged loudly: staff
 /// refund it with `weldsuite admin billing refund`.
 async fn refund_duplicate(state: &BillingState, row_id: &str, payment: &Payment) {
@@ -246,12 +282,15 @@ async fn refund_duplicate(state: &BillingState, row_id: &str, payment: &Payment)
         .await
     {
         Ok(refund) => {
-            if let Err(error) = sqlx::query(
-                "update billing_payments set refunded_amount = amount, updated_at = now() where id = $1",
-            )
-            .bind(row_id)
-            .execute(&state.master)
-            .await
+            if let Err(error) = billing_payments::Entity::update_many()
+                .col_expr(
+                    billing_payments::Column::RefundedAmount,
+                    Expr::col(billing_payments::Column::Amount),
+                )
+                .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(billing_payments::Column::Id.eq(row_id))
+                .exec(&orm(&state.master))
+                .await
             {
                 tracing::error!(%error, row = row_id, "billing: duplicate refund not recorded");
             }
@@ -278,7 +317,7 @@ fn reopens(purpose: Purpose) -> bool {
 #[allow(clippy::too_many_lines)] // one arm per purpose
 async fn paid(
     state: &BillingState,
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     row: &ChargeRow,
     meta: &ChargeMeta,
     payment: &Payment,
@@ -294,23 +333,22 @@ async fn paid(
             // Another checkout already started the subscription: this one
             // pays for an overlapping period. It isn't applied, and isn't
             // invoiced; the payment is refunded once this commits.
-            let charging: bool = sqlx::query_scalar(
-                "select exists (select 1 from billing_accounts
-                                where workspace_id = $1 and next_charge_at is not null)",
-            )
-            .bind(workspace_id)
-            .fetch_one(&mut *tx)
-            .await?;
-            if charging && workspace.has_running_subscription(now) {
-                sqlx::query(
-                    "update billing_payments set status = 'duplicate',
-                         failure_message = 'A subscription was already running: refunded',
-                         updated_at = now()
-                     where id = $1",
-                )
-                .bind(&row.id)
-                .execute(&mut *tx)
+            let charging = billing_accounts::Entity::find()
+                .filter(billing_accounts::Column::WorkspaceId.eq(workspace_id))
+                .filter(billing_accounts::Column::NextChargeAt.is_not_null())
+                .exists(tx)
                 .await?;
+            if charging && workspace.has_running_subscription(now) {
+                billing_payments::Entity::update_many()
+                    .col_expr(billing_payments::Column::Status, Expr::value("duplicate"))
+                    .col_expr(
+                        billing_payments::Column::FailureMessage,
+                        Expr::value("A subscription was already running: refunded"),
+                    )
+                    .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(billing_payments::Column::Id.eq(&row.id))
+                    .exec(tx)
+                    .await?;
                 return Ok(Settled::DuplicateCheckout);
             }
             let (Some(plan_id), Some(seats), Some(cycle), Some(unit)) = (
@@ -344,7 +382,7 @@ async fn paid(
             .await?;
             save_mandate(tx, workspace_id, payment).await?;
             // Inboxes paused when an earlier plan ended send again.
-            crate::addons::resume_inboxes(tx, workspace_id).await?;
+            crate::addons::resume_inboxes_on(tx, workspace_id).await?;
             let plan = Plan::load(&state.master, &plan_id).await?;
             let plan_credits = plan
                 .as_ref()
@@ -402,15 +440,20 @@ async fn paid(
             save_mandate(tx, workspace_id, payment).await?;
             if let Some(settles) = &meta.settles {
                 clear_past_due_on(tx, workspace_id, settles).await?;
-                sqlx::query(
-                    "update billing_payments set failure_message = coalesce(failure_message, '') || ' (paid by ' || $2 || ')',
-                         updated_at = now()
-                     where id = $1",
-                )
-                .bind(settles)
-                .bind(&row.id)
-                .execute(&mut *tx)
-                .await?;
+                // `coalesce(failure_message, '') || ' (paid by ' || $2 || ')'`
+                let noted = pg::PgExpr::concat(
+                    Expr::from(Func::coalesce([
+                        Expr::col(billing_payments::Column::FailureMessage),
+                        Expr::val(""),
+                    ])),
+                    Expr::val(format!(" (paid by {})", row.id)),
+                );
+                billing_payments::Entity::update_many()
+                    .col_expr(billing_payments::Column::FailureMessage, noted)
+                    .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(billing_payments::Column::Id.eq(settles))
+                    .exec(tx)
+                    .await?;
             }
             Ok(Settled::PastDuePaid)
         }
@@ -430,10 +473,10 @@ async fn paid(
 
 /// Stores the mandate a paid first payment left as the default.
 async fn save_mandate(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     payment: &Payment,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(mandate) = &payment.mandate_id else {
         return Ok(());
     };
@@ -470,45 +513,50 @@ fn tokio_spawn_cap(
 
 /// Paying the open charge ends past due (and `past_due` on the workspace).
 async fn clear_past_due_on(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     row_id: &str,
-) -> Result<(), sqlx::Error> {
-    let open: Option<Option<String>> = sqlx::query_scalar(
-        "select past_due_payment_id from billing_accounts where workspace_id = $1 for update",
-    )
-    .bind(workspace_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    let open: Option<Option<String>> = billing_accounts::Entity::find()
+        .select_only()
+        .column(billing_accounts::Column::PastDuePaymentId)
+        .filter(billing_accounts::Column::WorkspaceId.eq(workspace_id))
+        .lock_exclusive()
+        .into_tuple()
+        .one(tx)
+        .await?;
     if open.flatten().as_deref() != Some(row_id) {
         return Ok(());
     }
     account::clear_past_due(tx, workspace_id).await?;
-    sqlx::query(
-        "update workspaces set subscription_status = 'active', updated_at = now()
-         where id = $1 and subscription_status = 'past_due'",
-    )
-    .bind(workspace_id)
-    .execute(&mut *tx)
-    .await?;
+    workspaces::Entity::update_many()
+        .col_expr(workspaces::Column::SubscriptionStatus, Expr::value("active"))
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .filter(workspaces::Column::SubscriptionStatus.eq("past_due"))
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// The charge `row_id` is open: past due, the plan keeps working.
 pub(crate) async fn go_past_due(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     row_id: &str,
     now: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     account::set_past_due(tx, workspace_id, row_id, now).await?;
-    sqlx::query(
-        "update workspaces set subscription_status = 'past_due', updated_at = now()
-         where id = $1 and subscription_status in ('active', 'trialing', 'past_due')",
-    )
-    .bind(workspace_id)
-    .execute(&mut *tx)
-    .await?;
+    workspaces::Entity::update_many()
+        .col_expr(
+            workspaces::Column::SubscriptionStatus,
+            Expr::value("past_due"),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .filter(workspaces::Column::SubscriptionStatus.is_in(["active", "trialing", "past_due"]))
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
@@ -791,13 +839,16 @@ async fn invoice_mail(state: &BillingState, row_id: &str) -> BillingResult<Optio
     let (Some(meta), Some(invoice_id)) = (row.meta(), row.invoice_id.as_deref()) else {
         return Ok(None);
     };
-    let invoice: Option<(Option<String>, String)> = sqlx::query_as(
-        "select number, to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-         from billing_invoices where id = $1",
-    )
-    .bind(invoice_id)
-    .fetch_optional(master)
-    .await?;
+    let invoice: Option<(Option<String>, time::PrimitiveDateTime)> =
+        billing_invoices::Entity::find_by_id(invoice_id.to_owned())
+            .select_only()
+            .columns([
+                billing_invoices::Column::Number,
+                billing_invoices::Column::CreatedAt,
+            ])
+            .into_tuple()
+            .one(&orm(master))
+            .await?;
     let Some((number, created_at)) = invoice else {
         return Ok(None);
     };
@@ -815,10 +866,8 @@ async fn invoice_mail(state: &BillingState, row_id: &str) -> BillingResult<Optio
         recipients,
         language,
         number: number.unwrap_or_default(),
-        date: notify::date_text(
-            parse_iso(&created_at).unwrap_or_else(OffsetDateTime::now_utc),
-            language,
-        ),
+        // `to_char(created_at, …)` read back as an instant: the stored UTC time.
+        date: notify::date_text(created_at.assume_utc(), language),
         amount: notify::money_text(charge.gross, &charge.currency, language),
         treatment: charge.vat.treatment,
         tax: notify::money_text(charge.tax, &charge.currency, language),

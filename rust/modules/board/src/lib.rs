@@ -380,12 +380,19 @@ pub(crate) enum Refusal {
     /// A refusal as an [`ApiError`], so a caller that is not a route (the
     /// agent tools) can read its message.
     Api(ApiError),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A crate not converted to the ORM yet (`core-domain`, `flow-domain`).
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

@@ -16,17 +16,24 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::{PgPool, js_row};
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence, json_body, query_values};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{user_app_installs, user_apps};
+use weldsuite_schema::tenant::{app_kv, app_records};
 
-use crate::list::{ListQuery, clamp_limit, list_page, list_sql};
+use crate::list::{ListQuery, clamp_limit, list_page};
 use crate::session::{
     ApiSession, Key, KeyType, bad_request, database_error, forbidden, internal_with, not_found,
 };
@@ -37,12 +44,29 @@ const DEFAULT_RECORD_LIMIT: f64 = 25.0;
 /// The active-install lookup's lifetime: short, so an uninstall bites fast.
 const INSTALL_CACHE_TTL: Duration = Duration::from_secs(60);
 
-const RECORDS: (&str, &str) = list_sql!(
-    "app_records",
-    "to_jsonb(t)",
-    "t.deleted_at is null and t.app_code = $3->>'appCode' and t.collection = $3->>'collection' \
-     and ($3->'filter' is null or t.data @> ($3->'filter'))"
-);
+/// `app_records` as Drizzle reads it.
+const RECORDS: JsonTable = JsonTable::of::<app_records::Entity>();
+
+/// The live records of the app's collection; `filter` is a `data @> filter`
+/// containment.
+fn records_list(app_code: &str, collection: &str, filter: Option<Value>) -> Condition {
+    Condition::all()
+        .add(app_records::Column::DeletedAt.is_null())
+        .add(app_records::Column::AppCode.eq(app_code))
+        .add(app_records::Column::Collection.eq(collection))
+        .add_option(filter.map(|filter| {
+            sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                app_records::Column::Data.into_expr(),
+                filter,
+            )
+        }))
+}
+
+/// `new Date()` as a `timestamptz` column gets it from Drizzle: to the
+/// millisecond.
+fn now_tz() -> OffsetDateTime {
+    weldsuite_db::utc_now().assume_utc()
+}
 
 /// The cached `uai:` entry (`CachedActiveInstall`).
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,18 +150,26 @@ async fn active_install(
     {
         return Ok(Some(cached));
     }
-    let row: Option<(String, String)> = sqlx::query_as(
-        "select a.id, i.id from user_app_installs i
-           join user_apps a on a.id = i.app_id
-          where a.code = $1 and i.workspace_id = $2 and i.status = 'active'
-            and a.is_active = true and a.deleted_at is null
-          limit 1",
-    )
-    .bind(app_code)
-    .bind(workspace_id)
-    .fetch_optional(&storage.master)
-    .await
-    .map_err(|error| database_error(&error))?;
+    let row: Option<(String, String)> = user_app_installs::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            user_app_installs::Entity::belongs_to(user_apps::Entity)
+                .from(user_app_installs::Column::AppId)
+                .to(user_apps::Column::Id)
+                .into(),
+        )
+        .select_only()
+        .column_as(user_apps::Column::Id, "app_id")
+        .column_as(user_app_installs::Column::Id, "install_id")
+        .filter(user_apps::Column::Code.eq(app_code))
+        .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .filter(user_apps::Column::IsActive.eq(true))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&storage.master))
+        .await
+        .map_err(|error| database_error(&error))?;
     let Some((app_id, install_id)) = row else {
         return Ok(None);
     };
@@ -196,6 +228,11 @@ fn read_record_body(headers: &HeaderMap, body: &Bytes) -> Result<Map<String, Val
     Ok(data.flatten().unwrap_or_default())
 }
 
+/// A model as Drizzle's row.
+fn to_json<T: Serialize>(model: T) -> Result<Value, ApiError> {
+    serde_json::to_value(model).map_err(|error| database_error(&DbErr::Json(error.to_string())))
+}
+
 fn respond(result: Result<Response, ApiError>) -> Response {
     result.unwrap_or_else(IntoResponse::into_response)
 }
@@ -236,17 +273,24 @@ pub(crate) async fn list_records(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_collection(&collection)?;
-            let mut filters = json!({ "appCode": app_code, "collection": collection });
-            if let Some(filter) = filter.as_deref().filter(|filter| !filter.is_empty()) {
-                let parsed: Value = serde_json::from_str(filter)
-                    .map_err(|_| bad_request("filter must be a valid JSON string"))?;
-                filters["filter"] = parsed;
-            }
+            let filter = match filter.as_deref().filter(|filter| !filter.is_empty()) {
+                Some(filter) => Some(
+                    serde_json::from_str::<Value>(filter)
+                        .map_err(|_| bad_request("filter must be a valid JSON string"))?,
+                ),
+                None => None,
+            };
             let query = ListQuery {
                 cursor,
                 limit: clamp_limit(Some(limit.unwrap_or(DEFAULT_RECORD_LIMIT))),
             };
-            list_page(&storage.key.db, RECORDS, &query, &filters).await
+            list_page(
+                &storage.key.db,
+                &RECORDS,
+                records_list(&app_code, &collection, filter),
+                &query,
+            )
+            .await
         }
         .await,
     )
@@ -267,23 +311,24 @@ pub(crate) async fn create_record(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_collection(&collection)?;
-            let now = iso_timestamp(OffsetDateTime::now_utc());
-            let row: Option<Value> = sqlx::query_scalar(
-                "insert into app_records (id, app_code, collection, data, created_by, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6::timestamptz, $6::timestamptz)
-                 returning to_jsonb(app_records)",
-            )
-            .bind(generate_id("arec"))
-            .bind(&app_code)
-            .bind(&collection)
-            .bind(Value::Object(data))
-            .bind(&storage.key.session.key_id)
-            .bind(&now)
-            .fetch_optional(&storage.key.db)
+            let now = now_tz();
+            let row = app_records::Entity::insert(app_records::ActiveModel {
+                id: Set(generate_id("arec")),
+                app_code: Set(app_code),
+                collection: Set(collection),
+                data: Set(Value::Object(data)),
+                created_by: Set(Some(storage.key.session.key_id.clone())),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(&storage.key.db))
             .await
-            .map_err(|error| database_error(&error))?;
-            let row = row.ok_or_else(|| internal_with("Failed to create record"))?;
-            Ok((StatusCode::CREATED, Json(json!({ "data": js_row(row) }))).into_response())
+            .map_err(|error| match error {
+                DbErr::RecordNotInserted => internal_with("Failed to create record"),
+                error => database_error(&error),
+            })?;
+            Ok((StatusCode::CREATED, Json(json!({ "data": to_json(row)? }))).into_response())
         }
         .await,
     )
@@ -299,19 +344,16 @@ pub(crate) async fn get_record(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_collection(&collection)?;
-            let row: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(r) from app_records r
-                  where r.id = $1 and r.app_code = $2 and r.collection = $3 and r.deleted_at is null
-                  limit 1",
-            )
-            .bind(&id)
-            .bind(&app_code)
-            .bind(&collection)
-            .fetch_optional(&storage.key.db)
-            .await
-            .map_err(|error| database_error(&error))?;
+            let row = app_records::Entity::find()
+                .filter(app_records::Column::Id.eq(id.as_str()))
+                .filter(app_records::Column::AppCode.eq(app_code))
+                .filter(app_records::Column::Collection.eq(collection))
+                .filter(app_records::Column::DeletedAt.is_null())
+                .one(&orm(&storage.key.db))
+                .await
+                .map_err(|error| database_error(&error))?;
             let row = row.ok_or_else(|| not_found("Record", &id))?;
-            Ok(Json(json!({ "data": js_row(row) })).into_response())
+            Ok(Json(json!({ "data": to_json(row)? })).into_response())
         }
         .await,
     )
@@ -333,22 +375,24 @@ pub(crate) async fn update_record(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_collection(&collection)?;
-            let row: Option<Value> = sqlx::query_scalar(
-                "update app_records set data = $4, created_by = $5, updated_at = $6::timestamptz
-                  where id = $1 and app_code = $2 and collection = $3 and deleted_at is null
-                 returning to_jsonb(app_records)",
-            )
-            .bind(&id)
-            .bind(&app_code)
-            .bind(&collection)
-            .bind(Value::Object(data))
-            .bind(&storage.key.session.key_id)
-            .bind(iso_timestamp(OffsetDateTime::now_utc()))
-            .fetch_optional(&storage.key.db)
-            .await
-            .map_err(|error| database_error(&error))?;
+            let row = app_records::Entity::update_many()
+                .col_expr(app_records::Column::Data, Expr::value(Value::Object(data)))
+                .col_expr(
+                    app_records::Column::CreatedBy,
+                    Expr::value(storage.key.session.key_id.as_str()),
+                )
+                .col_expr(app_records::Column::UpdatedAt, Expr::value(now_tz()))
+                .filter(app_records::Column::Id.eq(id.as_str()))
+                .filter(app_records::Column::AppCode.eq(app_code))
+                .filter(app_records::Column::Collection.eq(collection))
+                .filter(app_records::Column::DeletedAt.is_null())
+                .exec_with_returning(&orm(&storage.key.db))
+                .await
+                .map_err(|error| database_error(&error))?
+                .into_iter()
+                .next();
             let row = row.ok_or_else(|| not_found("Record", &id))?;
-            Ok(Json(json!({ "data": js_row(row) })).into_response())
+            Ok(Json(json!({ "data": to_json(row)? })).into_response())
         }
         .await,
     )
@@ -364,19 +408,20 @@ pub(crate) async fn delete_record(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_collection(&collection)?;
-            let deleted: Option<String> = sqlx::query_scalar(
-                "update app_records set deleted_at = $4::timestamptz, updated_at = $4::timestamptz
-                  where id = $1 and app_code = $2 and collection = $3 and deleted_at is null
-                 returning id",
-            )
-            .bind(&id)
-            .bind(&app_code)
-            .bind(&collection)
-            .bind(iso_timestamp(OffsetDateTime::now_utc()))
-            .fetch_optional(&storage.key.db)
-            .await
-            .map_err(|error| database_error(&error))?;
-            deleted.ok_or_else(|| not_found("Record", &id))?;
+            let now = now_tz();
+            let deleted = app_records::Entity::update_many()
+                .col_expr(app_records::Column::DeletedAt, Expr::value(now))
+                .col_expr(app_records::Column::UpdatedAt, Expr::value(now))
+                .filter(app_records::Column::Id.eq(id.as_str()))
+                .filter(app_records::Column::AppCode.eq(app_code))
+                .filter(app_records::Column::Collection.eq(collection))
+                .filter(app_records::Column::DeletedAt.is_null())
+                .exec(&orm(&storage.key.db))
+                .await
+                .map_err(|error| database_error(&error))?;
+            if deleted.rows_affected == 0 {
+                return Err(not_found("Record", &id));
+            }
             Ok(StatusCode::NO_CONTENT.into_response())
         }
         .await,
@@ -398,14 +443,15 @@ pub(crate) async fn get_kv(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_key(&key)?;
-            let row: Option<(String, Option<Value>)> = sqlx::query_as(
-                "select key, value from app_kv where app_code = $1 and key = $2 limit 1",
-            )
-            .bind(&app_code)
-            .bind(&key)
-            .fetch_optional(&storage.key.db)
-            .await
-            .map_err(|error| database_error(&error))?;
+            let row: Option<(String, Option<Value>)> = app_kv::Entity::find()
+                .select_only()
+                .columns([app_kv::Column::Key, app_kv::Column::Value])
+                .filter(app_kv::Column::AppCode.eq(app_code))
+                .filter(app_kv::Column::Key.eq(key.as_str()))
+                .into_tuple()
+                .one(&orm(&storage.key.db))
+                .await
+                .map_err(|error| database_error(&error))?;
             let (stored, value) = row.ok_or_else(|| not_found("Key", &key))?;
             Ok(kv_answer(&stored, value))
         }
@@ -444,25 +490,30 @@ pub(crate) async fn put_kv(
             check_key(&key)?;
             let present = value.is_some();
             let stored = value.filter(|value| !value.is_null());
-            let row: Option<(String, Option<Value>)> = sqlx::query_as(
-                "insert into app_kv (id, app_code, key, value, created_at, updated_at)
-                 values ($1, $2, $3, case when $4 then $5::jsonb else null end, $6::timestamptz, $6::timestamptz)
-                 on conflict (app_code, key) do update
-                   set value = case when $4 then excluded.value else app_kv.value end,
-                       updated_at = excluded.updated_at
-                 returning key, value",
-            )
-            .bind(generate_id("akv"))
-            .bind(&app_code)
-            .bind(&key)
-            .bind(present)
-            .bind(stored)
-            .bind(iso_timestamp(OffsetDateTime::now_utc()))
-            .fetch_optional(&storage.key.db)
+            let now = now_tz();
+            // An existing key keeps its value when the body has none.
+            let mut upsert = OnConflict::columns([app_kv::Column::AppCode, app_kv::Column::Key]);
+            if present {
+                upsert.update_columns([app_kv::Column::Value, app_kv::Column::UpdatedAt]);
+            } else {
+                upsert.update_column(app_kv::Column::UpdatedAt);
+            }
+            let row = app_kv::Entity::insert(app_kv::ActiveModel {
+                id: Set(generate_id("akv")),
+                app_code: Set(app_code),
+                key: Set(key),
+                value: Set(stored),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .on_conflict(upsert)
+            .exec_with_returning(&orm(&storage.key.db))
             .await
-            .map_err(|error| database_error(&error))?;
-            let (stored, value) = row.ok_or_else(|| internal_with("Failed to set key"))?;
-            Ok(kv_answer(&stored, value))
+            .map_err(|error| match error {
+                DbErr::RecordNotInserted => internal_with("Failed to set key"),
+                error => database_error(&error),
+            })?;
+            Ok(kv_answer(&row.key, row.value))
         }
         .await,
     )
@@ -478,15 +529,15 @@ pub(crate) async fn delete_kv(
         async {
             let app_code = resolve_app_code(&storage, &headers).await?;
             check_key(&key)?;
-            let deleted: Option<String> = sqlx::query_scalar(
-                "delete from app_kv where app_code = $1 and key = $2 returning id",
-            )
-            .bind(&app_code)
-            .bind(&key)
-            .fetch_optional(&storage.key.db)
-            .await
-            .map_err(|error| database_error(&error))?;
-            deleted.ok_or_else(|| not_found("Key", &key))?;
+            let deleted = app_kv::Entity::delete_many()
+                .filter(app_kv::Column::AppCode.eq(app_code))
+                .filter(app_kv::Column::Key.eq(key.as_str()))
+                .exec(&orm(&storage.key.db))
+                .await
+                .map_err(|error| database_error(&error))?;
+            if deleted.rows_affected == 0 {
+                return Err(not_found("Key", &key));
+            }
             Ok(StatusCode::NO_CONTENT.into_response())
         }
         .await,

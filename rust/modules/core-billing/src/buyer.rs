@@ -6,10 +6,12 @@
 //! needs are there: 400 `BILLING_DETAILS_REQUIRED`, which opens the
 //! platform's billing-details dialog.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::json;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::workspace_settings;
 
 use crate::Language;
 use crate::vat::{VatCheck, VatDecision, decide, normalize_vat_number, vat_number_matches_country};
@@ -42,7 +44,7 @@ impl BillingDetails {
 }
 
 /// The row as stored, before the checks.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, FromQueryResult)]
 struct Row {
     legal_name: Option<String>,
     trading_name: Option<String>,
@@ -66,14 +68,28 @@ fn filled(value: Option<String>) -> Option<String> {
 pub(crate) async fn load(
     tenant: &PgPool,
     workspace_name: &str,
-) -> Result<Result<BillingDetails, Vec<&'static str>>, sqlx::Error> {
-    let row: Option<Row> = sqlx::query_as(
-        "select legal_name, trading_name, email, address_line_1, address_line_2, city, state,
-                postal_code, country, vat_number, language
-         from workspace_settings where deleted_at is null order by created_at limit 1",
-    )
-    .fetch_optional(tenant)
-    .await?;
+) -> Result<Result<BillingDetails, Vec<&'static str>>, DbErr> {
+    use workspace_settings::Column as S;
+    let row = workspace_settings::Entity::find()
+        .select_only()
+        .columns([
+            S::LegalName,
+            S::TradingName,
+            S::Email,
+            S::AddressLine1,
+            S::AddressLine2,
+            S::City,
+            S::State,
+            S::PostalCode,
+            S::Country,
+            S::VatNumber,
+            S::Language,
+        ])
+        .filter(S::DeletedAt.is_null())
+        .order_by_asc(S::CreatedAt)
+        .into_model::<Row>()
+        .one(&orm(tenant))
+        .await?;
     let Some(row) = row else {
         return Ok(Err(vec![
             "legalName",

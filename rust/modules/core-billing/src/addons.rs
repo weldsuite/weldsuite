@@ -15,9 +15,14 @@
 //! Free plan is refused (402 `PAID_PLAN_REQUIRED`).
 
 use http::StatusCode;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_mollie::PaymentStatus;
+use weldsuite_schema::master::{billing_payments, workspace_app_access};
 
 use crate::account::Account;
 use crate::engine::{http_of, mark_applied, recurring_payment, unreachable};
@@ -162,17 +167,33 @@ async fn paid_inboxes(
     // Rows for this month: a renewal or an inbox charge says which period it
     // pays (`periodEnd`); a pay link repays a failed renewal with its lines.
     // Each line's own period is checked below.
-    let rows: Vec<serde_json::Value> = sqlx::query_scalar(
-        "select metadata from billing_payments
-         where workspace_id = $1 and provider = 'mollie'
-           and status in ('succeeded', 'processing') and metadata is not null
-           and (coalesce(kind, '') <> 'addon' or provider_payment_id is not null)
-           and (metadata ->> 'periodEnd' = $2 or kind = 'pay_link')",
-    )
-    .bind(workspace_id)
-    .bind(iso(end))
-    .fetch_all(&state.master)
-    .await?;
+    use billing_payments::Column as P;
+    let rows: Vec<serde_json::Value> = billing_payments::Entity::find()
+        .select_only()
+        .column(P::Metadata)
+        .filter(P::WorkspaceId.eq(workspace_id))
+        .filter(P::Provider.eq("mollie"))
+        .filter(P::Status.is_in(["succeeded", "processing"]))
+        .filter(P::Metadata.is_not_null())
+        .filter(
+            Condition::any()
+                .add(sea_orm::ExprTrait::ne(
+                    Expr::from(Func::coalesce([Expr::col(P::Kind), Expr::val("")])),
+                    "addon",
+                ))
+                .add(P::ProviderPaymentId.is_not_null()),
+        )
+        .filter(
+            Condition::any()
+                .add(sea_orm::ExprTrait::eq(
+                    pg::PgExpr::cast_json_field(Expr::col(P::Metadata), "periodEnd"),
+                    iso(end),
+                ))
+                .add(P::Kind.eq("pay_link")),
+        )
+        .into_tuple()
+        .all(&orm(&state.master))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|metadata| serde_json::from_value::<ChargeMeta>(metadata).ok())
@@ -323,18 +344,21 @@ async fn collect(
     }
     // Granted now: a later failure (SEPA) makes the account past due.
     let mut tx = state.master.begin().await?;
-    mark_applied(&mut tx, &row.id).await?;
-    if payment.status != PaymentStatus::Paid {
-        ChargeRow::record(
-            &mut tx,
-            &row.id,
-            status_of(&payment.status),
-            &payment.details,
-            None,
-            None,
-            0,
-        )
-        .await?;
+    {
+        let conn = OrmConn::new(&mut tx);
+        mark_applied(&conn, &row.id).await?;
+        if payment.status != PaymentStatus::Paid {
+            ChargeRow::record(
+                &conn,
+                &row.id,
+                status_of(&payment.status),
+                &payment.details,
+                None,
+                None,
+                0,
+            )
+            .await?;
+        }
     }
     tx.commit().await?;
     if payment.status == PaymentStatus::Paid {
@@ -346,57 +370,71 @@ async fn collect(
 /// WeldReach's app code (`workspace_app_access.app_code`).
 const WELDREACH_APP: &str = "weldreach";
 
+/// `update workspace_app_access set billing_status = $to, billing_status_at = now(),
+/// updated_at = now()` on the workspace's WeldReach row.
+fn set_billing_status(workspace_id: &str, to: &str) -> sea_orm::UpdateMany<workspace_app_access::Entity> {
+    use workspace_app_access::Column as A;
+    workspace_app_access::Entity::update_many()
+        .col_expr(A::BillingStatus, Expr::value(to.to_owned()))
+        .col_expr(A::BillingStatusAt, Expr::current_timestamp())
+        .col_expr(A::UpdatedAt, Expr::current_timestamp())
+        .filter(A::WorkspaceId.eq(workspace_id))
+        .filter(A::AppCode.eq(WELDREACH_APP))
+}
+
 /// The plan ended: the workspace's inboxes pause (owner decision 2026-11-14).
 /// While its WeldReach billing status is `canceled`, WeldReach sends nothing
 /// and takes no new inbox, as on Global when the inbox subscription ends; the
 /// inboxes themselves stay, unbilled, until a paid plan resumes them.
 pub(crate) async fn pause_inboxes(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspace_app_access set billing_status = 'canceled', billing_status_at = now(),
-             updated_at = now()
-         where workspace_id = $1 and app_code = $2 and billing_status <> 'canceled'",
-    )
-    .bind(workspace_id)
-    .bind(WELDREACH_APP)
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    set_billing_status(workspace_id, "canceled")
+        .filter(workspace_app_access::Column::BillingStatus.ne("canceled"))
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// A paid plan (or a comp) started: inboxes paused when the last one ended
 /// send again.
+pub(crate) async fn resume_inboxes_on(
+    tx: &impl ConnectionTrait,
+    workspace_id: &str,
+) -> Result<(), DbErr> {
+    set_billing_status(workspace_id, "active")
+        .filter(workspace_app_access::Column::BillingStatus.eq("canceled"))
+        .exec(tx)
+        .await?;
+    Ok(())
+}
+
+/// [`resume_inboxes_on`] for `weldsuite admin billing comp`, on its sqlx
+/// transaction and with its `sqlx::Error` until the staff commands move to
+/// the ORM.
 pub async fn resume_inboxes(
     tx: &mut sqlx::PgConnection,
     workspace_id: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspace_app_access set billing_status = 'active', billing_status_at = now(),
-             updated_at = now()
-         where workspace_id = $1 and app_code = $2 and billing_status = 'canceled'",
-    )
-    .bind(workspace_id)
-    .bind(WELDREACH_APP)
-    .execute(&mut *tx)
-    .await?;
-    Ok(())
+    resume_inboxes_on(&OrmConn::new(tx), workspace_id)
+        .await
+        .map_err(crate::orm_bridge::sqlx_error)
 }
 
 /// An inbox charge Mollie never took (the inbox isn't added): kept for the
 /// record, never a paid slot. Should Mollie have created the payment after
 /// all (a timeout), its webhook still settles the row.
 async fn mark_unsent(state: &BillingState, row_id: &str, status: &str, reason: &str) {
-    if let Err(error) = sqlx::query(
-        "update billing_payments set status = $2, failure_message = $3, updated_at = now()
-         where id = $1 and provider_payment_id is null",
-    )
-    .bind(row_id)
-    .bind(status)
-    .bind(reason)
-    .execute(&state.master)
-    .await
+    use billing_payments::Column as P;
+    if let Err(error) = billing_payments::Entity::update_many()
+        .col_expr(P::Status, Expr::value(status.to_owned()))
+        .col_expr(P::FailureMessage, Expr::value(reason.to_owned()))
+        .col_expr(P::UpdatedAt, Expr::current_timestamp())
+        .filter(P::Id.eq(row_id))
+        .filter(P::ProviderPaymentId.is_null())
+        .exec(&orm(&state.master))
+        .await
     {
         tracing::error!(%error, row = row_id, "billing: unsent inbox charge not marked");
     }

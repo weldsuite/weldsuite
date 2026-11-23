@@ -1,14 +1,19 @@
 //! `billing_accounts`: the Mollie side of a paying workspace (ADR BILL-014).
 
-use sqlx::FromRow;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::billing_accounts::{self, Column};
 
-use crate::period::{Cycle, iso, parse_iso};
+use crate::period::{Cycle, parse_iso};
+use crate::workspace::iso_text;
 
 /// One row, timestamps as ISO text.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub(crate) struct Account {
     pub(crate) id: String,
     pub(crate) customer_id: Option<String>,
@@ -24,15 +29,32 @@ pub(crate) struct Account {
     pub(crate) past_due_payment_id: Option<String>,
 }
 
-macro_rules! columns {
-    () => {
-        "id, customer_id, mandate_id,
-    unit_amount, currency, anchor_day,
-    to_char(next_charge_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as next_charge_at,
-    scheduled_plan_id, scheduled_seats, scheduled_cycle,
-    to_char(past_due_since, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as past_due_since,
-    past_due_payment_id"
-    };
+impl From<billing_accounts::Model> for Account {
+    /// The columns billing reads, timestamps as
+    /// `to_char(…, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')` printed them.
+    fn from(row: billing_accounts::Model) -> Self {
+        Self {
+            id: row.id,
+            customer_id: row.customer_id,
+            mandate_id: row.mandate_id,
+            unit_amount: row.unit_amount,
+            currency: row.currency,
+            anchor_day: row.anchor_day,
+            next_charge_at: row.next_charge_at.map(iso_text),
+            scheduled_plan_id: row.scheduled_plan_id,
+            scheduled_seats: row.scheduled_seats,
+            scheduled_cycle: row.scheduled_cycle,
+            past_due_since: row.past_due_since.map(iso_text),
+            past_due_payment_id: row.past_due_payment_id,
+        }
+    }
+}
+
+/// `update billing_accounts set …, updated_at = now() where workspace_id = $1`.
+fn update(workspace_id: &str) -> sea_orm::UpdateMany<billing_accounts::Entity> {
+    billing_accounts::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::WorkspaceId.eq(workspace_id))
 }
 
 /// A change waiting for the period end.
@@ -44,68 +66,61 @@ pub(crate) struct Scheduled {
 }
 
 impl Account {
-    pub(crate) async fn load(
-        master: &PgPool,
-        workspace_id: &str,
-    ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from billing_accounts where workspace_id = $1"
-        ))
-        .bind(workspace_id)
-        .fetch_optional(master)
-        .await
+    pub(crate) async fn load(master: &PgPool, workspace_id: &str) -> Result<Option<Self>, DbErr> {
+        let row = billing_accounts::Entity::find()
+            .filter(Column::WorkspaceId.eq(workspace_id))
+            .one(&orm(master))
+            .await?;
+        Ok(row.map(Self::from))
     }
 
     /// Locks the row for the rest of `tx`.
     pub(crate) async fn lock(
-        tx: &mut sqlx::PgConnection,
+        tx: &impl ConnectionTrait,
         workspace_id: &str,
-    ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from billing_accounts where workspace_id = $1 for update"
-        ))
-        .bind(workspace_id)
-        .fetch_optional(&mut *tx)
-        .await
+    ) -> Result<Option<Self>, DbErr> {
+        let row = billing_accounts::Entity::find()
+            .filter(Column::WorkspaceId.eq(workspace_id))
+            .lock_exclusive()
+            .one(tx)
+            .await?;
+        Ok(row.map(Self::from))
     }
 
     /// The account of `workspace_id`, created empty on first use.
-    pub(crate) async fn ensure(master: &PgPool, workspace_id: &str) -> Result<Self, sqlx::Error> {
-        sqlx::query(
-            "insert into billing_accounts (id, workspace_id, provider) values ($1, $2, 'mollie')
-             on conflict (workspace_id) do nothing",
+    pub(crate) async fn ensure(master: &PgPool, workspace_id: &str) -> Result<Self, DbErr> {
+        let db = orm(master);
+        billing_accounts::Entity::insert(billing_accounts::ActiveModel {
+            id: Set(generate_id("bac")),
+            workspace_id: Set(workspace_id.to_owned()),
+            provider: Set("mollie".to_owned()),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(Column::WorkspaceId)
+                .do_nothing()
+                .to_owned(),
         )
-        .bind(generate_id("bac"))
-        .bind(workspace_id)
-        .execute(master)
+        .exec_without_returning(&db)
         .await?;
-        sqlx::query_as(concat!(
-            "select ",
-            columns!(),
-            " from billing_accounts where workspace_id = $1"
-        ))
-        .bind(workspace_id)
-        .fetch_one(master)
-        .await
+        billing_accounts::Entity::find()
+            .filter(Column::WorkspaceId.eq(workspace_id))
+            .one(&db)
+            .await?
+            .map(Self::from)
+            .ok_or_else(|| DbErr::RecordNotFound("billing_accounts".to_owned()))
     }
 
     pub(crate) async fn set_customer(
         master: &PgPool,
         workspace_id: &str,
         customer_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update billing_accounts set customer_id = $2, updated_at = now()
-             where workspace_id = $1 and customer_id is null",
-        )
-        .bind(workspace_id)
-        .bind(customer_id)
-        .execute(master)
-        .await?;
+    ) -> Result<(), DbErr> {
+        update(workspace_id)
+            .col_expr(Column::CustomerId, Expr::value(customer_id.to_owned()))
+            .filter(Column::CustomerId.is_null())
+            .exec(&orm(master))
+            .await?;
         Ok(())
     }
 
@@ -142,159 +157,166 @@ impl Account {
 
 /// The mandate renewals charge from now on.
 pub(crate) async fn set_mandate(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     mandate_id: &str,
     method: Option<&str>,
     label: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set mandate_id = $2, mandate_method = $3, mandate_label = $4,
-             updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(mandate_id)
-    .bind(method)
-    .bind(label)
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(Column::MandateId, Expr::value(mandate_id.to_owned()))
+        .col_expr(Column::MandateMethod, Expr::value(method.map(str::to_owned)))
+        .col_expr(Column::MandateLabel, Expr::value(label.map(str::to_owned)))
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// After a first payment: the seat price, the anchor and the next charge;
 /// nothing scheduled, nothing past due.
 pub(crate) async fn start(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     unit_amount: i64,
     anchor_day: u8,
     next_charge_at: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set unit_amount = $2, anchor_day = $3, next_charge_at = $4::timestamp,
-             scheduled_plan_id = null, scheduled_seats = null, scheduled_cycle = null,
-             past_due_since = null, past_due_payment_id = null, dunning_reminded_at = null,
-             updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(i32::try_from(unit_amount).unwrap_or(i32::MAX))
-    .bind(i16::from(anchor_day))
-    .bind(iso(next_charge_at))
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(
+            Column::UnitAmount,
+            Expr::value(i32::try_from(unit_amount).unwrap_or(i32::MAX)),
+        )
+        .col_expr(Column::AnchorDay, Expr::value(i16::from(anchor_day)))
+        .col_expr(
+            Column::NextChargeAt,
+            Expr::value(utc_timestamp(next_charge_at)),
+        )
+        .col_expr(Column::ScheduledPlanId, Expr::null())
+        .col_expr(Column::ScheduledSeats, Expr::null())
+        .col_expr(Column::ScheduledCycle, Expr::null())
+        .col_expr(Column::PastDueSince, Expr::null())
+        .col_expr(Column::PastDuePaymentId, Expr::null())
+        .col_expr(Column::DunningRemindedAt, Expr::null())
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// The seat price the running period bills (a plan change).
 pub(crate) async fn set_unit_amount(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     unit_amount: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set unit_amount = $2, updated_at = now() where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(i32::try_from(unit_amount).unwrap_or(i32::MAX))
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(
+            Column::UnitAmount,
+            Expr::value(i32::try_from(unit_amount).unwrap_or(i32::MAX)),
+        )
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// What waits for the period end (`None` everywhere clears it).
 pub(crate) async fn schedule(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     scheduled: Option<&Scheduled>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set scheduled_plan_id = $2, scheduled_seats = $3,
-             scheduled_cycle = $4, updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(scheduled.and_then(|s| s.plan_id.clone()))
-    .bind(
-        scheduled
-            .and_then(|s| s.seats)
-            .map(|n| i32::try_from(n).unwrap_or(i32::MAX)),
-    )
-    .bind(scheduled.and_then(|s| s.cycle).map(Cycle::as_str))
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(
+            Column::ScheduledPlanId,
+            Expr::value(scheduled.and_then(|s| s.plan_id.clone())),
+        )
+        .col_expr(
+            Column::ScheduledSeats,
+            Expr::value(
+                scheduled
+                    .and_then(|s| s.seats)
+                    .map(|n| i32::try_from(n).unwrap_or(i32::MAX)),
+            ),
+        )
+        .col_expr(
+            Column::ScheduledCycle,
+            Expr::value(
+                scheduled
+                    .and_then(|s| s.cycle)
+                    .map(|cycle| cycle.as_str().to_owned()),
+            ),
+        )
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// The next anchor the renewal job charges on (`None`: nothing to charge).
 pub(crate) async fn set_next_charge(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     next_charge_at: Option<OffsetDateTime>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set next_charge_at = $2::timestamp, updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(next_charge_at.map(iso))
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(
+            Column::NextChargeAt,
+            Expr::value(next_charge_at.map(utc_timestamp)),
+        )
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// Past due on `payment_row_id` since `since` (kept when already past due).
 pub(crate) async fn set_past_due(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     payment_row_id: &str,
     since: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set past_due_since = coalesce(past_due_since, $3::timestamp),
-             past_due_payment_id = $2, updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(payment_row_id)
-    .bind(iso(since))
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(
+            Column::PastDueSince,
+            Expr::from(Func::coalesce([
+                Expr::col(Column::PastDueSince),
+                Expr::value(utc_timestamp(since)),
+            ])),
+        )
+        .col_expr(
+            Column::PastDuePaymentId,
+            Expr::value(payment_row_id.to_owned()),
+        )
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// The open charge was paid (or dropped): nothing past due any more.
 pub(crate) async fn clear_past_due(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set past_due_since = null, past_due_payment_id = null,
-             dunning_reminded_at = null, updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .execute(&mut *tx)
-    .await?;
+) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(Column::PastDueSince, Expr::null())
+        .col_expr(Column::PastDuePaymentId, Expr::null())
+        .col_expr(Column::DunningRemindedAt, Expr::null())
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
 /// The subscription ended: no more charges, nothing scheduled or past due.
 /// The customer and mandate stay for a later checkout.
-pub(crate) async fn end(
-    tx: &mut sqlx::PgConnection,
-    workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_accounts set next_charge_at = null, unit_amount = null,
-             scheduled_plan_id = null, scheduled_seats = null, scheduled_cycle = null,
-             past_due_since = null, past_due_payment_id = null, dunning_reminded_at = null,
-             updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .execute(&mut *tx)
-    .await?;
+pub(crate) async fn end(tx: &impl ConnectionTrait, workspace_id: &str) -> Result<(), DbErr> {
+    update(workspace_id)
+        .col_expr(Column::NextChargeAt, Expr::null())
+        .col_expr(Column::UnitAmount, Expr::null())
+        .col_expr(Column::ScheduledPlanId, Expr::null())
+        .col_expr(Column::ScheduledSeats, Expr::null())
+        .col_expr(Column::ScheduledCycle, Expr::null())
+        .col_expr(Column::PastDueSince, Expr::null())
+        .col_expr(Column::PastDuePaymentId, Expr::null())
+        .col_expr(Column::DunningRemindedAt, Expr::null())
+        .exec(tx)
+        .await?;
     Ok(())
 }

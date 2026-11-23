@@ -9,12 +9,14 @@ use axum::extract::{Path, RawQuery};
 use axum::response::Response;
 use axum::routing::{get, patch};
 use http::HeaderMap;
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 
 use crate::PersonalState;
+use crate::booking_pages::cursor_of;
 use crate::calendars::{get_for_account, resolve_requested};
 use crate::caller::{
     Caller, Failure, answer, created, data, list, no_content, rows, unhandled, validate,
@@ -295,7 +297,11 @@ fn bound_date(text: &str) -> Result<String, Failure> {
 }
 
 /// The event of the account, or `None`.
-async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, DbErr> {
     let found: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from personal_calendar_events t
          where t.id = $1 and t.personal_account_id = $2 and t.deleted_at is null limit 1",
@@ -303,8 +309,89 @@ async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, sql
     .bind(id)
     .bind(account)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(found.map(weldsuite_db::js_row))
+}
+
+/// The list's filters, as the queries bind them.
+struct Filters<'a> {
+    account: &'a str,
+    calendars: &'a [String],
+    kind: Option<String>,
+    status: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    term: Option<String>,
+}
+
+/// The live events in the filters, newest first, after the cursor: one more
+/// than `limit`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn list_rows(
+    db: &PgPool,
+    filters: &Filters<'_>,
+    cursor: &(Option<String>, Option<String>),
+    limit: i64,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(t) from personal_calendar_events t
+         where t.deleted_at is null and t.personal_account_id = $1
+           and t.calendar_id = any($2::text[])
+           and ($3::text is null or t.type = $3)
+           and ($4::text is null or t.status = $4)
+           and ($5::timestamp is null or t.start_time >= $5::timestamp)
+           and ($6::timestamp is null or t.start_time <= $6::timestamp)
+           and ($7::text is null or (t.title like $7 or t.description like $7))
+           and ($8::timestamp is null
+                or (t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9)))
+         order by t.created_at desc, t.id desc
+         limit $10",
+    )
+    .bind(filters.account)
+    .bind(filters.calendars)
+    .bind(&filters.kind)
+    .bind(&filters.status)
+    .bind(&filters.start)
+    .bind(&filters.end)
+    .bind(&filters.term)
+    .bind(&cursor.0)
+    .bind(&cursor.1)
+    .bind(limit + 1)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The live events in the filters.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn count_rows(db: &PgPool, filters: &Filters<'_>) -> Result<i64, DbErr> {
+    sqlx::query_scalar(
+        "select count(*) from personal_calendar_events t
+         where t.deleted_at is null and t.personal_account_id = $1
+           and t.calendar_id = any($2::text[])
+           and ($3::text is null or t.type = $3)
+           and ($4::text is null or t.status = $4)
+           and ($5::timestamp is null or t.start_time >= $5::timestamp)
+           and ($6::timestamp is null or t.start_time <= $6::timestamp)
+           and ($7::text is null or (t.title like $7 or t.description like $7))",
+    )
+    .bind(filters.account)
+    .bind(filters.calendars)
+    .bind(&filters.kind)
+    .bind(&filters.status)
+    .bind(&filters.start)
+    .bind(&filters.end)
+    .bind(&filters.term)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `listQuerySchema`.
@@ -385,72 +472,24 @@ async fn list_events(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let start = non_empty(&query.start_date);
         let end = non_empty(&query.end_date);
         let term = non_empty(&query.search).map(|search| format!("%{search}%"));
-        let cursor = match non_empty(&query.cursor) {
-            Some(cursor) => {
-                let found: Option<(Value, String)> = sqlx::query_as(
-                    "select to_jsonb(t.created_at), t.id from personal_calendar_events t
-                     where t.id = $1 limit 1",
-                )
-                .bind(&cursor)
-                .fetch_optional(&db)
-                .await?;
-                found.and_then(|(at, id)| {
-                    at.as_str()
-                        .and_then(weldsuite_db::js_timestamp)
-                        .map(|at| (at, id))
-                })
-            }
-            None => None,
+        let cursor = cursor_of(
+            &db,
+            "select to_jsonb(t.created_at), t.id from personal_calendar_events t where t.id = $1 limit 1",
+            query.cursor.as_ref(),
+        )
+        .await?;
+        let filters = Filters {
+            account: &account,
+            calendars: &calendars,
+            kind: non_empty(&query.kind),
+            status: non_empty(&query.status),
+            start: start.as_deref().map(bound_date).transpose()?,
+            end: end.as_deref().map(bound_date).transpose()?,
+            term,
         };
-        let start = start.as_deref().map(bound_date).transpose()?;
-        let end = end.as_deref().map(bound_date).transpose()?;
         let limit = whole_limit(query.limit)?;
-        let (cursor_at, cursor_id) = cursor.unzip();
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from personal_calendar_events t
-             where t.deleted_at is null and t.personal_account_id = $1
-               and t.calendar_id = any($2::text[])
-               and ($3::text is null or t.type = $3)
-               and ($4::text is null or t.status = $4)
-               and ($5::timestamp is null or t.start_time >= $5::timestamp)
-               and ($6::timestamp is null or t.start_time <= $6::timestamp)
-               and ($7::text is null or (t.title like $7 or t.description like $7))
-               and ($8::timestamp is null
-                    or (t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9)))
-             order by t.created_at desc, t.id desc
-             limit $10",
-        )
-        .bind(&account)
-        .bind(&calendars)
-        .bind(non_empty(&query.kind))
-        .bind(non_empty(&query.status))
-        .bind(&start)
-        .bind(&end)
-        .bind(&term)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from personal_calendar_events t
-             where t.deleted_at is null and t.personal_account_id = $1
-               and t.calendar_id = any($2::text[])
-               and ($3::text is null or t.type = $3)
-               and ($4::text is null or t.status = $4)
-               and ($5::timestamp is null or t.start_time >= $5::timestamp)
-               and ($6::timestamp is null or t.start_time <= $6::timestamp)
-               and ($7::text is null or (t.title like $7 or t.description like $7))",
-        )
-        .bind(&account)
-        .bind(&calendars)
-        .bind(non_empty(&query.kind))
-        .bind(non_empty(&query.status))
-        .bind(&start)
-        .bind(&end)
-        .bind(&term)
-        .fetch_one(&db)
-        .await?;
+        let found = list_rows(&db, &filters, &cursor, limit).await?;
+        let total = count_rows(&db, &filters).await?;
         Ok(page(rows(found), limit, total))
     }
     .await;
@@ -508,23 +547,40 @@ async fn range(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         }
         let start = bound_date(start.as_deref().unwrap_or_default())?;
         let end = bound_date(end.as_deref().unwrap_or_default())?;
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from personal_calendar_events t
-             where t.deleted_at is null and t.personal_account_id = $1
-               and t.calendar_id = any($2::text[])
-               and t.start_time >= $3::timestamp and t.start_time <= $4::timestamp
-             order by t.start_time",
-        )
-        .bind(&account)
-        .bind(&calendars)
-        .bind(&start)
-        .bind(&end)
-        .fetch_all(&db)
-        .await?;
+        let found = in_range(&db, &account, &calendars, &start, &end).await?;
         Ok(data(Value::Array(rows(found))))
     }
     .await;
     answer(result, "Failed to fetch events")
+}
+
+/// The live events of the calendars starting within `[start, end]`, by
+/// start.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn in_range(
+    db: &PgPool,
+    account: &str,
+    calendars: &[String],
+    start: &str,
+    end: &str,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(t) from personal_calendar_events t
+         where t.deleted_at is null and t.personal_account_id = $1
+           and t.calendar_id = any($2::text[])
+           and t.start_time >= $3::timestamp and t.start_time <= $4::timestamp
+         order by t.start_time",
+    )
+    .bind(account)
+    .bind(calendars)
+    .bind(start)
+    .bind(end)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `GET /api/calendar-events/:id`.
@@ -577,48 +633,68 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             None => None,
         };
         let id = weldsuite_kit::generate_id("evt");
-        let now = now_iso();
-        sqlx::query(
-            "insert into personal_calendar_events
-               (id, personal_account_id, calendar_id, title, description, type, start_time, end_time,
-                all_day, timezone, location, is_virtual, meeting_url, status, priority, color,
-                recurrence_rule, recurrence_id, organizer_id, attendees, reminders, notes, tags,
-                created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::timestamp,
-                     coalesce($9, false), $10, $11, coalesce($12, false), $13, $14, $15, $16,
-                     $17, $18, $19, $20::jsonb, $21::jsonb, $22, $23::jsonb,
-                     $24::timestamp, $24::timestamp)",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(&calendar)
-        .bind(text(&input, "title"))
-        .bind(text(&input, "description"))
-        .bind(text(&input, "type"))
-        .bind(&start)
-        .bind(&end)
-        .bind(input.all_day)
-        .bind(text(&input, "timezone"))
-        .bind(text(&input, "location"))
-        .bind(input.is_virtual)
-        .bind(text(&input, "meetingUrl"))
-        .bind(input.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("confirmed"))
-        .bind(input.priority.as_deref().filter(|p| !p.is_empty()).unwrap_or("normal"))
-        .bind(text(&input, "color"))
-        .bind(text(&input, "recurrenceRule"))
-        .bind(text(&input, "recurrenceId"))
-        .bind(&caller.user_id)
-        .bind(json_field(&input, "attendees"))
-        .bind(json_field(&input, "reminders"))
-        .bind(text(&input, "notes"))
-        .bind(json_field(&input, "tags"))
-        .bind(&now)
-        .execute(&db)
-        .await?;
+        insert_event(&db, &id, &account, &caller.user_id, &input, &start, end.as_deref()).await?;
         Ok(created(json!({ "id": id })))
     }
     .await;
     answer(result, "Failed to create calendar event")
+}
+
+/// The new event, with the schema's defaults for what the body left out.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn insert_event(
+    db: &PgPool,
+    id: &str,
+    account: &str,
+    organizer: &str,
+    input: &EventInput,
+    start: &str,
+    end: Option<&str>,
+) -> Result<(), DbErr> {
+    let calendar = input.calendar_id.clone().unwrap_or_default();
+    let now = now_iso();
+    sqlx::query(
+        "insert into personal_calendar_events
+           (id, personal_account_id, calendar_id, title, description, type, start_time, end_time,
+            all_day, timezone, location, is_virtual, meeting_url, status, priority, color,
+            recurrence_rule, recurrence_id, organizer_id, attendees, reminders, notes, tags,
+            created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::timestamp,
+                 coalesce($9, false), $10, $11, coalesce($12, false), $13, $14, $15, $16,
+                 $17, $18, $19, $20::jsonb, $21::jsonb, $22, $23::jsonb,
+                 $24::timestamp, $24::timestamp)",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(&calendar)
+    .bind(text(input, "title"))
+    .bind(text(input, "description"))
+    .bind(text(input, "type"))
+    .bind(start)
+    .bind(end)
+    .bind(input.all_day)
+    .bind(text(input, "timezone"))
+    .bind(text(input, "location"))
+    .bind(input.is_virtual)
+    .bind(text(input, "meetingUrl"))
+    .bind(input.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("confirmed"))
+    .bind(input.priority.as_deref().filter(|p| !p.is_empty()).unwrap_or("normal"))
+    .bind(text(input, "color"))
+    .bind(text(input, "recurrenceRule"))
+    .bind(text(input, "recurrenceId"))
+    .bind(organizer)
+    .bind(json_field(input, "attendees"))
+    .bind(json_field(input, "reminders"))
+    .bind(text(input, "notes"))
+    .bind(json_field(input, "tags"))
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `PATCH /api/calendar-events/:id`: the fields the body set.
@@ -649,71 +725,7 @@ async fn update(
         }
         let start = input.start_time.as_deref().map(bound_date).transpose()?;
         let end = input.end_time.as_deref().map(bound_date).transpose()?;
-        let set = |key: &str| input.echo.contains_key(key);
-        sqlx::query(
-            "update personal_calendar_events set
-               updated_at = $3::timestamp,
-               title = case when $4 then $5 else title end,
-               description = case when $6 then $7 else description end,
-               type = case when $8 then $9 else type end,
-               start_time = case when $10 then $11::timestamp else start_time end,
-               end_time = case when $12 then $13::timestamp else end_time end,
-               all_day = case when $14 then $15 else all_day end,
-               timezone = case when $16 then $17 else timezone end,
-               location = case when $18 then $19 else location end,
-               is_virtual = case when $20 then $21 else is_virtual end,
-               meeting_url = case when $22 then $23 else meeting_url end,
-               status = case when $24 then $25 else status end,
-               priority = case when $26 then $27 else priority end,
-               color = case when $28 then $29 else color end,
-               recurrence_rule = case when $30 then $31 else recurrence_rule end,
-               attendees = case when $32 then $33::jsonb else attendees end,
-               reminders = case when $34 then $35::jsonb else reminders end,
-               notes = case when $36 then $37 else notes end,
-               tags = case when $38 then $39::jsonb else tags end
-             where id = $1 and personal_account_id = $2 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .bind(set("title"))
-        .bind(text(&input, "title"))
-        .bind(set("description"))
-        .bind(text(&input, "description"))
-        .bind(set("type"))
-        .bind(text(&input, "type"))
-        .bind(start.is_some())
-        .bind(&start)
-        .bind(end.is_some())
-        .bind(&end)
-        .bind(input.all_day.is_some())
-        .bind(input.all_day)
-        .bind(set("timezone"))
-        .bind(text(&input, "timezone"))
-        .bind(set("location"))
-        .bind(text(&input, "location"))
-        .bind(input.is_virtual.is_some())
-        .bind(input.is_virtual)
-        .bind(set("meetingUrl"))
-        .bind(text(&input, "meetingUrl"))
-        .bind(set("status"))
-        .bind(text(&input, "status"))
-        .bind(set("priority"))
-        .bind(text(&input, "priority"))
-        .bind(set("color"))
-        .bind(text(&input, "color"))
-        .bind(set("recurrenceRule"))
-        .bind(text(&input, "recurrenceRule"))
-        .bind(set("attendees"))
-        .bind(json_field(&input, "attendees"))
-        .bind(set("reminders"))
-        .bind(json_field(&input, "reminders"))
-        .bind(set("notes"))
-        .bind(text(&input, "notes"))
-        .bind(set("tags"))
-        .bind(json_field(&input, "tags"))
-        .execute(&db)
-        .await?;
+        update_event(&db, &id, &account, &input, start.as_deref(), end.as_deref()).await?;
         let mut answer_body = Map::new();
         answer_body.insert("id".to_owned(), Value::String(id.clone()));
         answer_body.extend(input.echo.clone());
@@ -721,6 +733,88 @@ async fn update(
     }
     .await;
     answer(result, "Failed to update calendar event")
+}
+
+/// The fields the body set, on the account's live event.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn update_event(
+    db: &PgPool,
+    id: &str,
+    account: &str,
+    input: &EventInput,
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Result<(), DbErr> {
+    let set = |key: &str| input.echo.contains_key(key);
+    sqlx::query(
+        "update personal_calendar_events set
+           updated_at = $3::timestamp,
+           title = case when $4 then $5 else title end,
+           description = case when $6 then $7 else description end,
+           type = case when $8 then $9 else type end,
+           start_time = case when $10 then $11::timestamp else start_time end,
+           end_time = case when $12 then $13::timestamp else end_time end,
+           all_day = case when $14 then $15 else all_day end,
+           timezone = case when $16 then $17 else timezone end,
+           location = case when $18 then $19 else location end,
+           is_virtual = case when $20 then $21 else is_virtual end,
+           meeting_url = case when $22 then $23 else meeting_url end,
+           status = case when $24 then $25 else status end,
+           priority = case when $26 then $27 else priority end,
+           color = case when $28 then $29 else color end,
+           recurrence_rule = case when $30 then $31 else recurrence_rule end,
+           attendees = case when $32 then $33::jsonb else attendees end,
+           reminders = case when $34 then $35::jsonb else reminders end,
+           notes = case when $36 then $37 else notes end,
+           tags = case when $38 then $39::jsonb else tags end
+         where id = $1 and personal_account_id = $2 and deleted_at is null",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .bind(set("title"))
+    .bind(text(input, "title"))
+    .bind(set("description"))
+    .bind(text(input, "description"))
+    .bind(set("type"))
+    .bind(text(input, "type"))
+    .bind(start.is_some())
+    .bind(start)
+    .bind(end.is_some())
+    .bind(end)
+    .bind(input.all_day.is_some())
+    .bind(input.all_day)
+    .bind(set("timezone"))
+    .bind(text(input, "timezone"))
+    .bind(set("location"))
+    .bind(text(input, "location"))
+    .bind(input.is_virtual.is_some())
+    .bind(input.is_virtual)
+    .bind(set("meetingUrl"))
+    .bind(text(input, "meetingUrl"))
+    .bind(set("status"))
+    .bind(text(input, "status"))
+    .bind(set("priority"))
+    .bind(text(input, "priority"))
+    .bind(set("color"))
+    .bind(text(input, "color"))
+    .bind(set("recurrenceRule"))
+    .bind(text(input, "recurrenceRule"))
+    .bind(set("attendees"))
+    .bind(json_field(input, "attendees"))
+    .bind(set("reminders"))
+    .bind(json_field(input, "reminders"))
+    .bind(set("notes"))
+    .bind(text(input, "notes"))
+    .bind(set("tags"))
+    .bind(json_field(input, "tags"))
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `DELETE /api/calendar-events/:id`: soft delete.
@@ -737,19 +831,29 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
         if find(&db, &account, &id).await?.is_none() {
             return Err(Failure::from(ApiError::not_found("Calendar event", Some(&id))));
         }
-        sqlx::query(
-            "update personal_calendar_events set deleted_at = $3::timestamp, updated_at = $3::timestamp
-             where id = $1 and personal_account_id = $2 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .execute(&db)
-        .await?;
+        soft_delete(&db, &id, &account).await?;
         Ok(no_content())
     }
     .await;
     answer(result, "Failed to delete calendar event")
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn soft_delete(db: &PgPool, id: &str, account: &str) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_calendar_events set deleted_at = $3::timestamp, updated_at = $3::timestamp
+         where id = $1 and personal_account_id = $2 and deleted_at is null",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `PATCH /api/calendar-events/:id/cancel`.
@@ -769,17 +873,27 @@ async fn cancel(caller: Caller, Path(id): Path<String>) -> Response {
                 Some(&id),
             )));
         }
-        sqlx::query(
-            "update personal_calendar_events set status = 'cancelled', updated_at = $3::timestamp
-             where id = $1 and personal_account_id = $2 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .execute(&db)
-        .await?;
+        cancel_event(&db, &id, &account).await?;
         Ok(data(json!({ "id": id, "status": "cancelled" })))
     }
     .await;
     answer(result, "Failed to cancel calendar event")
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn cancel_event(db: &PgPool, id: &str, account: &str) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_calendar_events set status = 'cancelled', updated_at = $3::timestamp
+         where id = $1 and personal_account_id = $2 and deleted_at is null",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }

@@ -9,9 +9,10 @@ use axum::extract::{Path, RawQuery};
 use axum::response::Response;
 use axum::routing::{get, patch};
 use http::HeaderMap;
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use weldsuite_calendar_domain::js_dates::{from_zoned_time, time_zone, weekday_name};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 
@@ -278,7 +279,11 @@ fn read_page(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> M
 }
 
 /// The page of the account, or `None`.
-async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, DbErr> {
     let found: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from personal_calendar_booking_pages t
          where t.id = $1 and t.personal_account_id = $2 and t.deleted_at is null limit 1",
@@ -286,8 +291,57 @@ async fn find(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, sql
     .bind(id)
     .bind(account)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(found.map(weldsuite_db::js_row))
+}
+
+/// The account's live pages, newest first, after the cursor: one more than
+/// `limit`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn list_rows(
+    db: &PgPool,
+    account: &str,
+    term: Option<&str>,
+    cursor: &(Option<String>, Option<String>),
+    limit: i64,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(t) from personal_calendar_booking_pages t
+         where t.deleted_at is null and t.personal_account_id = $1
+           and ($2::text is null or (t.name like $2 or t.slug like $2))
+           and ($3::timestamp is null
+                or (t.created_at < $3::timestamp or (t.created_at = $3::timestamp and t.id < $4)))
+         order by t.created_at desc, t.id desc
+         limit $5",
+    )
+    .bind(account)
+    .bind(term)
+    .bind(&cursor.0)
+    .bind(&cursor.1)
+    .bind(limit + 1)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The account's live pages.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn count_live(db: &PgPool, account: &str) -> Result<i64, DbErr> {
+    sqlx::query_scalar(
+        "select count(*) from personal_calendar_booking_pages
+         where deleted_at is null and personal_account_id = $1",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100)`.
@@ -313,17 +367,25 @@ pub(crate) fn parse_limit(raw: Option<&String>) -> Result<i64, Failure> {
     Ok(limit.min(100))
 }
 
-/// The cursor row's `(createdAt, id)` in a table, when it has one.
+/// The cursor row's `(createdAt, id)` in a table, when it has one (`sql`
+/// selects the sort column's `to_jsonb` and the id of row `$1`).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
 pub(crate) async fn cursor_of(
     db: &PgPool,
     sql: &'static str,
     cursor: Option<&String>,
-) -> Result<(Option<String>, Option<String>), sqlx::Error> {
+) -> Result<(Option<String>, Option<String>), DbErr> {
     let Some(cursor) = cursor.filter(|c| !c.is_empty()) else {
         return Ok((None, None));
     };
-    let found: Option<(Value, String)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
+    let found: Option<(Value, String)> = sqlx::query_as(sql)
+        .bind(cursor)
+        .fetch_optional(db)
+        .await
+        .map_err(orm_error)?;
     Ok(found
         .and_then(|(at, id)| {
             at.as_str()
@@ -358,29 +420,8 @@ async fn list_pages(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let result = async {
         let limit = parse_limit(q.get("limit"))?;
         let term = q.get("search").filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from personal_calendar_booking_pages t
-             where t.deleted_at is null and t.personal_account_id = $1
-               and ($2::text is null or (t.name like $2 or t.slug like $2))
-               and ($3::timestamp is null
-                    or (t.created_at < $3::timestamp or (t.created_at = $3::timestamp and t.id < $4)))
-             order by t.created_at desc, t.id desc
-             limit $5",
-        )
-        .bind(&account)
-        .bind(&term)
-        .bind(&cursor.0)
-        .bind(&cursor.1)
-        .bind(limit + 1)
-        .fetch_all(&db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from personal_calendar_booking_pages
-             where deleted_at is null and personal_account_id = $1",
-        )
-        .bind(&account)
-        .fetch_one(&db)
-        .await?;
+        let found = list_rows(&db, &account, term.as_deref(), &cursor, limit).await?;
+        let total = count_live(&db, &account).await?;
         Ok(page(rows(found), limit, total))
     }
     .await;
@@ -460,17 +501,7 @@ async fn compute_available_slots(
     let day_end =
         from_zoned_time(&format!("{date}T23:59:59.999"), &zone).map_err(Failure::Internal)?;
 
-    let events: Vec<(Value, Option<Value>)> = sqlx::query_as(
-        "select to_jsonb(start_time), to_jsonb(end_time) from personal_calendar_events
-         where deleted_at is null and personal_account_id = $1
-           and start_time >= $2::timestamp and start_time <= $3::timestamp
-           and status = 'confirmed'",
-    )
-    .bind(account)
-    .bind(iso(day_start))
-    .bind(iso(day_end))
-    .fetch_all(db)
-    .await?;
+    let events = confirmed_event_times(db, account, day_start, day_end).await?;
     let events: Vec<(i64, i64)> = events
         .iter()
         .filter_map(|(start, end)| {
@@ -526,6 +557,32 @@ async fn compute_available_slots(
     Ok(slots)
 }
 
+/// The `(startTime, endTime)` of the owner's confirmed events starting
+/// within `[from, to]` (milliseconds), as `to_jsonb` writes them.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn confirmed_event_times(
+    db: &PgPool,
+    account: &str,
+    from: i64,
+    to: i64,
+) -> Result<Vec<(Value, Option<Value>)>, DbErr> {
+    sqlx::query_as(
+        "select to_jsonb(start_time), to_jsonb(end_time) from personal_calendar_events
+         where deleted_at is null and personal_account_id = $1
+           and start_time >= $2::timestamp and start_time <= $3::timestamp
+           and status = 'confirmed'",
+    )
+    .bind(account)
+    .bind(iso(from))
+    .bind(iso(to))
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
 /// `PATCH /api/booking-pages/:id/toggle`.
 async fn toggle(caller: Caller, Path(id): Path<String>) -> Response {
     let account = match caller.account_id() {
@@ -544,20 +601,30 @@ async fn toggle(caller: Caller, Path(id): Path<String>) -> Response {
             )));
         };
         let is_active = record["isActive"] != Value::Bool(true);
-        sqlx::query(
-            "update personal_calendar_booking_pages set is_active = $3, updated_at = $4::timestamp
-             where id = $1 and personal_account_id = $2",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(is_active)
-        .bind(now_iso())
-        .execute(&db)
-        .await?;
+        set_active(&db, &id, &account, is_active).await?;
         Ok(data(json!({ "id": id, "isActive": is_active })))
     }
     .await;
     answer(result, "Failed to toggle booking page")
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn set_active(db: &PgPool, id: &str, account: &str, is_active: bool) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_calendar_booking_pages set is_active = $3, updated_at = $4::timestamp
+         where id = $1 and personal_account_id = $2",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(is_active)
+    .bind(now_iso())
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `GET /api/booking-pages/:id`.
@@ -581,13 +648,18 @@ async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// Whether another live page has the slug.
-async fn slug_taken(db: &PgPool, slug: &str) -> Result<bool, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn slug_taken(db: &PgPool, slug: &str) -> Result<bool, DbErr> {
     let taken: Option<String> = sqlx::query_scalar(
         "select id from personal_calendar_booking_pages where slug = $1 and deleted_at is null limit 1",
     )
     .bind(slug)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(taken.is_some())
 }
 
@@ -623,13 +695,7 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Err(failure) => return unhandled(Err(failure)),
     };
     let result = async {
-        let count: i64 = sqlx::query_scalar(
-            "select count(*) from personal_calendar_booking_pages
-             where personal_account_id = $1 and deleted_at is null",
-        )
-        .bind(&account)
-        .fetch_one(&db)
-        .await?;
+        let count = count_live(&db, &account).await?;
         let max = caller.entitlements.max_booking_pages();
         if count >= max {
             return Ok(plan_limit(
@@ -641,37 +707,7 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             return Err(slug_conflict());
         }
         let id = weldsuite_kit::generate_id("bpg");
-        let now = now_iso();
-        sqlx::query(
-            "insert into personal_calendar_booking_pages
-               (id, personal_account_id, name, slug, description, owner_id, duration, buffer_before,
-                buffer_after, color, is_active, location_type, location_value, availability, questions,
-                min_notice, max_advance, confirmation_message, timezone, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb,
-                     $16, $17, $18, $19, $20::timestamp, $20::timestamp)",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(text(&input, "name"))
-        .bind(text(&input, "slug"))
-        .bind(text(&input, "description"))
-        .bind(&caller.user_id)
-        .bind(int(&input, "duration"))
-        .bind(int(&input, "bufferBefore").unwrap_or(0))
-        .bind(int(&input, "bufferAfter").unwrap_or(0))
-        .bind(text(&input, "color"))
-        .bind(field(&input, "isActive").and_then(Value::as_bool).unwrap_or(true))
-        .bind(text(&input, "locationType"))
-        .bind(text(&input, "locationValue"))
-        .bind(field(&input, "availability"))
-        .bind(field(&input, "questions"))
-        .bind(int(&input, "minNotice").unwrap_or(60))
-        .bind(int(&input, "maxAdvance").unwrap_or(60))
-        .bind(text(&input, "confirmationMessage"))
-        .bind(text(&input, "timezone").unwrap_or("UTC"))
-        .bind(&now)
-        .execute(&db)
-        .await?;
+        insert_page(&db, &id, &account, &caller.user_id, &input).await?;
         Ok(created(json!({ "id": id })))
     }
     .await;
@@ -679,6 +715,53 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Err(failure) if failure.is_unique_violation() => answer(Err(slug_conflict()), ""),
         result => answer(result, "Failed to create booking page"),
     }
+}
+
+/// The new page, with the schema's defaults for what the body left out.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn insert_page(
+    db: &PgPool,
+    id: &str,
+    account: &str,
+    owner: &str,
+    input: &Map<String, Value>,
+) -> Result<(), DbErr> {
+    let now = now_iso();
+    sqlx::query(
+        "insert into personal_calendar_booking_pages
+           (id, personal_account_id, name, slug, description, owner_id, duration, buffer_before,
+            buffer_after, color, is_active, location_type, location_value, availability, questions,
+            min_notice, max_advance, confirmation_message, timezone, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb,
+                 $16, $17, $18, $19, $20::timestamp, $20::timestamp)",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(text(input, "name"))
+    .bind(text(input, "slug"))
+    .bind(text(input, "description"))
+    .bind(owner)
+    .bind(int(input, "duration"))
+    .bind(int(input, "bufferBefore").unwrap_or(0))
+    .bind(int(input, "bufferAfter").unwrap_or(0))
+    .bind(text(input, "color"))
+    .bind(field(input, "isActive").and_then(Value::as_bool).unwrap_or(true))
+    .bind(text(input, "locationType"))
+    .bind(text(input, "locationValue"))
+    .bind(field(input, "availability"))
+    .bind(field(input, "questions"))
+    .bind(int(input, "minNotice").unwrap_or(60))
+    .bind(int(input, "maxAdvance").unwrap_or(60))
+    .bind(text(input, "confirmationMessage"))
+    .bind(text(input, "timezone").unwrap_or("UTC"))
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `PATCH /api/booking-pages/:id`: the fields the body set.
@@ -713,65 +796,7 @@ async fn update(
         {
             return Err(slug_conflict());
         }
-        let set = |key: &str| input.contains_key(key);
-        sqlx::query(
-            "update personal_calendar_booking_pages set
-               updated_at = $3::timestamp,
-               name = case when $4 then $5 else name end,
-               slug = case when $6 then $7 else slug end,
-               description = case when $8 then $9 else description end,
-               duration = case when $10 then $11 else duration end,
-               buffer_before = case when $12 then $13 else buffer_before end,
-               buffer_after = case when $14 then $15 else buffer_after end,
-               color = case when $16 then $17 else color end,
-               is_active = case when $18 then $19 else is_active end,
-               location_type = case when $20 then $21 else location_type end,
-               location_value = case when $22 then $23 else location_value end,
-               availability = case when $24 then $25::jsonb else availability end,
-               questions = case when $26 then $27::jsonb else questions end,
-               min_notice = case when $28 then $29 else min_notice end,
-               max_advance = case when $30 then $31 else max_advance end,
-               confirmation_message = case when $32 then $33 else confirmation_message end,
-               timezone = case when $34 then $35 else timezone end
-             where id = $1 and personal_account_id = $2 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .bind(set("name"))
-        .bind(text(&input, "name"))
-        .bind(set("slug"))
-        .bind(text(&input, "slug"))
-        .bind(set("description"))
-        .bind(text(&input, "description"))
-        .bind(set("duration"))
-        .bind(int(&input, "duration").and_then(|v| i32::try_from(v).ok()))
-        .bind(set("bufferBefore"))
-        .bind(int(&input, "bufferBefore").and_then(|v| i32::try_from(v).ok()))
-        .bind(set("bufferAfter"))
-        .bind(int(&input, "bufferAfter").and_then(|v| i32::try_from(v).ok()))
-        .bind(set("color"))
-        .bind(text(&input, "color"))
-        .bind(set("isActive"))
-        .bind(field(&input, "isActive").and_then(Value::as_bool))
-        .bind(set("locationType"))
-        .bind(text(&input, "locationType"))
-        .bind(set("locationValue"))
-        .bind(text(&input, "locationValue"))
-        .bind(set("availability"))
-        .bind(field(&input, "availability"))
-        .bind(set("questions"))
-        .bind(field(&input, "questions"))
-        .bind(set("minNotice"))
-        .bind(int(&input, "minNotice").and_then(|v| i32::try_from(v).ok()))
-        .bind(set("maxAdvance"))
-        .bind(int(&input, "maxAdvance").and_then(|v| i32::try_from(v).ok()))
-        .bind(set("confirmationMessage"))
-        .bind(text(&input, "confirmationMessage"))
-        .bind(set("timezone"))
-        .bind(text(&input, "timezone"))
-        .execute(&db)
-        .await?;
+        update_page(&db, &id, &account, &input).await?;
         Ok(data(json!({ "id": id })))
     }
     .await;
@@ -779,6 +804,80 @@ async fn update(
         Err(failure) if failure.is_unique_violation() => answer(Err(slug_conflict()), ""),
         result => answer(result, "Failed to update booking page"),
     }
+}
+
+/// The fields the body set, on the account's live page.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn update_page(
+    db: &PgPool,
+    id: &str,
+    account: &str,
+    input: &Map<String, Value>,
+) -> Result<(), DbErr> {
+    let set = |key: &str| input.contains_key(key);
+    sqlx::query(
+        "update personal_calendar_booking_pages set
+           updated_at = $3::timestamp,
+           name = case when $4 then $5 else name end,
+           slug = case when $6 then $7 else slug end,
+           description = case when $8 then $9 else description end,
+           duration = case when $10 then $11 else duration end,
+           buffer_before = case when $12 then $13 else buffer_before end,
+           buffer_after = case when $14 then $15 else buffer_after end,
+           color = case when $16 then $17 else color end,
+           is_active = case when $18 then $19 else is_active end,
+           location_type = case when $20 then $21 else location_type end,
+           location_value = case when $22 then $23 else location_value end,
+           availability = case when $24 then $25::jsonb else availability end,
+           questions = case when $26 then $27::jsonb else questions end,
+           min_notice = case when $28 then $29 else min_notice end,
+           max_advance = case when $30 then $31 else max_advance end,
+           confirmation_message = case when $32 then $33 else confirmation_message end,
+           timezone = case when $34 then $35 else timezone end
+         where id = $1 and personal_account_id = $2 and deleted_at is null",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .bind(set("name"))
+    .bind(text(input, "name"))
+    .bind(set("slug"))
+    .bind(text(input, "slug"))
+    .bind(set("description"))
+    .bind(text(input, "description"))
+    .bind(set("duration"))
+    .bind(int(input, "duration").and_then(|v| i32::try_from(v).ok()))
+    .bind(set("bufferBefore"))
+    .bind(int(input, "bufferBefore").and_then(|v| i32::try_from(v).ok()))
+    .bind(set("bufferAfter"))
+    .bind(int(input, "bufferAfter").and_then(|v| i32::try_from(v).ok()))
+    .bind(set("color"))
+    .bind(text(input, "color"))
+    .bind(set("isActive"))
+    .bind(field(input, "isActive").and_then(Value::as_bool))
+    .bind(set("locationType"))
+    .bind(text(input, "locationType"))
+    .bind(set("locationValue"))
+    .bind(text(input, "locationValue"))
+    .bind(set("availability"))
+    .bind(field(input, "availability"))
+    .bind(set("questions"))
+    .bind(field(input, "questions"))
+    .bind(set("minNotice"))
+    .bind(int(input, "minNotice").and_then(|v| i32::try_from(v).ok()))
+    .bind(set("maxAdvance"))
+    .bind(int(input, "maxAdvance").and_then(|v| i32::try_from(v).ok()))
+    .bind(set("confirmationMessage"))
+    .bind(text(input, "confirmationMessage"))
+    .bind(set("timezone"))
+    .bind(text(input, "timezone"))
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `DELETE /api/booking-pages/:id`: soft delete.
@@ -795,19 +894,29 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
         if find(&db, &account, &id).await?.is_none() {
             return Err(Failure::from(ApiError::not_found("Booking page", Some(&id))));
         }
-        sqlx::query(
-            "update personal_calendar_booking_pages set deleted_at = $3::timestamp, updated_at = $3::timestamp
-             where id = $1 and personal_account_id = $2",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .execute(&db)
-        .await?;
+        soft_delete(&db, &id, &account).await?;
         Ok(no_content())
     }
     .await;
     answer(result, "Failed to delete booking page")
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn soft_delete(db: &PgPool, id: &str, account: &str) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_calendar_booking_pages set deleted_at = $3::timestamp, updated_at = $3::timestamp
+         where id = $1 and personal_account_id = $2",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 #[cfg(test)]

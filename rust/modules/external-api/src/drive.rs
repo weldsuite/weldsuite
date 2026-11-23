@@ -653,7 +653,7 @@ async fn drive_stats(caller: Caller) -> Answer {
         let rows: Vec<(String, i64)> = files::Entity::find()
             .select_only()
             .column(files::Column::FileType)
-            .column_as(Func::count(Expr::col(Asterisk)), "count")
+            .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
             .filter(files::Column::DeletedAt.is_null())
             .filter(visibility(&index))
             .group_by(files::Column::FileType)

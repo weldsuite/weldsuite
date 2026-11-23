@@ -218,11 +218,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
     }
 }
 
-/// `new Date()` as Drizzle writes it.
-pub(crate) fn now() -> String {
-    weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc())
-}
-
 /// `zValidator('json', schema)`: the body read by `read`, or the 400 (bad
 /// JSON, or the schema's issues).
 pub(crate) fn validate<T>(

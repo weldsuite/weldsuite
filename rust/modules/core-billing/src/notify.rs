@@ -9,8 +9,11 @@
 
 use std::collections::BTreeSet;
 
-use weldsuite_db::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, users};
 
 use crate::{Language, Treatment};
 
@@ -91,15 +94,25 @@ pub(crate) async fn recipients(
     master: &PgPool,
     workspace_id: &str,
     billing_email: Option<&str>,
-) -> Result<Vec<String>, sqlx::Error> {
-    let admins: Vec<String> = sqlx::query_scalar(
-        "select u.email from user_workspaces uw join users u on u.id = uw.user_id
-         where uw.workspace_id = $1 and uw.status = 'ACTIVE' and uw.role = 'org:admin'
-           and u.email is not null and u.email <> ''",
-    )
-    .bind(workspace_id)
-    .fetch_all(master)
-    .await?;
+) -> Result<Vec<String>, DbErr> {
+    let admins: Vec<String> = user_workspaces::Entity::find()
+        .select_only()
+        .column(users::Column::Email)
+        .join(
+            JoinType::InnerJoin,
+            user_workspaces::Entity::belongs_to(users::Entity)
+                .from(user_workspaces::Column::UserId)
+                .to(users::Column::Id)
+                .into(),
+        )
+        .filter(user_workspaces::Column::WorkspaceId.eq(workspace_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .filter(user_workspaces::Column::Role.eq("org:admin"))
+        .filter(users::Column::Email.is_not_null())
+        .filter(users::Column::Email.ne(""))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for email in billing_email.into_iter().map(str::to_owned).chain(admins) {

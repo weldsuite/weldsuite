@@ -327,6 +327,7 @@ mod tests {
 
     #[test]
     fn a_page_starts_after_the_cursor_row_newest_first() {
+        use sea_orm::ExprTrait as _;
         let table = crate::tables_gen::PROJECT_GOALS.entity;
         let query = ListQuery {
             cursor: Some("goal_1".into()),

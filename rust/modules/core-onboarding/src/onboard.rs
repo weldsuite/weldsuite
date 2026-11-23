@@ -22,12 +22,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_ports::{
     Cache, DynCache, DynJobs, Identity, JobRequest, Jobs, NewOrganization, OrganizationChanges,
 };
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{plans, user_workspaces, users, workspaces};
 
 use crate::provision::{PROVISION_JOB, ProvisionPayload};
 use crate::slug::{
@@ -201,6 +206,15 @@ impl std::fmt::Debug for WorkspaceService {
 /// Why a step failed: logged, answered with [`SOMETHING_WRONG`].
 type Failure = Box<dyn std::error::Error + Send + Sync>;
 
+/// The organization's workspace: `id, neon_project_id, neon_role_name,
+/// database_provisioned_at`.
+type WorkspaceRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<PrimitiveDateTime>,
+);
+
 impl WorkspaceService {
     pub fn new(
         master: PgPool,
@@ -342,16 +356,22 @@ impl WorkspaceService {
         org_slug: &str,
         role: &str,
     ) -> Result<OnboardOutcome, Failure> {
-        let existing: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
-            "select id, neon_project_id, neon_role_name, database_provisioned_at is not null
-               from workspaces where clerk_org_id = $1 limit 1",
-        )
-        .bind(org)
-        .fetch_optional(&self.master)
-        .await?;
+        let master = orm(&self.master);
+        let existing: Option<WorkspaceRow> = workspaces::Entity::find()
+            .select_only()
+            .columns([
+                workspaces::Column::Id,
+                workspaces::Column::NeonProjectId,
+                workspaces::Column::NeonRoleName,
+                workspaces::Column::DatabaseProvisionedAt,
+            ])
+            .filter(workspaces::Column::ClerkOrgId.eq(org))
+            .into_tuple()
+            .one(&master)
+            .await?;
         // A row that never finished provisioning starts it again (recovery).
-        let workspace_id = if let Some((id, project, role_name, provisioned)) = existing {
-            if project.is_some() && role_name.is_some() && provisioned {
+        let workspace_id = if let Some((id, project, role_name, provisioned_at)) = existing {
+            if project.is_some() && role_name.is_some() && provisioned_at.is_some() {
                 self.record_membership(data, &id, role).await;
                 return Ok(OnboardOutcome {
                     success: true,
@@ -362,10 +382,14 @@ impl WorkspaceService {
                     error: None,
                 });
             }
-            sqlx::query("update workspaces set name = $2, updated_at = now() where id = $1")
-                .bind(&id)
-                .bind(&data.workspace_name)
-                .execute(&self.master)
+            workspaces::Entity::update_many()
+                .col_expr(
+                    workspaces::Column::Name,
+                    Expr::value(data.workspace_name.as_str()),
+                )
+                .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(workspaces::Column::Id.eq(&id))
+                .exec(&master)
                 .await?;
             (id, true)
         } else {
@@ -393,12 +417,15 @@ impl WorkspaceService {
         org: &str,
         org_slug: &str,
     ) -> Result<String, Failure> {
-        let plan: Option<(String, Option<i32>)> = sqlx::query_as(
-            "select id, max_users from plans where slug = $1 and deleted_at is null limit 1",
-        )
-        .bind(DEFAULT_PLAN_SLUG)
-        .fetch_optional(&self.master)
-        .await?;
+        let master = orm(&self.master);
+        let plan: Option<(String, Option<i32>)> = plans::Entity::find()
+            .select_only()
+            .columns([plans::Column::Id, plans::Column::MaxUsers])
+            .filter(plans::Column::Slug.eq(DEFAULT_PLAN_SLUG))
+            .filter(plans::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&master)
+            .await?;
         let workspace_id = weldsuite_kit::generate_id("ws");
         let base = if org_slug.is_empty() {
             slugify_workspace_name(&data.workspace_name)
@@ -406,16 +433,17 @@ impl WorkspaceService {
             org_slug.to_owned()
         };
         let slug = resolve_unique_slug(&self.master, &base, &workspace_id).await?;
-        sqlx::query(
-            "insert into workspaces (id, clerk_org_id, name, slug, plan_id, is_active, paid_plan_required)
-             values ($1, $2, $3, $4, $5, true, false)",
-        )
-        .bind(&workspace_id)
-        .bind(org)
-        .bind(&data.workspace_name)
-        .bind(&slug)
-        .bind(plan.as_ref().map(|(id, _)| id.as_str()))
-        .execute(&self.master)
+        workspaces::Entity::insert(workspaces::ActiveModel {
+            id: Set(workspace_id.clone()),
+            clerk_org_id: Set(Some(org.to_owned())),
+            name: Set(data.workspace_name.clone()),
+            slug: Set(slug),
+            plan_id: Set(plan.as_ref().map(|(id, _)| id.clone())),
+            is_active: Set(true),
+            paid_plan_required: Set(false),
+            ..Default::default()
+        })
+        .exec_without_returning(&master)
         .await?;
         tracing::info!(workspace_id, org, "onboard: created the workspace");
         if let Some(max) = plan.and_then(|(_, max)| max).filter(|max| *max > 0) {
@@ -447,22 +475,19 @@ impl WorkspaceService {
             .or(member.email)
             .unwrap_or_default();
         let written = async {
-            sqlx::query(
-                "insert into users (id, email, first_name, last_name, image_url)
-                 values ($1, $2, $3, $4, $5)
-                 on conflict (id) do nothing",
-            )
-            .bind(&data.clerk_user_id)
-            .bind(&email)
-            .bind(profile.as_ref().and_then(|p| p.first_name.clone()))
-            .bind(profile.as_ref().and_then(|p| p.last_name.clone()))
-            .bind(
-                profile
+            users::Entity::insert(users::ActiveModel {
+                id: Set(data.clerk_user_id.clone()),
+                email: Set(email),
+                first_name: Set(profile.as_ref().and_then(|p| p.first_name.clone())),
+                last_name: Set(profile.as_ref().and_then(|p| p.last_name.clone())),
+                image_url: Set(profile
                     .as_ref()
                     .and_then(|p| p.image_url.clone())
-                    .or(member.picture),
-            )
-            .execute(&self.master)
+                    .or(member.picture)),
+                ..Default::default()
+            })
+            .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned())
+            .exec_without_returning(&orm(&self.master))
             .await?;
             upsert_user_workspace(&self.master, &data.clerk_user_id, workspace_id, None, role).await
         };
@@ -506,42 +531,63 @@ impl WorkspaceService {
         if let Err(error) = started {
             let message: String = format!("{error}").chars().take(1000).collect();
             tracing::error!(%error, workspace_id, "onboard: provisioning failed to start");
-            sqlx::query(
-                "update workspaces set provisioning_status = 'failed', provisioning_error = $2,
-                        updated_at = now() where id = $1",
-            )
-            .bind(workspace_id)
-            .bind(message)
-            .execute(&self.master)
-            .await?;
+            workspaces::Entity::update_many()
+                .col_expr(workspaces::Column::ProvisioningStatus, Expr::value("failed"))
+                .col_expr(workspaces::Column::ProvisioningError, Expr::value(message))
+                .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(workspaces::Column::Id.eq(workspace_id))
+                .exec(&orm(&self.master))
+                .await?;
         }
         Ok(())
     }
 }
 
-/// `upsertMasterUserWorkspace`: the master membership row, active.
+/// `upsertMasterUserWorkspace`: the master membership row, active. An
+/// existing row keeps its membership id when none is given, and its
+/// `joined_at`.
 pub(crate) async fn upsert_user_workspace(
     master: &PgPool,
     user_id: &str,
     workspace_id: &str,
     membership_id: Option<&str>,
     role: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into user_workspaces (id, user_id, workspace_id, clerk_membership_id, role, status, joined_at)
-         values ($1, $2, $3, $4, $5, 'ACTIVE', now())
-         on conflict (user_id, workspace_id) do update
-            set clerk_membership_id = coalesce(excluded.clerk_membership_id, user_workspaces.clerk_membership_id),
-                role = excluded.role, status = 'ACTIVE',
-                joined_at = coalesce(user_workspaces.joined_at, excluded.joined_at),
-                updated_at = now()",
-    )
-    .bind(weldsuite_kit::generate_id("uw"))
-    .bind(user_id)
-    .bind(workspace_id)
-    .bind(membership_id)
-    .bind(role)
-    .execute(master)
+) -> Result<(), DbErr> {
+    use user_workspaces::Column;
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+    let current = |column: Column| Expr::col((user_workspaces::Entity, column));
+    let merge = OnConflict::columns([Column::UserId, Column::WorkspaceId])
+        .value(
+            Column::ClerkMembershipId,
+            Func::coalesce([
+                excluded(Column::ClerkMembershipId),
+                current(Column::ClerkMembershipId),
+            ]),
+        )
+        .value(Column::Role, excluded(Column::Role))
+        // The value as the `membership_status` enum.
+        .value(
+            Column::Status,
+            Column::Status.save_as(Expr::value(MembershipStatus::ACTIVE)),
+        )
+        .value(
+            Column::JoinedAt,
+            Func::coalesce([current(Column::JoinedAt), excluded(Column::JoinedAt)]),
+        )
+        .value(Column::UpdatedAt, Expr::current_timestamp())
+        .to_owned();
+    user_workspaces::Entity::insert(user_workspaces::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("uw")),
+        user_id: Set(user_id.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        clerk_membership_id: Set(membership_id.map(str::to_owned)),
+        role: Set(role.to_owned()),
+        status: Set(MembershipStatus::ACTIVE),
+        joined_at: Set(Some(utc_now())),
+        ..Default::default()
+    })
+    .on_conflict(merge)
+    .exec_without_returning(&orm(master))
     .await
     .map(drop)
 }

@@ -9,8 +9,9 @@ use axum::extract::Path;
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
 
@@ -41,10 +42,11 @@ fn annotated(mut row: Value) -> Value {
 
 /// `listCalendarsForAccount(db, personalAccountId)`: the default first, then
 /// by name.
-pub(crate) async fn list_for_account(
-    db: &PgPool,
-    account: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+pub(crate) async fn list_for_account(db: &PgPool, account: &str) -> Result<Vec<Value>, DbErr> {
     let found: Vec<Value> = sqlx::query_scalar(
         "select to_jsonb(c) from personal_calendars c
          where c.personal_account_id = $1 and c.deleted_at is null
@@ -52,16 +54,21 @@ pub(crate) async fn list_for_account(
     )
     .bind(account)
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(rows(found))
 }
 
 /// `getCalendarForAccount(db, personalAccountId, calendarId)`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
 pub(crate) async fn get_for_account(
     db: &PgPool,
     account: &str,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let found: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(c) from personal_calendars c
          where c.id = $1 and c.personal_account_id = $2 and c.deleted_at is null limit 1",
@@ -69,7 +76,8 @@ pub(crate) async fn get_for_account(
     .bind(id)
     .bind(account)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(found.map(weldsuite_db::js_row))
 }
 
@@ -79,7 +87,7 @@ pub(crate) async fn resolve_requested(
     db: &PgPool,
     account: &str,
     requested: Option<&str>,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     let accessible: Vec<String> = list_for_account(db, account)
         .await?
         .iter()
@@ -123,34 +131,53 @@ async fn ensure_default(caller: Caller) -> Response {
     };
     let result = async {
         let db = caller.personal()?;
-        let existing: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(c) from personal_calendars c
-             where c.personal_account_id = $1 and c.is_default = true and c.deleted_at is null
-             limit 1",
-        )
-        .bind(&account)
-        .fetch_optional(db)
-        .await?;
-        if let Some(existing) = existing {
+        if let Some(existing) = default_calendar(db, &account).await? {
             return Ok(data(annotated(weldsuite_db::js_row(existing))));
         }
-        let now = now_iso();
-        let created_row: Value = sqlx::query_scalar(
-            "insert into personal_calendars
-               (id, personal_account_id, name, color, owner_id, is_default, is_active, created_at, updated_at)
-             values ($1, $2, 'My Calendar', '#3b82f6', $3, true, true, $4::timestamp, $4::timestamp)
-             returning to_jsonb(personal_calendars)",
-        )
-        .bind(weldsuite_kit::generate_id("cal"))
-        .bind(&account)
-        .bind(&caller.user_id)
-        .bind(&now)
-        .fetch_one(db)
-        .await?;
+        let created_row = insert_default(db, &account, &caller.user_id).await?;
         Ok(created(annotated(weldsuite_db::js_row(created_row))))
     }
     .await;
     answer(result, "Failed to ensure default calendar")
+}
+
+/// The account's live default calendar, as `to_jsonb` writes it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn default_calendar(db: &PgPool, account: &str) -> Result<Option<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(c) from personal_calendars c
+         where c.personal_account_id = $1 and c.is_default = true and c.deleted_at is null
+         limit 1",
+    )
+    .bind(account)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// "My Calendar", the account's new default, as `to_jsonb` writes it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn insert_default(db: &PgPool, account: &str, owner: &str) -> Result<Value, DbErr> {
+    let now = now_iso();
+    sqlx::query_scalar(
+        "insert into personal_calendars
+           (id, personal_account_id, name, color, owner_id, is_default, is_active, created_at, updated_at)
+         values ($1, $2, 'My Calendar', '#3b82f6', $3, true, true, $4::timestamp, $4::timestamp)
+         returning to_jsonb(personal_calendars)",
+    )
+    .bind(weldsuite_kit::generate_id("cal"))
+    .bind(account)
+    .bind(owner)
+    .bind(&now)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `createSchema` (or its `.partial()`): name, description, color.
@@ -194,13 +221,7 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Err(failure) => return unhandled(Err(failure)),
     };
     let result = async {
-        let count: i64 = sqlx::query_scalar(
-            "select count(*) from personal_calendars
-             where personal_account_id = $1 and deleted_at is null",
-        )
-        .bind(&account)
-        .fetch_one(&db)
-        .await?;
+        let count = count_live(&db, &account).await?;
         let max = caller.entitlements.max_calendars();
         if count >= max {
             return Ok(plan_limit(
@@ -209,26 +230,59 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             ));
         }
         let id = weldsuite_kit::generate_id("cal");
-        let now = now_iso();
-        sqlx::query(
-            "insert into personal_calendars
-               (id, personal_account_id, name, description, color, owner_id, is_default, is_active,
-                created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, false, true, $7::timestamp, $7::timestamp)",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(&input.name)
-        .bind(&input.description)
-        .bind(&input.color)
-        .bind(&caller.user_id)
-        .bind(&now)
-        .execute(&db)
-        .await?;
+        insert_calendar(&db, &id, &account, &caller.user_id, &input).await?;
         Ok(created(json!({ "id": id })))
     }
     .await;
     answer(result, "Failed to create calendar")
+}
+
+/// The account's live calendars.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn count_live(db: &PgPool, account: &str) -> Result<i64, DbErr> {
+    sqlx::query_scalar(
+        "select count(*) from personal_calendars
+         where personal_account_id = $1 and deleted_at is null",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// A new calendar of the account, not the default.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn insert_calendar(
+    db: &PgPool,
+    id: &str,
+    account: &str,
+    owner: &str,
+    input: &Input,
+) -> Result<(), DbErr> {
+    let now = now_iso();
+    sqlx::query(
+        "insert into personal_calendars
+           (id, personal_account_id, name, description, color, owner_id, is_default, is_active,
+            created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, false, true, $7::timestamp, $7::timestamp)",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(&input.name)
+    .bind(&input.description)
+    .bind(&input.color)
+    .bind(owner)
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `GET /api/calendars/:id`.
@@ -267,29 +321,40 @@ async fn update(
         if get_for_account(db, &account, &id).await?.is_none() {
             return Err(Failure::from(ApiError::not_found("Calendar", Some(&id))));
         }
-        sqlx::query(
-            "update personal_calendars set
-               updated_at = $3::timestamp,
-               name = case when $4 then $5 else name end,
-               description = case when $6 then $7 else description end,
-               color = case when $8 then $9 else color end
-             where id = $1 and personal_account_id = $2 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(now_iso())
-        .bind(input.name.is_some())
-        .bind(&input.name)
-        .bind(input.description.is_some())
-        .bind(&input.description)
-        .bind(input.color.is_some())
-        .bind(&input.color)
-        .execute(db)
-        .await?;
+        update_calendar(db, &id, &account, &input).await?;
         Ok(data(json!({ "id": id })))
     }
     .await;
     answer(result, "Failed to update calendar")
+}
+
+/// The fields the body set, on the account's live calendar.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn update_calendar(db: &PgPool, id: &str, account: &str, input: &Input) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_calendars set
+           updated_at = $3::timestamp,
+           name = case when $4 then $5 else name end,
+           description = case when $6 then $7 else description end,
+           color = case when $8 then $9 else color end
+         where id = $1 and personal_account_id = $2 and deleted_at is null",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(now_iso())
+    .bind(input.name.is_some())
+    .bind(&input.name)
+    .bind(input.description.is_some())
+    .bind(&input.description)
+    .bind(input.color.is_some())
+    .bind(&input.color)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `DELETE /api/calendars/:id`: soft delete; never the default calendar.
@@ -306,18 +371,28 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
         if existing["isDefault"] == Value::Bool(true) {
             return Err(ApiError::bad_request("Cannot delete the default calendar").into());
         }
-        let now = now_iso();
-        sqlx::query(
-            "update personal_calendars set deleted_at = $3::timestamp, updated_at = $3::timestamp
-             where id = $1 and personal_account_id = $2",
-        )
-        .bind(&id)
-        .bind(&account)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        soft_delete(db, &id, &account).await?;
         Ok(no_content())
     }
     .await;
     answer(result, "Failed to delete calendar")
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn soft_delete(db: &PgPool, id: &str, account: &str) -> Result<(), DbErr> {
+    let now = now_iso();
+    sqlx::query(
+        "update personal_calendars set deleted_at = $3::timestamp, updated_at = $3::timestamp
+         where id = $1 and personal_account_id = $2",
+    )
+    .bind(id)
+    .bind(account)
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }

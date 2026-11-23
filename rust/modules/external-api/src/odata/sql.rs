@@ -24,7 +24,9 @@
 
 use sqlx::postgres::PgArguments;
 use sqlx::query::QueryScalar;
+use sea_orm::DbErr;
 use sqlx::{AssertSqlSafe, PgPool, Postgres};
+use weldsuite_db::orm_error;
 
 use super::catalog::{EdmType, EntitySet, Property, is_plain_column};
 use super::filter::{CmpOp, Literal, Node, TextFn};
@@ -114,6 +116,12 @@ impl Statement {
         self.sql.push_str(cast);
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the OData compiler builds the statement from the request at run time: \
+                  the catalogue's tables and derived expressions, the request's $filter, \
+                  $orderby and $select"
+    )]
     fn bound<O>(self) -> QueryScalar<'static, Postgres, O, PgArguments>
     where
         (O,): for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>,
@@ -132,18 +140,18 @@ impl Statement {
     }
 
     /// Every row's single text column.
-    pub(crate) async fn texts(self, db: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-        self.bound().fetch_all(db).await
+    pub(crate) async fn texts(self, db: &PgPool) -> Result<Vec<String>, DbErr> {
+        self.bound().fetch_all(db).await.map_err(orm_error)
     }
 
     /// The first row's single text column, if any.
-    pub(crate) async fn text(self, db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-        self.bound().fetch_optional(db).await
+    pub(crate) async fn text(self, db: &PgPool) -> Result<Option<String>, DbErr> {
+        self.bound().fetch_optional(db).await.map_err(orm_error)
     }
 
     /// The single `bigint` a count answers.
-    pub(crate) async fn count(self, db: &PgPool) -> Result<i64, sqlx::Error> {
-        self.bound().fetch_one(db).await
+    pub(crate) async fn count(self, db: &PgPool) -> Result<i64, DbErr> {
+        self.bound().fetch_one(db).await.map_err(orm_error)
     }
 }
 

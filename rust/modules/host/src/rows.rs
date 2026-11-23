@@ -1,90 +1,99 @@
 //! The tables' rows as Drizzle returns them (`select().from(...)`), and the
 //! public shape of a domain (`toPublicDomain`).
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_schema::tenant::{dns_records, dns_zones, domains};
 
-/// One row of a `select to_jsonb(t) …` statement, Drizzle-shaped.
-pub(crate) async fn one(
-    db: &PgPool,
-    sql: &'static str,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    Ok(row.map(js_row))
+/// A row as the API returns it: Drizzle's JSON shape, decided by the entity.
+pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
-/// Every row of a `select to_jsonb(t) …` statement with one parameter.
-pub(crate) async fn all(
-    db: &PgPool,
-    sql: &'static str,
-    id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(id).fetch_all(db).await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// [`js`] of a row that may be missing.
+pub(crate) fn js_option<M: serde::Serialize>(model: Option<M>) -> Result<Option<Value>, DbErr> {
+    model.map(js).transpose()
+}
+
+/// `$n::timestamp` of a `toISOString()` the route wrote: its UTC wall
+/// clock. A text Postgres can't read is the failed cast (the route's 500).
+pub(crate) fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    OffsetDateTime::parse(iso, &Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|_| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
 }
 
 /// `getDomain`: a live domain.
-pub(crate) async fn live_domain(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(
-        db,
-        "select to_jsonb(t) from domains t where t.id = $1 and t.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn live_domain(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = domains::Entity::find_by_id(id.to_owned())
+        .filter(domains::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
 }
 
 /// A domain, deleted or not.
-pub(crate) async fn any_domain(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(
-        db,
-        "select to_jsonb(t) from domains t where t.id = $1 limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn any_domain(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = domains::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
 }
 
 /// A live zone by id (`getDnsZone`).
-pub(crate) async fn live_zone(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(
-        db,
-        "select to_jsonb(t) from dns_zones t where t.id = $1 and t.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn live_zone(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = dns_zones::Entity::find_by_id(id.to_owned())
+        .filter(dns_zones::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
 }
 
 /// A zone, deleted or not.
-pub(crate) async fn any_zone(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    one(
-        db,
-        "select to_jsonb(t) from dns_zones t where t.id = $1 limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn any_zone(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = dns_zones::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
 }
 
 /// A domain's live zone (`getDnsZoneByDomain`).
 pub(crate) async fn live_zone_of_domain(
     db: &PgPool,
     domain_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    one(
-        db,
-        "select to_jsonb(t) from dns_zones t where t.domain_id = $1 and t.deleted_at is null limit 1",
-        domain_id,
-    )
-    .await
+) -> Result<Option<Value>, DbErr> {
+    let row = dns_zones::Entity::find()
+        .filter(dns_zones::Column::DomainId.eq(domain_id))
+        .filter(dns_zones::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
+}
+
+/// A record by id (`loadDnsRecordWithZone`'s first read).
+pub(crate) async fn any_record(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = dns_records::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    js_option(row)
 }
 
 /// A zone's records (`select().from(hostDnsRecords).where(eq(zoneId))`).
-pub(crate) async fn zone_records(db: &PgPool, zone_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    all(
-        db,
-        "select to_jsonb(t) from dns_records t where t.zone_id = $1",
-        zone_id,
-    )
-    .await
+pub(crate) async fn zone_records(db: &PgPool, zone_id: &str) -> Result<Vec<Value>, DbErr> {
+    dns_records::Entity::find()
+        .filter(dns_records::Column::ZoneId.eq(zone_id))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect()
 }
 
 /// `getDomainWithZone`: a live domain and the first zone the join finds
@@ -92,16 +101,20 @@ pub(crate) async fn zone_records(db: &PgPool, zone_id: &str) -> Result<Vec<Value
 pub(crate) async fn domain_with_zone(
     db: &PgPool,
     id: &str,
-) -> Result<Option<(Value, Option<Value>)>, sqlx::Error> {
-    let row: Option<(Value, Option<Value>)> = sqlx::query_as(
-        "select to_jsonb(d), to_jsonb(z) from domains d
-         left join dns_zones z on z.domain_id = d.id
-         where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|(domain, zone)| (js_row(domain), zone.filter(|z| !z.is_null()).map(js_row))))
+) -> Result<Option<(Value, Option<Value>)>, DbErr> {
+    let zone: RelationDef = domains::Entity::belongs_to(dns_zones::Entity)
+        .from(domains::Column::Id)
+        .to(dns_zones::Column::DomainId)
+        .into();
+    let row = domains::Entity::find()
+        .select_also(dns_zones::Entity)
+        .join(JoinType::LeftJoin, zone)
+        .filter(domains::Column::Id.eq(id))
+        .filter(domains::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(|(domain, zone)| Ok((js(domain)?, js_option(zone)?)))
+        .transpose()
 }
 
 /// Registrars WeldSuite operates; customers see `WeldSuite` instead.

@@ -24,13 +24,24 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sqlx::postgres::PgConnection;
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
 use weldsuite_ports::{
     BoxFuture, DatabaseProvisioner, Identity, Job, JobContext, JobError, ListPage, NewInvitation,
     ProvisionRequest, StepRetry, step,
+};
+use weldsuite_schema::master::{
+    credit_transactions, digest_schedules, plans, workspace_credits, workspace_licences, workspaces,
+};
+use weldsuite_schema::tenant::{
+    task_digest_settings, workspace_installed_apps, workspace_members, workspace_settings,
 };
 
 use crate::TenantDatabases;
@@ -73,8 +84,27 @@ fn retries() -> StepRetry {
     StepRetry::exponential(2, Duration::from_secs(5))
 }
 
-fn db(error: sqlx::Error) -> JobError {
+fn db(error: DbErr) -> JobError {
     JobError::failed(error)
+}
+
+/// `provisioning_status = 'provisioning'`, or once the database is ready
+/// `database_provisioned_at = now()` and `'ready'`; the error cleared.
+async fn mark_workspace(master: &PgPool, workspace_id: &str, ready: bool) -> Result<(), DbErr> {
+    use workspaces::Column;
+    let mut update = workspaces::Entity::update_many();
+    if ready {
+        update = update.col_expr(Column::DatabaseProvisionedAt, Expr::current_timestamp());
+    }
+    let status = if ready { "ready" } else { "provisioning" };
+    update
+        .col_expr(Column::ProvisioningStatus, Expr::value(status))
+        .col_expr(Column::ProvisioningError, Expr::value(Option::<String>::None))
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.eq(workspace_id))
+        .exec(&orm(master))
+        .await
+        .map(drop)
 }
 
 /// The job: register one per process.
@@ -158,14 +188,7 @@ impl ProvisionJob {
         }
 
         let _: bool = step(ctx, "mark-provisioned", retries(), || async {
-            sqlx::query(
-                "update workspaces set database_provisioned_at = now(), provisioning_status = 'ready',
-                        provisioning_error = null, updated_at = now() where id = $1",
-            )
-            .bind(ws)
-            .execute(&self.master)
-            .await
-            .map_err(db)?;
+            mark_workspace(&self.master, ws, true).await.map_err(db)?;
             Ok(true)
         })
         .await?;
@@ -208,12 +231,14 @@ impl ProvisionJob {
         let Some(identity) = &self.identity else {
             return Ok(false);
         };
-        let org: Option<Option<String>> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1")
-                .bind(workspace_id)
-                .fetch_optional(&self.master)
-                .await
-                .map_err(db)?;
+        let org: Option<Option<String>> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .filter(workspaces::Column::Id.eq(workspace_id))
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await
+            .map_err(db)?;
         let Some(org) = org.flatten() else {
             return Ok(false);
         };
@@ -266,18 +291,17 @@ impl ProvisionJob {
     /// reached ready (a failure in a later step must not send an admitted
     /// user back to a failed onboarding screen); the error is kept.
     async fn record_failure(&self, workspace_id: &str, error: &JobError) {
+        use workspaces::Column;
         let message: String = error.to_string().chars().take(1000).collect();
-        let recorded = sqlx::query(
-            "update workspaces
-                set provisioning_status = case when database_provisioned_at is null
-                                               then 'failed' else provisioning_status end,
-                    provisioning_error = $2, updated_at = now()
-              where id = $1",
-        )
-        .bind(workspace_id)
-        .bind(message)
-        .execute(&self.master)
-        .await;
+        let status = Expr::case(Column::DatabaseProvisionedAt.is_null(), "failed")
+            .finally(Expr::col((workspaces::Entity, Column::ProvisioningStatus)));
+        let recorded = workspaces::Entity::update_many()
+            .col_expr(Column::ProvisioningStatus, status.into())
+            .col_expr(Column::ProvisioningError, Expr::value(message))
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(workspace_id))
+            .exec(&orm(&self.master))
+            .await;
         if let Err(error) = recorded {
             tracing::error!(%error, workspace_id, "provision: could not record the failure");
         }
@@ -299,14 +323,7 @@ impl Job for ProvisionJob {
             let ws = job.workspace_id.as_str();
             tracing::info!(workspace_id = ws, "provision: starting");
             let _: bool = step(ctx, "mark-provisioning", retries(), || async {
-                sqlx::query(
-                    "update workspaces set provisioning_status = 'provisioning',
-                            provisioning_error = null, updated_at = now() where id = $1",
-                )
-                .bind(ws)
-                .execute(&self.master)
-                .await
-                .map_err(db)?;
+                mark_workspace(&self.master, ws, false).await.map_err(db)?;
                 Ok(true)
             })
             .await?;
@@ -325,22 +342,29 @@ impl Job for ProvisionJob {
 async fn partner_context(
     master: &PgPool,
     workspace_id: &str,
-) -> Result<Option<PartnerContext>, sqlx::Error> {
-    let mode: Option<String> =
-        sqlx::query_scalar("select billing_mode from workspaces where id = $1 limit 1")
-            .bind(workspace_id)
-            .fetch_optional(master)
-            .await?;
+) -> Result<Option<PartnerContext>, DbErr> {
+    let db = orm(master);
+    let mode: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::BillingMode)
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if mode.as_deref() != Some("partner") {
         return Ok(None);
     }
-    let licence: Option<(Value, i32, i32)> = sqlx::query_as(
-        "select allowed_apps, monthly_credits, credit_rollover_cap
-           from workspace_licences where workspace_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let licence: Option<(Value, i32, i32)> = workspace_licences::Entity::find()
+        .select_only()
+        .columns([
+            workspace_licences::Column::AllowedApps,
+            workspace_licences::Column::MonthlyCredits,
+            workspace_licences::Column::CreditRolloverCap,
+        ])
+        .filter(workspace_licences::Column::WorkspaceId.eq(workspace_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     Ok(Some(licence.map_or(
         PartnerContext {
             allowed_apps: Vec::new(),
@@ -369,25 +393,30 @@ async fn insert_initial_member(
     tenant: &PgPool,
     user_id: &str,
     member: Option<&InitialMember>,
-) -> Result<bool, sqlx::Error> {
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(tenant)
-            .await?;
+) -> Result<bool, DbErr> {
+    let db = orm(tenant);
+    let existing: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Id)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if existing.is_some() {
         return Ok(false);
     }
-    sqlx::query(
-        // No picture: avatars are the account's (master `users.image_url`).
-        "insert into workspace_members (id, user_id, email, name, role, status, accepted_at)
-         values ($1, $2, $3, $4, 'OWNER', 'ACTIVE', now())",
-    )
-    .bind(weldsuite_kit::generate_id("mbr"))
-    .bind(user_id)
-    .bind(member.and_then(|m| m.email.as_deref()))
-    .bind(member.and_then(|m| m.name.as_deref()))
-    .execute(tenant)
+    // No picture: avatars are the account's (master `users.image_url`).
+    workspace_members::Entity::insert(workspace_members::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("mbr")),
+        user_id: Set(user_id.to_owned()),
+        email: Set(member.and_then(|m| m.email.clone())),
+        name: Set(member.and_then(|m| m.name.clone())),
+        role: Set("OWNER".to_owned()),
+        status: Set("ACTIVE".to_owned()),
+        accepted_at: Set(Some(OffsetDateTime::now_utc())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(true)
 }
@@ -397,17 +426,22 @@ async fn install_apps(
     tenant: &PgPool,
     apps: &[String],
     user_id: &str,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
+    let db = orm(tenant);
     for app in apps {
-        let installed = sqlx::query(
-            "insert into workspace_installed_apps (id, app_code, is_active, display_order, installed_at, installed_by)
-             values ($1, $2, true, 0, now(), $3)
-             on conflict do nothing",
+        let installed = workspace_installed_apps::Entity::insert(
+            workspace_installed_apps::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("app")),
+                app_code: Set(app.clone()),
+                is_active: Set(true),
+                display_order: Set(Some(0)),
+                installed_at: Set(Some(OffsetDateTime::now_utc())),
+                installed_by: Set(Some(user_id.to_owned())),
+                ..Default::default()
+            },
         )
-        .bind(weldsuite_kit::generate_id("app"))
-        .bind(app)
-        .bind(user_id)
-        .execute(tenant)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&db)
         .await;
         if let Err(error) = installed {
             tracing::warn!(%error, app, "provision: failed to install an app");
@@ -422,39 +456,46 @@ async fn setup_digest(
     master: &PgPool,
     tenant: &PgPool,
     workspace_id: &str,
-) -> Result<String, sqlx::Error> {
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from task_digest_settings limit 1")
-            .fetch_optional(tenant)
-            .await?;
+) -> Result<String, DbErr> {
+    let tenant = orm(tenant);
+    let existing: Option<String> = task_digest_settings::Entity::find()
+        .select_only()
+        .column(task_digest_settings::Column::Id)
+        .into_tuple()
+        .one(&tenant)
+        .await?;
     if existing.is_none() {
-        sqlx::query(
-            "insert into task_digest_settings (id, enabled, send_hour, task_types, sections)
-             values ($1, true, 8, $2, $3)",
-        )
-        .bind(weldsuite_kit::generate_id("tds"))
-        .bind(json!({ "projectTasks": true, "personalTasks": true }))
-        .bind(json!({ "overdue": true, "dueToday": true, "dueThisWeek": true }))
-        .execute(tenant)
+        task_digest_settings::Entity::insert(task_digest_settings::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("tds")),
+            enabled: Set(true),
+            send_hour: Set(8),
+            task_types: Set(json!({ "projectTasks": true, "personalTasks": true })),
+            sections: Set(json!({ "overdue": true, "dueToday": true, "dueThisWeek": true })),
+            ..Default::default()
+        })
+        .exec_without_returning(&tenant)
         .await?;
     }
-    let timezone: Option<Option<String>> =
-        sqlx::query_scalar("select timezone from workspace_settings limit 1")
-            .fetch_optional(tenant)
-            .await?;
+    let timezone: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Timezone)
+        .into_tuple()
+        .one(&tenant)
+        .await?;
     let timezone = timezone
         .flatten()
         .filter(|tz| !tz.is_empty())
         .unwrap_or_else(|| "Europe/Amsterdam".to_owned());
-    sqlx::query(
-        "insert into digest_schedules (id, workspace_id, enabled, send_hour, timezone)
-         values ($1, $2, true, 8, $3)
-         on conflict do nothing",
-    )
-    .bind(weldsuite_kit::generate_id("ds"))
-    .bind(workspace_id)
-    .bind(&timezone)
-    .execute(master)
+    digest_schedules::Entity::insert(digest_schedules::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("ds")),
+        workspace_id: Set(workspace_id.to_owned()),
+        enabled: Set(true),
+        send_hour: Set(8),
+        timezone: Set(timezone.clone()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(timezone)
 }
@@ -476,58 +517,78 @@ fn month_period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     (start, end)
 }
 
-fn iso(at: OffsetDateTime) -> String {
-    weldsuite_events::iso_timestamp(at)
+/// A moment as the old SQL bound it (`toISOString()` text): to the
+/// millisecond.
+fn to_millis(at: OffsetDateTime) -> OffsetDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
 
 /// The plan's monthly credits as the wallet's first allocation. Unlike the
 /// workers, the transaction row is written only by the call that created
 /// the wallet, so a re-run never books the allocation twice.
-async fn initialize_plan_credits(master: &PgPool, workspace_id: &str) -> Result<i32, sqlx::Error> {
-    let credits: Option<i32> = sqlx::query_scalar(
-        "select p.monthly_credits from workspaces w join plans p on p.id = w.plan_id
-          where w.id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+async fn initialize_plan_credits(master: &PgPool, workspace_id: &str) -> Result<i32, DbErr> {
+    // `p.monthly_credits` read as an integer: a plan without one fails the
+    // step, as it did.
+    let credits: Option<i32> = workspaces::Entity::find()
+        .select_only()
+        .column(plans::Column::MonthlyCredits)
+        .join(
+            JoinType::InnerJoin,
+            workspaces::Entity::belongs_to(plans::Entity)
+                .from(workspaces::Column::PlanId)
+                .to(plans::Column::Id)
+                .into(),
+        )
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     let credits = credits.unwrap_or(0);
     if credits <= 0 {
         return Ok(0);
     }
     let now = OffsetDateTime::now_utc();
     let (start, end) = month_period(now);
-    let mut tx = master.begin().await?;
-    let created = sqlx::query(
-        "insert into workspace_credits
-           (id, workspace_id, current_balance, plan_credits, subscribed_credits, monthly_allocation,
-            rolled_over_credits, rollover_cap, period_start, period_end, last_reset_at)
-         values ($1, $2, $3, $3, 0, $3, 0, null, $4::timestamptz, $5::timestamptz, $6::timestamptz)
-         on conflict do nothing",
-    )
-    .bind(weldsuite_kit::generate_id("crd"))
-    .bind(workspace_id)
-    .bind(credits)
-    .bind(iso(start))
-    .bind(iso(end))
-    .bind(iso(now))
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
-    if created == 1 {
-        sqlx::query(
-            "insert into credit_transactions (id, workspace_id, type, amount, balance_after, description, metadata)
-             values ($1, $2, 'monthly_allocation', $3, $3, $4, $5)",
-        )
-        .bind(weldsuite_kit::generate_id("ctx"))
-        .bind(workspace_id)
-        .bind(credits)
-        .bind(format!("Initial credit allocation of {credits} credits"))
-        .bind(json!({ "reason": "workspace_creation", "planCredits": credits }))
-        .execute(&mut *tx)
+    let mut tx = master.begin().await.map_err(orm_error)?;
+    {
+        let db = OrmConn::new(&mut tx);
+        let created = workspace_credits::Entity::insert(workspace_credits::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("crd")),
+            workspace_id: Set(workspace_id.to_owned()),
+            current_balance: Set(credits),
+            plan_credits: Set(credits),
+            subscribed_credits: Set(0),
+            monthly_allocation: Set(credits),
+            rolled_over_credits: Set(0),
+            rollover_cap: Set(None),
+            period_start: Set(start),
+            period_end: Set(end),
+            last_reset_at: Set(Some(to_millis(now))),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&db)
         .await?;
+        if created == 1 {
+            credit_transactions::Entity::insert(credit_transactions::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("ctx")),
+                workspace_id: Set(workspace_id.to_owned()),
+                type_: Set("monthly_allocation".to_owned()),
+                amount: Set(credits),
+                balance_after: Set(credits),
+                description: Set(Some(format!(
+                    "Initial credit allocation of {credits} credits"
+                ))),
+                metadata: Set(Some(
+                    json!({ "reason": "workspace_creation", "planCredits": credits }),
+                )),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
+            .await?;
+        }
     }
-    tx.commit().await?;
+    tx.commit().await.map_err(orm_error)?;
     Ok(credits)
 }
 
@@ -546,77 +607,102 @@ async fn initialise_licensed_credits(
     master: &PgPool,
     workspace_id: &str,
     context: &PartnerContext,
-) -> Result<i32, sqlx::Error> {
+) -> Result<i32, DbErr> {
+    use workspace_credits::{ActiveModel, Column, Entity};
     let now = OffsetDateTime::now_utc();
     let (start, end) = month_period(now);
-    let mut tx = master.begin().await?;
-    sqlx::query(
-        "insert into workspace_credits
-           (id, workspace_id, current_balance, plan_credits, subscribed_credits, monthly_allocation,
-            rolled_over_credits, rollover_cap, period_start, period_end, last_reset_at)
-         values ($1, $2, 0, 0, 0, 0, 0, null, $3::timestamptz, $4::timestamptz, null)
-         on conflict do nothing",
-    )
-    .bind(weldsuite_kit::generate_id("wcr"))
-    .bind(workspace_id)
-    .bind(iso(start))
-    .bind(iso(end))
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "update workspace_credits
-            set plan_credits = $2, subscribed_credits = 0, monthly_allocation = $2, rollover_cap = $3,
-                period_start = $4::timestamptz, period_end = $5::timestamptz,
-                last_reset_at = $6::timestamptz, updated_at = now()
-          where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(context.monthly_credits)
-    .bind(context.credit_rollover_cap)
-    .bind(iso(start))
-    .bind(iso(end))
-    .bind(iso(now))
-    .execute(&mut *tx)
-    .await?;
+    let mut tx = master.begin().await.map_err(orm_error)?;
+    {
+        let db = OrmConn::new(&mut tx);
+        Entity::insert(ActiveModel {
+            id: Set(weldsuite_kit::generate_id("wcr")),
+            workspace_id: Set(workspace_id.to_owned()),
+            current_balance: Set(0),
+            plan_credits: Set(0),
+            subscribed_credits: Set(0),
+            monthly_allocation: Set(0),
+            rolled_over_credits: Set(0),
+            rollover_cap: Set(None),
+            period_start: Set(start),
+            period_end: Set(end),
+            last_reset_at: Set(None),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&db)
+        .await?;
+        Entity::update_many()
+            .col_expr(Column::PlanCredits, Expr::value(context.monthly_credits))
+            .col_expr(Column::SubscribedCredits, Expr::value(0))
+            .col_expr(Column::MonthlyAllocation, Expr::value(context.monthly_credits))
+            .col_expr(Column::RolloverCap, Expr::value(context.credit_rollover_cap))
+            .col_expr(Column::PeriodStart, Expr::value(start))
+            .col_expr(Column::PeriodEnd, Expr::value(end))
+            .col_expr(Column::LastResetAt, Expr::value(to_millis(now)))
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::WorkspaceId.eq(workspace_id))
+            .exec(&db)
+            .await?;
+    }
     let (remaining, days) = month_remainder(now);
     let amount = i32::try_from(i64::from(context.monthly_credits) * remaining / days).unwrap_or(0);
-    let key = format!("partner_licence:init:{workspace_id}");
     let mut granted = 0;
-    if amount > 0 {
-        let inserted = sqlx::query(
-            "with wallet as (
-                update workspace_credits set current_balance = current_balance + $3, updated_at = now()
-                 where workspace_id = $2 and not exists (
-                   select 1 from credit_transactions where idempotency_key = $4)
-                returning current_balance)
-             insert into credit_transactions
-               (id, workspace_id, type, amount, balance_after, idempotency_key, description, metadata)
-             select $1, $2, 'monthly_allocation', $3, current_balance, $4, $5, $6 from wallet",
-        )
-        .bind(weldsuite_kit::generate_id("ctx"))
-        .bind(workspace_id)
-        .bind(amount)
-        .bind(&key)
-        .bind(format!("Licensed monthly credits, rest of the month: +{amount}"))
-        .bind(json!({
-            "reason": "partner_licence",
-            "changeId": format!("init:{workspace_id}"),
-            "delta": context.monthly_credits,
-            "prorated": amount,
-        }))
-        .execute(&mut *tx)
-        .await?;
-        if inserted.rows_affected() == 1 {
-            granted = amount;
-        }
+    if amount > 0 && grant_licence_remainder(&mut tx, workspace_id, context, amount).await? == 1 {
+        granted = amount;
     }
-    tx.commit().await?;
+    tx.commit().await.map_err(orm_error)?;
     Ok(granted)
+}
+
+/// The rest of this month's licensed allowance, once
+/// (`partner_licence:init:<workspace>`): the wallet's top-up and its ledger
+/// row. Answers the rows inserted.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a guarded grant: the wallet top-up and its ledger row are one data-modifying \
+              statement, the idempotency key checked in the same statement"
+)]
+async fn grant_licence_remainder(
+    conn: &mut PgConnection,
+    workspace_id: &str,
+    context: &PartnerContext,
+    amount: i32,
+) -> Result<u64, DbErr> {
+    let key = format!("partner_licence:init:{workspace_id}");
+    sqlx::query(
+        "with wallet as (
+            update workspace_credits set current_balance = current_balance + $3, updated_at = now()
+             where workspace_id = $2 and not exists (
+               select 1 from credit_transactions where idempotency_key = $4)
+            returning current_balance)
+         insert into credit_transactions
+           (id, workspace_id, type, amount, balance_after, idempotency_key, description, metadata)
+         select $1, $2, 'monthly_allocation', $3, current_balance, $4, $5, $6 from wallet",
+    )
+    .bind(weldsuite_kit::generate_id("ctx"))
+    .bind(workspace_id)
+    .bind(amount)
+    .bind(&key)
+    .bind(format!("Licensed monthly credits, rest of the month: +{amount}"))
+    .bind(json!({
+        "reason": "partner_licence",
+        "changeId": format!("init:{workspace_id}"),
+        "delta": context.monthly_credits,
+        "prorated": amount,
+    }))
+    .execute(conn)
+    .await
+    .map(|done| done.rows_affected())
+    .map_err(orm_error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn iso(at: OffsetDateTime) -> String {
+        weldsuite_events::iso_timestamp(at)
+    }
 
     fn utc(year: i32, month: time::Month, day: u8, hour: u8) -> OffsetDateTime {
         time::Date::from_calendar_date(year, month, day)

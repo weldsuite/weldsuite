@@ -11,6 +11,10 @@ use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use regex::Regex;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -18,21 +22,22 @@ use weldsuite_catalogs::entity_events::{
     KNOWLEDGE_PAGE_CREATED, KNOWLEDGE_PAGE_DELETED, KNOWLEDGE_PAGE_MOVED, KNOWLEDGE_PAGE_UPDATED,
     KNOWLEDGE_SPACE_CREATED, KNOWLEDGE_SPACE_DELETED, KNOWLEDGE_SPACE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::id::generate_id;
 use weldsuite_know_domain::KnowError;
 use weldsuite_know_domain::access::{self, SpaceAccess};
+use weldsuite_schema::tenant::{knowledge_pages, knowledge_spaces};
 
 use crate::ExternalApiState;
 use crate::crud::{Answer, Caller, Fail, created, field, list_query, no_content, now, ok};
-use crate::list::list_page_mapped;
+use crate::list::{like_any, list_page_mapped, one_of, when};
 use crate::schemas::{
     CREATE_KNOWLEDGE_PAGE, LIST_KNOWLEDGE_PAGES, MOVE_KNOWLEDGE_PAGE, UPDATE_KNOWLEDGE_PAGE,
 };
 use crate::schemas_gen::{CREATE_KNOWLEDGE_SPACE, UPDATE_KNOWLEDGE_SPACE};
 use crate::session::{bad_request, conflict, forbidden, internal, not_found};
 use crate::simple::scoped;
-use crate::tables_gen::{KNOWLEDGE_PAGES, KNOWLEDGE_SPACES, row};
+use crate::tables_gen::{KNOWLEDGE_PAGES, KNOWLEDGE_SPACES};
 use crate::zod;
 
 type S = State<ExternalApiState>;
@@ -523,11 +528,15 @@ async fn page_tree(caller: Caller, Query(query): Query<HashMap<String, String>>)
         .order_by_asc(knowledge_pages::Column::Position)
         .order_by_asc(knowledge_pages::Column::CreatedAt)
         .all(&orm(&caller.db))
-        .await?;
+        .await?
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| DbErr::Json(error.to_string()))?;
     let rows = pages
         .into_iter()
         .map(|page| {
-            let page = serde_json::to_value(page).unwrap_or(Value::Null);
+            let page = KNOWLEDGE_PAGES.js(page);
             json!({
                 "id": field(&page, "id"),
                 "spaceId": field(&page, "spaceId"),
@@ -714,7 +723,9 @@ async fn move_page(
         Some(position) => position.clone(),
         None => json!(next_position(&caller.db, &target, parent_value.as_str()).await?),
     };
-    let stamp = now();
+    // One instant: the moved page's text stamp and its descendants'.
+    let now_at = time::OffsetDateTime::now_utc();
+    let stamp = weldsuite_events::iso_timestamp(now_at);
     let mut update = Map::new();
     update.insert("parentId".into(), parent_value.clone());
     update.insert("spaceId".into(), json!(target));
@@ -733,14 +744,15 @@ async fn move_page(
             .filter(|page| *page != id)
             .collect();
         if !descendants.is_empty() {
-            sqlx::query(
-                "update knowledge_pages set space_id = $2, updated_at = $3::timestamptz where id = any($1)",
-            )
-            .bind(&descendants)
-            .bind(&target)
-            .bind(&stamp)
-            .execute(&caller.db)
-            .await?;
+            knowledge_pages::Entity::update_many()
+                .col_expr(knowledge_pages::Column::SpaceId, Expr::value(target.as_str()))
+                .col_expr(
+                    knowledge_pages::Column::UpdatedAt,
+                    Expr::value(utc_timestamp(now_at)),
+                )
+                .filter(knowledge_pages::Column::Id.is_in(descendants))
+                .exec(&orm(&caller.db))
+                .await?;
         }
     }
     caller.publish(
@@ -760,13 +772,13 @@ async fn delete_page(State(state): S, caller: Caller, Path(id): Path<String>) ->
         return Err(forbidden(NOT_EDITOR).into());
     }
     let ids = subtree(&caller.db, &id).await?;
-    sqlx::query(
-        "update knowledge_pages set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = any($1)",
-    )
-    .bind(&ids)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    let at = utc_now();
+    knowledge_pages::Entity::update_many()
+        .col_expr(knowledge_pages::Column::DeletedAt, Expr::value(at))
+        .col_expr(knowledge_pages::Column::UpdatedAt, Expr::value(at))
+        .filter(knowledge_pages::Column::Id.is_in(ids))
+        .exec(&orm(&caller.db))
+        .await?;
     caller.publish(
         &state.events,
         KNOWLEDGE_PAGE_DELETED,
