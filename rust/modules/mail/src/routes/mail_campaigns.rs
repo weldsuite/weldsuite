@@ -10,20 +10,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     MAIL_CAMPAIGN_CREATED, MAIL_CAMPAIGN_DELETED, MAIL_CAMPAIGN_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     CAMPAIGNS_CREATE, CAMPAIGNS_DELETE, CAMPAIGNS_READ, CAMPAIGNS_UPDATE,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
-use weldsuite_mail_domain::outbound::clock::{iso as iso_ms, parse_iso};
+use weldsuite_mail_domain::outbound::clock::parse_iso;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::MailCampaignStatus;
+use weldsuite_schema::tenant::mail_campaigns;
 
-use crate::util::{MailError, answer, list_response, now, page, validate, validate_query};
+use crate::routes::mail_drafts::to_millis;
+use crate::util::{MailError, answer, list_response, page, validate, validate_query};
 use crate::{Caller, MailState};
 
 const STATUSES: [&str; 7] = [
@@ -62,22 +71,30 @@ where
         .with_state(state)
 }
 
-async fn campaign_row(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from mail_campaigns c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// A campaign row as Drizzle returns it.
+fn js(campaign: mail_campaigns::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(campaign).map_err(|error| DbErr::Json(error.to_string()))
 }
 
-async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar("select to_jsonb(c) from mail_campaigns c where c.id = $1")
-        .bind(id)
-        .fetch_one(&caller.db)
+async fn campaign_row(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_campaigns::Entity::find_by_id(id.to_owned())
+        .filter(mail_campaigns::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
         .await?;
-    Ok(js_row(row))
+    row.map(js).transpose()
+}
+
+async fn row_by_id(caller: &Caller, id: &str) -> Result<Value, DbErr> {
+    let row = mail_campaigns::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail campaign {id}")))?;
+    js(row)
+}
+
+/// A `status` the body or query chose (one of `STATUSES`).
+fn campaign_status(status: &str) -> Result<MailCampaignStatus, DbErr> {
+    MailCampaignStatus::try_from_value(&status.to_owned())
 }
 
 fn event(row: &Value, id: &str) -> Value {
@@ -114,52 +131,74 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = limit.unwrap_or(25).min(100);
-        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
-        {
-            Some(cursor) => {
-                sqlx::query_as(
-                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                         from mail_campaigns where id = $1 limit 1",
-                )
-                .bind(cursor)
-                .fetch_optional(&caller.db)
-                .await?
-            }
-            None => None,
-        };
-        let (cursor_at, cursor_id) = cursor_row.unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(c) from mail_campaigns c
-             where c.deleted_at is null
-               and ($1::text is null or c.status = $1::mail_campaign_status)
-               and ($2::text is null or c.template_id = $2)
-               and ($3::timestamp is null or (c.created_at < $3::timestamp
-                    or (c.created_at = $3::timestamp and c.id < $4)))
-             order by c.created_at desc, c.id desc limit $5",
+        let (rows, total) = list_page(
+            &caller,
+            status.as_deref(),
+            template.as_deref(),
+            limit,
+            cursor.as_deref(),
         )
-        .bind(&status)
-        .bind(&template)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
         .await?;
-        let total: i32 = sqlx::query_scalar(
-            "select count(*)::int from mail_campaigns c
-             where c.deleted_at is null
-               and ($1::text is null or c.status = $1::mail_campaign_status)
-               and ($2::text is null or c.template_id = $2)",
-        )
-        .bind(&status)
-        .bind(&template)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(js_row).collect();
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, i64::from(total), has_more, next))
+        Ok(list_response(data, total, has_more, next))
     }
     .await;
     answer(result, "Failed to list campaigns")
+}
+
+/// `listCampaigns`' page (`limit + 1` rows after the cursor) and its total.
+async fn list_page(
+    caller: &Caller,
+    status: Option<&str>,
+    template: Option<&str>,
+    limit: i64,
+    cursor: Option<&str>,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(&caller.db);
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty()) {
+        Some(cursor) => {
+            mail_campaigns::Entity::find_by_id(cursor.to_owned())
+                .select_only()
+                .columns([mail_campaigns::Column::CreatedAt, mail_campaigns::Column::Id])
+                .into_tuple()
+                .one(&db)
+                .await?
+        }
+        None => None,
+    };
+    let mut scope = Condition::all().add(mail_campaigns::Column::DeletedAt.is_null());
+    if let Some(status) = status {
+        scope = scope.add(mail_campaigns::Column::Status.eq(campaign_status(status)?));
+    }
+    if let Some(template) = template {
+        scope = scope.add(mail_campaigns::Column::TemplateId.eq(template));
+    }
+    let mut page_scope = scope.clone();
+    if let Some((at, id)) = cursor_row {
+        let at = to_millis(at);
+        page_scope = page_scope.add(
+            Condition::any()
+                .add(mail_campaigns::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(mail_campaigns::Column::CreatedAt.eq(at))
+                        .add(mail_campaigns::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = mail_campaigns::Entity::find()
+        .filter(page_scope)
+        .order_by_desc(mail_campaigns::Column::CreatedAt)
+        .order_by_desc(mail_campaigns::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = mail_campaigns::Entity::find()
+        .filter(scope)
+        .count(&db)
+        .await?;
+    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 /// `GET /:id`.
@@ -437,11 +476,19 @@ fn count_recipients(list: &Value) -> i64 {
 }
 
 /// `new Date(scheduledAt)` as Drizzle writes it.
-fn scheduled_at(data: &Map<String, Value>) -> Option<String> {
+fn scheduled_at(data: &Map<String, Value>) -> Option<PrimitiveDateTime> {
     text(data, "scheduledAt")
         .filter(|s| !s.is_empty())
         .and_then(parse_iso)
-        .map(iso_ms)
+        .map(|ms| {
+            let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+            utc_timestamp(at)
+        })
+}
+
+fn owned(data: &Map<String, Value>, key: &str) -> Option<String> {
+    text(data, key).map(str::to_owned)
 }
 
 /// `POST /` (`createCampaign`).
@@ -460,33 +507,34 @@ async fn create(
     let result = async {
         let id = generate_id("camp");
         let recipients = data.get("recipientList").cloned().unwrap_or(Value::Null);
-        sqlx::query(
-            "insert into mail_campaigns (id, template_id, name, subject, preheader, html_content,
-               text_content, recipient_list, total_recipients, from_name, from_email,
-               reply_to_email, scheduled_at, status, track_opens, track_clicks, tags,
-               created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamp,
-               $14::mail_campaign_status, $15, $16, $17, $18::timestamp, $18::timestamp)",
-        )
-        .bind(&id)
-        .bind(text(&data, "templateId"))
-        .bind(text(&data, "name"))
-        .bind(text(&data, "subject"))
-        .bind(text(&data, "preheader"))
-        .bind(text(&data, "htmlContent"))
-        .bind(text(&data, "textContent"))
-        .bind(&recipients)
-        .bind(count_recipients(&recipients))
-        .bind(text(&data, "fromName"))
-        .bind(text(&data, "fromEmail"))
-        .bind(text(&data, "replyToEmail"))
-        .bind(scheduled_at(&data))
-        .bind(text(&data, "status").unwrap_or("draft"))
-        .bind(flag(&data, "trackOpens").unwrap_or(true))
-        .bind(flag(&data, "trackClicks").unwrap_or(true))
-        .bind(data.get("tags").cloned())
-        .bind(now())
-        .execute(&caller.db)
+        // An `integer` column: what Postgres refuses ("out of range") stays
+        // the route's 500.
+        let total = i32::try_from(count_recipients(&recipients))
+            .map_err(|_| DbErr::Custom("total_recipients: integer out of range".to_owned()))?;
+        let at = utc_now();
+        mail_campaigns::Entity::insert(mail_campaigns::ActiveModel {
+            id: Set(id.clone()),
+            template_id: Set(owned(&data, "templateId")),
+            name: Set(owned(&data, "name").unwrap_or_default()),
+            subject: Set(owned(&data, "subject").unwrap_or_default()),
+            preheader: Set(owned(&data, "preheader")),
+            html_content: Set(owned(&data, "htmlContent").unwrap_or_default()),
+            text_content: Set(owned(&data, "textContent")),
+            recipient_list: Set(recipients),
+            total_recipients: Set(total),
+            from_name: Set(owned(&data, "fromName").unwrap_or_default()),
+            from_email: Set(owned(&data, "fromEmail").unwrap_or_default()),
+            reply_to_email: Set(owned(&data, "replyToEmail")),
+            scheduled_at: Set(scheduled_at(&data)),
+            status: Set(campaign_status(text(&data, "status").unwrap_or("draft"))?),
+            track_opens: Set(flag(&data, "trackOpens").unwrap_or(true)),
+            track_clicks: Set(flag(&data, "trackClicks").unwrap_or(true)),
+            tags: Set(data.get("tags").cloned()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = row_by_id(&caller, &id).await?;
         caller.publish(&state, MAIL_CAMPAIGN_CREATED, &id, &event(&row, &id));
@@ -522,49 +570,70 @@ async fn update(
                 "Campaign is {status}; only tags/preheader can be edited."
             )));
         }
-        let recipients = data.get("recipientList").cloned();
-        let total = recipients.as_ref().map(count_recipients);
-        sqlx::query(
-            "update mail_campaigns set updated_at = $2::timestamp,
-               template_id = coalesce($3, template_id), name = coalesce($4, name),
-               subject = coalesce($5, subject), preheader = coalesce($6, preheader),
-               html_content = coalesce($7, html_content), text_content = coalesce($8, text_content),
-               recipient_list = coalesce($9, recipient_list),
-               total_recipients = coalesce($10::int, total_recipients),
-               from_name = coalesce($11, from_name), from_email = coalesce($12, from_email),
-               reply_to_email = coalesce($13, reply_to_email),
-               scheduled_at = coalesce($14::timestamp, scheduled_at),
-               status = coalesce($15::mail_campaign_status, status),
-               track_opens = coalesce($16, track_opens), track_clicks = coalesce($17, track_clicks),
-               tags = coalesce($18, tags)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(text(&data, "templateId"))
-        .bind(text(&data, "name"))
-        .bind(text(&data, "subject"))
-        .bind(text(&data, "preheader"))
-        .bind(text(&data, "htmlContent"))
-        .bind(text(&data, "textContent"))
-        .bind(recipients)
-        .bind(total)
-        .bind(text(&data, "fromName"))
-        .bind(text(&data, "fromEmail"))
-        .bind(text(&data, "replyToEmail"))
-        .bind(scheduled_at(&data))
-        .bind(text(&data, "status"))
-        .bind(flag(&data, "trackOpens"))
-        .bind(flag(&data, "trackClicks"))
-        .bind(data.get("tags").cloned())
-        .execute(&caller.db)
-        .await?;
+        write_update(&caller, &id, &data).await?;
         let after = row_by_id(&caller, &id).await?;
         caller.publish(&state, MAIL_CAMPAIGN_UPDATED, &id, &event(&after, &id));
         Ok(Data(after).into_response())
     }
     .await;
     answer(result, "Failed to update campaign")
+}
+
+/// `updateCampaign`'s write: the fields the body sent, and `updatedAt`.
+async fn write_update(caller: &Caller, id: &str, data: &Map<String, Value>) -> Result<(), DbErr> {
+    let mut update = mail_campaigns::Entity::update_many()
+        .col_expr(mail_campaigns::Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("templateId", mail_campaigns::Column::TemplateId),
+        ("name", mail_campaigns::Column::Name),
+        ("subject", mail_campaigns::Column::Subject),
+        ("preheader", mail_campaigns::Column::Preheader),
+        ("htmlContent", mail_campaigns::Column::HtmlContent),
+        ("textContent", mail_campaigns::Column::TextContent),
+        ("fromName", mail_campaigns::Column::FromName),
+        ("fromEmail", mail_campaigns::Column::FromEmail),
+        ("replyToEmail", mail_campaigns::Column::ReplyToEmail),
+    ] {
+        if let Some(value) = owned(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(recipients) = data.get("recipientList") {
+        update = update
+            .col_expr(
+                mail_campaigns::Column::RecipientList,
+                Expr::value(recipients.clone()),
+            )
+            .col_expr(
+                mail_campaigns::Column::TotalRecipients,
+                Expr::value(count_recipients(recipients)),
+            );
+    }
+    if let Some(at) = scheduled_at(data) {
+        update = update.col_expr(mail_campaigns::Column::ScheduledAt, Expr::value(at));
+    }
+    if let Some(status) = text(data, "status") {
+        update = update.col_expr(
+            mail_campaigns::Column::Status,
+            mail_campaigns::Column::Status.save_as(Expr::value(campaign_status(status)?)),
+        );
+    }
+    for (key, column) in [
+        ("trackOpens", mail_campaigns::Column::TrackOpens),
+        ("trackClicks", mail_campaigns::Column::TrackClicks),
+    ] {
+        if let Some(value) = flag(data, key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(tags) = data.get("tags") {
+        update = update.col_expr(mail_campaigns::Column::Tags, Expr::value(tags.clone()));
+    }
+    update
+        .filter(mail_campaigns::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `DELETE /:id` (`softDeleteCampaign`).
@@ -577,13 +646,13 @@ async fn remove(
         let Some(existing) = campaign_row(&caller, &id).await? else {
             return Err(MailError::not_found("Campaign", Some(&id)));
         };
-        sqlx::query(
-            "update mail_campaigns set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_campaigns::Entity::update_many()
+            .col_expr(mail_campaigns::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_campaigns::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_campaigns::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, MAIL_CAMPAIGN_DELETED, &id, &event(&existing, &id));
         Ok(NoContent.into_response())
     }

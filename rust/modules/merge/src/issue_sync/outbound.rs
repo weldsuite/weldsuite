@@ -8,17 +8,21 @@
 //! Failures are errors: the automatic hooks log them, the explicit routes
 //! answer 502 `provider_error`.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{merge_comments, merge_external_issues};
 
 use super::fields::{checksum_of, provider_fields, status_to_provider_state};
 use super::people::{host_of, label_names, login_for_member};
 use super::targets::{SyncTarget, find_link_by_issue, load_target};
 use crate::credentials::adapter_context;
-use crate::db::{Row, opt_text, text};
+use crate::db::{Row, instant_opt, int4, json_row, now_at, opt_text, text};
 use crate::providers::{self, IssueWriteInput, NormalizedIssue, RepositoryRef};
-use crate::{MergeError, MergeState, Overrides, now};
+use crate::{MergeError, MergeState, Overrides};
 
 /// The synced fields a WeldMerge edit touches.
 const SYNCED_ISSUE_FIELDS: [&str; 5] = [
@@ -43,7 +47,7 @@ fn synced_fields_changed(before: &Row, after: &Row) -> bool {
 async fn two_way_target(
     db: &PgPool,
     link: Option<&Row>,
-) -> Result<Option<SyncTarget>, sqlx::Error> {
+) -> Result<Option<SyncTarget>, DbErr> {
     let Some(link) = link else {
         return Ok(None);
     };
@@ -52,26 +56,33 @@ async fn two_way_target(
         .filter(|target| text(&target.repository, "issueSync") == "two_way"))
 }
 
-async fn store_pushed(db: &PgPool, link: &Row, issue: &NormalizedIssue) -> Result<(), sqlx::Error> {
-    let now = now();
+async fn store_pushed(db: &PgPool, link: &Row, issue: &NormalizedIssue) -> Result<(), DbErr> {
+    let (_, at) = now_at();
     let url = if issue.url.is_empty() {
         text(link, "url").to_owned()
     } else {
         issue.url.clone()
     };
-    sqlx::query(
-        "update merge_external_issues set url = $2, state = $3, checksum = $4, last_writer = 'weldmerge', \
-           provider_updated_at = $5::timestamptz, synced_at = $6::timestamptz, updated_at = $6::timestamptz \
-         where id = $1",
-    )
-    .bind(text(link, "id"))
-    .bind(url)
-    .bind(issue.state)
-    .bind(checksum_of(&provider_fields(issue)))
-    .bind(&issue.updated_at)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    merge_external_issues::Entity::update_many()
+        .col_expr(merge_external_issues::Column::Url, Expr::value(url))
+        .col_expr(merge_external_issues::Column::State, Expr::value(issue.state))
+        .col_expr(
+            merge_external_issues::Column::Checksum,
+            Expr::value(checksum_of(&provider_fields(issue))),
+        )
+        .col_expr(
+            merge_external_issues::Column::LastWriter,
+            Expr::value("weldmerge"),
+        )
+        .col_expr(
+            merge_external_issues::Column::ProviderUpdatedAt,
+            Expr::value(instant_opt(issue.updated_at.as_deref())?),
+        )
+        .col_expr(merge_external_issues::Column::SyncedAt, Expr::value(at))
+        .col_expr(merge_external_issues::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_external_issues::Column::Id.eq(text(link, "id")))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -92,7 +103,7 @@ async fn write_input(
     target: &SyncTarget,
     issue: &Row,
     assignee: Assignee,
-) -> Result<IssueWriteInput, sqlx::Error> {
+) -> Result<IssueWriteInput, DbErr> {
     let label_ids: Vec<String> = issue
         .get("labelIds")
         .and_then(Value::as_array)
@@ -200,10 +211,13 @@ pub(crate) async fn push_comment(
         text(comment, "body"),
     )
     .await?;
-    sqlx::query("update merge_comments set external_id = $2 where id = $1")
-        .bind(text(comment, "id"))
-        .bind(&pushed.external_id)
-        .execute(db)
+    merge_comments::Entity::update_many()
+        .col_expr(
+            merge_comments::Column::ExternalId,
+            Expr::value(pushed.external_id.clone()),
+        )
+        .filter(merge_comments::Column::Id.eq(text(comment, "id")))
+        .exec(&orm(db))
         .await?;
     Ok(true)
 }
@@ -242,29 +256,27 @@ pub(crate) async fn create_external_issue(
     let ctx = adapter_context(db, state, overrides, &target.connection, None).await?;
     let created =
         providers::create_issue(&ctx, &RepositoryRef::of(&target.repository), input).await?;
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_external_issues (id, issue_id, repository_id, provider, external_id, number, url, \
-           state, checksum, last_writer, provider_updated_at, synced_at, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'weldmerge', $10::timestamptz, $11::timestamptz, \
-           $11::timestamptz, $11::timestamptz) \
-         returning to_jsonb(merge_external_issues.*)",
-    )
-    .bind(generate_id("mxi"))
-    .bind(text(issue, "id"))
-    .bind(text(&target.repository, "id"))
-    .bind(text(&target.repository, "provider"))
-    .bind(&created.external_id)
-    .bind(created.number)
-    .bind(&created.url)
-    .bind(created.state)
-    .bind(checksum_of(&provider_fields(&created)))
-    .bind(&created.updated_at)
-    .bind(&now)
-    .fetch_one(db)
+    let (_, at) = now_at();
+    let row = merge_external_issues::Entity::insert(merge_external_issues::ActiveModel {
+        id: Set(generate_id("mxi")),
+        issue_id: Set(text(issue, "id").to_owned()),
+        repository_id: Set(text(&target.repository, "id").to_owned()),
+        provider: Set(text(&target.repository, "provider").to_owned()),
+        external_id: Set(created.external_id.clone()),
+        number: Set(int4(created.number)?),
+        url: Set(created.url.clone()),
+        state: Set(created.state.to_owned()),
+        checksum: Set(checksum_of(&provider_fields(&created))),
+        last_writer: Set("weldmerge".to_owned()),
+        provider_updated_at: Set(instant_opt(created.updated_at.as_deref())?),
+        synced_at: Set(at),
+        created_at: Set(at),
+        updated_at: Set(at),
+    })
+    .exec_with_returning(&orm(db))
     .await?;
     Ok(CreateExternal::Linked {
-        link: js_row(row),
+        link: json_row(serde_json::to_value(row))?,
         repository_full_name: text(&target.repository, "fullName").to_owned(),
     })
 }
@@ -274,13 +286,12 @@ pub(crate) async fn create_external_issue(
 pub(crate) async fn remove_external_issue(
     db: &PgPool,
     issue_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(link) = find_link_by_issue(db, issue_id).await? else {
         return Ok(false);
     };
-    sqlx::query("delete from merge_external_issues where id = $1")
-        .bind(text(&link, "id"))
-        .execute(db)
+    merge_external_issues::Entity::delete_by_id(text(&link, "id").to_owned())
+        .exec(&orm(db))
         .await?;
     Ok(true)
 }

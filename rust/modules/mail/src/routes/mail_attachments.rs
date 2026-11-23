@@ -171,7 +171,11 @@ async fn live_message_id(db: &PgPool, id: &str) -> Result<Option<String>, DbErr>
 
 /// `refreshMessageAttachmentCount(db, messageId)`: one statement, the count
 /// and the flag read from the message's live attachments.
-async fn refresh_count(db: &PgPool, message_id: &str, at: PrimitiveDateTime) -> Result<(), DbErr> {
+pub(crate) async fn refresh_count(
+    db: &PgPool,
+    message_id: &str,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
     let live = |select: Expr| {
         Query::select()
             .expr(select)
