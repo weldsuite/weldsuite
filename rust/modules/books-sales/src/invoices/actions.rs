@@ -498,15 +498,15 @@ async fn insert_document(
     db: &weldsuite_db::PgPool,
     row: &Map<String, Value>,
     items: &[Value],
-) -> Result<(), sqlx::Error> {
-    let mut tx = db.begin().await?;
+) -> Result<(), sea_orm::DbErr> {
+    let mut tx = db.begin().await.map_err(weldsuite_db::orm_error)?;
     INVOICES.insert_raw(&mut *tx, INVOICES.values(row)).await?;
     for item in items {
         INVOICE_ITEMS
             .insert_raw(&mut *tx, INVOICE_ITEMS.values(&fields_of(item)))
             .await?;
     }
-    tx.commit().await
+    tx.commit().await.map_err(weldsuite_db::orm_error)
 }
 
 #[allow(

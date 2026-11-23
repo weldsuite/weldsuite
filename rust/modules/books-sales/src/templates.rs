@@ -28,7 +28,7 @@ use weldsuite_books_domain::tables::INVOICE_TEMPLATES;
 use weldsuite_catalogs::entity_events::{
     INVOICE_TEMPLATE_CREATED, INVOICE_TEMPLATE_DELETED, INVOICE_TEMPLATE_UPDATED,
 };
-use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -213,8 +213,8 @@ async fn insert_template(
     db: &PgPool,
     row: &Map<String, Value>,
     unset_defaults: bool,
-) -> Result<(), sqlx::Error> {
-    let mut tx = db.begin().await?;
+) -> Result<(), DbErr> {
+    let mut tx = db.begin().await.map_err(orm_error)?;
     if unset_defaults {
         unset_other_defaults(
             &OrmConn::new(&mut tx),
@@ -226,7 +226,7 @@ async fn insert_template(
     INVOICE_TEMPLATES
         .insert_raw(&mut *tx, INVOICE_TEMPLATES.values(row))
         .await?;
-    tx.commit().await
+    tx.commit().await.map_err(orm_error)
 }
 
 async fn list(caller: Caller) -> Response {

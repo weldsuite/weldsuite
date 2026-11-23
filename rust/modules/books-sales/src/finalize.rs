@@ -115,7 +115,7 @@ async fn booking_snapshot(
     db: &PgPool,
     invoice: &Value,
     gst: Option<&GstSupply>,
-) -> Result<Map<String, Value>, sqlx::Error> {
+) -> Result<Map<String, Value>, sea_orm::DbErr> {
     let mut snapshot = Map::new();
     let number = match owned(invoice, "contactTaxNumber") {
         Some(number) => Some(number),
