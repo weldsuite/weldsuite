@@ -51,7 +51,6 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/board",
     "modules/calendar",
     "modules/call",
-    "modules/chat",
     "modules/commerce",
     "modules/core-apps",
     "modules/core-billing",

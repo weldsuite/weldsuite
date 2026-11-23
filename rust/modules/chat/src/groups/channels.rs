@@ -793,7 +793,11 @@ fn channel_update(
     let mut query =
         chat_channels::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(stamp));
     // `coalesce($n, column)`: written when the body sent it.
-    for (key, column) in [("name", Column::Name), ("icon", Column::Icon), ("slug", Column::Slug)] {
+    for (key, column) in [
+        ("name", Column::Name),
+        ("icon", Column::Icon),
+        ("slug", Column::Slug),
+    ] {
         if let Some(text) = text(key) {
             query = query.col_expr(column, Expr::value(text));
         }
@@ -935,10 +939,7 @@ async fn list_messages(
             }
             rows.order_by_desc(Column::CreatedAt)
         };
-        let rows = page_query
-            .limit(sql_limit(limit + 1)?)
-            .all(&db)
-            .await?;
+        let rows = page_query.limit(sql_limit(limit + 1)?).all(&db).await?;
         let rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
         let (messages, has_more, next) = page(rows, limit);
         Ok(
@@ -1196,7 +1197,9 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
                         weldagent_agents::Column::Icon,
                         weldagent_agents::Column::Description,
                     ])
-                    .filter(weldagent_agents::Column::Id.is_in(agent_ids.iter().map(String::as_str)))
+                    .filter(
+                        weldagent_agents::Column::Id.is_in(agent_ids.iter().map(String::as_str)),
+                    )
                     .filter(weldagent_agents::Column::DeletedAt.is_null())
                     .into_tuple()
                     .all(&db)

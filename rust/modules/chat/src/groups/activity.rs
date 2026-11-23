@@ -27,8 +27,8 @@ use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::notifications::{self, Column};
 use weldsuite_schema::tenant::chat_channels;
+use weldsuite_schema::tenant::notifications::{self, Column};
 
 use crate::ChatState;
 use crate::access::{Caller, answer, validate, validate_query};

@@ -394,14 +394,19 @@ async fn remove_one(
         let Some(existing) = live_message(&caller, &id).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         };
-        let channel = existing["channelId"].as_str().unwrap_or_default().to_owned();
+        let channel = existing["channelId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         if !can_access_channel(&caller.db, &channel, &caller.user_id, None).await? {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         }
         if existing["authorId"].as_str() != Some(caller.user_id.as_str())
             && !is_channel_moderator(&caller.db, &channel, &caller.user_id).await?
         {
-            return Err(ChatError::forbidden("You can only delete your own messages"));
+            return Err(ChatError::forbidden(
+                "You can only delete your own messages",
+            ));
         }
         let at = utc_now();
         let db = orm(&caller.db);
@@ -413,10 +418,8 @@ async fn remove_one(
             .await?;
         if let Some(parent) = existing["parentId"].as_str().filter(|p| !p.is_empty()) {
             // `greatest(thread_reply_count - 1, 0)`, in the one statement.
-            let fewer = sea_orm::ExprTrait::sub(
-                Expr::col(chat_messages::Column::ThreadReplyCount),
-                1,
-            );
+            let fewer =
+                sea_orm::ExprTrait::sub(Expr::col(chat_messages::Column::ThreadReplyCount), 1);
             chat_messages::Entity::update_many()
                 .col_expr(
                     chat_messages::Column::ThreadReplyCount,
@@ -433,7 +436,9 @@ async fn remove_one(
             &id,
             &json!({ "id": id, "channelId": channel }),
         );
-        Caller::realtime(&state).message_deleted(&channel, &id).await;
+        Caller::realtime(&state)
+            .message_deleted(&channel, &id)
+            .await;
         Ok(NoContent.into_response())
     }
     .await;

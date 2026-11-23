@@ -350,10 +350,7 @@ async fn live_call_in(db: &PgPool, channel_id: &str) -> Result<Option<Value>, Db
 
 /// `update chat_calls set participants = $2, max_participants = $3 … where
 /// id = $1`: the join's participant list; the caller adds the rest.
-fn set_participants(
-    participants: Vec<Value>,
-    max: i32,
-) -> sea_orm::UpdateMany<chat_calls::Entity> {
+fn set_participants(participants: Vec<Value>, max: i32) -> sea_orm::UpdateMany<chat_calls::Entity> {
     chat_calls::Entity::update_many()
         .col_expr(
             chat_calls::Column::Participants,

@@ -242,10 +242,7 @@ fn sort_code_units(ids: &mut [String]) {
 }
 
 /// The existing DM with exactly `participants` (sorted), if any.
-async fn existing_dm(
-    caller: &Caller,
-    participants: &[String],
-) -> Result<Option<String>, DbErr> {
+async fn existing_dm(caller: &Caller, participants: &[String]) -> Result<Option<String>, DbErr> {
     let db = orm(&caller.db);
     let mine: Vec<String> = members::Entity::find()
         .select_only()
@@ -287,11 +284,7 @@ async fn existing_dm(
 }
 
 /// A new DM channel with `participants` as members.
-async fn insert_dm(
-    caller: &Caller,
-    name: &str,
-    participants: &[String],
-) -> Result<String, DbErr> {
+async fn insert_dm(caller: &Caller, name: &str, participants: &[String]) -> Result<String, DbErr> {
     let id = generate_id("ch");
     let at = utc_now();
     let db = orm(&caller.db);
@@ -363,10 +356,7 @@ const INVITE_PLACEHOLDER_PREFIXES: [&str; 2] = ["invited_", "pending_clerk_"];
 /// Nobody is messaged before they join: the invitee can't read the DM, and
 /// accepting moves their member row to a new user id, which would leave the
 /// DM with a placeholder nobody signs in as.
-async fn pending_invitees(
-    caller: &Caller,
-    user_ids: &[String],
-) -> Result<Vec<String>, DbErr> {
+async fn pending_invitees(caller: &Caller, user_ids: &[String]) -> Result<Vec<String>, DbErr> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -624,7 +614,11 @@ async fn set_archived(state: &ChatState, caller: &Caller, id: &str, archived: bo
             .filter(chat_channels::Column::Type.eq("dm"))
             .exec(&orm(&caller.db))
             .await?;
-        let event = if archived { CHAT_CHANNEL_ARCHIVED } else { CHAT_CHANNEL_UPDATED };
+        let event = if archived {
+            CHAT_CHANNEL_ARCHIVED
+        } else {
+            CHAT_CHANNEL_UPDATED
+        };
         caller.publish(state, event, id, &json!({ "id": id }));
         Ok(Data(json!({ "id": id, "isArchived": archived })).into_response())
     }

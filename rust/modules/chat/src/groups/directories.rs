@@ -235,7 +235,8 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .all(&db)
             .await?;
         let can = caller.context_can();
-        let unreadable = unreadable_record_chat_ids(&caller.db, &caller.user_id, &member, Some(&can)).await?;
+        let unreadable =
+            unreadable_record_chat_ids(&caller.db, &caller.user_id, &member, Some(&can)).await?;
         let public: Vec<String> = chat_channels::Entity::find()
             .select_only()
             .column(chat_channels::Column::Id)
@@ -245,7 +246,11 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .all(&db)
             .await?;
         let mut accessible: Vec<String> = Vec::new();
-        for id in member.into_iter().filter(|id| !unreadable.contains(id)).chain(public) {
+        for id in member
+            .into_iter()
+            .filter(|id| !unreadable.contains(id))
+            .chain(public)
+        {
             if !accessible.contains(&id) {
                 accessible.push(id);
             }
