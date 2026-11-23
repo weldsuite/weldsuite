@@ -116,8 +116,7 @@ pub(crate) fn timestamp_of_millis(millis: i64) -> PrimitiveDateTime {
 /// `floor(extract(epoch from <col>) * 1000)` of a `timestamp` column: the
 /// milliseconds JavaScript's `Date` holds, the microseconds dropped.
 pub(crate) fn millis_of_timestamp(at: PrimitiveDateTime) -> i64 {
-    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
-        .unwrap_or_default()
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or_default()
 }
 
 /// `new Date(iso).getTime()`, for the ISO times GitHub sends.

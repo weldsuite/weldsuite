@@ -17,7 +17,7 @@ use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_db::{MasterDb, PgPool, Tenant};
-use weldsuite_events::{EventContext, iso_timestamp, publish_entity_event};
+use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::Permissions;
@@ -257,11 +257,6 @@ impl<T, E: std::fmt::Display> OrInternal<T> for Result<T, E> {
     fn or_internal(self, message: &'static str) -> AppsResult<T> {
         self.map_err(|error| AppsError::internal(message, error))
     }
-}
-
-/// `new Date()` as Drizzle writes it: bind as text, cast `::timestamptz`.
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
 }
 
 /// `Date.now()`.

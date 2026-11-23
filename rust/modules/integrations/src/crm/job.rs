@@ -339,7 +339,10 @@ impl CrmSyncJob {
             )
             .col_expr(sync_logs::Column::FinishedAt, Expr::value(now_at()))
             .col_expr(sync_logs::Column::DurationMs, Expr::value(count(duration)))
-            .col_expr(sync_logs::Column::Metadata, Expr::value(Value::Object(metadata)))
+            .col_expr(
+                sync_logs::Column::Metadata,
+                Expr::value(Value::Object(metadata)),
+            )
             .filter(sync_logs::Column::Id.eq(log_id))
             .exec(&orm(&db))
             .await
@@ -356,7 +359,10 @@ impl CrmSyncJob {
         let mut set = vec![
             (connections::Column::Status, Expr::value("active")),
             (connections::Column::LastSyncAt, Expr::value(at)),
-            (connections::Column::LastSyncStatus, Expr::value("completed")),
+            (
+                connections::Column::LastSyncStatus,
+                Expr::value("completed"),
+            ),
             (connections::Column::LastError, Expr::value(None::<String>)),
             (
                 connections::Column::LastErrorAt,

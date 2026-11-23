@@ -194,8 +194,11 @@ async fn replace_fields(
         // `created_at`, so new ones are a millisecond apart in the order sent
         // (as `replaceFields` stamps them); a kept field keeps its own.
         let now = crate::now();
-        let rows = fields.into_iter().zip(&ids).zip(0i64..).map(|((f, id), n)| {
-            sign_fields::ActiveModel {
+        let rows = fields
+            .into_iter()
+            .zip(&ids)
+            .zip(0i64..)
+            .map(|((f, id), n)| sign_fields::ActiveModel {
                 id: Set(id.clone()),
                 created_at: Set(now + Duration::milliseconds(n)),
                 envelope_id: Set(envelope_id.to_owned()),
@@ -210,8 +213,7 @@ async fn replace_fields(
                 required: Set(f.required),
                 label: Set(f.label),
                 ..Default::default()
-            }
-        });
+            });
         let upsert = OnConflict::column(sign_fields::Column::Id)
             .update_columns([
                 sign_fields::Column::DocumentId,

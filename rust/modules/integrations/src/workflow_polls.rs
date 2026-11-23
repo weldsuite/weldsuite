@@ -149,13 +149,7 @@ pub struct PollDeps<'a> {
 }
 
 /// `(id, type, credentials, oauth_tokens, settings)` of a connected integration.
-type IntegrationRow = (
-    String,
-    String,
-    Option<Value>,
-    Option<Value>,
-    Option<Value>,
-);
+type IntegrationRow = (String, String, Option<Value>, Option<Value>, Option<Value>);
 
 /// The connected integrations, as the pass changes their settings.
 struct Integrations(Vec<Value>);

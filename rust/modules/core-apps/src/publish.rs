@@ -185,7 +185,10 @@ fn manifest_columns(
     };
     let currency = truthy_text(pricing.and_then(|p| p.get("currency"))).map(|c| c.to_uppercase());
     let mut update = user_apps::Entity::update_many()
-        .col_expr(user_apps::Column::Name, Expr::value(plain_text(field("name"))))
+        .col_expr(
+            user_apps::Column::Name,
+            Expr::value(plain_text(field("name"))),
+        )
         .col_expr(
             user_apps::Column::Description,
             Expr::value(plain_text(field("description"))),
@@ -327,6 +330,17 @@ impl std::fmt::Display for ResolveError {
     }
 }
 
+/// What the bundle host reads of an app: `(id, current_version_id,
+/// is_active, deleted_at, visibility, review_status)`.
+type BundleApp = (
+    String,
+    Option<String>,
+    bool,
+    Option<OffsetDateTime>,
+    String,
+    String,
+);
+
 /// `resolveBundleForCode`: the live bundle of `code` as `{ appId,
 /// bundleKey, entrypoint, requiresToken }`, cached for 60 seconds. A cached
 /// value is taken as it is (an entry without `requiresToken` is gated).
@@ -352,14 +366,7 @@ pub(crate) async fn resolve_bundle_for_code(
         }
     }
     let db = orm(master);
-    let app: Option<(
-        String,
-        Option<String>,
-        bool,
-        Option<OffsetDateTime>,
-        String,
-        String,
-    )> = user_apps::Entity::find()
+    let app: Option<BundleApp> = user_apps::Entity::find()
         .select_only()
         .columns([
             user_apps::Column::Id,

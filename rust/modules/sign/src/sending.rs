@@ -355,7 +355,10 @@ async fn release_group(db: &PgPool, group: &[Value]) -> SignResult<()> {
             sign_recipients::Column::SentAt,
             Expr::value(Option::<OffsetDateTime>::None),
         )
-        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
+        .col_expr(
+            sign_recipients::Column::UpdatedAt,
+            Expr::value(crate::now()),
+        )
         .filter(sign_recipients::Column::Id.is_in(group.iter().map(|r| text(r, "id"))))
         .filter(sign_recipients::Column::Status.eq("sent"))
         .exec(&orm(db))

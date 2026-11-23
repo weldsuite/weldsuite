@@ -33,7 +33,8 @@ pub(crate) fn scope_for(caller: &Caller) -> Option<String> {
     }
 }
 
-/// Whether `scope` owns the booking page (`ownsPage`), deleted or not.
+/// Whether `scope` owns the booking page (`ownsPage`), deleted or not. No
+/// page id finds no page (`id is null` on the primary key, as `id = null`).
 async fn owns_page(db: &PgPool, page_id: Option<&str>, scope: &str) -> Result<bool, DbErr> {
     let owner: Option<String> = pages::Entity::find()
         .select_only()
@@ -212,11 +213,13 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
             && let Some((at, id)) = &cursor
         {
             all = all.add(
-                Condition::any().add(bookings::Column::CreatedAt.lt(*at)).add(
-                    Condition::all()
-                        .add(bookings::Column::CreatedAt.eq(*at))
-                        .add(bookings::Column::Id.lt(id.as_str())),
-                ),
+                Condition::any()
+                    .add(bookings::Column::CreatedAt.lt(*at))
+                    .add(
+                        Condition::all()
+                            .add(bookings::Column::CreatedAt.eq(*at))
+                            .add(bookings::Column::Id.lt(id.as_str())),
+                    ),
             );
         }
         all

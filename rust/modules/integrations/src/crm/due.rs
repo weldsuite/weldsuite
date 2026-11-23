@@ -23,6 +23,7 @@ use weldsuite_schema::tenant::integration_connections as connections;
 
 use super::db_message;
 use crate::connect_internal::{ConnectCall, ConnectInternal};
+use crate::github::millis_of_timestamp;
 
 /// The `workspace_due_index` kind of the CRM syncs.
 pub const CRM_SYNC_DUE_KIND: &str = "crm_sync";
@@ -92,13 +93,6 @@ type ConnectionRow = (
     PrimitiveDateTime,
 );
 
-/// A `timestamp` in milliseconds, the microseconds dropped (`to_char(…,
-/// 'MS')` read back with `new Date(…)`).
-fn millis_of_timestamp(at: PrimitiveDateTime) -> i64 {
-    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000))
-        .unwrap_or_default()
-}
-
 /// The workspace's live CRM connections, with when each is due.
 pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, DbErr> {
     let rows: Vec<ConnectionRow> = connections::Entity::find()
@@ -124,7 +118,8 @@ pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, DbErr> {
             |(id, provider, settings, secret, last_sync_at, connected_at, created_at)| {
                 let interval =
                     interval_minutes(settings.as_ref().and_then(|s| s.get("syncIntervalHours")));
-                // `coalesce(last_sync_at, connected_at, created_at)`.
+                // `coalesce(last_sync_at, connected_at, created_at)`, to the
+                // millisecond (`to_char(…, 'MS')`).
                 let last = millis_of_timestamp(last_sync_at.or(connected_at).unwrap_or(created_at));
                 let renew_at = if provider == "google_calendar" {
                     watch_renewal_at(secret.as_deref())

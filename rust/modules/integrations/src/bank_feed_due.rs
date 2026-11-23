@@ -59,7 +59,11 @@ fn millis(at: OffsetDateTime) -> OffsetDateTime {
     at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
 
-async fn list_due(master: &PgPool, now: OffsetDateTime, limit: usize) -> Result<Vec<DueRow>, DbErr> {
+async fn list_due(
+    master: &PgPool,
+    now: OffsetDateTime,
+    limit: usize,
+) -> Result<Vec<DueRow>, DbErr> {
     let rows: Vec<(String, String, String, i32)> = index::Entity::find()
         .select_only()
         .columns([

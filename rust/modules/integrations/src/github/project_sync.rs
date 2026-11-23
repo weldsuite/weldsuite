@@ -581,7 +581,10 @@ async fn reconcile_outbound(
     let db = deps.db(workspace_id).await?;
     let rows: Vec<(String, String)> = sync_map::Entity::find()
         .select_only()
-        .columns([sync_map::Column::TaskId, sync_map::Column::ProjectItemNodeId])
+        .columns([
+            sync_map::Column::TaskId,
+            sync_map::Column::ProjectItemNodeId,
+        ])
         .filter(sync_map::Column::ProjectLinkId.eq(project_link_id))
         .into_tuple()
         .all(&orm(&db))

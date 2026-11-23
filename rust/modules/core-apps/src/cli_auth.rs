@@ -296,7 +296,11 @@ async fn register_api_key(master: &PgPool, org: &str, hash: &str, tenant_key_id:
             .one(&db)
             .await?;
         let Some(workspace_id) = workspace else {
-            tracing::error!(org, tenant_key_id, "core-apps: no master workspace; the CLI key will not authenticate");
+            tracing::error!(
+                org,
+                tenant_key_id,
+                "core-apps: no master workspace; the CLI key will not authenticate"
+            );
             return Ok(());
         };
         api_key_registry::Entity::insert(api_key_registry::ActiveModel {

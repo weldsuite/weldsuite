@@ -667,7 +667,10 @@ async fn give_back_turn(db: &PgPool, recipient_id: &str, status: &str) -> SignRe
         )
         .col_expr(sign_recipients::Column::SignedIp, none())
         .col_expr(sign_recipients::Column::SignedUserAgent, none())
-        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
+        .col_expr(
+            sign_recipients::Column::UpdatedAt,
+            Expr::value(crate::now()),
+        )
         .filter(sign_recipients::Column::Id.eq(recipient_id))
         .filter(sign_recipients::Column::Status.eq("signed"))
         .exec(&orm(db))

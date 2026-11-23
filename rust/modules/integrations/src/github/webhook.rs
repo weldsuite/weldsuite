@@ -126,7 +126,7 @@ async fn connection_by_installation(
 }
 
 /// A moment as the worker bound it (`toISOString()`): to the millisecond.
-fn now_millis() -> OffsetDateTime {
+fn now_at() -> OffsetDateTime {
     let at = OffsetDateTime::now_utc();
     at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
@@ -396,7 +396,7 @@ async fn upsert_installation_index(
     installation: i64,
     workspace_id: &str,
 ) -> Result<(), DbErr> {
-    let now = now_millis();
+    let now = now_at();
     provider_index::Entity::insert(provider_index::ActiveModel {
         id: Set(weldsuite_kit::generate_id("mpi")),
         provider: Set("github".to_owned()),
@@ -431,7 +431,7 @@ async fn set_installation_status(
     installation: i64,
     status: &str,
 ) -> Result<(), DbErr> {
-    let now = now_millis();
+    let now = now_at();
     merge_connections::Entity::update_many()
         .col_expr(merge_connections::Column::Status, Expr::value(status))
         .col_expr(

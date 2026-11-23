@@ -282,10 +282,7 @@ async fn load_policy(ctx: &SendContext) -> Result<Policy, DbErr> {
             workspaces::Column::SubscriptionStatus,
         ])
         .column_as(
-            sea_orm::ExprTrait::gt(
-                Expr::col((plans::Entity, plans::Column::PriceMonthly)),
-                0,
-            ),
+            sea_orm::ExprTrait::gt(Expr::col((plans::Entity, plans::Column::PriceMonthly)), 0),
             "priced",
         )
         .join(JoinType::LeftJoin, plan)

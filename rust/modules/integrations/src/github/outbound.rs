@@ -420,10 +420,7 @@ async fn record(
             project_link_id: Set(loaded.link.id.clone()),
             task_id: Set(loaded.task.id.clone()),
             // A `null` the statement refuses, as it refused the worker's.
-            project_item_node_id: result
-                .project_item_node_id
-                .clone()
-                .map_or(NotSet, Set),
+            project_item_node_id: result.project_item_node_id.clone().map_or(NotSet, Set),
             issue_node_id: Set(result.issue_node_id.clone()),
             issue_number: number.map_or(NotSet, Set),
             last_synced_task_updated_at: Set(Some(now)),
@@ -440,10 +437,7 @@ async fn record(
     }
     if let Some(map) = &loaded.sync_map {
         sync_map::Entity::update_many()
-            .col_expr(
-                sync_map::Column::LastSyncedTaskUpdatedAt,
-                Expr::value(now),
-            )
+            .col_expr(sync_map::Column::LastSyncedTaskUpdatedAt, Expr::value(now))
             .col_expr(
                 sync_map::Column::LastSyncedIssueUpdatedAt,
                 Expr::value(issue_updated),

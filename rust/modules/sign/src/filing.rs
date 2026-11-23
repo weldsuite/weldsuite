@@ -205,12 +205,10 @@ async fn existing_note(db: &PgPool, record_file_id: &str) -> SignResult<Option<S
     Ok(crm_activities::Entity::find()
         .select_only()
         .column(crm_activities::Column::Id)
-        .filter(
-            sea_orm::sea_query::extension::postgres::PgExpr::contains(
-                Expr::col((crm_activities::Entity, crm_activities::Column::Attachments)),
-                json!([record_file_id]),
-            ),
-        )
+        .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((crm_activities::Entity, crm_activities::Column::Attachments)),
+            json!([record_file_id]),
+        ))
         .into_tuple()
         .one(&orm(db))
         .await?)

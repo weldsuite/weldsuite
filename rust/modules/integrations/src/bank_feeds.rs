@@ -28,13 +28,13 @@ use axum::routing::post;
 use base64::Engine as _;
 use hmac::{KeyInit, Mac};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256, Sha512};
-use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_books_domain::bank_feeds::{FeedConfig, providers::normalize_provider_id};
 use weldsuite_db::{PgPool, orm};
-use weldsuite_schema::master::bank_feed_connection_index as index;
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
+use weldsuite_schema::master::bank_feed_connection_index as index;
 
 use crate::binding::{BindingRequest, ServiceBinding};
 use crate::{IntegrationsState, PublicCtx};

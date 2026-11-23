@@ -12,9 +12,9 @@ use axum::extract::{DefaultBodyLimit, OriginalUri, Path, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use serde::{Deserialize, Serialize};
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_db::{PgPool, orm};
@@ -23,7 +23,9 @@ use weldsuite_kit::id::generate_id;
 use weldsuite_kit::{ApiError, Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynCache;
-use weldsuite_schema::master::{user_app_dev_sessions as dev_sessions, user_app_installs, user_apps};
+use weldsuite_schema::master::{
+    user_app_dev_sessions as dev_sessions, user_app_installs, user_apps,
+};
 use weldsuite_schema::tenant::workspace_installed_apps;
 
 use crate::CoreAppsState;
@@ -250,7 +252,8 @@ async fn bundle_url(
                 return Err(not_found());
             }
             let env = |key: &str| caller.overrides.env(&state, key);
-            let Some(link) = sign_bundle_capability(env, &app_id, &caller.workspace_id, now_ms()) else {
+            let Some(link) = sign_bundle_capability(env, &app_id, &caller.workspace_id, now_ms())
+            else {
                 tracing::error!("core-apps: bundle-url: no bundle signing secret is configured");
                 return Err(ApiError::internal()
                     .with_message("App bundle links are not configured")

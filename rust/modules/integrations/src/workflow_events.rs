@@ -21,9 +21,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode, Uri};
-use sea_orm::{
-    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef,
-};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use weldsuite_core_domain::js::{Js, as_text, js_string};

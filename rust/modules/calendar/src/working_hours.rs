@@ -195,30 +195,41 @@ fn live_preferences() -> RelationDef {
     members::Entity::belongs_to(prefs::Entity)
         .from(members::Column::UserId)
         .to(prefs::Column::UserId)
-        .on_condition(|_, right| Expr::col((right, prefs::Column::DeletedAt)).is_null().into())
+        .on_condition(|_, right| {
+            Expr::col((right, prefs::Column::DeletedAt))
+                .is_null()
+                .into()
+        })
         .into()
 }
 
 /// The active members, by name, each with their working hours (a live
 /// preferences row's) and no picture yet.
 async fn team_rows(db: &PgPool) -> Result<Vec<Value>, DbErr> {
-    let rows: Vec<(String, String, Option<String>, Option<String>, Option<Value>)> =
-        members::Entity::find()
-            .select_only()
-            .columns([
-                members::Column::Id,
-                members::Column::UserId,
-                members::Column::Name,
-                members::Column::Email,
-            ])
-            .column(prefs::Column::WorkingHours)
-            .join(JoinType::LeftJoin, live_preferences())
-            .filter(members::Column::Status.eq("ACTIVE"))
-            .filter(members::Column::DeletedAt.is_null())
-            .order_by_asc(members::Column::Name)
-            .into_tuple()
-            .all(&orm(db))
-            .await?;
+    // id, user id, name, email, working hours.
+    type Row = (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<Value>,
+    );
+    let rows: Vec<Row> = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::Id,
+            members::Column::UserId,
+            members::Column::Name,
+            members::Column::Email,
+        ])
+        .column(prefs::Column::WorkingHours)
+        .join(JoinType::LeftJoin, live_preferences())
+        .filter(members::Column::Status.eq("ACTIVE"))
+        .filter(members::Column::DeletedAt.is_null())
+        .order_by_asc(members::Column::Name)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, user_id, name, email, working_hours)| {

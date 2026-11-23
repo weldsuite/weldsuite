@@ -48,8 +48,6 @@ const NOT_CONVERTED: &[&str] = &[
     "crates/subscribers",
     "modules/ads",
     "modules/board",
-    "modules/calendar",
-    "modules/core-apps",
     "modules/core-billing",
     "modules/core-files",
     "modules/core-onboarding",
@@ -57,11 +55,9 @@ const NOT_CONVERTED: &[&str] = &[
     "modules/docs",
     "modules/external-api",
     "modules/host",
-    "modules/integrations",
     "modules/mcp",
     "modules/personal",
     "modules/sheets",
-    "modules/sign",
     "modules/social",
 ];
 

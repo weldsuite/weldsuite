@@ -15,7 +15,6 @@ use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::Value;
 use weldsuite_db::{PgPool, orm};
-use weldsuite_schema::tenant::{user_preferences, workspace_members, workspace_settings};
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::ics::{IcsEvent, IcsPerson, IcsTime, ics_attachment};
 use weldsuite_emails::{EmailBrand, EmailLocale, EndTime};
@@ -26,6 +25,7 @@ use weldsuite_mail_domain::outbound::guard::{
 use weldsuite_mail_domain::outbound::transmit::{SendEmailParams, send_email};
 use weldsuite_mail_domain::outbound::{MimeAttachment, OutboundBindings, OutboundKind};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::{user_preferences, workspace_members, workspace_settings};
 
 use crate::js::valid_zone;
 use crate::{CalendarState, Caller, text};

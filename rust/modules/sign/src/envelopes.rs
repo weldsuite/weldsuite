@@ -1014,22 +1014,17 @@ pub(crate) async fn update_envelope(
     }
     let expires = match &changes.expires_at {
         Field::Set(at) => Some(
-            Some(offset_datetime(at).ok_or_else(|| {
-                SignError::Internal(format!("sign: unreadable expiry {at}"))
-            })?)
+            Some(
+                offset_datetime(at)
+                    .ok_or_else(|| SignError::Internal(format!("sign: unreadable expiry {at}")))?,
+            )
             .into(),
         ),
         other => sent(other, |_| OffsetDateTime::UNIX_EPOCH),
     };
     let values: [(Column, Option<sea_orm::Value>); 9] = [
-        (
-            Column::Title,
-            sent(&changes.title, Clone::clone),
-        ),
-        (
-            Column::Message,
-            sent(&changes.message, Clone::clone),
-        ),
+        (Column::Title, sent(&changes.title, Clone::clone)),
+        (Column::Message, sent(&changes.message, Clone::clone)),
         (
             Column::SigningOrderEnabled,
             sent(&changes.signing_order, |on| *on),
@@ -1199,4 +1194,37 @@ async fn list_events(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
             })
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `'…'::timestamptz` makes of the expiry forms the schema lets through.
+    #[test]
+    fn expiries_read_like_postgres() {
+        let at = |text: &str| offset_datetime(text).map(iso_timestamp);
+        assert_eq!(
+            at("2026-10-29T07:00:00Z").as_deref(),
+            Some("2026-10-29T07:00:00.000Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00Z").as_deref(),
+            Some("2026-10-29T07:00:00.000Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00:00.123+02:00").as_deref(),
+            Some("2026-10-29T05:00:00.123Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00:00-0530").as_deref(),
+            Some("2026-10-29T12:30:00.000Z")
+        );
+        // Microseconds, rounded: `.1239996` is `.124000`.
+        assert_eq!(
+            at("2026-10-29T07:00:00.1239996Z").as_deref(),
+            Some("2026-10-29T07:00:00.124Z")
+        );
+        assert_eq!(at("2026-10-29"), None);
+    }
 }

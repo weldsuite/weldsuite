@@ -143,12 +143,15 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     };
     let result = async {
         let calendar_ids =
-            access::resolve_requested(&caller.db, &caller.user_id, q.calendar_ids.as_deref()).await?;
+            access::resolve_requested(&caller.db, &caller.user_id, q.calendar_ids.as_deref())
+                .await?;
         if calendar_ids.is_empty() {
             return Ok(page(Vec::new(), 0, false, None));
         }
         let non_empty = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
-        let start_date = non_empty(&q.start_date).map(|d| date_param(&d)).transpose()?;
+        let start_date = non_empty(&q.start_date)
+            .map(|d| date_param(&d))
+            .transpose()?;
         let end_date = non_empty(&q.end_date).map(|d| date_param(&d)).transpose()?;
         let search = non_empty(&q.search).map(|s| {
             let mut term = String::from("%");
@@ -663,23 +666,22 @@ pub(crate) async fn update(
 }
 
 /// The value a sent text field writes (`null` clears it); `None` when the
-/// body left it out.
-fn change_text(field: &Field<String>) -> Option<Option<String>> {
+/// body left it out (`case when $set then $value else col end`).
+fn change_text(field: &Field<String>) -> Option<Expr> {
     match field {
         Field::Absent => None,
-        Field::Null => Some(None),
-        Field::Set(value) => Some(Some(value.clone())),
+        Field::Null => Some(Expr::value(Option::<String>::None)),
+        Field::Set(value) => Some(Expr::value(value.clone())),
     }
 }
 
-fn change_json<T>(
-    field: &Field<Vec<T>>,
-    to_value: impl Fn(&T) -> Value,
-) -> Option<Option<Value>> {
+fn change_json<T>(field: &Field<Vec<T>>, to_value: impl Fn(&T) -> Value) -> Option<Expr> {
     match field {
         Field::Absent => None,
-        Field::Null => Some(None),
-        Field::Set(items) => Some(Some(Value::Array(items.iter().map(to_value).collect()))),
+        Field::Null => Some(Expr::value(Option::<Value>::None)),
+        Field::Set(items) => Some(Expr::value(Value::Array(
+            items.iter().map(to_value).collect(),
+        ))),
     }
 }
 
@@ -687,46 +689,40 @@ fn change_json<T>(
 /// sent, a `null` clearing one.
 async fn write_event(db: &PgPool, id: &str, input: &EventInput) -> Result<(), DbErr> {
     use events::Column as E;
-    let text = |field: &Field<String>| change_text(field).map(Expr::value);
     let instant = |field: &Field<String>| {
         (!field.is_absent())
             .then(|| Expr::value(text_field(field).and_then(parse_date).map(timestamp_at)))
     };
-    let flag = |field: &Field<bool>| (!field.is_absent()).then(|| Expr::value(field.as_set().copied()));
+    let flag =
+        |field: &Field<bool>| (!field.is_absent()).then(|| Expr::value(field.as_set().copied()));
     let meeting_url = match &input.meeting_url {
         Field::Set(url) if url.is_empty() => Some(Expr::value(Option::<String>::None)),
-        other => text(other),
+        other => change_text(other),
     };
     let sets = [
-        (E::CalendarId, text(&input.calendar_id)),
-        (E::Title, text(&input.title)),
-        (E::Description, text(&input.description)),
-        (E::Type, text(&input.kind)),
+        (E::CalendarId, change_text(&input.calendar_id)),
+        (E::Title, change_text(&input.title)),
+        (E::Description, change_text(&input.description)),
+        (E::Type, change_text(&input.kind)),
         (E::StartTime, instant(&input.start_time)),
         (E::EndTime, instant(&input.end_time)),
         (E::AllDay, flag(&input.all_day)),
-        (E::Timezone, text(&input.timezone)),
-        (E::Location, text(&input.location)),
+        (E::Timezone, change_text(&input.timezone)),
+        (E::Location, change_text(&input.location)),
         (E::IsVirtual, flag(&input.is_virtual)),
         (E::MeetingUrl, meeting_url),
-        (E::Status, text(&input.status)),
-        (E::Priority, text(&input.priority)),
-        (E::Color, text(&input.color)),
-        (E::RecurrenceRule, text(&input.recurrence_rule)),
-        (
-            E::Attendees,
-            change_json(&input.attendees, attendee_value).map(Expr::value),
-        ),
-        (
-            E::Reminders,
-            change_json(&input.reminders, Clone::clone).map(Expr::value),
-        ),
-        (E::CustomerId, text(&input.customer_id)),
-        (E::ContactId, text(&input.contact_id)),
-        (E::Notes, text(&input.notes)),
+        (E::Status, change_text(&input.status)),
+        (E::Priority, change_text(&input.priority)),
+        (E::Color, change_text(&input.color)),
+        (E::RecurrenceRule, change_text(&input.recurrence_rule)),
+        (E::Attendees, change_json(&input.attendees, attendee_value)),
+        (E::Reminders, change_json(&input.reminders, Clone::clone)),
+        (E::CustomerId, change_text(&input.customer_id)),
+        (E::ContactId, change_text(&input.contact_id)),
+        (E::Notes, change_text(&input.notes)),
         (
             E::Tags,
-            change_json(&input.tags, |t| Value::String(t.clone())).map(Expr::value),
+            change_json(&input.tags, |t| Value::String(t.clone())),
         ),
     ];
     let mut update = events::Entity::update_many().col_expr(E::UpdatedAt, Expr::value(now()));

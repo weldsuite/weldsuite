@@ -270,18 +270,9 @@ async fn update_recipient(
     let values: [(Column, Option<sea_orm::Value>); 9] = [
         (Column::Role, Some(role.clone().into())),
         (Column::Name, sent(&input.name, Clone::clone)),
-        (
-            Column::Email,
-            sent(&input.email, Clone::clone),
-        ),
-        (
-            Column::PersonId,
-            sent(&input.person_id, Clone::clone),
-        ),
-        (
-            Column::Locale,
-            sent(&input.locale, Clone::clone),
-        ),
+        (Column::Email, sent(&input.email, Clone::clone)),
+        (Column::PersonId, sent(&input.person_id, Clone::clone)),
+        (Column::Locale, sent(&input.locale, Clone::clone)),
         (
             Column::RoutingOrder,
             sent(&input.routing_order, |n| int(*n)),

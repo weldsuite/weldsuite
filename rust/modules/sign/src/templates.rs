@@ -345,7 +345,9 @@ pub(crate) async fn add_role(
 ) -> Response {
     answer(
         async {
-            let input = validate(&headers, &body, |issues, fields| read_role(issues, fields, true))?;
+            let input = validate(&headers, &body, |issues, fields| {
+                read_role(issues, fields, true)
+            })?;
             let db = &caller.db;
             let template = load_template(db, &id).await?;
             let template_id = text(&template, "id");
@@ -362,7 +364,10 @@ pub(crate) async fn add_role(
             let auth_mode = if input.role.as_set().map(String::as_str) == Some("cc") {
                 "link".to_owned()
             } else {
-                input.auth_mode.into_option().unwrap_or_else(|| "link".to_owned())
+                input
+                    .auth_mode
+                    .into_option()
+                    .unwrap_or_else(|| "link".to_owned())
             };
             let order = input
                 .routing_order
@@ -453,19 +458,10 @@ async fn update_role_row(
     use sign_recipients::Column;
     let values: [(Column, Option<sea_orm::Value>); 8] = [
         (Column::Role, Some(role.into())),
-        (
-            Column::RoleName,
-            sent(&input.role_name, Clone::clone),
-        ),
+        (Column::RoleName, sent(&input.role_name, Clone::clone)),
         (Column::Name, sent(&input.name, Clone::clone)),
-        (
-            Column::Email,
-            sent(&input.email, Clone::clone),
-        ),
-        (
-            Column::Locale,
-            sent(&input.locale, Clone::clone),
-        ),
+        (Column::Email, sent(&input.email, Clone::clone)),
+        (Column::Locale, sent(&input.locale, Clone::clone)),
         (
             Column::RoutingOrder,
             sent(&input.routing_order, |n| int(*n)),

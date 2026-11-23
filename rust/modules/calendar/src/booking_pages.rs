@@ -69,13 +69,11 @@ impl PageFilters<'_> {
         }
         if let Some((at, id)) = self.cursor {
             all = all.add(
-                Condition::any()
-                    .add(pages::Column::CreatedAt.lt(*at))
-                    .add(
-                        Condition::all()
-                            .add(pages::Column::CreatedAt.eq(*at))
-                            .add(pages::Column::Id.lt(id.as_str())),
-                    ),
+                Condition::any().add(pages::Column::CreatedAt.lt(*at)).add(
+                    Condition::all()
+                        .add(pages::Column::CreatedAt.eq(*at))
+                        .add(pages::Column::Id.lt(id.as_str())),
+                ),
             );
         }
         all
@@ -947,7 +945,12 @@ pub(crate) async fn remove(
             .filter(pages::Column::Id.eq(id.as_str()))
             .exec(&orm(&caller.db))
             .await?;
-        caller.publish(&state, CALENDAR_BOOKING_PAGE_DELETED, &id, &json!({ "id": id }));
+        caller.publish(
+            &state,
+            CALENDAR_BOOKING_PAGE_DELETED,
+            &id,
+            &json!({ "id": id }),
+        );
         Ok::<_, Refusal>(())
     }
     .await;
@@ -975,7 +978,10 @@ pub(crate) async fn toggle(
             .exec(&orm(&caller.db))
             .await?;
         let mut changes = Map::new();
-        changes.insert("isActive".to_owned(), json!({ "old": was, "new": is_active }));
+        changes.insert(
+            "isActive".to_owned(),
+            json!({ "old": was, "new": is_active }),
+        );
         state.events.publish(
             &caller.events,
             weldsuite_events::EntityEvent::new(
