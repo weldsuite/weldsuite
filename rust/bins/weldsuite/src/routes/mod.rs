@@ -2620,6 +2620,12 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
         router
     };
     router
+        // Rust only (ADR OPS-026); enforced on the EU edition, informational
+        // elsewhere (the platform shows the page on the EU edition only).
+        .nest(
+            "/outside-eu-services",
+            weldsuite_core_platform::outside_eu(platform.clone(), gate),
+        )
         .nest(
             "/notifications",
             weldsuite_core_platform::notifications(platform.clone(), gate),
@@ -3442,5 +3448,11 @@ fn external_api_state(state: &AppState) -> weldsuite_external_api::ExternalApiSt
         env: Arc::clone(ENV.get_or_init(|| {
             Arc::new(weldsuite_external_api::ExternalApiState::env_from_process())
         })),
+        // WeldMail's relay and ledgers, as `/api/mail-*` sends through them;
+        // conformance tests bring their own (request extensions).
+        mail: weldsuite_external_api::MailBindings {
+            outbound: deployment_outbound(state),
+            doh: Some(weldsuite_mail::send::reqwest_doh()),
+        },
     }
 }

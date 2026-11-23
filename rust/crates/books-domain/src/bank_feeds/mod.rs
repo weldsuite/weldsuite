@@ -70,11 +70,31 @@ pub enum ServiceError {
     Database(DbErr),
     /// Anything else (a crypto failure): the route's 500.
     Other(String),
+    /// The provider is outside the EU and the workspace hasn't switched it
+    /// on (ADR OPS-026): the route's 403.
+    OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
 impl From<DbErr> for ServiceError {
     fn from(error: DbErr) -> Self {
         Self::Database(error)
+    }
+}
+
+impl From<weldsuite_outside_eu::OutsideEuError> for ServiceError {
+    fn from(error: weldsuite_outside_eu::OutsideEuError) -> Self {
+        Self::OutsideEu(error)
+    }
+}
+
+/// The service outside the EU a bank feed provider is (ADR OPS-026): Plaid,
+/// and Stripe Financial Connections. Ponto and Enable Banking are EU
+/// companies.
+pub fn outside_eu_service(provider_id: &str) -> Option<weldsuite_outside_eu::ServiceId> {
+    match providers::normalize_provider_id(provider_id).as_str() {
+        "plaid" => Some(weldsuite_outside_eu::ServiceId::Plaid),
+        "stripe_fc" => Some(weldsuite_outside_eu::ServiceId::Stripe),
+        _ => None,
     }
 }
 
@@ -285,6 +305,19 @@ pub struct FeedContext {
 }
 
 impl FeedContext {
+    /// `Err` when `provider_id` is outside the EU and the workspace hasn't
+    /// switched it on (ADR OPS-026); `Ok` without enforcement and for the
+    /// EU providers.
+    pub async fn outside_eu(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), weldsuite_outside_eu::OutsideEuError> {
+        match outside_eu_service(provider_id) {
+            Some(service) => weldsuite_outside_eu::require(&self.db, service).await,
+            None => Ok(()),
+        }
+    }
+
     /// `ctx.getProvider(id)`.
     pub fn provider(&self, id: &str) -> Result<Provider<'_>, FeedError> {
         Provider::create(

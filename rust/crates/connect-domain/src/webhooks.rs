@@ -9,11 +9,12 @@ use std::time::Duration;
 
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
-use sea_orm::DbErr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::{DynCache, OutboundHttp};
+use weldsuite_schema::tenant::integration_entity_mappings as mappings;
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::decrypt_credentials;
@@ -803,6 +804,192 @@ pub async fn unregister_connection_webhooks(
     }
 }
 
+/// The flag that marks a webhook registration in flight (`connreg:<id>`).
+/// Moneybird calls the delivery URL while it registers and refuses the
+/// webhook unless that call is answered with a 200, but the secret that would
+/// verify the call only comes back in its answer. While the flag is set the
+/// ingress answers the connection's deliveries with a 200 without forwarding
+/// them, so nothing unverified is ever imported.
+pub fn registration_kv_key(connection_id: &str) -> String {
+    format!("connreg:{connection_id}")
+}
+
+const REGISTRATION_WINDOW: Duration = Duration::from_secs(120);
+
+/// The provider topics a connection should be registered for: those of its
+/// enabled syncs, deduplicated, in [`topics_for`]'s order.
+pub fn wanted_topics(connection: &Value) -> Vec<String> {
+    let provider = text(connection, "provider").unwrap_or_default();
+    let Some(connector) = get_connector(provider) else {
+        return Vec::new();
+    };
+    let enabled = enabled_syncs(connector, connection.get("enabled_syncs"));
+    let allowed: Vec<&str> = enabled
+        .iter()
+        .filter_map(|s| s["settingKey"].as_str())
+        .collect();
+    let mut topics: Vec<String> = Vec::new();
+    for topic in topics_for(provider) {
+        if allowed.contains(&topic.setting_key) && !topics.contains(&topic.topic) {
+            topics.push(topic.topic);
+        }
+    }
+    topics
+}
+
+/// The topics a connection's stored registrations cover (Moneybird keeps
+/// one registration whose topic lists every event, comma-separated).
+pub fn registered_topics(connection: &Value) -> Vec<String> {
+    let mut topics: Vec<String> = Vec::new();
+    for registration in connection
+        .get("webhook_registrations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for topic in registration
+            .get("topic")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .split(',')
+            .map(weldsuite_kit::validation::js_trim)
+            .filter(|t| !t.is_empty())
+        {
+            if !topics.iter().any(|known| known == topic) {
+                topics.push(topic.to_owned());
+            }
+        }
+    }
+    topics
+}
+
+/// Whether the stored registrations cover exactly the wanted topics.
+fn covers(connection: &Value, wanted: &[String]) -> bool {
+    let registered = registered_topics(connection);
+    registered.len() == wanted.len() && wanted.iter().all(|t| registered.contains(t))
+}
+
+/// What [`ensure_connection_webhooks`] needs besides the connection.
+pub struct EnsureWebhooks<'a> {
+    pub db: &'a PgPool,
+    pub http: Option<&'a OutboundHttp>,
+    pub keyring: &'a Keyring,
+    pub cache: Option<&'a Arc<dyn DynCache>>,
+    pub base_url: &'a str,
+    /// `workspaces.id`, for the ingress's KV mapping.
+    pub workspace_id: &'a str,
+    /// Register again even when the stored registrations look right (a
+    /// connect or reconnect).
+    pub force: bool,
+}
+
+/// Whether Moneybird still has the stored registration, active and pointing
+/// at this connection's delivery URL. A read that fails counts as yes: the
+/// next check tries again rather than registering twice.
+async fn moneybird_registration_alive(
+    http: Option<&OutboundHttp>,
+    client: &ProviderClient,
+    connection: &Value,
+    delivery_url: &str,
+) -> bool {
+    let ProviderClient::Moneybird(mb) = client else {
+        return true;
+    };
+    let ids: Vec<String> = connection
+        .get("webhook_registrations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r.get("id").map(crate::clients::as_text))
+        .filter(|id| !id.is_empty())
+        .collect();
+    match mb.list_webhooks(http).await {
+        Ok(listed) => ids.iter().all(|id| {
+            listed
+                .iter()
+                .any(|w| &w.id == id && w.active && w.url == delivery_url)
+        }),
+        Err(error) => {
+            tracing::warn!(error = %error.message, "[connectors/webhooks] Moneybird webhook check failed");
+            true
+        }
+    }
+}
+
+/// Make sure a connection's provider webhooks reach WeldSuite: the KV
+/// mapping the ingress reads first, then the provider registrations when
+/// there are none, they no longer cover the enabled syncs' topics, Moneybird
+/// lost or deactivated them, or `force` asks. Old registrations are removed
+/// before new ones are made, so deliveries never arrive twice. `Ok(None)`:
+/// nothing needed registering (or the connection takes no webhooks).
+pub async fn ensure_connection_webhooks(
+    args: &EnsureWebhooks<'_>,
+    connection: &Value,
+    credentials: &Map<String, Value>,
+) -> Result<Option<Registered>, String> {
+    let id = text(connection, "id").unwrap_or_default();
+    let provider = text(connection, "provider").unwrap_or_default();
+    if id.is_empty() || connection["status"] == "paused" || !connection["deleted_at"].is_null() {
+        return Ok(None);
+    }
+    if let Some(cache) = args.cache
+        && !args.workspace_id.is_empty()
+        && let Err(error) = put_webhook_mapping(cache, id, args.workspace_id, provider).await
+    {
+        tracing::error!(%error, "[connectors/webhooks] KV mapping failed");
+    }
+    let wanted = wanted_topics(connection);
+    if wanted.is_empty() || uses_stripe_connect_webhook(connection, credentials) {
+        return Ok(None);
+    }
+    let url = delivery_url(args.base_url, id);
+    if url.starts_with("http://") {
+        return Ok(None);
+    }
+    let client = ProviderClient::new(
+        provider,
+        credentials,
+        text(connection, "external_account_id"),
+    )
+    .map_err(|error| error.message)?;
+    let registered = connection
+        .get("webhook_registrations")
+        .and_then(Value::as_array)
+        .is_some_and(|list| !list.is_empty());
+    if !args.force
+        && registered
+        && covers(connection, &wanted)
+        && moneybird_registration_alive(args.http, &client, connection, &url).await
+    {
+        return Ok(None);
+    }
+    if registered {
+        unregister_connection_webhooks(args.http, connection, credentials).await;
+    }
+    let flag = registration_kv_key(id);
+    if let Some(cache) = args.cache
+        && let Err(error) = cache.put_boxed(&flag, "1", Some(REGISTRATION_WINDOW)).await
+    {
+        tracing::warn!(%error, "[connectors/webhooks] registration flag failed");
+    }
+    let outcome = register_connection_webhooks(
+        args.db,
+        args.http,
+        args.keyring,
+        args.base_url,
+        connection,
+        credentials,
+        &generate_webhook_secret(),
+    )
+    .await;
+    if let Some(cache) = args.cache
+        && let Err(error) = cache.delete_boxed(&flag).await
+    {
+        tracing::warn!(%error, "[connectors/webhooks] registration flag cleanup failed");
+    }
+    outcome.map(Some)
+}
+
 /// `putConnectorWebhookMapping({ connectionId, workspaceId, provider })`.
 pub async fn put_webhook_mapping(
     cache: &Arc<dyn DynCache>,
@@ -1006,6 +1193,12 @@ pub async fn process_connector_webhook(
         id,
         credentials: &credentials,
     };
+    if provider == "moneybird"
+        && topic.kind == "create"
+        && let Some(answer) = moneybird_create_guard(db, id, &topic, &payload).await?
+    {
+        return Ok(answer);
+    }
     if provider == "moneybird" && is_routed_moneybird_topic(&topic.topic) {
         return process_routed_moneybird(&delivery, &topic, &payload).await;
     }
@@ -1028,6 +1221,102 @@ pub async fn process_connector_webhook(
         topic.kind == "delete",
     )
     .await
+}
+
+/// A Moneybird create for a record WeldBooks hasn't mapped, while WeldBooks
+/// is itself creating one of that kind (ADR INT-013): it may be our own
+/// create, arriving before its mapping is written. Answered 503 so Moneybird
+/// retries once the mapping exists, instead of importing a duplicate.
+async fn moneybird_create_guard(
+    db: &PgPool,
+    connection_id: &str,
+    topic: &Topic,
+    payload: &Value,
+) -> Result<Option<WebhookResult>, DbErr> {
+    use crate::moneybird_push::two_way;
+    let types: &[&str] = match topic.sync_name {
+        Some("moneybird-contacts") => &[crate::moneybird_push::MB_CONTACT_TYPE],
+        Some("moneybird-products") => &[two_way::PRODUCT_TYPE],
+        Some("moneybird-purchase-invoices") => {
+            &[two_way::PURCHASE_INVOICE_TYPE, two_way::RECEIPT_TYPE]
+        }
+        _ => return Ok(None),
+    };
+    let entity_id = payload
+        .get("entity")
+        .and_then(|e| e.get("id"))
+        .filter(|v| !v.is_null())
+        .or_else(|| payload.get("entity_id").filter(|v| !v.is_null()))
+        .map(crate::clients::as_text)
+        .unwrap_or_default();
+    if entity_id.is_empty() {
+        return Ok(None);
+    }
+    let mapped: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::Id)
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.is_in(types.iter().copied()))
+        .filter(mappings::Column::ExternalEntityId.eq(entity_id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    if mapped.is_some() {
+        return Ok(None);
+    }
+    for kind in types {
+        if two_way::create_in_flight(db, connection_id, kind).await? {
+            return Ok(Some(result(
+                false,
+                503,
+                "WeldBooks is creating this kind of record in Moneybird; retry",
+            )));
+        }
+    }
+    Ok(None)
+}
+
+/// Records already read from the provider imported into one of the
+/// connection's syncs (one sync run, as a webhook delivery): the Moneybird
+/// side of a two-way conflict that Moneybird won.
+pub async fn import_records(
+    db: &PgPool,
+    env: &SyncEnv,
+    connection: &Value,
+    workspace_id: &str,
+    sync_name: &str,
+    records: Vec<Value>,
+) -> Result<WebhookResult, DbErr> {
+    let provider = text(connection, "provider").unwrap_or_default();
+    let id = text(connection, "id").unwrap_or_default();
+    let stored = decrypt_credentials(connection.get("credentials"), &env.keyring);
+    let credentials =
+        with_runtime_credentials(connection, stored, env.stripe_secret_key.as_deref());
+    let sync = match inbound_sync(connection, provider, Some(sync_name), "") {
+        Ok(sync) => sync,
+        Err(answer) => return Ok(answer),
+    };
+    let client = ProviderClient::new(
+        provider,
+        &credentials,
+        text(connection, "external_account_id"),
+    )
+    .map_err(|error| error.message);
+    let delivery = Delivery {
+        db,
+        env,
+        connection,
+        owner_id: "system",
+        workspace_id,
+        provider,
+        id,
+        credentials: &credentials,
+    };
+    // Without `ingest_delivery`'s Stripe follow-up: a Moneybird import never
+    // starts one, and the push this comes from must not start itself.
+    ingest_run(&delivery, &client, &sync, Records::Ready(records), false)
+        .await
+        .map(|(answer, _)| answer)
 }
 
 /// One delivery being processed: what each of its sync runs needs.
@@ -1155,7 +1444,7 @@ async fn process_routed_moneybird(
 }
 
 /// `ingestDelivery(...)`: one sync run, the delivery's records imported into
-/// `sync`.
+/// `sync`; Stripe sales that came in go on to Moneybird.
 async fn ingest_delivery(
     d: &Delivery<'_>,
     client: &Result<ProviderClient, String>,
@@ -1163,6 +1452,22 @@ async fn ingest_delivery(
     records: Records,
     force_deleted: bool,
 ) -> Result<WebhookResult, DbErr> {
+    let (answer, changed) = ingest_run(d, client, sync, records, force_deleted).await?;
+    if d.provider == "stripe" && changed {
+        crate::moneybird_push::push_after_stripe_ingest(d.db, d.env, d.id).await;
+    }
+    Ok(answer)
+}
+
+/// [`ingest_delivery`]'s sync run, and whether it created or changed
+/// anything.
+async fn ingest_run(
+    d: &Delivery<'_>,
+    client: &Result<ProviderClient, String>,
+    sync: &Value,
+    records: Records,
+    force_deleted: bool,
+) -> Result<(WebhookResult, bool), DbErr> {
     let Delivery {
         db,
         env,
@@ -1271,10 +1576,10 @@ async fn ingest_delivery(
                 },
             )
             .await?;
-            if provider == "stripe" && ingested.created + ingested.modified > 0 {
-                crate::moneybird_push::push_after_stripe_ingest(db, env, id).await;
-            }
-            Ok(result(true, 200, "ingested"))
+            Ok((
+                result(true, 200, "ingested"),
+                ingested.created + ingested.modified > 0,
+            ))
         }
         Err(message) => {
             finish_sync_run(
@@ -1289,7 +1594,7 @@ async fn ingest_delivery(
                 },
             )
             .await?;
-            Ok(result(false, 500, message))
+            Ok((result(false, 500, message), false))
         }
     }
 }
@@ -1327,5 +1632,45 @@ mod tests {
             Some(&format!("t={now},v1={digest}"))
         ));
         assert_eq!(generate_webhook_secret().len(), 44);
+    }
+
+    #[test]
+    fn wanted_topics_follow_the_enabled_syncs() {
+        let all = json!({ "id": "cc_1", "provider": "moneybird", "enabled_syncs": null });
+        let wanted = wanted_topics(&all);
+        assert!(wanted.contains(&"contact_changed".to_owned()));
+        assert!(wanted.contains(&"document_saved".to_owned()));
+        let unique: std::collections::BTreeSet<&String> = wanted.iter().collect();
+        assert_eq!(
+            unique.len(),
+            wanted.len(),
+            "payment topics feed three syncs but register once"
+        );
+        let contacts =
+            json!({ "id": "cc_1", "provider": "moneybird", "enabled_syncs": ["contacts"] });
+        let wanted = wanted_topics(&contacts);
+        assert!(wanted.iter().all(|t| t.starts_with("contact_")));
+        assert_eq!(
+            wanted_topics(&json!({ "id": "cc_1", "provider": "odoo" })),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn registrations_cover_the_wanted_topics() {
+        let wanted = vec!["contact_changed".to_owned(), "contact_destroyed".to_owned()];
+        let mut connection = json!({
+            "webhook_registrations": [{ "id": "1", "topic": "contact_destroyed, contact_changed" }],
+        });
+        assert_eq!(
+            registered_topics(&connection),
+            vec!["contact_destroyed".to_owned(), "contact_changed".to_owned()]
+        );
+        assert!(covers(&connection, &wanted));
+        connection["webhook_registrations"] = json!([{ "id": "1", "topic": "contact_changed" }]);
+        assert!(!covers(&connection, &wanted), "a topic missing");
+        connection["webhook_registrations"] = json!([]);
+        assert!(!covers(&connection, &wanted));
+        assert_eq!(registration_kv_key("cc_1"), "connreg:cc_1");
     }
 }

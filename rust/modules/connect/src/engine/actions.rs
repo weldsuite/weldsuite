@@ -91,6 +91,27 @@ impl ActionError {
         };
         Self::plain(&message)
     }
+
+    /// ADR OPS-026: a step never calls a service outside the EU that the
+    /// workspace hasn't switched on (enforced on the EU edition; elsewhere
+    /// this never reads the database). It fails without retrying: asking
+    /// again can't help until an admin switches the service on. EU and
+    /// unknown integration types pass.
+    pub(crate) async fn outside_eu(db: &PgPool, kind: &str) -> Result<(), Self> {
+        match weldsuite_outside_eu::require_integration(db, kind).await {
+            Ok(()) => Ok(()),
+            Err(weldsuite_outside_eu::OutsideEuError::Off(service)) => Err(Self::fatal_with(
+                &weldsuite_outside_eu::OutsideEuError::message(service),
+                json!({
+                    "code": weldsuite_outside_eu::OFF_CODE,
+                    "service": service.as_str(),
+                }),
+            )),
+            Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => {
+                Err(Self::database(&error))
+            }
+        }
+    }
 }
 
 /// `ActionContext`.
@@ -1127,6 +1148,7 @@ async fn integration_token(
             ),
         ));
     }
+    ActionError::outside_eu(db, &row.type_).await?;
     let tokens = row.oauth_tokens.as_ref().unwrap_or(&Value::Null);
     let credentials = row.credentials.as_ref().unwrap_or(&Value::Null);
     let token = tokens["accessToken"]

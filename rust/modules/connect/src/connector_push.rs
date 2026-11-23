@@ -27,7 +27,9 @@ pub(crate) async fn push_now(
         Ok(_) => return ApiError::not_found("Moneybird connection", Some(&id)).into_response(),
         Err(error) => return crate::internal(&error, "Connector request failed"),
     };
-    if !weldsuite_connect_domain::js::truthy(&row["settings"]["moneybirdPush"]["enabled"]) {
+    if !weldsuite_connect_domain::js::truthy(&row["settings"]["moneybirdPush"]["enabled"])
+        && weldsuite_connect_domain::moneybird_push::two_way::outbound_objects(&row).is_empty()
+    {
         return ApiError::bad_request("Turn on sending to Moneybird first").into_response();
     }
     spawn_push(

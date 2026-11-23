@@ -29,8 +29,8 @@ use crate::moneybird::{self, Administration, Moneybird};
 use crate::stripe::{self, Stripe};
 use crate::sync::{SyncArgs, SyncEnv, Trigger, sync_connection};
 use crate::webhooks::{
-    generate_webhook_secret, put_stripe_account_mapping, put_webhook_mapping,
-    register_connection_webhooks,
+    EnsureWebhooks, ensure_connection_webhooks, generate_webhook_secret,
+    put_stripe_account_mapping, put_webhook_mapping, register_connection_webhooks,
 };
 
 pub const WOOCOMMERCE_APP_NAME: &str = "WeldSuite";
@@ -530,6 +530,13 @@ where
     let workspace_id = tenant.workspace_id;
     let tracker = env.sync.events.tracker().clone();
     tracker.spawn(async move {
+        // The KV mapping first, so a store that calls the delivery URL while
+        // registering reaches WeldSuite.
+        if let Some(cache) = env.cache.as_ref()
+            && let Err(error) = put_webhook_mapping(cache, &id, &workspace_id, "woocommerce").await
+        {
+            tracing::error!(%error, "[connectors/auth] webhook KV mapping failed");
+        }
         if let Err(error) = register_connection_webhooks(
             &db,
             env.sync.http.as_ref(),
@@ -542,11 +549,6 @@ where
         .await
         {
             tracing::error!(%error, "[connectors/auth] webhook registration failed");
-        }
-        if let Some(cache) = env.cache.as_ref()
-            && let Err(error) = put_webhook_mapping(cache, &id, &workspace_id, "woocommerce").await
-        {
-            tracing::error!(%error, "[connectors/auth] webhook KV mapping failed");
         }
         publish_connected(&env.sync, &state.clerk_org_id, &state.connected_by, &fresh).await;
         initial_sync(
@@ -641,24 +643,24 @@ async fn finish_moneybird(
 ) -> Result<(), AuthError> {
     let id = row["id"].as_str().unwrap_or_default().to_owned();
     seed_default_field_mappings(db, &id, "moneybird").await?;
-    let raw_secret = generate_webhook_secret();
-    if let Err(error) = register_connection_webhooks(
-        db,
-        env.sync.http.as_ref(),
-        &env.sync.keyring,
-        &env.webhook_base_url,
+    // The KV mapping goes first: Moneybird calls the delivery URL while it
+    // registers and refuses the webhook unless that call gets a 200.
+    if let Err(error) = ensure_connection_webhooks(
+        &EnsureWebhooks {
+            db,
+            http: env.sync.http.as_ref(),
+            keyring: &env.sync.keyring,
+            cache: env.cache.as_ref(),
+            base_url: &env.webhook_base_url,
+            workspace_id,
+            force: true,
+        },
         row,
         credentials,
-        &raw_secret,
     )
     .await
     {
         tracing::error!(%error, "[connectors/auth] Moneybird webhook registration failed");
-    }
-    if let Some(cache) = env.cache.as_ref()
-        && let Err(error) = put_webhook_mapping(cache, &id, workspace_id, "moneybird").await
-    {
-        tracing::warn!(%error, "[connectors/auth] Moneybird D1/KV index failed");
     }
     let db = db.clone();
     let sync = env.sync.clone();

@@ -475,6 +475,30 @@ fn webhook_now(deps: &Deps) -> OffsetDateTime {
 
 const CONFIGURATION_ERROR_CODES: &[i64] = &[101, 201, 202, 301];
 
+/// Mailpool is outside the EU (ADR OPS-026). Most of its events only bring
+/// WeldSuite's own records in line (a mailbox deleted or gone inactive at
+/// Mailpool is paused in the warm-up pool and marked, a domain takes its
+/// status): no call to Mailpool and no sending through it, so they run
+/// whatever the workspace's switch, as inbound paths do. Only a mailbox
+/// reported active goes back to Mailpool (its logins) and into sending
+/// through it again: that needs the switch.
+fn needs_mailpool_switch(event: &str, data: &Value) -> bool {
+    matches!(event, "mailboxes.created" | "mailboxes.updated")
+        && remote_status_of(data) == Some("active")
+}
+
+/// On the EU edition, whether the workspace has Mailpool switched off; an
+/// event that [`needs_mailpool_switch`] is then acknowledged and not acted
+/// on. Logged by the check.
+async fn mailpool_off(db: &PgPool, clerk_org_id: &str) -> bool {
+    !weldsuite_outside_eu::allowed(
+        db,
+        weldsuite_outside_eu::ServiceId::Mailpool,
+        &format!("mailpool webhook {clerk_org_id}"),
+    )
+    .await
+}
+
 async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
     let Some(mailpool_id) = mailpool_id_of(data) else {
         return Ok(ignored("no_id"));
@@ -488,6 +512,9 @@ async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .open_tenant(&clerk_org_id)
         .await
         .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    if needs_mailpool_switch("mailboxes.updated", data) && mailpool_off(&db, &clerk_org_id).await {
+        return Ok(ignored("outside_eu_off"));
+    }
     let Some(mailbox) = load_mailbox(&db, &entity_id)
         .await?
         .filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted")))
@@ -789,7 +816,13 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
                 );
             }
         }
-    } else if status == "active" && text(&domain, "status") == Some("error") {
+    } else if status == "active"
+        && text(&domain, "status") == Some("error")
+        // Resuming the parked mailboxes puts them back into the warm-up pool
+        // and sending through Mailpool: that needs the switch (ADR OPS-026);
+        // the domain's own status above never does.
+        && !mailpool_off(&db, &clerk_org_id).await
+    {
         let parked = reach_mailboxes::Entity::find()
             .filter(reach_mailboxes::Column::DomainId.eq(&domain_id))
             .filter(reach_mailboxes::Column::Status.eq("paused"))
@@ -815,4 +848,39 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         }
     }
     Ok(handled(true))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::needs_mailpool_switch;
+
+    /// ADR OPS-026: an event that only brings WeldSuite's own records in line
+    /// runs whatever the workspace's Mailpool switch, so a mailbox deleted or
+    /// gone inactive at Mailpool still leaves the cross-workspace warm-up
+    /// pool, and a domain still takes its status. Only an active mailbox,
+    /// which goes back to Mailpool and into sending, waits for the switch.
+    #[test]
+    fn only_an_active_mailbox_waits_for_the_mailpool_switch() {
+        for (event, status) in [
+            ("mailboxes.deleted", "active"),
+            ("mailboxes.deleted", "inactive"),
+            ("mailboxes.updated", "inactive"),
+            ("mailboxes.created", "pending"),
+            ("domains.updated", "active"),
+            ("domains.registered", "inactive"),
+        ] {
+            assert!(
+                !needs_mailpool_switch(event, &json!({ "status": status })),
+                "{event} {status}"
+            );
+        }
+        for event in ["mailboxes.created", "mailboxes.updated"] {
+            assert!(
+                needs_mailpool_switch(event, &json!({ "status": "ACTIVE" })),
+                "{event}"
+            );
+        }
+    }
 }

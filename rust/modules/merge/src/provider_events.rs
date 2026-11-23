@@ -391,6 +391,15 @@ async fn handle(
     let Some(target) = find_by_webhook_key(db, provider, key).await? else {
         return Ok(ignored("unknown_repository"));
     };
+    // ADR OPS-026: a provider the workspace switched off is not read again,
+    // and its deliveries are not applied.
+    if let Some(service) = crate::provider_service(
+        provider,
+        crate::db::opt_text(&target.connection, "host").as_deref(),
+    ) && !weldsuite_outside_eu::allowed(db, service, &format!("merge {provider} event")).await
+    {
+        return Ok(ignored("outside_eu_service_off"));
+    }
     let keyring = hooks.overrides.keyring(&hooks.state);
     let Some(secret) = webhook_secret_of(&keyring, &target.repository) else {
         return Ok(ignored("bad_signature"));

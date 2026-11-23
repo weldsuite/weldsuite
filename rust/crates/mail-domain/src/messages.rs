@@ -212,6 +212,10 @@ pub struct MessageFilters {
     pub label: Option<String>,
     pub from: Option<String>,
     pub counterparty: Option<String>,
+    /// `excludeTrash`: leave out trashed messages (by their label).
+    pub exclude_trash: bool,
+    /// `excludeSpam`: leave out spam (by its label).
+    pub exclude_spam: bool,
     /// `cursorValue`: `(sentDate as an ISO string, id)`.
     pub cursor: Option<(String, String)>,
 }
@@ -297,6 +301,12 @@ impl MessageFilters {
                     .add(recipient_equals(Column::Cc, counterparty))
                     .add(recipient_equals(Column::Bcc, counterparty)),
             );
+        }
+        if self.exclude_trash {
+            all = all.add(carries(TRASH).not());
+        }
+        if self.exclude_spam {
+            all = all.add(carries(SPAM).not());
         }
         all
     }

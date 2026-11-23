@@ -3102,6 +3102,21 @@
       ]
     },
     {
+      "name": "external-api: mail",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/",
+        "packages/domains/mail/src/",
+        "rust/crates/mail-domain/"
+      ],
+      "tests": [
+        "src/test/mail.test.ts",
+        "src/test/mail-outbound.test.ts"
+      ]
+    },
+    {
       "name": "books: cross-area",
       "module": "books",
       "workspace": "apps/workers/books-api",

@@ -237,6 +237,19 @@ pub async fn process_send_message(
         return Ok(SendOutcome::Skipped(reason));
     }
     let tenant = (engine.tenants)(id.clone()).await?;
+    // The mailboxes are Mailpool's, outside the EU (ADR OPS-026): nothing is
+    // sent through them for a workspace that has Mailpool switched off.
+    if !weldsuite_outside_eu::allowed(
+        &tenant.db,
+        weldsuite_outside_eu::ServiceId::Mailpool,
+        &format!("reach send {workspace_id}"),
+    )
+    .await
+    {
+        let later = from_epoch_ms(epoch_ms(now) + NOT_ALLOWED_RECHECK_MS);
+        settle_send_due(master, workspace_id, due_row.as_ref(), Some(later)).await;
+        return Ok(SendOutcome::Skipped("outside_eu_off".to_owned()));
+    }
     let flags = FlagContext {
         workspace_id: id.clone(),
         clerk_org_id: tenant.clerk_org_id.clone(),

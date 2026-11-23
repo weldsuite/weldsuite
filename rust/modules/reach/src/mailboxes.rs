@@ -339,7 +339,7 @@ async fn create(
         async {
             let (workspace_id, limits) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let settings = get_or_create_settings(&caller.db).await?;
             let billing_status = crate::access_of(&caller)?.billing_status.clone();
             let row = create_mailbox(
@@ -806,7 +806,7 @@ async fn update_one(
         async {
             account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let row = require_mailbox(db, &id).await?;
             if text(&row, "status") == Some("deleting") {
@@ -1060,7 +1060,7 @@ async fn delete_one(
         async {
             let (workspace_id, _) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let at = caller.now();
             let row = require_mailbox(db, &id).await?;

@@ -270,6 +270,12 @@ pub(crate) async fn set_next_charge(
 }
 
 /// Past due on `payment_row_id` since `since` (kept when already past due).
+///
+/// `dunning_reminded_at` holds, before an account is past due, the renewal
+/// its billing owners were warned about for want of a payment method (one
+/// email per renewal, `renewals::warn_without_payment_method`); while past
+/// due, when they were reminded halfway through the grace period. Going past
+/// due clears the first, so the reminder still goes out.
 pub(crate) async fn set_past_due(
     tx: &impl ConnectionTrait,
     workspace_id: &str,
@@ -287,6 +293,13 @@ pub(crate) async fn set_past_due(
         .col_expr(
             Column::PastDuePaymentId,
             Expr::value(payment_row_id.to_owned()),
+        )
+        // `case when past_due_since is null then null else dunning_reminded_at end`
+        .col_expr(
+            Column::DunningRemindedAt,
+            Expr::case(Column::PastDueSince.is_null(), Expr::null())
+                .finally(Expr::col(Column::DunningRemindedAt))
+                .into(),
         )
         .exec(tx)
         .await?;

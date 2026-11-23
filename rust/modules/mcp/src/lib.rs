@@ -22,6 +22,8 @@
 //! - [`auth`]: the bearer token, the workspace, the member's permissions and
 //!   the rate limit, for the server; conformance builds take the session from
 //!   the test instead.
+//! - [`picker`]: membership mode, a plain `/mcp` and an account in several
+//!   workspaces: connected, with one tool that lists them and the URL of each.
 
 #![allow(clippy::result_large_err)]
 
@@ -34,6 +36,7 @@ pub mod catalog;
 mod hooks;
 mod js;
 pub mod permissions;
+mod picker;
 pub mod present;
 mod rpc;
 pub mod transport;

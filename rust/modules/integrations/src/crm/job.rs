@@ -498,7 +498,38 @@ impl CrmSyncJob {
         Ok(())
     }
 
+    /// ADR OPS-026: whether the provider (Attio, `HubSpot`, Google) may be
+    /// called for the workspace. A run for one it switched off after the
+    /// sync was queued puts the connection back to `active` and stops.
+    async fn outside_eu_allowed(&self, p: &CrmSyncParams) -> Result<bool, String> {
+        let Some(service) = weldsuite_outside_eu::ServiceId::for_integration(&p.provider) else {
+            return Ok(true);
+        };
+        if !weldsuite_outside_eu::enforced() {
+            return Ok(true);
+        }
+        let db = self.deps.db(&p.workspace_id).await?;
+        let context = format!("crm sync {} in {}", p.connection_id, p.workspace_id);
+        if weldsuite_outside_eu::allowed(&db, service, &context).await {
+            return Ok(true);
+        }
+        connections::Entity::update_many()
+            .col_expr(connections::Column::Status, Expr::value("active"))
+            .col_expr(connections::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(connections::Column::Id.eq(&p.connection_id))
+            .filter(connections::Column::Status.eq("syncing"))
+            .exec(&orm(&db))
+            .await
+            .map_err(|e| db_message(&e))?;
+        Ok(false)
+    }
+
     async fn run_sync(&self, ctx: &dyn JobContext, p: CrmSyncParams) -> Result<(), JobError> {
+        // Not a step of its own: a read that replays the same way, so the
+        // journal of runs already in flight keeps its shape.
+        if !self.outside_eu_allowed(&p).await.map_err(failed)? {
+            return Ok(());
+        }
         let mut log: Option<String> = None;
         let Err(error) = self.run_steps(ctx, &p, &mut log).await else {
             return Ok(());

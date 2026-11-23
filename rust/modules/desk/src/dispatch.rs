@@ -71,7 +71,19 @@ pub(crate) fn dispatch_outbound(
                 return;
             };
             let http = caller.http(state);
+            let db = caller.db.clone();
             state.events.tracker().spawn(async move {
+                // ADR OPS-026: not sent while the workspace has Discord off.
+                let context = format!("desk discord reply {id}");
+                if !weldsuite_outside_eu::allowed(
+                    &db,
+                    weldsuite_outside_eu::ServiceId::Discord,
+                    &context,
+                )
+                .await
+                {
+                    return;
+                }
                 let sent =
                     crate::discord::send_message(http.as_ref(), &token, &target, &message.content)
                         .await;
@@ -92,7 +104,17 @@ pub(crate) fn dispatch_outbound(
             let db = caller.db.clone();
             let http = caller.http(state);
             state.events.tracker().spawn(async move {
-                dispatch_slack(&db, http.as_ref(), &conversation, &message).await;
+                // ADR OPS-026: not sent while the workspace has Slack off.
+                let context = format!("desk slack reply {id}");
+                if weldsuite_outside_eu::allowed(
+                    &db,
+                    weldsuite_outside_eu::ServiceId::Slack,
+                    &context,
+                )
+                .await
+                {
+                    dispatch_slack(&db, http.as_ref(), &conversation, &message).await;
+                }
             });
         }
         other => {

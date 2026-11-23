@@ -6,7 +6,9 @@
 //! the grace period on Free, a credit top-up priced with VAT on top,
 //! WeldReach inboxes on the plan (pro rata between anchors, on each anchor),
 //! and every invoice emailed to the billing owners exactly once (a send
-//! nobody took retried by the renewal job).
+//! nobody took retried by the renewal job). And a workspace that moved from
+//! Global without a payment method: warned once before its renewal, asked
+//! for one when the renewal is refused, and paying through the pay link.
 
 #![allow(
     clippy::disallowed_methods,
@@ -15,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -25,9 +27,10 @@ use weldsuite_core_billing::engine::{self, Actor, CheckoutAnswer, CheckoutInput}
 use weldsuite_core_billing::period::Cycle;
 use weldsuite_core_billing::renewals::run_renewals;
 use weldsuite_core_billing::{
-    AddonSource, BillingError, BillingMail, BillingMailer, BillingSettings, BillingState,
-    InboxCharge, InvoiceIssuer, InvoiceMail, IssueRequest, IssuedInvoice, Language, Line, LineKind,
-    Settled, TopUpRequest, Treatment, charge_inbox_added, inbox_line, quote_top_up, settle_payment,
+    AddonSource, BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings,
+    BillingState, InboxCharge, InvoiceIssuer, InvoiceMail, IssueRequest, IssuedInvoice, Language,
+    Line, LineKind, Settled, TopUpRequest, Treatment, charge_inbox_added, inbox_line, quote_top_up,
+    settle_payment,
 };
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -37,6 +40,18 @@ const WS: &str = "ws_billingdb1";
 const ORG: &str = "org_billingdb1";
 const PLAN: &str = "plan_billingdb_business";
 const FREE: &str = "plan_billingdb_free";
+const MOVED: &str = "ws_billingdb2";
+
+/// The tests share the tenant database (whose first `workspace_settings`
+/// row is the billing details) and each runs the renewal job over every
+/// account: one at a time.
+async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    static SERIAL: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    SERIAL
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
+}
 
 async fn databases() -> Option<(PgPool, PgPool)> {
     let master = std::env::var("WELDSUITE_TEST_MASTER_URL").ok()?;
@@ -45,6 +60,16 @@ async fn databases() -> Option<(PgPool, PgPool)> {
         PgPool::connect(&master).await.expect("master"),
         PgPool::connect(&tenant).await.expect("tenant"),
     ))
+}
+
+/// The Mollie customer the fake makes for `workspace_id` (`cst_` and letters
+/// or digits only).
+fn customer_of(workspace_id: &str) -> String {
+    let id: String = workspace_id
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    format!("cst_{id}")
 }
 
 /// Mollie as the tests set it: customers, payments (first ones open on a
@@ -85,7 +110,16 @@ impl DynOutboundHttp for FakeMollie {
             .trim_start_matches("https://api.mollie.test/v2")
             .to_owned();
         let result = match (request.method.as_str(), path.as_str()) {
-            ("POST", "/customers") => answer(201, json!({ "id": "cst_billingdb1" })),
+            ("POST", "/customers") => {
+                let body: Value =
+                    serde_json::from_slice(request.body.as_deref().unwrap_or_default())
+                        .expect("json");
+                // One customer per workspace (`customer_id` is unique).
+                let workspace = body["metadata"]["workspaceId"]
+                    .as_str()
+                    .unwrap_or("billingdb");
+                answer(201, json!({ "id": customer_of(workspace) }))
+            }
             ("POST", "/payments") => {
                 let body: Value =
                     serde_json::from_slice(request.body.as_deref().unwrap_or_default())
@@ -239,6 +273,17 @@ async fn exec(db: &PgPool, sql: &'static str, binds: &[&str]) {
 }
 
 async fn reset(master: &PgPool, tenant: &PgPool) {
+    clear(master, WS).await;
+    clear(master, MOVED).await;
+    // Every settings row, not just this test's: the buyer is the workspace's
+    // oldest row (`buyer.rs`), and CI runs every crate's database tests on one
+    // database, so a row an earlier test left would be read instead of the
+    // seeded one.
+    exec(tenant, "delete from workspace_settings", &[]).await;
+}
+
+/// Everything master holds for `workspace_id`.
+async fn clear(master: &PgPool, workspace_id: &str) {
     for sql in [
         "delete from billing_payments where workspace_id = $1",
         "delete from billing_invoices where workspace_id = $1",
@@ -249,17 +294,12 @@ async fn reset(master: &PgPool, tenant: &PgPool) {
         "delete from workspace_app_access where workspace_id = $1",
         "delete from workspaces where id = $1",
     ] {
-        exec(master, sql, &[WS]).await;
+        exec(master, sql, &[workspace_id]).await;
     }
-    exec(
-        tenant,
-        "delete from workspace_settings where id = 'wss_billingdb1'",
-        &[],
-    )
-    .await;
 }
 
-async fn seed(master: &PgPool, tenant: &PgPool) {
+/// Business (€25 per seat per month) and Free.
+async fn seed_plans(master: &PgPool) {
     exec(
         master,
         "insert into plans (id, name, slug, price_monthly, price_yearly, currency, included_users,
@@ -282,6 +322,22 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
         &[FREE],
     )
     .await;
+}
+
+/// The billing details: Dutch, billed to billing@billingdb.test.
+async fn seed_details(tenant: &PgPool) {
+    exec(
+        tenant,
+        "insert into workspace_settings (id, legal_name, email, address_line_1, city, postal_code, country, language)
+         values ('wss_billingdb1', 'Billing DB B.V.', 'billing@billingdb.test', 'Keizersgracht 1',
+                 'Amsterdam', '1015 AA', 'NL', 'nl')",
+        &[],
+    )
+    .await;
+}
+
+async fn seed(master: &PgPool, tenant: &PgPool) {
+    seed_plans(master).await;
     exec(
         master,
         "insert into workspaces (id, clerk_org_id, name, slug, plan_id, is_active, paid_plan_required)
@@ -297,14 +353,7 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
         &[WS],
     )
     .await;
-    exec(
-        tenant,
-        "insert into workspace_settings (id, legal_name, email, address_line_1, city, postal_code, country, language)
-         values ('wss_billingdb1', 'Billing DB B.V.', 'billing@billingdb.test', 'Keizersgracht 1',
-                 'Amsterdam', '1015 AA', 'NL', 'nl')",
-        &[],
-    )
-    .await;
+    seed_details(tenant).await;
 }
 
 fn state(
@@ -403,6 +452,7 @@ async fn a_subscription_from_checkout_to_free() {
         eprintln!("skipped: WELDSUITE_TEST_MASTER_URL / WELDSUITE_TEST_TENANT_URL unset");
         return;
     };
+    let _serial = serial().await;
     reset(&master, &tenant).await;
     seed(&master, &tenant).await;
     let mollie = Arc::new(FakeMollie::default());
@@ -752,6 +802,175 @@ async fn a_subscription_from_checkout_to_free() {
     )
     .await;
     assert!(matches!(refused, Err(BillingError::Api(_))), "{refused:?}");
+
+    reset(&master, &tenant).await;
+}
+
+/// The `billing_accounts` row of `workspace_id`.
+async fn account_of(master: &PgPool, workspace_id: &str) -> Value {
+    sqlx::query_scalar("select to_jsonb(a) from billing_accounts a where workspace_id = $1")
+        .bind(workspace_id)
+        .fetch_one(master)
+        .await
+        .expect("account")
+}
+
+/// The billing emails sent about `workspace_id`, in order.
+fn mails_for(mailer: &RecordingMailer, workspace_id: &str) -> Vec<BillingMail> {
+    mailer
+        .dunning
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter(|mail| mail.workspace_id == workspace_id)
+        .cloned()
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // one renewal, notice to payment
+async fn a_workspace_moved_from_global_adds_a_payment_method() {
+    let Some((master, tenant)) = databases().await else {
+        eprintln!("skipped: WELDSUITE_TEST_MASTER_URL / WELDSUITE_TEST_TENANT_URL unset");
+        return;
+    };
+    let _serial = serial().await;
+    reset(&master, &tenant).await;
+    seed_plans(&master).await;
+    seed_details(&tenant).await;
+    // As the move from Global leaves it: Business with 3 seats, renewing on
+    // 14 December, no Mollie customer and no mandate.
+    exec(
+        &master,
+        "insert into workspaces (id, clerk_org_id, name, slug, plan_id, purchased_seats,
+             subscription_status, subscription_cycle, subscription_current_period_start,
+             subscription_current_period_end, is_active, paid_plan_required)
+         values ($1, 'org_billingdb2', 'Moved DB', 'moved-db-test', $2, 3, 'active', 'monthly',
+                 '2026-11-14 10:00:00', '2026-12-14 10:00:00', true, false)",
+        &[MOVED, PLAN],
+    )
+    .await;
+    exec(
+        &master,
+        "insert into billing_accounts (id, workspace_id, provider, unit_amount, anchor_day, next_charge_at)
+         values ('bac_billingdb2', $1, 'mollie', 2500, 14, '2026-12-14 10:00:00')",
+        &[MOVED],
+    )
+    .await;
+    let mollie = Arc::new(FakeMollie::default());
+    *mollie.recurring_status.lock().expect("lock") = "paid".to_owned();
+    let issuer = Arc::new(CountingIssuer::default());
+    let inboxes = Arc::new(FakeInboxes::default());
+    let mailer = Arc::new(RecordingMailer::default());
+    let state = state(&master, &tenant, &mollie, &issuer, &inboxes, &mailer);
+
+    // 1. Fifteen days before the renewal: nothing yet.
+    let report = run_renewals(&state, datetime!(2026-11-29 12:00:00 UTC)).await;
+    assert_eq!(report.method_notices, 0, "{report:?}");
+    assert!(mails_for(&mailer, MOVED).is_empty());
+
+    // 2. Inside the fourteen days: one notice, even from two runs at once.
+    let t1 = datetime!(2026-11-30 12:00:00 UTC);
+    let (a, b) = tokio::join!(run_renewals(&state, t1), run_renewals(&state, t1));
+    assert_eq!(a.method_notices + b.method_notices, 1, "{a:?} {b:?}");
+    assert_eq!(a.failed + b.failed, 0, "{a:?} {b:?}");
+    let mails = mails_for(&mailer, MOVED);
+    assert_eq!(mails.len(), 1);
+    let notice = &mails[0];
+    assert_eq!(notice.kind, BillingMailKind::PaymentMethodNeeded);
+    assert_eq!(notice.ends_on.as_deref(), Some("14 december 2026"));
+    assert_eq!(notice.plan_name, "Business");
+    assert_eq!(notice.language, Language::Nl);
+    assert_eq!(notice.recipients, vec!["billing@billingdb.test".to_owned()]);
+    assert!(notice.no_method);
+    assert_eq!(notice.pay_url, None, "nothing to pay yet");
+    assert_eq!(
+        notice.billing_url,
+        "https://app.weldsuite.test/settings/billing"
+    );
+    // A week later, and on the day itself: not again.
+    for at in [
+        datetime!(2026-12-07 12:00:00 UTC),
+        datetime!(2026-12-14 09:00:00 UTC),
+    ] {
+        let report = run_renewals(&state, at).await;
+        assert_eq!(report.method_notices, 0, "{report:?}");
+    }
+    assert_eq!(mails_for(&mailer, MOVED).len(), 1);
+
+    // 3. The renewal: no mandate to charge, so past due, and the email asks
+    // for a payment method (with the pay link) rather than calling the
+    // payment refused.
+    let t2 = datetime!(2026-12-14 10:30:00 UTC);
+    let report = run_renewals(&state, t2).await;
+    assert_eq!(report.past_due, 1, "{report:?}");
+    assert_eq!(report.method_notices, 0, "{report:?}");
+    let acc = account_of(&master, MOVED).await;
+    assert!(
+        acc["past_due_payment_id"].is_string(),
+        "the refused renewal is the open charge"
+    );
+    assert!(
+        acc["dunning_reminded_at"].is_null(),
+        "the reminder still comes"
+    );
+    let mails = mails_for(&mailer, MOVED);
+    assert_eq!(mails.len(), 2);
+    let failed = &mails[1];
+    assert_eq!(failed.kind, BillingMailKind::PaymentFailed);
+    assert!(failed.no_method);
+    assert_eq!(failed.ends_on.as_deref(), Some("28 december 2026"));
+    assert!(
+        failed
+            .pay_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://app.weldsuite.test/public/billing/pay/")),
+        "the failure email carries the pay link"
+    );
+
+    // 4. Halfway through the grace period: the reminder, worded the same way.
+    let report = run_renewals(&state, datetime!(2026-12-21 11:00:00 UTC)).await;
+    assert_eq!(report.reminded, 1, "{report:?}");
+    let mails = mails_for(&mailer, MOVED);
+    assert_eq!(mails.len(), 3);
+    assert_eq!(mails[2].kind, BillingMailKind::PaymentReminder);
+    assert!(mails[2].no_method);
+
+    // 5. The pay link works without a Mollie customer: one is made, and
+    // paying saves the payment method and clears the open charge.
+    let url = engine::outstanding_checkout(&state, &master, None, MOVED, None)
+        .await
+        .expect("checkout")
+        .expect("something is open");
+    assert!(
+        url.starts_with("https://www.mollie.test/checkout/"),
+        "{url}"
+    );
+    let payment = mollie.last_created();
+    assert_eq!(payment["sequenceType"], "first");
+    assert_eq!(payment["customerId"], customer_of(MOVED));
+    assert_eq!(payment["amount"]["value"], "90.75", "3 × €25 + 21%");
+    let id = mollie
+        .payments
+        .lock()
+        .expect("lock")
+        .iter()
+        .find(|(_, p)| p["sequenceType"] == "first")
+        .map(|(id, _)| id.clone())
+        .expect("the pay link's payment");
+    let t3 = datetime!(2026-12-22 09:00:00 UTC);
+    assert_eq!(pay(&state, &mollie, &id, t3).await, Settled::PastDuePaid);
+    let acc = account_of(&master, MOVED).await;
+    assert_eq!(acc["mandate_id"], "mdt_billingdb1");
+    assert!(
+        acc["past_due_payment_id"].is_null(),
+        "paying cleared the open charge"
+    );
+
+    // 6. With a payment method, the next renewal brings no notice.
+    let report = run_renewals(&state, datetime!(2027-01-02 12:00:00 UTC)).await;
+    assert_eq!(report.method_notices, 0, "{report:?}");
+    assert_eq!(mails_for(&mailer, MOVED).len(), 3);
 
     reset(&master, &tenant).await;
 }

@@ -31,7 +31,7 @@ use weldsuite_schema::tenant::enums::HostDnsProvider;
 use weldsuite_schema::tenant::{dns_zones, domains as host_domains, reach_domains};
 
 use crate::dnscheck::{DnsLookupError, evaluate, footprint};
-use crate::mailpool::{Mailpool, id_text, not_configured, upstream};
+use crate::mailpool::{Mailpool, id_text, not_configured, outside_eu, upstream};
 use crate::{Caller, ReachState, account_workspace, db_error, respond, row_json, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
@@ -64,14 +64,20 @@ fn listed(items: Vec<Value>) -> Response {
     List::new(items, Pagination::new(n, false, None)).into_response()
 }
 
-/// `createMailpoolClient(c.env)`, or 503 without the key.
-pub(crate) fn mailpool_of(caller: &Caller, state: &ReachState) -> ReachResult<Mailpool> {
-    Mailpool::new(
+/// `createMailpoolClient(c.env)`, or 503 without the key. Mailpool is outside
+/// the EU (ADR OPS-026): on the EU edition a workspace that hasn't switched
+/// it on gets 403 `OUTSIDE_EU_SERVICE_OFF` and nothing is called.
+pub(crate) async fn mailpool_of(caller: &Caller, state: &ReachState) -> ReachResult<Mailpool> {
+    let mailpool = Mailpool::new(
         caller.env("MAILPOOL_API_KEY"),
         caller.env("MAILPOOL_API_URL"),
         caller.http(state),
     )
-    .ok_or_else(not_configured)
+    .ok_or_else(not_configured)?;
+    weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::Mailpool)
+        .await
+        .map_err(|error| outside_eu(&error))?;
+    Ok(mailpool)
 }
 
 async fn list(caller: Caller) -> Response {
@@ -255,7 +261,7 @@ async fn connect(
         async {
             let (workspace_id, limits) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let row = connect_domain(
                 &caller,
                 &state,
@@ -459,7 +465,7 @@ async fn refresh_dns(
         async {
             account_workspace(&caller)?;
             crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let row = domains::require(db, &id).await?;
             let Some(mailpool_id) = text(&row, "mailpoolDomainId").map(str::to_owned) else {
@@ -538,7 +544,7 @@ async fn disconnect(
         async {
             let (workspace_id, _) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let row = domains::require(db, &id).await?;
             let count = domains::mailbox_counts(db, std::slice::from_ref(&id))

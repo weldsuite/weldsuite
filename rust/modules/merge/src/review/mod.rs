@@ -411,6 +411,17 @@ impl Review<'_> {
         &self.caller.overrides
     }
 
+    /// ADR OPS-026: no review call to a provider outside the EU the
+    /// workspace hasn't switched on.
+    async fn outside_eu(&self, target: &Target) -> Result<(), MergeError> {
+        crate::require_provider(
+            self.db(),
+            target.provider(),
+            opt_text(&target.connection, "host").as_deref(),
+        )
+        .await
+    }
+
     fn context(&self, target: &Target, token: Option<String>) -> AdapterContext {
         AdapterContext {
             state: self.state.clone(),
@@ -424,6 +435,7 @@ impl Review<'_> {
     /// token; the other providers act with the connection's stored one.
     /// `None` when there is none.
     async fn read_context(&self, target: &Target) -> Result<Option<AdapterContext>, MergeError> {
+        self.outside_eu(target).await?;
         if target.provider() == "github" {
             return Ok(Some(self.context(target, None)));
         }
@@ -434,6 +446,7 @@ impl Review<'_> {
 
     /// `writeContext(db, hooks, target)`: the member's verified account.
     async fn write_context(&self, target: &Target) -> Result<Option<AdapterContext>, MergeError> {
+        self.outside_eu(target).await?;
         let host = opt_text(&target.connection, "host");
         let token = member_token(
             self.db(),

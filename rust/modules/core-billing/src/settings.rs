@@ -10,6 +10,7 @@
 //! | `BILLING_RETURN_URL` | Where checkouts return; default `<PUBLIC_APP_URL or PUBLIC_URL>/settings/billing`. |
 //! | `BILLING_SELLER_COUNTRY` | The issuer entity's country, for VAT (default `NL`: WeldSuite B.V.). |
 //! | `BILLING_GRACE_DAYS` | How long a past-due plan keeps working before it ends on Free (default 14). |
+//! | `BILLING_RENEWAL_NOTICE_DAYS` | How many days before its renewal a paid plan without a payment method is warned (default 14). |
 //!
 //! `BILLING_PROVIDER=mollie` with anything missing is a start problem, so a
 //! deployment never takes payments it can't confirm or invoice.
@@ -21,6 +22,10 @@ pub const WEBHOOK_PATH: &str = "/api/webhooks/mollie";
 
 /// The default grace period of a past-due plan.
 pub const DEFAULT_GRACE_DAYS: i64 = 14;
+
+/// The default notice before the renewal of a plan without a payment method
+/// (workspaces that moved from Global arrive without one: ADR BILL-014).
+pub const DEFAULT_RENEWAL_NOTICE_DAYS: i64 = 14;
 
 /// Plan billing's settings.
 #[derive(Clone)]
@@ -36,6 +41,9 @@ pub struct BillingSettings {
     pub issuer_entity_id: Option<String>,
     pub pay_links: PayLinks,
     pub grace_days: i64,
+    /// How many days before its renewal a paid plan without a payment method
+    /// is warned: one email, and the platform's banner from then on.
+    pub renewal_notice_days: i64,
     /// The seller's country (ISO alpha-2), which decides domestic VAT.
     pub seller_country: String,
 }
@@ -48,6 +56,7 @@ impl std::fmt::Debug for BillingSettings {
             .field("return_url", &self.return_url)
             .field("issuer_workspace_id", &self.issuer_workspace_id)
             .field("grace_days", &self.grace_days)
+            .field("renewal_notice_days", &self.renewal_notice_days)
             .finish_non_exhaustive()
     }
 }
@@ -112,6 +121,16 @@ impl BillingSettings {
                 }
             },
         };
+        let renewal_notice_days = match first(lookup, &["BILLING_RENEWAL_NOTICE_DAYS"]) {
+            None => DEFAULT_RENEWAL_NOTICE_DAYS,
+            Some(text) => match text.parse::<i64>() {
+                Ok(days) if (1..=60).contains(&days) => days,
+                _ => {
+                    problems.push("BILLING_RENEWAL_NOTICE_DAYS (1 to 60)");
+                    DEFAULT_RENEWAL_NOTICE_DAYS
+                }
+            },
+        };
         let seller_country = first(lookup, &["BILLING_SELLER_COUNTRY"])
             .map_or_else(|| "NL".to_owned(), |c| c.to_ascii_uppercase());
         if seller_country.len() != 2 || !seller_country.bytes().all(|b| b.is_ascii_uppercase()) {
@@ -153,6 +172,7 @@ impl BillingSettings {
                 issuer_entity_id: first(lookup, &["BILLING_ISSUER_ENTITY_ID"]),
                 pay_links,
                 grace_days,
+                renewal_notice_days,
                 seller_country,
             })),
             _ => Err("BILLING_PROVIDER=mollie is not fully configured".to_owned()),
@@ -210,6 +230,16 @@ mod tests {
         );
         assert_eq!(settings.public_url, "https://app.weldsuite.eu");
         assert_eq!(settings.grace_days, DEFAULT_GRACE_DAYS);
+        assert_eq!(settings.renewal_notice_days, DEFAULT_RENEWAL_NOTICE_DAYS);
+        let mut notice = FULL.to_vec();
+        notice.push(("BILLING_RENEWAL_NOTICE_DAYS", "21"));
+        assert_eq!(
+            BillingSettings::from_lookup(&lookup(&notice))
+                .expect("valid")
+                .expect("on")
+                .renewal_notice_days,
+            21
+        );
         assert!(
             !format!("{settings:?}").contains("test_abc"),
             "no key in logs"
@@ -231,5 +261,8 @@ mod tests {
         let mut grace = FULL.to_vec();
         grace.push(("BILLING_GRACE_DAYS", "0"));
         assert!(BillingSettings::from_lookup(&lookup(&grace)).is_err());
+        let mut notice = FULL.to_vec();
+        notice.push(("BILLING_RENEWAL_NOTICE_DAYS", "61"));
+        assert!(BillingSettings::from_lookup(&lookup(&notice)).is_err());
     }
 }

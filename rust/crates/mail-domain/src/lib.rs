@@ -2,7 +2,12 @@
 //! read or send mail share. One Rust module per TypeScript subpath, so the
 //! Calendar, Desk and Mail ports extend it in place:
 //!
-//! - [`access`] (`./access`): who may open a mailbox (MAIL-003).
+//! - [`access`] (`./access`): who may open a mailbox (MAIL-003), a person
+//!   or, through the public API, the workspace (shared mailboxes only).
+//! - [`accounts`], [`attachments`], [`drafts`], [`folders`], [`uploads`]:
+//!   what the public API (`/v1/mail-*`) reads and writes beside the store.
+//! - [`forward`] (`forwardAndPersist`): the platform's forward and the
+//!   public API's.
 //! - [`ai_usage`]: the ops ledger row of the model calls mail makes at
 //!   WeldSuite's cost (the auto-labels and the outbound review).
 //! - [`store`] (`./store`): a workspace's mailbox contents. On Kubernetes
@@ -21,9 +26,14 @@
 //! function it mirrors named in its doc comment.
 
 pub mod access;
+pub mod accounts;
 pub mod ai_usage;
+pub mod attachments;
 pub mod contacts;
 pub mod domains;
+pub mod drafts;
+pub mod folders;
+pub mod forward;
 pub mod html;
 pub mod labels;
 pub mod messages;
@@ -36,3 +46,4 @@ pub mod text;
 pub mod threads;
 pub mod threat_feeds;
 pub mod threats;
+pub mod uploads;

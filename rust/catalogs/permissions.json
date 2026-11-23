@@ -3732,7 +3732,21 @@
         "reach_mailboxes:update",
         "reach_mailboxes:delete",
         "reach_settings:read",
-        "reach_settings:update"
+        "reach_settings:update",
+        "categories:read",
+        "categories:create",
+        "categories:update",
+        "categories:delete",
+        "discounts:read",
+        "discounts:create",
+        "discounts:update",
+        "discounts:delete",
+        "commerce_settings:read",
+        "commerce_settings:update",
+        "commerce_channels:read",
+        "commerce_channels:create",
+        "commerce_channels:update",
+        "commerce_channels:delete"
       ]
     },
     "MEMBER": {
@@ -3975,7 +3989,13 @@
         "reach_inbox:update",
         "reach_inbox:reply",
         "reach_mailboxes:read",
-        "reach_settings:read"
+        "reach_settings:read",
+        "categories:read",
+        "categories:create",
+        "categories:update",
+        "discounts:read",
+        "commerce_channels:read",
+        "commerce_settings:read"
       ]
     },
     "OWNER": {
@@ -4084,7 +4104,11 @@
         "reach_campaigns:read",
         "reach_prospects:read",
         "reach_inbox:read",
-        "reach_mailboxes:read"
+        "reach_mailboxes:read",
+        "categories:read",
+        "discounts:read",
+        "commerce_channels:read",
+        "commerce_settings:read"
       ]
     }
   }

@@ -1,6 +1,7 @@
 //! The billing owners' emails (ADR BILL-014): dunning (a charge failed, with
-//! a pay link; a reminder halfway through the grace period; the plan ended)
-//! and the invoice of every paid charge (decision 5). The binary sends them
+//! a pay link; a reminder halfway through the grace period; the plan ended),
+//! the notice before the renewal of a plan without a payment method, and the
+//! invoice of every paid charge (decision 5). The binary sends them
 //! as system mail through the EU MTA (`BillingMailer`); without a mailer a
 //! dunning email is logged and skipped, and an invoice email waits for one.
 //!
@@ -26,6 +27,9 @@ pub enum BillingMailKind {
     PaymentReminder,
     /// The grace period ran out: the workspace is on Free.
     PlanEnded,
+    /// The plan renews soon and there is no payment method to charge: add
+    /// one before the renewal (`ends_on`) to keep the plan.
+    PaymentMethodNeeded,
 }
 
 impl BillingMailKind {
@@ -34,6 +38,7 @@ impl BillingMailKind {
             Self::PaymentFailed => "billing.payment-failed",
             Self::PaymentReminder => "billing.payment-reminder",
             Self::PlanEnded => "billing.plan-ended",
+            Self::PaymentMethodNeeded => "billing.payment-method-needed",
         }
     }
 }
@@ -50,10 +55,15 @@ pub struct BillingMail {
     /// The open amount, formatted (`€ 123,45`).
     pub amount: Option<String>,
     pub pay_url: Option<String>,
-    /// When the plan ends if unpaid (`14 november 2026`).
+    /// When the plan ends if unpaid (`14 november 2026`); for
+    /// [`BillingMailKind::PaymentMethodNeeded`], the renewal.
     pub ends_on: Option<String>,
     /// The billing page.
     pub billing_url: String,
+    /// No payment method on file: a failed charge and its reminder ask for
+    /// one (paying the open amount saves it) instead of saying a payment was
+    /// refused.
+    pub no_method: bool,
 }
 
 /// The invoice of a paid charge, to the billing owners: sent once per

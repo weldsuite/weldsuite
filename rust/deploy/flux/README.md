@@ -43,7 +43,9 @@ secrets/        the secrets layer: the ClusterSecretStore (the cluster's secret 
                 own layer; store.example.yaml: every value the store holds
 scripts/        seed-secrets.mjs: fills a cluster's secret store (--import: from a SOPS file),
                 --check: the secrets layer against store.example.yaml;
-                ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic
+                ntfy-receiver-url.mjs: an Alertmanager receiver URL for an ntfy topic;
+                restore-workspace.sh: one workspace's database back to a point in time
+                (rust/deploy/hetzner/README.md, "Restoring one workspace")
 ```
 
 To run your own cluster, copy `clusters/example` to `clusters/<name>` in your

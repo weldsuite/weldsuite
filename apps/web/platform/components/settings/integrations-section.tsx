@@ -14,6 +14,7 @@ import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
 import { isRouteOffered } from '@/lib/edition-routes'
 import { EmptyState } from "@weldsuite/ui/components/empty-state"
+import { OutsideEuBadge, OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice'
 
 type IntegrationListStrings = TranslationNamespaces['settings']['integrations']['list']
 
@@ -332,6 +333,8 @@ export function IntegrationsSection() {
 
           {/* Integrations Content */}
           <div className="flex-1 p-4 md:p-6 md:pl-8">
+            {/* EU edition: integrations outside the EU that are switched off, and where to switch them on. */}
+            <OutsideEuNotice services={integrations.map((integration) => integration.id)} className="mb-6" />
             {sortedCategories.map((category, index) => (
               <div
                 key={category}
@@ -372,6 +375,8 @@ export function IntegrationsSection() {
                               <span className="block text-[0.9375rem] font-semibold text-foreground m-0">
                                 {integration.name}
                               </span>
+                              {/* EU edition: the data leaves the EU (ADR OPS-026). */}
+                              <OutsideEuBadge code={integration.id} />
                             </span>
                             <span className="block text-xs text-muted-foreground m-0">
                               {categoryLabel(integration.category)}

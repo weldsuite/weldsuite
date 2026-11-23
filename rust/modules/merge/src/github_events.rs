@@ -348,6 +348,19 @@ async fn handle(
     client_for: impl Fn(&str) -> GithubClient,
     hooks: Option<&HookContext>,
 ) -> Result<Outcome, MergeError> {
+    // ADR OPS-026: while the workspace has GitHub off, its deliveries are not
+    // applied and GitHub is not read again; the installation's lifecycle
+    // (removed, suspended) still is, so the connection's state stays true.
+    if event != "installation"
+        && !weldsuite_outside_eu::allowed(
+            db,
+            weldsuite_outside_eu::ServiceId::GitHub,
+            &format!("merge github {event} event"),
+        )
+        .await
+    {
+        return Ok(ignored("outside_eu_service_off"));
+    }
     match event {
         "pull_request" => pull_request(db, payload, hooks).await,
         "pull_request_review" => match installation_of(payload) {

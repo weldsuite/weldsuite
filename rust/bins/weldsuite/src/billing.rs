@@ -439,6 +439,7 @@ impl BillingMailer for SystemMailer {
                     BillingMailKind::PaymentFailed => DunningKind::Failed,
                     BillingMailKind::PaymentReminder => DunningKind::Reminder,
                     BillingMailKind::PlanEnded => DunningKind::Ended,
+                    BillingMailKind::PaymentMethodNeeded => DunningKind::Upcoming,
                 },
                 workspace_name: message.workspace_name.clone(),
                 plan_name: message.plan_name.clone(),
@@ -448,6 +449,7 @@ impl BillingMailer for SystemMailer {
                     .pay_url
                     .clone()
                     .unwrap_or_else(|| message.billing_url.clone()),
+                no_method: message.no_method,
             };
             let brand = EmailBrand::weldsuite("WeldSuite");
             let rendered = dunning(locale, &brand, &props).map_err(|error| error.to_string())?;

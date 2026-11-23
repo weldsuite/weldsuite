@@ -114,6 +114,7 @@ pub(crate) async fn list(caller: Caller) -> Answer {
 /// App's slug is known).
 pub(crate) async fn connect_github(State(state): State<MergeState>, caller: Caller) -> Answer {
     let db = &caller.db;
+    crate::require_provider(db, "github", None).await?;
     let connection = merge_connections::Entity::find()
         .filter(merge_connections::Column::Provider.eq("github"))
         .filter(merge_connections::Column::Status.eq("active"))

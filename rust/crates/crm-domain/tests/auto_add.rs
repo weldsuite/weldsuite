@@ -165,12 +165,16 @@ async fn adds_the_people_the_workspace_engaged_with() {
         Candidate::new(&format!("eva@known-{tag}.test"), None),
     ];
 
-    // Off by default: nobody is added.
+    // Switched off (the default is on): nobody is added.
     let defaults = Settings::default();
     let reset = defaults.as_patch();
-    auto_add::save_settings(&db, &reset, "ws_autoadd")
+    let off = Patch {
+        enabled: Some(false),
+        ..reset.clone()
+    };
+    auto_add::save_settings(&db, &off, "ws_autoadd")
         .await
-        .expect("reset");
+        .expect("off");
     let added = auto_add::add(&db, &events, Source::Email, &candidates, Some(&owner))
         .await
         .expect("add while off");

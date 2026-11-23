@@ -1154,7 +1154,7 @@ fn prices_include_tax(record: &Value) -> bool {
     }
 }
 
-fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
+pub(crate) fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
     let rates = tax_rates_from_totals(record);
     let inclusive = prices_include_tax(record);
     first_array(&[record.get("details"), record.get("line_items")])

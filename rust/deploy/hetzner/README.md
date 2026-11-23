@@ -1526,9 +1526,73 @@ a path that holds another server's WAL. For `master`:
                 serverName: master-2
 ```
 
+This replays all the archived WAL. To stop at a moment instead (point-in-time
+recovery), add a target under `recovery`; Postgres stops just before the
+first transaction that committed after it:
+
+```yaml
+            recovery:
+              source: previous
+              recoveryTarget:
+                targetTime: "2026-11-20 13:59:00+00"
+```
+
+Any moment inside the recovery window works: from the oldest base backup
+still kept (30 days) until the last archived WAL, at most `archive_timeout`
+(5 minutes) behind. The ObjectStore's status shows the window per
+`serverName` (`kubectl -n postgres get objectstore master-backups -o
+jsonpath='{.status.serverRecoveryWindow}'`).
+
 The bootstrap only matters when the `Cluster` is created. Practise it: build
 a throwaway cluster from the backups now and then, check the data, and tear
 it down (WeldSuite does this monthly).
+
+### Restoring one workspace
+
+A tenant shard holds many workspaces, so recovering `tenants-1` to a moment
+rolls all of them back. To take one workspace back, use
+`flux/scripts/restore-workspace.sh`, from any machine with kubectl access to
+the cluster:
+
+```bash
+S=rust/deploy/flux/scripts/restore-workspace.sh
+$S list    --workspace ws_123                    # its databases and the recovery window
+$S restore --workspace ws_123 --to 2026-11-20T13:59:00Z
+$S swap    --workspace ws_123 --database ws_ws_123_pitr_20261120135900
+$S drop    --workspace ws_123 --database ws_ws_123_pre_20261122093000
+```
+
+- `restore` recovers the workspace's shard to that time in a temporary
+  `Cluster` (`<shard>-pitr-<time>`, one instance, archiving nothing), copies
+  the workspace's database out of it into `ws_<id>_pitr_<time>` next to the
+  live one (same owner, `PUBLIC` revoked, compared table for table), and
+  deletes the temporary `Cluster`. The workspace keeps running on its live
+  database: look at the copy, or copy rows back by hand if only a few
+  records are missing.
+- `swap` makes a copy the live database: one transaction renames the live
+  database `ws_<id>_pre_<now>` and the copy `ws_<id>`, so the workspace's
+  stored URL (role, name, pooler) still holds and nothing in the master
+  changes. Then it runs `weldsuite migrate --tenants --only <id>` in the
+  `weldsuite` Deployment, for migrations newer than the restored time. That
+  workspace gets errors for a few seconds. Swapping the `_pre_` database
+  back undoes it.
+- `drop` drops a copy once you no longer need it; it never drops the live
+  database. Copies stay until you drop them and take space on the shard.
+
+What goes back is the tenant database only. The workspace's master rows
+(members, plan, the settings kept there), its files in object storage and
+anything already sent (mail, webhooks, events other modules consumed) stay
+as they are.
+
+The temporary `Cluster` copies the shard's image, storage size, resources
+and node placement, so the Postgres nodes need room for one more instance of
+the shard while it runs: CPU and memory as one shard instance, and free disk
+for the shard's data (not just the workspace's). Recovery replays WAL from
+the last nightly base backup before the target, so a target late in the day
+takes longer. The copy streams through the machine the script runs on
+(`pg_dump | pg_restore`); for a large workspace run it close to the cluster.
+`--keep` leaves the temporary `Cluster` running, and a second restore to the
+same time on the same shard reuses it.
 
 ### Offsite copy
 

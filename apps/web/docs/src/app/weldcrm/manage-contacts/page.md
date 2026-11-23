@@ -35,7 +35,7 @@ You can also create a person from inside a company record or import contacts wit
 
 ## Add people automatically
 
-WeldCRM can add the people your team works with by itself, so nobody has to click **Add to CRM**. An admin turns it on in **Settings → Apps → WeldCRM → Auto-add**.
+WeldCRM adds the people your team works with by itself, so nobody has to click **Add to CRM**. It is on by default; an admin can turn it off, or switch off a source, in **Settings → Apps → WeldCRM → Auto-add**.
 
 - **Email**: people you email, and people who reply to an email you sent. Someone who only writes in is not added until you answer.
 - **Meetings**: people outside your workspace you invite to a WeldMeet meeting.

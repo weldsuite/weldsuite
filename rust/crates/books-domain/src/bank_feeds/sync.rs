@@ -48,7 +48,9 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 pub struct SyncOutcome {
     pub connection_id: String,
     pub status: String,
-    /// `not_found`, `not_active`, `in_progress` or `no_mapped_accounts`.
+    /// `not_found`, `not_active`, `in_progress` or `no_mapped_accounts`;
+    /// `outside_eu` when the provider is outside the EU and the workspace
+    /// hasn't switched it on (ADR OPS-026).
     pub skipped: Option<&'static str>,
     pub added: usize,
     pub updated: usize,
@@ -812,6 +814,18 @@ pub async fn sync_connection_with(
             });
         }
     };
+    // ADR OPS-026: a provider outside the EU is called only for a
+    // workspace that switched it on; the sweeps and webhooks skip the rest.
+    if let Some(service) = super::outside_eu_service(provider.id)
+        && !weldsuite_outside_eu::allowed(
+            &ctx.db,
+            service,
+            &format!("bank feed sync {connection_id}"),
+        )
+        .await
+    {
+        return Ok(SyncOutcome::skipped(connection_id, &status, "outside_eu"));
+    }
     let (timestamp, at) = now_both();
     let id = text(&row, "id").unwrap_or_default().to_owned();
     if !acquire_lock(&ctx.db, &id, &timestamp).await? {

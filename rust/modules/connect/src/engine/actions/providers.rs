@@ -147,6 +147,8 @@ pub(super) async fn resolve_integration(
             ),
         ));
     }
+    let stored = row.type_.as_str();
+    ActionError::outside_eu(ctx.db, if stored.is_empty() { kind } else { stored }).await?;
     Ok(row)
 }
 

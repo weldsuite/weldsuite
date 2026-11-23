@@ -41,9 +41,22 @@ use crate::{CallState, Caller, internal, js, validate};
 
 const NOT_ACTIVATED: &str = "Phone service is not activated";
 
-/// `GET /api/telephony/configured`.
+/// `GET /api/telephony/configured`. On the EU edition a workspace that has
+/// not switched Telnyx on (ADR OPS-026) reads `configured: false` with
+/// `outsideEuOff: true`, so the platform explains why instead of offering
+/// numbers every Telnyx route would refuse.
 pub(crate) async fn configured(State(state): State<CallState>, caller: Caller) -> Response {
-    Data(json!({ "configured": caller.telnyx(&state).configured() })).into_response()
+    let configured = caller.telnyx(&state).configured();
+    if configured
+        && matches!(
+            weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::Telnyx)
+                .await,
+            Err(weldsuite_outside_eu::OutsideEuError::Off(_))
+        )
+    {
+        return Data(json!({ "configured": false, "outsideEuOff": true })).into_response();
+    }
+    Data(json!({ "configured": configured })).into_response()
 }
 
 /// A live number: `(phoneNumber, status, countryCode, numberType, provider)`.

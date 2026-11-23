@@ -127,10 +127,15 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
+  // The workspace opt-in for services outside the EU (ADR OPS-026): Global
+  // keeps calling them as it always has.
+  'outside-eu-services',
   // Adding people and companies to WeldCRM automatically (`/api/crm-settings`).
   'crm-auto-add',
   // WeldMail attachment scanning and link protection, built only in Rust.
   'mail-threat-protection',
+  // Two-way Moneybird sync: live updates and sending WeldBooks records (ADR INT-013).
+  'moneybirdTwoWay',
 ];
 
 const mod = (
@@ -186,6 +191,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/object-templates',
     '/api/objects',
     '/api/onboarding',
+    // Rust-only (EU edition, ADR OPS-026): Global's app-api does not mount it.
+    '/api/outside-eu-services',
     '/api/partner',
     '/api/prepaid-seats',
     '/api/push-tokens',

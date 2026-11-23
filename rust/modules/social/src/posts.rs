@@ -209,6 +209,10 @@ async fn publish(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
+    let context = match caller.postpeer(&state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
     let options = PublishOptions {
         now: true,
         scheduled_at: None,
@@ -216,7 +220,7 @@ async fn publish(
     };
     match publish_post(
         &caller.db,
-        &caller.context(&state),
+        &context,
         caller.clerk_org_id.as_deref(),
         &id,
         &options,
@@ -277,6 +281,10 @@ async fn schedule_post(
         Ok(input) => input,
         Err(response) => return *response,
     };
+    let context = match caller.postpeer(state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
     let options = PublishOptions {
         now: false,
         scheduled_at: Some(scheduled_at.clone()),
@@ -284,7 +292,7 @@ async fn schedule_post(
     };
     match publish_post(
         &caller.db,
-        &caller.context(state),
+        &context,
         caller.clerk_org_id.as_deref(),
         id,
         &options,
@@ -350,14 +358,8 @@ async fn cancel(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    match cancel_post(
-        &caller.db,
-        &caller.context(&state),
-        caller.clerk_org_id.as_deref(),
-        &id,
-    )
-    .await
-    {
+    let (context, off) = caller.postpeer_if_on(&state).await;
+    match cancel_post(&caller.db, &context, caller.clerk_org_id.as_deref(), &id).await {
         Ok(false) => ApiError::not_found("Social post", Some(&id)).into_response(),
         Ok(true) => {
             caller.publish(
@@ -369,6 +371,10 @@ async fn cancel(
             Data(json!({ "id": id, "status": "draft" })).into_response()
         }
         Err(PublishError::Conflict(message)) => ApiError::conflict(message).into_response(),
+        // A scheduled post's PostPeer delivery, with PostPeer switched off.
+        Err(PublishError::CancelUpstream(_)) if off.is_some() => off
+            .map_or_else(ApiError::internal, |error| error.to_api_error())
+            .into_response(),
         Err(PublishError::CancelUpstream(message)) => upstream(&message),
         Err(error) => crate::internal(&error, "Failed to cancel post"),
     }
@@ -393,11 +399,15 @@ async fn remove(
         Ok(None) => return ApiError::not_found("Social post", Some(&id)).into_response(),
         Err(error) => return crate::internal(&error, "Failed to delete social post"),
     }
-    let ctx = caller.context(&state);
+    let (ctx, off) = caller.postpeer_if_on(&state).await;
     if let Err(error) =
         cancel_delivery_before_delete(&caller.db, &ctx, caller.clerk_org_id.as_deref(), &id).await
     {
         if let PublishError::CancelUpstream(message) = &error {
+            // A scheduled post's PostPeer delivery, with PostPeer switched off.
+            if let Some(off) = off {
+                return off.to_api_error().into_response();
+            }
             return upstream(message);
         }
         return crate::internal(&error, "Failed to delete social post");

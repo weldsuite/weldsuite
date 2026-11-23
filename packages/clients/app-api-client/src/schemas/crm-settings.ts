@@ -15,11 +15,11 @@ export const CRM_AUTO_ADD_SOURCES = ['email', 'meetings', 'helpdesk'] as const;
 export type CrmAutoAddSource = (typeof CRM_AUTO_ADD_SOURCES)[number];
 
 export const crmAutoAddSettingsSchema = z.object({
-  /** Off by default. */
+  /** On by default, until someone switches it off. */
   enabled: z.boolean(),
   /** Also link each person to the company of their email domain, creating it when needed. */
   createCompanies: z.boolean(),
-  /** All on by default: turning `enabled` on is enough. */
+  /** All on by default. */
   sources: z.object({
     email: z.boolean(),
     meetings: z.boolean(),

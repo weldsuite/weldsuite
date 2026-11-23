@@ -49,7 +49,11 @@ async fn sync(
     caller: Caller,
     Path(post_id): Path<String>,
 ) -> Response {
-    match sync_analytics(&caller.db, &caller.context(&state), &post_id).await {
+    let context = match caller.postpeer(&state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
+    match sync_analytics(&caller.db, &context, &post_id).await {
         Ok(result) => Data(result).into_response(),
         Err(PublishError::NotConfigured) => {
             ApiError::bad_request("Social publishing is not configured").into_response()

@@ -160,11 +160,26 @@ paths.
   names it: `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization
   id, in URL-unreserved characters), checked against the master
   `user_workspaces` by the same `WorkspaceSelector` as the header. A plain
-  `/mcp` takes the user's only workspace; with several it answers 403 and
-  names the URL to use, with none 403 too. A workspace the user isn't an
-  active member of is 403, unknown or foreign alike. With a token that
-  names its workspace (claim mode, Clerk) a workspace URL must name that
-  one, by id or organization id.
+  `/mcp` takes the user's only workspace; with none it answers 403. A
+  workspace the user isn't an active member of is 403, unknown or foreign
+  alike. With a token that names its workspace (claim mode, Clerk) a
+  workspace URL must name that one, by id or organization id.
+- **The workspace picker** (`src/picker.rs`). With several workspaces a
+  plain `/mcp` used to answer 403 naming the URL to use, but an MCP client
+  shows the person only "Couldn't connect" (claude.ai, 2026-11-22). Now it
+  connects: `initialize` tells the assistant to pick a workspace,
+  `tools/list` has one tool, `list_workspaces`, which lists the account's
+  live, active workspaces by name, each with its `/mcp/w/<slug>` address
+  (the id where the slug isn't a URL segment; at most 50), and the
+  assistant asks the person to connect again with one. It never acts in a
+  workspace: no other tool or resource, no tenant database, no permission
+  lookup, no rate limit. The list is the master `workspaces` and
+  `user_workspaces` through the ORM
+  (`WorkspaceSelector::member_workspace_list`).
+- **Refusals are logged.** Every 401 and 403 of `/mcp` logs its reason
+  (`mcp auth: 401`, `mcp auth: 403`, field `diagnostic`), since the client
+  shows none of it; the metrics count them per status
+  (`weldsuite_http_requests_total{route="/mcp"}`).
 - **Clients on WeldID register themselves.** Unlike Zitadel, WeldID takes
   MCP clients without anyone setting them up, on the platform issuer only
   (WeldID's `ARCHITECTURE.md`, "Registered clients"): a client ID metadata

@@ -11,7 +11,9 @@
 //! - `POST /payment-methods/setup-intent` answers `{ url }` (a Mollie hosted
 //!   checkout) instead of a Stripe client secret.
 //! - `GET /subscription` adds `pricePerCycle` (cents, before VAT) and
-//!   `currency` while a paid period runs.
+//!   `currency` while a paid period runs, and `paymentMethodRequired`
+//!   (`{ dueAt, pastDue }`) while a paid plan without a payment method
+//!   renews within `BILLING_RENEWAL_NOTICE_DAYS` or runs on its grace period.
 //! - New: `GET /checkout/:id` (how a checkout ended), `POST
 //!   /outstanding/checkout` (pay a past-due charge), `GET
 //!   /invoices/:id/document` (the printable WeldBooks invoice), `GET /vat`
@@ -49,7 +51,8 @@ use crate::access::{answer, validate};
 use crate::account::Account;
 use crate::buyer;
 use crate::engine::{self, Actor, CheckoutAnswer, CheckoutInput, http_of};
-use crate::period::Cycle;
+use crate::payment_method::payment_method_needed;
+use crate::period::{Cycle, iso};
 use crate::plans::Plan;
 use crate::store::ChargeRow;
 use crate::vat::VatCheck;
@@ -160,12 +163,29 @@ async fn subscription_value(state: &BillingState, caller: &Caller) -> BillingRes
     body["provider"] = json!("mollie");
     body["scheduledChange"] = Value::Null;
     body["outstanding"] = Value::Null;
+    body["paymentMethodRequired"] = Value::Null;
     if let Some(account) = Account::load(&master, &workspace.id).await? {
         // What the running period costs, before VAT: the seat price it was
         // bought at times the seats. Global's subscription has no such field,
         // so the platform reads it only where it is there. A comp pays
         // nothing and gets none.
         let current = now();
+        // No payment method to charge the renewal on (a workspace that moved
+        // from Global): add one before `dueAt`, the renewal, or the end of
+        // the grace period once the renewal was refused (`pastDue`).
+        if let Some(needed) = payment_method_needed(
+            &workspace,
+            &account,
+            plan.as_ref(),
+            current,
+            state.settings.renewal_notice_days,
+            state.settings.grace_days,
+        ) {
+            body["paymentMethodRequired"] = json!({
+                "dueAt": iso(needed.due_at),
+                "pastDue": needed.past_due,
+            });
+        }
         if workspace.has_running_subscription(current)
             && !workspace.comp_active(current)
             && let Some(unit) = account.unit_amount

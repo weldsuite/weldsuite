@@ -220,13 +220,33 @@ export function takeRustLedgerCalls(): LedgerCall[] {
   return rustCalls.splice(0);
 }
 
-/** `env` with its ledger namespaces recording the TypeScript run's calls. */
+/**
+ * The call log a test's fake namespace keeps on itself (`calls`, method → the
+ * entries it recorded), so its assertions can count what the backend under
+ * test called, as `SEND_EMAIL`'s `sent` does for customer mail.
+ */
+function callLogs(ns: unknown): unknown[][] {
+  const log = (ns as { calls?: unknown } | null | undefined)?.calls;
+  if (!log || typeof log !== 'object') return [];
+  return Object.values(log as Record<string, unknown>).filter((entries): entries is unknown[] => Array.isArray(entries));
+}
+
+/**
+ * `env` with its ledger namespaces recording the TypeScript run's calls.
+ * `finish` also drops that run's entries from a fake's own call log
+ * ({@link callLogs}): both backends call the test's stubs, and the test checks
+ * the one that answered it.
+ */
 export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
   env: Record<string, unknown>;
   finish: () => LedgerCall[];
 } {
   if (!LEDGER_BINDINGS.some((binding) => isBridged(env[binding]))) return { env, finish: () => [] };
   const calls: LedgerCall[] = [];
+  const logs = LEDGER_BINDINGS.flatMap((binding) => callLogs(env[binding])).map((entries) => ({
+    entries,
+    before: entries.length,
+  }));
   const wrapped: Record<string, unknown> = { ...env };
   for (const binding of LEDGER_BINDINGS) {
     const ns = env[binding];
@@ -257,7 +277,13 @@ export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
       },
     };
   }
-  return { env: wrapped, finish: () => calls.splice(0) };
+  return {
+    env: wrapped,
+    finish: () => {
+      for (const { entries, before } of logs) entries.splice(before);
+      return calls.splice(0);
+    },
+  };
 }
 
 /**

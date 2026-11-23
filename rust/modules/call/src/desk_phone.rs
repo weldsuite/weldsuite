@@ -733,8 +733,11 @@ pub(crate) async fn forward_live(
     caller: Caller,
     body: Bytes,
 ) -> Response {
-    // `await c.req.json().catch(() => ({}))`, whatever the content type.
-    let parsed: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+    // `await c.req.json().catch(() => ({}))`, whatever the content type: the
+    // kit's body parser into an untyped JSON tree (no typed or polymorphic
+    // deserialization); the two fields read below are checked before use.
+    let parsed: Value = weldsuite_kit::validation::json_body(Some("application/json"), &body)
+        .unwrap_or_else(|_| json!({}));
     if parsed.is_null() {
         // `null.callId` throws.
         return ApiError::internal().into_response();

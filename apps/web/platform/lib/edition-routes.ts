@@ -43,6 +43,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
   ['/settings/ai', { ai: true }],
+  // The EU edition's opt-in for services outside the EU (ADR OPS-026).
+  ['/settings/outside-eu', { feature: 'outside-eu-services' }],
   ['/settings/plans', { feature: 'billing' }],
   // Billing, or on the Kubernetes editions just the credit balance and its
   // top-up (Mollie).

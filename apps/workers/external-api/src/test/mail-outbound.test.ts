@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
+import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createExternalTestApp } from './harness';
 import { createPgliteDb } from './pglite';
 import { schema, type Database } from '../db';
@@ -32,6 +33,12 @@ const { mailAccounts, mailMessages, mailDomains } = schema;
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 let db: Database;
+/**
+ * An empty master database for the sender-ownership tests. The guard answers
+ * from the cache and never queries it, but the Rust backend only runs the
+ * ownership check with a master database to fall back on (conformance).
+ */
+let masterDb: Database;
 const ids = { account: 'mail_o_team', inbound: 'msg_o_inbound' };
 
 function workspaceKey(): ApiKeySession {
@@ -74,7 +81,11 @@ function fakeLedger(decision: LedgerDecision) {
       calls.release.push(args);
     },
   };
-  const namespace = { idFromName: (name: string) => name, get: () => stub } as unknown as NonNullable<Env['OUTBOUND_LEDGER']>;
+  // `calls` on the namespace: conformance drops the TypeScript run's entries
+  // from it, so the test counts the calls of the backend it checks.
+  const namespace = { idFromName: (name: string) => name, get: () => stub, calls } as unknown as NonNullable<
+    Env['OUTBOUND_LEDGER']
+  >;
   return { namespace, calls };
 }
 
@@ -92,7 +103,9 @@ function fakePlatform() {
       trips.push(reason);
     },
   };
-  const namespace = { idFromName: (name: string) => name, get: () => stub } as unknown as NonNullable<Env['OUTBOUND_PLATFORM']>;
+  const namespace = { idFromName: (name: string) => name, get: () => stub, calls: { trip: trips } } as unknown as NonNullable<
+    Env['OUTBOUND_PLATFORM']
+  >;
   return { namespace, trips };
 }
 
@@ -113,16 +126,21 @@ interface SendEnvOptions {
 function sendEnv(options: SendEnvOptions = {}) {
   const sent: { from: string; to: string }[] = [];
   const env: Partial<Env> = {
+    // `sent` on the binding: conformance drops the TypeScript run's envelopes
+    // from it, so the test counts the sends of the backend it checks.
     SEND_EMAIL: {
+      sent,
       send: async (msg: { from: string; to: string }) => {
         options.onSend?.(msg);
         sent.push(msg);
       },
     } as unknown as SendEmail,
     // Every recipient domain resolves (cached MX hit); ownership answers come from the same cache.
+    // KV-shaped (`delete` too), so conformance serves it to the Rust backend.
     WORKSPACE_CACHE: {
       get: async (key: string) => (key.startsWith('outbound:own:') ? (options.ownership ?? null) : '1'),
       put: async () => undefined,
+      delete: async () => undefined,
     } as unknown as KVNamespace,
     ...(options.ledger ? { OUTBOUND_LEDGER: options.ledger } : {}),
     ...(options.platform ? { OUTBOUND_PLATFORM: options.platform } : {}),
@@ -134,7 +152,9 @@ function sendEnv(options: SendEnvOptions = {}) {
 }
 
 function request(env: Partial<Env>) {
-  return createExternalTestApp({ session: workspaceKey(), tenantDb: db, env }).request;
+  // The master database goes along exactly when the worker has one configured.
+  const master = env.DATABASE_URL_MASTER ? masterDb : undefined;
+  return createExternalTestApp({ session: workspaceKey(), tenantDb: db, env, masterDb: master }).request;
 }
 
 function post(path: string, body: unknown, env: Partial<Env>) {
@@ -150,6 +170,7 @@ interface ErrorBody {
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  masterDb = (await createMasterPgliteDb()).db as Database;
   await db
     .insert(mailDomains)
     .values({ id: 'mdom_o_verified', domainName: 'outbound-test.dev', dnsStatus: 'verified' })

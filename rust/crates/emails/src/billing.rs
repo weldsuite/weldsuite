@@ -1,6 +1,7 @@
 //! The plan billing emails of the EU edition (`packages/core/emails/src/templates/billing/`,
 //! ADR BILL-014): a failed charge, the reminder halfway through the grace
-//! period and the plan ending on Free ([`dunning`]), and the invoice of a
+//! period, the plan ending on Free and the notice before the renewal of a
+//! plan without a payment method ([`dunning`]), and the invoice of a
 //! paid charge ([`invoice`]). Each function takes the template's props, picks
 //! the variant its React component would render and fills it in.
 
@@ -20,6 +21,9 @@ pub enum DunningKind {
     Reminder,
     /// The grace period ran out: the workspace is on Free.
     Ended,
+    /// The plan renews on `ends_on` with no payment method to charge: add
+    /// one before then. `url` is the billing page.
+    Upcoming,
 }
 
 /// `BillingDunningEmailProps`. Sent to the workspace's billing owners.
@@ -32,8 +36,13 @@ pub struct Dunning {
     pub amount: String,
     /// When the plan ends if unpaid, formatted (`28 november 2026`).
     pub ends_on: String,
-    /// The pay link, or the billing page once the plan ended.
+    /// The pay link, or the billing page once the plan ended (and before
+    /// the renewal, [`DunningKind::Upcoming`]).
     pub url: String,
+    /// No payment method on file: a failed charge and its reminder ask for
+    /// one instead of saying a payment was refused. Ignored for the other
+    /// kinds.
+    pub no_method: bool,
 }
 
 /// Renders `billing.dunning`.
@@ -46,10 +55,13 @@ pub fn dunning(
     brand: &EmailBrand,
     props: &Dunning,
 ) -> Result<RenderedEmail, EmailError> {
-    let flags: &[&str] = match props.kind {
-        DunningKind::Failed => &[],
-        DunningKind::Reminder => &["reminder"],
-        DunningKind::Ended => &["ended"],
+    let flags: &[&str] = match (props.kind, props.no_method) {
+        (DunningKind::Failed, false) => &[],
+        (DunningKind::Failed, true) => &["nomethod"],
+        (DunningKind::Reminder, false) => &["reminder"],
+        (DunningKind::Reminder, true) => &["reminder", "nomethod"],
+        (DunningKind::Ended, _) => &["ended"],
+        (DunningKind::Upcoming, _) => &["upcoming"],
     };
     let mut values = BTreeMap::new();
     for (key, value) in [
@@ -138,19 +150,34 @@ mod tests {
             amount: "€ 90,75".to_owned(),
             ends_on: "28 november 2026".to_owned(),
             url: "https://app.weldsuite.eu/public/billing/pay/t".to_owned(),
+            no_method: false,
+        }
+    }
+
+    fn without_method(kind: DunningKind) -> Dunning {
+        Dunning {
+            no_method: true,
+            ..props(kind)
         }
     }
 
     #[test]
     fn every_variant_renders_in_both_languages() {
         let brand = EmailBrand::weldsuite("WeldSuite");
-        for kind in [
-            DunningKind::Failed,
-            DunningKind::Reminder,
-            DunningKind::Ended,
+        for (kind, no_method) in [
+            (DunningKind::Failed, false),
+            (DunningKind::Failed, true),
+            (DunningKind::Reminder, false),
+            (DunningKind::Reminder, true),
+            (DunningKind::Ended, false),
+            (DunningKind::Upcoming, false),
         ] {
             for locale in [EmailLocale::En, EmailLocale::Nl] {
-                let email = dunning(locale, &brand, &props(kind)).expect("renders");
+                let props = Dunning {
+                    no_method,
+                    ..props(kind)
+                };
+                let email = dunning(locale, &brand, &props).expect("renders");
                 assert!(email.subject.contains("Acme <Studio>"), "{}", email.subject);
                 assert!(email.html.contains("Acme &lt;Studio&gt;"), "escaped");
                 assert!(
@@ -166,6 +193,72 @@ mod tests {
             ended.subject.contains("gratis abonnement"),
             "{}",
             ended.subject
+        );
+    }
+
+    #[test]
+    fn a_plan_without_a_payment_method_is_asked_for_one() {
+        let brand = EmailBrand::weldsuite("WeldSuite");
+        // Before the renewal: add one before the date, nothing is open yet.
+        let upcoming =
+            dunning(EmailLocale::En, &brand, &props(DunningKind::Upcoming)).expect("renders");
+        assert!(
+            upcoming.subject.contains("Add a payment method")
+                && upcoming.subject.contains("28 november 2026"),
+            "{}",
+            upcoming.subject
+        );
+        assert!(
+            upcoming
+                .text
+                .contains("Add a payment method before 28 november 2026 to keep Business"),
+            "{}",
+            upcoming.text
+        );
+        assert!(!upcoming.text.contains("€ 90,75"), "nothing is open yet");
+        let nl = dunning(EmailLocale::Nl, &brand, &props(DunningKind::Upcoming)).expect("renders");
+        assert!(nl.subject.contains("betaalmethode"), "{}", nl.subject);
+
+        // The refused renewal: no payment method, not a refused payment.
+        let refused =
+            dunning(EmailLocale::En, &brand, &props(DunningKind::Failed)).expect("renders");
+        assert!(
+            refused.text.contains("didn’t go through"),
+            "{}",
+            refused.text
+        );
+        let missing = dunning(
+            EmailLocale::En,
+            &brand,
+            &without_method(DunningKind::Failed),
+        )
+        .expect("renders");
+        assert!(
+            !missing.text.contains("didn’t go through"),
+            "{}",
+            missing.text
+        );
+        assert!(
+            missing.text.contains("no payment method on file"),
+            "{}",
+            missing.text
+        );
+        assert!(missing.text.contains("€ 90,75"), "{}", missing.text);
+        let reminder = dunning(
+            EmailLocale::Nl,
+            &brand,
+            &without_method(DunningKind::Reminder),
+        )
+        .expect("renders");
+        assert!(reminder.text.contains("betaalmethode"), "{}", reminder.text);
+        // The flag means nothing once the plan ended.
+        assert_eq!(
+            dunning(EmailLocale::En, &brand, &without_method(DunningKind::Ended))
+                .expect("renders")
+                .subject,
+            dunning(EmailLocale::En, &brand, &props(DunningKind::Ended))
+                .expect("renders")
+                .subject
         );
     }
 

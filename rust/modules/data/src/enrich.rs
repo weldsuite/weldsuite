@@ -301,6 +301,7 @@ impl WelddataEnrichJob {
             lead: &lead,
             siblings: &siblings,
             ai,
+            tenant: Some(db),
         };
         let ActionResult {
             value,

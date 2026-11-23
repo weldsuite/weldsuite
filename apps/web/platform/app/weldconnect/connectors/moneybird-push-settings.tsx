@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   useMoneybirdPushOptions,
   useMoneybirdPushStatus,
@@ -27,6 +28,18 @@ import {
   type MoneybirdPushTaxRateOverrides,
   type MoneybirdTaxRateOption,
 } from '@/hooks/queries/use-connector-queries';
+
+/** Moneybird objects WeldBooks can send (ADR INT-013); these use the ledger pickers below. */
+const SENDABLE_KEYS = ['contacts', 'products', 'invoices', 'bills'];
+
+/** True when a sendable object is switched on and set to send (saved state). */
+function sendsToMoneybird(connection: ConnectorConnection): boolean {
+  const enabled = new Set(connection.enabledSyncs);
+  return SENDABLE_KEYS.some((key) => {
+    if (!enabled.has(key)) return false;
+    return (connection.objectSyncDirections?.[key] ?? connection.direction ?? 'inbound') !== 'inbound';
+  });
+}
 
 const NONE_VALUE = '__none__';
 const AUTOMATIC_VALUE = '__automatic__';
@@ -110,6 +123,8 @@ interface PushStatusPanelProps {
   onSendNow: () => void;
   sending: boolean;
   canManage: boolean;
+  /** Something is set to send to Moneybird, so Send now makes sense without the Stripe push. */
+  sendEnabled: boolean;
 }
 
 function PushStatusPanel({
@@ -121,6 +136,7 @@ function PushStatusPanel({
   onSendNow,
   sending,
   canManage,
+  sendEnabled,
 }: Readonly<PushStatusPanelProps>) {
   const lastRun = status?.lastRun ?? null;
   const running = lastRun?.status === 'running';
@@ -134,7 +150,7 @@ function PushStatusPanel({
           size="sm"
           variant="outline"
           onClick={onSendNow}
-          disabled={!status?.enabled || sending || running || !canManage}
+          disabled={!(status?.enabled || sendEnabled) || sending || running || !canManage}
         >
           {sending || running ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
           {tp.sendNow}
@@ -236,6 +252,7 @@ export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<M
   const tc = t.weldconnect.connectors;
   const tp = tc.moneybirdPush;
 
+  const twoWay = isFeatureAvailable('moneybirdTwoWay');
   const [draft, setDraft] = useState<MoneybirdPushSettings>(connection.settings?.moneybirdPush ?? EMPTY_SETTINGS);
   const [dirty, setDirty] = useState(false);
 
@@ -277,8 +294,13 @@ export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<M
       toast.error(tp.revenueLedgerRequired);
       return;
     }
+    // Global's route does not know the expense ledger, so it is only sent where two-way exists.
+    const { expenseLedgerAccountId, ...withoutExpense } = draft;
+    const payload: MoneybirdPushSettings = twoWay
+      ? { ...withoutExpense, expenseLedgerAccountId: expenseLedgerAccountId ?? null }
+      : withoutExpense;
     update.mutate(
-      { connectionId: connection.id, settings: { moneybirdPush: draft } },
+      { connectionId: connection.id, settings: { moneybirdPush: payload } },
       {
         onSuccess: () => {
           toast.success(tp.saved);
@@ -358,6 +380,28 @@ export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<M
               </Select>
             </div>
 
+            {twoWay ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="mb-push-expense-ledger">{tp.expenseLedgerLabel}</Label>
+                <Select
+                  value={draft.expenseLedgerAccountId ?? ''}
+                  disabled={!canManage}
+                  onValueChange={(value) => applyPatch({ expenseLedgerAccountId: value || null })}
+                >
+                  <SelectTrigger id="mb-push-expense-ledger" aria-describedby="mb-push-two-way-ledger-hint">
+                    <SelectValue placeholder={tp.expenseLedgerPlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ledgerAccounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <Label htmlFor="mb-push-financial-account">{tp.financialAccountLabel}</Label>
               <Select
@@ -424,6 +468,11 @@ export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<M
             ) : null}
           </div>
 
+          {twoWay ? (
+            <p id="mb-push-two-way-ledger-hint" className="text-muted-foreground text-[11px]">
+              {tp.twoWayLedgerHint}
+            </p>
+          ) : null}
           <p className="text-muted-foreground text-[11px]">{tp.setupHint}</p>
 
           <div>
@@ -495,6 +544,7 @@ export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<M
         onSendNow={handleSendNow}
         sending={triggerPush.isPending}
         canManage={canManage}
+        sendEnabled={twoWay && sendsToMoneybird(connection)}
       />
     </div>
   );

@@ -368,6 +368,13 @@ pub async fn list_connection_records(
 ) -> Result<Vec<Value>, DbErr> {
     let mappings: Vec<Value> = mappings::Entity::find()
         .filter(mappings::Column::ConnectionId.eq(connection_id))
+        // Moneybird's two-way bookkeeping rows (baselines, payments, pushed
+        // bills) are not records the connection imported.
+        .filter(mappings::Column::ExternalEntityType.not_like("moneybird\\_baseline\\_%"))
+        .filter(
+            mappings::Column::ExternalEntityType
+                .is_not_in(["moneybird_payment", "moneybird_pushed_bill"]),
+        )
         .order_by_desc(mappings::Column::UpdatedAt)
         .limit(u64::try_from(limit.min(100)).unwrap_or(0))
         .all(&orm(db))

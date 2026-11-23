@@ -78,6 +78,18 @@ where
         .route("/{id}", get(by_provider).route_layer(read()))
 }
 
+/// ADR OPS-026: a route that connects, or calls, Slack or Discord answers
+/// 403 `OUTSIDE_EU_SERVICE_OFF` while the workspace has that service off
+/// (enforced on the EU edition; elsewhere this never reads the database).
+/// Other providers pass; listing, reading the settings and disconnecting
+/// stay open.
+async fn outside_eu(ctx: &Ctx, provider: &str) -> Option<Response> {
+    weldsuite_outside_eu::require_integration(&ctx.caller.db, provider)
+        .await
+        .err()
+        .map(|error| error.to_api_error().into_response())
+}
+
 // ── rows ──────────────────────────────────────────────────────────────────────
 
 /// A row as Drizzle's `select()` returns it.
@@ -274,6 +286,9 @@ async fn save_token(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, &data.provider).await {
+        return off;
+    }
     let db = &ctx.caller.db;
     let existing = match by_provider_row(db, &data.provider).await {
         Ok(existing) => existing,
@@ -381,6 +396,9 @@ async fn discord_connect(State(state): State<DeskState>, ctx: Ctx, headers: Head
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let Some(client_id) = ctx
         .caller
         .env("DISCORD_CLIENT_ID")
@@ -411,6 +429,9 @@ async fn slack_connect(State(state): State<DeskState>, ctx: Ctx, headers: Header
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let Some(client_id) = ctx.caller.env("SLACK_CLIENT_ID").filter(|c| !c.is_empty()) else {
         return ApiError::internal()
             .with_message("Slack client ID not configured")
@@ -757,6 +778,9 @@ async fn update_discord_settings(
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let db = &ctx.caller.db;
     let integration = match resolve_discord(db, data.integration_id.as_deref()).await {
         Ok(Some(row)) => row,
@@ -819,6 +843,9 @@ async fn discord_channels(
 ) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
+    }
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
     }
     let Some(token) = ctx
         .caller
@@ -904,6 +931,9 @@ async fn ticket_panel(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to post ticket panel";
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let data = match validate(&headers, &body, panel_request_schema) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
@@ -985,6 +1015,9 @@ async fn discord_send(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to send Discord message";
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let (channel, content) = match validate(&headers, &body, send_schema) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
@@ -1140,6 +1173,9 @@ async fn slack_channels(State(state): State<DeskState>, ctx: Ctx) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let row = match slack_row(&ctx, "Get Slack channels error").await {
         Ok(row) => row,
         Err(response) => return response,
@@ -1183,6 +1219,9 @@ async fn slack_test(State(state): State<DeskState>, ctx: Ctx) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let row = match slack_row(&ctx, "Slack test error").await {
         Ok(row) => row,
         Err(response) => return response,
@@ -1219,6 +1258,9 @@ async fn provider_test(
 ) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
+    }
+    if let Some(off) = outside_eu(&ctx, &provider).await {
+        return off;
     }
     if provider == "discord" {
         let Some(token) = ctx
@@ -1279,6 +1321,9 @@ async fn refresh(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
             js_text(&integration["provider"])
         ))
         .into_response();
+    }
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
     }
     let client_id = ctx
         .caller

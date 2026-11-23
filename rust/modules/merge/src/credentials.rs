@@ -407,6 +407,14 @@ pub(crate) async fn adapter_context(
     connection: &Row,
     member_token: Option<String>,
 ) -> Result<providers::AdapterContext, MergeError> {
+    // ADR OPS-026: no call to a provider outside the EU the workspace
+    // hasn't switched on.
+    crate::require_provider(
+        db,
+        text(connection, "provider"),
+        opt_text(connection, "host").as_deref(),
+    )
+    .await?;
     let context = |member_token| providers::AdapterContext {
         state: state.clone(),
         overrides: overrides.clone(),
