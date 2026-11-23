@@ -346,7 +346,10 @@ async fn write_settings(
         .to_owned();
     let updated = ai_settings::Entity::update_many()
         .col_expr(Column::Providers, Expr::value(providers.clone()))
-        .col_expr(Column::DefaultProvider, Expr::value(default_provider.clone()))
+        .col_expr(
+            Column::DefaultProvider,
+            Expr::value(default_provider.clone()),
+        )
         .col_expr(Column::FeatureOverrides, Expr::value(overrides.clone()))
         .col_expr(Column::UpdatedBy, Expr::value(updated_by.clone()))
         .col_expr(Column::UpdatedAt, Expr::current_timestamp())

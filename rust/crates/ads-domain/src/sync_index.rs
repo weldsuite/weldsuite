@@ -59,7 +59,10 @@ pub async fn upsert_ad_sync_index(
         .await?;
     if let Some(id) = existing {
         let mut update = ad_sync_index::Entity::update_many()
-            .col_expr(Column::ClerkOrgId, Expr::value(entry.clerk_org_id.to_owned()))
+            .col_expr(
+                Column::ClerkOrgId,
+                Expr::value(entry.clerk_org_id.to_owned()),
+            )
             .col_expr(Column::IsEnabled, Expr::value(entry.is_enabled))
             .col_expr(Column::MetricsIntervalHours, interval_hours())
             .col_expr(Column::NextMetricsSyncAt, Expr::value(next_metrics_sync_at));

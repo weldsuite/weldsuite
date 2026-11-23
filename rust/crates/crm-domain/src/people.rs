@@ -243,8 +243,9 @@ fn person_condition(scope: Option<&str>, filter: &PeopleFilter, resolved: &Resol
     condition
 }
 
-/// `$8 = (coalesce(nullif(trim(direct_phone), ''), nullif(trim(mobile_phone),
-/// '')) is not null)`: whether the person has a phone number.
+/// The `hasPhone` filter: with `has_phone`, a direct or mobile number that
+/// isn't blank once trimmed (`coalesce(nullif(trim(…), ''), …)` is not
+/// null); without, neither.
 fn has_phone_is(has_phone: bool) -> Expr {
     use sea_orm::ExprTrait as _;
     let number = |column: people::Column| {

@@ -62,6 +62,7 @@ pub mod moneybird;
 pub mod moneybird_push;
 pub mod moneybird_webhooks;
 pub mod odoo;
+mod orm_bridge;
 pub mod provider;
 pub mod stripe;
 pub mod stripe_mappers;

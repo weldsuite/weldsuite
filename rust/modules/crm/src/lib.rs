@@ -686,13 +686,6 @@ impl From<sea_orm::DbErr> for Refusal {
     }
 }
 
-/// SQL of a crate not converted to the ORM yet reports as the ORM does.
-impl From<sqlx::Error> for Refusal {
-    fn from(error: sqlx::Error) -> Self {
-        weldsuite_db::orm_error(error).into()
-    }
-}
-
 impl From<weldsuite_crm_domain::DomainError> for Refusal {
     fn from(error: weldsuite_crm_domain::DomainError) -> Self {
         match error.into_api_error() {

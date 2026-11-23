@@ -494,7 +494,8 @@ async fn apply_delivery_outcome(
     } else {
         let next_failures = webhook.consecutive_failures.unwrap_or(0) + 1;
         let disable = next_failures >= AUTO_DISABLE_THRESHOLD && webhook.status != "disabled";
-        let reason = error_message.map(|message| js::slice_to(message, ERROR_MESSAGE_CAPTURE_LIMIT));
+        let reason =
+            error_message.map(|message| js::slice_to(message, ERROR_MESSAGE_CAPTURE_LIMIT));
         let status = if disable {
             "disabled"
         } else {
@@ -778,12 +779,10 @@ async fn subscribed_webhooks(
 ) -> Result<Vec<external_webhooks::Model>, DbErr> {
     use external_webhooks::Column;
     let subscribed = names.iter().fold(Condition::any(), |any, name| {
-        any.add(
-            sea_orm::sea_query::extension::postgres::PgExpr::contains(
-                Expr::col((external_webhooks::Entity, Column::Events)),
-                json!([name]),
-            ),
-        )
+        any.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((external_webhooks::Entity, Column::Events)),
+            json!([name]),
+        ))
     });
     external_webhooks::Entity::find()
         .filter(

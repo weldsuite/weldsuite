@@ -2,7 +2,9 @@
 //! the ad accounts it reaches, which of them sync, and the sync itself.
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_db::{
     DecryptError, EncryptError, Keyring, PgPool, decrypt_field, encrypt_field, orm, utc_now,
@@ -167,7 +169,10 @@ pub async fn sync_selected_accounts(
     .await?;
     let now = utc_now();
     ad_platform_connections::Entity::update_many()
-        .col_expr(ad_platform_connections::Column::LastSyncAt, Expr::value(now))
+        .col_expr(
+            ad_platform_connections::Column::LastSyncAt,
+            Expr::value(now),
+        )
         .col_expr(ad_platform_connections::Column::UpdatedAt, Expr::value(now))
         .col_expr(
             ad_platform_connections::Column::LastError,

@@ -140,11 +140,7 @@ type Text = Option<String>;
     clippy::too_many_lines,
     reason = "one arm per loader, as the registry in documents.ts"
 )]
-async fn map_static(
-    db: &PgPool,
-    entity_type: &str,
-    id: &str,
-) -> Result<Option<Mapped>, DbErr> {
+async fn map_static(db: &PgPool, entity_type: &str, id: &str) -> Result<Option<Mapped>, DbErr> {
     let db = &orm(db);
     let mapped = match entity_type {
         "knowledge_page" => {

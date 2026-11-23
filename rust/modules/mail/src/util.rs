@@ -63,14 +63,6 @@ impl From<sea_orm::DbErr> for MailError {
     }
 }
 
-/// SQL that stays SQL, and the crates not on the ORM yet
-/// (`weldsuite-crm-domain`, …).
-impl From<sqlx::Error> for MailError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(weldsuite_db::orm_error(error))
-    }
-}
-
 impl From<ApiError> for MailError {
     fn from(error: ApiError) -> Self {
         Self::api(error)

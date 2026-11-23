@@ -358,7 +358,13 @@ pub async fn pull_synced_campaigns(
     if accounts.is_empty() {
         return Ok(0);
     }
-    let synced = load_campaigns(db, &accounts, AdCampaignSyncStatus::Synced, platform_campaign_id).await?;
+    let synced = load_campaigns(
+        db,
+        &accounts,
+        AdCampaignSyncStatus::Synced,
+        platform_campaign_id,
+    )
+    .await?;
     let client = MetaClient::new(http.clone(), access_token);
     let mut pulled = 0;
     for campaign in synced {

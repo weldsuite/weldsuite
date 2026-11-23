@@ -854,12 +854,10 @@ async fn write_decision(
         None => first_access(&db, workspace_id, app_code, update, limits_json).await?,
     };
     if written == 0 {
-        drop(db);
         tx.rollback().await?;
         return Ok(false);
     }
     audit::record_success(&db, audit_entry).await?;
-    drop(db);
     tx.commit().await?;
     Ok(true)
 }
@@ -1230,7 +1228,6 @@ pub async fn set_limits(
         },
     )
     .await?;
-    drop(db);
     tx.commit().await?;
     Ok(LimitsChange {
         workspace,

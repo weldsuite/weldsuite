@@ -75,6 +75,15 @@ impl From<DbErr> for TaxError {
     }
 }
 
+/// For the transactions the callers open around their writes (`begin` and
+/// `commit` answer `sqlx::Error`): the same failure, through
+/// `weldsuite_db::orm_error`.
+impl From<sqlx::Error> for TaxError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(weldsuite_db::orm_error(error))
+    }
+}
+
 impl From<SalesTaxError> for TaxError {
     fn from(error: SalesTaxError) -> Self {
         Self::SalesTax(error)

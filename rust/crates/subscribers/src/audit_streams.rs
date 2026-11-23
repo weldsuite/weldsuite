@@ -807,7 +807,12 @@ async fn active_streams(db: &PgPool) -> Result<Vec<StoredStream>, DbErr> {
     use sea_orm::ExprTrait as _;
     let rows: Vec<StoredStreamRow> = audit_log_streams::Entity::find()
         .select_only()
-        .columns([Column::Id, Column::Type, Column::Url, Column::TokenEncrypted])
+        .columns([
+            Column::Id,
+            Column::Type,
+            Column::Url,
+            Column::TokenEncrypted,
+        ])
         .expr(Expr::col((audit_log_streams::Entity, Column::Settings)).cast_as("text"))
         .columns([
             Column::ConsecutiveFailures,
@@ -882,7 +887,13 @@ async fn read_batch(
     use audit_logs::Column;
     use sea_orm::ExprTrait as _;
     let col = |column: Column| Expr::col((audit_logs::Entity, column));
-    let ms = || Expr::from(Func::cust("date_trunc").arg("milliseconds").arg(col(Column::CreatedAt)));
+    let ms = || {
+        Expr::from(
+            Func::cust("date_trunc")
+                .arg("milliseconds")
+                .arg(col(Column::CreatedAt)),
+        )
+    };
     let after = match &cursor.id {
         None => ms().gt(cursor.at),
         Some(id) => Expr::tuple([ms(), col(Column::Id)])

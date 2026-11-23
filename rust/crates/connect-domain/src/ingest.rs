@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
-use weldsuite_books_domain::table::Table;
+use weldsuite_books_domain::table::{Table, TableDb};
 use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
 use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
 use weldsuite_db::PgPool;
@@ -322,12 +322,12 @@ fn with(values: &Map<String, Value>, extra: &[(&str, Value)]) -> Map<String, Val
 }
 
 /// `db.update(table).set(values).where(eq(table.id, id))`.
-async fn patch<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn patch(
+    db: impl Into<TableDb<'_>>,
     table: &Table,
     id: &str,
     values: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), weldsuite_commerce_domain::DbErr> {
     let columns = table.values(values);
     if columns.is_empty() {
         return Ok(());
@@ -336,11 +336,11 @@ async fn patch<'e>(
 }
 
 /// `db.insert(table).values(values)`.
-async fn insert<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn insert(
+    db: impl Into<TableDb<'_>>,
     table: &Table,
     values: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), weldsuite_commerce_domain::DbErr> {
     table.insert_raw(db, table.values(values)).await.map(|_| ())
 }
 
@@ -2221,7 +2221,9 @@ async fn ensure_default_warehouse(db: &PgPool, owner: &str) -> Result<String, sq
         "metadata".to_owned(),
         json!({ "source": "picqer-connector", "createdFor": if owner.is_empty() { "sync" } else { owner } }),
     );
-    insert(db, &tables::WAREHOUSES, &values).await?;
+    insert(db, &tables::WAREHOUSES, &values)
+        .await
+        .map_err(crate::orm_bridge::sqlx_error)?;
     Ok(id)
 }
 

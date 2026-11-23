@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
 use weldsuite_books_domain::table::{Table, WriteError};
 use weldsuite_core_domain::js::{Js, as_text};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;

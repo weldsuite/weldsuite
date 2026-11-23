@@ -398,7 +398,6 @@ pub async fn add(
         },
     )
     .await?;
-    drop(db);
     tx.commit().await?;
     Ok(RosterChange {
         before,
@@ -474,7 +473,6 @@ pub async fn remove(
         },
     )
     .await?;
-    drop(db);
     tx.commit().await?;
     Ok(RosterChange {
         before: Some(before),

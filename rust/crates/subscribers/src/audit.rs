@@ -441,7 +441,11 @@ struct AuditLogRow<'a> {
 
 /// The `audit_logs` insert. The event's `data` goes in as the text it came
 /// as (`$7::jsonb`), so Postgres reads its numbers as written.
-async fn insert_audit_log(db: &PgPool, event: &HubEvent, row: AuditLogRow<'_>) -> Result<(), DbErr> {
+async fn insert_audit_log(
+    db: &PgPool,
+    event: &HubEvent,
+    row: AuditLogRow<'_>,
+) -> Result<(), DbErr> {
     use audit_logs::Column;
     use sea_orm::ExprTrait as _;
     let data = event.data.as_ref().map(|raw| raw.get().to_owned());

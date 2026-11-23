@@ -227,11 +227,12 @@ async fn page_ids(
         if !searchable_custom_object(db, entity_type).await? {
             return Ok(None);
         }
-        let ids = live_ids::<custom_object_records::Entity>(Column::Id, Column::DeletedAt, after_id)
-            .filter(Column::EntityKey.eq(entity_type))
-            .into_tuple()
-            .all(db)
-            .await?;
+        let ids =
+            live_ids::<custom_object_records::Entity>(Column::Id, Column::DeletedAt, after_id)
+                .filter(Column::EntityKey.eq(entity_type))
+                .into_tuple()
+                .all(db)
+                .await?;
         return Ok(Some(ids));
     }
     let Some(page) = static_page(entity_type, after_id) else {
@@ -288,10 +289,14 @@ pub async fn backfill_batch(
     };
     let conn = orm(db);
     let Some(ids) = page_ids(&conn, &cursor.entity_type, cursor.after_id.as_deref()).await? else {
-        return Ok(finished(next_entity_type(&conn, &cursor.entity_type).await?));
+        return Ok(finished(
+            next_entity_type(&conn, &cursor.entity_type).await?,
+        ));
     };
     if ids.is_empty() {
-        return Ok(finished(next_entity_type(&conn, &cursor.entity_type).await?));
+        return Ok(finished(
+            next_entity_type(&conn, &cursor.entity_type).await?,
+        ));
     }
 
     let mut embedded = 0;
