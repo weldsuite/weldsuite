@@ -6,22 +6,34 @@
 //! Every function runs on the caller's connection. The writers run on a
 //! transaction that first takes the project's lock ([`lock`]), as the
 //! object runs one call at a time. Text is compared and ordered byte by
-//! byte (`collate "C"`) and searched with ASCII case folding, as the
-//! object's SQLite does; first and last seen are `timestamptz` (always the
-//! server's clock), read back as the object writes them.
+//! byte (`collate "C"`, or Rust's own string order once the rows are read)
+//! and searched with ASCII case folding, as the object's SQLite does; first
+//! and last seen are `timestamptz` (always the server's clock), read back as
+//! the object writes them.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Alias, Expr, Func, IntoColumnRef, OnConflict, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QuerySelect, Select,
+};
 use serde_json::Value;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use weldsuite_db::{OrmConn, orm_error};
 use weldsuite_kit::generate_id;
 use weldsuite_panel::ProjectRef;
 use weldsuite_panel::project_state::{
     Erasure, Group, GroupOp, GroupOpsResult, GroupsPage, ListGroupsInput, ListPeopleInput,
     PeopleOp, PeoplePage, Person,
+};
+use weldsuite_schema::tenant::{
+    panel_erased_ids, panel_group_slots, panel_groups, panel_identity_links, panel_people,
+    panel_project_meta,
 };
 
 use super::rows::{Emitted, group_row, identity_row, person_row};
@@ -76,7 +88,7 @@ macro_rules! group_columns {
     };
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, FromQueryResult)]
 struct PersonRow {
     user_id: String,
     email: Option<String>,
@@ -86,7 +98,7 @@ struct PersonRow {
     last_seen: String,
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, FromQueryResult)]
 struct GroupRow {
     group_type: String,
     group_key: String,
@@ -95,32 +107,113 @@ struct GroupRow {
     last_seen: String,
 }
 
+/// `workspace_id = … and project_id = …` on a table's own two columns.
+fn in_project<C: ColumnTrait>(workspace_id: C, project_id: C, project: ProjectRef<'_>) -> Condition {
+    Condition::all()
+        .add(workspace_id.eq(project.workspace_id))
+        .add(project_id.eq(project.project_id))
+}
+
+/// `to_char(<column> at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+/// (`iso!`): a `timestamptz` column as the object writes times.
+fn iso_of(column: impl IntoColumnRef) -> Expr {
+    Func::cust("to_char")
+        .arg(Func::cust("timezone").arg("UTC").arg(Expr::col(column)))
+        .arg("YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"")
+        .into()
+}
+
+/// `<column>::text`: a `json` column's text as stored.
+fn text_of(column: impl IntoColumnRef) -> Expr {
+    Func::cast_as(Expr::col(column), Alias::new("text")).into()
+}
+
+/// `$n::json`: a profile's text stored as is.
+fn json_text(text: &str) -> Expr {
+    Func::cast_as(Expr::val(text), Alias::new("json")).into()
+}
+
+/// `$n::timestamptz`: a time as the object writes it.
+fn at(now: &str) -> Expr {
+    Func::cast_as(Expr::val(now), Alias::new("timestamptz")).into()
+}
+
+/// A SeaQuery statement the builder refused (a column without its value).
+fn built(error: sea_orm::sea_query::error::Error) -> DbErr {
+    DbErr::Custom(error.to_string())
+}
+
+/// `select exists (<query>)`.
+async fn exists(conn: &mut PgConnection, query: SelectStatement) -> Result<bool, DbErr> {
+    let mut select = Query::select();
+    select.expr_as(Expr::exists(query), Alias::new("value"));
+    let row = OrmConn::new(conn)
+        .query_one(&select)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("select exists".to_owned()))?;
+    row.try_get("", "value")
+}
+
+/// The columns of a profile as `person_columns!` reads them.
+fn person_select() -> Select<panel_people::Entity> {
+    use panel_people::Column;
+    panel_people::Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Email, Column::Name])
+        .column_as(text_of(Column::Properties), "properties")
+        .column_as(iso_of(Column::FirstSeen), "first_seen")
+        .column_as(iso_of(Column::LastSeen), "last_seen")
+}
+
+/// The columns of a group as `group_columns!` reads them.
+fn group_select() -> Select<panel_groups::Entity> {
+    use panel_groups::Column;
+    panel_groups::Entity::find()
+        .select_only()
+        .columns([Column::GroupType, Column::GroupKey])
+        .column_as(text_of(Column::Properties), "properties")
+        .column_as(iso_of(Column::FirstSeen), "first_seen")
+        .column_as(iso_of(Column::LastSeen), "last_seen")
+}
+
 /// Takes the project's lock until the transaction ends: one change at a
-/// time per project, the object's single thread.
-pub(crate) async fn lock(conn: &mut PgConnection, project: ProjectRef<'_>) -> sqlx::Result<()> {
-    sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(format!(
-            "weldpanel:{}:{}",
-            project.workspace_id, project.project_id
-        ))
-        .execute(conn)
-        .await
-        .map(|_| ())
+/// time per project, the object's single thread
+/// (`select pg_advisory_xact_lock(hashtextextended($1, 0))`).
+pub(crate) async fn lock(conn: &mut PgConnection, project: ProjectRef<'_>) -> Result<(), DbErr> {
+    let key = format!(
+        "weldpanel:{}:{}",
+        project.workspace_id, project.project_id
+    );
+    let mut lock = Query::select();
+    lock.expr(
+        Func::cust("pg_advisory_xact_lock")
+            .arg(Func::cust("hashtextextended").arg(key).arg(0_i64)),
+    );
+    OrmConn::new(conn).execute(&lock).await.map(|_| ())
 }
 
 /// `nextVersion`: the project's change counter, one up.
-async fn next_version(conn: &mut PgConnection, project: ProjectRef<'_>) -> sqlx::Result<i64> {
-    sqlx::query_scalar(
-        "insert into panel_project_meta (id, workspace_id, project_id, version) values ($1, $2, $3, 1) \
-         on conflict (workspace_id, project_id) \
-         do update set version = panel_project_meta.version + 1, updated_at = now() \
-         returning version",
+async fn next_version(conn: &mut PgConnection, project: ProjectRef<'_>) -> Result<i64, DbErr> {
+    use panel_project_meta::{ActiveModel, Column, Entity};
+    let meta = Entity::insert(ActiveModel {
+        id: Set(generate_id("pnpm")),
+        workspace_id: Set(project.workspace_id.to_owned()),
+        project_id: Set(project.project_id.to_owned()),
+        version: Set(1),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::WorkspaceId, Column::ProjectId])
+            .value(
+                Column::Version,
+                sea_orm::ExprTrait::add(Expr::col((Entity, Column::Version)), 1),
+            )
+            .value(Column::UpdatedAt, Expr::current_timestamp())
+            .to_owned(),
     )
-    .bind(generate_id("pnpm"))
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .fetch_one(conn)
-    .await
+    .exec_with_returning(&OrmConn::new(conn))
+    .await?;
+    Ok(meta.version)
 }
 
 /// Where the applier is in the operations stream for this project: the
@@ -128,15 +221,15 @@ async fn next_version(conn: &mut PgConnection, project: ProjectRef<'_>) -> sqlx:
 pub(crate) async fn applied(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
-) -> sqlx::Result<Option<(Option<String>, i64)>> {
-    sqlx::query_as(
-        "select applied_stream, applied_seq from panel_project_meta \
-         where workspace_id = $1 and project_id = $2",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .fetch_optional(conn)
-    .await
+) -> Result<Option<(Option<String>, i64)>, DbErr> {
+    use panel_project_meta::{Column, Entity};
+    Entity::find()
+        .select_only()
+        .columns([Column::AppliedStream, Column::AppliedSeq])
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .into_tuple()
+        .one(&OrmConn::new(conn))
+        .await
 }
 
 /// Records the operation at `seq` of `stream` as applied.
@@ -145,19 +238,23 @@ pub(crate) async fn mark_applied(
     project: ProjectRef<'_>,
     stream: &str,
     seq: i64,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "insert into panel_project_meta (id, workspace_id, project_id, applied_stream, applied_seq) \
-         values ($1, $2, $3, $4, $5) \
-         on conflict (workspace_id, project_id) \
-         do update set applied_stream = excluded.applied_stream, applied_seq = excluded.applied_seq, updated_at = now()",
+) -> Result<(), DbErr> {
+    use panel_project_meta::{ActiveModel, Column, Entity};
+    Entity::insert(ActiveModel {
+        id: Set(generate_id("pnpm")),
+        workspace_id: Set(project.workspace_id.to_owned()),
+        project_id: Set(project.project_id.to_owned()),
+        applied_stream: Set(Some(stream.to_owned())),
+        applied_seq: Set(seq),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([Column::WorkspaceId, Column::ProjectId])
+            .update_columns([Column::AppliedStream, Column::AppliedSeq])
+            .value(Column::UpdatedAt, Expr::current_timestamp())
+            .to_owned(),
     )
-    .bind(generate_id("pnpm"))
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(stream)
-    .bind(seq)
-    .execute(conn)
+    .exec_without_returning(&OrmConn::new(conn))
     .await
     .map(|_| ())
 }
@@ -166,33 +263,31 @@ async fn is_erased(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     id: &str,
-) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
-        "select exists (select 1 from panel_erased_ids \
-         where workspace_id = $1 and project_id = $2 and erased_id = $3)",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(id)
-    .fetch_one(conn)
-    .await
+) -> Result<bool, DbErr> {
+    use panel_erased_ids::{Column, Entity};
+    let query = Query::select()
+        .expr(Expr::val(1))
+        .from(Entity)
+        .cond_where(
+            in_project(Column::WorkspaceId, Column::ProjectId, project)
+                .add(Column::ErasedId.eq(id)),
+        )
+        .to_owned();
+    exists(conn, query).await
 }
 
 async fn find_person(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     user_id: &str,
-) -> sqlx::Result<Option<PersonRow>> {
-    sqlx::query_as(concat!(
-        "select ",
-        person_columns!(),
-        " from panel_people where workspace_id = $1 and project_id = $2 and user_id = $3"
-    ))
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(user_id)
-    .fetch_optional(conn)
-    .await
+) -> Result<Option<PersonRow>, DbErr> {
+    use panel_people::Column;
+    person_select()
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::UserId.eq(user_id))
+        .into_model()
+        .one(&OrmConn::new(conn))
+        .await
 }
 
 /// The user an anonymous id is linked to.
@@ -200,16 +295,16 @@ async fn linked_user(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     anon_id: &str,
-) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar(
-        "select user_id from panel_identity_links \
-         where workspace_id = $1 and project_id = $2 and anon_id = $3",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(anon_id)
-    .fetch_optional(conn)
-    .await
+) -> Result<Option<String>, DbErr> {
+    use panel_identity_links::{Column, Entity};
+    Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::AnonId.eq(anon_id))
+        .into_tuple()
+        .one(&OrmConn::new(conn))
+        .await
 }
 
 async fn touch_person(
@@ -217,18 +312,15 @@ async fn touch_person(
     project: ProjectRef<'_>,
     user_id: &str,
     now: &str,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "update panel_people set last_seen = $4::timestamptz \
-         where workspace_id = $1 and project_id = $2 and user_id = $3",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(user_id)
-    .bind(now)
-    .execute(conn)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    use panel_people::{Column, Entity};
+    Entity::update_many()
+        .col_expr(Column::LastSeen, at(now))
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::UserId.eq(user_id))
+        .exec(&OrmConn::new(conn))
+        .await
+        .map(|_| ())
 }
 
 async fn insert_person(
@@ -238,22 +330,35 @@ async fn insert_person(
     props: &serde_json::Map<String, Value>,
     text: &str,
     now: &str,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "insert into panel_people (id, workspace_id, project_id, user_id, email, name, properties, first_seen, last_seen) \
-         values ($1, $2, $3, $4, $5, $6, $7::json, $8::timestamptz, $8::timestamptz)",
-    )
-    .bind(generate_id("pnpe"))
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(user_id)
-    .bind(email_of(props))
-    .bind(name_of(props))
-    .bind(text)
-    .bind(now)
-    .execute(conn)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    use panel_people::{Column, Entity};
+    let mut insert = Query::insert();
+    insert
+        .into_table(Entity)
+        .columns([
+            Column::Id,
+            Column::WorkspaceId,
+            Column::ProjectId,
+            Column::UserId,
+            Column::Email,
+            Column::Name,
+            Column::Properties,
+            Column::FirstSeen,
+            Column::LastSeen,
+        ])
+        .values([
+            Expr::val(generate_id("pnpe")),
+            Expr::val(project.workspace_id),
+            Expr::val(project.project_id),
+            Expr::val(user_id),
+            Expr::val(email_of(props)),
+            Expr::val(name_of(props)),
+            json_text(text),
+            at(now),
+            at(now),
+        ])
+        .map_err(built)?;
+    OrmConn::new(conn).execute(&insert).await.map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +375,7 @@ pub(crate) async fn identify(
     user_id: &str,
     ts: &str,
     now: &str,
-) -> sqlx::Result<(bool, Emitted)> {
+) -> Result<(bool, Emitted), DbErr> {
     let mut rows = Emitted::default();
     if anon_id.is_empty() || user_id.is_empty() {
         return Ok((false, rows));
@@ -282,17 +387,15 @@ pub(crate) async fn identify(
         // The first link wins: an anonymous id never moves to another user.
         existing == user_id
     } else {
-        sqlx::query(
-            "insert into panel_identity_links (id, workspace_id, project_id, anon_id, user_id, ts) \
-             values ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(generate_id("pnil"))
-        .bind(project.workspace_id)
-        .bind(project.project_id)
-        .bind(anon_id)
-        .bind(user_id)
-        .bind(ts)
-        .execute(&mut *conn)
+        panel_identity_links::Entity::insert(panel_identity_links::ActiveModel {
+            id: Set(generate_id("pnil")),
+            workspace_id: Set(project.workspace_id.to_owned()),
+            project_id: Set(project.project_id.to_owned()),
+            anon_id: Set(anon_id.to_owned()),
+            user_id: Set(user_id.to_owned()),
+            ts: Set(ts.to_owned()),
+        })
+        .exec_without_returning(&OrmConn::new(&mut *conn))
         .await?;
         rows.identities
             .push(identity_row(project, anon_id, user_id, ts));
@@ -321,7 +424,7 @@ pub(crate) async fn apply_people_ops(
     project: ProjectRef<'_>,
     ops: &[PeopleOp],
     now: &str,
-) -> sqlx::Result<Emitted> {
+) -> Result<Emitted, DbErr> {
     let mut changed: Vec<(String, Value)> = Vec::new();
     for op in ops {
         let (user_id, ts) = person_of(op);
@@ -343,19 +446,16 @@ pub(crate) async fn apply_people_ops(
             continue;
         }
         if existing.is_some() {
-            sqlx::query(
-                "update panel_people set email = $4, name = $5, properties = $6::json, last_seen = $7::timestamptz \
-                 where workspace_id = $1 and project_id = $2 and user_id = $3",
-            )
-            .bind(project.workspace_id)
-            .bind(project.project_id)
-            .bind(user_id)
-            .bind(email_of(&props))
-            .bind(name_of(&props))
-            .bind(&after)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            use panel_people::{Column, Entity};
+            Entity::update_many()
+                .col_expr(Column::Email, Expr::value(email_of(&props)))
+                .col_expr(Column::Name, Expr::value(name_of(&props)))
+                .col_expr(Column::Properties, json_text(&after))
+                .col_expr(Column::LastSeen, at(now))
+                .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+                .filter(Column::UserId.eq(user_id))
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
         } else {
             insert_person(conn, project, user_id, &props, &after, now).await?;
         }
@@ -376,28 +476,30 @@ pub(crate) async fn apply_people_ops(
 // People: reads
 // ---------------------------------------------------------------------------
 
-/// The profiles of `rows`, each with its anonymous ids (by link time).
+/// The profiles of `rows`, each with its anonymous ids (by link time, then
+/// id, byte by byte: `order by ts collate "C", anon_id collate "C"`).
 async fn to_people(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     rows: Vec<PersonRow>,
-) -> sqlx::Result<Vec<Person>> {
+) -> Result<Vec<Person>, DbErr> {
+    use panel_identity_links::{Column, Entity};
     if rows.is_empty() {
         return Ok(Vec::new());
     }
     let users: Vec<&str> = rows.iter().map(|row| row.user_id.as_str()).collect();
-    let links: Vec<(String, String)> = sqlx::query_as(
-        "select user_id, anon_id from panel_identity_links \
-         where workspace_id = $1 and project_id = $2 and user_id = any($3) \
-         order by ts collate \"C\", anon_id collate \"C\"",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(&users)
-    .fetch_all(conn)
-    .await?;
+    // (ts, anon_id, user_id): Rust orders strings byte by byte.
+    let mut links: Vec<(String, String, String)> = Entity::find()
+        .select_only()
+        .columns([Column::Ts, Column::AnonId, Column::UserId])
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::UserId.is_in(users))
+        .into_tuple()
+        .all(&OrmConn::new(&mut *conn))
+        .await?;
+    links.sort();
     let mut anon_ids: HashMap<String, Vec<String>> = HashMap::new();
-    for (user_id, anon_id) in links {
+    for (_, anon_id, user_id) in links {
         anon_ids.entry(user_id).or_default().push(anon_id);
     }
     Ok(rows
@@ -420,7 +522,7 @@ pub(crate) async fn get_person(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     id: &str,
-) -> sqlx::Result<Option<Person>> {
+) -> Result<Option<Person>, DbErr> {
     let row = match find_person(conn, project, id).await? {
         Some(row) => Some(row),
         None => match linked_user(conn, project, id).await? {
@@ -464,8 +566,37 @@ pub(crate) async fn list_people(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     input: &ListPeopleInput,
-) -> sqlx::Result<PeoplePage> {
+) -> Result<PeoplePage, DbErr> {
     let limit = page_limit(input.limit);
+    let (total_count, mut rows) = people_page(conn, project, input, limit)
+        .await
+        .map_err(orm_error)?;
+    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+    rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    let cursor = rows
+        .last()
+        .filter(|_| has_more)
+        .map(|row| encode_cursor(&row.last_seen, &row.user_id));
+    Ok(PeoplePage {
+        people: to_people(conn, project, rows).await?,
+        cursor,
+        total_count: u64::try_from(total_count).unwrap_or_default(),
+    })
+}
+
+/// [`list_people`]'s count and its page of `limit + 1` profiles.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a keyset page in byte order (`collate \"C\"`), on its text or its time, and its \
+              count on the same search with SQLite's ASCII case folding (`translate … like`), \
+              which the ORM cannot express"
+)]
+async fn people_page(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    input: &ListPeopleInput,
+    limit: i64,
+) -> sqlx::Result<(i64, Vec<PersonRow>)> {
     let pattern = search_pattern(input.search.as_deref());
     let mut conditions = String::new();
     let mut next = 3;
@@ -507,19 +638,8 @@ pub(crate) async fn list_people(
     if let Some((last_seen, user_id)) = &after {
         page = page.bind(last_seen).bind(user_id);
     }
-    let mut rows = page.bind(limit + 1).fetch_all(&mut *conn).await?;
-
-    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
-    rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-    let cursor = rows
-        .last()
-        .filter(|_| has_more)
-        .map(|row| encode_cursor(&row.last_seen, &row.user_id));
-    Ok(PeoplePage {
-        people: to_people(conn, project, rows).await?,
-        cursor,
-        total_count: u64::try_from(total_count).unwrap_or_default(),
-    })
+    let rows = page.bind(limit + 1).fetch_all(&mut *conn).await?;
+    Ok((total_count, rows))
 }
 
 /// `findByEmail`: the profiles whose `$email` is the address (trimmed and
@@ -528,8 +648,22 @@ pub(crate) async fn find_by_email(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     email: &str,
-) -> sqlx::Result<Vec<Person>> {
-    let rows: Vec<PersonRow> = sqlx::query_as(concat!(
+) -> Result<Vec<Person>, DbErr> {
+    let rows = by_email(conn, project, email).await.map_err(orm_error)?;
+    to_people(conn, project, rows).await
+}
+
+/// [`find_by_email`]'s profiles.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "ordered and limited in byte order (`user_id collate \"C\"`), which the ORM cannot express"
+)]
+async fn by_email(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    email: &str,
+) -> sqlx::Result<Vec<PersonRow>> {
+    sqlx::query_as(concat!(
         "select ",
         person_columns!(),
         " from panel_people where workspace_id = $1 and project_id = $2 and email = $3 \
@@ -540,8 +674,7 @@ pub(crate) async fn find_by_email(
     .bind(js_trim(email).to_lowercase())
     .bind(FIND_BY_EMAIL_LIMIT)
     .fetch_all(&mut *conn)
-    .await?;
-    to_people(conn, project, rows).await
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -557,65 +690,77 @@ pub(crate) async fn erase(
     project: ProjectRef<'_>,
     given: &str,
     now: &str,
-) -> sqlx::Result<(Erasure, Emitted)> {
+) -> Result<(Erasure, Emitted), DbErr> {
     let user_id = if find_person(conn, project, given).await?.is_some() {
         Some(given.to_owned())
     } else if let Some(user_id) = linked_user(conn, project, given).await? {
         Some(user_id)
     } else {
-        let has_links: bool = sqlx::query_scalar(
-            "select exists (select 1 from panel_identity_links \
-             where workspace_id = $1 and project_id = $2 and user_id = $3)",
-        )
-        .bind(project.workspace_id)
-        .bind(project.project_id)
-        .bind(given)
-        .fetch_one(&mut *conn)
-        .await?;
+        use panel_identity_links::{Column, Entity};
+        let query = Query::select()
+            .expr(Expr::val(1))
+            .from(Entity)
+            .cond_where(
+                in_project(Column::WorkspaceId, Column::ProjectId, project)
+                    .add(Column::UserId.eq(given)),
+            )
+            .to_owned();
+        let has_links = exists(conn, query).await?;
         has_links.then(|| given.to_owned())
     };
 
     let mut ids = vec![given.to_owned()];
     let mut rows = Emitted::default();
     if let Some(user_id) = &user_id {
-        let anon_ids: Vec<String> = sqlx::query_scalar(
-            "select anon_id from panel_identity_links \
-             where workspace_id = $1 and project_id = $2 and user_id = $3 order by id collate \"C\"",
-        )
-        .bind(project.workspace_id)
-        .bind(project.project_id)
-        .bind(user_id)
-        .fetch_all(&mut *conn)
-        .await?;
+        let anon_ids = linked_anon_ids(conn, project, user_id).await?;
         for id in std::iter::once(user_id.clone()).chain(anon_ids) {
             if !ids.contains(&id) {
                 ids.push(id);
             }
         }
-        for table in ["panel_people", "panel_identity_links"] {
-            sqlx::query(sqlx::AssertSqlSafe(format!(
-                "delete from {table} where workspace_id = $1 and project_id = $2 and user_id = $3"
-            )))
-            .bind(project.workspace_id)
-            .bind(project.project_id)
-            .bind(user_id)
-            .execute(&mut *conn)
-            .await?;
+        {
+            use panel_people::{Column, Entity};
+            Entity::delete_many()
+                .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+                .filter(Column::UserId.eq(user_id))
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
+        }
+        {
+            use panel_identity_links::{Column, Entity};
+            Entity::delete_many()
+                .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+                .filter(Column::UserId.eq(user_id))
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
         }
     }
     for id in &ids {
-        sqlx::query(
-            "insert into panel_erased_ids (id, workspace_id, project_id, erased_id, erased_at) \
-             values ($1, $2, $3, $4, $5::timestamptz) \
-             on conflict (workspace_id, project_id, erased_id) do nothing",
-        )
-        .bind(generate_id("pnei"))
-        .bind(project.workspace_id)
-        .bind(project.project_id)
-        .bind(id)
-        .bind(now)
-        .execute(&mut *conn)
-        .await?;
+        use panel_erased_ids::{Column, Entity};
+        let mut insert = Query::insert();
+        insert
+            .into_table(Entity)
+            .columns([
+                Column::Id,
+                Column::WorkspaceId,
+                Column::ProjectId,
+                Column::ErasedId,
+                Column::ErasedAt,
+            ])
+            .values([
+                Expr::val(generate_id("pnei")),
+                Expr::val(project.workspace_id),
+                Expr::val(project.project_id),
+                Expr::val(id),
+                at(now),
+            ])
+            .map_err(built)?
+            .on_conflict(
+                OnConflict::columns([Column::WorkspaceId, Column::ProjectId, Column::ErasedId])
+                    .do_nothing()
+                    .to_owned(),
+            );
+        OrmConn::new(&mut *conn).execute(&insert).await?;
     }
     if let Some(user_id) = &user_id {
         let version = next_version(conn, project).await?;
@@ -631,33 +776,56 @@ pub(crate) async fn erase(
     ))
 }
 
-/// `erasedIds`: in byte order.
+/// The anonymous ids linked to the user, by link id byte by byte
+/// (`order by id collate "C"`).
+async fn linked_anon_ids(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    user_id: &str,
+) -> Result<Vec<String>, DbErr> {
+    use panel_identity_links::{Column, Entity};
+    let mut links: Vec<(String, String)> = Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::AnonId])
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(&OrmConn::new(conn))
+        .await?;
+    // By id (the key), byte by byte as Rust orders strings.
+    links.sort();
+    Ok(links.into_iter().map(|(_, anon_id)| anon_id).collect())
+}
+
+/// `erasedIds`: in byte order (`order by erased_id collate "C"`).
 pub(crate) async fn erased_ids(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
-) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar(
-        "select erased_id from panel_erased_ids where workspace_id = $1 and project_id = $2 \
-         order by erased_id collate \"C\"",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .fetch_all(conn)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    use panel_erased_ids::{Column, Entity};
+    let mut ids: Vec<String> = Entity::find()
+        .select_only()
+        .column(Column::ErasedId)
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .into_tuple()
+        .all(&OrmConn::new(conn))
+        .await?;
+    ids.sort();
+    Ok(ids)
 }
 
 /// `hasIdentifiedUsers`: whether any link exists.
 pub(crate) async fn has_identified_users(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
-) -> sqlx::Result<bool> {
-    sqlx::query_scalar(
-        "select exists (select 1 from panel_identity_links where workspace_id = $1 and project_id = $2)",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .fetch_one(conn)
-    .await
+) -> Result<bool, DbErr> {
+    use panel_identity_links::{Column, Entity};
+    let query = Query::select()
+        .expr(Expr::val(1))
+        .from(Entity)
+        .cond_where(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .to_owned();
+    exists(conn, query).await
 }
 
 /// `clearErased`: the ids no longer need excluding.
@@ -665,35 +833,36 @@ pub(crate) async fn clear_erased(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     ids: &[String],
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "delete from panel_erased_ids where workspace_id = $1 and project_id = $2 and erased_id = any($3)",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(ids)
-    .execute(conn)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    use panel_erased_ids::{Column, Entity};
+    Entity::delete_many()
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::ErasedId.is_in(ids))
+        .exec(&OrmConn::new(conn))
+        .await
+        .map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 
-/// The project's group types, in the order they were taken.
+/// The project's group types, in the order they were taken
+/// (`order by position, group_type collate "C"`).
 pub(crate) async fn group_types(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
-) -> sqlx::Result<Vec<String>> {
-    sqlx::query_scalar(
-        "select group_type from panel_group_slots where workspace_id = $1 and project_id = $2 \
-         order by position, group_type collate \"C\"",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .fetch_all(conn)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    use panel_group_slots::{Column, Entity};
+    let mut slots: Vec<(i32, String)> = Entity::find()
+        .select_only()
+        .columns([Column::Position, Column::GroupType])
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .into_tuple()
+        .all(&OrmConn::new(conn))
+        .await?;
+    slots.sort();
+    Ok(slots.into_iter().map(|(_, group_type)| group_type).collect())
 }
 
 /// `takeGroupTypes`: each new valid type gets the next slot while fewer than
@@ -704,24 +873,46 @@ pub(crate) async fn take_group_types(
     project: ProjectRef<'_>,
     types: &[String],
     now: &str,
-) -> sqlx::Result<(Vec<String>, bool)> {
+) -> Result<(Vec<String>, bool), DbErr> {
+    use panel_group_slots::{Column, Entity};
     let mut current = group_types(conn, project).await?;
     let before = current.len();
     let changed = take(&mut current, types);
     for group_type in &current[before..] {
-        sqlx::query(
-            "insert into panel_group_slots (id, workspace_id, project_id, group_type, position, taken_at) \
-             values ($1, $2, $3, $4, \
-               (select coalesce(max(position), 0) + 1 from panel_group_slots where workspace_id = $2 and project_id = $3), \
-               $5::timestamptz)",
-        )
-        .bind(generate_id("pngs"))
-        .bind(project.workspace_id)
-        .bind(project.project_id)
-        .bind(group_type)
-        .bind(now)
-        .execute(&mut *conn)
-        .await?;
+        // `(select coalesce(max(position), 0) + 1 from panel_group_slots
+        // where workspace_id = … and project_id = …)`.
+        let position = Query::select()
+            .expr(sea_orm::ExprTrait::add(
+                Expr::from(Func::coalesce([
+                    Func::max(Expr::col(Column::Position)).into(),
+                    Expr::val(0),
+                ])),
+                1,
+            ))
+            .from(Entity)
+            .cond_where(in_project(Column::WorkspaceId, Column::ProjectId, project))
+            .to_owned();
+        let mut insert = Query::insert();
+        insert
+            .into_table(Entity)
+            .columns([
+                Column::Id,
+                Column::WorkspaceId,
+                Column::ProjectId,
+                Column::GroupType,
+                Column::Position,
+                Column::TakenAt,
+            ])
+            .values([
+                Expr::val(generate_id("pngs")),
+                Expr::val(project.workspace_id),
+                Expr::val(project.project_id),
+                Expr::val(group_type),
+                Expr::from(position),
+                at(now),
+            ])
+            .map_err(built)?;
+        OrmConn::new(&mut *conn).execute(&insert).await?;
     }
     Ok((current, changed))
 }
@@ -731,16 +922,14 @@ pub(crate) async fn release_group_type(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     group_type: &str,
-) -> sqlx::Result<bool> {
-    sqlx::query(
-        "delete from panel_group_slots where workspace_id = $1 and project_id = $2 and group_type = $3",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(group_type)
-    .execute(conn)
-    .await
-    .map(|done| done.rows_affected() > 0)
+) -> Result<bool, DbErr> {
+    use panel_group_slots::{Column, Entity};
+    let done = Entity::delete_many()
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::GroupType.eq(group_type))
+        .exec(&OrmConn::new(conn))
+        .await?;
+    Ok(done.rows_affected > 0)
 }
 
 async fn find_group(
@@ -748,18 +937,15 @@ async fn find_group(
     project: ProjectRef<'_>,
     group_type: &str,
     group_key: &str,
-) -> sqlx::Result<Option<GroupRow>> {
-    sqlx::query_as(concat!(
-        "select ",
-        group_columns!(),
-        " from panel_groups where workspace_id = $1 and project_id = $2 and group_type = $3 and group_key = $4"
-    ))
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(group_type)
-    .bind(group_key)
-    .fetch_optional(conn)
-    .await
+) -> Result<Option<GroupRow>, DbErr> {
+    use panel_groups::Column;
+    group_select()
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::GroupType.eq(group_type))
+        .filter(Column::GroupKey.eq(group_key))
+        .into_model()
+        .one(&OrmConn::new(conn))
+        .await
 }
 
 fn to_group(row: GroupRow) -> Group {
@@ -772,6 +958,65 @@ fn to_group(row: GroupRow) -> Group {
     }
 }
 
+/// `update panel_groups set …` of one group.
+async fn update_group(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    (group_type, group_key): (&str, &str),
+    properties: Option<&str>,
+    now: &str,
+) -> Result<(), DbErr> {
+    use panel_groups::{Column, Entity};
+    let mut update = Entity::update_many();
+    if let Some(properties) = properties {
+        update = update.col_expr(Column::Properties, json_text(properties));
+    }
+    update
+        .col_expr(Column::LastSeen, at(now))
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::GroupType.eq(group_type))
+        .filter(Column::GroupKey.eq(group_key))
+        .exec(&OrmConn::new(conn))
+        .await
+        .map(|_| ())
+}
+
+/// `insert into panel_groups …` of a new group.
+async fn insert_group(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    (group_type, group_key): (&str, &str),
+    properties: &str,
+    now: &str,
+) -> Result<(), DbErr> {
+    use panel_groups::{Column, Entity};
+    let mut insert = Query::insert();
+    insert
+        .into_table(Entity)
+        .columns([
+            Column::Id,
+            Column::WorkspaceId,
+            Column::ProjectId,
+            Column::GroupType,
+            Column::GroupKey,
+            Column::Properties,
+            Column::FirstSeen,
+            Column::LastSeen,
+        ])
+        .values([
+            Expr::val(generate_id("pngr")),
+            Expr::val(project.workspace_id),
+            Expr::val(project.project_id),
+            Expr::val(group_type),
+            Expr::val(group_key),
+            json_text(properties),
+            at(now),
+            at(now),
+        ])
+        .map_err(built)?;
+    OrmConn::new(conn).execute(&insert).await.map(|_| ())
+}
+
 /// `applyGroupOps`: the operations' types take free slots, then each
 /// operation of a type with a slot applies; one `groups_v1` row per changed
 /// group. Also answers whether the project's types changed.
@@ -780,7 +1025,7 @@ pub(crate) async fn apply_group_ops(
     project: ProjectRef<'_>,
     ops: &[GroupOp],
     now: &str,
-) -> sqlx::Result<(GroupOpsResult, Emitted, bool)> {
+) -> Result<(GroupOpsResult, Emitted, bool), DbErr> {
     let (types, types_changed) = take_group_types(conn, project, &op_group_types(ops), now).await?;
     let mut changed: Vec<((String, String), Value)> = Vec::new();
     let mut applied = 0_u64;
@@ -801,47 +1046,15 @@ pub(crate) async fn apply_group_ops(
             continue;
         }
         applied += 1;
+        let group = (group_type, group_key);
         if existing.is_some() && before == after {
-            sqlx::query(
-                "update panel_groups set last_seen = $5::timestamptz \
-                 where workspace_id = $1 and project_id = $2 and group_type = $3 and group_key = $4",
-            )
-            .bind(project.workspace_id)
-            .bind(project.project_id)
-            .bind(group_type)
-            .bind(group_key)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            update_group(conn, project, group, None, now).await?;
             continue;
         }
         if existing.is_some() {
-            sqlx::query(
-                "update panel_groups set properties = $5::json, last_seen = $6::timestamptz \
-                 where workspace_id = $1 and project_id = $2 and group_type = $3 and group_key = $4",
-            )
-            .bind(project.workspace_id)
-            .bind(project.project_id)
-            .bind(group_type)
-            .bind(group_key)
-            .bind(&after)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            update_group(conn, project, group, Some(&after), now).await?;
         } else {
-            sqlx::query(
-                "insert into panel_groups (id, workspace_id, project_id, group_type, group_key, properties, first_seen, last_seen) \
-                 values ($1, $2, $3, $4, $5, $6::json, $7::timestamptz, $7::timestamptz)",
-            )
-            .bind(generate_id("pngr"))
-            .bind(project.workspace_id)
-            .bind(project.project_id)
-            .bind(group_type)
-            .bind(group_key)
-            .bind(&after)
-            .bind(now)
-            .execute(&mut *conn)
-            .await?;
+            insert_group(conn, project, group, &after, now).await?;
         }
         let version = next_version(conn, project).await?;
         let row = group_row(project, group_type, group_key, version, now, &after, false);
@@ -872,7 +1085,7 @@ pub(crate) async fn get_group(
     project: ProjectRef<'_>,
     group_type: &str,
     group_key: &str,
-) -> sqlx::Result<Option<Group>> {
+) -> Result<Option<Group>, DbErr> {
     Ok(find_group(conn, project, group_type, group_key)
         .await?
         .map(to_group))
@@ -894,8 +1107,37 @@ pub(crate) async fn list_groups(
     conn: &mut PgConnection,
     project: ProjectRef<'_>,
     input: &ListGroupsInput,
-) -> sqlx::Result<GroupsPage> {
+) -> Result<GroupsPage, DbErr> {
     let limit = page_limit(input.limit);
+    let (total_count, mut rows) = groups_page(conn, project, input, limit)
+        .await
+        .map_err(orm_error)?;
+    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+    rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    let cursor = rows
+        .last()
+        .filter(|_| has_more)
+        .map(|row| encode_cursor(&row.last_seen, &row.group_key));
+    Ok(GroupsPage {
+        groups: rows.into_iter().map(to_group).collect(),
+        cursor,
+        total_count: u64::try_from(total_count).unwrap_or_default(),
+    })
+}
+
+/// [`list_groups`]' count and its page of `limit + 1` groups.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a keyset page in byte order (`collate \"C\"`), on its text or its time, and its \
+              count on the same search with SQLite's ASCII case folding and `json_extract` \
+              reading (`translate … like`), which the ORM cannot express"
+)]
+async fn groups_page(
+    conn: &mut PgConnection,
+    project: ProjectRef<'_>,
+    input: &ListGroupsInput,
+    limit: i64,
+) -> sqlx::Result<(i64, Vec<GroupRow>)> {
     let pattern = search_pattern(input.search.as_deref());
     let mut conditions = String::new();
     let mut next = 4;
@@ -943,19 +1185,8 @@ pub(crate) async fn list_groups(
     if let Some((last_seen, group_key)) = &after {
         page = page.bind(last_seen).bind(group_key);
     }
-    let mut rows = page.bind(limit + 1).fetch_all(conn).await?;
-
-    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
-    rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-    let cursor = rows
-        .last()
-        .filter(|_| has_more)
-        .map(|row| encode_cursor(&row.last_seen, &row.group_key));
-    Ok(GroupsPage {
-        groups: rows.into_iter().map(to_group).collect(),
-        cursor,
-        total_count: u64::try_from(total_count).unwrap_or_default(),
-    })
+    let rows = page.bind(limit + 1).fetch_all(conn).await?;
+    Ok((total_count, rows))
 }
 
 /// `deleteGroup`: removes the profile and writes a `deleted` row to
@@ -966,22 +1197,20 @@ pub(crate) async fn delete_group(
     group_type: &str,
     group_key: &str,
     now: &str,
-) -> sqlx::Result<(bool, Emitted)> {
+) -> Result<(bool, Emitted), DbErr> {
+    use panel_groups::{Column, Entity};
     if find_group(conn, project, group_type, group_key)
         .await?
         .is_none()
     {
         return Ok((false, Emitted::default()));
     }
-    sqlx::query(
-        "delete from panel_groups where workspace_id = $1 and project_id = $2 and group_type = $3 and group_key = $4",
-    )
-    .bind(project.workspace_id)
-    .bind(project.project_id)
-    .bind(group_type)
-    .bind(group_key)
-    .execute(&mut *conn)
-    .await?;
+    Entity::delete_many()
+        .filter(in_project(Column::WorkspaceId, Column::ProjectId, project))
+        .filter(Column::GroupType.eq(group_type))
+        .filter(Column::GroupKey.eq(group_key))
+        .exec(&OrmConn::new(&mut *conn))
+        .await?;
     let version = next_version(conn, project).await?;
     Ok((
         true,

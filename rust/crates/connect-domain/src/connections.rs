@@ -48,16 +48,16 @@ pub fn encrypt_credentials(
 
 pub use crate::clients::decrypt_credentials;
 
-/// A model as JSON, the error as the database's.
-pub(crate) fn json_of(model: impl serde::Serialize) -> Result<Value, DbErr> {
-    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+/// A model that would not serialize, as the database's error.
+pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
+    DbErr::Json(error.to_string())
 }
 
 /// A `connector_connections` row as `to_jsonb(c)` gave it, which the
 /// connection's readers expect: the columns' `snake_case` names (the
 /// timestamps as `toISOString()`, which [`js_row`] keeps as they are).
 pub(crate) fn connection_row(model: connections::Model) -> Result<Value, DbErr> {
-    let Value::Object(columns) = json_of(model)? else {
+    let Value::Object(columns) = serde_json::to_value(model).map_err(json_error)? else {
         return Ok(Value::Null);
     };
     let mut row = Map::with_capacity(columns.len());
@@ -213,7 +213,7 @@ pub async fn list_sync_runs(
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(json_of)
+        .map(|run| serde_json::to_value(run).map_err(json_error))
         .collect()
 }
 
@@ -370,7 +370,7 @@ pub async fn list_connection_records(
         .all(&orm(db))
         .await?
         .into_iter()
-        .map(json_of)
+        .map(|mapping| serde_json::to_value(mapping).map_err(json_error))
         .collect::<Result<_, _>>()?;
     let ids_for = |kind: &str| -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();

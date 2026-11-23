@@ -25,6 +25,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Mutex, PoisonError};
 
+use sea_orm::DbErr;
 use serde_json::{Value, json};
 use time::{Date, OffsetDateTime};
 use weldsuite_db::PgPool;
@@ -402,11 +403,9 @@ fn tally(applied: &mut IngestResult, action: Action) {
     }
 }
 
-fn fail(applied: &mut IngestResult, odoo_id: i64, error: &sqlx::Error) {
-    let raw = match error {
-        sqlx::Error::Database(db) => db.message().to_owned(),
-        other => other.to_string(),
-    };
+fn fail(applied: &mut IngestResult, odoo_id: i64, error: &DbErr) {
+    // The database's own message (no driver prefix), else the error's text.
+    let raw = weldsuite_commerce_domain::db::message_of(error);
     let message = sanitise_error_message(&raw);
     tracing::error!("[connectors/odoo] record {odoo_id} failed: {message}");
     applied.failed += 1;

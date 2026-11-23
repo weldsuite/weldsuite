@@ -38,11 +38,6 @@
 //! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod accounting_entity;
 pub mod address;
 pub mod attachments;

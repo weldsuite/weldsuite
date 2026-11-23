@@ -15,6 +15,10 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::StatusCode;
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Order};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_core_billing::{
@@ -23,12 +27,15 @@ use weldsuite_core_billing::{
     LineKind, TopUpRequest, Treatment, WEBHOOK_PATH,
 };
 use weldsuite_core_platform::{TopUpBilling, TopUpPrice, TopUpQuote};
-use weldsuite_db::{Keyring, PgPool, Workspaces};
+use weldsuite_db::{Keyring, OrmConn, PgPool, Workspaces, orm, orm_error};
 use weldsuite_emails::billing::{Dunning, DunningKind, Invoice, InvoiceVat, dunning, invoice};
 use weldsuite_emails::{EmailBrand, EmailLocale, RenderedEmail, SystemEmail, send_system_email};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_ports::{BoxFuture, DynSystemMail, OutboundHttp};
 use weldsuite_reach::weldsuite_reach_domain::ReachError;
+use weldsuite_schema::tenant::{
+    companies, entities, invoices, parties, recurring_invoices, tax_rates,
+};
 
 use crate::server::AppState;
 
@@ -565,29 +572,25 @@ fn decimal(cents: i64) -> f64 {
 
 impl WeldBooksIssuer {
     async fn entity(&self, db: &PgPool) -> Result<(String, String), String> {
-        let row: Option<(String, Option<String>)> = match &self.entity_id {
-            Some(id) => sqlx::query_as(
-                "select id, jurisdiction_code from entities where id = $1 and deleted_at is null",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await,
-            None => {
-                sqlx::query_as(
-                    "select id, jurisdiction_code from entities where deleted_at is null
-                 order by created_at limit 1",
-                )
-                .fetch_optional(db)
-                .await
-            }
-        }
-        .map_err(|error| error.to_string())?;
+        let query = entities::Entity::find()
+            .select_only()
+            .columns([entities::Column::Id, entities::Column::JurisdictionCode])
+            .filter(entities::Column::DeletedAt.is_null());
+        let query = match &self.entity_id {
+            Some(id) => query.filter(entities::Column::Id.eq(id)),
+            None => query.order_by_asc(entities::Column::CreatedAt),
+        };
+        let row: Option<(String, Option<String>)> = query
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|error| error.to_string())?;
         row.map(|(id, code)| (id, code.unwrap_or_else(|| "NL".to_owned())))
             .ok_or_else(|| "the issuer workspace has no accounting entity".to_owned())
     }
 
     /// The customer contact, created or updated.
-    async fn contact(&self, db: &PgPool, request: &IssueRequest) -> Result<String, sqlx::Error> {
+    async fn contact(&self, db: &PgPool, request: &IssueRequest) -> Result<String, DbErr> {
         let customer = &request.customer;
         let code = format!("WS-{}", request.workspace_id);
         let address = json!({
@@ -598,63 +601,73 @@ impl WeldBooksIssuer {
             "postalCode": customer.postal_code,
             "country": customer.country,
         });
-        let existing: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, company_id from parties where party_code = $1 and deleted_at is null limit 1",
-        )
-        .bind(&code)
-        .fetch_optional(db)
-        .await?;
-        if let Some((party_id, company_id)) = existing {
-            sqlx::query(
-                "update parties set display_name = $2, billing_address = $3::jsonb, updated_at = now()
-                 where id = $1",
-            )
-            .bind(&party_id)
-            .bind(&customer.name)
-            .bind(&address)
-            .execute(db)
+        let existing: Option<(String, Option<String>)> = parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::CompanyId])
+            .filter(parties::Column::PartyCode.eq(&code))
+            .filter(parties::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
             .await?;
-            if let Some(company_id) = company_id {
-                sqlx::query(
-                    "update companies set name = $2, display_name = $2, vat_number = $3,
-                         email = coalesce($4, email), updated_at = now()
-                     where id = $1",
-                )
-                .bind(&company_id)
-                .bind(&customer.name)
-                .bind(customer.vat_number.as_deref())
-                .bind(customer.email.as_deref())
-                .execute(db)
+        if let Some((party_id, company_id)) = existing {
+            parties::Entity::update_many()
+                .col_expr(parties::Column::DisplayName, Expr::value(&customer.name))
+                .col_expr(parties::Column::BillingAddress, Expr::value(address))
+                .col_expr(parties::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(parties::Column::Id.eq(&party_id))
+                .exec(&orm(db))
                 .await?;
+            if let Some(company_id) = company_id {
+                // `email = coalesce($4, email)`: an email only when one is known.
+                let email = Func::coalesce([
+                    Expr::val(customer.email.clone()),
+                    Expr::col(companies::Column::Email),
+                ]);
+                companies::Entity::update_many()
+                    .col_expr(companies::Column::Name, Expr::value(&customer.name))
+                    .col_expr(companies::Column::DisplayName, Expr::value(&customer.name))
+                    .col_expr(
+                        companies::Column::VatNumber,
+                        Expr::value(customer.vat_number.clone()),
+                    )
+                    .col_expr(companies::Column::Email, email.into())
+                    .col_expr(companies::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(companies::Column::Id.eq(company_id))
+                    .exec(&orm(db))
+                    .await?;
             }
             return Ok(party_id);
         }
         let company_id = generate_id("comp");
         let party_id = generate_id("pty");
-        let mut tx = db.begin().await?;
-        sqlx::query(
-            "insert into companies (id, name, display_name, vat_number, email)
-             values ($1, $2, $2, $3, $4)",
-        )
-        .bind(&company_id)
-        .bind(&customer.name)
-        .bind(customer.vat_number.as_deref())
-        .bind(customer.email.as_deref())
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "insert into parties (id, party_code, kind, company_id, display_name, billing_address,
-                 currency, status)
-             values ($1, $2, 'company', $3, $4, $5::jsonb, 'EUR', 'active')",
-        )
-        .bind(&party_id)
-        .bind(&code)
-        .bind(&company_id)
-        .bind(&customer.name)
-        .bind(&address)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
+        let mut tx = db.begin().await.map_err(orm_error)?;
+        {
+            let tx = OrmConn::new(&mut tx);
+            companies::Entity::insert(companies::ActiveModel {
+                id: Set(company_id.clone()),
+                name: Set(customer.name.clone()),
+                display_name: Set(customer.name.clone()),
+                vat_number: Set(customer.vat_number.clone()),
+                email: Set(customer.email.clone()),
+                ..Default::default()
+            })
+            .exec_without_returning(&tx)
+            .await?;
+            parties::Entity::insert(parties::ActiveModel {
+                id: Set(party_id.clone()),
+                party_code: Set(Some(code)),
+                kind: Set(Some("company".to_owned())),
+                company_id: Set(Some(company_id)),
+                display_name: Set(Some(customer.name.clone())),
+                billing_address: Set(Some(address)),
+                currency: Set(Some("EUR".to_owned())),
+                status: Set("active".to_owned()),
+                ..Default::default()
+            })
+            .exec_without_returning(&tx)
+            .await?;
+        }
+        tx.commit().await.map_err(orm_error)?;
         Ok(party_id)
     }
 
@@ -666,7 +679,7 @@ impl WeldBooksIssuer {
         entity_id: &str,
         jurisdiction: &str,
         request: &IssueRequest,
-    ) -> Result<String, sqlx::Error> {
+    ) -> Result<String, DbErr> {
         let vat = &request.charge.vat;
         let (category, name, metadata) = match vat.treatment {
             Treatment::Domestic => (
@@ -691,48 +704,64 @@ impl WeldBooksIssuer {
             ),
         };
         let rate = format!("{}.{:02}", vat.rate_bps / 100, vat.rate_bps % 100);
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from tax_rates
-             where entity_id = $1 and deleted_at is null and coalesce(is_active, true)
-               and tax_category_code = $2 and rate = $3::numeric
-               and ($4::text is null or jurisdiction_metadata ->> 'ossCountry' = $4)
-             order by is_default desc nulls last, created_at limit 1",
-        )
-        .bind(entity_id)
-        .bind(category)
-        .bind(&rate)
-        .bind((vat.treatment == Treatment::Oss).then_some(vat.country.as_str()))
-        .fetch_optional(db)
-        .await?;
+        let rate: BigDecimal = rate
+            .parse()
+            .map_err(|_| DbErr::Type(format!("tax rate {rate}")))?;
+        let mut query = tax_rates::Entity::find()
+            .select_only()
+            .column(tax_rates::Column::Id)
+            .filter(tax_rates::Column::EntityId.eq(entity_id))
+            .filter(tax_rates::Column::DeletedAt.is_null())
+            .filter(Expr::from(Func::coalesce([
+                Expr::col(tax_rates::Column::IsActive),
+                Expr::val(true),
+            ])))
+            .filter(tax_rates::Column::TaxCategoryCode.eq(category))
+            .filter(tax_rates::Column::Rate.eq(rate.clone()));
+        if vat.treatment == Treatment::Oss {
+            // `jurisdiction_metadata ->> 'ossCountry' = $4`.
+            query = query.filter(sea_orm::ExprTrait::eq(
+                sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                    Expr::col(tax_rates::Column::JurisdictionMetadata),
+                    "ossCountry",
+                ),
+                vat.country.as_str(),
+            ));
+        }
+        let existing: Option<String> = query
+            .order_by_with_nulls(tax_rates::Column::IsDefault, Order::Desc, NullOrdering::Last)
+            .order_by_asc(tax_rates::Column::CreatedAt)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if let Some(id) = existing {
             return Ok(id);
         }
         let id = generate_id("txr");
-        sqlx::query(
-            "insert into tax_rates (id, entity_id, jurisdiction_code, name, rate, type,
-                 tax_category_code, is_default, is_active, description, jurisdiction_metadata)
-             values ($1, $2, $3, $4, $5::numeric, 'sales', $6, false, true, $7, $8::jsonb)",
-        )
-        .bind(&id)
-        .bind(entity_id)
-        .bind(jurisdiction)
-        .bind(&name)
-        .bind(&rate)
-        .bind(category)
-        .bind("Created by WeldSuite plan billing (ADR BILL-014)")
-        .bind(if metadata.is_null() {
-            None
-        } else {
-            Some(metadata)
+        tax_rates::Entity::insert(tax_rates::ActiveModel {
+            id: Set(id.clone()),
+            entity_id: Set(entity_id.to_owned()),
+            jurisdiction_code: Set(jurisdiction.to_owned()),
+            name: Set(name),
+            rate: Set(rate),
+            type_: Set("sales".to_owned()),
+            tax_category_code: Set(Some(category.to_owned())),
+            is_default: Set(Some(false)),
+            is_active: Set(Some(true)),
+            description: Set(Some(
+                "Created by WeldSuite plan billing (ADR BILL-014)".to_owned(),
+            )),
+            jurisdiction_metadata: Set((!metadata.is_null()).then_some(metadata)),
+            ..Default::default()
         })
-        .execute(db)
+        .exec_without_returning(&orm(db))
         .await?;
         Ok(id)
     }
 
     #[allow(clippy::too_many_lines)] // the four steps above, in order
     async fn issue(&self, request: &IssueRequest) -> Result<IssuedInvoice, String> {
-        let text = |error: sqlx::Error| error.to_string();
+        let text = |error: DbErr| error.to_string();
         let tenant = self
             .workspaces
             .tenant(&self.workspace_id)
@@ -741,16 +770,21 @@ impl WeldBooksIssuer {
         let db = &tenant.db;
         let (entity_id, jurisdiction) = self.entity(db).await?;
 
-        let existing: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, invoice_number, status from invoices
-             where reference = $1 and entity_id = $2 and deleted_at is null
-             order by created_at limit 1",
-        )
-        .bind(&request.payment_id)
-        .bind(&entity_id)
-        .fetch_optional(db)
-        .await
-        .map_err(text)?;
+        let existing: Option<(String, Option<String>, Option<String>)> = invoices::Entity::find()
+            .select_only()
+            .columns([
+                invoices::Column::Id,
+                invoices::Column::InvoiceNumber,
+                invoices::Column::Status,
+            ])
+            .filter(invoices::Column::Reference.eq(&request.payment_id))
+            .filter(invoices::Column::EntityId.eq(&entity_id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .order_by_asc(invoices::Column::CreatedAt)
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(text)?;
 
         let (invoice_id, number) = if let Some((id, number, status)) = existing {
             if status.as_deref() == Some("draft") {
@@ -812,63 +846,16 @@ impl WeldBooksIssuer {
                 "reference": request.payment_id,
                 "notes": notes,
             });
-            let now = weldsuite_events::iso_timestamp(OffsetDateTime::now_utc());
-            let recurring_id: Option<String> = sqlx::query_scalar(
-                "select id from recurring_invoices
-                 where entity_id = $1 and contact_id = $2 and name = 'WeldSuite plan billing'
-                   and deleted_at is null limit 1",
-            )
-            .bind(&entity_id)
-            .bind(&contact_id)
-            .fetch_optional(db)
-            .await
-            .map_err(text)?;
-            let recurring_id = if let Some(id) = recurring_id {
-                {
-                    sqlx::query(
-                        "update recurring_invoices set template_data = $2::jsonb, status = 'active',
-                             next_issue_date = $3::timestamp, end_date = null, auto_finalize = true,
-                             auto_send = false, updated_at = $3::timestamp
-                         where id = $1",
-                    )
-                    .bind(&id)
-                    .bind(&template)
-                    .bind(&now)
-                    .execute(db)
-                    .await
-                    .map_err(text)?;
-                    id
-                }
-            } else {
-                {
-                    let id = generate_id("rinv");
-                    sqlx::query(
-                        "insert into recurring_invoices (id, entity_id, name, contact_id, frequency,
-                             next_issue_date, status, template_data, auto_send, auto_finalize, created_by)
-                         values ($1, $2, 'WeldSuite plan billing', $3, 'monthly', $4::timestamp,
-                                 'active', $5::jsonb, false, true, 'system:billing')",
-                    )
-                    .bind(&id)
-                    .bind(&entity_id)
-                    .bind(&contact_id)
-                    .bind(&now)
-                    .bind(&template)
-                    .execute(db)
-                    .await
-                    .map_err(text)?;
-                    id
-                }
-            };
-            let rec: Value = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(recurring_invoices),
-                " from recurring_invoices t where t.id = $1"
-            ))
-            .bind(&recurring_id)
-            .fetch_one(db)
-            .await
-            .map_err(text)?;
-            let rec = weldsuite_books_domain::tables::RECURRING_INVOICES.js(rec);
+            let recurring_id = self
+                .recurring(db, &entity_id, &contact_id, template)
+                .await
+                .map_err(text)?;
+            let rec = recurring_invoices::Entity::find_by_id(recurring_id.clone())
+                .one(&orm(db))
+                .await
+                .map_err(text)?
+                .ok_or_else(|| text(DbErr::RecordNotFound("recurring_invoices".to_owned())))?;
+            let rec = serde_json::to_value(rec).map_err(|error| error.to_string())?;
             let runtime = weldsuite_books_domain::sales_tax::document_tax::Runtime {
                 keyring: self.keyring.clone(),
                 http: self.http.clone(),
@@ -877,13 +864,16 @@ impl WeldBooksIssuer {
                 weldsuite_books_sales::generate_recurring_invoice_as_system(db, &runtime, &rec)
                     .await;
             // Paused between charges, whatever happened.
-            sqlx::query(
-                "update recurring_invoices set status = 'paused', updated_at = now() where id = $1",
-            )
-            .bind(&recurring_id)
-            .execute(db)
-            .await
-            .map_err(text)?;
+            recurring_invoices::Entity::update_many()
+                .col_expr(recurring_invoices::Column::Status, Expr::value("paused"))
+                .col_expr(
+                    recurring_invoices::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
+                .filter(recurring_invoices::Column::Id.eq(&recurring_id))
+                .exec(&orm(db))
+                .await
+                .map_err(text)?;
             let generated = generated.map_err(|error| format!("{error:?}"))?;
             if let Some(error) = generated.finalize_error {
                 return Err(format!(
@@ -895,12 +885,18 @@ impl WeldBooksIssuer {
         };
 
         // The payment, once per Mollie payment.
-        let total: Option<String> =
-            sqlx::query_scalar("select total::text from invoices where id = $1")
-                .bind(&invoice_id)
-                .fetch_optional(db)
-                .await
-                .map_err(text)?;
+        let total: Option<String> = invoices::Entity::find_by_id(invoice_id.clone())
+            .select_only()
+            // `total::text`: the amount as Postgres prints it.
+            .column_as(
+                sea_orm::ExprTrait::cast_as(Expr::col(invoices::Column::Total), "text"),
+                "total",
+            )
+            .into_tuple::<Option<String>>()
+            .one(&orm(db))
+            .await
+            .map_err(text)?
+            .flatten();
         let total_cents = total
             .as_deref()
             .and_then(|t| weldsuite_mollie::Money::parse("EUR", t.trim_start_matches('-')))
@@ -908,13 +904,14 @@ impl WeldBooksIssuer {
         if total_cents != request.charge.gross {
             tracing::warn!(invoice = %invoice_id, total_cents, charged = request.charge.gross, "billing: invoice total and charge differ");
         }
-        let contact_id: Option<String> =
-            sqlx::query_scalar("select contact_id from invoices where id = $1")
-                .bind(&invoice_id)
-                .fetch_optional(db)
-                .await
-                .map_err(text)?
-                .flatten();
+        let contact_id: Option<String> = invoices::Entity::find_by_id(invoice_id.clone())
+            .select_only()
+            .column(invoices::Column::ContactId)
+            .into_tuple::<Option<String>>()
+            .one(&orm(db))
+            .await
+            .map_err(text)?
+            .flatten();
         let payment_key = format!(
             "bpm_{}",
             request
@@ -969,6 +966,66 @@ impl WeldBooksIssuer {
             number,
             document,
         })
+    }
+
+    /// The customer's plan billing template, written for this charge
+    /// (active, due now) or created: its id.
+    async fn recurring(
+        &self,
+        db: &PgPool,
+        entity_id: &str,
+        contact_id: &str,
+        template: Value,
+    ) -> Result<String, DbErr> {
+        let now = weldsuite_db::utc_timestamp(OffsetDateTime::now_utc());
+        let recurring_id: Option<String> = recurring_invoices::Entity::find()
+            .select_only()
+            .column(recurring_invoices::Column::Id)
+            .filter(recurring_invoices::Column::EntityId.eq(entity_id))
+            .filter(recurring_invoices::Column::ContactId.eq(contact_id))
+            .filter(recurring_invoices::Column::Name.eq("WeldSuite plan billing"))
+            .filter(recurring_invoices::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        if let Some(id) = recurring_id {
+            recurring_invoices::Entity::update_many()
+                .col_expr(
+                    recurring_invoices::Column::TemplateData,
+                    Expr::value(template),
+                )
+                .col_expr(recurring_invoices::Column::Status, Expr::value("active"))
+                .col_expr(recurring_invoices::Column::NextIssueDate, Expr::value(now))
+                .col_expr(
+                    recurring_invoices::Column::EndDate,
+                    Expr::value(Option::<time::PrimitiveDateTime>::None),
+                )
+                .col_expr(recurring_invoices::Column::AutoFinalize, Expr::value(true))
+                .col_expr(recurring_invoices::Column::AutoSend, Expr::value(false))
+                .col_expr(recurring_invoices::Column::UpdatedAt, Expr::value(now))
+                .filter(recurring_invoices::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await?;
+            return Ok(id);
+        }
+        let id = generate_id("rinv");
+        recurring_invoices::Entity::insert(recurring_invoices::ActiveModel {
+            id: Set(id.clone()),
+            entity_id: Set(entity_id.to_owned()),
+            name: Set(Some("WeldSuite plan billing".to_owned())),
+            contact_id: Set(contact_id.to_owned()),
+            frequency: Set("monthly".to_owned()),
+            next_issue_date: Set(now),
+            status: Set("active".to_owned()),
+            template_data: Set(Some(template)),
+            auto_send: Set(Some(false)),
+            auto_finalize: Set(Some(true)),
+            created_by: Set(Some("system:billing".to_owned())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
+        .await?;
+        Ok(id)
     }
 }
 
