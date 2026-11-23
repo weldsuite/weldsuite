@@ -202,7 +202,11 @@ async fn find<C: ConnectionTrait>(db: &C, id: &str, lock: bool) -> Result<Option
 
 /// The list's filters: live, `search` on name and code, `status`,
 /// `effectiveStatus`.
-fn filters(search: Option<&str>, status: Option<String>, effective_status: Option<String>) -> Condition {
+fn filters(
+    search: Option<&str>,
+    status: Option<String>,
+    effective_status: Option<String>,
+) -> Condition {
     let mut all = Condition::all().add(discounts::Column::DeletedAt.is_null());
     if let Some(search) = search {
         all = all.add(
@@ -227,11 +231,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let limit = weldsuite_kit::parse_limit(param("limit").as_deref(), 50, 100);
     let search = param("search").map(|s| format!("%{}%", crate::rules::like_literal(&s)));
     let cursor = param("cursor");
-    let conditions = filters(
-        search.as_deref(),
-        param("status"),
-        param("effectiveStatus"),
-    );
+    let conditions = filters(search.as_deref(), param("status"), param("effectiveStatus"));
     let mut page = with_flags().filter(conditions.clone());
     if let Some(cursor) = &cursor {
         page = page.filter(after_cursor::<discounts::Entity>(
@@ -346,13 +346,13 @@ async fn redemptions(
         .count(&db)
         .await;
     match (rows, total) {
-        (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
-            rows,
-            usize::try_from(limit).unwrap_or(50),
-            |row: &Value| row["id"].as_str().unwrap_or_default(),
-        )
-        .into_list(total)
-        .into_response(),
+        (Ok(rows), Ok(total)) => {
+            weldsuite_kit::Page::of(rows, usize::try_from(limit).unwrap_or(50), |row: &Value| {
+                row["id"].as_str().unwrap_or_default()
+            })
+            .into_list(total)
+            .into_response()
+        }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
 }
@@ -592,8 +592,7 @@ fn code_taken() -> Refusal {
 }
 
 fn refusal_of(error: &DbErr) -> Option<Refusal> {
-    (weldsuite_db::pg_constraint(error).as_deref() == Some("discounts_code_uidx"))
-        .then(code_taken)
+    (weldsuite_db::pg_constraint(error).as_deref() == Some("discounts_code_uidx")).then(code_taken)
 }
 
 async fn ensure_free<C: ConnectionTrait>(db: &C, code: &str, except: &str) -> Result<(), Refusal> {
@@ -611,7 +610,11 @@ async fn ensure_free<C: ConnectionTrait>(db: &C, code: &str, except: &str) -> Re
         .into_tuple()
         .one(db)
         .await?;
-    if taken.is_some() { Err(code_taken()) } else { Ok(()) }
+    if taken.is_some() {
+        Err(code_taken())
+    } else {
+        Ok(())
+    }
 }
 
 async fn create(
@@ -741,13 +744,7 @@ async fn update(
             ensure_free(&db, merged["code"].as_str().unwrap_or_default(), &id).await?;
         }
         let row = DISCOUNTS
-            .patch_on(
-                &db,
-                &id,
-                values,
-                true,
-                &["updatedAt", "startsAt", "endsAt"],
-            )
+            .patch_on(&db, &id, values, true, &["updatedAt", "startsAt", "endsAt"])
             .await;
         let row = match row {
             Ok(Some(row)) => row,

@@ -34,8 +34,8 @@ use sea_orm::{
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::PRODUCT_UPDATED;
 use weldsuite_catalogs::permission_keys::{PRODUCTS_READ, PRODUCTS_UPDATE};
-use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_trim};
 use weldsuite_db::{OrmConn, utc_now};
+use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{product_variants, products};
@@ -516,10 +516,7 @@ async fn live_product<C: ConnectionTrait>(db: &C, id: &str) -> Result<Value, Ref
 }
 
 /// The product's live variants by `position` (none last), then age.
-async fn live_variants<C: ConnectionTrait>(
-    db: &C,
-    product_id: &str,
-) -> Result<Vec<Value>, DbErr> {
+async fn live_variants<C: ConnectionTrait>(db: &C, product_id: &str) -> Result<Vec<Value>, DbErr> {
     product_variants::Entity::find()
         .filter(product_variants::Column::ProductId.eq(product_id))
         .filter(product_variants::Column::DeletedAt.is_null())
@@ -558,11 +555,7 @@ async fn check_code<C: ConnectionTrait>(
     variant_id: &str,
 ) -> Result<(), Refusal> {
     let (product_column, variant_column, label) = if field == "sku" {
-        (
-            products::Column::Sku,
-            product_variants::Column::Sku,
-            "SKU",
-        )
+        (products::Column::Sku, product_variants::Column::Sku, "SKU")
     } else {
         (
             products::Column::Barcode,
@@ -762,11 +755,11 @@ async fn create_variant(
         let mut options = product_options(&product);
         let (combination, changed) = place(&body.option_values.unwrap_or_default(), &mut options);
         if options.len() > MAX_OPTIONS {
-            return Err(
-                ApiError::bad_request(format!("A product has at most {MAX_OPTIONS} options"))
-                    .with_details(json!({ "field": "optionValues" }))
-                    .into(),
-            );
+            return Err(ApiError::bad_request(format!(
+                "A product has at most {MAX_OPTIONS} options"
+            ))
+            .with_details(json!({ "field": "optionValues" }))
+            .into());
         }
         check_combination(&variants, &combination, None)?;
         let now = now();

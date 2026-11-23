@@ -603,7 +603,10 @@ async fn edit(
             // `name = coalesce($name, name)`: a name the body left out stays.
             let mut update = commerce_channel_keys::Entity::update_many();
             if let Some(name) = &name {
-                update = update.col_expr(commerce_channel_keys::Column::Name, Expr::val(name.as_str()));
+                update = update.col_expr(
+                    commerce_channel_keys::Column::Name,
+                    Expr::val(name.as_str()),
+                );
             }
             update
                 .col_expr(

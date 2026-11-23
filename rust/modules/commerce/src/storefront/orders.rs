@@ -18,7 +18,9 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use sea_orm::sea_query::{Expr, Func};
-use sea_orm::{ColumnTrait, Condition, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{CART_CREATED, CART_UPDATED};
 use weldsuite_commerce_domain::carts::{self, Attach, Filled, LineProblem, Wanted};

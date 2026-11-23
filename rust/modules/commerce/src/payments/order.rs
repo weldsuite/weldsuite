@@ -238,7 +238,10 @@ async fn invoice(
         };
         let row: Option<(String, String)> = orders::Entity::find_by_id(id.as_str())
             .select_only()
-            .column_as(or(orders::Column::PaymentStatus, "pending"), "payment_status")
+            .column_as(
+                or(orders::Column::PaymentStatus, "pending"),
+                "payment_status",
+            )
             .column_as(
                 or(orders::Column::ApprovalStatus, "not_required"),
                 "approval_status",

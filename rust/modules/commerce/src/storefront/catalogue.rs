@@ -98,7 +98,10 @@ async fn visible_categories<C: ConnectionTrait>(db: &C) -> Result<Vec<Value>, Db
         .column_as(or(categories::Column::Position, 0.into()), "position")
         .column_as(or(categories::Column::Type, "manual".into()), "kind")
         .column(categories::Column::Rules)
-        .column_as(or(categories::Column::RulesMatch, "all".into()), "rules_match")
+        .column_as(
+            or(categories::Column::RulesMatch, "all".into()),
+            "rules_match",
+        )
         .filter(categories::Column::DeletedAt.is_null())
         .filter(sea_orm::ExprTrait::eq(
             or(categories::Column::IsActive, 1.into()),
@@ -310,7 +313,10 @@ async fn variant_targets(
 ) -> Result<Vec<(String, String)>, DbErr> {
     active_variants(product_ids)
         .select_only()
-        .columns([product_variants::Column::ProductId, product_variants::Column::Id])
+        .columns([
+            product_variants::Column::ProductId,
+            product_variants::Column::Id,
+        ])
         .into_tuple()
         .all(&OrmConn::new(conn))
         .await

@@ -142,7 +142,10 @@ fn settled<E: EntityTrait>(
             Expr::col((E::default(), order_id)),
             Expr::col((orders::Entity, orders::Column::Id)),
         ))
-        .and_where(sea_orm::ExprTrait::eq(Expr::col((E::default(), state)), status))
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((E::default(), state)),
+            status,
+        ))
         .to_owned()
         .into()
 }
@@ -177,7 +180,10 @@ fn summaries() -> Select<orders::Entity> {
             orders::Column::OrderNumber,
             orders::Column::Status,
         ])
-        .column_as(order_or(orders::Column::PaymentStatus, "pending"), "payment_status")
+        .column_as(
+            order_or(orders::Column::PaymentStatus, "pending"),
+            "payment_status",
+        )
         .column_as(
             order_or(orders::Column::FulfillmentStatus, "unfulfilled"),
             "fulfillment_status",

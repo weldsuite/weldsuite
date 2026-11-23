@@ -360,7 +360,8 @@ mod tests {
             statement.sql,
             r#"UPDATE "products" SET "id" = CAST($1 AS jsonb) ->> $2 WHERE "products"."id" = $3 AND "products"."deleted_at" IS NULL RETURNING "id""#
         );
-        let statement = crate::tables::CATEGORY_PRODUCTS.rename_statement("cprod_1", json!(7), true);
+        let statement =
+            crate::tables::CATEGORY_PRODUCTS.rename_statement("cprod_1", json!(7), true);
         assert!(!statement.sql.contains("deleted_at"), "{}", statement.sql);
     }
 

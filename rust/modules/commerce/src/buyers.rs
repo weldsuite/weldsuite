@@ -31,7 +31,9 @@ use weldsuite_emails::commerce::BuyerInvitation;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{commerce_buyers, commerce_channel_keys, commerce_channels, companies};
+use weldsuite_schema::tenant::{
+    commerce_buyers, commerce_channel_keys, commerce_channels, companies,
+};
 
 use crate::args::{first_origin, has_origin, utc_now_sql};
 use crate::js::query_set;

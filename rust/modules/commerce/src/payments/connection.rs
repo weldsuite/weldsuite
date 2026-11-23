@@ -366,7 +366,10 @@ pub(crate) async fn save(
                 .col_expr(connections::Column::TokenExpiresAt, expires)
                 .col_expr(connections::Column::Scope, Expr::val(scope))
                 .col_expr(connections::Column::ProfileId, Expr::val(new.profile_id))
-                .col_expr(connections::Column::ProfileName, Expr::val(new.profile_name))
+                .col_expr(
+                    connections::Column::ProfileName,
+                    Expr::val(new.profile_name),
+                )
                 .col_expr(
                     connections::Column::OrganizationId,
                     Expr::val(new.organization_id),
@@ -376,7 +379,10 @@ pub(crate) async fn save(
                     Expr::val(new.organization_name),
                 )
                 .col_expr(connections::Column::Testmode, Expr::val(new.testmode))
-                .col_expr(connections::Column::ConnectedBy, Expr::val(new.connected_by))
+                .col_expr(
+                    connections::Column::ConnectedBy,
+                    Expr::val(new.connected_by),
+                )
                 .col_expr(connections::Column::ConnectedAt, Expr::val(at))
                 .col_expr(
                     connections::Column::DisconnectedAt,
@@ -644,7 +650,10 @@ async fn disconnect(State(state): State<CommerceState>, caller: Caller) -> Respo
                 connections::Column::RefreshTokenEncrypted,
                 Expr::val(None::<String>),
             )
-            .col_expr(connections::Column::ApiKeyEncrypted, Expr::val(None::<String>))
+            .col_expr(
+                connections::Column::ApiKeyEncrypted,
+                Expr::val(None::<String>),
+            )
             .col_expr(
                 connections::Column::TokenExpiresAt,
                 Expr::val(None::<PrimitiveDateTime>),

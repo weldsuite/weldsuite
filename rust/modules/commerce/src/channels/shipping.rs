@@ -388,7 +388,10 @@ async fn update(
                         .unwrap_or_default(),
                 ),
             )
-            .col_expr(commerce_shipping_rates::Column::Price, Expr::val(decimal(price)))
+            .col_expr(
+                commerce_shipping_rates::Column::Price,
+                Expr::val(decimal(price)),
+            )
             .col_expr(
                 commerce_shipping_rates::Column::FreeShippingThreshold,
                 Expr::val(threshold.map(decimal)),
@@ -400,7 +403,10 @@ async fn update(
                         .unwrap_or_else(|| current["active"].as_bool().unwrap_or(true)),
                 ),
             )
-            .col_expr(commerce_shipping_rates::Column::UpdatedAt, Expr::val(utc_now()))
+            .col_expr(
+                commerce_shipping_rates::Column::UpdatedAt,
+                Expr::val(utc_now()),
+            )
             .filter(commerce_shipping_rates::Column::Id.eq(rate_id.as_str()))
             .exec(&db)
             .await?;
@@ -515,7 +521,10 @@ async fn reorder(
             let position = i64::try_from(position).unwrap_or(0);
             if before != Some(position) {
                 commerce_shipping_rates::Entity::update_many()
-                    .col_expr(commerce_shipping_rates::Column::Position, Expr::val(position))
+                    .col_expr(
+                        commerce_shipping_rates::Column::Position,
+                        Expr::val(position),
+                    )
                     .col_expr(commerce_shipping_rates::Column::UpdatedAt, Expr::val(stamp))
                     .filter(commerce_shipping_rates::Column::Id.eq(*rate))
                     .exec(&db)

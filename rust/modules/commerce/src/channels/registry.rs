@@ -15,7 +15,9 @@
 
 use http::StatusCode;
 use sea_orm::sea_query::{Expr, Func};
-use sea_orm::{ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::json;
 use time::PrimitiveDateTime;
 use weldsuite_db::{OrmConn, PgPool, orm};

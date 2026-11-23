@@ -23,8 +23,8 @@ use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
 use sea_orm::sea_query::{Asterisk, Expr, Func, Query};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait,
-    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
 };
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
@@ -652,12 +652,18 @@ async fn update(
         }
         let stamp = utc_now();
         commerce_channels::Entity::update_many()
-            .col_expr(commerce_channels::Column::Name, Expr::val(channel.name.as_str()))
+            .col_expr(
+                commerce_channels::Column::Name,
+                Expr::val(channel.name.as_str()),
+            )
             .col_expr(
                 commerce_channels::Column::Audience,
                 Expr::val(channel.audience.as_str()),
             )
-            .col_expr(commerce_channels::Column::Status, Expr::val(channel.status.as_str()))
+            .col_expr(
+                commerce_channels::Column::Status,
+                Expr::val(channel.status.as_str()),
+            )
             .col_expr(
                 commerce_channels::Column::Currency,
                 Expr::val(channel.currency.as_str()),

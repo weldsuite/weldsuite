@@ -102,7 +102,10 @@ pub(crate) async fn advisory_lock<C: ConnectionTrait>(db: &C, key: &str) -> Resu
 
 /// `select <condition>`: one boolean the database works out (`exists (…) or
 /// exists (…)`).
-pub(crate) async fn select_bool<C: ConnectionTrait>(db: &C, condition: Expr) -> Result<bool, DbErr> {
+pub(crate) async fn select_bool<C: ConnectionTrait>(
+    db: &C,
+    condition: Expr,
+) -> Result<bool, DbErr> {
     let mut select = Query::select();
     select.expr_as(condition, Alias::new("value"));
     let row = db
@@ -314,9 +317,10 @@ mod tests {
 
     #[test]
     fn a_count_drops_the_last_condition_on_a_cursor() {
-        assert_eq!(sliced(vec![true, false, true, false], true), [
-            true, false, false, false
-        ]);
+        assert_eq!(
+            sliced(vec![true, false, true, false], true),
+            [true, false, false, false]
+        );
         assert_eq!(sliced(vec![true, true], false), [true, true]);
     }
 }

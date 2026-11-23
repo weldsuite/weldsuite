@@ -290,17 +290,18 @@ async fn placement<C: ConnectionTrait>(
             "CYCLE",
         ));
     }
-    let row: Option<(String, Option<String>, Option<i32>)> = categories::Entity::find_by_id(parent_id)
-        .select_only()
-        .columns([
-            categories::Column::Id,
-            categories::Column::Path,
-            categories::Column::Depth,
-        ])
-        .filter(categories::Column::DeletedAt.is_null())
-        .into_tuple()
-        .one(db)
-        .await?;
+    let row: Option<(String, Option<String>, Option<i32>)> =
+        categories::Entity::find_by_id(parent_id)
+            .select_only()
+            .columns([
+                categories::Column::Id,
+                categories::Column::Path,
+                categories::Column::Depth,
+            ])
+            .filter(categories::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await?;
     let Some((parent, path, depth)) = row else {
         return Err(refused(
             ApiError::not_found("Parent category", Some(parent_id)),
@@ -333,11 +334,7 @@ fn too_deep() -> Refusal {
 
 /// How many levels the subtree under the category at `path` (depth `depth`)
 /// adds.
-async fn subtree_height<C: ConnectionTrait>(
-    db: &C,
-    path: &str,
-    depth: i64,
-) -> Result<i64, DbErr> {
+async fn subtree_height<C: ConnectionTrait>(db: &C, path: &str, depth: i64) -> Result<i64, DbErr> {
     let deepest: Option<Option<i32>> = categories::Entity::find()
         .select_only()
         .column_as(categories::Column::Depth.max(), "max")
