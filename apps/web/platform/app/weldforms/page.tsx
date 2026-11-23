@@ -264,6 +264,8 @@ export default function WeldFormsHome() {
               onLoadMore={() => void query.fetchNextPage()}
               topBarClassName="pt-2 pb-2"
               leftActionButtons={folderMenu}
+              // Phones have the folder picker in its own row above the list instead.
+              mobileToolbarRow={false}
               createButton={canCreate ? { label: th.newForm, onClick: createForm } : undefined}
               emptyState={{
                 icon: <FormsIllustration />,
