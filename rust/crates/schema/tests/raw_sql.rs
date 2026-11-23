@@ -35,10 +35,6 @@ const NOT_CONVERTED: &[&str] = &[
     "crates/social-domain",
     "crates/staff-domain",
     "crates/subscribers",
-    "modules/core-files",
-    "modules/docs",
-    "modules/mcp",
-    "modules/sheets",
 ];
 
 fn rust_dir() -> PathBuf {

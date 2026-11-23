@@ -18,11 +18,6 @@
 //! conformance suite (`rust/conformance/suites.json`). `/internal/agent/*`
 //! (the `SheetsInternal` entrypoint the WeldAgent tools call) is not here.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod agent;
 mod data_sources;
 mod records;

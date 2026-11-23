@@ -46,9 +46,9 @@ use serde_json::{Value, json};
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::TenantPermissionQueries;
 use weldsuite_db::{SoleWorkspace, Tenant, WorkspaceError, WorkspaceSelector, orm};
-use weldsuite_schema::master::{plans, workspaces};
 use weldsuite_permissions::resolve_effective_permissions;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::master::{plans, workspaces};
 
 use crate::{McpSession, McpState};
 

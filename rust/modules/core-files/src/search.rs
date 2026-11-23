@@ -29,9 +29,9 @@ use weldsuite_schema::tenant::{
     bills, chat_channel_members, chat_channels, companies, crm_leads, crm_opportunities,
     desk_conversations, docs, domains, files, form_access, forms, helpdesk_articles,
     helpdesk_tickets, invoices, knowledge_pages, knowledge_spaces, meetings, merge_issues,
-    merge_pull_requests, merge_repositories, merge_teams, orders, panel_projects, people,
-    products, projects, reach_campaigns, sheets, sign_envelopes, sign_recipients, tasks,
-    warehouses, weldagent_agent_members, weldagent_agents, welddata_lists, whiteboards, workflows,
+    merge_pull_requests, merge_repositories, merge_teams, orders, panel_projects, people, products,
+    projects, reach_campaigns, sheets, sign_envelopes, sign_recipients, tasks, warehouses,
+    weldagent_agent_members, weldagent_agents, welddata_lists, whiteboards, workflows,
     workspace_installed_apps, workspace_members,
 };
 use weldsuite_subscribers::search::ai::{WorkspaceEmbeddings, index_model};
@@ -690,7 +690,10 @@ async fn search_workflows(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr>
         .filter(any_like(&columns, &term.contains))
         .filter(
             Condition::all()
-                .add(PgExpr::contains(tags, Expr::val(json!(["__type:sequence"]))))
+                .add(PgExpr::contains(
+                    tags,
+                    Expr::val(json!(["__type:sequence"])),
+                ))
                 .not(),
         );
     let then = [col(C::UpdatedAt), col(C::Id)];
@@ -1347,11 +1350,9 @@ async fn search_chat_channels(
         .filter(C::DeletedAt.is_null())
         .filter(any_like(&columns, &term.contains))
         .filter(
-            Condition::any().add(C::Type.eq("public")).add(
-                Condition::all()
-                    .add(C::Type.eq("private"))
-                    .add(joined),
-            ),
+            Condition::any()
+                .add(C::Type.eq("public"))
+                .add(Condition::all().add(C::Type.eq("private")).add(joined)),
         );
     let then = [col(C::UpdatedAt), col(C::Id)];
     ranked(db, rows, best_score(&columns, &term), then, term.limit).await
@@ -1481,7 +1482,10 @@ async fn search_merge_pull_requests(
     use merge_pull_requests::Column as C;
     use merge_repositories::Column as R;
     let contains = format!("%{}%", escape_like(&q.to_lowercase()));
-    let columns = [(col(C::Title), Scored::Text), (col(C::HeadRef), Scored::Text)];
+    let columns = [
+        (col(C::Title), Scored::Text),
+        (col(C::HeadRef), Scored::Text),
+    ];
     let mut matching = any_like(&columns, &contains);
     if let Some(number) = pull_request_number(q) {
         matching = matching.add(C::Number.eq(number));
@@ -1597,24 +1601,30 @@ fn visible_condition(visible: &VisibleFiles) -> Condition {
 /// sheets and boards (`file_id` is never null in any of them).
 fn no_record() -> Condition {
     Condition::all()
-        .add(files::Column::Id.not_in_subquery(
-            Query::select()
-                .column(docs::Column::FileId)
-                .from(docs::Entity)
-                .to_owned(),
-        ))
-        .add(files::Column::Id.not_in_subquery(
-            Query::select()
-                .column(sheets::Column::FileId)
-                .from(sheets::Entity)
-                .to_owned(),
-        ))
-        .add(files::Column::Id.not_in_subquery(
-            Query::select()
-                .column(whiteboards::Column::FileId)
-                .from(whiteboards::Entity)
-                .to_owned(),
-        ))
+        .add(
+            files::Column::Id.not_in_subquery(
+                Query::select()
+                    .column(docs::Column::FileId)
+                    .from(docs::Entity)
+                    .to_owned(),
+            ),
+        )
+        .add(
+            files::Column::Id.not_in_subquery(
+                Query::select()
+                    .column(sheets::Column::FileId)
+                    .from(sheets::Entity)
+                    .to_owned(),
+            ),
+        )
+        .add(
+            files::Column::Id.not_in_subquery(
+                Query::select()
+                    .column(whiteboards::Column::FileId)
+                    .from(whiteboards::Entity)
+                    .to_owned(),
+            ),
+        )
 }
 
 /// Spreadsheets, boards, documents or files, by the name of their Drive file,

@@ -23,10 +23,6 @@
 //!   the rate limit, for the server; conformance builds take the session from
 //!   the test instead.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 #![allow(clippy::result_large_err)]
 
 mod annotations;
