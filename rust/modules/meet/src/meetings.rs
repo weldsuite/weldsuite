@@ -150,11 +150,7 @@ fn forbidden(message: &str) -> Response {
 }
 
 /// The live meeting `id`, limited to `scope`'s organizer when given.
-async fn live_meeting(
-    db: &PgPool,
-    id: &str,
-    scope: Option<&str>,
-) -> Result<Option<Value>, DbErr> {
+async fn live_meeting(db: &PgPool, id: &str, scope: Option<&str>) -> Result<Option<Value>, DbErr> {
     let mut find = meetings::Entity::find_by_id(id.to_owned()).filter(Meeting::DeletedAt.is_null());
     if let Some(scope) = scope {
         find = find.filter(Meeting::OrganizerId.eq(scope));
@@ -241,8 +237,11 @@ fn history_condition() -> Condition {
         .column((meeting_sessions::Entity, meeting_sessions::Column::Id))
         .from(meeting_sessions::Entity)
         .and_where(
-            Expr::col((meeting_sessions::Entity, meeting_sessions::Column::MeetingId))
-                .equals((meetings::Entity, Meeting::Id)),
+            Expr::col((
+                meeting_sessions::Entity,
+                meeting_sessions::Column::MeetingId,
+            ))
+            .equals((meetings::Entity, Meeting::Id)),
         )
         .and_where(meeting_sessions::Column::Status.eq("ended"))
         .to_owned();
@@ -625,8 +624,11 @@ fn recorded_select(scope: Option<&str>) -> sea_orm::Select<meeting_sessions::Ent
         .column((crm_transcriptions::Entity, crm_transcriptions::Column::Id))
         .from(crm_transcriptions::Entity)
         .and_where(
-            Expr::col((crm_transcriptions::Entity, crm_transcriptions::Column::ActivityId))
-                .equals((meeting_sessions::Entity, S::Id)),
+            Expr::col((
+                crm_transcriptions::Entity,
+                crm_transcriptions::Column::ActivityId,
+            ))
+            .equals((meeting_sessions::Entity, S::Id)),
         )
         .and_where(crm_transcriptions::Column::Status.eq("completed"))
         .to_owned();
@@ -2044,7 +2046,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn printing() {
+    fn the_list_filters_read_as_the_worker_wrote_them() {
         let at = crate::table::sql_timestamp("2026-10-01T12:00:00.123Z").expect("at");
         let filters = Filters {
             scope: Some("u1".into()),
@@ -2057,24 +2059,61 @@ mod tests {
             cursor: Some((at, "mtg1".into())),
         };
         let (page, count) = page_and_count(filters.conditions(), true);
-        println!("{}", meetings::Entity::find().filter(page).order_by_desc(Meeting::CreatedAt).order_by_desc(Meeting::Id).limit(limit_of(26.0)).build(DbBackend::Postgres));
-        println!("{}", meetings::Entity::find().filter(count).build(DbBackend::Postgres));
-        println!("{}", recorded_select(Some("u1")).build(DbBackend::Postgres));
-        println!("{}", meeting_sessions::Entity::find().distinct_on([meeting_sessions::Column::MeetingId]).filter(meeting_sessions::Column::MeetingId.is_in(["a", "b"])).order_by_asc(meeting_sessions::Column::MeetingId).order_by_desc(meeting_sessions::Column::CreatedAt).order_by_desc(meeting_sessions::Column::Id).build(DbBackend::Postgres));
-        let preferences = workspace_members::Entity::belongs_to(user_preferences::Entity)
-            .from(workspace_members::Column::UserId)
-            .to(user_preferences::Column::UserId)
-            .into();
-        println!("{}", workspace_members::Entity::find()
-            .select_only()
-            .columns([
-                workspace_members::Column::UserId,
-                workspace_members::Column::Name,
-                workspace_members::Column::Email,
-            ])
-            .column(user_preferences::Column::Timezone)
-            .join(JoinType::LeftJoin, preferences)
-            .filter(workspace_members::Column::UserId.is_in(["a".to_owned(), "b".to_owned()])).build(DbBackend::Postgres));
+        let sql = |condition| {
+            let sql = meetings::Entity::find()
+                .filter(condition)
+                .build(DbBackend::Postgres)
+                .to_string();
+            sql.split_once(" WHERE ").map(|(_, rest)| rest.to_owned())
+        };
+        let common = concat!(
+            r#""meetings"."deleted_at" IS NULL AND "meetings"."organizer_id" = 'u1' AND "#,
+            r#""meetings"."title" LIKE '%x%' AND "meetings"."status" IN ('scheduled', 'completed') AND "#,
+            r#""meetings"."attendees" @> '[{"counterpartyId":"cp1"}]' AND "#,
+            r#"("meetings"."attendees" @> '[{"personId":"p1"}]' OR "meetings"."attendees" @> '[{"contactId":"p1"}]') AND "#,
+            r#"("meetings"."status" IN ('scheduled', 'in_progress') AND ("meetings"."status" = 'in_progress' OR "#,
+            r#""meetings"."scheduled_start" IS NULL OR COALESCE("meetings"."scheduled_end", "#,
+            r#""meetings"."scheduled_start" + CAST('1 hour' AS interval)) >= timezone('utc', CURRENT_TIMESTAMP))) AND "#,
+            r#"("meetings"."status" IN ('completed', 'failed', 'cancelled') OR EXISTS(SELECT "meeting_sessions"."id" "#,
+            r#"FROM "meeting_sessions" WHERE "meeting_sessions"."meeting_id" = "meetings"."id" AND "#,
+            r#""meeting_sessions"."status" = 'ended'))"#,
+        );
+        assert_eq!(
+            sql(page),
+            Some(format!(
+                "{common} AND (\"meetings\".\"created_at\" < '2026-10-01 12:00:00.123000' OR \
+                 (\"meetings\".\"created_at\" = '2026-10-01 12:00:00.123000' AND \"meetings\".\"id\" < 'mtg1'))"
+            ))
+        );
+        // A `?cursor=` makes the count drop the last condition.
+        assert_eq!(sql(count), Some(common.to_owned()));
+    }
+
+    #[test]
+    fn recorded_sessions_join_their_meetings() {
+        assert_eq!(
+            recorded_select(Some("u1"))
+                .build(DbBackend::Postgres)
+                .to_string(),
+            concat!(
+                r#"SELECT "meeting_sessions"."id" AS "session_id", "meeting_sessions"."meeting_id" AS "meeting_id", "#,
+                r#""meeting_sessions"."cf_app_id", "meeting_sessions"."recording_status", "#,
+                r#""meeting_sessions"."recording_audio_key", "meeting_sessions"."recording_duration_seconds", "#,
+                r#""meeting_sessions"."recording_size_bytes", "meeting_sessions"."summary_status", "#,
+                r#"EXISTS(SELECT "crm_transcriptions"."id" FROM "crm_transcriptions" WHERE "#,
+                r#""crm_transcriptions"."activity_id" = "meeting_sessions"."id" AND "#,
+                r#""crm_transcriptions"."status" = 'completed') AS "has_transcript", "#,
+                r#""meeting_sessions"."started_at", "meeting_sessions"."ended_at", "meeting_sessions"."duration", "#,
+                r#""meeting_sessions"."max_participants", "meetings"."title" AS "meeting_title", "#,
+                r#""meetings"."meeting_type" AS "meeting_type" FROM "meeting_sessions" "#,
+                r#"INNER JOIN "meetings" ON "meeting_sessions"."meeting_id" = "meetings"."id" "#,
+                r#"WHERE ("meeting_sessions"."recording_status" IS NOT NULL OR "#,
+                r#""meeting_sessions"."recording_url" IS NOT NULL OR "meeting_sessions"."recording_key" IS NOT NULL) "#,
+                r#"AND ("meeting_sessions"."recording_status" IS NULL OR "#,
+                r#""meeting_sessions"."recording_status" <> 'deleted') AND "meetings"."deleted_at" IS NULL "#,
+                r#"AND "meetings"."organizer_id" = 'u1' ORDER BY "meeting_sessions"."started_at" DESC LIMIT 50"#,
+            )
+        );
     }
 
     #[test]

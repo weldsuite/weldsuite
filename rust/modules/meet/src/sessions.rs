@@ -938,7 +938,10 @@ async fn leave_session(
         .filter(|p| !truthy(p.get("leftAt")))
         .count();
     meeting_sessions::Entity::update_many()
-        .col_expr(Session::Participants, Expr::value(Value::Array(participants)))
+        .col_expr(
+            Session::Participants,
+            Expr::value(Value::Array(participants)),
+        )
         .col_expr(Session::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
         .filter(Session::Id.eq(id))
         .exec(&orm(db))
@@ -1146,10 +1149,13 @@ async fn remove_one(
         map.insert(email.clone(), Value::Object(entry));
         Value::Object(map)
     });
-    let mut write = meeting_sessions::Entity::update_many()
-        .col_expr(Session::UpdatedAt, Expr::value(stamp));
+    let mut write =
+        meeting_sessions::Entity::update_many().col_expr(Session::UpdatedAt, Expr::value(stamp));
     if needs_kick {
-        write = write.col_expr(Session::Participants, Expr::value(Value::Array(participants)));
+        write = write.col_expr(
+            Session::Participants,
+            Expr::value(Value::Array(participants)),
+        );
     }
     if let Some(removed) = removed.filter(|_| needs_block) {
         write = write.col_expr(Session::Metadata, with_removed_guest(removed));
@@ -1189,10 +1195,7 @@ fn with_removed_guest(removed: Value) -> Expr {
     use sea_orm::sea_query::extension::postgres::PgExpr;
     let metadata = || Expr::col(Session::Metadata);
     let empty = || Expr::val(json!({}));
-    let guests = Func::coalesce([
-        PgExpr::get_json_field(metadata(), "removedGuests"),
-        empty(),
-    ]);
+    let guests = Func::coalesce([PgExpr::get_json_field(metadata(), "removedGuests"), empty()]);
     let merged = PgExpr::concat(Expr::val(removed), Expr::expr(guests));
     let field = Func::cust("jsonb_build_object")
         .arg("removedGuests")
@@ -1276,7 +1279,10 @@ pub(crate) fn page_and_count(
     } else {
         present.len()
     };
-    let page = present.iter().cloned().fold(Condition::all(), Condition::add);
+    let page = present
+        .iter()
+        .cloned()
+        .fold(Condition::all(), Condition::add);
     let count = present
         .into_iter()
         .take(kept)
@@ -1324,7 +1330,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .limit(limit_of(limit + 1.0))
         .all(db)
         .await
-        .and_then(|rows| rows.into_iter().map(row_json).collect::<Result<Vec<_>, _>>());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let total = meeting_sessions::Entity::find()
         .filter(count)
         .count(db)
@@ -1518,16 +1528,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn printing() {
-        let stmt = meeting_sessions::Entity::update_many()
-            .col_expr(Session::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
-            .col_expr(Session::Metadata, with_removed_guest(json!({ "a@x.io": { "removedBy": "u" } })))
+    fn a_removed_guest_joins_the_stored_list() {
+        let sql = meeting_sessions::Entity::update_many()
+            .col_expr(
+                Session::Metadata,
+                with_removed_guest(json!({ "a@x.io": { "removedBy": "u" } })),
+            )
             .filter(Session::Id.eq("s1"))
-            .build(DbBackend::Postgres);
-        println!("{stmt}");
-        let (page, count) = page_and_count(vec![Some(Condition::all().add(Session::MeetingId.eq("m"))), None, Some(Condition::all().add(Session::Status.eq("x")))], true);
-        println!("{}", meeting_sessions::Entity::find().filter(page).build(DbBackend::Postgres));
-        println!("{}", meeting_sessions::Entity::find().filter(count).build(DbBackend::Postgres));
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert_eq!(
+            sql,
+            concat!(
+                r#"UPDATE "meeting_sessions" SET "metadata" = COALESCE("metadata", '{}') || "#,
+                r#"jsonb_build_object('removedGuests', '{"a@x.io":{"removedBy":"u"}}' || "#,
+                r#"COALESCE("metadata" -> 'removedGuests', '{}')) WHERE "meeting_sessions"."id" = 's1'"#,
+            )
+        );
+    }
+
+    #[test]
+    fn a_cursor_drops_the_counts_last_condition() {
+        let condition = |status: &str| Some(Condition::all().add(Session::Status.eq(status)));
+        let (page, count) = page_and_count(vec![condition("a"), None, condition("b")], true);
+        let sql = |condition| {
+            meeting_sessions::Entity::find()
+                .select_only()
+                .column(Session::Id)
+                .filter(condition)
+                .build(DbBackend::Postgres)
+                .to_string()
+        };
+        assert_eq!(
+            sql(page),
+            r#"SELECT "meeting_sessions"."id" FROM "meeting_sessions" WHERE "meeting_sessions"."status" = 'a' AND "meeting_sessions"."status" = 'b'"#
+        );
+        assert_eq!(
+            sql(count),
+            r#"SELECT "meeting_sessions"."id" FROM "meeting_sessions" WHERE "meeting_sessions"."status" = 'a'"#
+        );
+        let (_, all) = page_and_count(vec![condition("a"), condition("b")], false);
+        assert!(sql(all).ends_with("'b'"));
     }
 
     #[test]

@@ -187,7 +187,10 @@ async fn list_all(caller: &Caller, query: Option<&str>) -> Response {
         .all(db)
         .await
         .and_then(js_rows);
-    let total = meeting_messages::Entity::find().filter(count).count(db).await;
+    let total = meeting_messages::Entity::find()
+        .filter(count)
+        .count(db)
+        .await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => page_of(rows, limit, i64::try_from(total).unwrap_or(i64::MAX)),
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list meeting messages"),
@@ -467,7 +470,10 @@ async fn pin(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) 
 async fn unpin(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
     let meeting = query_param(query.as_deref(), "meetingId").unwrap_or_default();
     let result = meeting_messages::Entity::update_many()
-        .col_expr(Message::PinnedAt, Expr::value(Option::<PrimitiveDateTime>::None))
+        .col_expr(
+            Message::PinnedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
         .col_expr(Message::PinnedBy, Expr::value(Option::<String>::None))
         .col_expr(Message::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
         .filter(message_in(&id, &meeting))

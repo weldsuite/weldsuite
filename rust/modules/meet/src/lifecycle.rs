@@ -233,23 +233,21 @@ pub(crate) async fn end_session(
 
     let tenant = &orm(db);
     // The meeting's schedule as Drizzle's `Date`s.
-    let schedule: Option<(Option<time::PrimitiveDateTime>, Option<time::PrimitiveDateTime>)> =
-        meetings::Entity::find()
-            .select_only()
-            .columns([
-                meetings::Column::ScheduledEnd,
-                meetings::Column::ScheduledStart,
-            ])
-            .filter(meetings::Column::Id.eq(meeting_id))
-            .into_tuple()
-            .one(tenant)
-            .await?;
+    let schedule: Option<(
+        Option<time::PrimitiveDateTime>,
+        Option<time::PrimitiveDateTime>,
+    )> = meetings::Entity::find()
+        .select_only()
+        .columns([
+            meetings::Column::ScheduledEnd,
+            meetings::Column::ScheduledStart,
+        ])
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .into_tuple()
+        .one(tenant)
+        .await?;
     let (end, start) = schedule.unwrap_or((None, None));
-    let past = is_meeting_past(
-        start.map(iso).as_deref(),
-        end.map(iso).as_deref(),
-        now_ms,
-    );
+    let past = is_meeting_past(start.map(iso).as_deref(), end.map(iso).as_deref(), now_ms);
     let meeting_status = if past { "completed" } else { "scheduled" };
     meetings::Entity::update_many()
         .col_expr(
@@ -462,7 +460,11 @@ pub(crate) async fn leave_other_sessions(
         ))
         .all(&orm(db))
         .await
-        .and_then(|rows| rows.into_iter().map(row_json).collect::<Result<Vec<_>, _>>());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let sessions = match sessions {
         Ok(rows) => rows,
         Err(error) => {

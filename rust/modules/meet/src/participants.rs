@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QuerySelect,
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect,
 };
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
@@ -113,11 +112,8 @@ async fn try_resolve(
         }
     }
     if let Some(email) = email.as_deref().filter(|e| !e.is_empty()) {
-        let member = member_where(
-            db,
-            lower_email_is(workspace_members::Column::Email, email),
-        )
-        .await?;
+        let member =
+            member_where(db, lower_email_is(workspace_members::Column::Email, email)).await?;
         if let Some(member) = member {
             return Ok(member_link(avatars, member).await);
         }
@@ -173,7 +169,10 @@ async fn try_resolve(
                 let url = format!("{public_url}/{key}");
                 if let Err(error) = people::Entity::update_many()
                     .col_expr(people::Column::AvatarUrl, Expr::value(url.clone()))
-                    .col_expr(people::Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+                    .col_expr(
+                        people::Column::UpdatedAt,
+                        Expr::value(weldsuite_db::utc_now()),
+                    )
                     .filter(people::Column::Id.eq(&person.id))
                     .filter(people::Column::DeletedAt.is_null())
                     .exec(db)

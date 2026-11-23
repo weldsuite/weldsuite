@@ -29,12 +29,12 @@ use serde_json::{Map, Value, json};
 use unicode_normalization::UnicodeNormalization;
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
 use weldsuite_db::{PgPool, orm};
-use weldsuite_schema::tenant::{
-    crm_transcript_segments, crm_transcriptions, meeting_sessions, meetings,
-};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, CreditShortfall, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    crm_transcript_segments, crm_transcriptions, meeting_sessions, meetings,
+};
 use weldsuite_video_rooms::RoomOptions;
 
 use crate::billing::{self, BillingError};

@@ -80,10 +80,7 @@ fn denied() -> Response {
 
 /// `resolveActivityOwner(c, activityId)`: the owner across every kind of
 /// activity a transcript can belong to.
-async fn activity_owner(
-    db: &PgPool,
-    activity: &str,
-) -> Result<Option<Option<String>>, DbErr> {
+async fn activity_owner(db: &PgPool, activity: &str) -> Result<Option<Option<String>>, DbErr> {
     /// `select <owner> from <kind> where id = $1 limit 1`.
     async fn owner<E: EntityTrait>(
         db: &sea_orm::DatabaseConnection,
@@ -287,7 +284,10 @@ async fn create(
             .one(&orm(db))
             .await?;
         if existing.is_some() {
-            return Ok(ApiError::conflict("Transcription already exists for this activity").into_response());
+            return Ok(
+                ApiError::conflict("Transcription already exists for this activity")
+                    .into_response(),
+            );
         }
         let id = generate_id("trans");
         let language = language.unwrap_or_else(|| "en".to_owned());

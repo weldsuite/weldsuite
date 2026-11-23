@@ -25,8 +25,8 @@ use std::time::Duration;
 
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -35,9 +35,9 @@ use weldsuite_ai::{Ai, AiCall, Audio, ChatRequest, Feature, Task, Tier};
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_ports::{BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, StepRetry, step};
 use weldsuite_schema::tenant::crm_transcript_segments::{self as segments, Column as Seg};
 use weldsuite_schema::tenant::crm_transcriptions::{self, Column as Transcription};
-use weldsuite_ports::{BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, StepRetry, step};
 
 use crate::billing::{self, AiKind, Charge};
 use crate::js::text;
@@ -914,7 +914,10 @@ pub(crate) async fn save_completed_transcript(
                 ])),
             )
             .col_expr(Transcription::ProcessingCompletedAt, Expr::value(now))
-            .col_expr(Transcription::Metadata, Expr::value(params.metadata.clone()))
+            .col_expr(
+                Transcription::Metadata,
+                Expr::value(params.metadata.clone()),
+            )
             .col_expr(Transcription::UpdatedAt, Expr::value(now))
             .filter(Transcription::Id.eq(&id))
             .exec(db)

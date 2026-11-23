@@ -135,7 +135,10 @@ async fn decide(state: &MeetState, caller: &Caller, id: &str, admit: bool) -> Re
 }
 
 /// `select createdAt, id from meeting_session_waitlist where id = cursor`.
-async fn cursor_row(db: &PgPool, cursor: &str) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+async fn cursor_row(
+    db: &PgPool,
+    cursor: &str,
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
     let row: Option<(PrimitiveDateTime, String)> = waitlist::Entity::find()
         .select_only()
         .columns([Entry::CreatedAt, Entry::Id])
@@ -184,7 +187,11 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .limit(limit_of(limit + 1.0))
         .all(db)
         .await
-        .and_then(|rows| rows.into_iter().map(row_json).collect::<Result<Vec<_>, _>>());
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let total = waitlist::Entity::find().filter(count).count(db).await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => page_of(rows, limit, i64::try_from(total).unwrap_or(i64::MAX)),
