@@ -430,7 +430,8 @@ export function MessageList({
     `}</style>
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>
       {/* A thread starts with its first message right under the panel's header. */}
-      <div data-testid="chat-message-list" className={cn('flex flex-col min-h-full pb-8', parentId ? 'pt-0' : 'pt-4')}>
+      {/* data-chat-image-scope: the image lightbox pages through this list's images. */}
+      <div data-testid="chat-message-list" data-chat-image-scope className={cn('flex flex-col min-h-full pb-8', parentId ? 'pt-0' : 'pt-4')}>
         {/* Spacer pushes messages to bottom when content is shorter than viewport */}
         <div className="flex-1" />
         {hasNextPage && (
