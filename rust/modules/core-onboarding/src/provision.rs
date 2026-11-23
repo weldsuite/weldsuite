@@ -99,7 +99,10 @@ async fn mark_workspace(master: &PgPool, workspace_id: &str, ready: bool) -> Res
     let status = if ready { "ready" } else { "provisioning" };
     update
         .col_expr(Column::ProvisioningStatus, Expr::value(status))
-        .col_expr(Column::ProvisioningError, Expr::value(Option::<String>::None))
+        .col_expr(
+            Column::ProvisioningError,
+            Expr::value(Option::<String>::None),
+        )
         .col_expr(Column::UpdatedAt, Expr::current_timestamp())
         .filter(Column::Id.eq(workspace_id))
         .exec(&orm(master))
@@ -422,15 +425,11 @@ async fn insert_initial_member(
 }
 
 /// One conflict-tolerant insert per app; a failing one is logged.
-async fn install_apps(
-    tenant: &PgPool,
-    apps: &[String],
-    user_id: &str,
-) -> Result<usize, DbErr> {
+async fn install_apps(tenant: &PgPool, apps: &[String], user_id: &str) -> Result<usize, DbErr> {
     let db = orm(tenant);
     for app in apps {
-        let installed = workspace_installed_apps::Entity::insert(
-            workspace_installed_apps::ActiveModel {
+        let installed =
+            workspace_installed_apps::Entity::insert(workspace_installed_apps::ActiveModel {
                 id: Set(weldsuite_kit::generate_id("app")),
                 app_code: Set(app.clone()),
                 is_active: Set(true),
@@ -438,11 +437,10 @@ async fn install_apps(
                 installed_at: Set(Some(OffsetDateTime::now_utc())),
                 installed_by: Set(Some(user_id.to_owned())),
                 ..Default::default()
-            },
-        )
-        .on_conflict(OnConflict::new().do_nothing().to_owned())
-        .exec_without_returning(&db)
-        .await;
+            })
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&db)
+            .await;
         if let Err(error) = installed {
             tracing::warn!(%error, app, "provision: failed to install an app");
         }
@@ -634,8 +632,14 @@ async fn initialise_licensed_credits(
         Entity::update_many()
             .col_expr(Column::PlanCredits, Expr::value(context.monthly_credits))
             .col_expr(Column::SubscribedCredits, Expr::value(0))
-            .col_expr(Column::MonthlyAllocation, Expr::value(context.monthly_credits))
-            .col_expr(Column::RolloverCap, Expr::value(context.credit_rollover_cap))
+            .col_expr(
+                Column::MonthlyAllocation,
+                Expr::value(context.monthly_credits),
+            )
+            .col_expr(
+                Column::RolloverCap,
+                Expr::value(context.credit_rollover_cap),
+            )
             .col_expr(Column::PeriodStart, Expr::value(start))
             .col_expr(Column::PeriodEnd, Expr::value(end))
             .col_expr(Column::LastResetAt, Expr::value(to_millis(now)))
@@ -683,7 +687,9 @@ async fn grant_licence_remainder(
     .bind(workspace_id)
     .bind(amount)
     .bind(&key)
-    .bind(format!("Licensed monthly credits, rest of the month: +{amount}"))
+    .bind(format!(
+        "Licensed monthly credits, rest of the month: +{amount}"
+    ))
     .bind(json!({
         "reason": "partner_licence",
         "changeId": format!("init:{workspace_id}"),

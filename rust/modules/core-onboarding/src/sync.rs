@@ -389,20 +389,19 @@ impl IdentitySync {
     /// keeps their role; a workspace that is gone is skipped.
     async fn sso_join(&self, join: &SsoJoin) -> Outcome {
         let master = orm(&self.master);
-        let workspace: Result<Option<(String, Option<String>)>, DbErr> =
-            workspaces::Entity::find()
-                .select_only()
-                .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
-                .filter(
-                    Condition::any()
-                        .add(workspaces::Column::Id.eq(&join.tenant_ref))
-                        .add(workspaces::Column::ClerkOrgId.eq(&join.tenant_ref)),
-                )
-                .filter(workspaces::Column::DeletedAt.is_null())
-                .order_by(workspaces::Column::Id.eq(&join.tenant_ref), Order::Desc)
-                .into_tuple()
-                .one(&master)
-                .await;
+        let workspace: Result<Option<(String, Option<String>)>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(&join.tenant_ref))
+                    .add(workspaces::Column::ClerkOrgId.eq(&join.tenant_ref)),
+            )
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .order_by(workspaces::Column::Id.eq(&join.tenant_ref), Order::Desc)
+            .into_tuple()
+            .one(&master)
+            .await;
         let (workspace_id, org) = match workspace {
             Ok(Some(workspace)) => workspace,
             Ok(None) => {
@@ -889,7 +888,11 @@ impl IdentitySync {
                 image_url: Set(membership.user.image_url.clone()),
                 ..Default::default()
             })
-            .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned())
+            .on_conflict(
+                OnConflict::column(users::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
             .exec_without_returning(&orm(&self.master))
             .await?;
             upsert_user_workspace(

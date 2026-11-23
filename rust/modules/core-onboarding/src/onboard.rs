@@ -486,7 +486,11 @@ impl WorkspaceService {
                     .or(member.picture)),
                 ..Default::default()
             })
-            .on_conflict(OnConflict::column(users::Column::Id).do_nothing().to_owned())
+            .on_conflict(
+                OnConflict::column(users::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
             .exec_without_returning(&orm(&self.master))
             .await?;
             upsert_user_workspace(&self.master, &data.clerk_user_id, workspace_id, None, role).await
@@ -532,7 +536,10 @@ impl WorkspaceService {
             let message: String = format!("{error}").chars().take(1000).collect();
             tracing::error!(%error, workspace_id, "onboard: provisioning failed to start");
             workspaces::Entity::update_many()
-                .col_expr(workspaces::Column::ProvisioningStatus, Expr::value("failed"))
+                .col_expr(
+                    workspaces::Column::ProvisioningStatus,
+                    Expr::value("failed"),
+                )
                 .col_expr(workspaces::Column::ProvisioningError, Expr::value(message))
                 .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
                 .filter(workspaces::Column::Id.eq(workspace_id))
