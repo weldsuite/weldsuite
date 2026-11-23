@@ -27,7 +27,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use sea_orm::sea_query::Expr;
-use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
@@ -59,10 +59,52 @@ use crate::sip_trunk_inbound::{
 use crate::sip_trunk_number::dialed_number_of;
 use crate::telnyx::{Telnyx, decode_client_state, encode_client_state, verify_signature};
 use crate::tool_auth;
-use crate::{CallState, PublicCtx, now};
+use crate::{CallState, PublicCtx};
 
 fn answer(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
+}
+
+/// `$n::timestamp` of a `toISOString()` the handler made: the UTC wall
+/// clock; `Err` where the cast fails.
+fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, String> {
+    OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|_| format!("invalid input syntax for type timestamp: \"{iso}\""))
+}
+
+/// `update voip_porting_orders set … where id = $1`: the columns of `set`
+/// on the workspace's port.
+async fn update_order(
+    db: &PgPool,
+    draft_id: &str,
+    set: porting_orders::ActiveModel,
+) -> Result<(), String> {
+    porting_orders::Entity::update_many()
+        .set(set)
+        .filter(porting_orders::Column::Id.eq(draft_id))
+        .exec(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// `delete from telnyx_porting_order_index where telnyx_porting_order_id = $1`.
+async fn forget_order(master: &PgPool, order_id: &str) -> Result<(), String> {
+    porting_index::Entity::delete_many()
+        .filter(porting_index::Column::TelnyxPortingOrderId.eq(order_id))
+        .exec(&orm(master))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// `select to_jsonb(t) from voip_porting_orders t where t.id = $1`.
+async fn load_order(db: &PgPool, draft_id: &str) -> Result<Option<porting_orders::Model>, String> {
+    porting_orders::Entity::find_by_id(draft_id)
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn ok() -> Response {
@@ -195,12 +237,13 @@ pub(crate) async fn tool(
         if query.is_empty()
             && let Some(call) = claims.call.as_deref().filter(|c| !c.is_empty())
         {
-            let from: Option<String> =
-                sqlx::query_scalar("select from_number from voip_calls where id = $1 limit 1")
-                    .bind(call)
-                    .fetch_optional(&db)
-                    .await
-                    .map_err(|e| e.to_string())?;
+            let from: Option<String> = voip_calls::Entity::find_by_id(call)
+                .select_only()
+                .column(voip_calls::Column::FromNumber)
+                .into_tuple()
+                .one(&orm(&db))
+                .await
+                .map_err(|e| e.to_string())?;
             query = from.unwrap_or_default();
         }
         let hits = if query.is_empty() {
@@ -424,12 +467,13 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
 
 /// `conversationOfCall(db, callId)`: the conversation on the call's row.
 async fn conversation_of_call(db: &PgPool, call_id: &str) -> Result<Option<String>, String> {
-    let row: Option<Option<String>> =
-        sqlx::query_scalar("select desk_conversation_id from voip_calls where id = $1 limit 1")
-            .bind(call_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?;
+    let row: Option<Option<String>> = voip_calls::Entity::find_by_id(call_id)
+        .select_only()
+        .column(voip_calls::Column::DeskConversationId)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(row
         .flatten()
         .filter(|conversation| !conversation.is_empty()))
@@ -449,14 +493,17 @@ async fn porting_event(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     }
     let order_id = js::string(&order_id);
     let master = hook.master().ok_or("no master database")?;
-    let index: Option<(String, String)> = sqlx::query_as(
-        "select clerk_org_id, draft_id from telnyx_porting_order_index
-         where telnyx_porting_order_id = $1 limit 1",
-    )
-    .bind(&order_id)
-    .fetch_optional(&master)
-    .await
-    .map_err(|e| e.to_string())?;
+    let index: Option<(String, String)> = porting_index::Entity::find()
+        .select_only()
+        .columns([
+            porting_index::Column::ClerkOrgId,
+            porting_index::Column::DraftId,
+        ])
+        .filter(porting_index::Column::TelnyxPortingOrderId.eq(&order_id))
+        .into_tuple()
+        .one(&orm(&master))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some((org, draft_id)) = index else {
         return Ok(());
     };
@@ -487,22 +534,17 @@ async fn porting_event(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         }
         "cancelled" => {
             let db = hook.tenant(&org).await?;
-            sqlx::query(
-                "update voip_porting_orders set status = 'cancelled', updated_at = $2::timestamp where id = $1",
+            update_order(
+                &db,
+                &draft_id,
+                porting_orders::ActiveModel {
+                    status: Set("cancelled".to_owned()),
+                    updated_at: Set(utc_now()),
+                    ..Default::default()
+                },
             )
-            .bind(&draft_id)
-            .bind(now())
-            .execute(&db)
-            .await
-            .map_err(|e| e.to_string())?;
-            sqlx::query(
-                "delete from telnyx_porting_order_index where telnyx_porting_order_id = $1",
-            )
-            .bind(&order_id)
-            .execute(&master)
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok(())
+            .await?;
+            forget_order(&master, &order_id).await
         }
         _ => {
             let db = hook.tenant(&org).await?;
@@ -513,25 +555,22 @@ async fn porting_event(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
                 ),
                 _ => None,
             };
-            sqlx::query(
-                "update voip_porting_orders set substatus = $2,
-                     actual_foc_at = coalesce($3::timestamp, actual_foc_at),
-                     status = case when $4 then 'in_process' else status end,
-                     updated_at = $5::timestamp
-                 where id = $1",
-            )
-            .bind(&draft_id)
-            .bind(match &sub_status {
-                Value::Null => None,
-                other => Some(js::string(other)),
-            })
-            .bind(foc)
-            .bind(status == "in-process")
-            .bind(now())
-            .execute(&db)
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok(())
+            let mut set = porting_orders::ActiveModel {
+                substatus: Set(match &sub_status {
+                    Value::Null => None,
+                    other => Some(js::string(other)),
+                }),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            };
+            // `coalesce($3::timestamp, actual_foc_at)`.
+            if let Some(foc) = foc {
+                set.actual_foc_at = Set(Some(timestamp_of(&foc)?));
+            }
+            if status == "in-process" {
+                set.status = Set("in_process".to_owned());
+            }
+            update_order(&db, &draft_id, set).await
         }
     }
 }
@@ -549,24 +588,27 @@ struct Notice<'a> {
 }
 
 async fn notify(db: &PgPool, notice: Notice<'_>) {
-    let inserted = sqlx::query(
-        "insert into notifications (id, user_id, title, body, category, notification_type,
-             entity_type, entity_id, action_url, icon, severity, is_read, delivered_in_app,
-             delivered_email, delivered_push, created_at)
-         values ($1, $2, $3, $4, 'system', $5, $6, $7, $8, 'phone', $9, false, true, false, false,
-             $10::timestamptz)",
-    )
-    .bind(weldsuite_kit::generate_id("ntf"))
-    .bind(notice.user_id)
-    .bind(notice.title)
-    .bind(&notice.body)
-    .bind(notice.notification_type)
-    .bind(notice.entity_type)
-    .bind(notice.entity_id)
-    .bind(&notice.action_url)
-    .bind(notice.severity)
-    .bind(now())
-    .execute(db)
+    let inserted = notifications::Entity::insert(notifications::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("ntf")),
+        user_id: Set(notice.user_id.to_owned()),
+        title: Set(notice.title.to_owned()),
+        body: Set(Some(notice.body)),
+        category: Set("system".to_owned()),
+        notification_type: Set(notice.notification_type.to_owned()),
+        entity_type: Set(Some(notice.entity_type.to_owned())),
+        entity_id: Set(Some(notice.entity_id.to_owned())),
+        action_url: Set(Some(notice.action_url)),
+        icon: Set(Some("phone".to_owned())),
+        severity: Set(notice.severity.to_owned()),
+        is_read: Set(false),
+        delivered_in_app: Set(true),
+        delivered_email: Set(false),
+        delivered_push: Set(false),
+        // A `timestamptz`: `new Date()` to the millisecond.
+        created_at: Set(utc_now().assume_utc()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await;
     if let Err(error) = inserted {
         tracing::error!(%error, "[Porting] Failed to insert notification");
@@ -597,111 +639,54 @@ async fn porting_completed(
         .and_then(|list| list.first())
         .cloned();
     let Some(ported) = ported.filter(js::truthy) else {
-        sqlx::query(
-            "update voip_porting_orders set last_error_code = 'completed_without_number',
-                 last_error_message = 'Telnyx reported completion but returned no phone number',
-                 updated_at = $2::timestamp
-             where id = $1",
+        return update_order(
+            &db,
+            draft_id,
+            porting_orders::ActiveModel {
+                last_error_code: Set(Some("completed_without_number".to_owned())),
+                last_error_message: Set(Some(
+                    "Telnyx reported completion but returned no phone number".to_owned(),
+                )),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            },
         )
-        .bind(draft_id)
-        .bind(now())
-        .execute(&db)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
+    };
+    let Some(draft) = load_order(&db, draft_id).await? else {
         return Ok(());
     };
-    let draft: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from voip_porting_orders t where t.id = $1 limit 1")
-            .bind(draft_id)
-            .fetch_optional(&db)
-            .await
-            .map_err(|e| e.to_string())?;
-    let Some(draft) = draft else {
-        return Ok(());
-    };
-    if js::truthy(&draft["voip_phone_number_id"]) {
+    if draft
+        .voip_phone_number_id
+        .as_deref()
+        .is_some_and(|number| !number.is_empty())
+    {
         return Ok(());
     }
-    let phone = js::string(&draft["phone_number"]);
-    let existing: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
-        "select id, provider, sip_trunk_id, deleted_at is not null from voip_phone_numbers
-         where phone_number = $1 limit 1",
+    let phone = draft.phone_number.clone();
+    let number_id = live_ported_number(hook, &db, &draft, &ported).await?;
+    update_order(
+        &db,
+        draft_id,
+        porting_orders::ActiveModel {
+            status: Set("completed".to_owned()),
+            voip_phone_number_id: Set(Some(number_id.clone())),
+            last_error_code: Set(None),
+            last_error_message: Set(None),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        },
     )
-    .bind(&phone)
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let number_id = if let Some((id, provider, sip_trunk_id, deleted)) = existing {
-        // The number was first connected over the customer's own phone
-        // system, or was removed: from now on it is a number we host. Left as
-        // a trunk's number, every call from the phone network would be refused
-        // (only the trunk's connection may call such a number), and no route
-        // could repair it.
-        if provider.as_deref() == Some("sip_trunk")
-            || sip_trunk_id
-                .as_deref()
-                .is_some_and(|trunk| !trunk.is_empty())
-            || deleted
-        {
-            sqlx::query(
-                "update voip_phone_numbers set provider = 'telnyx', sip_trunk_id = null,
-                     deleted_at = null, provider_phone_number_id = $2, provider_connection_id = $3,
-                     status = 'active', caller_id_verified_at = null, allow_outbound = true,
-                     updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(ported["id"].as_str())
-            .bind(hook.ctx.env("TELNYX_CONNECTION_ID"))
-            .bind(now())
-            .execute(&db)
-            .await
-            .map_err(|e| e.to_string())?;
-        }
-        id
-    } else {
-        let id = weldsuite_kit::generate_id("vpn");
-        let now = now();
-        sqlx::query(
-            "insert into voip_phone_numbers (id, provider, phone_number, formatted_number, country_code,
-                 number_type, provider_phone_number_id, provider_connection_id, status, is_default,
-                 allow_inbound, allow_outbound, enable_recording, display_name, created_at, updated_at)
-             values ($1, 'telnyx', $2, $3, $4, $5, $6, $7, 'active', false, true, true, true, $8,
-                 $9::timestamp, $9::timestamp)",
-        )
-        .bind(&id)
-        .bind(&phone)
-        .bind(draft["formatted_number"].as_str().unwrap_or(&phone))
-        .bind(draft["country_code"].as_str())
-        .bind(draft["number_type"].as_str().unwrap_or("local"))
-        .bind(ported["id"].as_str())
-        .bind(hook.ctx.env("TELNYX_CONNECTION_ID"))
-        .bind(draft["business_name"].as_str())
-        .bind(&now)
-        .execute(&db)
-        .await
-        .map_err(|e| e.to_string())?;
-        id
-    };
-    sqlx::query(
-        "update voip_porting_orders set status = 'completed', voip_phone_number_id = $2,
-             last_error_code = null, last_error_message = null, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(draft_id)
-    .bind(&number_id)
-    .bind(now())
-    .execute(&db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let shown = draft["formatted_number"]
-        .as_str()
+    .await?;
+    let shown = draft
+        .formatted_number
+        .as_deref()
         .unwrap_or(&phone)
         .to_owned();
     notify(
         &db,
         Notice {
-            user_id: draft["created_by_user_id"].as_str().unwrap_or_default(),
+            user_id: &draft.created_by_user_id,
             title: "Your number is now live",
             body: format!("{shown} has been ported into WeldSuite and is ready to use."),
             entity_type: "voip_phone_number",
@@ -725,12 +710,94 @@ async fn porting_completed(
     {
         tracing::error!(%error, "[porting] Failed to register phone for inbound routing");
     }
-    sqlx::query("delete from telnyx_porting_order_index where telnyx_porting_order_id = $1")
-        .bind(order_id)
-        .execute(master)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    forget_order(master, order_id).await
+}
+
+/// The ported number's row, live: the workspace's own row of the number
+/// taken over (or left as it is), or a new one. Answers its id.
+async fn live_ported_number(
+    hook: &Hook<'_>,
+    db: &PgPool,
+    draft: &porting_orders::Model,
+    ported: &Value,
+) -> Result<String, String> {
+    let phone = &draft.phone_number;
+    // `(id, provider, sip_trunk_id, deleted_at)` of the number's row.
+    let existing: Option<(String, String, Option<String>, Option<PrimitiveDateTime>)> =
+        voip_numbers::Entity::find()
+            .select_only()
+            .columns([
+                voip_numbers::Column::Id,
+                voip_numbers::Column::Provider,
+                voip_numbers::Column::SipTrunkId,
+                voip_numbers::Column::DeletedAt,
+            ])
+            .filter(voip_numbers::Column::PhoneNumber.eq(phone))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|e| e.to_string())?;
+    let provider_number = ported["id"].as_str().map(str::to_owned);
+    let connection = hook.ctx.env("TELNYX_CONNECTION_ID");
+    if let Some((id, provider, sip_trunk_id, deleted_at)) = existing {
+        // The number was first connected over the customer's own phone
+        // system, or was removed: from now on it is a number we host. Left as
+        // a trunk's number, every call from the phone network would be refused
+        // (only the trunk's connection may call such a number), and no route
+        // could repair it.
+        if provider == "sip_trunk"
+            || sip_trunk_id
+                .as_deref()
+                .is_some_and(|trunk| !trunk.is_empty())
+            || deleted_at.is_some()
+        {
+            voip_numbers::Entity::update_many()
+                .set(voip_numbers::ActiveModel {
+                    provider: Set("telnyx".to_owned()),
+                    sip_trunk_id: Set(None),
+                    deleted_at: Set(None),
+                    provider_phone_number_id: Set(provider_number),
+                    provider_connection_id: Set(connection),
+                    status: Set("active".to_owned()),
+                    caller_id_verified_at: Set(None),
+                    allow_outbound: Set(Some(true)),
+                    updated_at: Set(utc_now()),
+                    ..Default::default()
+                })
+                .filter(voip_numbers::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        return Ok(id);
+    }
+    let id = weldsuite_kit::generate_id("vpn");
+    let now = utc_now();
+    voip_numbers::Entity::insert(voip_numbers::ActiveModel {
+        id: Set(id.clone()),
+        provider: Set("telnyx".to_owned()),
+        phone_number: Set(phone.clone()),
+        formatted_number: Set(Some(
+            draft.formatted_number.clone().unwrap_or_else(|| phone.clone()),
+        )),
+        country_code: Set(draft.country_code.clone()),
+        number_type: Set(Some(draft.number_type.clone())),
+        provider_phone_number_id: Set(provider_number),
+        provider_connection_id: Set(connection),
+        status: Set("active".to_owned()),
+        is_default: Set(Some(false)),
+        allow_inbound: Set(Some(true)),
+        allow_outbound: Set(Some(true)),
+        enable_recording: Set(Some(true)),
+        display_name: Set(draft.business_name.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(id)
 }
 
 /// `handlePortingException(ctx, message)`.
@@ -741,41 +808,36 @@ async fn porting_exception(
     message: &str,
 ) -> Result<(), String> {
     let db = hook.tenant(org).await?;
-    let draft: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from voip_porting_orders t where t.id = $1 limit 1")
-            .bind(draft_id)
-            .fetch_optional(&db)
-            .await
-            .map_err(|e| e.to_string())?;
-    let Some(draft) = draft else {
+    let Some(draft) = load_order(&db, draft_id).await? else {
         return Ok(());
     };
-    sqlx::query(
-        "update voip_porting_orders set status = 'exception', last_error_code = 'telnyx_exception',
-             last_error_message = $2, updated_at = $3::timestamp
-         where id = $1",
+    update_order(
+        &db,
+        draft_id,
+        porting_orders::ActiveModel {
+            status: Set("exception".to_owned()),
+            last_error_code: Set(Some("telnyx_exception".to_owned())),
+            last_error_message: Set(Some(message.to_owned())),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        },
     )
-    .bind(draft_id)
-    .bind(message)
-    .bind(now())
-    .execute(&db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let shown = draft["formatted_number"]
-        .as_str()
-        .or_else(|| draft["phone_number"].as_str())
-        .unwrap_or_default()
+    .await?;
+    let shown = draft
+        .formatted_number
+        .as_deref()
+        .unwrap_or(&draft.phone_number)
         .to_owned();
     let detail = if message.is_empty() {
         "no detail provided"
     } else {
         message
     };
-    let id = js::string(&draft["id"]);
+    let id = draft.id.clone();
     notify(
         &db,
         Notice {
-            user_id: draft["created_by_user_id"].as_str().unwrap_or_default(),
+            user_id: &draft.created_by_user_id,
             title: "Port request needs attention",
             body: format!("Telnyx flagged a problem on the port for {shown}: {detail}."),
             entity_type: "voip_porting_order",
@@ -843,16 +905,22 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         return Ok(());
     };
     let db = hook.tenant(&workspace).await?;
-    let phone: Option<PhoneRow> = sqlx::query_as(
-        "select id, assigned_user_id, allow_inbound, enable_recording, sip_trunk_id,
-             provider_connection_id
-         from voip_phone_numbers
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&number_id)
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let phone: Option<PhoneRow> = voip_numbers::Entity::find()
+        .select_only()
+        .columns([
+            voip_numbers::Column::Id,
+            voip_numbers::Column::AssignedUserId,
+            voip_numbers::Column::AllowInbound,
+            voip_numbers::Column::EnableRecording,
+            voip_numbers::Column::SipTrunkId,
+            voip_numbers::Column::ProviderConnectionId,
+        ])
+        .filter(voip_numbers::Column::Id.eq(&number_id))
+        .filter(voip_numbers::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&db))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some((phone_id, assigned, allow_inbound, recording, sip_trunk, phone_connection)) =
         phone.filter(|(_, _, allow, _, _, _)| *allow != Some(false))
     else {
@@ -902,14 +970,19 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         return Ok(());
     }
-    let route: Option<RouteRow> = sqlx::query_as(
-        "select action, voice_agent_id, forward_to_e164, options from desk_phone_routes
-         where voip_phone_number_id = $1 limit 1",
-    )
-    .bind(&phone_id)
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let route: Option<RouteRow> = desk_phone_routes::Entity::find()
+        .select_only()
+        .columns([
+            desk_phone_routes::Column::Action,
+            desk_phone_routes::Column::VoiceAgentId,
+            desk_phone_routes::Column::ForwardToE164,
+            desk_phone_routes::Column::Options,
+        ])
+        .filter(desk_phone_routes::Column::VoipPhoneNumberId.eq(&phone_id))
+        .into_tuple()
+        .one(&orm(&db))
+        .await
+        .map_err(|e| e.to_string())?;
     let route = route.map(|(action, voice_agent_id, forward_to_e164, options)| Route {
         action,
         voice_agent_id,
@@ -917,7 +990,7 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         options,
     });
     let call_id = weldsuite_kit::generate_id("vcall");
-    let now = now();
+    let now = utc_now();
     let caller: crm::Caller = match_caller_safe(&db, &from_number).await;
     let desk = ingest_desk_phone(
         &db,
@@ -938,29 +1011,24 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         let linked = js::truthy(&desk.conversation["contactId"])
             && desk.conversation["name"].as_str() == caller.caller_name.as_deref();
         if !linked {
-            sqlx::query(
-                "update desk_conversations set contact_id = $2, name = $3, email = $4,
-                     updated_at = $5::timestamp
-                 where id = $1",
-            )
-            .bind(&conversation_id)
-            .bind(contact)
-            .bind(
-                caller
-                    .caller_name
-                    .clone()
-                    .or_else(|| desk.conversation["name"].as_str().map(str::to_owned)),
-            )
-            .bind(
-                caller
-                    .email
-                    .clone()
-                    .or_else(|| desk.conversation["email"].as_str().map(str::to_owned)),
-            )
-            .bind(&now)
-            .execute(&db)
-            .await
-            .map_err(|e| e.to_string())?;
+            desk_conversations::Entity::update_many()
+                .set(desk_conversations::ActiveModel {
+                    contact_id: Set(Some(contact.to_owned())),
+                    name: Set(caller
+                        .caller_name
+                        .clone()
+                        .or_else(|| desk.conversation["name"].as_str().map(str::to_owned))),
+                    email: Set(caller
+                        .email
+                        .clone()
+                        .or_else(|| desk.conversation["email"].as_str().map(str::to_owned))),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .filter(desk_conversations::Column::Id.eq(&conversation_id))
+                .exec(&orm(&db))
+                .await
+                .map_err(|e| e.to_string())?;
         }
     }
     // The caller's message may start an SLA clock: tell desk-api's SLA sweep
@@ -996,32 +1064,32 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     )
     .await;
     let record = recording != Some(false);
-    sqlx::query(
-        "insert into voip_calls (id, created_at, updated_at, user_id, provider, provider_call_id,
-             provider_session_id, provider_leg_id, direction, status, from_number, to_number,
-             from_number_formatted, to_number_formatted, initiated_at, desk_conversation_id,
-             is_recorded, customer_id, contact_id, sip_trunk_id)
-         values ($1, $2::timestamp, $2::timestamp, $3, 'telnyx', $4, $5, $6, 'inbound', 'initiated',
-             $7, $8, $7, $8, $2::timestamp, $9, $10, $11, $12, $13)",
-    )
-    .bind(&call_id)
-    .bind(&now)
-    .bind(
-        assigned
+    voip_calls::Entity::insert(voip_calls::ActiveModel {
+        id: Set(call_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        user_id: Set(assigned
             .filter(|a| !a.is_empty())
-            .unwrap_or_else(|| "system".to_owned()),
-    )
-    .bind(&call_control_id)
-    .bind(text_of(&payload["call_session_id"]))
-    .bind(text_of(&payload["call_leg_id"]))
-    .bind(&from_number)
-    .bind(&to_number)
-    .bind(&conversation_id)
-    .bind(recording.unwrap_or(true))
-    .bind(&caller.customer_id)
-    .bind(&caller.contact_id)
-    .bind(&trunk_id)
-    .execute(&db)
+            .unwrap_or_else(|| "system".to_owned())),
+        provider: Set("telnyx".to_owned()),
+        provider_call_id: Set(Some(call_control_id.clone())),
+        provider_session_id: Set(text_of(&payload["call_session_id"])),
+        provider_leg_id: Set(text_of(&payload["call_leg_id"])),
+        direction: Set("inbound".to_owned()),
+        status: Set("initiated".to_owned()),
+        from_number: Set(from_number.clone()),
+        to_number: Set(to_number.clone()),
+        from_number_formatted: Set(Some(from_number.clone())),
+        to_number_formatted: Set(Some(to_number.clone())),
+        initiated_at: Set(now),
+        desk_conversation_id: Set(Some(conversation_id.clone())),
+        is_recorded: Set(Some(recording.unwrap_or(true))),
+        customer_id: Set(caller.customer_id.clone()),
+        contact_id: Set(caller.contact_id.clone()),
+        sip_trunk_id: Set(trunk_id),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&db))
     .await
     .map_err(|e| e.to_string())?;
     let mut state_json = Ordered::new()
@@ -1096,6 +1164,12 @@ fn event_date(value: &Value) -> Result<String, String> {
     weldsuite_kit::validation::js_date_iso(&text).ok_or_else(|| "Invalid time value".to_owned())
 }
 
+/// `$n::int` of a whole number of seconds: Postgres refuses one out of
+/// range, and the statement with it.
+fn int_column(seconds: i64) -> Result<i32, String> {
+    i32::try_from(seconds).map_err(|_| "integer out of range".to_owned())
+}
+
 /// Milliseconds since the epoch of a date the event carries.
 fn epoch_ms(value: &Value) -> Option<f64> {
     let iso = event_date(value).ok()?;
@@ -1151,52 +1225,52 @@ impl CallEvent<'_> {
         }
     }
 
-    fn present(&self, key: &str) -> (bool, Option<String>) {
-        match self.payload.get(key) {
-            None => (false, None),
-            Some(value) => (true, text_of(value)),
-        }
+    /// A field of the payload, if the event has it: `value ?? null` as text.
+    fn present(&self, key: &str) -> Option<Option<String>> {
+        self.payload.get(key).map(text_of)
     }
 
-    async fn initiated(&self) -> Result<(), String> {
-        let (has_control, control) = self.present("call_control_id");
-        let (has_session, session) = self.present("call_session_id");
-        let (has_leg, leg) = self.present("call_leg_id");
-        sqlx::query(
-            "update voip_calls set
-                 provider_call_id = case when $2 then $3 else provider_call_id end,
-                 provider_session_id = case when $4 then $5 else provider_session_id end,
-                 provider_leg_id = case when $6 then $7 else provider_leg_id end,
-                 status = 'initiated', updated_at = $8::timestamp
-             where id = $1",
-        )
-        .bind(self.call_id)
-        .bind(has_control)
-        .bind(control)
-        .bind(has_session)
-        .bind(session)
-        .bind(has_leg)
-        .bind(leg)
-        .bind(now())
-        .execute(&self.db)
-        .await
-        .map_err(|e| e.to_string())?;
+    /// `update voip_calls set … where id = $1`: the columns of `set` on
+    /// this call.
+    async fn update_call(&self, set: voip_calls::ActiveModel) -> Result<(), String> {
+        voip_calls::Entity::update_many()
+            .set(set)
+            .filter(voip_calls::Column::Id.eq(self.call_id))
+            .exec(&orm(&self.db))
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
+    async fn initiated(&self) -> Result<(), String> {
+        // A field the event sent (even `null`) is written; a missing one
+        // keeps the column.
+        let mut set = voip_calls::ActiveModel {
+            status: Set("initiated".to_owned()),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        };
+        if let Some(control) = self.present("call_control_id") {
+            set.provider_call_id = Set(control);
+        }
+        if let Some(session) = self.present("call_session_id") {
+            set.provider_session_id = Set(session);
+        }
+        if let Some(leg) = self.present("call_leg_id") {
+            set.provider_leg_id = Set(leg);
+        }
+        self.update_call(set).await
+    }
+
     async fn answered(&self) -> Result<(), String> {
-        let answered_at = event_date(&self.event["occurred_at"])?;
-        sqlx::query(
-            "update voip_calls set status = 'answered', answered_at = $2::timestamp,
-                 updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(self.call_id)
-        .bind(answered_at)
-        .bind(now())
-        .execute(&self.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        let answered_at = timestamp_of(&event_date(&self.event["occurred_at"])?)?;
+        self.update_call(voip_calls::ActiveModel {
+            status: Set("answered".to_owned()),
+            answered_at: Set(Some(answered_at)),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .await?;
         let control = &self.payload["call_control_id"];
         if self.client_state.get("record") == Some(&json!("true"))
             && js::truthy(control)
@@ -1209,14 +1283,12 @@ impl CallEvent<'_> {
     }
 
     async fn set_status(&self, status: &str) -> Result<(), String> {
-        sqlx::query("update voip_calls set status = $2, updated_at = $3::timestamp where id = $1")
-            .bind(self.call_id)
-            .bind(status)
-            .bind(now())
-            .execute(&self.db)
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.update_call(voip_calls::ActiveModel {
+            status: Set(status.to_owned()),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .await
     }
 
     /// `appendDeskCallEvent(…)`: a system line on the call's conversation,
@@ -1269,7 +1341,7 @@ impl CallEvent<'_> {
                 None
             };
         let status = final_status(&cause);
-        let ended_at = event_date(&self.event["occurred_at"])?;
+        let ended_at = timestamp_of(&event_date(&self.event["occurred_at"])?)?;
         let stored_cause = if js::truthy(sip) {
             format!("SIP {} - {cause}", js::string(sip))
         } else {
@@ -1277,23 +1349,18 @@ impl CallEvent<'_> {
         };
         #[allow(clippy::cast_possible_truncation)]
         let seconds = duration.map(|d| d as i64);
-        sqlx::query(
-            "update voip_calls set status = $2, ended_at = $3::timestamp,
-                 duration = case when $4 then $5::int else duration end,
-                 hangup_cause = $6, hangup_source = $7, updated_at = $8::timestamp
-             where id = $1",
-        )
-        .bind(self.call_id)
-        .bind(status)
-        .bind(&ended_at)
-        .bind(seconds.is_some())
-        .bind(seconds)
-        .bind(&stored_cause)
-        .bind(&source)
-        .bind(now())
-        .execute(&self.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        let mut set = voip_calls::ActiveModel {
+            status: Set(status.to_owned()),
+            ended_at: Set(Some(ended_at)),
+            hangup_cause: Set(Some(stored_cause)),
+            hangup_source: Set(Some(source)),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        };
+        if let Some(seconds) = seconds {
+            set.duration = Set(Some(int_column(seconds)?));
+        }
+        self.update_call(set).await?;
         let body = match seconds.filter(|s| *s != 0) {
             Some(seconds) => format!("Call ended ({status}, {seconds}s)"),
             None => format!("Call ended ({status})"),
@@ -1346,18 +1413,13 @@ impl CallEvent<'_> {
                 None,
             )
             .await?;
-            sqlx::query(
-                "update voip_calls set credits_consumed = $2, credit_transaction_id = $3,
-                     updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(self.call_id)
-            .bind(i32::try_from(cost).unwrap_or(i32::MAX))
-            .bind(&transaction)
-            .bind(now())
-            .execute(&self.db)
-            .await
-            .map_err(|e| e.to_string())?;
+            self.update_call(voip_calls::ActiveModel {
+                credits_consumed: Set(Some(i32::try_from(cost).unwrap_or(i32::MAX))),
+                credit_transaction_id: Set(Some(transaction)),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .await?;
             Ok::<_, String>(())
         }
         .await;
@@ -1386,22 +1448,17 @@ impl CallEvent<'_> {
         } else {
             None
         };
-        sqlx::query(
-            "update voip_calls set is_recorded = true, recording_storage_url = $2,
-                 recording_storage_key = $3,
-                 recording_duration = case when $4 then $5::int else recording_duration end,
-                 updated_at = $6::timestamp
-             where id = $1",
-        )
-        .bind(self.call_id)
-        .bind(js::string(url))
-        .bind(key)
-        .bind(seconds.is_some())
-        .bind(seconds)
-        .bind(now())
-        .execute(&self.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        let mut set = voip_calls::ActiveModel {
+            is_recorded: Set(Some(true)),
+            recording_storage_url: Set(Some(js::string(url))),
+            recording_storage_key: Set(key),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        };
+        if let Some(seconds) = seconds {
+            set.recording_duration = Set(Some(int_column(seconds)?));
+        }
+        self.update_call(set).await?;
         // A voicemail is the call's message, not a call recording.
         if self.input().stage() == Some("voicemail") {
             return handle_voicemail_saved(&self.input(), url, seconds).await;
@@ -1428,17 +1485,14 @@ impl CallEvent<'_> {
             Value::String(text) => text.clone(),
             other => other.to_string(),
         };
-        sqlx::query(
-            "update voip_calls set ai_summary = $2, ai_analyzed_at = $3::timestamp,
-                 updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(self.call_id)
-        .bind(&text)
-        .bind(now())
-        .execute(&self.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        let now = utc_now();
+        self.update_call(voip_calls::ActiveModel {
+            ai_summary: Set(Some(text)),
+            ai_analyzed_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .await?;
         let body = match &summary {
             Value::String(text) => text.clone(),
             _ => "AI call summary generated".to_owned(),
@@ -1546,16 +1600,19 @@ impl CallEvent<'_> {
                     appended.push(message);
                 }
                 Some(previous) if previous["body"].as_str() != Some(body.as_str()) => {
-                    let row: Option<Value> = sqlx::query_scalar(
-                        "update desk_messages set body = $2 where id = $1 returning to_jsonb(desk_messages)",
-                    )
-                    .bind(previous["id"].as_str().unwrap_or_default())
-                    .bind(&body)
-                    .fetch_optional(&self.db)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                    let row = desk_messages::Entity::update_many()
+                        .col_expr(desk_messages::Column::Body, Expr::value(&body))
+                        .filter(
+                            desk_messages::Column::Id
+                                .eq(previous["id"].as_str().unwrap_or_default()),
+                        )
+                        .exec_with_returning(&orm(&self.db))
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .into_iter()
+                        .next();
                     if let Some(row) = row {
-                        updated.push(weldsuite_desk_domain::webchat::DESK_MESSAGES.js(row));
+                        updated.push(serde_json::to_value(row).map_err(|e| e.to_string())?);
                     }
                 }
                 Some(_) => {}

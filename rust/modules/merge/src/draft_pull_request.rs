@@ -9,14 +9,16 @@
 //! shows the WeldSuite App as the author. The mirror row arrives with
 //! GitHub's `pull_request` webhook like any other pull request.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_connect_domain::github_app::{AppCredentials, installation_token};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::merge_repositories;
 
 use crate::connections::find_connection;
-use crate::db::{opt_text, text};
+use crate::db::{json_row, opt_text, text};
 use crate::github_client::GITHUB_API;
 use crate::{MergeError, MergeState, Overrides};
 
@@ -375,13 +377,13 @@ pub(crate) async fn tool(
             .collect();
         return Ok(refuse(lines.join("; ")));
     }
-    let repository: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from merge_repositories r where r.id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(&parsed.repository_id)
-    .fetch_optional(scope.db)
-    .await?;
-    let Some(repository) = repository.map(weldsuite_db::js_row) else {
+    let repository = merge_repositories::Entity::find_by_id(parsed.repository_id.clone())
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .one(&orm(scope.db))
+        .await?
+        .map(|repository| json_row(serde_json::to_value(repository)))
+        .transpose()?;
+    let Some(repository) = repository else {
         return Ok(refuse(format!(
             "Repository {} was not found",
             parsed.repository_id

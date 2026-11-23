@@ -26,23 +26,27 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::MERGE_CONNECTIONS_MANAGE;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::id::ALPHANUMERIC;
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id, random_string};
+use weldsuite_schema::tenant::{merge_connections, merge_provider_accounts, merge_pull_requests};
 
 use crate::accounts::list_accounts;
-use crate::connections::{find_connection, repository_count};
+use crate::connections::{connection_row, find_connection, repository_count};
 use crate::credentials::{StoredCredentials, connection_token, seal_credentials};
-use crate::db::{Row, is_unique_violation, text};
+use crate::db::{Row, instant_opt, is_unique_violation, json_row, now_at, same_or_null, text};
 use crate::mappers::{connection_dto, connection_event_data};
 use crate::providers::http::{Body, bearer, send_request};
 use crate::providers::shared::trim_trailing_slashes;
 use crate::providers::{self, OAuthUser, PROVIDERS, azure_devops, gitlab};
 use crate::{
-    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, now, publish, validate,
+    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, publish, validate,
     validate_query,
 };
 
@@ -315,16 +319,15 @@ async fn find_live(
     db: &PgPool,
     provider: &str,
     external_account_id: &str,
-) -> Result<Option<Row>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from merge_connections c where c.provider = $1 \
-         and c.external_account_id = $2 and c.deleted_at is null limit 1",
-    )
-    .bind(provider)
-    .bind(external_account_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Row>, DbErr> {
+    merge_connections::Entity::find()
+        .filter(merge_connections::Column::Provider.eq(provider))
+        .filter(merge_connections::Column::ExternalAccountId.eq(external_account_id))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(connection_row)
+        .transpose()
 }
 
 /// `upsertOAuthConnection(db, env, input)`: creates the connection, or
@@ -336,58 +339,54 @@ async fn upsert_connection(
 ) -> Result<(Row, bool), MergeError> {
     let db = &caller.db;
     let sealed = seal_credentials(&caller.overrides.keyring(state), &input.credentials)?;
-    let now = now();
+    let (_, at) = now_at();
+    let expires = instant_opt(input.credentials.expiry().as_deref())?;
     let renew = |existing: Row| {
         let sealed = sealed.clone();
-        let now = now.clone();
         async move {
-            let row: Value = sqlx::query_scalar(
-                "update merge_connections set account_login = $2, account_type = $3, host = $4, status = $5, \
-                   credentials = $6, credentials_expire_at = $7::timestamptz, oauth_user_login = $8, \
-                   revoked_at = null, updated_at = $9::timestamptz \
-                 where id = $1 returning to_jsonb(merge_connections.*)",
-            )
-            .bind(text(&existing, "id"))
-            .bind(&input.account_login)
-            .bind(&input.account_type)
-            .bind(&input.host)
-            .bind(input.status)
-            .bind(&sealed)
-            .bind(input.credentials.expiry())
-            .bind(&input.oauth_user_login)
-            .bind(&now)
-            .fetch_one(db)
+            let row = merge_connections::ActiveModel {
+                id: Unchanged(text(&existing, "id").to_owned()),
+                account_login: Set(input.account_login.clone()),
+                account_type: Set(input.account_type.clone()),
+                host: Set(input.host.clone()),
+                status: Set(input.status.to_owned()),
+                credentials: Set(Some(sealed)),
+                credentials_expire_at: Set(expires),
+                oauth_user_login: Set(input.oauth_user_login.clone()),
+                revoked_at: Set(None),
+                updated_at: Set(at),
+                ..Default::default()
+            }
+            .update(&orm(db))
             .await?;
-            Ok::<(Row, bool), MergeError>((js_row(row), false))
+            Ok::<(Row, bool), MergeError>((connection_row(row)?, false))
         }
     };
     if let Some(existing) = find_live(db, input.provider, &input.external_account_id).await? {
         return renew(existing).await;
     }
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into merge_connections (id, provider, external_account_id, created_by_user_id, installed_at, \
-           created_at, account_login, account_type, host, status, credentials, credentials_expire_at, \
-           oauth_user_login, revoked_at, updated_at) \
-         values ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz, $6, $7, $8, $9, $10, $11::timestamptz, $12, \
-           null, $5::timestamptz) \
-         returning to_jsonb(merge_connections.*)",
-    )
-    .bind(generate_id("mcn"))
-    .bind(input.provider)
-    .bind(&input.external_account_id)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .bind(&input.account_login)
-    .bind(&input.account_type)
-    .bind(&input.host)
-    .bind(input.status)
-    .bind(&sealed)
-    .bind(input.credentials.expiry())
-    .bind(&input.oauth_user_login)
-    .fetch_one(db)
+    let inserted = merge_connections::Entity::insert(merge_connections::ActiveModel {
+        id: Set(generate_id("mcn")),
+        provider: Set(input.provider.to_owned()),
+        external_account_id: Set(input.external_account_id.clone()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        installed_at: Set(Some(at)),
+        created_at: Set(at),
+        account_login: Set(input.account_login.clone()),
+        account_type: Set(input.account_type.clone()),
+        host: Set(input.host.clone()),
+        status: Set(input.status.to_owned()),
+        credentials: Set(Some(sealed.clone())),
+        credentials_expire_at: Set(expires),
+        oauth_user_login: Set(input.oauth_user_login.clone()),
+        revoked_at: Set(None),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await;
     match inserted {
-        Ok(row) => Ok((js_row(row), true)),
+        Ok(row) => Ok((connection_row(row)?, true)),
         // Two members connected the same account at once: the other insert won.
         Err(error) if is_unique_violation(&error) => {
             match find_live(db, input.provider, &input.external_account_id).await? {
@@ -416,25 +415,28 @@ pub(crate) async fn claim_authored_pull_requests(
     user_id: &str,
     provider: &str,
     login: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update merge_pull_requests set author_user_id = null \
-         where author_user_id = $1 and provider = $2 and author_login <> $3",
-    )
-    .bind(user_id)
-    .bind(provider)
-    .bind(login)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update merge_pull_requests set author_user_id = $1 \
-         where provider = $2 and author_login = $3 and author_user_id is null",
-    )
-    .bind(user_id)
-    .bind(provider)
-    .bind(login)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let db = orm(db);
+    merge_pull_requests::Entity::update_many()
+        .col_expr(
+            merge_pull_requests::Column::AuthorUserId,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(merge_pull_requests::Column::AuthorUserId.eq(user_id))
+        .filter(merge_pull_requests::Column::Provider.eq(provider))
+        .filter(merge_pull_requests::Column::AuthorLogin.ne(login))
+        .exec(&db)
+        .await?;
+    merge_pull_requests::Entity::update_many()
+        .col_expr(
+            merge_pull_requests::Column::AuthorUserId,
+            Expr::value(user_id.to_owned()),
+        )
+        .filter(merge_pull_requests::Column::Provider.eq(provider))
+        .filter(merge_pull_requests::Column::AuthorLogin.eq(login))
+        .filter(merge_pull_requests::Column::AuthorUserId.is_null())
+        .exec(&db)
+        .await?;
     Ok(())
 }
 
@@ -449,75 +451,72 @@ async fn link_account(
     credentials: &StoredCredentials,
 ) -> Result<Option<Row>, MergeError> {
     let db = &caller.db;
+    let orm_db = orm(db);
     let login = user.login.to_lowercase();
-    let holder: Option<String> = sqlx::query_scalar(
-        "select user_id from merge_provider_accounts where provider = $1 \
-         and (case when $2::text is null then host is null else host = $2 end) and login = $3 limit 1",
-    )
-    .bind(provider)
-    .bind(host)
-    .bind(&login)
-    .fetch_optional(db)
-    .await?;
+    let holder = merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::UserId)
+        .filter(merge_provider_accounts::Column::Provider.eq(provider))
+        .filter(same_or_null(merge_provider_accounts::Column::Host, host))
+        .filter(merge_provider_accounts::Column::Login.eq(&login))
+        .into_tuple::<String>()
+        .one(&orm_db)
+        .await?;
     if holder.is_some_and(|holder| holder != caller.user_id) {
         return Ok(None);
     }
     let sealed = seal_credentials(&caller.overrides.keyring(state), credentials)?;
-    let now = now();
-    let mine: Option<String> = sqlx::query_scalar(
-        "select id from merge_provider_accounts where user_id = $1 and provider = $2 \
-         and (case when $3::text is null then host is null else host = $3 end) limit 1",
-    )
-    .bind(&caller.user_id)
-    .bind(provider)
-    .bind(host)
-    .fetch_optional(db)
-    .await?;
-    let written: Result<Value, sqlx::Error> = match mine {
+    let (_, at) = now_at();
+    let expires = instant_opt(credentials.expiry().as_deref())?;
+    let mine = merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::Id)
+        .filter(merge_provider_accounts::Column::UserId.eq(&caller.user_id))
+        .filter(merge_provider_accounts::Column::Provider.eq(provider))
+        .filter(same_or_null(merge_provider_accounts::Column::Host, host))
+        .into_tuple::<String>()
+        .one(&orm_db)
+        .await?;
+    let written = match mine {
         Some(id) => {
-            sqlx::query_scalar(
-                "update merge_provider_accounts set login = $2, external_user_id = $3, host = $4, credentials = $5, \
-                   credentials_expire_at = $6::timestamptz, verified_at = $7::timestamptz, avatar_url = $8, \
-                   display_name = $9, updated_at = $7::timestamptz \
-                 where id = $1 returning to_jsonb(merge_provider_accounts.*)",
-            )
-            .bind(&id)
-            .bind(&login)
-            .bind(&user.external_id)
-            .bind(host)
-            .bind(&sealed)
-            .bind(credentials.expiry())
-            .bind(&now)
-            .bind(&user.avatar_url)
-            .bind(&user.display_name)
-            .fetch_one(db)
+            merge_provider_accounts::ActiveModel {
+                id: Unchanged(id),
+                login: Set(login.clone()),
+                external_user_id: Set(Some(user.external_id.clone())),
+                host: Set(host.map(str::to_owned)),
+                credentials: Set(Some(sealed)),
+                credentials_expire_at: Set(expires),
+                verified_at: Set(Some(at)),
+                avatar_url: Set(user.avatar_url.clone()),
+                display_name: Set(user.display_name.clone()),
+                updated_at: Set(at),
+                ..Default::default()
+            }
+            .update(&orm_db)
             .await
         }
         None => {
-            sqlx::query_scalar(
-                "insert into merge_provider_accounts (id, user_id, provider, created_at, login, external_user_id, \
-                   host, credentials, credentials_expire_at, verified_at, avatar_url, display_name, updated_at) \
-                 values ($1, $2, $3, $4::timestamptz, $5, $6, $7, $8, $9::timestamptz, $4::timestamptz, $10, $11, \
-                   $4::timestamptz) \
-                 returning to_jsonb(merge_provider_accounts.*)",
-            )
-            .bind(generate_id("mpa"))
-            .bind(&caller.user_id)
-            .bind(provider)
-            .bind(&now)
-            .bind(&login)
-            .bind(&user.external_id)
-            .bind(host)
-            .bind(&sealed)
-            .bind(credentials.expiry())
-            .bind(&user.avatar_url)
-            .bind(&user.display_name)
-            .fetch_one(db)
+            merge_provider_accounts::Entity::insert(merge_provider_accounts::ActiveModel {
+                id: Set(generate_id("mpa")),
+                user_id: Set(caller.user_id.clone()),
+                provider: Set(provider.to_owned()),
+                created_at: Set(at),
+                login: Set(login.clone()),
+                external_user_id: Set(Some(user.external_id.clone())),
+                host: Set(host.map(str::to_owned)),
+                credentials: Set(Some(sealed)),
+                credentials_expire_at: Set(expires),
+                verified_at: Set(Some(at)),
+                avatar_url: Set(user.avatar_url.clone()),
+                display_name: Set(user.display_name.clone()),
+                updated_at: Set(at),
+            })
+            .exec_with_returning(&orm_db)
             .await
         }
     };
     let account = match written {
-        Ok(row) => js_row(row),
+        Ok(row) => json_row(serde_json::to_value(row))?,
         Err(error) if is_unique_violation(&error) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
@@ -553,26 +552,28 @@ pub(crate) async fn unlink_account(
     } else {
         None
     };
-    let db = &caller.db;
-    let removed: Vec<String> = sqlx::query_scalar(
-        "delete from merge_provider_accounts where user_id = $1 and provider = $2 \
-         and (case when $3::text is null then host is null else host = $3 end) returning id",
-    )
-    .bind(&caller.user_id)
-    .bind(&provider)
-    .bind(&host)
-    .fetch_all(db)
-    .await?;
-    if removed.is_empty() {
+    let db = orm(&caller.db);
+    let removed = merge_provider_accounts::Entity::delete_many()
+        .filter(merge_provider_accounts::Column::UserId.eq(&caller.user_id))
+        .filter(merge_provider_accounts::Column::Provider.eq(&provider))
+        .filter(same_or_null(
+            merge_provider_accounts::Column::Host,
+            host.as_deref(),
+        ))
+        .exec(&db)
+        .await?;
+    if removed.rows_affected == 0 {
         return Err(Refusal::not_found("Account", Some(&provider)));
     }
-    sqlx::query(
-        "update merge_pull_requests set author_user_id = null where author_user_id = $1 and provider = $2",
-    )
-    .bind(&caller.user_id)
-    .bind(&provider)
-    .execute(db)
-    .await?;
+    merge_pull_requests::Entity::update_many()
+        .col_expr(
+            merge_pull_requests::Column::AuthorUserId,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(merge_pull_requests::Column::AuthorUserId.eq(&caller.user_id))
+        .filter(merge_pull_requests::Column::Provider.eq(&provider))
+        .exec(&db)
+        .await?;
     Ok(NoContent.into_response())
 }
 
@@ -785,19 +786,21 @@ pub(crate) async fn azure_organization(
     {
         return Err(organization_taken());
     }
-    let updated: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "update merge_connections set external_account_id = $2, account_login = $2, account_type = 'organization', \
-           host = $3, status = 'active', updated_at = $4::timestamptz \
-         where id = $1 returning to_jsonb(merge_connections.*)",
-    )
-    .bind(text(&connection, "id"))
-    .bind(&name)
-    .bind(&url)
-    .bind(now())
-    .fetch_one(db)
+    let (_, at) = now_at();
+    let updated = merge_connections::ActiveModel {
+        id: Unchanged(text(&connection, "id").to_owned()),
+        external_account_id: Set(name.clone()),
+        account_login: Set(Some(name.clone())),
+        account_type: Set(Some("organization".to_owned())),
+        host: Set(Some(url.clone())),
+        status: Set("active".to_owned()),
+        updated_at: Set(at),
+        ..Default::default()
+    }
+    .update(&orm(db))
     .await;
     let updated = match updated {
-        Ok(row) => js_row(row),
+        Ok(row) => connection_row(row)?,
         Err(error) if is_unique_violation(&error) => return Err(organization_taken()),
         Err(error) => return Err(error.into()),
     };

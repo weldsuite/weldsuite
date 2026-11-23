@@ -4,17 +4,22 @@
 //! route's Zod schema let through (`.passthrough()` included: any key that is
 //! one of the table's properties reaches the statement), and the rows the
 //! routes build themselves. Rows read back come out as Drizzle's `select()`
-//! returns them ([`Table::js`]).
+//! returns them.
 //!
-//! The tables (the generated [`crate::tables`]) carry the statements: the
-//! values become a `{ column: value }` JSON object, `jsonb_populate_record`
-//! turns it into the row, and a column the object leaves out gets its
-//! database default (insert) or keeps its value (patch), as Drizzle leaves it
-//! out of the statement. The same helper as `weldsuite-stash`'s, which served
-//! the products route before it moved here.
+//! A [`Table`] (the generated [`crate::tables`]) maps Drizzle's properties
+//! onto the columns of its entity; the values become a `{ column: value }`
+//! JSON object that [`weldsuite_db::record`] writes through the entity, and a
+//! column the object leaves out gets its database default (insert) or keeps
+//! its value (patch), as Drizzle leaves it out of the statement. The same
+//! helper as `weldsuite-stash`'s, which served the products route before it
+//! moved here: a patch may also set `id` (Drizzle's `.set({ id })` renames
+//! the row; the products schema is a passthrough that lets an `id` through).
 
+use sea_orm::sea_query::{Alias, Expr, Query};
+use sea_orm::{ConnectionTrait, DbBackend, DbErr, Statement};
 use serde_json::{Map, Value};
-use weldsuite_db::{PgPool, js_timestamp};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, PgPool, js_timestamp, orm};
 
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
@@ -53,18 +58,9 @@ pub(crate) struct Column {
 pub(crate) struct Table {
     #[allow(dead_code)] // the generator names every table
     pub(crate) name: &'static str,
+    /// The table's entity: the statements, and the row as Drizzle returns it.
+    pub(crate) entity: JsonTable,
     pub(crate) columns: &'static [Column],
-    /// The row as Drizzle returns it, before [`js_row`]: `to_jsonb(t)`, with
-    /// `numeric` columns as text.
-    #[allow(dead_code)]
-    pub(crate) row: &'static str,
-    /// `$1`: the row as `{ column: value }`. Returns the row.
-    pub(crate) insert: &'static str,
-    /// `$1`: the changes as `{ column: value }`, `$2`: the id, `$3`: only a
-    /// live row (`deleted_at is null`). Returns the row, if one was changed.
-    pub(crate) patch: &'static str,
-    /// `$1`: the id. The live row (`deleted_at is null` where the table has it).
-    pub(crate) select_live: &'static str,
 }
 
 /// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
@@ -82,12 +78,19 @@ pub(crate) enum WriteError {
     /// A `date`-mode timestamp got a value that is not a `Date`: Drizzle's
     /// `toISOString` throws before the statement runs (the route's 500).
     NotADate(&'static str),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for WriteError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// The transaction of a patch that renames its row.
 impl From<sqlx::Error> for WriteError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -101,9 +104,10 @@ impl std::fmt::Display for WriteError {
 }
 
 impl Table {
-    /// A `row` (`to_jsonb(t)`) as Drizzle's `select()` returns it: the
-    /// schema's property names (`relatedFAQs`, not `relatedFaqs`), `Date`s as
-    /// `toISOString()`, json strings re-parsed, and only the schema's columns.
+    /// A `{ column: value }` row the route built itself as Drizzle's
+    /// `select()` would return it: the schema's property names
+    /// (`relatedFAQs`, not `relatedFaqs`), `Date`s as `toISOString()`, json
+    /// strings re-parsed, and only the schema's columns.
     pub(crate) fn js(&self, row: Value) -> Value {
         let Value::Object(mut row) = row else {
             return row;
@@ -113,16 +117,36 @@ impl Table {
             let value = row.remove(column.name).unwrap_or(Value::Null);
             let value = match (column.kind, value) {
                 (Kind::Date, Value::String(text)) => Value::String(js_date(&text)),
-                // Drizzle's json/jsonb `mapFromDriverValue`: a string is
-                // `JSON.parse`d when it parses (`"19.99"` reads back as 19.99).
-                (Kind::Json, Value::String(text)) => {
-                    serde_json::from_str(&text).unwrap_or(Value::String(text))
-                }
+                (Kind::Json, value) => json_value(value),
                 (_, value) => value,
             };
             out.insert(column.prop.to_owned(), value);
         }
         Value::Object(out)
+    }
+
+    /// A row as the entity serializes it (Drizzle's property names, `Date`s
+    /// and numerics as Drizzle returns them), with its json strings
+    /// re-parsed as Drizzle does.
+    pub(crate) fn drizzle(&self, row: Value) -> Value {
+        let Value::Object(mut row) = row else {
+            return row;
+        };
+        for column in self.columns {
+            if column.kind == Kind::Json
+                && let Some(value) = row.get_mut(column.prop)
+            {
+                *value = json_value(std::mem::take(value));
+            }
+        }
+        Value::Object(row)
+    }
+
+    /// An entity's model as Drizzle returns the row ([`Table::drizzle`]).
+    pub(crate) fn model<M: serde::Serialize>(&self, model: &M) -> Result<Value, DbErr> {
+        serde_json::to_value(model)
+            .map(|row| self.drizzle(row))
+            .map_err(|error| DbErr::Json(error.to_string()))
     }
 
     pub(crate) fn column(&self, prop: &str) -> Option<&'static Column> {
@@ -152,52 +176,204 @@ impl Table {
         Ok(())
     }
 
-    /// Insert `values` (see [`Table::values`]); `trusted` names the
-    /// properties the route set itself. The row as Drizzle returns it.
-    pub(crate) async fn insert<'e>(
+    /// Insert `values` (`{ column: value }`, see [`Table::set`]); `trusted`
+    /// names the properties the route set itself. The row as Drizzle
+    /// returns it.
+    pub(crate) async fn insert(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
+        values: Map<String, Value>,
+        trusted: &[&str],
+    ) -> Result<Value, WriteError> {
+        self.insert_on(&orm(db), values, trusted).await
+    }
+
+    /// [`Table::insert`] on a SeaORM connection (`OrmConn` in a transaction).
+    pub(crate) async fn insert_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
         values: Map<String, Value>,
         trusted: &[&str],
     ) -> Result<Value, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Value = sqlx::query_scalar(self.insert)
-            .bind(Value::Object(values))
-            .fetch_one(db)
-            .await?;
-        Ok(self.js(row))
+        let row = self.entity.insert(db, values).await?;
+        Ok(self.drizzle(row))
     }
 
     /// Update the row `id` with `values`; `live_only` adds `deleted_at is
-    /// null`. The changed row, or `None` when none matched.
-    pub(crate) async fn patch<'e>(
+    /// null`. The changed row, or `None` when none matched. A patch that
+    /// renames the row runs its two statements in one transaction, as the
+    /// one statement it was.
+    pub(crate) async fn patch(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
         id: &str,
         values: Map<String, Value>,
         live_only: bool,
         trusted: &[&str],
     ) -> Result<Option<Value>, WriteError> {
         self.check_dates(&values, trusted)?;
-        let row: Option<Value> = sqlx::query_scalar(self.patch)
-            .bind(Value::Object(values))
-            .bind(id)
-            .bind(live_only)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+        if !values.contains_key("id") {
+            return self.write(&orm(db), id, values, live_only).await;
+        }
+        let table = *self;
+        let id = id.to_owned();
+        weldsuite_db::atomically_with(db, move |tx| {
+            Box::pin(async move {
+                let db = OrmConn::new(tx);
+                table.write(&db, &id, values, live_only).await
+            })
+        })
+        .await
     }
 
-    /// The live row `id`, as Drizzle returns it.
-    pub(crate) async fn find_live(
+    /// [`Table::patch`] on a SeaORM connection (`OrmConn` in a transaction,
+    /// which a rename's two statements then share).
+    pub(crate) async fn patch_on<C: ConnectionTrait>(
         &self,
-        db: &PgPool,
+        db: &C,
         id: &str,
-    ) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.select_live)
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-        Ok(row.map(|row| self.js(row)))
+        values: Map<String, Value>,
+        live_only: bool,
+        trusted: &[&str],
+    ) -> Result<Option<Value>, WriteError> {
+        self.check_dates(&values, trusted)?;
+        self.write(db, id, values, live_only).await
+    }
+
+    /// The patch's statements: the rename when `values` sets `id`, then the
+    /// other columns of the (renamed) row.
+    async fn write<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        id: &str,
+        mut values: Map<String, Value>,
+        live_only: bool,
+    ) -> Result<Option<Value>, WriteError> {
+        let id = match values.remove("id") {
+            Some(new_id) => match self.rename(db, id, new_id, live_only).await? {
+                Some(renamed) => renamed,
+                None => return Ok(None),
+            },
+            None => id.to_owned(),
+        };
+        let row = self.entity.update(db, &id, values, live_only).await?;
+        Ok(row.map(|row| self.drizzle(row)))
+    }
+
+    /// The new id, or `None` when no row matched ([`Table::rename_statement`]).
+    async fn rename<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        id: &str,
+        new_id: Value,
+        live_only: bool,
+    ) -> Result<Option<String>, DbErr> {
+        let statement = self.rename_statement(id, new_id, live_only);
+        let row = db.query_one_raw(statement).await?;
+        row.map(|row| row.try_get::<String>("", "id")).transpose()
+    }
+
+    /// `update t set id = $new where id = $id [and deleted_at is null]
+    /// returning id`, `$new` converted to text as `jsonb_populate_record`
+    /// converts it (`{ id }->>'id'`).
+    fn rename_statement(&self, id: &str, new_id: Value, live_only: bool) -> Statement {
+        use sea_orm::ExprTrait as _;
+        let table = Alias::new(self.entity.table_name());
+        let mut object = Map::new();
+        object.insert("id".to_owned(), new_id);
+        let new_id = sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+            Expr::val(Value::Object(object)).cast_as("jsonb"),
+            "id",
+        );
+        let mut update = Query::update();
+        update
+            .table(table.clone())
+            .value(Alias::new("id"), new_id)
+            .and_where(Expr::col((table, Alias::new("id"))).eq(id));
+        if live_only && let Some(deleted_at) = self.entity.column("deleted_at") {
+            update.and_where(deleted_at.is_null());
+        }
+        update.returning_col(Alias::new("id"));
+        DbBackend::Postgres.build(&update)
+    }
+
+    /// The live row `id` (`deleted_at is null` where the table has it), as
+    /// Drizzle returns it.
+    pub(crate) async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        self.find_live_on(&orm(db), id).await
+    }
+
+    /// [`Table::find_live`] on a SeaORM connection.
+    pub(crate) async fn find_live_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        id: &str,
+    ) -> Result<Option<Value>, DbErr> {
+        let row = self.entity.find(db, id, true).await?;
+        Ok(row.map(|row| self.drizzle(row)))
+    }
+
+    /// The columns this table names that its entity lacks, and the entity's
+    /// columns it leaves out: both empty while the two agree.
+    #[cfg(test)]
+    fn entity_drift(&self) -> (Vec<&'static str>, Vec<&'static str>) {
+        let entity = self.entity.columns();
+        let missing = self
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .filter(|name| !entity.contains(name))
+            .collect();
+        let extra = entity
+            .into_iter()
+            .filter(|name| !self.columns.iter().any(|column| column.name == *name))
+            .collect();
+        (missing, extra)
+    }
+}
+
+/// Drizzle's json/jsonb `mapFromDriverValue`: a string is `JSON.parse`d when
+/// it parses (`"19.99"` reads back as 19.99).
+fn json_value(value: Value) -> Value {
+    match value {
+        Value::String(text) => serde_json::from_str(&text).unwrap_or(Value::String(text)),
+        value => value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn the_tables_match_their_entities() {
+        for table in crate::tables::ALL {
+            assert_eq!(table.entity_drift(), (vec![], vec![]), "{}", table.name);
+        }
+    }
+
+    #[test]
+    fn a_patch_renames_with_the_id_as_postgres_reads_it() {
+        let statement = crate::tables::PRODUCTS.rename_statement("prod_1", json!("prod_2"), true);
+        assert_eq!(
+            statement.sql,
+            r#"UPDATE "products" SET "id" = CAST($1 AS jsonb) ->> $2 WHERE "products"."id" = $3 AND "products"."deleted_at" IS NULL RETURNING "id""#
+        );
+        let statement = crate::tables::CATEGORY_PRODUCTS.rename_statement("cprod_1", json!(7), true);
+        assert!(!statement.sql.contains("deleted_at"), "{}", statement.sql);
+    }
+
+    #[test]
+    fn json_strings_read_back_parsed() {
+        let row = crate::tables::PRODUCTS.drizzle(json!({
+            "id": "prod_1",
+            "tags": "[\"a\"]",
+            "name": "19.99",
+        }));
+        assert_eq!(row["tags"], json!(["a"]));
+        assert_eq!(row["name"], json!("19.99"));
+        let row = crate::tables::PRODUCTS.drizzle(json!({ "tags": "not json" }));
+        assert_eq!(row["tags"], json!("not json"));
     }
 }

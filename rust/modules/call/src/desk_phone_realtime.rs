@@ -7,20 +7,23 @@
 //!   topic `inbox.<userId>`   events `phone.incoming` | `phone.answered` | `phone.ended`
 //!   topic `desk_phone_queue` event `updated` `{ waiting: number }`
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
 use weldsuite_ports::RealtimeMessage;
+use weldsuite_schema::tenant::voip_calls;
 
 use crate::desk_phone_ring::Phone;
 
-/// `waitingCallsCondition()` on `voip_calls c`: callers waiting for an
+/// `waitingCallsCondition()` on `voip_calls`: callers waiting for an
 /// agent, i.e. queued, no agent yet, not ended, no outcome.
-macro_rules! waiting_calls {
-    () => {
-        "c.queue_entered_at is not null and c.agent_answered_at is null \
-         and c.ended_at is null and c.outcome is null"
-    };
+pub(crate) fn waiting_calls() -> Condition {
+    Condition::all()
+        .add(voip_calls::Column::QueueEnteredAt.is_not_null())
+        .add(voip_calls::Column::AgentAnsweredAt.is_null())
+        .add(voip_calls::Column::EndedAt.is_null())
+        .add(voip_calls::Column::Outcome.is_null())
 }
-pub(crate) use waiting_calls;
 
 /// `sendPhoneInboxEvent(env, workspaceId, userId, event, data)`: one member's
 /// inbox event (`phone.incoming`, `phone.answered`, `phone.ended`). Never
@@ -48,13 +51,11 @@ pub(crate) async fn publish_queue_change(phone: &Phone<'_>) {
         return;
     };
     let published = async {
-        let waiting: i64 = sqlx::query_scalar(concat!(
-            "select count(*) from voip_calls c where ",
-            waiting_calls!()
-        ))
-        .fetch_one(phone.db)
-        .await
-        .map_err(|error| error.to_string())?;
+        let waiting = voip_calls::Entity::find()
+            .filter(waiting_calls())
+            .count(&orm(phone.db))
+            .await
+            .map_err(|error| error.to_string())?;
         let message = RealtimeMessage::workspace(
             phone.workspace,
             "desk_phone_queue",

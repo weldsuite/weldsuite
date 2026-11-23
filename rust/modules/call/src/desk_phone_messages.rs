@@ -4,13 +4,15 @@
 //! messages (`lib/desk-phone-fanout.ts`): the hub events as the system, then
 //! the conversation room.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{DESK_CONVERSATION_UPDATED, DESK_MESSAGE_CREATED};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_desk_domain::webchat::{Append, append_desk_message};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::CallState;
 use crate::desk_phone_ring::Phone;
@@ -143,12 +145,18 @@ pub(crate) async fn post_phone_message(
 pub(crate) async fn member_display_name(
     db: &PgPool,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, email from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<Option<String>, DbErr> {
+    let row: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((name, email)) = row else {
         return Ok(None);
     };

@@ -15,14 +15,17 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::desk_phone_agents as agents;
 
 use crate::desk_phone_ring::ring_waiting_calls;
 use crate::telnyx::Telnyx;
-use crate::{CallState, Caller, internal, now, validate};
+use crate::{CallState, Caller, internal, validate};
 
 const CREDENTIAL_NAME_MAX: usize = 64;
 
@@ -41,14 +44,19 @@ fn configured(caller: &Caller) -> bool {
 /// sipUsername)`.
 type AgentRow = (bool, Option<String>, Option<String>);
 
-async fn agent_row(db: &PgPool, user_id: &str) -> Result<Option<AgentRow>, sqlx::Error> {
-    sqlx::query_as(
-        "select available, telnyx_credential_id, sip_username from desk_phone_agents
-         where user_id = $1 limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+async fn agent_row(db: &PgPool, user_id: &str) -> Result<Option<AgentRow>, DbErr> {
+    agents::Entity::find()
+        .select_only()
+        .columns([
+            agents::Column::Available,
+            agents::Column::TelnyxCredentialId,
+            agents::Column::SipUsername,
+        ])
+        .filter(agents::Column::UserId.eq(user_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// A stored credential, when the member has one: `(id, sipUsername)`.
@@ -61,7 +69,7 @@ fn stored_credential(row: Option<AgentRow>) -> Option<(String, String)> {
 }
 
 /// `getSoftphone(env, db, userId)`: `SoftphoneState`.
-async fn softphone(caller: &Caller) -> Result<Value, sqlx::Error> {
+async fn softphone(caller: &Caller) -> Result<Value, DbErr> {
     let row = agent_row(&caller.db, &caller.user_id).await?;
     let available = row.as_ref().is_some_and(|(available, _, _)| *available);
     let sip_username = row.as_ref().and_then(|(_, _, sip)| sip.clone());
@@ -103,17 +111,21 @@ pub(crate) async fn set_available(
     let result = async {
         let before = agent_row(&caller.db, &caller.user_id).await?;
         let was_available = before.is_some_and(|(available, _, _)| available);
-        sqlx::query(
-            "insert into desk_phone_agents (user_id, available) values ($1, $2)
-             on conflict (user_id) do update set available = $2, updated_at = $3::timestamp",
+        agents::Entity::insert(agents::ActiveModel {
+            user_id: Set(caller.user_id.clone()),
+            available: Set(available),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(agents::Column::UserId)
+                .value(agents::Column::Available, Expr::value(available))
+                .value(agents::Column::UpdatedAt, Expr::value(utc_now()))
+                .to_owned(),
         )
-        .bind(&caller.user_id)
-        .bind(available)
-        .bind(now())
-        .execute(&caller.db)
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let after = softphone(&caller).await?;
-        Ok::<_, sqlx::Error>((was_available, after))
+        Ok::<_, DbErr>((was_available, after))
     }
     .await;
     let (was_available, after) = match result {
@@ -168,27 +180,32 @@ async fn create_and_store_credential(
         return Err("Unexpected Telnyx credential id format".to_owned());
     }
     let db = &caller.db;
-    sqlx::query("insert into desk_phone_agents (user_id) values ($1) on conflict do nothing")
-        .bind(&caller.user_id)
-        .execute(db)
-        .await
-        .map_err(|error| error.to_string())?;
-    let claimed: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "update desk_phone_agents set telnyx_credential_id = $2, sip_username = $3,
-             updated_at = $4::timestamp
-         where user_id = $1
-           and case when $5::text is null then telnyx_credential_id is null
-                    else telnyx_credential_id = $5 end
-         returning telnyx_credential_id, sip_username",
-    )
-    .bind(&caller.user_id)
-    .bind(&created_id)
-    .bind(&created_sip)
-    .bind(now())
-    .bind(stale_id.filter(|id| !id.is_empty()))
-    .fetch_optional(db)
+    agents::Entity::insert(agents::ActiveModel {
+        user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(db))
     .await
     .map_err(|error| error.to_string())?;
+    // The claim: stored only while the row still holds what we saw (no
+    // credential, or the stale one), in one conditional update.
+    let holds = match stale_id.filter(|id| !id.is_empty()) {
+        None => agents::Column::TelnyxCredentialId.is_null(),
+        Some(stale) => agents::Column::TelnyxCredentialId.eq(stale),
+    };
+    let claimed = agents::Entity::update_many()
+        .col_expr(agents::Column::TelnyxCredentialId, Expr::value(&created_id))
+        .col_expr(agents::Column::SipUsername, Expr::value(&created_sip))
+        .col_expr(agents::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(agents::Column::UserId.eq(&caller.user_id))
+        .filter(holds)
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .next()
+        .map(|agent| (agent.telnyx_credential_id, agent.sip_username));
     if let Some((Some(id), Some(sip_username))) = claimed
         && !id.is_empty()
         && !sip_username.is_empty()

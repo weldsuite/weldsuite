@@ -3,9 +3,14 @@
 //! per-person call statistics of the WeldCall People grid
 //! (`services/contact-call-stats.ts`).
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{companies, crm_leads, people, voip_calls};
 
+use crate::calls::iso_of;
 use crate::registry::normalize_e164;
 
 /// `CrmLookupHit`.
@@ -111,10 +116,36 @@ type LeadRow = (
     Option<String>,
 );
 
+/// `regexp_replace(text, '[^0-9]', '', 'g')`: the digits of a phone number.
+fn digits(text: Expr) -> Expr {
+    Func::cust("regexp_replace")
+        .arg(text)
+        .arg("[^0-9]")
+        .arg("")
+        .arg("g")
+        .into()
+}
+
+/// `regexp_replace(coalesce(column, ''), '[^0-9]', '', 'g') like pattern`.
+fn digits_like(column: Expr, pattern: &str) -> Expr {
+    sea_orm::ExprTrait::like(digits(Func::coalesce([column, Expr::val("")]).into()), pattern)
+}
+
+/// `lower(text) like pattern`.
+fn lower_like(text: Expr, pattern: &str) -> Expr {
+    sea_orm::ExprTrait::like(Expr::from(Func::lower(text)), pattern)
+}
+
+/// `coalesce(column, '')`.
+fn or_empty(column: Expr) -> Expr {
+    Func::coalesce([column, Expr::val("")]).into()
+}
+
 /// `lookupCrm(db, query, limit)`: people, then companies, then leads, at
 /// most `limit` in all. A query of eight digits or more matches phone
 /// numbers by their last eight digits; anything else names and emails.
-pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<Hit>, sqlx::Error> {
+#[allow(clippy::too_many_lines)] // three lookups, one after the other
+pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<Hit>, DbErr> {
     let q = weldsuite_kit::validation::js_trim(query);
     if q.is_empty() {
         return Ok(Vec::new());
@@ -124,24 +155,37 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
         .flatten();
     let by_phone = suffix.is_some();
     let pattern = suffix.map_or_else(|| format!("%{}%", q.to_lowercase()), |s| format!("%{s}"));
+    let rows = u64::try_from(limit).unwrap_or(0);
+    let orm = orm(db);
     let mut hits = Vec::new();
 
-    let people: Vec<PersonRow> = sqlx::query_as(
-        "select id, display_name, email, direct_phone, mobile_phone from people
-         where deleted_at is null and (case when $1 then
-             regexp_replace(coalesce(direct_phone, ''), '[^0-9]', '', 'g') like $2
-             or regexp_replace(coalesce(mobile_phone, ''), '[^0-9]', '', 'g') like $2
-         else
-             lower(display_name) like $2 or lower(coalesce(email, '')) like $2
-             or first_name ilike $2 or last_name ilike $2
-         end) limit $3",
-    )
-    .bind(by_phone)
-    .bind(&pattern)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    for (id, display_name, email, direct, mobile) in people {
+    let matches = if by_phone {
+        Condition::any()
+            .add(digits_like(Expr::col(people::Column::DirectPhone), &pattern))
+            .add(digits_like(Expr::col(people::Column::MobilePhone), &pattern))
+    } else {
+        Condition::any()
+            .add(lower_like(Expr::col(people::Column::DisplayName), &pattern))
+            .add(lower_like(or_empty(Expr::col(people::Column::Email)), &pattern))
+            .add(people::Column::FirstName.ilike(&pattern))
+            .add(people::Column::LastName.ilike(&pattern))
+    };
+    let found: Vec<PersonRow> = people::Entity::find()
+        .select_only()
+        .columns([
+            people::Column::Id,
+            people::Column::DisplayName,
+            people::Column::Email,
+            people::Column::DirectPhone,
+            people::Column::MobilePhone,
+        ])
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(matches)
+        .limit(rows)
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    for (id, display_name, email, direct, mobile) in found {
         hits.push(Hit {
             kind: "contact",
             id,
@@ -152,22 +196,33 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
         });
     }
 
-    let companies: Vec<CompanyRow> = sqlx::query_as(
-        "select id, display_name, name, email, phone, mobile from companies
-         where deleted_at is null and (case when $1 then
-             regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') like $2
-             or regexp_replace(coalesce(mobile, ''), '[^0-9]', '', 'g') like $2
-         else
-             lower(display_name) like $2 or lower(coalesce(name, '')) like $2
-             or lower(coalesce(email, '')) like $2
-         end) limit $3",
-    )
-    .bind(by_phone)
-    .bind(&pattern)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    for (id, display_name, name, email, phone, mobile) in companies {
+    let matches = if by_phone {
+        Condition::any()
+            .add(digits_like(Expr::col(companies::Column::Phone), &pattern))
+            .add(digits_like(Expr::col(companies::Column::Mobile), &pattern))
+    } else {
+        Condition::any()
+            .add(lower_like(Expr::col(companies::Column::DisplayName), &pattern))
+            .add(lower_like(or_empty(Expr::col(companies::Column::Name)), &pattern))
+            .add(lower_like(or_empty(Expr::col(companies::Column::Email)), &pattern))
+    };
+    let found: Vec<CompanyRow> = companies::Entity::find()
+        .select_only()
+        .columns([
+            companies::Column::Id,
+            companies::Column::DisplayName,
+            companies::Column::Name,
+            companies::Column::Email,
+            companies::Column::Phone,
+            companies::Column::Mobile,
+        ])
+        .filter(companies::Column::DeletedAt.is_null())
+        .filter(matches)
+        .limit(rows)
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    for (id, display_name, name, email, phone, mobile) in found {
         let label = either(Some(display_name), Some(name)).unwrap_or_default();
         hits.push(Hit {
             kind: "customer",
@@ -179,23 +234,37 @@ pub(crate) async fn lookup(db: &PgPool, query: &str, limit: i64) -> Result<Vec<H
         });
     }
 
-    let leads: Vec<LeadRow> = sqlx::query_as(
-        "select id, first_name, last_name, full_name, company_name, email, phone, mobile
-         from crm_leads
-         where deleted_at is null and (case when $1 then
-             regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') like $2
-             or regexp_replace(coalesce(mobile, ''), '[^0-9]', '', 'g') like $2
-         else
-             lower(coalesce(full_name, '')) like $2 or lower(coalesce(company_name, '')) like $2
-             or lower(email) like $2 or first_name ilike $2 or last_name ilike $2
-         end) limit $3",
-    )
-    .bind(by_phone)
-    .bind(&pattern)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    for (id, first, last, full, company, email, phone, mobile) in leads {
+    let matches = if by_phone {
+        Condition::any()
+            .add(digits_like(Expr::col(crm_leads::Column::Phone), &pattern))
+            .add(digits_like(Expr::col(crm_leads::Column::Mobile), &pattern))
+    } else {
+        Condition::any()
+            .add(lower_like(or_empty(Expr::col(crm_leads::Column::FullName)), &pattern))
+            .add(lower_like(or_empty(Expr::col(crm_leads::Column::CompanyName)), &pattern))
+            .add(lower_like(Expr::col(crm_leads::Column::Email), &pattern))
+            .add(crm_leads::Column::FirstName.ilike(&pattern))
+            .add(crm_leads::Column::LastName.ilike(&pattern))
+    };
+    let found: Vec<LeadRow> = crm_leads::Entity::find()
+        .select_only()
+        .columns([
+            crm_leads::Column::Id,
+            crm_leads::Column::FirstName,
+            crm_leads::Column::LastName,
+            crm_leads::Column::FullName,
+            crm_leads::Column::CompanyName,
+            crm_leads::Column::Email,
+            crm_leads::Column::Phone,
+            crm_leads::Column::Mobile,
+        ])
+        .filter(crm_leads::Column::DeletedAt.is_null())
+        .filter(matches)
+        .limit(rows)
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    for (id, first, last, full, company, email, phone, mobile) in found {
         hits.push(Hit {
             kind: "lead",
             id,
@@ -221,7 +290,7 @@ pub(crate) struct Caller {
 }
 
 /// `matchCallerByPhone(db, fromNumber)`.
-pub(crate) async fn match_caller(db: &PgPool, from_number: &str) -> Result<Caller, sqlx::Error> {
+pub(crate) async fn match_caller(db: &PgPool, from_number: &str) -> Result<Caller, DbErr> {
     let hits = lookup(db, from_number, 5).await?;
     let find = |kind: &str| hits.iter().find(|hit| hit.kind == kind);
     let (contact, customer, lead) = (find("contact"), find("customer"), find("lead"));
@@ -276,17 +345,23 @@ pub(crate) async fn contact_call_stats(
     db: &PgPool,
     contact_ids: &[String],
     scope_user_id: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if contact_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, direct_phone, mobile_phone from people
-         where id = any($1) and deleted_at is null",
-    )
-    .bind(contact_ids)
-    .fetch_all(db)
-    .await?;
+    let orm = orm(db);
+    let rows: Vec<(String, Option<String>, Option<String>)> = people::Entity::find()
+        .select_only()
+        .columns([
+            people::Column::Id,
+            people::Column::DirectPhone,
+            people::Column::MobilePhone,
+        ])
+        .filter(people::Column::Id.is_in(contact_ids.iter().cloned()))
+        .filter(people::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm)
+        .await?;
     let phones_of = |id: &str| -> Vec<String> {
         rows.iter()
             .find(|(row_id, _, _)| row_id == id)
@@ -314,21 +389,55 @@ pub(crate) async fn contact_call_stats(
             }
         }
     }
-    let patterns: Vec<String> = suffixes.iter().map(|s| format!("%{s}")).collect();
-    let calls: Vec<StatsCall> = sqlx::query_as(
-        "select contact_id, direction, from_number, to_number, duration,
-             to_char(initiated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-         from voip_calls
-         where (contact_id = any($1) or (cardinality($2::text[]) > 0 and contact_id is null
-             and regexp_replace(case when direction = 'outbound' then to_number else from_number end,
-                 '[^0-9]', '', 'g') like any($2::text[])))
-           and ($3::text is null or user_id = $3)",
-    )
-    .bind(contact_ids)
-    .bind(&patterns)
-    .bind(scope_user_id)
-    .fetch_all(db)
-    .await?;
+    // Linked to one of them, or unlinked with the other party's number
+    // ending in one of their suffixes (`like any('{%<suffix>}')`: the
+    // suffixes are eight digits, so the last eight digits are one of them).
+    let mut belongs =
+        Condition::any().add(voip_calls::Column::ContactId.is_in(contact_ids.iter().cloned()));
+    if !suffixes.is_empty() {
+        let remote = Expr::case(
+            voip_calls::Column::Direction.eq("outbound"),
+            Expr::col(voip_calls::Column::ToNumber),
+        )
+        .finally(Expr::col(voip_calls::Column::FromNumber));
+        let last_eight = Func::cust("right").arg(digits(remote.into())).arg(8);
+        belongs = belongs.add(
+            Condition::all()
+                .add(voip_calls::Column::ContactId.is_null())
+                .add(sea_orm::ExprTrait::is_in(Expr::from(last_eight), suffixes)),
+        );
+    }
+    let mut calls = voip_calls::Entity::find()
+        .select_only()
+        .columns([
+            voip_calls::Column::ContactId,
+            voip_calls::Column::Direction,
+            voip_calls::Column::FromNumber,
+            voip_calls::Column::ToNumber,
+            voip_calls::Column::Duration,
+            voip_calls::Column::InitiatedAt,
+        ])
+        .filter(belongs);
+    if let Some(user) = scope_user_id {
+        calls = calls.filter(voip_calls::Column::UserId.eq(user));
+    }
+    let calls: Vec<StatsCall> = calls
+        .into_tuple::<(
+            Option<String>,
+            String,
+            String,
+            String,
+            Option<i32>,
+            PrimitiveDateTime,
+        )>()
+        .all(&orm)
+        .await?
+        .into_iter()
+        .map(|(contact, direction, from, to, duration, at)| {
+            // `to_char(initiated_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.
+            (contact, direction, from, to, duration, iso_of(at))
+        })
+        .collect();
     Ok(people
         .iter()
         .map(|(id, phones)| aggregate(id, phones, &calls))

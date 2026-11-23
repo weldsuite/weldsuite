@@ -6,21 +6,26 @@
 //! out-of-order event finds the work done and does nothing. Telnyx commands
 //! that fail because a leg is gone are logged and swallowed.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::DESK_CONVERSATION_ASSIGNED;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_desk_domain::realtime::now_ms;
 use weldsuite_desk_domain::webchat::{Append, append_desk_message};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
+use weldsuite_schema::tenant::{desk_conversations, desk_phone_call_legs as legs, voip_calls};
 
 use crate::desk_phone_messages::{fanout, member_display_name, post_phone_message};
 use crate::desk_phone_options;
 use crate::desk_phone_queue::{CallEventInput, as_string, best_effort, call_state};
 use crate::desk_phone_realtime::{publish_queue_change, send_inbox_event};
 use crate::desk_phone_ring::{
-    Call, MIN_RING_MS_FOR_NEXT_ROUND, Phone, end_leg, end_ringing_legs, hangup_best_effort,
-    load_call, load_waiting_call, notify_phone_ended, ring_agents, ring_waiting_calls,
+    Call, MIN_RING_MS_FOR_NEXT_ROUND, Phone, end_leg, end_ringing_legs, epoch_ms,
+    hangup_best_effort, load_call, load_waiting_call, notify_phone_ended, ring_agents,
+    ring_waiting_calls, ringing_legs, set_leg_control,
 };
-use crate::now;
 use crate::telnyx::Recording;
 
 /// A `desk_phone_call_legs` row as an event finds it.
@@ -35,7 +40,14 @@ struct Leg {
 }
 
 /// `(id, callId, userId, providerCallId, status, createdAt)`.
-type LegRow = (String, String, String, Option<String>, String, i64);
+type LegRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    PrimitiveDateTime,
+);
 
 /// `handleAgentLegEvent(ev)`: route an event of an agent leg.
 pub(crate) async fn handle_agent_leg_event(
@@ -45,16 +57,23 @@ pub(crate) async fn handle_agent_leg_event(
     payload: &Value,
 ) -> Result<(), String> {
     let db = phone.db;
-    let row: Option<LegRow> = sqlx::query_as(
-        "select id, call_id, user_id, provider_call_id, status,
-                floor(extract(epoch from created_at) * 1000)::int8
-         from desk_phone_call_legs where id = $1 limit 1",
-    )
-    .bind(leg_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some((id, call_id, user_id, provider_call_id, status, created_ms)) = row else {
+    let row: Option<LegRow> = legs::Entity::find()
+        .select_only()
+        .columns([
+            legs::Column::Id,
+            legs::Column::CallId,
+            legs::Column::UserId,
+            legs::Column::ProviderCallId,
+            legs::Column::Status,
+            legs::Column::CreatedAt,
+        ])
+        .filter(legs::Column::Id.eq(leg_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some((id, call_id, user_id, provider_call_id, status, created_at)) = row else {
         tracing::warn!(
             event_type,
             leg_id,
@@ -68,21 +87,15 @@ pub(crate) async fn handle_agent_leg_event(
         user_id,
         provider_call_id,
         status,
-        created_ms,
+        created_ms: epoch_ms(created_at),
     };
     let leg_control = as_string(&payload["call_control_id"]);
     if matches!(event_type, "call.initiated" | "call.answered")
         && let Some(control) = leg_control
     {
-        sqlx::query(
-            "update desk_phone_call_legs set provider_call_id = $2
-             where id = $1 and provider_call_id is null",
-        )
-        .bind(&leg.id)
-        .bind(control)
-        .execute(db)
-        .await
-        .map_err(|error| error.to_string())?;
+        set_leg_control(db, &leg.id, control)
+            .await
+            .map_err(|error| error.to_string())?;
     }
     // `leg.providerCallId ?? legCallControlId ?? null`.
     let provider_call_id = leg.provider_call_id.as_deref().or(leg_control);
@@ -104,19 +117,23 @@ async fn on_agent_answered(
     let previous_user_id = load_call(db, &leg.call_id)
         .await?
         .map_or_else(|| "system".to_owned(), |call| call.user_id);
-    let won: Option<Value> = sqlx::query_scalar(
-        "update voip_calls set agent_answered_at = $3::timestamp, answered_by_user_id = $2,
-             user_id = $2, outcome = 'answered', updated_at = $3::timestamp
-         where id = $1 and agent_answered_at is null and ended_at is null and outcome is null
-         returning to_jsonb(voip_calls)",
-    )
-    .bind(&leg.call_id)
-    .bind(&leg.user_id)
-    .bind(now())
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(won) = won.map(Call::from_row) else {
+    // The claim: one conditional update, so of two agents answering at once
+    // only one finds the call unanswered.
+    let now = utc_now();
+    let won = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::AgentAnsweredAt, Expr::value(now))
+        .col_expr(voip_calls::Column::AnsweredByUserId, Expr::value(&leg.user_id))
+        .col_expr(voip_calls::Column::UserId, Expr::value(&leg.user_id))
+        .col_expr(voip_calls::Column::Outcome, Expr::value("answered"))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(now))
+        .filter(voip_calls::Column::Id.eq(&leg.call_id))
+        .filter(voip_calls::Column::AgentAnsweredAt.is_null())
+        .filter(voip_calls::Column::EndedAt.is_null())
+        .filter(voip_calls::Column::Outcome.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(won) = won.into_iter().next().map(Call::from_model) else {
         // The same event delivered twice for the winner must not hang the
         // winner up.
         let call = load_call(db, &leg.call_id).await?;
@@ -148,14 +165,13 @@ async fn on_agent_answered(
         return return_to_queue(phone, leg, &won.id, &previous_user_id, agent_control).await;
     }
 
-    sqlx::query(
-        "update desk_phone_call_legs set status = 'answered'
-         where id = $1 and status = 'ringing'",
-    )
-    .bind(&leg.id)
-    .execute(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    legs::Entity::update_many()
+        .col_expr(legs::Column::Status, Expr::value("answered"))
+        .filter(legs::Column::Id.eq(&leg.id))
+        .filter(legs::Column::Status.eq("ringing"))
+        .exec(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
 
     if let Some(caller) = caller_control {
         best_effort("hold audio stop", phone.telnyx.playback_stop(caller).await);
@@ -212,18 +228,24 @@ async fn return_to_queue(
 ) -> Result<(), String> {
     end_leg(phone.db, &leg.id).await?;
     hangup_best_effort(phone, agent_control).await;
-    sqlx::query(
-        "update voip_calls set agent_answered_at = null, answered_by_user_id = null,
-             outcome = null, user_id = $3, updated_at = $4::timestamp
-         where id = $1 and answered_by_user_id = $2 and ended_at is null",
-    )
-    .bind(call_id)
-    .bind(&leg.user_id)
-    .bind(previous_user_id)
-    .bind(now())
-    .execute(phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
+    voip_calls::Entity::update_many()
+        .col_expr(
+            voip_calls::Column::AgentAnsweredAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            voip_calls::Column::AnsweredByUserId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(voip_calls::Column::Outcome, Expr::value(Option::<String>::None))
+        .col_expr(voip_calls::Column::UserId, Expr::value(previous_user_id))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(voip_calls::Column::Id.eq(call_id))
+        .filter(voip_calls::Column::AnsweredByUserId.eq(&leg.user_id))
+        .filter(voip_calls::Column::EndedAt.is_null())
+        .exec(&orm(phone.db))
+        .await
+        .map_err(|error| error.to_string())?;
     send_inbox_event(
         phone,
         &leg.user_id,
@@ -267,17 +289,15 @@ async fn assign_to_answerer(
     conversation_id: &str,
     user_id: &str,
 ) -> Result<(), String> {
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update desk_conversations set assignee_id = $2, updated_at = $3::timestamp
-         where id = $1 and assignee_id is null returning id",
-    )
-    .bind(conversation_id)
-    .bind(user_id)
-    .bind(now())
-    .fetch_optional(phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
-    if claimed.is_none() {
+    let claimed = desk_conversations::Entity::update_many()
+        .col_expr(desk_conversations::Column::AssigneeId, Expr::value(user_id))
+        .col_expr(desk_conversations::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(desk_conversations::Column::Id.eq(conversation_id))
+        .filter(desk_conversations::Column::AssigneeId.is_null())
+        .exec(&orm(phone.db))
+        .await
+        .map_err(|error| error.to_string())?;
+    if claimed.rows_affected == 0 {
         return Ok(());
     }
     let mut metadata = Map::new();
@@ -334,14 +354,7 @@ async fn on_agent_hangup(phone: &Phone<'_>, leg: &Leg) -> Result<(), String> {
     }
 
     // A round has ended only when no other leg of it is still ringing.
-    let ringing: i64 = sqlx::query_scalar(
-        "select count(*) from desk_phone_call_legs where call_id = $1 and status = 'ringing'",
-    )
-    .bind(&call.id)
-    .fetch_one(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    if ringing > 0 {
+    if ringing_legs(db, &call.id).await? > 0 {
         return Ok(());
     }
     if load_waiting_call(db, &call.id).await?.is_none() {
@@ -370,18 +383,17 @@ async fn on_agent_hangup(phone: &Phone<'_>, leg: &Leg) -> Result<(), String> {
 /// and the webhook offers them the next waiting caller
 /// (`ring_waiting_calls`) once it has finished with this call.
 pub(crate) async fn handle_caller_left_queue(ev: &CallEventInput<'_>) -> Result<bool, String> {
-    let abandoned: Option<String> = sqlx::query_scalar(
-        "update voip_calls set outcome = 'abandoned', updated_at = $2::timestamp
-         where id = $1 and queue_entered_at is not null and agent_answered_at is null
-           and outcome is null
-         returning id",
-    )
-    .bind(ev.call_id)
-    .bind(now())
-    .fetch_optional(ev.phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
-    if abandoned.is_none() {
+    let abandoned = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::Outcome, Expr::value("abandoned"))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(voip_calls::Column::Id.eq(ev.call_id))
+        .filter(voip_calls::Column::QueueEnteredAt.is_not_null())
+        .filter(voip_calls::Column::AgentAnsweredAt.is_null())
+        .filter(voip_calls::Column::Outcome.is_null())
+        .exec(&orm(ev.phone.db))
+        .await
+        .map_err(|error| error.to_string())?;
+    if abandoned.rows_affected == 0 {
         return Ok(false);
     }
     let ended = end_ringing_legs(&ev.phone, ev.call_id, None).await?;

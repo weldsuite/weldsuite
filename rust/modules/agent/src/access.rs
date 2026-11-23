@@ -11,11 +11,15 @@
 //! The visibility rule itself (`canAccessAgent`, `agentVisibleTo`) is shared
 //! with chat and merge in `weldsuite_chat_domain::agents`.
 
+use sea_orm::sea_query::{Expr, OnConflict, Query};
+use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sqlx::PgPool;
 pub use weldsuite_chat_domain::agents::{
     AgentAccess, AgentViewer, agent_viewer_for, can_access_agent, inaccessible_agent_ids,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{weldagent_agent_members as members, weldagent_agents as agents};
 
 /// `AGENT_VISIBILITIES`.
 pub const AGENT_VISIBILITIES: [&str; 3] = ["private", "members", "workspace"];
@@ -42,17 +46,35 @@ pub fn can_edit_agent(owner_id: Option<&str>, viewer: &AgentViewer) -> bool {
     }
 }
 
-/// `agentVisibleTo(viewer)` as a SQL condition on `weldagent_agents a`, with
-/// the viewer's user id as parameter `$user` (the caller binds it). `None`
-/// means every agent.
-pub fn visible_to_sql(viewer: &AgentViewer, user_param: &str) -> Option<String> {
+/// `agentVisibleTo(viewer)` as a condition on `weldagent_agents`: owned by
+/// the viewer, visible to the workspace, or shared with them as a member.
+/// `None` means every agent.
+pub fn visible_to(viewer: &AgentViewer) -> Option<Condition> {
     if viewer.can_manage_all {
         return None;
     }
-    Some(format!(
-        "(a.owner_id = {user_param} or a.visibility = 'workspace' or (a.visibility = 'members' \
-         and exists (select 1 from weldagent_agent_members m where m.agent_id = a.id and m.user_id = {user_param})))"
-    ))
+    let member = Query::select()
+        .expr(Expr::value(1))
+        .from(members::Entity)
+        .and_where(sea_orm::ExprTrait::equals(
+            Expr::col((members::Entity, members::Column::AgentId)),
+            (agents::Entity, agents::Column::Id),
+        ))
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((members::Entity, members::Column::UserId)),
+            viewer.user_id.clone(),
+        ))
+        .to_owned();
+    Some(
+        Condition::any()
+            .add(agents::Column::OwnerId.eq(viewer.user_id.clone()))
+            .add(agents::Column::Visibility.eq("workspace"))
+            .add(
+                Condition::all()
+                    .add(agents::Column::Visibility.eq("members"))
+                    .add(Expr::exists(member)),
+            ),
+    )
 }
 
 /// `listAgentMemberIds(db, agentId)`: members given access to the agent
@@ -61,13 +83,13 @@ pub fn visible_to_sql(viewer: &AgentViewer, user_param: &str) -> Option<String> 
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn list_agent_member_ids(
-    db: &PgPool,
-    agent_id: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar("select user_id from weldagent_agent_members where agent_id = $1")
-        .bind(agent_id)
-        .fetch_all(db)
+pub async fn list_agent_member_ids(db: &PgPool, agent_id: &str) -> Result<Vec<String>, DbErr> {
+    members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .filter(members::Column::AgentId.eq(agent_id))
+        .into_tuple::<String>()
+        .all(&orm(db))
         .await
 }
 
@@ -82,7 +104,7 @@ pub async fn set_agent_members(
     agent_id: &str,
     user_ids: &[String],
     created_by: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let mut wanted: Vec<&String> = Vec::new();
     for id in user_ids {
         if !id.is_empty() && !wanted.contains(&id) {
@@ -91,25 +113,24 @@ pub async fn set_agent_members(
     }
     let current = list_agent_member_ids(db, agent_id).await?;
     let to_remove: Vec<&String> = current.iter().filter(|id| !wanted.contains(id)).collect();
+    let conn = orm(db);
     if !to_remove.is_empty() {
-        sqlx::query(
-            "delete from weldagent_agent_members where agent_id = $1 and user_id = any($2)",
-        )
-        .bind(agent_id)
-        .bind(to_remove)
-        .execute(db)
-        .await?;
+        members::Entity::delete_many()
+            .filter(members::Column::AgentId.eq(agent_id))
+            .filter(members::Column::UserId.is_in(to_remove.iter().map(|id| id.as_str())))
+            .exec(&conn)
+            .await?;
     }
     for user_id in wanted.into_iter().filter(|id| !current.contains(id)) {
-        sqlx::query(
-            "insert into weldagent_agent_members (id, agent_id, user_id, created_by)
-             values ($1, $2, $3, $4) on conflict do nothing",
-        )
-        .bind(generate_id("agm"))
-        .bind(agent_id)
-        .bind(user_id)
-        .bind(created_by)
-        .execute(db)
+        members::Entity::insert(members::ActiveModel {
+            id: Set(generate_id("agm")),
+            agent_id: Set(agent_id.to_owned()),
+            user_id: Set(user_id.clone()),
+            created_by: Set(Some(created_by.to_owned())),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&conn)
         .await?;
     }
     Ok(())
@@ -117,6 +138,8 @@ pub async fn set_agent_members(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::{DbBackend, QueryTrait};
+
     use super::*;
 
     fn viewer(user: &str, manage: bool) -> AgentViewer {
@@ -135,10 +158,14 @@ mod tests {
     }
 
     #[test]
-    fn managers_see_every_agent_in_sql() {
-        assert!(visible_to_sql(&viewer("u1", true), "$1").is_none());
-        let sql = visible_to_sql(&viewer("u1", false), "$1").unwrap();
-        assert!(sql.contains("a.visibility = 'workspace'"));
-        assert!(sql.contains("weldagent_agent_members"));
+    fn managers_see_every_agent() {
+        assert!(visible_to(&viewer("u1", true)).is_none());
+        let condition = visible_to(&viewer("u1", false)).unwrap();
+        let sql = agents::Entity::find()
+            .filter(condition)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(sql.contains("'workspace'"), "{sql}");
+        assert!(sql.contains("EXISTS(SELECT 1 FROM \"weldagent_agent_members\""), "{sql}");
     }
 }

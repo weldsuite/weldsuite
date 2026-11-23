@@ -15,14 +15,18 @@
 //! re-arms the workspace for the next hour any of its digests is due (or
 //! drops the row). `weldsuite cron merge-digest-sweep` runs it hourly (`0 * * * *`).
 
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm};
+use weldsuite_schema::tenant::{merge_issues, merge_pull_requests, merge_repositories, merge_teams};
 
 use crate::chat::post::post_card;
 use crate::chat::subscriptions::{DIGEST_KIND, digest_subscriptions, next_digest_at};
-use crate::db::{Row, int, text};
+use crate::db::{Row, int, millis, text};
 use crate::hooks::HookContext;
 use crate::{MergeState, Overrides, system_events};
 
@@ -53,24 +57,47 @@ async fn open_pull_requests(
     db: &PgPool,
     sub: &Row,
     list: PullRequestList,
-) -> Result<Vec<Line>, sqlx::Error> {
-    let waiting = matches!(list, PullRequestList::WaitingForReview);
-    let rows: Vec<(i32, String, String)> = sqlx::query_as(
-        "select p.number, p.title, r.full_name from merge_pull_requests p \
-         inner join merge_repositories r on r.id = p.repository_id \
-         where p.state = 'open' and r.deleted_at is null \
-           and (case when $3 \
-                  then p.draft = false and (p.review_decision is null or p.review_decision = 'review_required') \
-                  else p.checks_status = 'failure' end) \
-           and ($1::text is null or p.repository_id = $1) \
-           and ($2::text is null or r.team_id = $2) \
-         order by p.provider_updated_at desc, p.number desc, p.id desc",
-    )
-    .bind(non_empty(sub, "repositoryId"))
-    .bind(non_empty(sub, "teamId"))
-    .bind(waiting)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Line>, DbErr> {
+    let condition = match list {
+        PullRequestList::WaitingForReview => Condition::all()
+            .add(merge_pull_requests::Column::Draft.eq(false))
+            .add(
+                Condition::any()
+                    .add(merge_pull_requests::Column::ReviewDecision.is_null())
+                    .add(merge_pull_requests::Column::ReviewDecision.eq("review_required")),
+            ),
+        PullRequestList::ChecksFailing => {
+            Condition::all().add(merge_pull_requests::Column::ChecksStatus.eq("failure"))
+        }
+    };
+    let mut select = merge_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_pull_requests::Column::Number)
+        .column(merge_pull_requests::Column::Title)
+        .column(merge_repositories::Column::FullName)
+        .join(
+            JoinType::InnerJoin,
+            merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+                .from(merge_pull_requests::Column::RepositoryId)
+                .to(merge_repositories::Column::Id)
+                .into(),
+        )
+        .filter(merge_pull_requests::Column::State.eq("open"))
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .filter(condition);
+    if let Some(repository_id) = non_empty(sub, "repositoryId") {
+        select = select.filter(merge_pull_requests::Column::RepositoryId.eq(repository_id));
+    }
+    if let Some(team_id) = non_empty(sub, "teamId") {
+        select = select.filter(merge_repositories::Column::TeamId.eq(team_id));
+    }
+    let rows: Vec<(i32, String, String)> = select
+        .order_by_desc(merge_pull_requests::Column::ProviderUpdatedAt)
+        .order_by_desc(merge_pull_requests::Column::Number)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(number, title, full_name)| Line {
@@ -87,23 +114,41 @@ fn non_empty(row: &Row, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn done_issues(db: &PgPool, sub: &Row, since: &str) -> Result<Vec<Line>, sqlx::Error> {
+async fn done_issues(
+    db: &PgPool,
+    sub: &Row,
+    since: OffsetDateTime,
+) -> Result<Vec<Line>, DbErr> {
     // Issues belong to a team, not a repository: a repository subscription has none.
     if non_empty(sub, "repositoryId").is_some() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(i32, String, String)> = sqlx::query_as(
-        "select i.number, i.title, t.key from merge_issues i \
-         inner join merge_teams t on t.id = i.team_id \
-         where i.status = 'done' and i.deleted_at is null and t.deleted_at is null \
-           and i.completed_at >= $1::timestamptz \
-           and ($2::text is null or i.team_id = $2) \
-         order by i.completed_at desc, i.number desc, i.id desc",
-    )
-    .bind(since)
-    .bind(non_empty(sub, "teamId"))
-    .fetch_all(db)
-    .await?;
+    let mut select = merge_issues::Entity::find()
+        .select_only()
+        .column(merge_issues::Column::Number)
+        .column(merge_issues::Column::Title)
+        .column(merge_teams::Column::Key)
+        .join(
+            JoinType::InnerJoin,
+            merge_issues::Entity::belongs_to(merge_teams::Entity)
+                .from(merge_issues::Column::TeamId)
+                .to(merge_teams::Column::Id)
+                .into(),
+        )
+        .filter(merge_issues::Column::Status.eq("done"))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .filter(merge_teams::Column::DeletedAt.is_null())
+        .filter(merge_issues::Column::CompletedAt.gte(since));
+    if let Some(team_id) = non_empty(sub, "teamId") {
+        select = select.filter(merge_issues::Column::TeamId.eq(team_id));
+    }
+    let rows: Vec<(i32, String, String)> = select
+        .order_by_desc(merge_issues::Column::CompletedAt)
+        .order_by_desc(merge_issues::Column::Number)
+        .order_by_desc(merge_issues::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(number, title, key)| Line {
@@ -133,11 +178,10 @@ pub(crate) async fn build_digest(
     db: &PgPool,
     sub: &Row,
     now: OffsetDateTime,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let waiting = open_pull_requests(db, sub, PullRequestList::WaitingForReview).await?;
     let failing = open_pull_requests(db, sub, PullRequestList::ChecksFailing).await?;
-    let since = weldsuite_events::iso_timestamp(now - time::Duration::days(1));
-    let done = done_issues(db, sub, &since).await?;
+    let done = done_issues(db, sub, millis(now - time::Duration::days(1))).await?;
     let sections: Vec<String> = [
         section("Waiting for review", &waiting),
         section("Checks failing", &failing),

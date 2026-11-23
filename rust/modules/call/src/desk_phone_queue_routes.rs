@@ -7,9 +7,16 @@
 
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::{desk_conversations, desk_phone_agents, desk_phone_call_legs, voip_calls};
 
+use crate::calls::iso_of;
 use crate::desk_phone_options;
 use crate::desk_phone_realtime::waiting_calls;
 use crate::desk_phone_ring::{
@@ -24,57 +31,73 @@ type WaitingRow = (
     Option<String>,
     String,
     Option<String>,
-    Option<String>,
+    Option<PrimitiveDateTime>,
     Option<String>,
 );
+
+/// `leftJoin(deskConversations, eq(deskConversations.id, voipCalls.deskConversationId))`.
+fn conversation() -> sea_orm::RelationDef {
+    voip_calls::Entity::belongs_to(desk_conversations::Entity)
+        .from(voip_calls::Column::DeskConversationId)
+        .to(desk_conversations::Column::Id)
+        .into()
+}
+
+/// `(r.queueEnteredAt ?? new Date(0)).toISOString()`.
+fn waiting_since(entered: Option<PrimitiveDateTime>) -> String {
+    entered.map_or_else(|| "1970-01-01T00:00:00.000Z".to_owned(), iso_of)
+}
 
 /// `GET /api/desk/phone/queue`.
 pub(crate) async fn list(caller: Caller) -> Response {
     let result = async {
-        let rows: Vec<WaitingRow> = sqlx::query_as(concat!(
-            "select c.id, c.desk_conversation_id, c.from_number, c.department_id,
-                    to_jsonb(c.queue_entered_at) #>> '{}', d.name
-             from voip_calls c
-             left join desk_conversations d on d.id = c.desk_conversation_id
-             where ",
-            waiting_calls!(),
-            " order by c.queue_entered_at asc, c.id asc"
-        ))
-        .fetch_all(&caller.db)
-        .await?;
+        let db = orm(&caller.db);
+        let rows: Vec<WaitingRow> = voip_calls::Entity::find()
+            .select_only()
+            .columns([
+                voip_calls::Column::Id,
+                voip_calls::Column::DeskConversationId,
+                voip_calls::Column::FromNumber,
+                voip_calls::Column::DepartmentId,
+                voip_calls::Column::QueueEnteredAt,
+            ])
+            .column(desk_conversations::Column::Name)
+            .join(JoinType::LeftJoin, conversation())
+            .filter(waiting_calls())
+            .order_by(voip_calls::Column::QueueEnteredAt, Order::Asc)
+            .order_by(voip_calls::Column::Id, Order::Asc)
+            .into_tuple()
+            .all(&db)
+            .await?;
         let mut ringing: Vec<String> = Vec::new();
         if !rows.is_empty() {
             let ids: Vec<String> = rows.iter().map(|row| row.0.clone()).collect();
-            ringing = sqlx::query_scalar(
-                "select call_id from desk_phone_call_legs
-                 where call_id = any($1) and status = 'ringing'",
-            )
-            .bind(&ids)
-            .fetch_all(&caller.db)
-            .await?;
+            ringing = desk_phone_call_legs::Entity::find()
+                .select_only()
+                .column(desk_phone_call_legs::Column::CallId)
+                .filter(desk_phone_call_legs::Column::CallId.is_in(ids))
+                .filter(desk_phone_call_legs::Column::Status.eq("ringing"))
+                .into_tuple()
+                .all(&db)
+                .await?;
         }
         let waiting: Vec<Value> = rows
             .into_iter()
             .map(
                 |(call_id, conversation_id, from_number, department_id, entered, name)| {
-                    // `(r.queueEnteredAt ?? new Date(0)).toISOString()`.
-                    let waiting_since = entered
-                        .as_deref()
-                        .and_then(weldsuite_db::js_timestamp)
-                        .unwrap_or_else(|| "1970-01-01T00:00:00.000Z".to_owned());
                     json!({
                         "callId": call_id,
                         "conversationId": conversation_id,
                         "fromNumber": from_number,
                         "callerName": conversation_caller_name(name.as_deref(), &from_number),
                         "departmentId": department_id,
-                        "waitingSince": waiting_since,
+                        "waitingSince": waiting_since(entered),
                         "ringing": ringing.contains(&call_id),
                     })
                 },
             )
             .collect();
-        Ok::<_, sqlx::Error>(waiting)
+        Ok::<_, DbErr>(waiting)
     }
     .await;
     match result {
@@ -100,13 +123,15 @@ pub(crate) async fn pickup(
         if call.control().is_none() {
             return Ok(ApiError::conflict("The call cannot be picked up yet").into_response());
         }
-        let sip_username: Option<Option<String>> = sqlx::query_scalar(
-            "select sip_username from desk_phone_agents where user_id = $1 limit 1",
-        )
-        .bind(&caller.user_id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|error| error.to_string())?;
+        let sip_username: Option<Option<String>> = desk_phone_agents::Entity::find()
+            .select_only()
+            .column(desk_phone_agents::Column::SipUsername)
+            .filter(desk_phone_agents::Column::UserId.eq(&caller.user_id))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await
+            .map_err(|error| error.to_string())?;
         let Some(sip_username) = sip_username.flatten().filter(|sip| !sip.is_empty()) else {
             return Ok(ApiError::conflict("You have no softphone credential yet").into_response());
         };

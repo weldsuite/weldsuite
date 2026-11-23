@@ -2,9 +2,11 @@
 //! with defaults filled in, and the texts the phone flows speak
 //! (`lib/desk-phone-options.ts`).
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{desk_phone_routes, voip_phone_numbers};
 
 /// `DEFAULT_PHONE_LANGUAGE`.
 const DEFAULT_LANGUAGE: &str = "en-US";
@@ -125,22 +127,28 @@ pub(crate) fn resolve(options: Option<&Value>) -> RouteOptions {
 
 /// `resolveRouteOptions(await loadRouteForNumber(db, toNumber))`: the options
 /// of the route of the number a call was dialled on.
-pub(crate) async fn for_number(db: &PgPool, to_number: &str) -> Result<RouteOptions, sqlx::Error> {
-    let phone: Option<String> = sqlx::query_scalar(
-        "select id from voip_phone_numbers where phone_number = $1 and deleted_at is null limit 1",
-    )
-    .bind(to_number)
-    .fetch_optional(db)
-    .await?;
+pub(crate) async fn for_number(db: &PgPool, to_number: &str) -> Result<RouteOptions, DbErr> {
+    let db = orm(db);
+    let phone: Option<String> = voip_phone_numbers::Entity::find()
+        .select_only()
+        .column(voip_phone_numbers::Column::Id)
+        .filter(voip_phone_numbers::Column::PhoneNumber.eq(to_number))
+        .filter(voip_phone_numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(phone) = phone else {
         return Ok(resolve(None));
     };
-    let options: Option<Option<Value>> = sqlx::query_scalar(
-        "select options from desk_phone_routes where voip_phone_number_id = $1 limit 1",
-    )
-    .bind(phone)
-    .fetch_optional(db)
-    .await?;
+    let options: Option<Option<Value>> = desk_phone_routes::Entity::find()
+        .select_only()
+        .column(desk_phone_routes::Column::Options)
+        .filter(desk_phone_routes::Column::VoipPhoneNumberId.eq(phone))
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await?;
     Ok(resolve(options.flatten().as_ref()))
 }
 
