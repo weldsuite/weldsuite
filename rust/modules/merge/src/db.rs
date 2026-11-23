@@ -129,9 +129,12 @@ pub(crate) fn like_pattern(text: &str) -> String {
     out
 }
 
-/// `ilike(column, likePattern(text))`: `<column> ilike $n escape '\'`.
+/// `ilike(column, likePattern(text))`: `<column> ilike $n escape '\'`. The
+/// backslash is Postgres's default LIKE escape, so the clause is left out:
+/// sea-query renders an ILIKE's ESCAPE inside parentheses (`ILIKE ($1
+/// ESCAPE …)`), which Postgres refuses.
 pub(crate) fn ilike<C: ColumnTrait>(column: C, pattern: &str) -> sea_orm::sea_query::Expr {
-    column.ilike(sea_orm::sea_query::LikeExpr::new(pattern).escape('\\'))
+    column.ilike(pattern)
 }
 
 /// `isUniqueViolation(err)`, through a SeaORM error or an sqlx one.
