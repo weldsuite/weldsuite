@@ -20,8 +20,8 @@ pub(crate) struct SyncTarget {
 /// `select to_jsonb(r), to_jsonb(c) from merge_repositories r inner join
 /// merge_connections c on c.id = r.connection_id where r.deleted_at is null
 /// and c.deleted_at is null`, for the caller's own conditions.
-pub(crate) fn live_targets() -> SelectTwoRequired<merge_repositories::Entity, merge_connections::Entity>
-{
+pub(crate) fn live_targets()
+-> SelectTwoRequired<merge_repositories::Entity, merge_connections::Entity> {
     merge_repositories::Entity::find()
         .join(
             JoinType::InnerJoin,

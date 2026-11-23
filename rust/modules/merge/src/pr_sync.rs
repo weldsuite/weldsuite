@@ -23,8 +23,8 @@ use crate::automation::{
     PullRequestPhase, issue_status_for_pull_request, pull_request_phase, should_evaluate_link,
 };
 use crate::db::{
-    Row, col, flag, instant_opt, int4, is_unique_violation, json_row, json_rows, now_at,
-    opt_text, required, text,
+    Row, col, flag, instant_opt, int4, is_unique_violation, json_row, json_rows, now_at, opt_text,
+    required, text,
 };
 use crate::github::{
     MirrorFields, is_not_older, map_github_pull_request, merge_mirror_update, millis_of,
@@ -203,18 +203,19 @@ async fn sync_auto_links(db: &PgPool, pr: &Row) -> Result<(Vec<LinkedIssue>, usi
                 Some(link) if !link.get("dismissedAt").is_none_or(Value::is_null) => {}
                 None => {
                     // `on conflict do nothing`: a link another delivery made wins.
-                    let inserted =
-                        merge_issue_pull_requests::Entity::insert(merge_issue_pull_requests::ActiveModel {
+                    let inserted = merge_issue_pull_requests::Entity::insert(
+                        merge_issue_pull_requests::ActiveModel {
                             id: Set(generate_id("mip")),
                             issue_id: Set(issue_id.clone()),
                             pull_request_id: Set(pr_id.clone()),
                             source: Set("auto".to_owned()),
                             closes: Set(mention.closes),
                             ..Default::default()
-                        })
-                        .on_conflict(OnConflict::new().do_nothing().to_owned())
-                        .exec_with_returning_many(&orm_db)
-                        .await?;
+                        },
+                    )
+                    .on_conflict(OnConflict::new().do_nothing().to_owned())
+                    .exec_with_returning_many(&orm_db)
+                    .await?;
                     if let Some(link) = inserted.into_iter().next() {
                         let link = link_row(link)?;
                         created.insert(text(&link, "id").to_owned());

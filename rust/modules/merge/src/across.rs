@@ -33,8 +33,8 @@ use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
-use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::Data;
+use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::{AppCheckMode, check_app_permission, resolve_effective_permissions};
 
 use crate::comments::{insert_comment, issue_comments};

@@ -44,10 +44,7 @@ fn synced_fields_changed(before: &Row, after: &Row) -> bool {
 
 /// `twoWayTarget(db, link)`: the link's repository when it syncs two ways
 /// and its connection is live.
-async fn two_way_target(
-    db: &PgPool,
-    link: Option<&Row>,
-) -> Result<Option<SyncTarget>, DbErr> {
+async fn two_way_target(db: &PgPool, link: Option<&Row>) -> Result<Option<SyncTarget>, DbErr> {
     let Some(link) = link else {
         return Ok(None);
     };
@@ -65,7 +62,10 @@ async fn store_pushed(db: &PgPool, link: &Row, issue: &NormalizedIssue) -> Resul
     };
     merge_external_issues::Entity::update_many()
         .col_expr(merge_external_issues::Column::Url, Expr::value(url))
-        .col_expr(merge_external_issues::Column::State, Expr::value(issue.state))
+        .col_expr(
+            merge_external_issues::Column::State,
+            Expr::value(issue.state),
+        )
         .col_expr(
             merge_external_issues::Column::Checksum,
             Expr::value(checksum_of(&provider_fields(issue))),
@@ -283,10 +283,7 @@ pub(crate) async fn create_external_issue(
 
 /// `removeExternalIssue(db, issueId)`: stops syncing; the provider issue
 /// stays. `false` when it was not linked.
-pub(crate) async fn remove_external_issue(
-    db: &PgPool,
-    issue_id: &str,
-) -> Result<bool, DbErr> {
+pub(crate) async fn remove_external_issue(db: &PgPool, issue_id: &str) -> Result<bool, DbErr> {
     let Some(link) = find_link_by_issue(db, issue_id).await? else {
         return Ok(false);
     };

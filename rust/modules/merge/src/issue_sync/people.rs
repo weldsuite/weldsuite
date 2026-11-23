@@ -17,11 +17,7 @@ use crate::teams::find_team;
 
 /// `createLabel(db, { teamId, name })`: `None` when the team is gone or the
 /// name is taken.
-async fn create_label(
-    db: &PgPool,
-    team_id: &str,
-    name: &str,
-) -> Result<Option<Value>, DbErr> {
+async fn create_label(db: &PgPool, team_id: &str, name: &str) -> Result<Option<Value>, DbErr> {
     if find_team(db, team_id).await?.is_none() {
         return Ok(None);
     }
@@ -137,10 +133,7 @@ pub(crate) async fn resolve_label_ids(
 
 /// `labelNames(db, labelIds)`: the names of labels, for pushing to the
 /// provider; labels that no longer exist are left out.
-pub(crate) async fn label_names(
-    db: &PgPool,
-    label_ids: &[String],
-) -> Result<Vec<String>, DbErr> {
+pub(crate) async fn label_names(db: &PgPool, label_ids: &[String]) -> Result<Vec<String>, DbErr> {
     if label_ids.is_empty() {
         return Ok(Vec::new());
     }

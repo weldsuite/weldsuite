@@ -321,8 +321,14 @@ async fn write_link(
             merge_external_issues::Column::Url,
             Expr::value(issue.url.clone()),
         )
-        .col_expr(merge_external_issues::Column::State, Expr::value(issue.state))
-        .col_expr(merge_external_issues::Column::Checksum, Expr::value(checksum))
+        .col_expr(
+            merge_external_issues::Column::State,
+            Expr::value(issue.state),
+        )
+        .col_expr(
+            merge_external_issues::Column::Checksum,
+            Expr::value(checksum),
+        )
         .col_expr(
             merge_external_issues::Column::LastWriter,
             Expr::value("provider"),

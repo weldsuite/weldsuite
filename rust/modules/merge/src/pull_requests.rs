@@ -18,8 +18,8 @@ use http::HeaderMap;
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
-    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -137,10 +137,7 @@ pub(crate) struct WithRepo {
 }
 
 /// `toListItems(db, rows)`: list rows with the issues each is linked to.
-pub(crate) async fn to_list_items(
-    db: &PgPool,
-    rows: &[WithRepo],
-) -> Result<Vec<Value>, DbErr> {
+pub(crate) async fn to_list_items(db: &PgPool, rows: &[WithRepo]) -> Result<Vec<Value>, DbErr> {
     let ids: Vec<String> = rows.iter().map(|r| text(&r.pr, "id").to_owned()).collect();
     let mut issues = linked_issues(db, &ids).await?;
     Ok(rows
@@ -234,7 +231,8 @@ pub(crate) async fn query_pull_requests(
         ));
     }
     if let Some((user_id, login)) = filter.authored_by {
-        let mut authored = Condition::any().add(merge_pull_requests::Column::AuthorUserId.eq(user_id));
+        let mut authored =
+            Condition::any().add(merge_pull_requests::Column::AuthorUserId.eq(user_id));
         if let Some(login) = login {
             authored = authored.add(merge_pull_requests::Column::AuthorLogin.eq(login));
         }
@@ -444,10 +442,7 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
 
 /// `getPullRequestDetail(db, id)`: a pull request of a live repository with
 /// the issues it is linked to.
-pub(crate) async fn pull_request_detail(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn pull_request_detail(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(row) = find_pull_request(db, id).await? else {
         return Ok(None);
     };
@@ -517,7 +512,10 @@ pub(crate) async fn link(
                 merge_issue_pull_requests::Column::Source,
                 Expr::value("manual"),
             )
-            .col_expr(merge_issue_pull_requests::Column::Closes, Expr::value(closes))
+            .col_expr(
+                merge_issue_pull_requests::Column::Closes,
+                Expr::value(closes),
+            )
             .col_expr(
                 merge_issue_pull_requests::Column::DismissedAt,
                 Expr::value(Option::<OffsetDateTime>::None),
@@ -539,7 +537,10 @@ pub(crate) async fn link(
         events = run_automation(db, &target.pr, Some(phase), &mut links, None).await?;
     } else if let Some((link_id, false)) = existing {
         merge_issue_pull_requests::Entity::update_many()
-            .col_expr(merge_issue_pull_requests::Column::Closes, Expr::value(closes))
+            .col_expr(
+                merge_issue_pull_requests::Column::Closes,
+                Expr::value(closes),
+            )
             .filter(merge_issue_pull_requests::Column::Id.eq(link_id))
             .exec(&orm_db)
             .await?;

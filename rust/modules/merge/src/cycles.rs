@@ -96,8 +96,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
             .into_option()
     })?;
     let team_id = team_id.filter(|t| !t.is_empty());
-    let mut select =
-        merge_cycles::Entity::find().filter(merge_cycles::Column::DeletedAt.is_null());
+    let mut select = merge_cycles::Entity::find().filter(merge_cycles::Column::DeletedAt.is_null());
     if let Some(team_id) = team_id {
         select = select.filter(merge_cycles::Column::TeamId.eq(team_id));
     }

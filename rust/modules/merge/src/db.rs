@@ -70,8 +70,11 @@ pub(crate) fn required(at: Option<OffsetDateTime>, column: &str) -> Result<Offse
 /// A `YYYY-MM-DD` text where the SQL bound it as `$n::date`; one that is no
 /// date is a database error, as Postgres refused it.
 pub(crate) fn date(text: &str) -> Result<time::Date, DbErr> {
-    time::Date::parse(text, time::macros::format_description!("[year]-[month]-[day]"))
-        .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{text}\"")))
+    time::Date::parse(
+        text,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{text}\"")))
 }
 
 /// A whole number bound as `$n::int`: one out of range is Postgres's error.

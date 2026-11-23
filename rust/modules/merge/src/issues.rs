@@ -227,10 +227,7 @@ async fn external_link(
 }
 
 /// `getIssueDetail(db, idOrKey)`.
-pub(crate) async fn issue_detail(
-    db: &PgPool,
-    id_or_key: &str,
-) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn issue_detail(db: &PgPool, id_or_key: &str) -> Result<Option<Value>, DbErr> {
     let Some(row) = find_issue_by_id_or_key(db, id_or_key).await? else {
         return Ok(None);
     };

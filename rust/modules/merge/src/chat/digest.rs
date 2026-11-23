@@ -22,7 +22,9 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
 use weldsuite_db::{PgPool, Tenant, orm};
-use weldsuite_schema::tenant::{merge_issues, merge_pull_requests, merge_repositories, merge_teams};
+use weldsuite_schema::tenant::{
+    merge_issues, merge_pull_requests, merge_repositories, merge_teams,
+};
 
 use crate::chat::post::post_card;
 use crate::chat::subscriptions::{DIGEST_KIND, digest_subscriptions, next_digest_at};
@@ -114,11 +116,7 @@ fn non_empty(row: &Row, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-async fn done_issues(
-    db: &PgPool,
-    sub: &Row,
-    since: OffsetDateTime,
-) -> Result<Vec<Line>, DbErr> {
+async fn done_issues(db: &PgPool, sub: &Row, since: OffsetDateTime) -> Result<Vec<Line>, DbErr> {
     // Issues belong to a team, not a repository: a repository subscription has none.
     if non_empty(sub, "repositoryId").is_some() {
         return Ok(Vec::new());

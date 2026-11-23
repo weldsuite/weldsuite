@@ -82,8 +82,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
     })?;
     // `teamId ? … : undefined`: an empty id lists every label.
     let team_id = team_id.filter(|t| !t.is_empty());
-    let mut select =
-        merge_labels::Entity::find().filter(merge_labels::Column::DeletedAt.is_null());
+    let mut select = merge_labels::Entity::find().filter(merge_labels::Column::DeletedAt.is_null());
     if let Some(team_id) = team_id {
         select = select.filter(
             Condition::any()
