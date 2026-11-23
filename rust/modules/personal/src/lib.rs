@@ -27,10 +27,6 @@
 //! belong to Global (ADR MAIL-010), as for mail-api's `/api/mail-weldmail`.
 //! Those paths answer the worker's 404.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // The handlers return the response a check ends with; the readers follow
 // the Zod schemas field by field.
 #![allow(clippy::result_large_err, clippy::too_many_lines)]

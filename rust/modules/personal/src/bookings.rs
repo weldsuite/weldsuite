@@ -191,7 +191,10 @@ async fn cancel(
             return Err(Failure::from(ApiError::not_found("Booking", Some(&id))));
         };
         cancel_booking(&db, &id, &account, &now, reason.as_deref()).await?;
-        if let Some(event) = existing["calendarEventId"].as_str().filter(|e| !e.is_empty()) {
+        if let Some(event) = existing["calendarEventId"]
+            .as_str()
+            .filter(|e| !e.is_empty())
+        {
             cancel_event(&db, event, &account, &now).await?;
         }
         Ok(data(json!({ "id": id, "status": "cancelled" })))

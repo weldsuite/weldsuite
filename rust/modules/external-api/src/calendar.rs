@@ -103,7 +103,9 @@ static EVENTS: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(calendar_events::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| calendar_events::Column::Title.like(v)))
+            .add_option(when(f, "search", |v| {
+                calendar_events::Column::Title.like(v)
+            }))
             .add_option(when(f, "calendarId", |v| {
                 calendar_events::Column::CalendarId.eq(v)
             }))

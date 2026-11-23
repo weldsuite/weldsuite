@@ -16,8 +16,8 @@ use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_CONTACT_CREATED, ACCOUNTING_CONTACT_DELETED, ACCOUNTING_CONTACT_UPDATED,
 };
-use weldsuite_kit::id::generate_id;
 use weldsuite_db::orm;
+use weldsuite_kit::id::generate_id;
 use weldsuite_schema::tenant::{
     accounts, bank_accounts, bank_transactions, bills, documents, entities, fiscal_periods,
     icp_declarations, invoices, journal_entries, parties, payments, reconciliation_rules,
@@ -312,7 +312,10 @@ fn contacts_list(f: &Value) -> Condition {
     Condition::all()
         .add(parties::Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[parties::Column::DisplayName, parties::Column::PartyCode], &v)
+            like_any(
+                &[parties::Column::DisplayName, parties::Column::PartyCode],
+                &v,
+            )
         }))
         .add_option(when(f, "role", |v| parties::Column::Role.eq(v)))
 }

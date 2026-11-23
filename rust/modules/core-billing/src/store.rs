@@ -277,7 +277,10 @@ impl ChargeRow {
                 billing_payments::Column::ProviderPaymentId,
                 Expr::value(payment_id.to_owned()),
             )
-            .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+            .col_expr(
+                billing_payments::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .filter(billing_payments::Column::Id.eq(id))
             .exec(&orm(master))
             .await?;
@@ -409,16 +412,10 @@ pub(crate) async fn mirror_invoice(
             period_start: Set(invoice.period.as_ref().and_then(|p| timestamp_of(&p.0))),
             period_end: Set(invoice.period.as_ref().and_then(|p| timestamp_of(&p.1))),
             pdf_url: Set(Some(format!("/api/billing/invoices/{id}/document"))),
-            tax_amount: Set(Some(
-                i32::try_from(invoice.charge.tax).unwrap_or(i32::MAX),
-            )),
-            subtotal_amount: Set(Some(
-                i32::try_from(invoice.charge.net).unwrap_or(i32::MAX),
-            )),
+            tax_amount: Set(Some(i32::try_from(invoice.charge.tax).unwrap_or(i32::MAX))),
+            subtotal_amount: Set(Some(i32::try_from(invoice.charge.net).unwrap_or(i32::MAX))),
             customer_country: Set(Some(invoice.charge.vat.country.clone())),
-            customer_tax_exempt: Set(Some(
-                invoice.charge.vat.treatment.tax_exempt().to_owned(),
-            )),
+            customer_tax_exempt: Set(Some(invoice.charge.vat.treatment.tax_exempt().to_owned())),
             lines: Set(Some(lines)),
             document_key: Set(invoice.document_key.map(str::to_owned)),
             paid_at: Set(Some(utc_timestamp(invoice.paid_at))),
@@ -441,10 +438,8 @@ pub(crate) async fn mirror_invoice(
             .ok_or_else(|| DbErr::RecordNotFound("billing_invoices".to_owned()))?;
         // Linked, with its email due unless an earlier call already marked it.
         let metadata = || Expr::col(billing_payments::Column::Metadata);
-        let marked = sea_orm::ExprTrait::is_not_null(pg::PgExpr::get_json_field(
-            metadata(),
-            "invoiceMail",
-        ));
+        let marked =
+            sea_orm::ExprTrait::is_not_null(pg::PgExpr::get_json_field(metadata(), "invoiceMail"));
         let due = jsonb_set(
             Func::coalesce([metadata(), Expr::val(json!({}))]),
             "invoiceMail",
@@ -455,7 +450,10 @@ pub(crate) async fn mirror_invoice(
                 billing_payments::Column::InvoiceId,
                 Expr::value(stored.clone()),
             )
-            .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+            .col_expr(
+                billing_payments::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .col_expr(
                 billing_payments::Column::Metadata,
                 Expr::case(marked, metadata()).finally(due).into(),
@@ -503,7 +501,10 @@ impl ChargeRow {
                     Expr::val(json!("sent")),
                 ),
             )
-            .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+            .col_expr(
+                billing_payments::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .filter(billing_payments::Column::Id.eq(id))
             .filter(billing_payments::Column::InvoiceId.is_not_null())
             .filter(sea_orm::ExprTrait::eq(invoice_mail_mark(), "due"))
@@ -540,7 +541,10 @@ impl ChargeRow {
                 billing_payments::Column::Metadata,
                 jsonb_set(counted, "invoiceMail", mark),
             )
-            .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+            .col_expr(
+                billing_payments::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .filter(billing_payments::Column::Id.eq(id))
             .filter(invoice_mail_mark().eq("sent"))
             .exec(&orm(master))
@@ -559,7 +563,10 @@ impl ChargeRow {
                     Expr::val(json!("none")),
                 ),
             )
-            .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+            .col_expr(
+                billing_payments::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .filter(billing_payments::Column::Id.eq(id))
             .filter(sea_orm::ExprTrait::eq(invoice_mail_mark(), "sent"))
             .exec(&orm(master))
@@ -569,7 +576,10 @@ impl ChargeRow {
 
     /// Charges whose invoice email is due: not sent when the invoice was
     /// issued (no mailer then, or nobody took it).
-    pub(crate) async fn invoice_mail_due(master: &PgPool, limit: u64) -> Result<Vec<String>, DbErr> {
+    pub(crate) async fn invoice_mail_due(
+        master: &PgPool,
+        limit: u64,
+    ) -> Result<Vec<String>, DbErr> {
         billing_payments::Entity::find()
             .select_only()
             .column(billing_payments::Column::Id)

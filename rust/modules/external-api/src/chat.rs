@@ -179,11 +179,15 @@ static MESSAGES: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(chat_messages::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| chat_messages::Column::Content.like(v)))
+            .add_option(when(f, "search", |v| {
+                chat_messages::Column::Content.like(v)
+            }))
             .add_option(when(f, "channelId", |v| {
                 chat_messages::Column::ChannelId.eq(v)
             }))
-            .add_option(when(f, "parentId", |v| chat_messages::Column::ParentId.eq(v)))
+            .add_option(when(f, "parentId", |v| {
+                chat_messages::Column::ParentId.eq(v)
+            }))
     },
     filters: &[F::Like("search"), F::Eq("channelId"), F::Eq("parentId")],
     dates: &[],
@@ -280,7 +284,9 @@ static DRAFTS: Simple = Simple {
     update: &UPDATE_CHAT_DRAFT,
     filter: |f| {
         Condition::all()
-            .add_option(when(f, "channelId", |v| chat_drafts::Column::ChannelId.eq(v)))
+            .add_option(when(f, "channelId", |v| {
+                chat_drafts::Column::ChannelId.eq(v)
+            }))
             .add_option(when(f, "userId", |v| chat_drafts::Column::UserId.eq(v)))
     },
     filters: &[F::Eq("channelId"), F::Eq("userId")],

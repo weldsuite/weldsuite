@@ -18,9 +18,7 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::{Expr, OnConflict};
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;

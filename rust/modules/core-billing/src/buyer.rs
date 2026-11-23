@@ -6,7 +6,9 @@
 //! needs are there: 400 `BILLING_DETAILS_REQUIRED`, which opens the
 //! platform's billing-details dialog.
 
-use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::json;
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;

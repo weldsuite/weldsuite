@@ -47,13 +47,10 @@ const NOT_CONVERTED: &[&str] = &[
     "crates/staff-domain",
     "crates/subscribers",
     "modules/ads",
-    "modules/core-billing",
     "modules/core-files",
     "modules/docs",
-    "modules/external-api",
     "modules/host",
     "modules/mcp",
-    "modules/personal",
     "modules/sheets",
     "modules/social",
 ];

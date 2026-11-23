@@ -19,7 +19,8 @@
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Expr, LockBehavior, LockType, Query};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -176,7 +177,10 @@ async fn clear_ended_comps(
         .column((billing_accounts::Entity, billing_accounts::Column::Id))
         .from(billing_accounts::Entity)
         .and_where(sea_orm::ExprTrait::equals(
-            Expr::col((billing_accounts::Entity, billing_accounts::Column::WorkspaceId)),
+            Expr::col((
+                billing_accounts::Entity,
+                billing_accounts::Column::WorkspaceId,
+            )),
             (workspaces::Entity, W::Id),
         ))
         .and_where(billing_accounts::Column::NextChargeAt.is_not_null())
@@ -191,10 +195,10 @@ async fn clear_ended_comps(
         .and_where(W::CompGrantedAt.is_not_null())
         .and_where(W::CompEndsAt.is_not_null())
         .and_where(W::CompEndsAt.lte(utc_timestamp(now)))
-        .returning(Query::returning().exprs([
-            Expr::col((workspaces::Entity, W::Id)),
-            Expr::exists(paying),
-        ]))
+        .returning(
+            Query::returning()
+                .exprs([Expr::col((workspaces::Entity, W::Id)), Expr::exists(paying)]),
+        )
         .to_owned();
     orm(master)
         .query_all(&update)
@@ -211,18 +215,27 @@ async fn sweep_past_due(
     report: &mut RenewalReport,
 ) -> BillingResult<()> {
     let grace = time::Duration::days(state.settings.grace_days);
+    // `exists (select 1 from workspaces w where w.id = a.workspace_id and
+    // w.comp_granted_at is not null and (w.comp_ends_at is null or
+    // w.comp_ends_at > now))`: a comp in force pays what is open.
     let comped = Query::select()
         .column((workspaces::Entity, workspaces::Column::Id))
         .from(workspaces::Entity)
-        .and_where(sea_orm::ExprTrait::equals(
-            Expr::col((workspaces::Entity, workspaces::Column::Id)),
-            (billing_accounts::Entity, billing_accounts::Column::WorkspaceId),
-        ))
-        .and_where(workspaces::Column::CompGrantedAt.is_not_null())
         .cond_where(
-            sea_orm::Condition::any()
-                .add(workspaces::Column::CompEndsAt.is_null())
-                .add(workspaces::Column::CompEndsAt.gt(utc_timestamp(now))),
+            Condition::all()
+                .add(sea_orm::ExprTrait::equals(
+                    Expr::col((workspaces::Entity, workspaces::Column::Id)),
+                    (
+                        billing_accounts::Entity,
+                        billing_accounts::Column::WorkspaceId,
+                    ),
+                ))
+                .add(workspaces::Column::CompGrantedAt.is_not_null())
+                .add(
+                    Condition::any()
+                        .add(workspaces::Column::CompEndsAt.is_null())
+                        .add(workspaces::Column::CompEndsAt.gt(utc_timestamp(now))),
+                ),
         )
         .to_owned();
     let expired: Vec<(String, Option<String>)> = billing_accounts::Entity::find()
@@ -250,7 +263,10 @@ async fn sweep_past_due(
             billing_accounts::Column::DunningRemindedAt,
             Expr::value(utc_timestamp(now)),
         )
-        .col_expr(billing_accounts::Column::UpdatedAt, Expr::current_timestamp())
+        .col_expr(
+            billing_accounts::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
         .filter(billing_accounts::Column::PastDueSince.is_not_null())
         .filter(billing_accounts::Column::PastDuePaymentId.is_not_null())
         .filter(billing_accounts::Column::DunningRemindedAt.is_null())
@@ -303,7 +319,8 @@ pub(crate) async fn details_for(
         }
     }
     // `metadata ? 'customer'` on the object: the key is there.
-    let customer = || pg::PgExpr::get_json_field(Expr::col(billing_payments::Column::Metadata), "customer");
+    let customer =
+        || pg::PgExpr::get_json_field(Expr::col(billing_payments::Column::Metadata), "customer");
     let last: Option<Value> = billing_payments::Entity::find()
         .select_only()
         .column_as(customer(), "customer")
@@ -320,7 +337,10 @@ pub(crate) async fn details_for(
 /// `select workspace_id from billing_accounts where next_charge_at <= now
 /// order by next_charge_at limit 1 for update skip locked`: the next due
 /// account, claimed for the rest of `tx`.
-async fn claim_due(tx: &impl ConnectionTrait, now: OffsetDateTime) -> Result<Option<String>, DbErr> {
+async fn claim_due(
+    tx: &impl ConnectionTrait,
+    now: OffsetDateTime,
+) -> Result<Option<String>, DbErr> {
     billing_accounts::Entity::find()
         .select_only()
         .column(billing_accounts::Column::WorkspaceId)
@@ -694,7 +714,10 @@ async fn charge_row(
             billing_payments::Column::FailureMessage,
             Expr::value(refused.clone()),
         )
-        .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+        .col_expr(
+            billing_payments::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
         .filter(billing_payments::Column::Id.eq(&row.id))
         .exec(&OrmConn::new(&mut tx))
         .await?;

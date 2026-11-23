@@ -160,7 +160,9 @@ static CAMPAIGNS: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(social_campaigns::Column::DeletedAt.is_null())
-            .add_option(when(f, "status", |v| social_campaigns::Column::Status.eq(v)))
+            .add_option(when(f, "status", |v| {
+                social_campaigns::Column::Status.eq(v)
+            }))
     },
     filters: &[F::Eq("status")],
     dates: &[],
@@ -202,7 +204,9 @@ static ANALYTICS: Simple = Simple {
     update: &UPDATE_SOCIAL_ANALYTICS,
     filter: |f| {
         Condition::all()
-            .add_option(when(f, "postId", |v| social_analytics::Column::PostId.eq(v)))
+            .add_option(when(f, "postId", |v| {
+                social_analytics::Column::PostId.eq(v)
+            }))
             .add_option(when(f, "accountId", |v| {
                 social_analytics::Column::AccountId.eq(v)
             }))
@@ -225,7 +229,9 @@ static ANALYTICS: Simple = Simple {
 fn media_list(f: &Value) -> Condition {
     Condition::all()
         .add(social_media::Column::DeletedAt.is_null())
-        .add_option(when(f, "mediaType", |v| social_media::Column::MediaType.eq(v)))
+        .add_option(when(f, "mediaType", |v| {
+            social_media::Column::MediaType.eq(v)
+        }))
         .add_option(when(f, "status", |v| social_media::Column::Status.eq(v)))
 }
 

@@ -31,7 +31,9 @@ use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::Field;
 use weldsuite_notifications::Notifier;
 use weldsuite_ports::BoxFuture;
-use weldsuite_schema::tenant::{custom_field_definitions, helpdesk_ticket_messages, helpdesk_tickets};
+use weldsuite_schema::tenant::{
+    custom_field_definitions, helpdesk_ticket_messages, helpdesk_tickets,
+};
 
 use crate::ExternalApiState;
 use crate::crud::{
@@ -486,14 +488,13 @@ async fn list_tickets(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "channel": text(&q, "channel"),
         "category": text(&q, "category"),
     });
-    let mut found =
-        crate::list::list_rows(
-            &caller.db,
-            &HELPDESK_TICKETS.entity,
-            tickets_list(&filters),
-            &list_query(&q),
-        )
-        .await?;
+    let mut found = crate::list::list_rows(
+        &caller.db,
+        &HELPDESK_TICKETS.entity,
+        tickets_list(&filters),
+        &list_query(&q),
+    )
+    .await?;
     let rows = std::mem::take(&mut found.rows)
         .into_iter()
         .map(|row| HELPDESK_TICKETS.js(row))
@@ -727,7 +728,11 @@ async fn list_ticket_messages(
     // `t.ticket_id = $3->>'ticketId'`: messages have no soft delete.
     page(
         &caller.db,
-        |f| always(f, "ticketId", |v| helpdesk_ticket_messages::Column::TicketId.eq(v)),
+        |f| {
+            always(f, "ticketId", |v| {
+                helpdesk_ticket_messages::Column::TicketId.eq(v)
+            })
+        },
         &HELPDESK_TICKET_MESSAGES,
         &q,
         json!({ "ticketId": id }),

@@ -33,8 +33,8 @@ use crate::crud::{
     live_or_404, no_content, now, ok, page, pick, soft_delete, text, to_date, with_id,
     with_updated,
 };
-use crate::list::{like_any, when, when_flag};
 use crate::custom_fields;
+use crate::list::{like_any, when, when_flag};
 use crate::schemas::{CREATE_QUOTE, LIST_QUOTES, UPDATE_QUOTE};
 use crate::schemas_gen::{
     CREATE_ACTIVITY, CREATE_COMPANY, CREATE_LEAD, CREATE_OPPORTUNITY, CREATE_PERSON,
@@ -234,7 +234,9 @@ fn people_list(f: &Value) -> Condition {
         }))
         .add_option(when(f, "status", |v| Column::Status.eq(v)))
         .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
-        .add_option(when_flag(f, "isSupplier", |flag| Column::IsSupplier.eq(flag)))
+        .add_option(when_flag(f, "isSupplier", |flag| {
+            Column::IsSupplier.eq(flag)
+        }))
         .add_option(when_flag(f, "isLead", |flag| Column::IsLead.eq(flag)))
         .add_option(when(f, "companyId", |v| {
             Column::Id.in_subquery(
@@ -246,9 +248,7 @@ fn people_list(f: &Value) -> Condition {
                     .to_owned(),
             )
         }))
-        .add_option(when(f, "listId", |v| {
-            in_list(Column::Id, v, "person")
-        }))
+        .add_option(when(f, "listId", |v| in_list(Column::Id, v, "person")))
 }
 
 /// `t.id in (select lm.entity_id from list_members lm where lm.list_id =
@@ -573,11 +573,11 @@ fn companies_list(f: &Value) -> Condition {
         .add_option(when(f, "status", |v| Column::Status.eq(v)))
         .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
         .add_option(when(f, "industry", |v| Column::Industry.eq(v)))
-        .add_option(when_flag(f, "isSupplier", |flag| Column::IsSupplier.eq(flag)))
-        .add_option(when_flag(f, "isLead", |flag| Column::IsLead.eq(flag)))
-        .add_option(when(f, "listId", |v| {
-            in_list(Column::Id, v, "company")
+        .add_option(when_flag(f, "isSupplier", |flag| {
+            Column::IsSupplier.eq(flag)
         }))
+        .add_option(when_flag(f, "isLead", |flag| Column::IsLead.eq(flag)))
+        .add_option(when(f, "listId", |v| in_list(Column::Id, v, "company")))
 }
 
 /// `deriveDisplayName` for companies: the trading name, the name, or

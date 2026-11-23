@@ -18,8 +18,8 @@ use http::{HeaderMap, StatusCode};
 use sea_orm::ActiveValue::Set;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -314,7 +314,10 @@ pub(crate) async fn create(
                 .await
                 .map_err(|error| db_error(&error))?;
             if taken.is_some() {
-                return Err(conflict(format!("App code '{}' is already taken", body.code)));
+                return Err(conflict(format!(
+                    "App code '{}' is already taken",
+                    body.code
+                )));
             }
             let truthy = |value: Option<String>| value.filter(|text| !text.is_empty());
             let now = now();
@@ -328,7 +331,8 @@ pub(crate) async fn create(
                 website_url: Set(truthy(body.website_url)),
                 privacy_url: Set(truthy(body.privacy_url)),
                 screenshots: Set(Some(
-                    body.screenshots.map_or_else(|| json!([]), |shots| json!(shots)),
+                    body.screenshots
+                        .map_or_else(|| json!([]), |shots| json!(shots)),
                 )),
                 webhook_url: Set(truthy(body.webhook_url)),
                 owner_workspace_id: Set(developer.key.session.workspace_id.clone()),
@@ -362,8 +366,11 @@ pub(crate) async fn list(developer: Developer) -> Response {
             developer_gate(&developer)?;
             let rows = user_apps::Entity::find()
                 .filter(
-                    user_apps::Column::OwnerWorkspaceId
-                        .eq(developer.key.session.workspace_id.as_str()),
+                    user_apps::Column::OwnerWorkspaceId.eq(developer
+                        .key
+                        .session
+                        .workspace_id
+                        .as_str()),
                 )
                 .filter(user_apps::Column::DeletedAt.is_null())
                 .order_by_desc(user_apps::Column::CreatedAt)
@@ -372,7 +379,10 @@ pub(crate) async fn list(developer: Developer) -> Response {
                 .await
                 .map_err(|error| db_error(&error))?;
             Ok(whole_list(
-                &rows.into_iter().map(to_json).collect::<Result<Vec<_>, _>>()?,
+                &rows
+                    .into_iter()
+                    .map(to_json)
+                    .collect::<Result<Vec<_>, _>>()?,
             ))
         }
         .await,
@@ -511,9 +521,18 @@ async fn retire_app(
         .exec(master)
         .await?;
     workspace_installed_apps::Entity::update_many()
-        .col_expr(workspace_installed_apps::Column::DeletedAt, Expr::value(now))
-        .col_expr(workspace_installed_apps::Column::IsActive, Expr::value(false))
-        .col_expr(workspace_installed_apps::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            workspace_installed_apps::Column::DeletedAt,
+            Expr::value(now),
+        )
+        .col_expr(
+            workspace_installed_apps::Column::IsActive,
+            Expr::value(false),
+        )
+        .col_expr(
+            workspace_installed_apps::Column::UpdatedAt,
+            Expr::value(now),
+        )
         .filter(workspace_installed_apps::Column::UserAppId.eq(id))
         .filter(workspace_installed_apps::Column::DeletedAt.is_null())
         .exec(tenant)
@@ -537,7 +556,10 @@ pub(crate) async fn versions(developer: Developer, Path(id): Path<String>) -> Re
                 .await
                 .map_err(|error| db_error(&error))?;
             Ok(whole_list(
-                &rows.into_iter().map(to_json).collect::<Result<Vec<_>, _>>()?,
+                &rows
+                    .into_iter()
+                    .map(to_json)
+                    .collect::<Result<Vec<_>, _>>()?,
             ))
         }
         .await,
@@ -857,7 +879,10 @@ async fn publish_live(
     let mut update = user_apps::Entity::update_many()
         .col_expr(user_apps::Column::CurrentVersionId, Expr::value(version_id))
         .col_expr(user_apps::Column::Manifest, Expr::value(manifest.clone()))
-        .col_expr(user_apps::Column::RequestedScopes, Expr::value(scopes.clone()))
+        .col_expr(
+            user_apps::Column::RequestedScopes,
+            Expr::value(scopes.clone()),
+        )
         .col_expr(user_apps::Column::Name, Expr::value(text(manifest, "name")));
     // `coalesce($icon, icon)`, `coalesce($category, category)`.
     if let Some(icon) = truthy("icon") {
@@ -881,7 +906,9 @@ async fn publish_live(
         )
         .col_expr(
             user_apps::Column::Screenshots,
-            Expr::value(Some(or_app("screenshots", "screenshots")).filter(|value| !value.is_null())),
+            Expr::value(
+                Some(or_app("screenshots", "screenshots")).filter(|value| !value.is_null()),
+            ),
         )
         .col_expr(
             user_apps::Column::WebhookUrl,
@@ -911,7 +938,10 @@ async fn publish_live(
             .collect();
         if !pending.is_empty() {
             user_app_installs::Entity::update_many()
-                .col_expr(user_app_installs::Column::PendingScopes, Expr::value(json!(pending)))
+                .col_expr(
+                    user_app_installs::Column::PendingScopes,
+                    Expr::value(json!(pending)),
+                )
                 .col_expr(user_app_installs::Column::UpdatedAt, Expr::value(now))
                 .filter(user_app_installs::Column::Id.eq(install_id))
                 .exec(master)
@@ -955,9 +985,11 @@ pub(crate) async fn submit(
                 ));
             }
             let official = text(&app, "publisherType") == "weldsuite";
-            let notes_or_kept = notes
-                .clone()
-                .or_else(|| app.get("reviewNotes").and_then(Value::as_str).map(str::to_owned));
+            let notes_or_kept = notes.clone().or_else(|| {
+                app.get("reviewNotes")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
             let notes_patch = notes.filter(|text| !text.is_empty());
             // An official app is approved at once, by the caller; another
             // waits for review, keeping its notes unless the body has some.
@@ -970,7 +1002,10 @@ pub(crate) async fn submit(
                 );
             if official {
                 update = update
-                    .col_expr(user_apps::Column::ReviewedBy, Expr::value(developer.actor()))
+                    .col_expr(
+                        user_apps::Column::ReviewedBy,
+                        Expr::value(developer.actor()),
+                    )
                     .col_expr(user_apps::Column::ReviewedAt, Expr::value(now))
                     .col_expr(user_apps::Column::ReviewNotes, Expr::value(notes_or_kept));
             } else if let Some(notes) = notes_patch {
@@ -1106,7 +1141,9 @@ pub(crate) async fn delete_dev_session(
                 .or_else(|| {
                     query.get("userId").and_then(|value| match value {
                         Value::String(text) => Some(text.clone()),
-                        Value::Array(items) => items.first().and_then(Value::as_str).map(str::to_owned),
+                        Value::Array(items) => {
+                            items.first().and_then(Value::as_str).map(str::to_owned)
+                        }
                         _ => None,
                     })
                 })
@@ -1121,8 +1158,11 @@ pub(crate) async fn delete_dev_session(
                 .filter(user_app_dev_sessions::Column::AppId.eq(text(&app, "id")))
                 .filter(user_app_dev_sessions::Column::UserId.eq(user_id.as_str()))
                 .filter(
-                    user_app_dev_sessions::Column::WorkspaceId
-                        .eq(developer.key.session.workspace_id.as_str()),
+                    user_app_dev_sessions::Column::WorkspaceId.eq(developer
+                        .key
+                        .session
+                        .workspace_id
+                        .as_str()),
                 )
                 .exec(&orm(&developer.master))
                 .await
@@ -1192,7 +1232,10 @@ pub(crate) async fn rotate_oauth_client(developer: Developer, Path(id): Path<Str
                     .exec(master)
                     .await
                     .map_err(|error| db_error(&error))?;
-                return Ok(Json(json!({ "data": { "clientId": client_id, "clientSecret": secret } })).into_response());
+                return Ok(Json(
+                    json!({ "data": { "clientId": client_id, "clientSecret": secret } }),
+                )
+                .into_response());
             }
             let client_id = format!("wac_{}", random_hex(12));
             user_app_oauth_clients::Entity::insert(user_app_oauth_clients::ActiveModel {

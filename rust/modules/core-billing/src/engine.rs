@@ -5,7 +5,9 @@
 use http::StatusCode;
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Expr, Query};
-use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::json;
 use time::OffsetDateTime;
 use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
@@ -781,7 +783,10 @@ pub(crate) async fn apply_change(
             .finally(Expr::null())
             .into(),
         )
-        .col_expr(billing_accounts::Column::UpdatedAt, Expr::current_timestamp())
+        .col_expr(
+            billing_accounts::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
         .filter(billing_accounts::Column::WorkspaceId.eq(workspace_id))
         .exec(tx)
         .await?;
@@ -800,11 +805,7 @@ pub(crate) async fn apply_change(
 }
 
 /// `update workspaces set subscription_cancel_at_period_end = $to, updated_at = now()`.
-async fn set_cancel(
-    db: &impl ConnectionTrait,
-    workspace_id: &str,
-    to: bool,
-) -> Result<(), DbErr> {
+async fn set_cancel(db: &impl ConnectionTrait, workspace_id: &str, to: bool) -> Result<(), DbErr> {
     workspaces::Entity::update_many()
         .col_expr(
             workspaces::Column::SubscriptionCancelAtPeriodEnd,
@@ -831,7 +832,10 @@ pub(crate) async fn mark_applied(tx: &impl ConnectionTrait, row_id: &str) -> Res
             billing_payments::Column::Metadata,
             crate::store::jsonb_set(metadata, "applied", Expr::val(json!(true))),
         )
-        .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+        .col_expr(
+            billing_payments::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
         .filter(billing_payments::Column::Id.eq(row_id))
         .exec(tx)
         .await?;
@@ -1133,7 +1137,10 @@ pub async fn end_subscription(
             workspaces::Column::SubscriptionCurrentPeriodStart,
             Expr::null(),
         )
-        .col_expr(workspaces::Column::SubscriptionCurrentPeriodEnd, Expr::null())
+        .col_expr(
+            workspaces::Column::SubscriptionCurrentPeriodEnd,
+            Expr::null(),
+        )
         .col_expr(
             workspaces::Column::SubscriptionCancelAtPeriodEnd,
             Expr::value(false),

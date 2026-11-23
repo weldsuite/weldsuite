@@ -29,8 +29,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
-    QuerySelect,
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -345,10 +344,10 @@ async fn validate_api_key(
             .into_tuple()
             .one(&orm(&state.master))
             .await
-        .map_err(|error| {
-            tracing::error!(%error, "external-api: registry lookup failed");
-            Refusal::Invalid
-        })?;
+            .map_err(|error| {
+                tracing::error!(%error, "external-api: registry lookup failed");
+                Refusal::Invalid
+            })?;
         let Some((workspace_id, key_type, tenant_key_id)) = row else {
             return Err(Refusal::Invalid);
         };
@@ -545,7 +544,10 @@ async fn validate_app_token(
     let token_id = entry.token_id.clone();
     state.events.tracker().spawn(async move {
         if let Err(error) = user_app_tokens::Entity::update_many()
-            .col_expr(user_app_tokens::Column::LastUsedAt, Expr::current_timestamp())
+            .col_expr(
+                user_app_tokens::Column::LastUsedAt,
+                Expr::current_timestamp(),
+            )
             .filter(user_app_tokens::Column::Id.eq(token_id))
             .exec(&master)
             .await

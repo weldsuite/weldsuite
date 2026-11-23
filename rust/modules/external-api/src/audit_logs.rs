@@ -110,9 +110,19 @@ fn filters(query: &Query) -> Condition {
     let at = |text: &str| cast(text.to_owned(), "timestamp");
     Condition::all()
         .add_option(query.action.as_deref().map(|v| Column::Action.eq(v)))
-        .add_option(query.entity_type.as_deref().map(|v| Column::EntityType.eq(v)))
+        .add_option(
+            query
+                .entity_type
+                .as_deref()
+                .map(|v| Column::EntityType.eq(v)),
+        )
         .add_option(query.entity_id.as_deref().map(|v| Column::EntityId.eq(v)))
-        .add_option(query.performed_by.as_deref().map(|v| Column::PerformedBy.eq(v)))
+        .add_option(
+            query
+                .performed_by
+                .as_deref()
+                .map(|v| Column::PerformedBy.eq(v)),
+        )
         .add_option(
             query
                 .since
@@ -396,31 +406,38 @@ mod tests {
             time::macros::date!(2026 - 11 - 01),
             time::macros::time!(10:00:00.250),
         );
-        let sql = |query: &Query| page(query, Some((at, "log_1"))).build(DbBackend::Postgres).sql;
+        let sql = |query: &Query| {
+            page(query, Some((at, "log_1")))
+                .build(DbBackend::Postgres)
+                .sql
+        };
         let ascending = sql(&query);
+        // `(date_trunc('milliseconds', t.created_at), t.id) > ($at, $id)`,
+        // ordered on the same pair.
+        let row = r#"(date_trunc($3, "audit_logs"."created_at"), "audit_logs"."id")"#;
         assert!(
-            ascending.contains(
-                r#"(date_trunc($2, "audit_logs"."created_at"), "audit_logs"."id") > ($3, $4)"#
-            ),
+            ascending.contains(&format!("{row} > ($4, $5)")),
             "{ascending}"
         );
         assert!(
             ascending.ends_with(
-                r#"ORDER BY date_trunc($5, "audit_logs"."created_at") ASC, "audit_logs"."id" ASC LIMIT $6"#
+                r#"ORDER BY date_trunc($6, "audit_logs"."created_at") ASC, "audit_logs"."id" ASC LIMIT $7"#
             ),
             "{ascending}"
         );
         query.ascending = false;
         let descending = sql(&query);
         assert!(
-            descending.contains(
-                r#"(date_trunc($2, "audit_logs"."created_at"), "audit_logs"."id") < ($3, $4)"#
-            ),
+            descending.contains(&format!("{row} < ($4, $5)")),
             "{descending}"
         );
-        assert!(descending.contains(r#"DESC, "audit_logs"."id" DESC LIMIT $6"#));
+        assert!(
+            descending.ends_with(r#"DESC, "audit_logs"."id" DESC LIMIT $7"#),
+            "{descending}"
+        );
         // Neither the snapshot nor the rest of the metadata is selected.
-        assert!(!ascending.contains(r#""data""#));
-        assert!(ascending.contains(r#"("audit_logs"."metadata" ->> $1) AS "source""#));
+        assert!(!ascending.contains(r#""data""#), "{ascending}");
+        assert!(ascending.contains(r#""metadata" ->> $1"#), "{ascending}");
+        assert!(ascending.contains(r#"AS "source""#), "{ascending}");
     }
 }

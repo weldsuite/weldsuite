@@ -12,9 +12,7 @@ use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use regex::Regex;
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -504,16 +502,14 @@ async fn list_pages(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "parentId": crate::crud::text(&q, "parentId"),
         "search": crate::crud::like(&q, "search"),
     });
-    Ok(
-        list_page_mapped(
-            &caller.db,
-            &KNOWLEDGE_PAGES.entity,
-            pages_list(&filters),
-            &list_query(&q),
-            |row| KNOWLEDGE_PAGES.js(row),
-        )
-        .await?,
+    Ok(list_page_mapped(
+        &caller.db,
+        &KNOWLEDGE_PAGES.entity,
+        pages_list(&filters),
+        &list_query(&q),
+        |row| KNOWLEDGE_PAGES.js(row),
     )
+    .await?)
 }
 
 async fn page_tree(caller: Caller, Query(query): Query<HashMap<String, String>>) -> Answer {
@@ -745,7 +741,10 @@ async fn move_page(
             .collect();
         if !descendants.is_empty() {
             knowledge_pages::Entity::update_many()
-                .col_expr(knowledge_pages::Column::SpaceId, Expr::value(target.as_str()))
+                .col_expr(
+                    knowledge_pages::Column::SpaceId,
+                    Expr::value(target.as_str()),
+                )
                 .col_expr(
                     knowledge_pages::Column::UpdatedAt,
                     Expr::value(utc_timestamp(now_at)),

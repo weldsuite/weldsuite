@@ -22,9 +22,9 @@
 //! false (`COALESCE(..., false)`), so `not` of it is true, and `ne` is
 //! `IS DISTINCT FROM`.
 
+use sea_orm::DbErr;
 use sqlx::postgres::PgArguments;
 use sqlx::query::QueryScalar;
-use sea_orm::DbErr;
 use sqlx::{AssertSqlSafe, PgPool, Postgres};
 use weldsuite_db::orm_error;
 

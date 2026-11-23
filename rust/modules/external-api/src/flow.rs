@@ -174,7 +174,9 @@ static MILESTONE_GROUP: Simple = Simple {
         Condition::all()
             .add(milestones::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| milestones::Column::Name.like(v)))
-            .add_option(when(f, "projectId", |v| milestones::Column::ProjectId.eq(v)))
+            .add_option(when(f, "projectId", |v| {
+                milestones::Column::ProjectId.eq(v)
+            }))
             .add_option(when(f, "status", |v| milestones::Column::Status.eq(v)))
     },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("status")],
@@ -288,7 +290,9 @@ static TASK_COMMENTS_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(task_comments::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| task_comments::Column::Content.like(v)))
+            .add_option(when(f, "search", |v| {
+                task_comments::Column::Content.like(v)
+            }))
             .add_option(when(f, "taskId", |v| task_comments::Column::TaskId.eq(v)))
     },
     filters: &[F::Like("search"), F::Eq("taskId")],
@@ -391,11 +395,15 @@ static FILES: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(project_files::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| project_files::Column::FileName.like(v)))
+            .add_option(when(f, "search", |v| {
+                project_files::Column::FileName.like(v)
+            }))
             .add_option(when(f, "projectId", |v| {
                 project_files::Column::ProjectId.eq(v)
             }))
-            .add_option(when(f, "fileType", |v| project_files::Column::FileType.eq(v)))
+            .add_option(when(f, "fileType", |v| {
+                project_files::Column::FileType.eq(v)
+            }))
     },
     filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("fileType")],
     dates: &[],
@@ -508,7 +516,9 @@ static MESSAGES: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(project_messages::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| project_messages::Column::Message.like(v)))
+            .add_option(when(f, "search", |v| {
+                project_messages::Column::Message.like(v)
+            }))
             .add_option(when(f, "projectId", |v| {
                 project_messages::Column::ProjectId.eq(v)
             }))
@@ -539,7 +549,9 @@ static WHITEBOARDS: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(project_whiteboards::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| project_whiteboards::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                project_whiteboards::Column::Name.like(v)
+            }))
             .add_option(when(f, "projectId", |v| {
                 project_whiteboards::Column::ProjectId.eq(v)
             }))
@@ -594,11 +606,11 @@ fn tasks_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Title, Column::Description], &v).add_option(
-                param(f, "number").map(|number| {
+            like_any(&[Column::Title, Column::Description], &v).add_option(param(f, "number").map(
+                |number| {
                     sea_orm::ExprTrait::eq(Column::Number.into_expr(), cast(number, "integer"))
-                }),
-            )
+                },
+            ))
         }))
         .add_option(when(f, "projectId", |v| Column::ProjectId.eq(v)))
         .add_option(when(f, "status", |_| one_of(f, "statuses", Column::Status)))
@@ -608,12 +620,12 @@ fn tasks_list(f: &Value) -> Condition {
         .add_option(when(f, "milestoneId", |v| Column::MilestoneId.eq(v)))
         .add_option(when(f, "parentTaskId", |v| Column::ParentTaskId.eq(v)))
         .add_option(when(f, "assigneeId", |v| {
-            Condition::any()
-                .add(Column::AssigneeId.eq(v.clone()))
-                .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Condition::any().add(Column::AssigneeId.eq(v.clone())).add(
+                sea_orm::sea_query::extension::postgres::PgExpr::contains(
                     Column::AssigneeIds.into_expr(),
                     json!([v]),
-                ))
+                ),
+            )
         }))
         .add_option(when(f, "dueFrom", |v| {
             sea_orm::ExprTrait::gte(Column::DueDate.into_expr(), cast(v, "timestamp"))
@@ -1012,14 +1024,7 @@ async fn list_time_entries(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "fromDate": crate::crud::text(&q, "fromDate"),
         "toDate": crate::crud::text(&q, "toDate"),
     });
-    crate::crud::page(
-        &caller.db,
-        time_entries_list,
-        &TIME_ENTRIES,
-        &q,
-        filters,
-    )
-    .await
+    crate::crud::page(&caller.db, time_entries_list, &TIME_ENTRIES, &q, filters).await
 }
 
 async fn get_time_entry(caller: Caller, Path(id): Path<String>) -> Answer {

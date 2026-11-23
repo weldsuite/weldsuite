@@ -419,7 +419,10 @@ async fn list_pages(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = parse_limit(q.get("limit"))?;
-        let term = q.get("search").filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+        let term = q
+            .get("search")
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
         let found = list_rows(&db, &account, term.as_deref(), &cursor, limit).await?;
         let total = count_live(&db, &account).await?;
         Ok(page(rows(found), limit, total))
@@ -748,7 +751,11 @@ async fn insert_page(
     .bind(int(input, "bufferBefore").unwrap_or(0))
     .bind(int(input, "bufferAfter").unwrap_or(0))
     .bind(text(input, "color"))
-    .bind(field(input, "isActive").and_then(Value::as_bool).unwrap_or(true))
+    .bind(
+        field(input, "isActive")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+    )
     .bind(text(input, "locationType"))
     .bind(text(input, "locationValue"))
     .bind(field(input, "availability"))
@@ -892,7 +899,10 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
     };
     let result = async {
         if find(&db, &account, &id).await?.is_none() {
-            return Err(Failure::from(ApiError::not_found("Booking page", Some(&id))));
+            return Err(Failure::from(ApiError::not_found(
+                "Booking page",
+                Some(&id),
+            )));
         }
         soft_delete(&db, &id, &account).await?;
         Ok(no_content())

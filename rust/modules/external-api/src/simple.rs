@@ -144,7 +144,8 @@ pub(crate) fn mount(
         .route(&format!("{}/{{id}}", spec.path), item)
 }
 
-/// The `$3` filters object of a parsed list query.
+/// The filters object (`{ key: value | null }`) of a parsed list query, which
+/// the group's [`Simple::filter`] reads.
 pub(crate) fn filters(spec_filters: &[F], parsed: &Parsed) -> Value {
     let mut out = Map::new();
     for filter in spec_filters {

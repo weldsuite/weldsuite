@@ -287,7 +287,10 @@ async fn refund_duplicate(state: &BillingState, row_id: &str, payment: &Payment)
                     billing_payments::Column::RefundedAmount,
                     Expr::col(billing_payments::Column::Amount),
                 )
-                .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                .col_expr(
+                    billing_payments::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
                 .filter(billing_payments::Column::Id.eq(row_id))
                 .exec(&orm(&state.master))
                 .await
@@ -345,7 +348,10 @@ async fn paid(
                         billing_payments::Column::FailureMessage,
                         Expr::value("A subscription was already running: refunded"),
                     )
-                    .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                    .col_expr(
+                        billing_payments::Column::UpdatedAt,
+                        Expr::current_timestamp(),
+                    )
                     .filter(billing_payments::Column::Id.eq(&row.id))
                     .exec(tx)
                     .await?;
@@ -450,7 +456,10 @@ async fn paid(
                 );
                 billing_payments::Entity::update_many()
                     .col_expr(billing_payments::Column::FailureMessage, noted)
-                    .col_expr(billing_payments::Column::UpdatedAt, Expr::current_timestamp())
+                    .col_expr(
+                        billing_payments::Column::UpdatedAt,
+                        Expr::current_timestamp(),
+                    )
                     .filter(billing_payments::Column::Id.eq(settles))
                     .exec(tx)
                     .await?;
@@ -530,7 +539,10 @@ async fn clear_past_due_on(
     }
     account::clear_past_due(tx, workspace_id).await?;
     workspaces::Entity::update_many()
-        .col_expr(workspaces::Column::SubscriptionStatus, Expr::value("active"))
+        .col_expr(
+            workspaces::Column::SubscriptionStatus,
+            Expr::value("active"),
+        )
         .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
         .filter(workspaces::Column::Id.eq(workspace_id))
         .filter(workspaces::Column::SubscriptionStatus.eq("past_due"))

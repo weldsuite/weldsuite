@@ -165,7 +165,10 @@ pub(crate) async fn set_mandate(
 ) -> Result<(), DbErr> {
     update(workspace_id)
         .col_expr(Column::MandateId, Expr::value(mandate_id.to_owned()))
-        .col_expr(Column::MandateMethod, Expr::value(method.map(str::to_owned)))
+        .col_expr(
+            Column::MandateMethod,
+            Expr::value(method.map(str::to_owned)),
+        )
         .col_expr(Column::MandateLabel, Expr::value(label.map(str::to_owned)))
         .exec(tx)
         .await?;

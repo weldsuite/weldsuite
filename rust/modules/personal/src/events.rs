@@ -633,7 +633,16 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             None => None,
         };
         let id = weldsuite_kit::generate_id("evt");
-        insert_event(&db, &id, &account, &caller.user_id, &input, &start, end.as_deref()).await?;
+        insert_event(
+            &db,
+            &id,
+            &account,
+            &caller.user_id,
+            &input,
+            &start,
+            end.as_deref(),
+        )
+        .await?;
         Ok(created(json!({ "id": id })))
     }
     .await;
@@ -680,8 +689,20 @@ async fn insert_event(
     .bind(text(input, "location"))
     .bind(input.is_virtual)
     .bind(text(input, "meetingUrl"))
-    .bind(input.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("confirmed"))
-    .bind(input.priority.as_deref().filter(|p| !p.is_empty()).unwrap_or("normal"))
+    .bind(
+        input
+            .status
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("confirmed"),
+    )
+    .bind(
+        input
+            .priority
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or("normal"),
+    )
     .bind(text(input, "color"))
     .bind(text(input, "recurrenceRule"))
     .bind(text(input, "recurrenceId"))
@@ -829,7 +850,10 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
     };
     let result = async {
         if find(&db, &account, &id).await?.is_none() {
-            return Err(Failure::from(ApiError::not_found("Calendar event", Some(&id))));
+            return Err(Failure::from(ApiError::not_found(
+                "Calendar event",
+                Some(&id),
+            )));
         }
         soft_delete(&db, &id, &account).await?;
         Ok(no_content())

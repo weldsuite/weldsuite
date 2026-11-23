@@ -15,8 +15,8 @@ use weldsuite_catalogs::entity_events::{
     DNS_RECORD_CREATED, DNS_RECORD_DELETED, DNS_RECORD_UPDATED, DNS_ZONE_CREATED, DNS_ZONE_DELETED,
     DNS_ZONE_UPDATED, DOMAIN_CREATED, DOMAIN_DELETED, DOMAIN_UPDATED,
 };
-use weldsuite_kit::id::generate_id;
 use weldsuite_db::orm;
+use weldsuite_kit::id::generate_id;
 use weldsuite_schema::tenant::enums::{HostDomainRegistrationStatus, HostDomainStatus};
 use weldsuite_schema::tenant::{dns_records, dns_zones, domains, reach_domains};
 
@@ -185,16 +185,14 @@ async fn list_domains(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         Some(status) => json!(status),
     };
     let filters = json!({ "search": like(&q, "search"), "status": status });
-    Ok(
-        list_page_mapped(
-            &caller.db,
-            &DOMAINS.entity,
-            domains_list(&filters),
-            &list_query(&q),
-            |row| public_domain(DOMAINS.js(row)),
-        )
-        .await?,
+    Ok(list_page_mapped(
+        &caller.db,
+        &DOMAINS.entity,
+        domains_list(&filters),
+        &list_query(&q),
+        |row| public_domain(DOMAINS.js(row)),
     )
+    .await?)
 }
 
 async fn get_domain(caller: Caller, Path(id): Path<String>) -> Answer {

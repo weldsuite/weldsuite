@@ -17,7 +17,9 @@
 use http::StatusCode;
 use sea_orm::sea_query::extension::postgres as pg;
 use sea_orm::sea_query::{Expr, Func};
-use sea_orm::{ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use time::OffsetDateTime;
 use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::ApiError;
@@ -372,7 +374,10 @@ const WELDREACH_APP: &str = "weldreach";
 
 /// `update workspace_app_access set billing_status = $to, billing_status_at = now(),
 /// updated_at = now()` on the workspace's WeldReach row.
-fn set_billing_status(workspace_id: &str, to: &str) -> sea_orm::UpdateMany<workspace_app_access::Entity> {
+fn set_billing_status(
+    workspace_id: &str,
+    to: &str,
+) -> sea_orm::UpdateMany<workspace_app_access::Entity> {
     use workspace_app_access::Column as A;
     workspace_app_access::Entity::update_many()
         .col_expr(A::BillingStatus, Expr::value(to.to_owned()))

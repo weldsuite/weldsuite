@@ -253,9 +253,7 @@ impl Table {
 
     /// Delete the row `id`; the deleted row, if there was one.
     pub(crate) async fn delete(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
-        let row = orm(db)
-            .query_one_raw((self.delete.statement)(id)?)
-            .await?;
+        let row = orm(db).query_one_raw((self.delete.statement)(id)?).await?;
         row.as_ref()
             .map(self.delete.json)
             .transpose()
@@ -308,9 +306,9 @@ mod tests {
         let statement = (crate::tables_gen::DNS_RECORDS.delete.statement)("rec_1")
             .unwrap_or_else(|error| panic!("{error}"));
         assert!(
-            statement
-                .sql
-                .starts_with(r#"DELETE FROM "dns_records" WHERE "dns_records"."id" = $1 RETURNING "id", "#),
+            statement.sql.starts_with(
+                r#"DELETE FROM "dns_records" WHERE "dns_records"."id" = $1 RETURNING "id", "#
+            ),
             "{}",
             statement.sql
         );

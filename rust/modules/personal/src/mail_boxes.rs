@@ -341,7 +341,10 @@ async fn create_draft(caller: Caller, headers: HeaderMap, body: Bytes) -> Respon
         let db = caller.personal()?;
         let mailbox = input["accountId"].as_str().unwrap_or_default().to_owned();
         if !owns_mailbox(db, &account, &mailbox).await? {
-            return Err(Failure::from(ApiError::not_found("Mail account", Some(&mailbox))));
+            return Err(Failure::from(ApiError::not_found(
+                "Mail account",
+                Some(&mailbox),
+            )));
         }
         let row = insert_draft(db, &account, &mailbox, &input).await?;
         Ok(created(weldsuite_db::js_row(row)))
@@ -453,7 +456,11 @@ async fn update_draft(
     clippy::disallowed_methods,
     reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
 )]
-async fn update_draft_row(db: &PgPool, id: &str, input: &Map<String, Value>) -> Result<Value, DbErr> {
+async fn update_draft_row(
+    db: &PgPool,
+    id: &str,
+    input: &Map<String, Value>,
+) -> Result<Value, DbErr> {
     let set = |key: &str| input.contains_key(key);
     let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
     let json = |key: &str| input.get(key).cloned();

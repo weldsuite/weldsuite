@@ -121,9 +121,9 @@ pub(crate) fn always<C: Into<Condition>>(
 
 /// `t.<column> like $pattern or …`: the pattern on any of the columns.
 pub(crate) fn like_any<C: ColumnTrait>(columns: &[C], pattern: &str) -> Condition {
-    columns
-        .iter()
-        .fold(Condition::any(), |any, column| any.add(column.like(pattern)))
+    columns.iter().fold(Condition::any(), |any, column| {
+        any.add(column.like(pattern))
+    })
 }
 
 /// `t.<enum column>::text = $value`: an enum compared by its label, so a
@@ -347,7 +347,7 @@ mod tests {
             sql,
             concat!(
                 r#"SELECT "id" FROM "project_goals" WHERE "project_goals"."deleted_at" IS NULL AND "#,
-                r#"(NOT EXISTS(SELECT $1 FROM "project_goals" AS "cursor_row" WHERE "cursor_row"."id" = $2 LIMIT $3) "#,
+                r#"((NOT EXISTS(SELECT $1 FROM "project_goals" AS "cursor_row" WHERE "cursor_row"."id" = $2 LIMIT $3)) "#,
                 r#"OR "project_goals"."created_at" < (SELECT date_trunc($4, "cursor_row"."created_at") FROM "project_goals" AS "cursor_row" WHERE "cursor_row"."id" = $5 LIMIT $6) "#,
                 r#"OR ("project_goals"."created_at" = (SELECT date_trunc($7, "cursor_row"."created_at") FROM "project_goals" AS "cursor_row" WHERE "cursor_row"."id" = $8 LIMIT $9) "#,
                 r#"AND "project_goals"."id" < $10)) "#,
@@ -370,7 +370,11 @@ mod tests {
 
     #[test]
     fn pages_probe_one_row_more() {
-        let rows = vec![json!({ "id": "a" }), json!({ "id": "b" }), json!({ "id": "c" })];
+        let rows = vec![
+            json!({ "id": "a" }),
+            json!({ "id": "b" }),
+            json!({ "id": "c" }),
+        ];
         let page = Page::of(rows.clone(), 9, 2);
         assert!(page.has_more);
         assert_eq!(page.cursor, json!("b"));

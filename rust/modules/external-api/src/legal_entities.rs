@@ -360,7 +360,10 @@ async fn page_of_ids(db: &PgPool, query: &ListQuery) -> Result<Page, ApiError> {
             .query_all(&page)
             .await?
             .iter()
-            .map(|row| row.try_get::<String>("", "id").map(|id| json!({ "id": id })))
+            .map(|row| {
+                row.try_get::<String>("", "id")
+                    .map(|id| json!({ "id": id }))
+            })
             .collect::<Result<_, _>>()?;
         let mut counted = ids;
         counted.cond_where(live);

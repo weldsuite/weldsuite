@@ -477,7 +477,9 @@ fn executions_list(f: &Value) -> Condition {
         .add(always(f, "workflowId", |v| {
             workflow_executions::Column::WorkflowId.eq(v)
         }))
-        .add_option(when(f, "status", |v| workflow_executions::Column::Status.eq(v)))
+        .add_option(when(f, "status", |v| {
+            workflow_executions::Column::Status.eq(v)
+        }))
 }
 
 async fn list_executions(

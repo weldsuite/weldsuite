@@ -49,8 +49,12 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
 fn articles_list(f: &Value) -> Condition {
     Condition::all()
         .add(helpdesk_articles::Column::DeletedAt.is_null())
-        .add_option(when(f, "search", |v| helpdesk_articles::Column::Title.like(v)))
-        .add_option(when(f, "status", |v| helpdesk_articles::Column::Status.eq(v)))
+        .add_option(when(f, "search", |v| {
+            helpdesk_articles::Column::Title.like(v)
+        }))
+        .add_option(when(f, "status", |v| {
+            helpdesk_articles::Column::Status.eq(v)
+        }))
         .add_option(when(f, "authorId", |v| {
             helpdesk_articles::Column::AuthorId.eq(v)
         }))
