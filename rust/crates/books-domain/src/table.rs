@@ -11,6 +11,7 @@
 //!
 //! The tables are generated in [`crate::tables`] (`tools/tables.mts`).
 
+use sea_orm::DbErr;
 use serde_json::{Map, Value};
 use weldsuite_db::{PgPool, js_timestamp};
 
@@ -79,12 +80,19 @@ pub enum WriteError {
     /// A `date`-mode timestamp got a value that is not a `Date`: Drizzle's
     /// `toISOString` throws before the statement runs (the route's 500).
     NotADate(&'static str),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for WriteError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// For the callers still writing SQL around a [`Table`] write.
 impl From<sqlx::Error> for WriteError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

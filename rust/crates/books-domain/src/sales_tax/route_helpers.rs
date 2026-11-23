@@ -2,13 +2,14 @@
 //! (`services/sales-tax/route-helpers.ts`): the entity of the request, paging,
 //! date and percent checks.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{entities, sales_tax_agencies};
 
 use super::errors::{SalesTaxError, SetupError};
 use crate::entity_context::resolve_entity_id;
 use crate::http::{Caller, Query};
-use crate::tables::{ENTITIES, SALES_TAX_AGENCIES};
 
 /// `new SalesTaxSetupError(message, status)`.
 pub fn setup_error(message: impl Into<String>, status: u16) -> SalesTaxError {
@@ -22,11 +23,11 @@ pub fn setup_error(message: impl Into<String>, status: u16) -> SalesTaxError {
 #[derive(Debug)]
 pub enum SetupFailure {
     Refused(SalesTaxError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for SetupFailure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SetupFailure {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -75,15 +76,12 @@ pub async fn require_entity_id(caller: &Caller) -> Result<String, SetupFailure> 
 /// and a check that its jurisdiction has sales tax at all.
 pub async fn require_sales_tax_entity(caller: &Caller) -> Result<Value, SetupFailure> {
     let entity_id = require_entity_id(caller).await?;
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(entity) = row.map(|r| ENTITIES.js(r)) else {
+    let row = entities::Entity::find()
+        .filter(entities::Column::Id.eq(entity_id.as_str()))
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    let Some(entity) = row.map(js).transpose()? else {
         return Err(setup_error(format!("Accounting entity {entity_id} not found"), 404).into());
     };
     let code = entity["jurisdictionCode"].as_str().unwrap_or("");
@@ -112,17 +110,20 @@ pub async fn require_agency(
     entity_id: &str,
     agency_id: &str,
 ) -> Result<Value, SetupFailure> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_agencies),
-        " from sales_tax_agencies t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(agency_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| SALES_TAX_AGENCIES.js(r))
+    let row = sales_tax_agencies::Entity::find()
+        .filter(sales_tax_agencies::Column::Id.eq(agency_id))
+        .filter(sales_tax_agencies::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_agencies::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(js)
+        .transpose()?
         .ok_or_else(|| setup_error(format!("Sales tax agency {agency_id} not found"), 404).into())
+}
+
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `rangesOverlap(a, b)`: two inclusive date ranges overlap (an empty `to`

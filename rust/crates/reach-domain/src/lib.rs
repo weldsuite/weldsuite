@@ -138,6 +138,27 @@ pub fn js_rows(rows: Vec<Value>) -> Vec<Value> {
     rows.into_iter().map(weldsuite_db::js_row).collect()
 }
 
+/// `serde_json::to_value(model)`: a row as Drizzle returned it, which the
+/// entity's model serializes to.
+pub(crate) fn js(value: serde_json::Result<Value>) -> Result<Value, sea_orm::DbErr> {
+    value.map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+}
+
+/// [`js`] of each model (`models.into_iter().map(serde_json::to_value)`).
+pub(crate) fn js_all(
+    values: impl IntoIterator<Item = serde_json::Result<Value>>,
+) -> Result<Vec<Value>, sea_orm::DbErr> {
+    values.into_iter().map(js).collect()
+}
+
+/// An instant as `iso(at)` bound as `$n::timestamptz` stored it: UTC, to the
+/// millisecond.
+pub(crate) fn stamp(at: OffsetDateTime) -> OffsetDateTime {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    at.replace_nanosecond(u32::from(at.millisecond()) * 1_000_000)
+        .unwrap_or(at)
+}
+
 /// A text column of a row (`row.key`), `None` when null or missing.
 pub fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)

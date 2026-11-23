@@ -3,9 +3,15 @@
 //! its agencies as registrations, and for the manual engine its
 //! jurisdictions, rates, zones and taxability rules. books-api calls it.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{Keyring, PgPool, decrypt_field};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    exemption_certificates, sales_tax_agencies, sales_tax_jurisdiction_rates,
+    sales_tax_jurisdictions, sales_tax_taxability_rules, sales_tax_zones, tax_lines,
+};
 
 use super::engine::{Engine, EngineConfig, create_engine};
 use super::errors::EngineError;
@@ -15,20 +21,16 @@ use super::types::{
     ManualZone, PostalEntry, Registration, TaxUse,
 };
 use crate::jurisdictions::js_trim;
-use crate::tables::{
-    EXEMPTION_CERTIFICATES, SALES_TAX_AGENCIES, SALES_TAX_JURISDICTION_RATES,
-    SALES_TAX_JURISDICTIONS, SALES_TAX_TAXABILITY_RULES, SALES_TAX_ZONES,
-};
 
 /// Why loading failed: the engine can't be configured, or the database.
 #[derive(Debug)]
 pub enum LoadError {
     Engine(EngineError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for LoadError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for LoadError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -260,60 +262,54 @@ fn credential(map: &serde_json::Map<String, Value>, key: &str) -> Option<String>
         .filter(|s| !s.is_empty())
 }
 
+/// Rows as Drizzle returns them.
+fn js_rows<M: serde::Serialize>(rows: Vec<M>) -> Result<Vec<Value>, DbErr> {
+    rows.into_iter()
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
+}
+
 /// The manual engine's rows of an entity: active jurisdictions, rates, zones
 /// and rules (the four parallel selects of `loadSalesTaxContext`).
-pub async fn load_manual_data(db: &PgPool, entity_id: &str) -> Result<ManualData, sqlx::Error> {
-    let jurisdictions: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_jurisdictions),
-        " from sales_tax_jurisdictions t where t.entity_id = $1 and t.deleted_at is null and t.is_active = true"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let rates: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_jurisdiction_rates),
-        " from sales_tax_jurisdiction_rates t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let zones: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_zones),
-        " from sales_tax_zones t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let rules: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_taxability_rules),
-        " from sales_tax_taxability_rules t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+pub async fn load_manual_data(db: &PgPool, entity_id: &str) -> Result<ManualData, DbErr> {
+    let db = &orm(db);
+    let jurisdictions = sales_tax_jurisdictions::Entity::find()
+        .filter(sales_tax_jurisdictions::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_jurisdictions::Column::DeletedAt.is_null())
+        .filter(sales_tax_jurisdictions::Column::IsActive.eq(true))
+        .all(db)
+        .await?;
+    let rates = sales_tax_jurisdiction_rates::Entity::find()
+        .filter(sales_tax_jurisdiction_rates::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_jurisdiction_rates::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
+    let zones = sales_tax_zones::Entity::find()
+        .filter(sales_tax_zones::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_zones::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
+    let rules = sales_tax_taxability_rules::Entity::find()
+        .filter(sales_tax_taxability_rules::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_taxability_rules::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
     Ok(build_manual_engine_data(
-        &SALES_TAX_JURISDICTIONS.js_rows(jurisdictions),
-        &SALES_TAX_JURISDICTION_RATES.js_rows(rates),
-        &SALES_TAX_ZONES.js_rows(zones),
-        &SALES_TAX_TAXABILITY_RULES.js_rows(rules),
+        &js_rows(jurisdictions)?,
+        &js_rows(rates)?,
+        &js_rows(zones)?,
+        &js_rows(rules)?,
     ))
 }
 
 /// An entity's live agencies, as Drizzle returns them.
-pub async fn load_agencies(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(sales_tax_agencies),
-        " from sales_tax_agencies t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    Ok(SALES_TAX_AGENCIES.js_rows(rows))
+pub async fn load_agencies(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = sales_tax_agencies::Entity::find()
+        .filter(sales_tax_agencies::Column::EntityId.eq(entity_id))
+        .filter(sales_tax_agencies::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    js_rows(rows)
 }
 
 /// `loadSalesTaxContext(db, entityId, opts)`.
@@ -396,29 +392,31 @@ pub async fn load_customer_certificates(
     db: &PgPool,
     entity_id: &str,
     party_id: &str,
-) -> Result<Vec<CertificateRef>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(exemption_certificates),
-        " from exemption_certificates t where t.entity_id = $1 and t.party_id = $2 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .bind(party_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<CertificateRef>, DbErr> {
+    let db = &orm(db);
+    let rows = exemption_certificates::Entity::find()
+        .filter(exemption_certificates::Column::EntityId.eq(entity_id))
+        .filter(exemption_certificates::Column::PartyId.eq(party_id))
+        .filter(exemption_certificates::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = EXEMPTION_CERTIFICATES.js_rows(rows);
+    let rows = js_rows(rows)?;
     let ids: Vec<String> = rows.iter().filter_map(|r| owned(r, "id")).collect();
-    let used: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select certificate_id, max(tax_date)::text from tax_lines \
-         where entity_id = $1 and certificate_id = any($2) group by certificate_id",
-    )
-    .bind(entity_id)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    // `max(tax_date)::text`: the day as Postgres prints it.
+    let last_used = Expr::col(tax_lines::Column::TaxDate).max().cast_as("text");
+    let used: Vec<(Option<String>, Option<String>)> = tax_lines::Entity::find()
+        .select_only()
+        .column(tax_lines::Column::CertificateId)
+        .column_as(last_used, "last_used")
+        .filter(tax_lines::Column::EntityId.eq(entity_id))
+        .filter(tax_lines::Column::CertificateId.is_in(ids))
+        .group_by(tax_lines::Column::CertificateId)
+        .into_tuple()
+        .all(db)
+        .await?;
     Ok(rows
         .iter()
         .map(|row| {

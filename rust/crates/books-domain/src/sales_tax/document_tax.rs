@@ -14,9 +14,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{entities, invoice_items, invoices, parties, products};
 
 use super::engine::{Engine, EngineConfig, create_engine};
 use super::errors::{DocumentError, EngineError, SalesTaxError, address_required};
@@ -186,14 +189,20 @@ pub struct Runtime {
 pub async fn load_sales_tax_entity(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<SalesTaxEntity>, sqlx::Error> {
-    let row: Option<(String, String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select id, jurisdiction_code, base_currency, address from entities \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<SalesTaxEntity>, DbErr> {
+    let row: Option<(String, String, Option<String>, Option<Value>)> = entities::Entity::find()
+        .select_only()
+        .columns([
+            entities::Column::Id,
+            entities::Column::JurisdictionCode,
+            entities::Column::BaseCurrency,
+            entities::Column::Address,
+        ])
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(
         |(id, jurisdiction_code, base_currency, address)| SalesTaxEntity {
             id,
@@ -444,7 +453,7 @@ pub fn resolve_line_tax_code(line_code: Option<&str>, product: Option<&ProductTa
 async fn load_products(
     db: &PgPool,
     items: &[TaxItem],
-) -> Result<HashMap<String, ProductTax>, sqlx::Error> {
+) -> Result<HashMap<String, ProductTax>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for id in items.iter().filter_map(|i| i.product_id.as_deref()) {
         if !id.is_empty() && !ids.iter().any(|x| x == id) {
@@ -454,11 +463,17 @@ async fn load_products(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Option<String>, Option<bool>)> =
-        sqlx::query_as("select id, tax_class, taxable from products where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, Option<String>, Option<bool>)> = products::Entity::find()
+        .select_only()
+        .columns([
+            products::Column::Id,
+            products::Column::TaxClass,
+            products::Column::Taxable,
+        ])
+        .filter(products::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, tax_class, taxable)| (id, ProductTax { tax_class, taxable }))
@@ -468,16 +483,18 @@ async fn load_products(
 async fn load_customer_use(
     db: &PgPool,
     contact_id: Option<&str>,
-) -> Result<Option<TaxUse>, sqlx::Error> {
+) -> Result<Option<TaxUse>, DbErr> {
     let Some(contact_id) = contact_id.filter(|c| !c.is_empty()) else {
         return Ok(None);
     };
-    let row: Option<(Option<String>,)> =
-        sqlx::query_as("select tax_use from parties where id = $1 limit 1")
-            .bind(contact_id)
-            .fetch_optional(db)
-            .await?;
-    Ok(use_of(row.and_then(|(u,)| u).as_deref()))
+    let row: Option<Option<String>> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::TaxUse)
+        .filter(parties::Column::Id.eq(contact_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(use_of(row.flatten().as_deref()))
 }
 
 fn is_foreign(address: Option<&Value>) -> bool {
@@ -864,6 +881,27 @@ type OriginalItem = (
     Option<i32>,
 );
 
+/// The live lines of the credited invoice, their amounts as Postgres prints
+/// them (`unit_price::text`, …).
+async fn original_lines(db: &PgPool, invoice_id: &str) -> Result<Vec<OriginalItem>, DbErr> {
+    let as_text = |column: invoice_items::Column| Expr::col(column).cast_as("text");
+    invoice_items::Entity::find()
+        .select_only()
+        .columns([invoice_items::Column::Id, invoice_items::Column::Description])
+        .column_as(as_text(invoice_items::Column::UnitPrice), "unit_price")
+        .column_as(as_text(invoice_items::Column::Quantity), "quantity")
+        .column_as(
+            as_text(invoice_items::Column::DiscountPercent),
+            "discount_percent",
+        )
+        .column(invoice_items::Column::SortOrder)
+        .filter(invoice_items::Column::InvoiceId.eq(invoice_id))
+        .filter(invoice_items::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `calculateCreditMemo(db, doc, items)`: a credit memo never asks the
 /// engine; it reverses the original invoice's jurisdictions and rates.
 #[allow(
@@ -882,27 +920,25 @@ async fn calculate_credit_memo(
         )
         .into());
     };
-    let original: Option<OriginalInvoice> =
-        sqlx::query_as(
-            "select id, tax_breakdown, tax_engine, marketplace_facilitated, shipping_address, billing_address \
-             from invoices where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(original_id)
-        .fetch_optional(db)
+    let original: Option<OriginalInvoice> = invoices::Entity::find()
+        .select_only()
+        .columns([
+            invoices::Column::Id,
+            invoices::Column::TaxBreakdown,
+            invoices::Column::TaxEngine,
+            invoices::Column::MarketplaceFacilitated,
+            invoices::Column::ShippingAddress,
+            invoices::Column::BillingAddress,
+        ])
+        .filter(invoices::Column::Id.eq(original_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
         .await?;
-    let original_items: Vec<OriginalItem> =
-        match &original {
-            Some((id, ..)) => {
-                sqlx::query_as(
-                    "select id, description, unit_price::text, quantity::text, discount_percent::text, sort_order \
-                     from invoice_items where invoice_id = $1 and deleted_at is null",
-                )
-                .bind(id)
-                .fetch_all(db)
-                .await?
-            }
-            None => Vec::new(),
-        };
+    let original_items: Vec<OriginalItem> = match &original {
+        Some((id, ..)) => original_lines(db, id).await?,
+        None => Vec::new(),
+    };
     let original_rows: Vec<Value> = original
         .as_ref()
         .and_then(|o| o.1.as_ref())
@@ -1183,12 +1219,14 @@ pub async fn accrue_use_tax(
     }))
 }
 
-async fn entity_uses_stripe(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-    let engine: Option<Option<String>> =
-        sqlx::query_scalar("select sales_tax_engine from entities where id = $1 limit 1")
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+async fn entity_uses_stripe(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
+    let engine: Option<Option<String>> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::SalesTaxEngine)
+        .filter(entities::Column::Id.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(engine.flatten().as_deref() == Some("stripe_tax"))
 }
 

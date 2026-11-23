@@ -88,8 +88,14 @@ impl fmt::Display for ReachError {
 
 impl std::error::Error for ReachError {}
 
+impl From<sea_orm::DbErr> for ReachError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::unexpected(&error)
+    }
+}
+
 impl From<sqlx::Error> for ReachError {
     fn from(error: sqlx::Error) -> Self {
-        Self::unexpected(&error)
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
