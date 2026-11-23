@@ -115,13 +115,13 @@ pub async fn records_in_entity(
         return Ok(true);
     }
     let rows = orm(db).query_all(&table.entities_of(wanted)).await?;
-    for row in rows {
-        let entity: Option<String> = row.try_get_by_index(0)?;
-        if !record_in_request_entity(request, entity.as_deref()) {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    let entities = rows
+        .iter()
+        .map(|row| row.try_get_by_index::<Option<String>>(0))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(entities
+        .iter()
+        .all(|entity| record_in_request_entity(request, entity.as_deref())))
 }
 
 /// How a guard finds a record's entity: the statement, for a record id, whose

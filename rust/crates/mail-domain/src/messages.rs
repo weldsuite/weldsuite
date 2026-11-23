@@ -318,22 +318,13 @@ pub async fn list_messages_wide(
     db: &PgPool,
     filters: &MessageFilters,
 ) -> Result<MessagePage, DbErr> {
-    use sea_orm::ExprTrait as _;
     let limit = filters.limit.unwrap_or(50).min(100);
     let values = filters.values(db).await?;
     let condition = filters.condition(&values);
     let conn = orm(db);
     let mut page = mail_messages::Entity::find().filter(condition.clone());
     if let Some((at, id)) = &filters.cursor {
-        // `sent_date < $at::timestamp or (sent_date = $at::timestamp and id < $id)`.
-        let at = || Expr::val(at.as_str()).cast_as("timestamp");
-        page = page.filter(
-            Condition::any().add(msg(Column::SentDate).lt(at())).add(
-                Condition::all()
-                    .add(msg(Column::SentDate).eq(at()))
-                    .add(Column::Id.lt(id.as_str())),
-            ),
-        );
+        page = page.filter(before_cursor(at, id));
     }
     let rows = page
         .order_by_desc(Column::SentDate)
@@ -360,6 +351,19 @@ pub async fn list_messages_wide(
         has_more,
         total_count: i64::from(total),
     })
+}
+
+/// After the cursor, newest first: `sent_date < $at::timestamp or
+/// (sent_date = $at::timestamp and id < $id)`. The position's time is the
+/// text the cursor carries, cast by Postgres as before.
+fn before_cursor(at: &str, id: &str) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let at = || Expr::val(at).cast_as("timestamp");
+    Condition::any().add(msg(Column::SentDate).lt(at())).add(
+        Condition::all()
+            .add(msg(Column::SentDate).eq(at()))
+            .add(Column::Id.lt(id)),
+    )
 }
 
 /// `count(*)::int`.

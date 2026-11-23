@@ -68,23 +68,7 @@ impl Scope {
     /// none of the rows, or the entities allowed (and the rows without an
     /// entity when the default one is among them).
     pub(crate) fn condition(&self, column: impl ColumnTrait) -> Condition {
-        match &self.0 {
-            EntityScopeCondition::All => Condition::all(),
-            EntityScopeCondition::Nothing => {
-                Condition::all().add(column.is_in(Vec::<String>::new()))
-            }
-            EntityScopeCondition::In {
-                ids,
-                include_unassigned,
-            } => {
-                let scoped = Condition::any().add(column.is_in(ids.iter().map(String::as_str)));
-                if *include_unassigned {
-                    scoped.add(column.is_null())
-                } else {
-                    scoped
-                }
-            }
-        }
+        self.0.condition(column)
     }
 
     /// `employeeIdIn(column, scope)`: `column in (select id from
