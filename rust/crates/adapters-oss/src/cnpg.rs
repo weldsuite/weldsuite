@@ -85,7 +85,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use sea_orm::sea_query::{Alias, Expr, Func, LockBehavior, LockType, OnConflict, Query};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, Order,
+    QueryFilter, QuerySelect,
 };
 use serde::Deserialize;
 use sqlx::postgres::PgConnectOptions;
@@ -557,13 +558,13 @@ impl CnpgProvisioner {
             .column(Column::Id)
             .from(neon_shared_projects::Entity)
             .cond_where(
-                sea_orm::Condition::all()
+                Condition::all()
                     .add(Column::Status.eq(NeonSharedProjectStatus::Active))
                     .add(Column::Region.eq(self.options.region.as_str()))
                     .add(Expr::col(Column::DatabaseCount).lt(Expr::col(Column::MaxDatabases)))
                     .add(Column::NeonProjectId.is_in(keys.iter().map(String::as_str))),
             )
-            .order_by(Column::DatabaseCount, sea_orm::Order::Asc)
+            .order_by(Column::DatabaseCount, Order::Asc)
             .limit(1);
         if skip_locked {
             emptiest.lock_with_behavior(LockType::Update, LockBehavior::SkipLocked);
