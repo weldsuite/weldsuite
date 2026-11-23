@@ -265,8 +265,7 @@ async fn master_database(config: &Config) -> Check {
             return Check::new(Status::Fail, name, format!("DATABASE_URL_MASTER: {error}"));
         }
     };
-    let ping = sqlx::query_scalar::<_, i32>("select 1").fetch_one(&pool);
-    match tokio::time::timeout(DATABASE_TIMEOUT, ping).await {
+    match tokio::time::timeout(DATABASE_TIMEOUT, ping(&pool)).await {
         Ok(Ok(_)) => Check::new(Status::Pass, name, "answers"),
         Ok(Err(error)) => Check::new(
             Status::Fail,
@@ -279,6 +278,15 @@ async fn master_database(config: &Config) -> Check {
             format!("no answer in {} s", DATABASE_TIMEOUT.as_secs()),
         ),
     }
+}
+
+/// `select 1`: whether the database answers, with sqlx's own error text.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a connectivity probe: `select 1` reads no table, and its error is shown as sqlx words it"
+)]
+async fn ping(pool: &weldsuite_db::PgPool) -> Result<i32, sqlx::Error> {
+    sqlx::query_scalar::<_, i32>("select 1").fetch_one(pool).await
 }
 
 /// The AI checks: the install provider, each key the install holds, and,

@@ -74,6 +74,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::sea_query::{Alias, Func, Query};
+use sea_orm::{ConnectionTrait, DbErr};
 use serde_json::json;
 use tokio::sync::watch;
 use weldsuite_adapters_oss::{
@@ -81,7 +83,7 @@ use weldsuite_adapters_oss::{
     ValkeyRealtime, connect_valkey, dead_letter_stream_config, ensure_consumer,
     entity_events_stream_config, run_consumer,
 };
-use weldsuite_db::{PgPool, Workspaces, master_pool};
+use weldsuite_db::{OrmConn, PgPool, Workspaces, master_pool, orm_error};
 use weldsuite_ports::{BatchHandler, DynFileStore, DynJobs, DynRealtimePublisher, Embeddings};
 use weldsuite_subscribers::audit::LOCKED_MAX_RETRIES;
 use weldsuite_subscribers::{
@@ -1165,17 +1167,29 @@ async fn sweep_once(
     master: &PgPool,
     tenants: &dyn Tenants,
     http: &WebhookHttp,
-) -> Result<bool, sqlx::Error> {
-    let mut lock = master.begin().await?;
-    let mine: bool = sqlx::query_scalar("select pg_try_advisory_xact_lock($1)")
-        .bind(WEBHOOK_SWEEP_LOCK)
-        .fetch_one(&mut *lock)
-        .await?;
+) -> Result<bool, DbErr> {
+    let mut lock = master.begin().await.map_err(orm_error)?;
+    let mine = try_sweep_lock(&OrmConn::new(&mut lock)).await?;
     if mine {
         run_webhook_retry_sweep(master, tenants, http).await;
     }
-    lock.commit().await?;
+    lock.commit().await.map_err(orm_error)?;
     Ok(mine)
+}
+
+/// `select pg_try_advisory_xact_lock(WEBHOOK_SWEEP_LOCK)`: whether this
+/// transaction got the sweep's lock (held until it ends).
+async fn try_sweep_lock(db: &OrmConn<'_>) -> Result<bool, DbErr> {
+    let mut select = Query::select();
+    select.expr_as(
+        Func::cust("pg_try_advisory_xact_lock").arg(WEBHOOK_SWEEP_LOCK),
+        Alias::new("mine"),
+    );
+    let row = db
+        .query_one(&select)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("pg_try_advisory_xact_lock".to_owned()))?;
+    row.try_get("", "mine")
 }
 
 #[cfg(test)]

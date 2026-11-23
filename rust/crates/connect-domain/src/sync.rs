@@ -9,8 +9,14 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, RuntimeErr,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool};
+use time::PrimitiveDateTime;
+use weldsuite_db::{Keyring, PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{connector_connections as connections, connector_sync_runs as runs};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, OutboundHttp};
@@ -21,7 +27,6 @@ use crate::ingest::{
     IngestArgs, IngestResult, MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET, MoneybirdFiles,
     STRIPE_PDF_DOWNLOAD_BUDGET, StripeFiles, ingest_records,
 };
-use crate::js::now_iso;
 use crate::mappers::modified_at_of;
 use crate::provider::ProviderClient;
 
@@ -175,20 +180,20 @@ pub async fn start_sync_run(
     model: &str,
     trigger: &str,
     sync_type: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("crun");
-    sqlx::query(
-        "insert into connector_sync_runs (id, connection_id, sync_name, model, status, trigger, sync_type, started_at)
-         values ($1, $2, $3, $4, 'running', $5, $6, $7::timestamp)",
-    )
-    .bind(&id)
-    .bind(connection_id)
-    .bind(sync_name)
-    .bind(model)
-    .bind(trigger)
-    .bind(sync_type)
-    .bind(now_iso())
-    .execute(db)
+    runs::Entity::insert(runs::ActiveModel {
+        id: Set(id.clone()),
+        connection_id: Set(connection_id.to_owned()),
+        sync_name: Set(sync_name.to_owned()),
+        model_: Set(model.to_owned()),
+        status: Set("running".to_owned()),
+        trigger: Set(trigger.to_owned()),
+        sync_type: Set(Some(sync_type.to_owned())),
+        started_at: Set(utc_now()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(id)
 }
@@ -202,74 +207,111 @@ pub struct RunEnd<'a> {
     pub watermarks: Vec<(String, Option<String>)>,
 }
 
+/// `(extract(epoch from (finished - started)) * 1000)::bigint`: whole
+/// milliseconds, a half rounded away from zero as `numeric` casts.
+fn duration_ms(started: PrimitiveDateTime, finished: PrimitiveDateTime) -> i64 {
+    let micros = (finished - started).whole_microseconds();
+    let millis = if micros < 0 {
+        -((-micros + 500) / 1000)
+    } else {
+        (micros + 500) / 1000
+    };
+    i64::try_from(millis).unwrap_or(if millis < 0 { i64::MIN } else { i64::MAX })
+}
+
 /// `finishSyncRun(...)`.
 pub async fn finish_sync_run(
     db: &PgPool,
     run_id: &str,
     connection_id: &str,
     end: &RunEnd<'_>,
-) -> Result<(), sqlx::Error> {
-    let now = now_iso();
+) -> Result<(), DbErr> {
+    let now = utc_now();
     let error = end
         .error
         .as_deref()
         .filter(|e| !e.is_empty())
         .map(|e| crate::mappers::slice_units(e, 2000));
     let samples = (!end.applied.error_samples.is_empty()).then(|| end.applied.samples_json());
-    sqlx::query(
-        "update connector_sync_runs set status = $1, records_added = 0, records_updated = 0,
-           records_deleted = 0, records_created = $2, records_modified = $3, records_skipped = $4,
-           records_failed = $5, finished_at = $6::timestamp,
-           duration_ms = case when started_at is null then null
-             else (extract(epoch from ($6::timestamp - started_at)) * 1000)::bigint end,
-           error = $7, error_samples = $8
-         where id = $9",
-    )
-    .bind(end.status)
-    .bind(i64::try_from(end.applied.created).unwrap_or(i64::MAX))
-    .bind(i64::try_from(end.applied.modified).unwrap_or(i64::MAX))
-    .bind(i64::try_from(end.applied.skipped).unwrap_or(i64::MAX))
-    .bind(i64::try_from(end.applied.failed).unwrap_or(i64::MAX))
-    .bind(&now)
-    .bind(&error)
-    .bind(samples)
-    .bind(run_id)
-    .execute(db)
-    .await?;
+    let db = &orm(db);
+    // `duration_ms = case when started_at is null then null else … end`.
+    let started: Option<PrimitiveDateTime> = runs::Entity::find()
+        .select_only()
+        .column(runs::Column::StartedAt)
+        .filter(runs::Column::Id.eq(run_id))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let count = |n: u64| Expr::value(i64::try_from(n).unwrap_or(i64::MAX));
+    runs::Entity::update_many()
+        .col_expr(runs::Column::Status, Expr::value(end.status))
+        .col_expr(runs::Column::RecordsAdded, Expr::value(0))
+        .col_expr(runs::Column::RecordsUpdated, Expr::value(0))
+        .col_expr(runs::Column::RecordsDeleted, Expr::value(0))
+        .col_expr(runs::Column::RecordsCreated, count(end.applied.created))
+        .col_expr(runs::Column::RecordsModified, count(end.applied.modified))
+        .col_expr(runs::Column::RecordsSkipped, count(end.applied.skipped))
+        .col_expr(runs::Column::RecordsFailed, count(end.applied.failed))
+        .col_expr(runs::Column::FinishedAt, Expr::value(now))
+        .col_expr(
+            runs::Column::DurationMs,
+            Expr::value(started.map(|started| duration_ms(started, now))),
+        )
+        .col_expr(runs::Column::Error, Expr::value(error.clone()))
+        .col_expr(runs::Column::ErrorSamples, Expr::value(samples))
+        .filter(runs::Column::Id.eq(run_id))
+        .exec(db)
+        .await?;
     let applied = i64::try_from(end.applied.created + end.applied.modified).unwrap_or(i64::MAX);
     let set: Map<String, Value> = end
         .watermarks
         .iter()
         .filter_map(|(k, v)| v.as_ref().map(|v| (k.clone(), json!(v))))
         .collect();
-    let remove: Vec<String> = end
-        .watermarks
-        .iter()
-        .filter(|(_, v)| v.is_none())
-        .map(|(k, _)| k.clone())
-        .collect();
-    let touch_watermarks = !end.watermarks.is_empty();
-    sqlx::query(
-        "update connector_connections set last_sync_at = $1::timestamp, last_sync_status = $2,
-           last_error = $3, last_error_at = case when $3::text is null then null else $1::timestamp end,
-           records_synced = records_synced + $4,
-           sync_watermarks = case when $5 then (coalesce(sync_watermarks, '{}'::jsonb) || $6::jsonb) - $7::text[]
-             else sync_watermarks end,
-           status = case when status = 'auth_error' then 'auth_error'
-             when $2 = 'error' then 'sync_error' when status = 'paused' then 'paused' else 'active' end,
-           updated_at = $1::timestamp
-         where id = $8",
-    )
-    .bind(&now)
-    .bind(end.status)
-    .bind(&error)
-    .bind(applied)
-    .bind(touch_watermarks)
-    .bind(Value::Object(set))
-    .bind(&remove)
-    .bind(connection_id)
-    .execute(db)
-    .await?;
+    // `status = case when status = 'auth_error' then 'auth_error' when $2 =
+    // 'error' then 'sync_error' when status = 'paused' then 'paused' else
+    // 'active' end`.
+    let status = if end.status == "error" {
+        Expr::case(connections::Column::Status.eq("auth_error"), "auth_error").finally("sync_error")
+    } else {
+        Expr::case(connections::Column::Status.eq("auth_error"), "auth_error")
+            .case(connections::Column::Status.eq("paused"), "paused")
+            .finally("active")
+    };
+    let mut update = connections::Entity::update_many()
+        .col_expr(connections::Column::LastSyncAt, Expr::value(now))
+        .col_expr(connections::Column::LastSyncStatus, Expr::value(end.status))
+        .col_expr(
+            connections::Column::LastErrorAt,
+            Expr::value(error.is_some().then_some(now)),
+        )
+        .col_expr(connections::Column::LastError, Expr::value(error))
+        .col_expr(
+            connections::Column::RecordsSynced,
+            sea_orm::ExprTrait::add(Expr::col(connections::Column::RecordsSynced), applied),
+        )
+        .col_expr(connections::Column::Status, status.into())
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now));
+    if !end.watermarks.is_empty() {
+        // `(coalesce(sync_watermarks, '{}') || $set) - $remove`: one key at a time.
+        let mut watermarks = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+            Expr::from(Func::coalesce([
+                Expr::col(connections::Column::SyncWatermarks),
+                Expr::val(json!({})),
+            ])),
+            Expr::val(Value::Object(set)),
+        );
+        for (key, value) in &end.watermarks {
+            if value.is_none() {
+                watermarks = sea_orm::ExprTrait::sub(watermarks, Expr::val(key.as_str()));
+            }
+        }
+        update = update.col_expr(connections::Column::SyncWatermarks, watermarks);
+    }
+    update
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -279,18 +321,31 @@ pub async fn mark_connection_error(
     connection_id: &str,
     status: &str,
     message: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update connector_connections set status = $1, last_error = $2, last_error_at = $3::timestamp,
-           updated_at = $3::timestamp where id = $4",
-    )
-    .bind(status)
-    .bind(crate::mappers::slice_units(message, 2000))
-    .bind(now_iso())
-    .bind(connection_id)
-    .execute(db)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    connections::Entity::update_many()
+        .set(connections::ActiveModel {
+            status: Set(status.to_owned()),
+            last_error: Set(Some(crate::mappers::slice_units(message, 2000))),
+            last_error_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+}
+
+/// A database error's text as sqlx wrote it (SeaORM's wrapper adds a
+/// prefix of its own): what a failed run records and logs.
+pub(crate) fn db_error_text(error: &DbErr) -> String {
+    match error {
+        DbErr::Conn(RuntimeErr::SqlxError(inner))
+        | DbErr::Exec(RuntimeErr::SqlxError(inner))
+        | DbErr::Query(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+        other => other.to_string(),
+    }
 }
 
 // ── the runner ──────────────────────────────────────────────────────────────
@@ -300,11 +355,11 @@ pub async fn mark_connection_error(
 #[derive(Debug)]
 pub enum SyncError {
     Connector(ConnectorError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -319,7 +374,7 @@ impl std::fmt::Display for SyncError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Connector(error) => f.write_str(&error.message),
-            Self::Database(error) => error.fmt(f),
+            Self::Database(error) => f.write_str(&db_error_text(error)),
         }
     }
 }

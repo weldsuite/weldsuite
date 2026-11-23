@@ -3,8 +3,17 @@
 //! with the workspace keyring), the shape the client sees, sync runs and the
 //! records a connection imported.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, js_row};
+use weldsuite_db::{Keyring, PgPool, js_row, orm, utc_now};
+use weldsuite_schema::tenant::{
+    bank_accounts, bank_transactions, bills, companies, connector_connections as connections,
+    connector_sync_runs, integration_entity_mappings as mappings, integration_field_mappings,
+    invoices, orders, parties, people, product_sales_channels, products,
+};
 
 use crate::catalog::{get_connector, syncs};
 
@@ -39,24 +48,55 @@ pub fn encrypt_credentials(
 
 pub use crate::clients::decrypt_credentials;
 
+/// A model as JSON, the error as the database's.
+pub(crate) fn json_of(model: impl serde::Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// A `connector_connections` row as `to_jsonb(c)` gave it, which the
+/// connection's readers expect: the columns' `snake_case` names (the
+/// timestamps as `toISOString()`, which [`js_row`] keeps as they are).
+pub(crate) fn connection_row(model: connections::Model) -> Result<Value, DbErr> {
+    let Value::Object(columns) = json_of(model)? else {
+        return Ok(Value::Null);
+    };
+    let mut row = Map::with_capacity(columns.len());
+    for (key, value) in columns {
+        let mut column = String::with_capacity(key.len() + 4);
+        for c in key.chars() {
+            if c.is_ascii_uppercase() {
+                column.push('_');
+                column.push(c.to_ascii_lowercase());
+            } else {
+                column.push(c);
+            }
+        }
+        row.insert(column, value);
+    }
+    Ok(Value::Object(row))
+}
+
 /// `getConnectionById(db, id)`: the row (`to_jsonb`, `snake_case`), not deleted.
-pub async fn get_connection(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(c) from connector_connections c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+pub async fn get_connection(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::Id.eq(id))
+        .filter(connections::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(connection_row)
+        .transpose()
 }
 
 /// `listConnections(db)`: newest first.
-pub async fn list_connections(db: &PgPool) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(c) from connector_connections c where c.deleted_at is null
-         order by c.created_at desc",
-    )
-    .fetch_all(db)
-    .await
+pub async fn list_connections(db: &PgPool) -> Result<Vec<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::DeletedAt.is_null())
+        .order_by_desc(connections::Column::CreatedAt)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(connection_row)
+        .collect()
 }
 
 fn or_value(value: Option<&Value>, fallback: Value) -> Value {
@@ -165,16 +205,155 @@ pub async fn list_sync_runs(
     db: &PgPool,
     connection_id: &str,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from connector_sync_runs r where r.connection_id = $1
-         order by r.created_at desc limit $2",
-    )
-    .bind(connection_id)
-    .bind(limit.min(100))
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    connector_sync_runs::Entity::find()
+        .filter(connector_sync_runs::Column::ConnectionId.eq(connection_id))
+        .order_by_desc(connector_sync_runs::Column::CreatedAt)
+        .limit(u64::try_from(limit.min(100)).unwrap_or(0))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(json_of)
+        .collect()
+}
+
+/// `nullif(btrim(text), '')`: Postgres trims spaces only.
+fn spaced(text: Option<&str>) -> Option<&str> {
+    text.map(|t| t.trim_matches(' ')).filter(|t| !t.is_empty())
+}
+
+/// `coalesce(nullif(a, ''), nullif(b, ''), …)`.
+fn first_set(texts: &[Option<String>]) -> Option<String> {
+    texts.iter().flatten().find(|t| !t.is_empty()).cloned()
+}
+
+/// The label of each record of one internal type among `ids`, as
+/// `listConnectionRecords` reads it from its table: (id, label).
+async fn record_labels(
+    db: &PgPool,
+    kind: &str,
+    ids: Vec<String>,
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    let db = &orm(db);
+    Ok(match kind {
+        "party" => parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::DisplayName])
+            .filter(parties::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(db)
+            .await?,
+        "product" => products::Entity::find()
+            .select_only()
+            .columns([products::Column::Id, products::Column::Name])
+            .filter(products::Column::Id.is_in(ids))
+            .into_tuple::<(String, String)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, name)| (id, Some(name)))
+            .collect(),
+        "person" => people::Entity::find()
+            .select_only()
+            .columns([
+                people::Column::Id,
+                people::Column::FullName,
+                people::Column::FirstName,
+                people::Column::LastName,
+            ])
+            .filter(people::Column::Id.is_in(ids))
+            .into_tuple::<(String, Option<String>, Option<String>, Option<String>)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, full, first, last)| {
+                // `coalesce(nullif(btrim(full_name), ''), nullif(concat_ws(' ',
+                // nullif(first_name, ''), nullif(last_name, '')), ''))`.
+                let label = spaced(full.as_deref()).map(str::to_owned).or_else(|| {
+                    let joined = [first, last]
+                        .into_iter()
+                        .flatten()
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    (!joined.is_empty()).then_some(joined)
+                });
+                (id, label)
+            })
+            .collect(),
+        "company" => companies::Entity::find()
+            .select_only()
+            .columns([companies::Column::Id, companies::Column::DisplayName])
+            .filter(companies::Column::Id.is_in(ids))
+            .into_tuple::<(String, String)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, name)| (id, Some(name)))
+            .collect(),
+        "invoice" => invoices::Entity::find()
+            .select_only()
+            .columns([
+                invoices::Column::Id,
+                invoices::Column::InvoiceNumber,
+                invoices::Column::ContactName,
+                invoices::Column::Reference,
+            ])
+            .filter(invoices::Column::Id.is_in(ids))
+            .into_tuple::<(String, Option<String>, Option<String>, Option<String>)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, number, contact, reference)| (id, first_set(&[number, contact, reference])))
+            .collect(),
+        "bill" => bills::Entity::find()
+            .select_only()
+            .columns([
+                bills::Column::Id,
+                bills::Column::BillNumber,
+                bills::Column::ContactName,
+                bills::Column::Reference,
+            ])
+            .filter(bills::Column::Id.is_in(ids))
+            .into_tuple::<(String, Option<String>, Option<String>, Option<String>)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, number, contact, reference)| (id, first_set(&[number, contact, reference])))
+            .collect(),
+        "order" => orders::Entity::find()
+            .select_only()
+            .columns([orders::Column::Id, orders::Column::OrderNumber])
+            .filter(orders::Column::Id.is_in(ids))
+            .into_tuple::<(String, String)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, number)| (id, Some(number)))
+            .collect(),
+        "bank_account" => bank_accounts::Entity::find()
+            .select_only()
+            .columns([bank_accounts::Column::Id, bank_accounts::Column::Name])
+            .filter(bank_accounts::Column::Id.is_in(ids))
+            .into_tuple::<(String, String)>()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|(id, name)| (id, Some(name)))
+            .collect(),
+        _ => bank_transactions::Entity::find()
+            .filter(bank_transactions::Column::Id.is_in(ids))
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|row| {
+                // `coalesce(nullif(description, ''), nullif(reference, ''),
+                // amount::text)`: the amount as Postgres prints `numeric(18, 2)`.
+                let amount = Some(row.amount.with_scale(2).to_plain_string());
+                (row.id, first_set(&[row.description, row.reference, amount]))
+            })
+            .collect(),
+    })
 }
 
 /// `listConnectionRecords(db, connectionId, limit)`: the latest entity
@@ -183,20 +362,16 @@ pub async fn list_connection_records(
     db: &PgPool,
     connection_id: &str,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let mappings: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', m.id, 'externalEntityType', m.external_entity_type,
-             'externalEntityId', m.external_entity_id, 'internalEntityType', m.internal_entity_type,
-             'internalEntityId', m.internal_entity_id, 'lastSyncedAt', m.last_synced_at,
-             'updatedAt', m.updated_at)
-         from integration_entity_mappings m where m.connection_id = $1
-         order by m.updated_at desc limit $2",
-    )
-    .bind(connection_id)
-    .bind(limit.min(100))
-    .fetch_all(db)
-    .await?;
-    let mappings: Vec<Value> = mappings.into_iter().map(js_row).collect();
+) -> Result<Vec<Value>, DbErr> {
+    let mappings: Vec<Value> = mappings::Entity::find()
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .order_by_desc(mappings::Column::UpdatedAt)
+        .limit(u64::try_from(limit.min(100)).unwrap_or(0))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(json_of)
+        .collect::<Result<_, _>>()?;
     let ids_for = |kind: &str| -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
         for m in &mappings {
@@ -209,46 +384,24 @@ pub async fn list_connection_records(
         }
         ids
     };
-    // (type, the label SQL over `t`, the table).
-    let lookups: [(&str, &str); 9] = [
-        ("party", "select t.id, t.display_name from parties t where t.id = any($1)"),
-        ("product", "select t.id, t.name from products t where t.id = any($1)"),
-        (
-            "person",
-            "select t.id, coalesce(nullif(btrim(coalesce(t.full_name, '')), ''),
-                 nullif(concat_ws(' ', nullif(t.first_name, ''), nullif(t.last_name, '')), ''))
-             from people t where t.id = any($1)",
-        ),
-        ("company", "select t.id, t.display_name from companies t where t.id = any($1)"),
-        (
-            "invoice",
-            "select t.id, coalesce(nullif(t.invoice_number, ''), nullif(t.contact_name, ''), nullif(t.reference, ''))
-             from invoices t where t.id = any($1)",
-        ),
-        (
-            "bill",
-            "select t.id, coalesce(nullif(t.bill_number, ''), nullif(t.contact_name, ''), nullif(t.reference, ''))
-             from bills t where t.id = any($1)",
-        ),
-        ("order", "select t.id, t.order_number from orders t where t.id = any($1)"),
-        ("bank_account", "select t.id, t.name from bank_accounts t where t.id = any($1)"),
-        (
-            "bank_transaction",
-            "select t.id, coalesce(nullif(t.description, ''), nullif(t.reference, ''), t.amount::text)
-             from bank_transactions t where t.id = any($1)",
-        ),
+    let kinds = [
+        "party",
+        "product",
+        "person",
+        "company",
+        "invoice",
+        "bill",
+        "order",
+        "bank_account",
+        "bank_transaction",
     ];
     let mut labels: Vec<(String, String, String)> = Vec::new();
-    for (kind, sql) in lookups {
+    for kind in kinds {
         let ids = ids_for(kind);
         if ids.is_empty() {
             continue;
         }
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
-        for (id, label) in rows {
+        for (id, label) in record_labels(db, kind, ids).await? {
             if let Some(label) = label.map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()) {
                 labels.push((kind.to_owned(), id, label));
             }
@@ -303,15 +456,14 @@ pub async fn find_by_provider_account(
     db: &PgPool,
     provider: &str,
     external_account_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(c) from connector_connections c
-         where c.provider = $1 and c.external_account_id = $2 limit 1",
-    )
-    .bind(provider)
-    .bind(external_account_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::Provider.eq(provider))
+        .filter(connections::Column::ExternalAccountId.eq(external_account_id))
+        .one(&orm(db))
+        .await?
+        .map(connection_row)
+        .transpose()
 }
 
 /// What `upsertConnection` writes.
@@ -327,49 +479,55 @@ pub struct NewConnection<'a> {
 
 /// `upsertConnection(...)`: revives the row of the same provider account,
 /// else inserts one. The row (`to_jsonb`).
-pub async fn upsert_connection(db: &PgPool, new: &NewConnection<'_>) -> Result<Value, sqlx::Error> {
-    let now = crate::js::now_iso();
+pub async fn upsert_connection(db: &PgPool, new: &NewConnection<'_>) -> Result<Value, DbErr> {
+    let now = utc_now();
     let existing = match new.external_account_id {
         Some(account) => find_by_provider_account(db, new.provider, account).await?,
         None => None,
     };
     let id = if let Some(existing) = existing {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
-        sqlx::query(
-            "update connector_connections set display_name = $1, credentials = $2, enabled_syncs = $3,
-               external_account_id = $4, webhook_secret = coalesce($5, webhook_secret), status = 'active',
-               deleted_at = null, disconnected_at = null, last_error = null, last_error_at = null,
-               connected_at = $6::timestamp, connected_by = $7, updated_at = $6::timestamp
-             where id = $8",
-        )
-        .bind(new.display_name)
-        .bind(Value::Object(new.credentials.clone()))
-        .bind(json!(new.enabled_syncs))
-        .bind(new.external_account_id)
-        .bind(new.webhook_secret)
-        .bind(&now)
-        .bind(new.user_id)
-        .bind(&id)
-        .execute(db)
-        .await?;
+        let mut revived = connections::ActiveModel {
+            display_name: Set(Some(new.display_name.to_owned())),
+            credentials: Set(Some(Value::Object(new.credentials.clone()))),
+            enabled_syncs: Set(Some(json!(new.enabled_syncs))),
+            external_account_id: Set(new.external_account_id.map(str::to_owned)),
+            status: Set("active".to_owned()),
+            deleted_at: Set(None),
+            disconnected_at: Set(None),
+            last_error: Set(None),
+            last_error_at: Set(None),
+            connected_at: Set(Some(now)),
+            connected_by: Set(Some(new.user_id.to_owned())),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        // `webhook_secret = coalesce($5, webhook_secret)`.
+        if let Some(secret) = new.webhook_secret {
+            revived.webhook_secret = Set(Some(secret.to_owned()));
+        }
+        connections::Entity::update_many()
+            .set(revived)
+            .filter(connections::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
         id
     } else {
         let id = weldsuite_kit::generate_id("conn");
-        sqlx::query(
-            "insert into connector_connections (id, provider, display_name, credentials, enabled_syncs,
-               external_account_id, webhook_secret, status, connected_at, connected_by)
-             values ($1, $2, $3, $4, $5, $6, $7, 'active', $8::timestamp, $9)",
-        )
-        .bind(&id)
-        .bind(new.provider)
-        .bind(new.display_name)
-        .bind(Value::Object(new.credentials.clone()))
-        .bind(json!(new.enabled_syncs))
-        .bind(new.external_account_id)
-        .bind(new.webhook_secret)
-        .bind(&now)
-        .bind(new.user_id)
-        .execute(db)
+        connections::Entity::insert(connections::ActiveModel {
+            id: Set(id.clone()),
+            provider: Set(new.provider.to_owned()),
+            display_name: Set(Some(new.display_name.to_owned())),
+            credentials: Set(Some(Value::Object(new.credentials.clone()))),
+            enabled_syncs: Set(Some(json!(new.enabled_syncs))),
+            external_account_id: Set(new.external_account_id.map(str::to_owned)),
+            webhook_secret: Set(new.webhook_secret.map(str::to_owned)),
+            status: Set("active".to_owned()),
+            connected_at: Set(Some(now)),
+            connected_by: Set(Some(new.user_id.to_owned())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
         id
     };
@@ -385,45 +543,46 @@ pub async fn ensure_pending_connection(
     user_id: &str,
     enabled_syncs: &[String],
     external_account_id: &str,
-) -> Result<Value, sqlx::Error> {
-    let now = crate::js::now_iso();
+) -> Result<Value, DbErr> {
     let id = if let Some(existing) =
         find_by_provider_account(db, provider, external_account_id).await?
     {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
         let revive = !existing["deleted_at"].is_null() || existing["status"] == "pending";
-        sqlx::query(
-            "update connector_connections set display_name = $1, enabled_syncs = $2, external_account_id = $3,
-               deleted_at = null, disconnected_at = null,
-               status = case when $4 then 'pending' else status end,
-               connected_by = case when $4 then $5 else connected_by end,
-               updated_at = $6::timestamp
-             where id = $7",
-        )
-        .bind(display_name)
-        .bind(json!(enabled_syncs))
-        .bind(external_account_id)
-        .bind(revive)
-        .bind(user_id)
-        .bind(&now)
-        .bind(&id)
-        .execute(db)
-        .await?;
+        let mut revived = connections::ActiveModel {
+            display_name: Set(Some(display_name.to_owned())),
+            enabled_syncs: Set(Some(json!(enabled_syncs))),
+            external_account_id: Set(Some(external_account_id.to_owned())),
+            deleted_at: Set(None),
+            disconnected_at: Set(None),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        };
+        // `status = case when $4 then 'pending' else status end`, and
+        // `connected_by` likewise.
+        if revive {
+            revived.status = Set("pending".to_owned());
+            revived.connected_by = Set(Some(user_id.to_owned()));
+        }
+        connections::Entity::update_many()
+            .set(revived)
+            .filter(connections::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
         id
     } else {
         let id = weldsuite_kit::generate_id("conn");
-        sqlx::query(
-            "insert into connector_connections (id, provider, display_name, enabled_syncs, external_account_id,
-               status, connected_by)
-             values ($1, $2, $3, $4, $5, 'pending', $6)",
-        )
-        .bind(&id)
-        .bind(provider)
-        .bind(display_name)
-        .bind(json!(enabled_syncs))
-        .bind(external_account_id)
-        .bind(user_id)
-        .execute(db)
+        connections::Entity::insert(connections::ActiveModel {
+            id: Set(id.clone()),
+            provider: Set(provider.to_owned()),
+            display_name: Set(Some(display_name.to_owned())),
+            enabled_syncs: Set(Some(json!(enabled_syncs))),
+            external_account_id: Set(Some(external_account_id.to_owned())),
+            status: Set("pending".to_owned()),
+            connected_by: Set(Some(user_id.to_owned())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
         id
     };
@@ -452,54 +611,48 @@ pub async fn update_connection_settings(
     db: &PgPool,
     connection_id: &str,
     update: &SettingsUpdate,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update connector_connections set
-           settings = case when $1 then $2 else settings end,
-           enabled_syncs = case when $3 then $4 else enabled_syncs end,
-           direction = case when $5 then $6 else direction end,
-           object_sync_directions = case when $7 then $8 else object_sync_directions end,
-           credentials = case when $9 then $10 else credentials end,
-           display_name = case when $11 then $12 else display_name end,
-           external_account_id = case when $13 then $14 else external_account_id end,
-           webhook_secret = case when $15 then $16 else webhook_secret end,
-           webhook_registrations = case when $17 then $18 else webhook_registrations end,
-           last_error = null, last_error_at = null, status = 'active', updated_at = $19::timestamp
-         where id = $20",
-    )
-    .bind(update.settings.is_some())
-    .bind(update.settings.clone().filter(|v| !v.is_null()))
-    .bind(update.enabled_syncs.is_some())
-    .bind(update.enabled_syncs.as_ref().map(|s| json!(s)))
-    .bind(update.direction.is_some())
-    .bind(&update.direction)
-    .bind(update.object_sync_directions.is_some())
-    .bind(
-        update
-            .object_sync_directions
-            .clone()
-            .filter(|v| !v.is_null()),
-    )
-    .bind(update.credentials.is_some())
-    .bind(update.credentials.clone().map(Value::Object))
-    .bind(update.display_name.is_some())
-    .bind(&update.display_name)
-    .bind(update.external_account_id.is_some())
-    .bind(update.external_account_id.clone().flatten())
-    .bind(update.webhook_secret.is_some())
-    .bind(update.webhook_secret.clone().flatten())
-    .bind(update.webhook_registrations.is_some())
-    .bind(
-        update
-            .webhook_registrations
-            .clone()
-            .filter(|v| !v.is_null()),
-    )
-    .bind(crate::js::now_iso())
-    .bind(connection_id)
-    .execute(db)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    // `col = case when $set then $value else col end`: only what was sent.
+    let mut changes = connections::ActiveModel {
+        last_error: Set(None),
+        last_error_at: Set(None),
+        status: Set("active".to_owned()),
+        updated_at: Set(utc_now()),
+        ..Default::default()
+    };
+    if let Some(settings) = &update.settings {
+        changes.settings = Set(Some(settings.clone()).filter(|v| !v.is_null()));
+    }
+    if let Some(syncs) = &update.enabled_syncs {
+        changes.enabled_syncs = Set(Some(json!(syncs)));
+    }
+    if let Some(direction) = &update.direction {
+        changes.direction = Set(direction.clone());
+    }
+    if let Some(directions) = &update.object_sync_directions {
+        changes.object_sync_directions = Set(Some(directions.clone()).filter(|v| !v.is_null()));
+    }
+    if let Some(credentials) = &update.credentials {
+        changes.credentials = Set(Some(Value::Object(credentials.clone())));
+    }
+    if let Some(name) = &update.display_name {
+        changes.display_name = Set(Some(name.clone()));
+    }
+    if let Some(account) = &update.external_account_id {
+        changes.external_account_id = Set(account.clone());
+    }
+    if let Some(secret) = &update.webhook_secret {
+        changes.webhook_secret = Set(secret.clone());
+    }
+    if let Some(registrations) = &update.webhook_registrations {
+        changes.webhook_registrations = Set(Some(registrations.clone()).filter(|v| !v.is_null()));
+    }
+    connections::Entity::update_many()
+        .set(changes)
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 /// `seedDefaultConnectorFieldMappings(db, connectionId, provider)`: the
@@ -508,7 +661,7 @@ pub async fn seed_default_field_mappings(
     db: &PgPool,
     connection_id: &str,
     provider: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(connector) = get_connector(provider) else {
         return Ok(());
     };
@@ -520,14 +673,16 @@ pub async fn seed_default_field_mappings(
             entity_types.push(entity.to_owned());
         }
     }
+    let db = &orm(db);
     for entity_type in entity_types {
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from integration_field_mappings where connection_id = $1 and entity_type = $2 limit 1",
-        )
-        .bind(connection_id)
-        .bind(&entity_type)
-        .fetch_optional(db)
-        .await?;
+        let existing: Option<String> = integration_field_mappings::Entity::find()
+            .select_only()
+            .column(integration_field_mappings::Column::Id)
+            .filter(integration_field_mappings::Column::ConnectionId.eq(connection_id))
+            .filter(integration_field_mappings::Column::EntityType.eq(entity_type.as_str()))
+            .into_tuple()
+            .one(db)
+            .await?;
         if existing.is_some() {
             continue;
         }
@@ -535,90 +690,61 @@ pub async fn seed_default_field_mappings(
         if defaults.is_empty() {
             continue;
         }
-        let mut ids = Vec::new();
-        let mut external = Vec::new();
-        let mut internal = Vec::new();
-        let mut directions = Vec::new();
-        let mut transforms = Vec::new();
-        let mut configs = Vec::new();
-        let mut required = Vec::new();
-        let mut positions = Vec::new();
-        for (i, m) in defaults.iter().enumerate() {
-            ids.push(weldsuite_kit::generate_id("ifm"));
-            external.push(
-                m["externalFieldPath"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            );
-            internal.push(
-                m["internalFieldPath"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-            );
-            directions.push(
-                m["direction"]
-                    .as_str()
-                    .unwrap_or("bidirectional")
-                    .to_owned(),
-            );
-            transforms.push(m["transformType"].as_str().unwrap_or("direct").to_owned());
-            configs.push(match m.get("transformConfig") {
-                None | Some(Value::Null) => Value::Null,
-                Some(v) => v.clone(),
-            });
-            required.push(m["isRequired"].as_bool().unwrap_or(false));
-            positions.push(i32::try_from(i).unwrap_or(i32::MAX));
-        }
-        sqlx::query(
-            "insert into integration_field_mappings (id, connection_id, entity_type, external_field_path,
-               internal_field_path, direction, transform_type, transform_config, is_required, is_default, position)
-             select t.id, $1, $2, t.external, t.internal, t.direction, t.transform,
-               case when jsonb_typeof(t.config) = 'null' then null else t.config end, t.required, true, t.position
-             from unnest($3::varchar[], $4::text[], $5::text[], $6::text[], $7::text[], $8::jsonb[], $9::bool[], $10::int[])
-               as t(id, external, internal, direction, transform, config, required, position)",
-        )
-        .bind(connection_id)
-        .bind(&entity_type)
-        .bind(&ids)
-        .bind(&external)
-        .bind(&internal)
-        .bind(&directions)
-        .bind(&transforms)
-        .bind(&configs)
-        .bind(&required)
-        .bind(&positions)
-        .execute(db)
-        .await?;
+        let rows = defaults.iter().enumerate().map(|(i, m)| {
+            let text = |key: &str, fallback: &str| m[key].as_str().unwrap_or(fallback).to_owned();
+            integration_field_mappings::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("ifm")),
+                connection_id: Set(connection_id.to_owned()),
+                entity_type: Set(entity_type.clone()),
+                external_field_path: Set(text("externalFieldPath", "")),
+                internal_field_path: Set(text("internalFieldPath", "")),
+                direction: Set(text("direction", "bidirectional")),
+                transform_type: Set(text("transformType", "direct")),
+                // A JSON `null` config is stored as NULL.
+                transform_config: Set(match m.get("transformConfig") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => Some(v.clone()),
+                }),
+                is_required: Set(m["isRequired"].as_bool().unwrap_or(false)),
+                is_default: Set(true),
+                position: Set(i32::try_from(i).unwrap_or(i32::MAX)),
+                ..Default::default()
+            }
+        });
+        integration_field_mappings::Entity::insert_many(rows)
+            .exec_without_returning(db)
+            .await?;
     }
     Ok(())
 }
 
 /// `markConnectionDisconnected(db, id)`: soft-deleted, credentials and
 /// webhooks dropped, its sales channels disconnected.
-pub async fn mark_connection_disconnected(
-    db: &PgPool,
-    connection_id: &str,
-) -> Result<(), sqlx::Error> {
-    let now = crate::js::now_iso();
-    sqlx::query(
-        "update connector_connections set deleted_at = $1::timestamp, disconnected_at = $1::timestamp,
-           status = 'paused', credentials = null, webhook_secret = null, webhook_registrations = null,
-           updated_at = $1::timestamp
-         where id = $2",
-    )
-    .bind(&now)
-    .bind(connection_id)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update product_sales_channels set status = 'disconnected', updated_at = $1::timestamp
-         where connection_id = $2",
-    )
-    .bind(&now)
-    .bind(connection_id)
-    .execute(db)
-    .await?;
+pub async fn mark_connection_disconnected(db: &PgPool, connection_id: &str) -> Result<(), DbErr> {
+    let now = utc_now();
+    let db = &orm(db);
+    connections::Entity::update_many()
+        .set(connections::ActiveModel {
+            deleted_at: Set(Some(now)),
+            disconnected_at: Set(Some(now)),
+            status: Set("paused".to_owned()),
+            credentials: Set(None),
+            webhook_secret: Set(None),
+            webhook_registrations: Set(None),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(db)
+        .await?;
+    product_sales_channels::Entity::update_many()
+        .col_expr(
+            product_sales_channels::Column::Status,
+            Expr::value("disconnected"),
+        )
+        .col_expr(product_sales_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(product_sales_channels::Column::ConnectionId.eq(connection_id))
+        .exec(db)
+        .await?;
     Ok(())
 }

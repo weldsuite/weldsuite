@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use weldsuite_db::{Keyring, PgPool};
@@ -749,7 +750,7 @@ pub async fn register_connection_webhooks(
         },
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| crate::sync::db_error_text(&error))?;
     let warning = if failures > 0 {
         Some(format!(
             "Connected, but {failures} webhook(s) failed to register. Use Sync now until the store can reach WeldSuite."
@@ -932,7 +933,7 @@ pub async fn process_connector_webhook(
     workspace_id: &str,
     raw_body: &str,
     headers: &http::HeaderMap,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     if connection["status"] == "paused" || !connection["deleted_at"].is_null() {
         return Ok(result(true, 200, "ignored paused connection"));
     }
@@ -1098,7 +1099,7 @@ async fn process_routed_moneybird(
     d: &Delivery<'_>,
     topic: &Topic,
     payload: &Value,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     let client = ProviderClient::new(
         d.provider,
         d.credentials,
@@ -1161,7 +1162,7 @@ async fn ingest_delivery(
     sync: &Value,
     records: Records,
     force_deleted: bool,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     let Delivery {
         db,
         env,
@@ -1243,7 +1244,7 @@ async fn ingest_delivery(
             skip_financial_account_ids: &skip,
         })
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| crate::sync::db_error_text(&error))
     }
     .await;
     match outcome {
