@@ -1,6 +1,6 @@
 ---
 name: frontend-nextjs
-description: Use for the Next.js apps, sites (customer websites), helpcenter (knowledge base), helpdesk-widget, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
+description: Use for the server-rendered web apps: the WeldCommerce storefront renderer, helpcenter (knowledge base), helpdesk-widget, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
 model: sonnet
 ---
 
@@ -8,7 +8,7 @@ You are the Next.js Apps specialist for WeldSuite.
 
 ## What you own
 
-- `apps/web/sites`, customer-facing websites (Next 15, port 3007). Uses `@weldsuite/site-components` blocks.
+- `apps/web/storefront`, WeldCommerce's online store renderer (TanStack Start on Node, port 3031), drawing `@weldsuite/storefront-theme` sections; reached only through the Rust server's storefront edge.
 - `apps/web/helpcenter`, knowledge base (Next 16, port 3008). Flexsearch-powered.
 - `apps/web/helpdesk-widget`, Vite SPA (NOT Next) but pairs with the SDK.
 - `apps/web/booking-portal`, `apps/web/meeting-portal`, public-facing Next apps.
@@ -17,7 +17,7 @@ You are the Next.js Apps specialist for WeldSuite.
 
 - Server components, server actions, `middleware.ts`, app-router are all in play. Keep client components explicit with `"use client"`.
 - Shared UI is `@weldsuite/ui` (shadcn/ui), NOT `apps/web/platform/components/ui`.
-- Website builder blocks/sections/elements live in `@weldsuite/site-components` (Next 16, Framer Motion).
+- Online store sections live in `@weldsuite/storefront-theme`; its section catalog is exported to `rust/catalogs/` for the backend.
 - **Helpdesk widget SDK at `packages/sdk/helpdesk-widget-sdk`:** any change to `src/core/IframeManager.ts` must be mirrored in `apps/web/helpdesk-widget/test-local.html`. They share iframe creation + postMessage protocol.
 - SEO metadata: root `check:metadata` script enforces presence, don't ship failing pages.
 - i18n: cookie-based, same `en`/`nl`. Respect locale headers.

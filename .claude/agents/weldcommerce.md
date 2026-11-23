@@ -1,6 +1,6 @@
 ---
 name: weldcommerce
-description: Use for WeldCommerce, products, categories, orders, websites, pages, sections, domains, discounts, and the website builder. Integrates with Shopify/WooCommerce via integration workers.
+description: Use for WeldCommerce, products, categories, orders, discounts, the online store (sites, pages, sections, menus, shop domains, static deployments) and the storefront renderer. Integrates with Shopify/WooCommerce via integration workers.
 model: sonnet
 ---
 
@@ -11,9 +11,9 @@ You are the WeldCommerce specialist for WeldSuite.
 - **Product**, sellable item. Variants, price tiers, inventory link (via WMS), images.
 - **Category**, product taxonomy.
 - **Order**, customer order. Line items, status, fulfillment.
-- **Website**, a customer-facing site (multi-site per workspace supported).
-- **Page / Section / Element**, website builder primitives (live in `@weldsuite/site-components`).
-- **Domain**, the public-facing domain a website serves on.
+- **Online store** (`storefront_sites`), one per storefront sales channel: a site document (theme settings, sections per page type) built in the platform's editor, or the merchant's own static deployments.
+- **Section / block**, the theme's building blocks, defined in `@weldsuite/storefront-theme`'s section catalog.
+- **Shop host** (`storefront_hosts`, master), a free address or custom domain a shop serves on.
 - **Discount**, coupon or automatic discount rule.
 
 ## Where the code lives
@@ -37,7 +37,12 @@ What is still there:
   `components/objects/product/`.
 - Shopify / WooCommerce / Picqer sync: `apps/workers/connect-api`
   (`@weldsuite/connect-domain`), `integration-sync-worker`, `integration-webhook-worker`.
-- Customer-facing websites: `apps/web/sites` + `packages/design/site-components`.
+- The online store (storefronts plan, ADRs COM-015 to COM-018):
+  `rust/modules/commerce/src/online_store/` (staff routes, the storefront edge,
+  the renderer API, deployments), `rust/crates/custom-domains`,
+  `packages/design/storefront-theme` (document types, section catalog,
+  sections), `apps/web/storefront` (the renderer),
+  `apps/web/platform/app/weldcommerce/online-store/` (the editor).
 
 The rebuild targets the EU edition only; the Global edition (TypeScript
 Cloudflare workers) is retired. Build the API in the Rust backend
@@ -50,7 +55,7 @@ register its prefixes in `packages/core/api-modules` and add `commerce` to
 - **Inventory** is the source of truth in WMS (WeldStash, `apps/web/platform/app/weldstash` + WMS schemas). A product's available stock comes from WMS, not from the commerce table.
 - **Orders → accounting.** A paid order must produce an accounting invoice + payment record. Coordinate with `weldbooks-accounting`.
 - **Multi-currency products**, display currency from the site, stored currency from the entity's base. FX conversion at order time via `accounting-fx-rates`.
-- **Builder output**, the builder persists a JSON tree that `apps/web/sites` renders. Changes to the schema of that tree must be backward-compatible with existing sites, version the tree if you must break compatibility.
+- **Site documents**, published versions are immutable and the renderer draws old ones: a change to the section catalog must keep existing documents valid (`schemaVersion` in the document), and after changing it run `pnpm --filter @weldsuite/storefront-theme catalog:export` so the backend validates against the same catalog.
 - **Discounts**, validation on the server at checkout (don't trust client-computed totals).
 - **SEO metadata**, every published page must have metadata; `check:metadata` root script enforces.
 

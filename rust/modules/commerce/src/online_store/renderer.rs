@@ -203,6 +203,7 @@ async fn site(
             "pricesIncludeTax": channel.prices_include_tax,
             "guestCheckout": channel.guest_checkout,
             "paymentMethods": channel.payment_methods,
+            "sellingCountries": channel.selling_countries,
         },
     }))
     .into_response()

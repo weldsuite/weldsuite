@@ -1,0 +1,44 @@
+{
+  "name": "storefront",
+  "description": "WeldCommerce's online store renderer: draws published sites with @weldsuite/storefront-theme, behind the server's storefront edge",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3031",
+    "build": "vite build",
+    "build:node": "vite build",
+    "start:node": "node node/server.mjs",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.2.8",
+    "@fontsource-variable/fraunces": "^5.2.9",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/lora": "^5.2.8",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-start": "^1.169.4",
+    "@weldsuite/commerce-sdk": "workspace:*",
+    "@weldsuite/storefront-theme": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@weldsuite/eslint-config": "workspace:*",
+    "@weldsuite/typescript-config": "workspace:*",
+    "eslint": "^9.32.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
+  }
+}
