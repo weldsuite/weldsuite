@@ -7,8 +7,10 @@
 //! ([`sliced`]).
 
 use axum::response::{IntoResponse, Response};
-use sea_orm::sea_query::{Expr, Func, SelectStatement};
-use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use sea_orm::sea_query::{Alias, Expr, Func, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::Value;
 use time::PrimitiveDateTime;
 use weldsuite_db::{PgPool, orm};
@@ -78,6 +80,26 @@ pub(crate) fn utc_now_sql() -> Expr {
         .arg(Expr::val("utc"))
         .arg(Func::cust("now"))
         .into()
+}
+
+/// `select pg_advisory_xact_lock(hashtext(key))`: serialise with every other
+/// holder of `key` until the transaction ends.
+pub(crate) async fn advisory_lock<C: ConnectionTrait>(db: &C, key: &str) -> Result<(), DbErr> {
+    let mut lock = Query::select();
+    lock.expr(Func::cust("pg_advisory_xact_lock").arg(Func::cust("hashtext").arg(key)));
+    db.execute(&lock).await.map(|_| ())
+}
+
+/// `select <condition>`: one boolean the database works out (`exists (…) or
+/// exists (…)`).
+pub(crate) async fn select_bool<C: ConnectionTrait>(db: &C, condition: Expr) -> Result<bool, DbErr> {
+    let mut select = Query::select();
+    select.expr_as(condition, Alias::new("value"));
+    let row = db
+        .query_one(&select)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("select".to_owned()))?;
+    row.try_get("", "value")
 }
 
 /// `select createdAt, id from <table> where id = cursor limit 1`: the

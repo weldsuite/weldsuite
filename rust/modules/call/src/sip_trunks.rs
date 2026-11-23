@@ -164,7 +164,7 @@ fn best_effort(label: &str, result: Result<(), TelnyxError>) {
 
 // ── JSON ────────────────────────────────────────────────────────────────────
 
-/// `toNumberJson(row)` of a `js_row` number.
+/// `toNumberJson(row)` of a number's row (its entity's JSON).
 pub(crate) fn number_json(row: &Value) -> Value {
     json!({
         "id": row["id"],
@@ -205,7 +205,7 @@ fn connection_details(sip_host: Option<&str>, trunk: &Value) -> Value {
     })
 }
 
-/// `toTrunkJson(env, trunk, numbers)` of `js_row` rows.
+/// `toTrunkJson(env, trunk, numbers)` of the rows' JSON.
 fn trunk_json(sip_host: Option<&str>, trunk: &Value, numbers: &[Value]) -> Value {
     let ip_addresses: Vec<Value> = stored_addresses(trunk)
         .iter()

@@ -1,13 +1,20 @@
 //! Workspace agents: CRUD, sub-agent checks and run persistence
 //! (`packages/domains/agent/src/agents.ts`).
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use sqlx::{PgPool, Postgres, QueryBuilder};
-use weldsuite_db::js_row;
+use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::weldagent_agent_runs as runs;
+use weldsuite_schema::tenant::weldagent_agents::{self as agents, Column};
 
-use crate::access::{AgentViewer, visible_to_sql};
+use crate::access::{AgentViewer, visible_to};
 
 /// Most agents one agent can delegate to (`MAX_SUBAGENTS`).
 pub const MAX_SUBAGENTS: usize = 19;
@@ -27,14 +34,35 @@ pub const POLICY_DEFAULT_MODEL: &str = "default";
 /// approvals.
 pub const AUTO_REVIEW_FLAG: &str = "agent.auto_review";
 
-/// The columns `serializeAgent` reads, as JSON, camel-cased.
-const AGENT_JSON: &str = "to_jsonb(a) - 'anthropic_agent_id' - 'anthropic_agent_version' \
-    - 'anthropic_config_hash' - 'anthropic_worker_agent_id' - 'anthropic_worker_agent_version' \
-    - 'anthropic_worker_config_hash' - 'deleted_at'";
+/// `new Date()` as Drizzle writes a `timestamp with time zone` column: UTC,
+/// to the millisecond (the instant [`crate::now`] prints).
+pub(crate) fn now_tz() -> OffsetDateTime {
+    let at = OffsetDateTime::now_utc();
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
+}
+
+/// A row as the worker returns it: the entity serializes as Drizzle did.
+pub(crate) fn js(model: impl serde::Serialize) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// `limit $n` of a number: Postgres refuses a negative one.
+pub(crate) fn row_limit(limit: i64) -> Result<u64, DbErr> {
+    u64::try_from(limit).map_err(|_| DbErr::Custom("LIMIT must not be negative".to_owned()))
+}
+
+/// `$n::int` of a number: Postgres refuses one that does not fit.
+pub(crate) fn int4(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Custom("integer out of range".to_owned()))
+}
 
 /// `serializeAgent(row)`.
-fn serialize(row: Value) -> Value {
-    let row = js_row(row);
+fn serialize(agent: agents::Model) -> Value {
+    serialize_row(&js(agent))
+}
+
+/// `serializeAgent` of the row as Drizzle returns it (camelCase keys).
+fn serialize_row(row: &Value) -> Value {
     let enabled: Vec<String> = row
         .get("enabledTools")
         .and_then(Value::as_array)
@@ -91,22 +119,17 @@ pub async fn list_agents(
     db: &PgPool,
     status: Option<&str>,
     viewer: &AgentViewer,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let mut sql = format!("select {AGENT_JSON} from weldagent_agents a where a.deleted_at is null");
-    if status.is_some() {
-        sql.push_str(" and a.status = $2");
-    }
-    if let Some(visible) = visible_to_sql(viewer, "$1") {
-        sql.push_str(" and ");
-        sql.push_str(&visible);
-    }
-    sql.push_str(" order by a.updated_at desc");
-    let mut query = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql)).bind(&viewer.user_id);
+) -> Result<Vec<Value>, DbErr> {
+    let mut query = agents::Entity::find().filter(Column::DeletedAt.is_null());
     if let Some(status) = status {
-        query = query.bind(status);
+        query = query.filter(Column::Status.eq(status));
+    }
+    if let Some(visible) = visible_to(viewer) {
+        query = query.filter(visible);
     }
     Ok(query
-        .fetch_all(db)
+        .order_by_desc(Column::UpdatedAt)
+        .all(&orm(db))
         .await?
         .into_iter()
         .map(serialize)
@@ -118,13 +141,10 @@ pub async fn list_agents(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn get_agent(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let sql = format!(
-        "select {AGENT_JSON} from weldagent_agents a where a.id = $1 and a.deleted_at is null"
-    );
-    Ok(sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql))
-        .bind(id)
-        .fetch_optional(db)
+pub async fn get_agent(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(agents::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
         .await?
         .map(serialize))
 }
@@ -155,33 +175,32 @@ pub struct CreateAgent {
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn create_agent(db: &PgPool, input: CreateAgent) -> Result<Value, sqlx::Error> {
+pub async fn create_agent(db: &PgPool, input: CreateAgent) -> Result<Value, DbErr> {
     let id = generate_id("agt");
-    let now = crate::now();
-    sqlx::query(
-        "insert into weldagent_agents
-             (id, name, description, icon, status, system_prompt, model_id, temperature, max_tokens,
-              permissions, enabled_tools, event_subscriptions, max_iterations, max_total_tokens,
-              created_by, owner_id, visibility, created_at, updated_at)
-         values ($1, $2, $3, $4, 'draft', $5, $6, $7, $8::int, $9::jsonb, $10::jsonb, $11::jsonb,
-                 $12::int, $13::int, $14, $14, 'workspace', $15::timestamptz, $15::timestamptz)",
-    )
-    .bind(&id)
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.icon)
-    .bind(input.system_prompt.unwrap_or_default())
-    .bind(input.model_id.unwrap_or(input.default_model))
-    .bind(input.temperature.unwrap_or_else(|| "0.70".to_owned()))
-    .bind(input.max_tokens.unwrap_or(2048))
-    .bind(json!(input.permissions))
-    .bind(json!(input.enabled_tools.unwrap_or_default()))
-    .bind(json!(input.event_subscriptions.unwrap_or_default()))
-    .bind(input.max_iterations.unwrap_or(10))
-    .bind(input.max_total_tokens.unwrap_or(20000))
-    .bind(&input.created_by)
-    .bind(&now)
-    .execute(db)
+    let now = now_tz();
+    agents::Entity::insert(agents::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(input.name),
+        description: Set(input.description),
+        icon: Set(input.icon),
+        status: Set("draft".to_owned()),
+        system_prompt: Set(input.system_prompt.unwrap_or_default()),
+        model_id: Set(input.model_id.unwrap_or(input.default_model)),
+        temperature: Set(input.temperature.unwrap_or_else(|| "0.70".to_owned())),
+        max_tokens: Set(int4(input.max_tokens.unwrap_or(2048))?),
+        permissions: Set(json!(input.permissions)),
+        enabled_tools: Set(json!(input.enabled_tools.unwrap_or_default())),
+        event_subscriptions: Set(json!(input.event_subscriptions.unwrap_or_default())),
+        max_iterations: Set(int4(input.max_iterations.unwrap_or(10))?),
+        max_total_tokens: Set(int4(input.max_total_tokens.unwrap_or(20000))?),
+        created_by: Set(input.created_by.clone()),
+        owner_id: Set(input.created_by),
+        visibility: Set("workspace".to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(get_agent(db, &id).await?.unwrap_or(Value::Null))
 }
@@ -220,7 +239,7 @@ pub async fn update_agent(
     db: &PgPool,
     id: &str,
     input: UpdateAgent,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(existing) = get_agent(db, id).await? else {
         return Ok(None);
     };
@@ -243,68 +262,62 @@ pub async fn update_agent(
         enabled = Some(tools);
     }
 
-    let mut query: QueryBuilder<Postgres> =
-        QueryBuilder::new("update weldagent_agents set updated_at = ");
-    query.push_bind(crate::now()).push("::timestamptz");
+    let mut update = agents::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now_tz()));
     macro_rules! set {
-        ($column:literal, $value:expr) => {
+        ($column:expr, $value:expr) => {
             if let Some(value) = $value {
-                query.push(concat!(", ", $column, " = ")).push_bind(value);
+                update = update.col_expr($column, Expr::value(value));
             }
         };
     }
     macro_rules! set_int {
-        ($column:literal, $value:expr) => {
+        ($column:expr, $value:expr) => {
             if let Some(value) = $value {
-                query
-                    .push(concat!(", ", $column, " = "))
-                    .push_bind(value)
-                    .push("::int");
+                update = update.col_expr($column, Expr::value(int4(value)?));
             }
         };
     }
     macro_rules! set_json {
-        ($column:literal, $value:expr) => {
+        ($column:expr, $value:expr) => {
             if let Some(value) = $value {
-                query
-                    .push(concat!(", ", $column, " = "))
-                    .push_bind(json!(value))
-                    .push("::jsonb");
+                update = update.col_expr($column, Expr::value(json!(value)));
             }
         };
     }
     macro_rules! set_nullable {
-        ($column:literal, $field:expr) => {
+        ($column:expr, $field:expr) => {
             match $field {
                 Field::Set(value) => {
-                    query.push(concat!(", ", $column, " = ")).push_bind(value);
+                    update = update.col_expr($column, Expr::value(Some(value)));
                 }
                 Field::Null => {
-                    query.push(concat!(", ", $column, " = null"));
+                    update = update.col_expr($column, Expr::value(Option::<String>::None));
                 }
                 Field::Absent => {}
             }
         };
     }
-    set!("name", input.name);
-    set_nullable!("description", input.description);
-    set_nullable!("icon", input.icon);
-    set!("system_prompt", input.system_prompt);
-    set!("model_id", input.model_id);
-    set!("temperature", input.temperature);
-    set_int!("max_tokens", input.max_tokens);
-    set_json!("permissions", input.permissions);
-    set_json!("enabled_tools", enabled);
-    set_json!("event_subscriptions", input.event_subscriptions);
-    set_int!("max_iterations", input.max_iterations);
-    set_int!("max_total_tokens", input.max_total_tokens);
-    set!("owner_id", input.owner_id);
-    set!("visibility", input.visibility);
-    set_json!("subagent_ids", input.subagent_ids);
-    set!("delegate_to_self", input.delegate_to_self);
-    set!("status", input.status);
-    query.push(" where id = ").push_bind(id);
-    query.build().execute(db).await?;
+    set!(Column::Name, input.name);
+    set_nullable!(Column::Description, input.description);
+    set_nullable!(Column::Icon, input.icon);
+    set!(Column::SystemPrompt, input.system_prompt);
+    set!(Column::ModelId, input.model_id);
+    set!(Column::Temperature, input.temperature);
+    set_int!(Column::MaxTokens, input.max_tokens);
+    set_json!(Column::Permissions, input.permissions);
+    set_json!(Column::EnabledTools, enabled);
+    set_json!(Column::EventSubscriptions, input.event_subscriptions);
+    set_int!(Column::MaxIterations, input.max_iterations);
+    set_int!(Column::MaxTotalTokens, input.max_total_tokens);
+    set!(Column::OwnerId, input.owner_id);
+    set!(Column::Visibility, input.visibility);
+    set_json!(Column::SubagentIds, input.subagent_ids);
+    set!(Column::DelegateToSelf, input.delegate_to_self);
+    set!(Column::Status, input.status);
+    update
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     get_agent(db, id).await
 }
 
@@ -345,7 +358,7 @@ pub async fn check_subagents(
     agent_id: &str,
     agent_name: &str,
     subagent_ids: &[String],
-) -> Result<Option<SubagentProblem>, sqlx::Error> {
+) -> Result<Option<SubagentProblem>, DbErr> {
     let mut ids: Vec<&String> = Vec::new();
     for id in subagent_ids {
         if !ids.contains(&id) {
@@ -361,12 +374,14 @@ pub async fn check_subagents(
     if ids.is_empty() {
         return Ok(None);
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select id, name from weldagent_agents where id = any($1) and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String)> = agents::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Name])
+        .filter(Column::Id.is_in(ids.iter().map(|id| id.as_str())))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if let Some(missing) = ids
         .iter()
         .find(|id| !rows.iter().any(|(row_id, _)| row_id == **id))
@@ -394,19 +409,14 @@ pub async fn check_subagents(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn get_subagents(
-    db: &PgPool,
-    subagent_ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+pub async fn get_subagents(db: &PgPool, subagent_ids: &[String]) -> Result<Vec<Value>, DbErr> {
     if subagent_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let sql = format!(
-        "select {AGENT_JSON} from weldagent_agents a where a.id = any($1) and a.deleted_at is null"
-    );
-    Ok(sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql))
-        .bind(subagent_ids)
-        .fetch_all(db)
+    Ok(agents::Entity::find()
+        .filter(Column::Id.is_in(subagent_ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .all(&orm(db))
         .await?
         .into_iter()
         .map(serialize)
@@ -418,16 +428,17 @@ pub async fn get_subagents(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn delete_agent(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        "update weldagent_agents set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, status = 'paused'
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
-    Ok(result.rows_affected() > 0)
+pub async fn delete_agent(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let now = now_tz();
+    let result = agents::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .col_expr(Column::Status, Expr::value("paused"))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(result.rows_affected > 0)
 }
 
 /// `listAgentRuns(db, agentId, limit)`.
@@ -439,16 +450,16 @@ pub async fn list_agent_runs(
     db: &PgPool,
     agent_id: &str,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_agent_runs r where r.agent_id = $1
-         order by r.created_at desc limit $2",
-    )
-    .bind(agent_id)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    Ok(runs::Entity::find()
+        .filter(runs::Column::AgentId.eq(agent_id))
+        .order_by_desc(runs::Column::CreatedAt)
+        .limit(row_limit(limit)?)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect())
 }
 
 #[cfg(test)]
@@ -457,21 +468,48 @@ mod tests {
 
     #[test]
     fn serialize_reads_a_row_like_serialize_agent() {
-        let row = json!({
-            "id": "agt_1", "name": "Triage", "description": null, "icon": null, "status": "draft",
-            "system_prompt": "", "model_id": "claude-opus-5-5", "temperature": "0.70", "max_tokens": 2048,
-            "permissions": ["people:read"], "enabled_tools": ["agent.auto_review"], "event_subscriptions": [],
-            "max_iterations": 10, "max_total_tokens": 20000, "created_by": "u1", "owner_id": "u1",
-            "visibility": "workspace", "subagent_ids": [], "delegate_to_self": false,
-            "total_runs": 0, "successful_runs": 0, "failed_runs": 0, "last_run_at": null,
-            "last_run_status": null, "created_at": "2026-11-13T10:00:00.123456+00:00",
-            "updated_at": "2026-11-13T10:00:00.123456+00:00",
+        let at = time::macros::datetime!(2026-11-13 10:00:00.123456 UTC);
+        let agent = serialize(agents::Model {
+            id: "agt_1".into(),
+            name: "Triage".into(),
+            description: None,
+            icon: None,
+            status: "draft".into(),
+            system_prompt: String::new(),
+            model_id: "claude-opus-5-5".into(),
+            temperature: "0.70".into(),
+            max_tokens: 2048,
+            permissions: json!(["people:read"]),
+            enabled_tools: json!(["agent.auto_review"]),
+            event_subscriptions: json!([]),
+            max_iterations: 10,
+            max_total_tokens: 20000,
+            created_by: Some("u1".into()),
+            owner_id: Some("u1".into()),
+            visibility: "workspace".into(),
+            subagent_ids: json!([]),
+            delegate_to_self: false,
+            anthropic_agent_id: Some("ma_1".into()),
+            anthropic_agent_version: None,
+            anthropic_config_hash: None,
+            anthropic_worker_agent_id: None,
+            anthropic_worker_agent_version: None,
+            anthropic_worker_config_hash: None,
+            total_runs: 0,
+            successful_runs: 0,
+            failed_runs: 0,
+            last_run_at: None,
+            last_run_status: None,
+            created_at: at,
+            updated_at: at,
+            deleted_at: None,
         });
-        let agent = serialize(row);
         assert_eq!(agent["autoReviewEnabled"], true);
         assert_eq!(agent["systemPrompt"], "");
         assert_eq!(agent["createdAt"], "2026-11-13T10:00:00.123Z");
         assert_eq!(agent["subagentIds"], json!([]));
+        assert!(agent.get("anthropicAgentId").is_none());
+        assert!(agent.get("deletedAt").is_none());
     }
 
     #[test]
