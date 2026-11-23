@@ -482,7 +482,7 @@ async fn write_booking(
     ] {
         if set(key) {
             let value = if jsonb {
-                text(key).cast_as("jsonb")
+                sea_orm::ExprTrait::cast_as(text(key), "jsonb")
             } else {
                 text(key)
             };

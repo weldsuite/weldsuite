@@ -28,12 +28,21 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use hmac::{KeyInit, Mac};
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use sha2::Sha256;
-use weldsuite_db::{Keyring, PgPool};
+use time::OffsetDateTime;
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{merge_provider_index as provider_index, workspaces};
+use weldsuite_schema::tenant::{
+    github_issue_sync_map as sync_map, github_project_links as links, merge_connections,
+};
 
 use super::WorkflowRuns;
+use crate::crm::db_text;
 use crate::{IntegrationsState, PublicCtx};
 
 pub(crate) fn router<S>(state: IntegrationsState) -> Router<S>
@@ -96,15 +105,30 @@ pub fn verify_signature(body: &[u8], header: Option<&str>, secret: &str) -> bool
 async fn connection_by_installation(
     db: &PgPool,
     installation_id: i64,
-) -> Result<Option<Option<String>>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select webhook_secret from merge_connections \
-         where provider = 'github' and external_account_id = $1 and deleted_at is null \
-         order by (status = 'active') desc, created_at desc limit 1",
-    )
-    .bind(installation_id.to_string())
-    .fetch_optional(db)
-    .await
+) -> Result<Option<Option<String>>, DbErr> {
+    merge_connections::Entity::find()
+        .select_only()
+        .column(merge_connections::Column::WebhookSecret)
+        .filter(merge_connections::Column::Provider.eq("github"))
+        .filter(merge_connections::Column::ExternalAccountId.eq(installation_id.to_string()))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .order_by(
+            sea_orm::ExprTrait::eq(
+                Expr::col((merge_connections::Entity, merge_connections::Column::Status)),
+                "active",
+            ),
+            Order::Desc,
+        )
+        .order_by_desc(merge_connections::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// A moment as the worker bound it (`toISOString()`): to the millisecond.
+fn now_millis() -> OffsetDateTime {
+    let at = OffsetDateTime::now_utc();
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
 
 async fn webhook(
@@ -174,6 +198,7 @@ async fn webhook(
     let connection = match connection_by_installation(&db, installation).await {
         Ok(connection) => connection,
         Err(error) => {
+            let error = db_text(&error);
             tracing::error!(%error, "[GitHub Webhook] connection lookup failed");
             return answer(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -283,6 +308,7 @@ async fn resolve_workspace(
     match workspace_of_installation(ctx, state, &master, installation).await {
         Ok(found) => found,
         Err(error) => {
+            let error = db_text(&error);
             tracing::error!(%error, "[GitHub Webhook] Failed to resolve workspace for installation");
             None
         }
@@ -296,20 +322,24 @@ async fn workspace_of_installation(
     state: &IntegrationsState,
     master: &PgPool,
     installation: i64,
-) -> Result<Option<String>, sqlx::Error> {
-    let indexed: Option<String> = sqlx::query_scalar(
-        "select workspace_id from merge_provider_index \
-         where provider = 'github' and kind = 'installation' and external_key = $1 limit 1",
-    )
-    .bind(installation.to_string())
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<String>, DbErr> {
+    let indexed: Option<String> = provider_index::Entity::find()
+        .select_only()
+        .column(provider_index::Column::WorkspaceId)
+        .filter(provider_index::Column::Provider.eq("github"))
+        .filter(provider_index::Column::Kind.eq("installation"))
+        .filter(provider_index::Column::ExternalKey.eq(installation.to_string()))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     if let Some(workspace_id) = indexed {
-        let workspace: Option<(String, Option<String>)> =
-            sqlx::query_as("select id, clerk_org_id from workspaces where id = $1 limit 1")
-                .bind(&workspace_id)
-                .fetch_optional(master)
-                .await?;
+        let workspace: Option<(String, Option<String>)> = workspaces::Entity::find()
+            .select_only()
+            .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+            .filter(workspaces::Column::Id.eq(&workspace_id))
+            .into_tuple()
+            .one(&orm(master))
+            .await?;
         if let Some((id, clerk_org_id)) = workspace {
             return Ok(Some(clerk_org_id.unwrap_or(id)));
         }
@@ -326,23 +356,28 @@ async fn scan_for_installation(
     state: &IntegrationsState,
     master: &PgPool,
     installation: i64,
-) -> Result<Option<String>, sqlx::Error> {
-    let workspaces: Vec<(String, Option<String>)> =
-        sqlx::query_as("select id, clerk_org_id from workspaces limit 500")
-            .fetch_all(master)
-            .await?;
-    for (id, clerk_org_id) in workspaces {
+) -> Result<Option<String>, DbErr> {
+    let rows: Vec<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .limit(500)
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
+    for (id, clerk_org_id) in rows {
         let reference = clerk_org_id.unwrap_or_else(|| id.clone());
         let Ok(db) = ctx.tenant_db(state, &reference).await else {
             continue;
         };
-        let found: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select id from merge_connections \
-             where provider = 'github' and external_account_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(installation.to_string())
-        .fetch_optional(&db)
-        .await;
+        let found: Result<Option<String>, DbErr> = merge_connections::Entity::find()
+            .select_only()
+            .column(merge_connections::Column::Id)
+            .filter(merge_connections::Column::Provider.eq("github"))
+            .filter(merge_connections::Column::ExternalAccountId.eq(installation.to_string()))
+            .filter(merge_connections::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&db))
+            .await;
         if let Ok(Some(_)) = found
             && upsert_installation_index(master, installation, &id)
                 .await
@@ -360,20 +395,30 @@ async fn upsert_installation_index(
     master: &PgPool,
     installation: i64,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
-    sqlx::query(
-        "insert into merge_provider_index \
-           (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
-         values ($1, 'github', 'installation', $2, $3, $4::timestamptz, $4::timestamptz) \
-         on conflict (provider, kind, external_key) \
-         do update set workspace_id = excluded.workspace_id, updated_at = excluded.updated_at",
+) -> Result<(), DbErr> {
+    let now = now_millis();
+    provider_index::Entity::insert(provider_index::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("mpi")),
+        provider: Set("github".to_owned()),
+        kind: Set("installation".to_owned()),
+        external_key: Set(installation.to_string()),
+        workspace_id: Set(workspace_id.to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            provider_index::Column::Provider,
+            provider_index::Column::Kind,
+            provider_index::Column::ExternalKey,
+        ])
+        .update_columns([
+            provider_index::Column::WorkspaceId,
+            provider_index::Column::UpdatedAt,
+        ])
+        .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("mpi"))
-    .bind(installation.to_string())
-    .bind(workspace_id)
-    .bind(&now)
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }
@@ -385,19 +430,20 @@ async fn set_installation_status(
     db: &PgPool,
     installation: i64,
     status: &str,
-) -> Result<(), sqlx::Error> {
-    let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
-    sqlx::query(
-        "update merge_connections set status = $2, \
-         revoked_at = case when $2 = 'revoked' then $3::timestamptz else null end, \
-         updated_at = $3::timestamptz \
-         where provider = 'github' and external_account_id = $1 and deleted_at is null",
-    )
-    .bind(installation.to_string())
-    .bind(status)
-    .bind(&now)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let now = now_millis();
+    merge_connections::Entity::update_many()
+        .col_expr(merge_connections::Column::Status, Expr::value(status))
+        .col_expr(
+            merge_connections::Column::RevokedAt,
+            Expr::value((status == "revoked").then_some(now)),
+        )
+        .col_expr(merge_connections::Column::UpdatedAt, Expr::value(now))
+        .filter(merge_connections::Column::Provider.eq("github"))
+        .filter(merge_connections::Column::ExternalAccountId.eq(installation.to_string()))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -408,14 +454,13 @@ async fn forget_installation(installed: &Installed, installation: i64) -> Result
         .master
         .as_ref()
         .ok_or_else(|| "no master database".to_owned())?;
-    sqlx::query(
-        "delete from merge_provider_index \
-         where provider = 'github' and kind = 'installation' and external_key = $1",
-    )
-    .bind(installation.to_string())
-    .execute(master)
-    .await
-    .map_err(|error| error.to_string())?;
+    provider_index::Entity::delete_many()
+        .filter(provider_index::Column::Provider.eq("github"))
+        .filter(provider_index::Column::Kind.eq("installation"))
+        .filter(provider_index::Column::ExternalKey.eq(installation.to_string()))
+        .exec(&orm(master))
+        .await
+        .map_err(|error| db_text(&error))?;
     if let Some(cache) = &installed.cache {
         cache
             .delete_boxed(&installed.cache_key)
@@ -442,16 +487,16 @@ async fn handle_event(
                     Some("deleted") => {
                         set_installation_status(db, installation, "revoked")
                             .await
-                            .map_err(|error| error.to_string())?;
+                            .map_err(|error| db_text(&error))?;
                         forget_installation(installed, installation).await?;
                     }
                     Some("suspend") => set_installation_status(db, installation, "suspended")
                         .await
-                        .map_err(|error| error.to_string())?,
+                        .map_err(|error| db_text(&error))?,
                     Some("unsuspend" | "created") => {
                         set_installation_status(db, installation, "active")
                             .await
-                            .map_err(|error| error.to_string())?;
+                            .map_err(|error| db_text(&error))?;
                     }
                     _ => {}
                 }
@@ -468,15 +513,16 @@ async fn handle_event(
                     );
                     return Ok(());
                 };
-                let link: Option<(String, String)> = sqlx::query_as(
-                    "select id, sync_direction from github_project_links \
-                     where workspace_id = $1 and project_v2_node_id = $2 and deleted_at is null limit 1",
-                )
-                .bind(workspace_id)
-                .bind(node)
-                .fetch_optional(db)
-                .await
-                .map_err(|error| error.to_string())?;
+                let link: Option<(String, String)> = links::Entity::find()
+                    .select_only()
+                    .columns([links::Column::Id, links::Column::SyncDirection])
+                    .filter(links::Column::WorkspaceId.eq(workspace_id))
+                    .filter(links::Column::ProjectV2NodeId.eq(node))
+                    .filter(links::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await
+                    .map_err(|error| db_text(&error))?;
                 match link {
                     None => tracing::info!(
                         "[GitHub Webhook] Project {node} not linked in {workspace_id}, skipping"
@@ -493,7 +539,7 @@ async fn handle_event(
             ),
             "issues" => handle_issue(db, runs, workspace_id, delivery, payload)
                 .await
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| db_text(&error))?,
             other => tracing::info!(
                 "[GitHub Webhook] Unhandled event type: {other} (delivery: {delivery})"
             ),
@@ -521,7 +567,7 @@ async fn handle_issue(
     workspace_id: &str,
     delivery: &str,
     payload: &Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let issue = payload.get("issue");
     let Some(node) = issue
         .and_then(|i| i.get("node_id"))
@@ -533,13 +579,14 @@ async fn handle_issue(
         );
         return Ok(());
     };
-    let mut link_id: Option<String> = sqlx::query_scalar(
-        "select project_link_id from github_issue_sync_map where workspace_id = $1 and issue_node_id = $2 limit 1",
-    )
-    .bind(workspace_id)
-    .bind(node)
-    .fetch_optional(db)
-    .await?;
+    let mut link_id: Option<String> = sync_map::Entity::find()
+        .select_only()
+        .column(sync_map::Column::ProjectLinkId)
+        .filter(sync_map::Column::WorkspaceId.eq(workspace_id))
+        .filter(sync_map::Column::IssueNodeId.eq(node))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let number = issue.and_then(|i| i.get("number")).and_then(Value::as_i64);
     let repo = payload
         .get("repository")
@@ -548,26 +595,28 @@ async fn handle_issue(
     if link_id.is_none()
         && let (Some(number), Some(repo)) = (number, repo)
     {
-        link_id = sqlx::query_scalar(
-            "select project_link_id from github_issue_sync_map \
-             where workspace_id = $1 and issue_number = $2 and repo_id = $3 limit 1",
-        )
-        .bind(workspace_id)
-        .bind(i32::try_from(number).unwrap_or(i32::MAX))
-        .bind(repo)
-        .fetch_optional(db)
-        .await?;
+        link_id = sync_map::Entity::find()
+            .select_only()
+            .column(sync_map::Column::ProjectLinkId)
+            .filter(sync_map::Column::WorkspaceId.eq(workspace_id))
+            .filter(sync_map::Column::IssueNumber.eq(i32::try_from(number).unwrap_or(i32::MAX)))
+            .filter(sync_map::Column::RepoId.eq(repo))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     }
     let Some(link_id) = link_id else {
         tracing::info!("[GitHub Webhook] issue {node} not mapped, skipping (delivery: {delivery})");
         return Ok(());
     };
-    let link: Option<(String, String)> = sqlx::query_as(
-        "select id, sync_direction from github_project_links where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&link_id)
-    .fetch_optional(db)
-    .await?;
+    let link: Option<(String, String)> = links::Entity::find()
+        .select_only()
+        .columns([links::Column::Id, links::Column::SyncDirection])
+        .filter(links::Column::Id.eq(&link_id))
+        .filter(links::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some((id, direction)) = link
         && direction != "outbound"
     {

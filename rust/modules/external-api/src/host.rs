@@ -9,19 +9,23 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     DNS_RECORD_CREATED, DNS_RECORD_DELETED, DNS_RECORD_UPDATED, DNS_ZONE_CREATED, DNS_ZONE_DELETED,
     DNS_ZONE_UPDATED, DOMAIN_CREATED, DOMAIN_DELETED, DOMAIN_UPDATED,
 };
 use weldsuite_kit::id::generate_id;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::enums::{HostDomainRegistrationStatus, HostDomainStatus};
+use weldsuite_schema::tenant::{dns_records, dns_zones, domains, reach_domains};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, created, dates, field, like, list_query, no_content, now, ok, soft_delete,
-    table_list_sql, with_id, with_updated,
+    with_id, with_updated,
 };
-use crate::list::{ListQuery, clamp_limit, list_page_mapped};
+use crate::list::{ListQuery, clamp_limit, label_eq, like_any, list_page_mapped, when};
 use crate::schemas_gen::{
     CREATE_DNS_RECORD, CREATE_DNS_ZONE, CREATE_DOMAIN, LIST_DOMAINS, UPDATE_DNS_RECORD,
     UPDATE_DNS_ZONE, UPDATE_DOMAIN,
@@ -118,15 +122,17 @@ fn zone_data(id: &str, row: &Value) -> Value {
 /// carries Mailpool's mail records; a tenant without the WeldReach tables
 /// has none.
 async fn used_by_weldreach(caller: &Caller, domain_id: &str) -> bool {
-    sqlx::query_scalar::<_, String>(
-        "select id from reach_domains where host_domain_id = $1 and status <> 'disconnecting' limit 1",
-    )
-    .bind(domain_id)
-    .fetch_optional(&caller.db)
-    .await
-    .ok()
-    .flatten()
-    .is_some()
+    reach_domains::Entity::find()
+        .filter(reach_domains::Column::HostDomainId.eq(domain_id))
+        .filter(reach_domains::Column::Status.ne("disconnecting"))
+        .select_only()
+        .column(reach_domains::Column::Id)
+        .into_tuple::<String>()
+        .one(&orm(&caller.db))
+        .await
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 /// `DOMAIN_IN_USE_BY_WELDREACH` with 409.
@@ -146,14 +152,31 @@ fn in_use_by_weldreach() -> Answer {
 
 // ── domains ──────────────────────────────────────────────────────────────────
 
-const DOMAINS_LIST: (&str, &str) = table_list_sql!(
-    domains,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or (t.full_domain like $3->>'search' or t.name like $3->>'search')) \
-     and ($3->>'status' is null or t.status::text = $3->>'status') \
-     and t.registration_status is distinct from 'pending_payment' \
-     and not (t.status = 'cancelled' and t.registration_status is not distinct from 'failed')"
-);
+/// The domains list: live, without the unpaid checkouts
+/// (`isHiddenUnpaidDomain`: `registration_status is distinct from
+/// 'pending_payment'`, and not `cancelled` with a `failed` registration);
+/// the status filter compares the label (`status::text`).
+fn domains_list(f: &Value) -> Condition {
+    use domains::Column;
+    let registration_is_not = |status: HostDomainRegistrationStatus| {
+        Condition::any()
+            .add(Column::RegistrationStatus.is_null())
+            .add(Column::RegistrationStatus.ne(status))
+    };
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::FullDomain, Column::Name], &v)
+        }))
+        .add_option(when(f, "status", |v| label_eq(Column::Status, v)))
+        .add(registration_is_not(
+            HostDomainRegistrationStatus::PendingPayment,
+        ))
+        .add(
+            registration_is_not(HostDomainRegistrationStatus::Failed)
+                .add(Column::Status.ne(HostDomainStatus::Cancelled)),
+        )
+}
 
 async fn list_domains(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_DOMAINS, raw.as_deref())?;
@@ -163,9 +186,13 @@ async fn list_domains(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     };
     let filters = json!({ "search": like(&q, "search"), "status": status });
     Ok(
-        list_page_mapped(&caller.db, DOMAINS_LIST, &list_query(&q), &filters, |row| {
-            public_domain(DOMAINS.js(row))
-        })
+        list_page_mapped(
+            &caller.db,
+            &DOMAINS.entity,
+            domains_list(&filters),
+            &list_query(&q),
+            |row| public_domain(DOMAINS.js(row)),
+        )
         .await?,
     )
 }
@@ -234,11 +261,6 @@ async fn delete_domain(State(state): S, caller: Caller, Path(id): Path<String>) 
 
 // ── zones ────────────────────────────────────────────────────────────────────
 
-const ZONES_LIST: (&str, &str) = table_list_sql!(
-    dns_zones,
-    "t.deleted_at is null and t.domain_id = $3->>'domainId'"
-);
-
 /// `listWithCursor` without a query: the first page of the default size.
 fn first_page() -> ListQuery {
     ListQuery {
@@ -248,11 +270,15 @@ fn first_page() -> ListQuery {
 }
 
 async fn list_zones(caller: Caller, Path(domain_id): Path<String>) -> Answer {
+    // `t.deleted_at is null and t.domain_id = $domainId`.
+    let condition = Condition::all()
+        .add(dns_zones::Column::DeletedAt.is_null())
+        .add(dns_zones::Column::DomainId.eq(domain_id));
     Ok(list_page_mapped(
         &caller.db,
-        ZONES_LIST,
+        &DNS_ZONES.entity,
+        condition,
         &first_page(),
-        &json!({ "domainId": domain_id }),
         |row| DNS_ZONES.js(row),
     )
     .await?)
@@ -333,14 +359,13 @@ async fn delete_zone(
 
 // ── records ──────────────────────────────────────────────────────────────────
 
-const RECORDS_LIST: (&str, &str) = table_list_sql!(dns_records, "t.zone_id = $3->>'zoneId'");
-
 async fn list_records(caller: Caller, Path((_domain, zone_id)): Path<(String, String)>) -> Answer {
+    // `t.zone_id = $zoneId`: records have no soft delete.
     Ok(list_page_mapped(
         &caller.db,
-        RECORDS_LIST,
+        &DNS_RECORDS.entity,
+        Condition::all().add(dns_records::Column::ZoneId.eq(zone_id)),
         &first_page(),
-        &json!({ "zoneId": zone_id }),
         |row| DNS_RECORDS.js(row),
     )
     .await?)

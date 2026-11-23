@@ -20,9 +20,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sha2::Sha256;
 use weldsuite_core_domain::js::{Js, as_text, js_string};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::ad_sync_index;
 
 use crate::connect_internal::{ConnectCall, ConnectInternal};
 use crate::crm::webhooks::secret_matches;
@@ -284,16 +286,21 @@ pub async fn run_ad_sync_sweep(
     master: &PgPool,
     connect: &dyn ConnectInternal,
     now: time::OffsetDateTime,
-) -> Result<AdSweepResult, sqlx::Error> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select connection_id, clerk_org_id from ad_sync_index
-         where is_enabled = true and next_metrics_sync_at <= $1::timestamptz
-         limit $2",
-    )
-    .bind(weldsuite_events::iso_timestamp(now))
-    .bind(AD_SYNC_SWEEP_LIMIT)
-    .fetch_all(master)
-    .await?;
+) -> Result<AdSweepResult, DbErr> {
+    // `now` as the worker bound it (`toISOString()`): to the millisecond.
+    let due_by = now.replace_millisecond(now.millisecond()).unwrap_or(now);
+    let rows: Vec<(String, Option<String>)> = ad_sync_index::Entity::find()
+        .select_only()
+        .columns([
+            ad_sync_index::Column::ConnectionId,
+            ad_sync_index::Column::ClerkOrgId,
+        ])
+        .filter(ad_sync_index::Column::IsEnabled.eq(true))
+        .filter(ad_sync_index::Column::NextMetricsSyncAt.lte(due_by))
+        .limit(AD_SYNC_SWEEP_LIMIT.unsigned_abs())
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     let mut result = AdSweepResult {
         due: rows.len(),
         triggered: 0,

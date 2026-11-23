@@ -21,11 +21,17 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode, Uri};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use weldsuite_core_domain::js::{Js, as_text, js_string};
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    workflow_integrations, workflow_trigger_index as trigger_index, workflows,
+};
 
 use crate::{IntegrationsState, PublicCtx};
 
@@ -174,6 +180,36 @@ async fn dispatch_one(
 
 type IndexRow = (String, String, Option<String>, Option<Value>);
 
+/// `innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))`.
+fn workflow_of_trigger() -> RelationDef {
+    trigger_index::Entity::belongs_to(workflows::Entity)
+        .from(trigger_index::Column::WorkflowId)
+        .to(workflows::Column::Id)
+        .into()
+}
+
+/// The indexed `integration_event` triggers of active workflows for the event.
+async fn indexed_triggers(db: &PgPool, event: &IntegrationEvent) -> Result<Vec<IndexRow>, DbErr> {
+    trigger_index::Entity::find()
+        .select_only()
+        .columns([
+            trigger_index::Column::WorkflowId,
+            trigger_index::Column::TriggerId,
+            trigger_index::Column::IntegrationId,
+            trigger_index::Column::Filters,
+        ])
+        .join(JoinType::InnerJoin, workflow_of_trigger())
+        .filter(trigger_index::Column::Category.eq("integration_event"))
+        .filter(trigger_index::Column::Provider.eq(event.provider))
+        .filter(trigger_index::Column::IntegrationEvent.eq(event.event))
+        .filter(trigger_index::Column::IsEnabled.eq(true))
+        .filter(workflows::Column::Status.eq("active"))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `matchAndDispatchIntegrationTriggers(...)`: the enabled
 /// `integration_event` triggers of active workflows (the trigger index,
 /// else the workflows' own triggers), each matching one a run. Without a
@@ -191,16 +227,7 @@ pub async fn match_and_dispatch(
     if workspace_id.is_empty() {
         return 0;
     }
-    let rows: Result<Vec<IndexRow>, sqlx::Error> = sqlx::query_as(
-        "select i.workflow_id, i.trigger_id, i.integration_id, i.filters
-         from workflow_trigger_index i inner join workflows w on i.workflow_id = w.id
-         where i.category = 'integration_event' and i.provider = $1 and i.integration_event = $2
-           and i.is_enabled = true and w.status = 'active' and w.deleted_at is null",
-    )
-    .bind(event.provider)
-    .bind(event.event)
-    .fetch_all(db)
-    .await;
+    let rows = indexed_triggers(db, event).await;
     let mut dispatched = 0;
     match rows {
         Ok(rows) => {
@@ -229,14 +256,18 @@ pub async fn match_and_dispatch(
             }
         }
         Err(error) => {
+            let error = crate::crm::db_text(&error);
             tracing::warn!(%error, "[TriggerMatcher] trigger index unavailable, falling back to JSONB scan");
-            let workflows: Vec<(String, Option<Value>)> = sqlx::query_as(
-                "select id, triggers from workflows where status = 'active' and deleted_at is null",
-            )
-            .fetch_all(db)
-            .await
-            .unwrap_or_default();
-            for (workflow_id, triggers) in workflows {
+            let active: Vec<(String, Option<Value>)> = workflows::Entity::find()
+                .select_only()
+                .columns([workflows::Column::Id, workflows::Column::Triggers])
+                .filter(workflows::Column::Status.eq("active"))
+                .filter(workflows::Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(&orm(db))
+                .await
+                .unwrap_or_default();
+            for (workflow_id, triggers) in active {
                 let Some(Value::Array(triggers)) = triggers else {
                     continue;
                 };
@@ -652,14 +683,23 @@ async fn load_connection(
     };
     let workspace = text_of(mapping.get("workspaceId"));
     let db = ctx.tenant_db(state, &workspace).await?;
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_integrations t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(connection_id)
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| crate::crm::db_message(&e))?;
-    Ok(row.map(|row| (workspace, db, row)))
+    let row: Option<(String, Option<Value>)> = workflow_integrations::Entity::find()
+        .select_only()
+        .columns([
+            workflow_integrations::Column::Id,
+            workflow_integrations::Column::Credentials,
+        ])
+        .filter(workflow_integrations::Column::Id.eq(connection_id))
+        .filter(workflow_integrations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&db))
+        .await
+        .map_err(|e| crate::crm::db_message(&e))?;
+    // The row's columns the receivers read (`to_jsonb(t)`'s keys).
+    Ok(row.map(|(id, credentials)| {
+        let row = json!({ "id": id, "credentials": credentials });
+        (workspace, db, row)
+    }))
 }
 
 /// `decryptConnectionCred(env, integration, field)`.

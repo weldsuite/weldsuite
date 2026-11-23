@@ -597,23 +597,7 @@ pub(crate) async fn complete_signing(
     // /complete (or two tabs) races here, and only the one that flips the
     // recipient goes on.
     let stamp = crate::millis(now);
-    let claimed = sign_recipients::Entity::update_many()
-        .col_expr(sign_recipients::Column::Status, Expr::value("signed"))
-        .col_expr(sign_recipients::Column::SignedAt, Expr::value(stamp))
-        .col_expr(
-            sign_recipients::Column::SignedIp,
-            Expr::value(ctx.meta.ip.clone()),
-        )
-        .col_expr(
-            sign_recipients::Column::SignedUserAgent,
-            Expr::value(ctx.meta.user_agent.clone()),
-        )
-        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(stamp))
-        .filter(sign_recipients::Column::Id.eq(recipient_id))
-        .filter(sign_recipients::Column::Status.is_in(["sent", "opened"]))
-        .exec(&orm(db))
-        .await?;
-    if claimed.rows_affected == 0 {
+    if !claim_signature(db, recipient_id, stamp, ctx.meta).await? {
         return Err(SignError::Conflict(
             "This request has already been signed".to_owned(),
         ));
@@ -621,23 +605,7 @@ pub(crate) async fn complete_signing(
     if let Err(error) = fill_fields(db, &resolved, stamp).await {
         // The values did not all land: give the turn back so the signer can
         // submit again.
-        let none = || Expr::value(Option::<String>::None);
-        sign_recipients::Entity::update_many()
-            .col_expr(
-                sign_recipients::Column::Status,
-                Expr::value(text(recipient, "status")),
-            )
-            .col_expr(
-                sign_recipients::Column::SignedAt,
-                Expr::value(Option::<OffsetDateTime>::None),
-            )
-            .col_expr(sign_recipients::Column::SignedIp, none())
-            .col_expr(sign_recipients::Column::SignedUserAgent, none())
-            .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
-            .filter(sign_recipients::Column::Id.eq(recipient_id))
-            .filter(sign_recipients::Column::Status.eq("signed"))
-            .exec(&orm(db))
-            .await?;
+        give_back_turn(db, recipient_id, text(recipient, "status")).await?;
         return Err(error);
     }
     let details = json!({
@@ -659,6 +627,52 @@ pub(crate) async fn complete_signing(
         .filter(|id| seen.insert(id.clone()))
         .collect();
     refresh_working_copies(db, ctx.bucket, envelope_id, &touched).await
+}
+
+/// Flip the recipient to `signed`, only while it is their turn (`sent` or
+/// `opened`): one statement, so of two submissions only one gets `true`.
+async fn claim_signature(
+    db: &PgPool,
+    recipient_id: &str,
+    stamp: OffsetDateTime,
+    meta: &SignerMeta,
+) -> SignResult<bool> {
+    let claimed = sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value("signed"))
+        .col_expr(sign_recipients::Column::SignedAt, Expr::value(stamp))
+        .col_expr(
+            sign_recipients::Column::SignedIp,
+            Expr::value(meta.ip.clone()),
+        )
+        .col_expr(
+            sign_recipients::Column::SignedUserAgent,
+            Expr::value(meta.user_agent.clone()),
+        )
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(stamp))
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .filter(sign_recipients::Column::Status.is_in(["sent", "opened"]))
+        .exec(&orm(db))
+        .await?;
+    Ok(claimed.rows_affected > 0)
+}
+
+/// Undo [`claim_signature`]: the status the recipient had, nothing signed.
+async fn give_back_turn(db: &PgPool, recipient_id: &str, status: &str) -> SignResult<()> {
+    let none = || Expr::value(Option::<String>::None);
+    sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::Status, Expr::value(status))
+        .col_expr(
+            sign_recipients::Column::SignedAt,
+            Expr::value(Option::<OffsetDateTime>::None),
+        )
+        .col_expr(sign_recipients::Column::SignedIp, none())
+        .col_expr(sign_recipients::Column::SignedUserAgent, none())
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(crate::now()))
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .filter(sign_recipients::Column::Status.eq("signed"))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 async fn fill_fields(

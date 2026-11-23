@@ -975,17 +975,16 @@ pub(crate) fn int(n: i64) -> i32 {
 /// (`YYYY-MM-DDTHH:MM[:SS[.fraction]]`, then `Z` or `±HH[:]MM`), read as
 /// Postgres reads it: the fraction rounded to the microsecond.
 fn offset_datetime(text: &str) -> Option<OffsetDateTime> {
-    let (date_time, offset) = match text.strip_suffix('Z') {
-        Some(date_time) => (date_time, "Z".to_owned()),
-        None => {
-            let (date_time, offset) = text.split_at(text.rfind(['+', '-'])?);
-            let offset = if offset.len() == 5 {
-                format!("{}:{}", &offset[..3], &offset[3..])
-            } else {
-                offset.to_owned()
-            };
-            (date_time, offset)
-        }
+    let (date_time, offset) = if let Some(date_time) = text.strip_suffix('Z') {
+        (date_time, "Z".to_owned())
+    } else {
+        let (date_time, offset) = text.split_at(text.rfind(['+', '-'])?);
+        let offset = if offset.len() == 5 {
+            format!("{}:{}", &offset[..3], &offset[3..])
+        } else {
+            offset.to_owned()
+        };
+        (date_time, offset)
     };
     let time = date_time.split_once('T')?.1;
     let seconds = if time.matches(':').count() == 1 {

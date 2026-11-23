@@ -367,25 +367,34 @@ async fn install_states(
     caller: &Caller,
     master: &PgPool,
     apps: &[Value],
-) -> Result<Vec<(bool, Value)>, sqlx::Error> {
-    let tenant_rows: Vec<(Option<String>, bool)> = sqlx::query_as(
-        "select user_app_id, is_active from workspace_installed_apps
-         where app_type = 'user' and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await?;
+) -> Result<Vec<(bool, Value)>, DbErr> {
+    let tenant_rows: Vec<(Option<String>, bool)> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .columns([
+            workspace_installed_apps::Column::UserAppId,
+            workspace_installed_apps::Column::IsActive,
+        ])
+        .filter(workspace_installed_apps::Column::AppType.eq("user"))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     let ids: Vec<String> = apps.iter().map(|a| text(a, "id").to_owned()).collect();
     let installs: Vec<(String, String, Option<Value>)> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select app_id, status, pending_scopes from user_app_installs
-             where workspace_id = $1 and app_id = any($2)",
-        )
-        .bind(&caller.workspace_id)
-        .bind(&ids)
-        .fetch_all(master)
-        .await?
+        user_app_installs::Entity::find()
+            .select_only()
+            .columns([
+                user_app_installs::Column::AppId,
+                user_app_installs::Column::Status,
+                user_app_installs::Column::PendingScopes,
+            ])
+            .filter(user_app_installs::Column::WorkspaceId.eq(&caller.workspace_id))
+            .filter(user_app_installs::Column::AppId.is_in(ids))
+            .into_tuple()
+            .all(&orm(master))
+            .await?
     };
     Ok(apps
         .iter()
@@ -424,19 +433,13 @@ async fn store(State(state): State<CoreAppsState>, caller: Caller) -> Response {
             adopt_official_system_installs(&master, &caller.db, &caller.workspace_id, Some(&caller.user_id))
                 .await
                 .or_internal("Failed to list app store")?;
-            let apps: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a
-                 where (a.visibility = 'public' and a.review_status = 'approved' and a.is_active = true
-                        and a.deleted_at is null)
-                    or (a.owner_workspace_id = $1 and a.deleted_at is null)
-                 order by a.created_at desc, a.id desc"
-            ))
-            .bind(&caller.workspace_id)
-            .fetch_all(&master)
-            .await
-            .or_internal("Failed to list app store")?;
+            let apps = user_apps::Entity::find()
+                .filter(visible_in_store(&caller.workspace_id))
+                .order_by_desc(user_apps::Column::CreatedAt)
+                .order_by_desc(user_apps::Column::Id)
+                .all(&orm(&master))
+                .await
+                .or_internal("Failed to list app store")?;
             let apps: Vec<Value> = apps.into_iter().map(row).collect();
             let states = install_states(&caller, &master, &apps)
                 .await
@@ -460,42 +463,38 @@ async fn store_detail(
 ) -> Response {
     answer(
         async {
-            let master = caller.master(&state);
-            let app: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a
-                 where a.code = $1
-                   and ((a.visibility = 'public' and a.review_status = 'approved' and a.is_active = true
-                         and a.deleted_at is null)
-                        or (a.owner_workspace_id = $2 and a.deleted_at is null))
-                 limit 1"
-            ))
-            .bind(&code)
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await
-            .or_internal("Failed to fetch app")?;
+            const FAILED: &str = "Failed to fetch app";
+            let master = orm(&caller.master(&state));
+            let app = user_apps::Entity::find()
+                .filter(user_apps::Column::Code.eq(&code))
+                .filter(visible_in_store(&caller.workspace_id))
+                .one(&master)
+                .await
+                .or_internal(FAILED)?;
             let Some(app) = app.map(row) else {
                 return Err(app_not_found(&code));
             };
-            let tenant_active: Option<bool> = sqlx::query_scalar(
-                "select is_active from workspace_installed_apps
-                 where user_app_id = $1 and deleted_at is null limit 1",
-            )
-            .bind(text(&app, "id"))
-            .fetch_optional(&caller.db)
-            .await
-            .or_internal("Failed to fetch app")?;
-            let install: Option<(String, Option<Value>)> = sqlx::query_as(
-                "select status, pending_scopes from user_app_installs
-                 where app_id = $1 and workspace_id = $2 limit 1",
-            )
-            .bind(text(&app, "id"))
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await
-            .or_internal("Failed to fetch app")?;
+            let tenant_active: Option<bool> = workspace_installed_apps::Entity::find()
+                .select_only()
+                .column(workspace_installed_apps::Column::IsActive)
+                .filter(workspace_installed_apps::Column::UserAppId.eq(text(&app, "id")))
+                .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await
+                .or_internal(FAILED)?;
+            let install: Option<(String, Option<Value>)> = user_app_installs::Entity::find()
+                .select_only()
+                .columns([
+                    user_app_installs::Column::Status,
+                    user_app_installs::Column::PendingScopes,
+                ])
+                .filter(user_app_installs::Column::AppId.eq(text(&app, "id")))
+                .filter(user_app_installs::Column::WorkspaceId.eq(&caller.workspace_id))
+                .into_tuple()
+                .one(&master)
+                .await
+                .or_internal(FAILED)?;
             let active = install.as_ref().is_some_and(|(status, _)| status == "active");
             let pending = match install {
                 Some((_, Some(pending))) if active => pending,
@@ -522,13 +521,13 @@ async fn installed(State(state): State<CoreAppsState>, caller: Caller) -> Respon
             )
             .await
             .or_internal("Failed to list installed apps")?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(w) from workspace_installed_apps w
-                 where w.app_type = 'user' and w.is_active = true and w.deleted_at is null",
-            )
-            .fetch_all(&caller.db)
-            .await
-            .or_internal("Failed to list installed apps")?;
+            let rows = workspace_installed_apps::Entity::find()
+                .filter(workspace_installed_apps::Column::AppType.eq("user"))
+                .filter(workspace_installed_apps::Column::IsActive.eq(true))
+                .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+                .all(&orm(&caller.db))
+                .await
+                .or_internal("Failed to list installed apps")?;
             let rows: Vec<Value> = rows.into_iter().map(row).collect();
             let ids: Vec<String> = rows
                 .iter()
@@ -538,18 +537,14 @@ async fn installed(State(state): State<CoreAppsState>, caller: Caller) -> Respon
             let apps: Vec<Value> = if ids.is_empty() {
                 Vec::new()
             } else {
-                sqlx::query_scalar(concat!(
-                    "select ",
-                    app_json!(),
-                    " from user_apps a where a.id = any($1)"
-                ))
-                .bind(&ids)
-                .fetch_all(&master)
-                .await
-                .or_internal("Failed to list installed apps")?
-                .into_iter()
-                .map(row)
-                .collect()
+                user_apps::Entity::find()
+                    .filter(user_apps::Column::Id.is_in(ids))
+                    .all(&orm(&master))
+                    .await
+                    .or_internal("Failed to list installed apps")?
+                    .into_iter()
+                    .map(row)
+                    .collect()
             };
             let data: Vec<Value> = rows
                 .into_iter()
@@ -587,13 +582,11 @@ async fn installed(State(state): State<CoreAppsState>, caller: Caller) -> Respon
 async fn developer_account(State(state): State<CoreAppsState>, caller: Caller) -> Response {
     answer(
         async {
-            let account: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(d) from app_developer_accounts d where d.workspace_id = $1 limit 1",
-            )
-            .bind(&caller.workspace_id)
-            .fetch_optional(&caller.master(&state))
-            .await
-            .or_internal("Failed to fetch developer account")?;
+            let account = app_developer_accounts::Entity::find()
+                .filter(app_developer_accounts::Column::WorkspaceId.eq(&caller.workspace_id))
+                .one(&orm(&caller.master(&state)))
+                .await
+                .or_internal("Failed to fetch developer account")?;
             Ok(Data(account.map_or(Value::Null, row)).into_response())
         }
         .await,
@@ -619,12 +612,19 @@ async fn detail(
     )
 }
 
-/// `(set?, value)` for a `case when` update: `undefined` keeps the column.
-fn field_text(field: &Field<String>) -> (bool, Option<&str>) {
+/// `case when $set then $value else col end`: the column only when the body
+/// sent it (`undefined` keeps it, `null` clears it).
+fn set_field<T>(
+    update: UpdateMany<user_apps::Entity>,
+    column: user_apps::Column,
+    field: &Field<T>,
+    value: impl FnOnce(&T) -> sea_orm::Value,
+    null: sea_orm::Value,
+) -> UpdateMany<user_apps::Entity> {
     match field {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(value) => (true, Some(value.as_str())),
+        Field::Absent => update,
+        Field::Null => update.col_expr(column, Expr::value(null)),
+        Field::Set(set) => update.col_expr(column, Expr::value(value(set))),
     }
 }
 
@@ -643,53 +643,41 @@ async fn update(
                 .await
                 .or_internal("Failed to update app")?
                 .ok_or_else(|| app_not_found(&id))?;
-            let (name_set, name) = field_text(&data.name);
-            let (description_set, description) = field_text(&data.description);
-            let (icon_set, icon) = field_text(&data.icon);
-            let (category_set, category) = field_text(&data.category);
-            let (website_set, website) = field_text(&data.website_url);
-            let (privacy_set, privacy) = field_text(&data.privacy_url);
-            let (webhook_set, webhook) = field_text(&data.webhook_url);
-            let updated: Value = sqlx::query_scalar(concat!(
-                "update user_apps as a set
-                   updated_at = $2::timestamptz,
-                   name = case when $3 then $4 else a.name end,
-                   description = case when $5 then $6 else a.description end,
-                   icon = case when $7 then $8 else a.icon end,
-                   category = case when $9 then $10 else a.category end,
-                   is_active = case when $11 then $12 else a.is_active end,
-                   website_url = case when $13 then $14 else a.website_url end,
-                   privacy_url = case when $15 then $16 else a.privacy_url end,
-                   screenshots = case when $17 then $18::jsonb else a.screenshots end,
-                   webhook_url = case when $19 then $20 else a.webhook_url end
-                 where a.id = $1
-                 returning ",
-                app_json!()
-            ))
-            .bind(&id)
-            .bind(now())
-            .bind(name_set)
-            .bind(name)
-            .bind(description_set)
-            .bind(description)
-            .bind(icon_set)
-            .bind(icon)
-            .bind(category_set)
-            .bind(category)
-            .bind(!data.is_active.is_absent())
-            .bind(data.is_active.as_set().copied())
-            .bind(website_set)
-            .bind(website)
-            .bind(privacy_set)
-            .bind(privacy)
-            .bind(!data.screenshots.is_absent())
-            .bind(data.screenshots.as_set().map(|s| json!(s)))
-            .bind(webhook_set)
-            .bind(webhook)
-            .fetch_one(&master)
-            .await
-            .or_internal("Failed to update app")?;
-            let updated = row(updated);
+            let some_text = |value: &String| sea_orm::Value::from(value.as_str());
+            let no_text = || sea_orm::Value::from(None::<String>);
+            let mut update = user_apps::Entity::update_many()
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now_tz()));
+            for (column, field) in [
+                (user_apps::Column::Name, &data.name),
+                (user_apps::Column::Description, &data.description),
+                (user_apps::Column::Icon, &data.icon),
+                (user_apps::Column::Category, &data.category),
+                (user_apps::Column::WebsiteUrl, &data.website_url),
+                (user_apps::Column::PrivacyUrl, &data.privacy_url),
+                (user_apps::Column::WebhookUrl, &data.webhook_url),
+            ] {
+                update = set_field(update, column, field, some_text, no_text());
+            }
+            update = set_field(
+                update,
+                user_apps::Column::IsActive,
+                &data.is_active,
+                |active| sea_orm::Value::from(*active),
+                sea_orm::Value::from(None::<bool>),
+            );
+            update = set_field(
+                update,
+                user_apps::Column::Screenshots,
+                &data.screenshots,
+                |shots| sea_orm::Value::from(json!(shots)),
+                sea_orm::Value::from(None::<Value>),
+            );
+            let updated = update
+                .filter(user_apps::Column::Id.eq(&id))
+                .exec_with_returning(&orm(&master))
+                .await
+                .or_internal("Failed to update app")?;
+            let updated = row(returned(updated, "Failed to update app")?);
             caller.publish(&state, USER_APP_UPDATED, &id, &updated);
             if !data.is_active.is_absent() {
                 drop_asset_cache(&caller, &state, text(&app, "code")).await;
@@ -713,55 +701,45 @@ async fn remove(
                 .await
                 .or_internal(FAILED)?
                 .ok_or_else(|| app_not_found(&id))?;
-            let foreign: i64 = sqlx::query_scalar(
-                "select count(*) from user_app_installs
-                 where app_id = $1 and status = 'active' and workspace_id <> $2",
-            )
-            .bind(&id)
-            .bind(&caller.workspace_id)
-            .fetch_one(&master)
-            .await
-            .or_internal(FAILED)?;
+            let master = orm(&master);
+            let foreign = user_app_installs::Entity::find()
+                .filter(user_app_installs::Column::AppId.eq(&id))
+                .filter(user_app_installs::Column::Status.eq("active"))
+                .filter(user_app_installs::Column::WorkspaceId.ne(&caller.workspace_id))
+                .count(&master)
+                .await
+                .or_internal(FAILED)?;
             if foreign > 0 {
                 return Err(ApiError::conflict("App is still installed in other workspaces").into());
             }
-            let now = now();
-            sqlx::query(
-                "update user_apps set deleted_at = $2::timestamptz, is_active = false,
-                   updated_at = $2::timestamptz where id = $1",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(&master)
-            .await
-            .or_internal(FAILED)?;
-            sqlx::query(
-                "update user_app_installs set status = 'revoked', revoked_at = $2::timestamptz,
-                   updated_at = $2::timestamptz where app_id = $1 and status = 'active'",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(&master)
-            .await
-            .or_internal(FAILED)?;
-            sqlx::query(
-                "update user_app_tokens set revoked_at = $2::timestamptz
-                 where app_id = $1 and revoked_at is null",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(&master)
-            .await
-            .or_internal(FAILED)?;
-            sqlx::query(
-                "update workspace_installed_apps set deleted_at = $2::timestamptz, is_active = false,
-                   updated_at = $2::timestamptz where user_app_id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await
-            .or_internal(FAILED)?;
+            let now = now_tz();
+            user_apps::Entity::update_many()
+                .col_expr(user_apps::Column::DeletedAt, Expr::value(now))
+                .col_expr(user_apps::Column::IsActive, Expr::value(false))
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+                .filter(user_apps::Column::Id.eq(&id))
+                .exec(&master)
+                .await
+                .or_internal(FAILED)?;
+            user_app_installs::Entity::update_many()
+                .col_expr(user_app_installs::Column::Status, Expr::value("revoked"))
+                .col_expr(user_app_installs::Column::RevokedAt, Expr::value(now))
+                .col_expr(user_app_installs::Column::UpdatedAt, Expr::value(now))
+                .filter(user_app_installs::Column::AppId.eq(&id))
+                .filter(user_app_installs::Column::Status.eq("active"))
+                .exec(&master)
+                .await
+                .or_internal(FAILED)?;
+            user_app_tokens::Entity::update_many()
+                .col_expr(user_app_tokens::Column::RevokedAt, Expr::value(now))
+                .filter(user_app_tokens::Column::AppId.eq(&id))
+                .filter(user_app_tokens::Column::RevokedAt.is_null())
+                .exec(&master)
+                .await
+                .or_internal(FAILED)?;
+            soft_delete_tenant_install(&caller.db, &id, now)
+                .await
+                .or_internal(FAILED)?;
             caller.publish(
                 &state,
                 USER_APP_DELETED,
@@ -773,6 +751,23 @@ async fn remove(
         }
         .await,
     )
+}
+
+/// The tenant's mirror of the app goes with it (delete, uninstall).
+async fn soft_delete_tenant_install(
+    tenant: &PgPool,
+    app_id: &str,
+    now: OffsetDateTime,
+) -> Result<u64, DbErr> {
+    let done = workspace_installed_apps::Entity::update_many()
+        .col_expr(workspace_installed_apps::Column::DeletedAt, Expr::value(now))
+        .col_expr(workspace_installed_apps::Column::IsActive, Expr::value(false))
+        .col_expr(workspace_installed_apps::Column::UpdatedAt, Expr::value(now))
+        .filter(workspace_installed_apps::Column::UserAppId.eq(app_id))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .exec(&orm(tenant))
+        .await?;
+    Ok(done.rows_affected)
 }
 
 // ── versions ─────────────────────────────────────────────────────────────────
@@ -789,14 +784,13 @@ async fn versions(
                 .await
                 .or_internal("Failed to list versions")?
                 .ok_or_else(|| app_not_found(&id))?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(v) from user_app_versions v
-                 where v.app_id = $1 order by v.created_at desc, v.id desc",
-            )
-            .bind(&id)
-            .fetch_all(&master)
-            .await
-            .or_internal("Failed to list versions")?;
+            let rows = user_app_versions::Entity::find()
+                .filter(user_app_versions::Column::AppId.eq(&id))
+                .order_by_desc(user_app_versions::Column::CreatedAt)
+                .order_by_desc(user_app_versions::Column::Id)
+                .all(&orm(&master))
+                .await
+                .or_internal("Failed to list versions")?;
             let data: Vec<Value> = rows.into_iter().map(row).collect();
             let total = u64::try_from(data.len()).unwrap_or(0);
             Ok(List::new(data, Pagination::new(total, false, None)).into_response())
@@ -950,26 +944,40 @@ async fn mirror_owner_install_scopes(
     app_id: &str,
     workspace_id: &str,
     needing: &[crate::publish::InstallNeedingConsent],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(owner) = needing.iter().find(|i| i.workspace_id == workspace_id) else {
         return Ok(());
     };
-    let granted: Option<Option<Value>> =
-        sqlx::query_scalar("select granted_scopes from user_app_installs where id = $1 limit 1")
-            .bind(&owner.install_id)
-            .fetch_optional(master)
-            .await?;
+    let granted: Option<Option<Value>> = user_app_installs::Entity::find()
+        .select_only()
+        .column(user_app_installs::Column::GrantedScopes)
+        .filter(user_app_installs::Column::Id.eq(&owner.install_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     let granted = granted.flatten().unwrap_or_else(|| json!([]));
-    sqlx::query(
-        "update workspace_installed_apps set granted_scopes = $2::jsonb, updated_at = $3::timestamptz
-         where user_app_id = $1 and deleted_at is null",
-    )
-    .bind(app_id)
-    .bind(granted)
-    .bind(now())
-    .execute(tenant)
-    .await?;
+    mirror_granted_scopes(tenant, app_id, granted, now_tz()).await?;
     Ok(())
+}
+
+/// The tenant's mirror of an install takes the master grant.
+async fn mirror_granted_scopes(
+    tenant: &PgPool,
+    app_id: &str,
+    granted: Value,
+    now: OffsetDateTime,
+) -> Result<u64, DbErr> {
+    let done = workspace_installed_apps::Entity::update_many()
+        .col_expr(
+            workspace_installed_apps::Column::GrantedScopes,
+            Expr::value(granted),
+        )
+        .col_expr(workspace_installed_apps::Column::UpdatedAt, Expr::value(now))
+        .filter(workspace_installed_apps::Column::UserAppId.eq(app_id))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .exec(&orm(tenant))
+        .await?;
+    Ok(done.rows_affected)
 }
 
 #[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
@@ -993,14 +1001,15 @@ async fn upload_version(
             let app_code = text(&app, "code").to_owned();
             let upload = parse_upload(request, &app_code).await?;
             let version = text(&upload.manifest, "version").to_owned();
-            let dupe: Option<String> = sqlx::query_scalar(
-                "select id from user_app_versions where app_id = $1 and version = $2 limit 1",
-            )
-            .bind(&id)
-            .bind(&version)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
+            let dupe: Option<String> = user_app_versions::Entity::find()
+                .select_only()
+                .column(user_app_versions::Column::Id)
+                .filter(user_app_versions::Column::AppId.eq(&id))
+                .filter(user_app_versions::Column::Version.eq(&version))
+                .into_tuple()
+                .one(&orm(&master))
+                .await
+                .or_internal(FAILED)?;
             if dupe.is_some() {
                 return Err(ApiError::conflict(format!("Version {version} already exists")).into());
             }
@@ -1028,25 +1037,24 @@ async fn upload_version(
                 .filter(|e| !e.is_empty())
                 .unwrap_or("index.html")
                 .to_owned();
-            let created: Value = sqlx::query_scalar(
-                "insert into user_app_versions as v
-                   (id, app_id, version, manifest, requested_scopes, bundle_key, entrypoint,
-                    bundle_size, file_count, status, changelog, created_by)
-                 values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, 'draft', $10, $11)
-                 returning to_jsonb(v)",
-            )
-            .bind(&version_id)
-            .bind(&app_id)
-            .bind(&version)
-            .bind(&upload.manifest)
-            .bind(upload.manifest.get("scopes").filter(|s| !s.is_null()).cloned().unwrap_or_else(|| json!([])))
-            .bind(&bundle_key)
-            .bind(&entrypoint)
-            .bind(i32::try_from(upload.bundle_size).unwrap_or(i32::MAX))
-            .bind(i32::try_from(file_count).unwrap_or(i32::MAX))
-            .bind(&upload.changelog)
-            .bind(&caller.user_id)
-            .fetch_one(&master)
+            let created = user_app_versions::Entity::insert(user_app_versions::ActiveModel {
+                id: Set(version_id.clone()),
+                app_id: Set(app_id.clone()),
+                version: Set(version.clone()),
+                manifest: Set(Some(upload.manifest.clone())),
+                requested_scopes: Set(Some(
+                    upload.manifest.get("scopes").filter(|s| !s.is_null()).cloned().unwrap_or_else(|| json!([])),
+                )),
+                bundle_key: Set(bundle_key),
+                entrypoint: Set(entrypoint),
+                bundle_size: Set(i32::try_from(upload.bundle_size).unwrap_or(i32::MAX)),
+                file_count: Set(i32::try_from(file_count).unwrap_or(i32::MAX)),
+                status: Set("draft".to_owned()),
+                changelog: Set(upload.changelog.clone()),
+                created_by: Set(caller.user_id.clone()),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(&master))
             .await
             .or_internal(FAILED)?;
             let created = row(created);
@@ -1057,15 +1065,13 @@ async fn upload_version(
                 && text(&app, "reviewStatus") == "approved"
                 && text(&app, "publisherType") != "weldsuite";
             if review_gate {
-                sqlx::query(
-                    "update user_apps set review_status = 'submitted', updated_at = $2::timestamptz
-                     where id = $1",
-                )
-                .bind(&app_id)
-                .bind(now())
-                .execute(&master)
-                .await
-                .or_internal(FAILED)?;
+                user_apps::Entity::update_many()
+                    .col_expr(user_apps::Column::ReviewStatus, Expr::value("submitted"))
+                    .col_expr(user_apps::Column::UpdatedAt, Expr::value(now_tz()))
+                    .filter(user_apps::Column::Id.eq(&app_id))
+                    .exec(&orm(&master))
+                    .await
+                    .or_internal(FAILED)?;
                 caller.publish(
                     &state,
                     USER_APP_UPDATED,
@@ -1111,42 +1117,46 @@ async fn submit(
                 .await
                 .or_internal(FAILED)?
                 .ok_or_else(|| app_not_found(&id))?;
-            let version: Option<String> =
-                sqlx::query_scalar("select id from user_app_versions where app_id = $1 limit 1")
-                    .bind(&id)
-                    .fetch_optional(&master)
-                    .await
-                    .or_internal(FAILED)?;
+            let db = orm(&master);
+            let version: Option<String> = user_app_versions::Entity::find()
+                .select_only()
+                .column(user_app_versions::Column::Id)
+                .filter(user_app_versions::Column::AppId.eq(&id))
+                .into_tuple()
+                .one(&db)
+                .await
+                .or_internal(FAILED)?;
             if version.is_none() {
                 return Err(
                     ApiError::bad_request("Upload a version before submitting for review").into(),
                 );
             }
             let official = text(&app, "publisherType") == "weldsuite";
-            let updated: Value = sqlx::query_scalar(concat!(
-                "update user_apps as a set
-                   visibility = 'public',
-                   review_status = case when $2 then 'approved' else 'submitted' end,
-                   reviewed_by = case when $2 then $3 else a.reviewed_by end,
-                   reviewed_at = case when $2 then $4::timestamptz else a.reviewed_at end,
-                   review_notes = case
-                     when $2 then coalesce($5::text, a.review_notes)
-                     when $5::text <> '' then $5::text
-                     else a.review_notes end,
-                   updated_at = $4::timestamptz
-                 where a.id = $1
-                 returning ",
-                app_json!()
-            ))
-            .bind(&id)
-            .bind(official)
-            .bind(&caller.user_id)
-            .bind(now())
-            .bind(&notes)
-            .fetch_one(&master)
-            .await
-            .or_internal(FAILED)?;
-            let updated = row(updated);
+            let now = now_tz();
+            // An official app is approved on the spot; a community app waits.
+            let mut update = user_apps::Entity::update_many()
+                .col_expr(user_apps::Column::Visibility, Expr::value("public"))
+                .col_expr(
+                    user_apps::Column::ReviewStatus,
+                    Expr::value(if official { "approved" } else { "submitted" }),
+                )
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now));
+            if official {
+                update = update
+                    .col_expr(user_apps::Column::ReviewedBy, Expr::value(&caller.user_id))
+                    .col_expr(user_apps::Column::ReviewedAt, Expr::value(now));
+            }
+            // Official: `coalesce(notes, review_notes)`; community: only a
+            // non-empty note replaces the old one.
+            if let Some(notes) = notes.as_deref().filter(|n| official || !n.is_empty()) {
+                update = update.col_expr(user_apps::Column::ReviewNotes, Expr::value(notes));
+            }
+            let updated = update
+                .filter(user_apps::Column::Id.eq(&id))
+                .exec_with_returning(&db)
+                .await
+                .or_internal(FAILED)?;
+            let updated = row(returned(updated, FAILED)?);
             // An official app goes public (and so plain-URL) right here.
             drop_asset_cache(&caller, &state, text(&app, "code")).await;
             caller.publish(&state, USER_APP_UPDATED, &id, &updated);
@@ -1176,77 +1186,62 @@ async fn review(
             const FAILED: &str = "Failed to review app";
             let (decision, notes) = validate(&headers, &body, schemas::review)?;
             let master = caller.master(&state);
-            let admin: Option<String> = sqlx::query_scalar(
-                "select id from admin_users where user_id = $1 and is_active = true limit 1",
-            )
-            .bind(&caller.user_id)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
+            let db = orm(&master);
+            let admin: Option<String> = admin_users::Entity::find()
+                .select_only()
+                .column(admin_users::Column::Id)
+                .filter(admin_users::Column::UserId.eq(&caller.user_id))
+                .filter(admin_users::Column::IsActive.eq(true))
+                .into_tuple()
+                .one(&db)
+                .await
+                .or_internal(FAILED)?;
             if admin.is_none() {
                 return Err(ApiError::forbidden()
                     .with_message("Platform staff only")
                     .into());
             }
-            let app: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a where a.id = $1 and a.deleted_at is null limit 1"
-            ))
-            .bind(&id)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
-            let Some(app) = app.map(row) else {
+            let app = live_app(&master, &id).await.or_internal(FAILED)?;
+            let Some(app) = app else {
                 return Err(app_not_found(&id));
             };
             let approved = decision == "approved";
-            sqlx::query(
-                "update user_apps set review_status = $2, review_notes = $3, reviewed_by = $4,
-                   reviewed_at = $5::timestamptz, updated_at = $5::timestamptz
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(if approved { "approved" } else { "rejected" })
-            .bind(&notes)
-            .bind(&caller.user_id)
-            .bind(now())
-            .execute(&master)
-            .await
-            .or_internal(FAILED)?;
-            if approved {
-                let candidate: Option<Value> = sqlx::query_scalar(
-                    "select to_jsonb(v) from user_app_versions v
-                     where v.app_id = $1 and v.status in ('draft', 'submitted')
-                     order by v.created_at desc, v.id desc limit 1",
+            let now = now_tz();
+            user_apps::Entity::update_many()
+                .col_expr(
+                    user_apps::Column::ReviewStatus,
+                    Expr::value(if approved { "approved" } else { "rejected" }),
                 )
-                .bind(&id)
-                .fetch_optional(&master)
+                .col_expr(user_apps::Column::ReviewNotes, Expr::value(notes))
+                .col_expr(user_apps::Column::ReviewedBy, Expr::value(&caller.user_id))
+                .col_expr(user_apps::Column::ReviewedAt, Expr::value(now))
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+                .filter(user_apps::Column::Id.eq(&id))
+                .exec(&db)
                 .await
                 .or_internal(FAILED)?;
-                if let Some(candidate) = candidate {
-                    publish_app_version(
-                        &master,
-                        &id,
-                        text(&candidate, "id"),
-                        candidate.get("manifest"),
-                    )
+            if approved {
+                let candidate = user_app_versions::Entity::find()
+                    .filter(user_app_versions::Column::AppId.eq(&id))
+                    .filter(user_app_versions::Column::Status.is_in(["draft", "submitted"]))
+                    .order_by_desc(user_app_versions::Column::CreatedAt)
+                    .order_by_desc(user_app_versions::Column::Id)
+                    .one(&db)
                     .await
                     .or_internal(FAILED)?;
+                if let Some(candidate) = candidate {
+                    publish_app_version(&master, &id, &candidate.id, candidate.manifest.as_ref())
+                        .await
+                        .or_internal(FAILED)?;
                 }
             }
             // Approved: the bundle may now be public; rejected: it needs a
             // signed link again.
             drop_asset_cache(&caller, &state, text(&app, "code")).await;
-            let updated: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a where a.id = $1 limit 1"
-            ))
-            .bind(&id)
-            .fetch_optional(&master)
-            .await
-            .or_internal(FAILED)?;
+            let updated = user_apps::Entity::find_by_id(id.as_str())
+                .one(&db)
+                .await
+                .or_internal(FAILED)?;
             let updated = updated.map_or(Value::Null, row);
             caller.publish(&state, USER_APP_UPDATED, &id, &updated);
             if approved && text(&updated, "publisherType") == "weldsuite" {

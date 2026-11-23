@@ -11,8 +11,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{user_preferences, workspace_members, workspace_settings};
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::ics::{IcsEvent, IcsPerson, IcsTime, ics_attachment};
 use weldsuite_emails::{EmailBrand, EmailLocale, EndTime};
@@ -166,21 +169,27 @@ pub(crate) fn has_transport(state: &CalendarState, caller: &Caller) -> bool {
 
 /// The organizer's name, email and preferred zone (`getOrganizerInfo`).
 pub(crate) async fn organizer_info(db: &PgPool, user_id: &str) -> OrganizerInfo {
-    let member: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, email from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await
-            .unwrap_or_else(|error| {
-                tracing::error!(%error, "[calendar-api/calendar-mail] organizer lookup failed");
-                None
-            });
-    let timezone = match sqlx::query_scalar::<_, Option<String>>(
-        "select timezone from user_preferences where user_id = $1 limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+    let member: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "[calendar-api/calendar-mail] organizer lookup failed");
+            None
+        });
+    let timezone = match user_preferences::Entity::find()
+        .select_only()
+        .column(user_preferences::Column::Timezone)
+        .filter(user_preferences::Column::UserId.eq(user_id))
+        .into_tuple::<Option<String>>()
+        .one(&orm(db))
+        .await
     {
         Ok(zone) => valid_zone(zone.flatten().as_deref()),
         Err(error) => {
@@ -212,15 +221,28 @@ pub(crate) async fn member_emails(
     if lowered.is_empty() {
         return HashMap::new();
     }
-    let rows: Result<Vec<(Option<String>, Option<String>)>, _> = sqlx::query_as(
-        "select m.email, p.language from workspace_members m
-         left join user_preferences p on p.user_id = m.user_id
-         where lower(m.email) = any($1) and m.deleted_at is null
-           and m.status = 'ACTIVE' and m.member_type = 'INTERNAL'",
-    )
-    .bind(&lowered)
-    .fetch_all(db)
-    .await;
+    let preferences = workspace_members::Entity::belongs_to(user_preferences::Entity)
+        .from(workspace_members::Column::UserId)
+        .to(user_preferences::Column::UserId)
+        .into();
+    let rows: Result<Vec<(Option<String>, Option<String>)>, _> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Email)
+        .column(user_preferences::Column::Language)
+        .join(JoinType::LeftJoin, preferences)
+        .filter(sea_orm::ExprTrait::is_in(
+            Func::lower(Expr::col((
+                workspace_members::Entity,
+                workspace_members::Column::Email,
+            ))),
+            lowered,
+        ))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .filter(workspace_members::Column::MemberType.eq("INTERNAL"))
+        .into_tuple()
+        .all(&orm(db))
+        .await;
     match rows {
         Ok(rows) => {
             let mut members = HashMap::new();
@@ -241,8 +263,11 @@ pub(crate) async fn member_emails(
 
 /// The workspace's mail language (`getWorkspaceLanguage`).
 pub(crate) async fn workspace_language(db: &PgPool) -> Option<String> {
-    match sqlx::query_scalar::<_, Option<String>>("select language from workspace_settings limit 1")
-        .fetch_optional(db)
+    match workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Language)
+        .into_tuple::<Option<String>>()
+        .one(&orm(db))
         .await
     {
         Ok(language) => language.flatten(),

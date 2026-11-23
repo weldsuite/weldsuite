@@ -13,11 +13,12 @@ use axum::http::HeaderValue;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{HELPDESK_MESSAGE_CREATED, TICKET_DELETED, TICKET_UPDATED};
 use weldsuite_core_domain::custom_field_values::{self as values, Definition};
 use weldsuite_core_domain::js::Js;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::assignment::Picker;
 use weldsuite_desk_domain::attributes::Update;
 use weldsuite_desk_domain::inbox::{
@@ -30,12 +31,14 @@ use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::Field;
 use weldsuite_notifications::Notifier;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{custom_field_definitions, helpdesk_ticket_messages, helpdesk_tickets};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, Fail, created, dates, field, like, list_query, no_content, now, ok, page,
-    soft_delete, table_list_sql, text, with_id, with_updated,
+    soft_delete, text, with_id, with_updated,
 };
+use crate::list::{always, like_any, when};
 use crate::schemas::LIST_TICKET_MESSAGES;
 use crate::schemas_gen::{
     ADD_CONVERSATION_MESSAGE, CREATE_TICKET_MESSAGE, GET_CONVERSATION_QUERY,
@@ -449,18 +452,28 @@ async fn add_conversation_message(
 
 // ── tickets ──────────────────────────────────────────────────────────────────
 
-const TICKETS_LIST: (&str, &str) = table_list_sql!(
-    helpdesk_tickets,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or (t.subject like $3->>'search' or t.customer_email like $3->>'search' \
-          or t.customer_name like $3->>'search' or t.ticket_number like $3->>'search')) \
-     and ($3->>'status' is null or t.status::text = $3->>'status') \
-     and ($3->>'priority' is null or t.priority::text = $3->>'priority') \
-     and ($3->>'assigneeId' is null or t.assignee_id = $3->>'assigneeId') \
-     and ($3->>'departmentId' is null or t.department_id = $3->>'departmentId') \
-     and ($3->>'channel' is null or t.channel::text = $3->>'channel') \
-     and ($3->>'category' is null or t.category = $3->>'category')"
-);
+fn tickets_list(f: &Value) -> Condition {
+    use helpdesk_tickets::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(
+                &[
+                    Column::Subject,
+                    Column::CustomerEmail,
+                    Column::CustomerName,
+                    Column::TicketNumber,
+                ],
+                &v,
+            )
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "priority", |v| Column::Priority.eq(v)))
+        .add_option(when(f, "assigneeId", |v| Column::AssigneeId.eq(v)))
+        .add_option(when(f, "departmentId", |v| Column::DepartmentId.eq(v)))
+        .add_option(when(f, "channel", |v| Column::Channel.eq(v)))
+        .add_option(when(f, "category", |v| Column::Category.eq(v)))
+}
 
 async fn list_tickets(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_TICKETS, raw.as_deref())?;
@@ -474,7 +487,13 @@ async fn list_tickets(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "category": text(&q, "category"),
     });
     let mut found =
-        crate::list::list_rows(&caller.db, TICKETS_LIST, &list_query(&q), &filters).await?;
+        crate::list::list_rows(
+            &caller.db,
+            &HELPDESK_TICKETS.entity,
+            tickets_list(&filters),
+            &list_query(&q),
+        )
+        .await?;
     let rows = std::mem::take(&mut found.rows)
         .into_iter()
         .map(|row| HELPDESK_TICKETS.js(row))
@@ -580,21 +599,34 @@ async fn open_ticket(State(state): S, caller: Caller, headers: HeaderMap, body: 
 type DefinitionRow = (String, String, String, Option<Value>, Option<bool>);
 
 /// `getDefinitionsForTicket(db, ticketTypeId)`: the ticket's custom fields,
-/// those of its type and the untyped ones.
+/// those of its type and the untyped ones (the untyped ones only, without a
+/// type).
 async fn ticket_definitions(
     db: &PgPool,
     ticket_type_id: Option<&str>,
-) -> Result<Vec<Definition>, sqlx::Error> {
-    let rows: Vec<DefinitionRow> = sqlx::query_as(
-        "select id, slug, field_type, options, required from custom_field_definitions
-         where entity_type = 'ticket'
-           and (case when $1::text is not null and $1 <> '' then (ticket_type_id = $1 or ticket_type_id is null)
-                     else ticket_type_id is null end)
-           and deleted_at is null",
-    )
-    .bind(ticket_type_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Definition>, DbErr> {
+    use custom_field_definitions::Column;
+    let of_type = match ticket_type_id.filter(|id| !id.is_empty()) {
+        Some(id) => Condition::any()
+            .add(Column::TicketTypeId.eq(id))
+            .add(Column::TicketTypeId.is_null()),
+        None => Condition::all().add(Column::TicketTypeId.is_null()),
+    };
+    let rows: Vec<DefinitionRow> = custom_field_definitions::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Slug,
+            Column::FieldType,
+            Column::Options,
+            Column::Required,
+        ])
+        .filter(Column::EntityType.eq("ticket"))
+        .filter(of_type)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, slug, field_type, options, required)| Definition {
@@ -686,18 +718,16 @@ async fn delete_ticket(State(state): S, caller: Caller, Path(id): Path<String>) 
     no_content()
 }
 
-const TICKET_MESSAGES_LIST: (&str, &str) =
-    table_list_sql!(helpdesk_ticket_messages, "t.ticket_id = $3->>'ticketId'");
-
 async fn list_ticket_messages(
     caller: Caller,
     Path(id): Path<String>,
     RawQuery(raw): RawQuery,
 ) -> Answer {
     let q = zod::query(&LIST_TICKET_MESSAGES, raw.as_deref())?;
+    // `t.ticket_id = $3->>'ticketId'`: messages have no soft delete.
     page(
         &caller.db,
-        TICKET_MESSAGES_LIST,
+        |f| always(f, "ticketId", |v| helpdesk_ticket_messages::Column::TicketId.eq(v)),
         &HELPDESK_TICKET_MESSAGES,
         &q,
         json!({ "ticketId": id }),

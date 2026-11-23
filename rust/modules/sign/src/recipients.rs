@@ -238,6 +238,7 @@ async fn update_recipient(
     input: RecipientInput,
     secret: Option<&str>,
 ) -> SignResult<Value> {
+    use sign_recipients::Column;
     let current = get_recipient(db, envelope_id, recipient_id).await?;
     if let Some(email) = input.email.as_set()
         && current["email"].as_str() != Some(email.as_str())
@@ -266,7 +267,6 @@ async fn update_recipient(
         input.access_code.as_set().map(String::as_str),
         current["accessCodeHash"].as_str(),
     )?;
-    use sign_recipients::Column;
     let values: [(Column, Option<sea_orm::Value>); 9] = [
         (Column::Role, Some(role.clone().into())),
         (Column::Name, sent(&input.name, Clone::clone)),

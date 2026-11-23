@@ -18,6 +18,8 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -30,13 +32,15 @@ use weldsuite_core_domain::drive_access::{
 use weldsuite_core_domain::folders::check_folder_parent;
 use weldsuite_kit::id::generate_id;
 use weldsuite_ports::{DynFileStore, StorageBuckets, StoredObject};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{files, folders};
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, created, dates, field, like, no_content, now, ok, soft_delete,
-    table_list_sql, text, with_updated,
+    Answer, Caller, Fail, created, dates, field, like, no_content, now, ok, soft_delete, text,
+    with_updated,
 };
-use crate::list::{ListQuery, clamp_limit, list_page_mapped};
+use crate::list::{ListQuery, clamp_limit, list_page_mapped, when};
 use crate::schemas::LIST_DRIVE_ALL;
 use crate::schemas_gen::{
     CREATE_FILE, CREATE_FOLDER, LIST_FILES, LIST_FOLDERS, UPDATE_FILE, UPDATE_FOLDER,
@@ -148,30 +152,29 @@ fn workspace_of_key(key: &str) -> Option<&str> {
     .then_some(id)
 }
 
-/// The visibility of `files t` as a list filter (`visibleFilesCondition`).
-fn visibility(index: &DriveAccessIndex) -> Value {
-    match visible_files(index) {
-        None => json!({ "admin": true }),
-        Some(visible) => json!({
-            "admin": false,
-            "user": visible.user_id,
-            "shares": visible.file_share_ids,
-            "granted": visible.granted_folder_ids,
-            "open": visible.open_folder_ids,
-        }),
-    }
-}
-
-/// `visibleFilesCondition` on `files t`, from `$3->'visible'`.
-macro_rules! visible_files_sql {
-    () => {
-        "(($3->'visible'->>'admin')::boolean or t.entity_type is not null \
-          or ($3->'visible'->>'user' is not null and t.uploaded_by_id = $3->'visible'->>'user') \
-          or t.id in (select jsonb_array_elements_text($3->'visible'->'shares')) \
-          or t.folder_id in (select jsonb_array_elements_text($3->'visible'->'granted')) \
-          or (t.general_access <> 'restricted' \
-              and (t.folder_id is null or t.folder_id in (select jsonb_array_elements_text($3->'visible'->'open')))))"
+/// `visibleFilesCondition` on `files`: every file for an admin; else the
+/// files attached to a record, the caller's uploads, the files shared with
+/// them, and the files in a folder whose chain grants them a role or leaves
+/// its files open to the workspace (an unrestricted file in My Drive too).
+fn visibility(index: &DriveAccessIndex) -> Condition {
+    use files::Column;
+    let Some(visible) = visible_files(index) else {
+        return Condition::all();
     };
+    Condition::any()
+        .add(Column::EntityType.is_not_null())
+        .add_option(visible.user_id.map(|user| Column::UploadedById.eq(user)))
+        .add(Column::Id.is_in(visible.file_share_ids))
+        .add(Column::FolderId.is_in(visible.granted_folder_ids))
+        .add(
+            Condition::all()
+                .add(Column::GeneralAccess.ne("restricted"))
+                .add(
+                    Condition::any()
+                        .add(Column::FolderId.is_null())
+                        .add(Column::FolderId.is_in(visible.open_folder_ids)),
+                ),
+        )
 }
 
 // ── files ────────────────────────────────────────────────────────────────────
@@ -196,26 +199,22 @@ async fn open_file(
     }
 }
 
-const FILES_LIST: (&str, &str) = table_list_sql!(
-    files,
-    // `visibleFilesCondition` (as `visible_files_sql!`), then the filters.
-    "t.deleted_at is null \
-     and (($3->'visible'->>'admin')::boolean or t.entity_type is not null \
-          or ($3->'visible'->>'user' is not null and t.uploaded_by_id = $3->'visible'->>'user') \
-          or t.id in (select jsonb_array_elements_text($3->'visible'->'shares')) \
-          or t.folder_id in (select jsonb_array_elements_text($3->'visible'->'granted')) \
-          or (t.general_access <> 'restricted' \
-              and (t.folder_id is null or t.folder_id in (select jsonb_array_elements_text($3->'visible'->'open'))))) \
-     and ($3->>'search' is null or t.file_name like $3->>'search') \
-     and ($3->>'type' is null or t.file_type = $3->>'type') \
-     and ($3->>'folderId' is null or t.folder_id = $3->>'folderId')"
-);
+/// The files list: the live files the caller may see (`visibility`), then
+/// the filters.
+fn files_list(visible: Condition, f: &Value) -> Condition {
+    use files::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(visible)
+        .add_option(when(f, "search", |v| Column::FileName.like(v)))
+        .add_option(when(f, "type", |v| Column::FileType.eq(v)))
+        .add_option(when(f, "folderId", |v| Column::FolderId.eq(v)))
+}
 
 async fn list_files(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_FILES, raw.as_deref())?;
     let index = access(&caller).await?;
     let filters = json!({
-        "visible": visibility(&index),
         "search": like(&q, "search"),
         "type": text(&q, "type"),
         "folderId": text(&q, "folderId"),
@@ -225,12 +224,14 @@ async fn list_files(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         cursor: None,
         limit: clamp_limit(q.get("pageSize").and_then(Value::as_f64)),
     };
-    Ok(
-        list_page_mapped(&caller.db, FILES_LIST, &query, &filters, |row| {
-            FILES.js(row)
-        })
-        .await?,
+    Ok(list_page_mapped(
+        &caller.db,
+        &FILES.entity,
+        files_list(visibility(&index), &filters),
+        &query,
+        |row| FILES.js(row),
     )
+    .await?)
 }
 
 async fn get_file(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -488,12 +489,14 @@ async fn open_folder(
     }
 }
 
-const FOLDERS_LIST: (&str, &str) = table_list_sql!(
-    folders,
-    "t.deleted_at is null \
-     and t.id in (select jsonb_array_elements_text($3->'visible')) \
-     and ($3->>'parentId' is null or t.parent_id = $3->>'parentId')"
-);
+/// The folders list: the live folders the caller may see, of the parent
+/// when one is named.
+fn folders_list(visible: Vec<String>, f: &Value) -> Condition {
+    Condition::all()
+        .add(folders::Column::DeletedAt.is_null())
+        .add(folders::Column::Id.is_in(visible))
+        .add_option(when(f, "parentId", |v| folders::Column::ParentId.eq(v)))
+}
 
 /// `listWithCursor` without a cursor or limit: the first page of the default
 /// size.
@@ -507,16 +510,15 @@ fn first_page() -> ListQuery {
 async fn list_folders(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_FOLDERS, raw.as_deref())?;
     let index = access(&caller).await?;
-    let filters = json!({
-        "visible": visible_folder_ids(&index),
-        "parentId": text(&q, "parentId"),
-    });
-    Ok(
-        list_page_mapped(&caller.db, FOLDERS_LIST, &first_page(), &filters, |row| {
-            FOLDERS.js(row)
-        })
-        .await?,
+    let filters = json!({ "parentId": text(&q, "parentId") });
+    Ok(list_page_mapped(
+        &caller.db,
+        &FOLDERS.entity,
+        folders_list(visible_folder_ids(&index), &filters),
+        &first_page(),
+        |row| FOLDERS.js(row),
     )
+    .await?)
 }
 
 async fn get_folder(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -623,7 +625,6 @@ async fn drive_all(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let result = async {
         let index = access(&caller).await?;
         let filters = json!({
-            "visible": visibility(&index),
             "search": like(&q, "search"),
             "type": text(&q, "type"),
             "folderId": text(&q, "folderId"),
@@ -631,9 +632,9 @@ async fn drive_all(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         Ok::<_, Fail>(
             list_page_mapped(
                 &caller.db,
-                FILES_LIST,
+                &FILES.entity,
+                files_list(visibility(&index), &filters),
                 &crate::crud::list_query(&q),
-                &filters,
                 |row| FILES.js(row),
             )
             .await?,
@@ -643,21 +644,21 @@ async fn drive_all(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     result.map_err(|_| internal_with("Failed to fetch files").into())
 }
 
-const STATS_SQL: &str = concat!(
-    "select t.file_type, count(*)::bigint from files t where t.deleted_at is null and ",
-    visible_files_sql!(),
-    " group by t.file_type"
-);
-
 async fn drive_stats(caller: Caller) -> Answer {
     let result = async {
         let index = access(&caller).await?;
-        let filters = json!({ "visible": visibility(&index) });
-        let rows: Vec<(String, i64)> = sqlx::query_as(STATS_SQL)
-            .bind(Option::<String>::None)
-            .bind(0_i64)
-            .bind(&filters)
-            .fetch_all(&caller.db)
+        let db = orm(&caller.db);
+        // `select t.file_type, count(*) … group by t.file_type` over the
+        // live files the caller may see.
+        let rows: Vec<(String, i64)> = files::Entity::find()
+            .select_only()
+            .column(files::Column::FileType)
+            .column_as(Func::count(Expr::col(Asterisk)), "count")
+            .filter(files::Column::DeletedAt.is_null())
+            .filter(visibility(&index))
+            .group_by(files::Column::FileType)
+            .into_tuple()
+            .all(&db)
             .await?;
         let mut by_type = Map::new();
         let mut total_files = 0_i64;
@@ -669,12 +670,12 @@ async fn drive_stats(caller: Caller) -> Answer {
         let total_folders: i64 = if visible.is_empty() {
             0
         } else {
-            sqlx::query_scalar(
-                "select count(*)::bigint from folders where deleted_at is null and id = any($1)",
-            )
-            .bind(&visible)
-            .fetch_one(&caller.db)
-            .await?
+            let counted = folders::Entity::find()
+                .filter(folders::Column::DeletedAt.is_null())
+                .filter(folders::Column::Id.is_in(visible))
+                .count(&db)
+                .await?;
+            i64::try_from(counted).unwrap_or(i64::MAX)
         };
         Ok::<_, Fail>(json!({
             "totalFiles": total_files,

@@ -658,7 +658,7 @@ fn columns_of(
 /// A passthrough value as the driver handed it to Postgres: text, cast to
 /// the column's type (`$n::integer`), `NULL` for a `null`.
 fn cast(column: &Column, sql_type: &'static str) -> Expr {
-    plain(column).cast_as(sql_type)
+    sea_orm::ExprTrait::cast_as(plain(column), sql_type)
 }
 
 /// A passthrough text value (`NULL` for a `null` or a key left out).
