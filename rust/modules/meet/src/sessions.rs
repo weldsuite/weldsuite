@@ -1513,7 +1513,22 @@ async fn remove(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::{DbBackend, QueryTrait};
+
     use super::*;
+
+    #[test]
+    fn printing() {
+        let stmt = meeting_sessions::Entity::update_many()
+            .col_expr(Session::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .col_expr(Session::Metadata, with_removed_guest(json!({ "a@x.io": { "removedBy": "u" } })))
+            .filter(Session::Id.eq("s1"))
+            .build(DbBackend::Postgres);
+        println!("{stmt}");
+        let (page, count) = page_and_count(vec![Some(Condition::all().add(Session::MeetingId.eq("m"))), None, Some(Condition::all().add(Session::Status.eq("x")))], true);
+        println!("{}", meeting_sessions::Entity::find().filter(page).build(DbBackend::Postgres));
+        println!("{}", meeting_sessions::Entity::find().filter(count).build(DbBackend::Postgres));
+    }
 
     #[test]
     fn rejoins_keep_the_first_join_and_the_time_spent() {

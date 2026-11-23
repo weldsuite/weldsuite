@@ -7,13 +7,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{sign_fields, sign_recipients};
 
 use crate::envelopes::{
-    load_draft, load_own_envelope, publish_updated, recipient_dto, touch_envelope, viewer_of,
+    int, load_draft, load_own_envelope, publish_updated, recipient_dto, returned, row_json, sent,
+    touch_envelope, viewer_of,
 };
 use crate::hash::code_hash;
 use crate::{Caller, SignError, SignResult, SignState, answer, sources, text, validate};
@@ -93,14 +98,12 @@ pub(crate) async fn get_recipient(
     envelope_id: &str,
     recipient_id: &str,
 ) -> SignResult<Value> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from sign_recipients r where id = $1 and envelope_id = $2 limit 1",
-    )
-    .bind(recipient_id)
-    .bind(envelope_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row).ok_or(SignError::NotFound("Recipient"))
+    let row = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .filter(sign_recipients::Column::EnvelopeId.eq(envelope_id))
+        .one(&orm(db))
+        .await?;
+    Ok(row_json(row.ok_or(SignError::NotFound("Recipient"))?)?)
 }
 
 async fn assert_email_free(
@@ -109,15 +112,15 @@ async fn assert_email_free(
     email: &str,
     except: Option<&str>,
 ) -> SignResult<()> {
-    let taken: Option<String> = sqlx::query_scalar(
-        "select id from sign_recipients
-         where envelope_id = $1 and email = $2 and ($3::text is null or id <> $3) limit 1",
-    )
-    .bind(envelope_id)
-    .bind(email)
-    .bind(except)
-    .fetch_optional(db)
-    .await?;
+    let mut query = sign_recipients::Entity::find()
+        .select_only()
+        .column(sign_recipients::Column::Id)
+        .filter(sign_recipients::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_recipients::Column::Email.eq(email));
+    if let Some(except) = except {
+        query = query.filter(sign_recipients::Column::Id.ne(except));
+    }
+    let taken: Option<String> = query.into_tuple().one(&orm(db)).await?;
     if taken.is_some() {
         return Err(SignError::invalid(format!(
             "{email} is already a recipient of this envelope"
@@ -155,12 +158,15 @@ pub(crate) async fn recipient_count(
     db: &PgPool,
     envelope_id: &str,
 ) -> SignResult<(i64, Option<i32>)> {
-    Ok(sqlx::query_as(
-        "select count(*), max(routing_order) from sign_recipients where envelope_id = $1",
-    )
-    .bind(envelope_id)
-    .fetch_one(db)
-    .await?)
+    Ok(sign_recipients::Entity::find()
+        .select_only()
+        .column_as(sign_recipients::Column::Id.count(), "count")
+        .column_as(sign_recipients::Column::RoutingOrder.max(), "last")
+        .filter(sign_recipients::Column::EnvelopeId.eq(envelope_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?
+        .unwrap_or((0, None)))
 }
 
 /// A recipient to add (`addRecipient`'s input). `role_name` is the template
@@ -206,27 +212,23 @@ pub(crate) async fn add_recipient(
     let order = input
         .routing_order
         .unwrap_or_else(|| last.map_or(1, |n| i64::from(n) + 1));
-    let row: Value = sqlx::query_scalar(
-        "insert into sign_recipients
-             (id, envelope_id, role, role_name, name, email, person_id, locale, routing_order,
-              auth_mode, access_code_hash)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::int, $10, $11)
-         returning to_jsonb(sign_recipients)",
-    )
-    .bind(&id)
-    .bind(envelope_id)
-    .bind(&role)
-    .bind(input.role_name)
-    .bind(input.name)
-    .bind(&input.email)
-    .bind(input.person_id)
-    .bind(input.locale.unwrap_or_else(|| "en".to_owned()))
-    .bind(order)
-    .bind(&auth_mode)
-    .bind(hash)
-    .fetch_one(db)
+    let row = sign_recipients::Entity::insert(sign_recipients::ActiveModel {
+        id: Set(id),
+        envelope_id: Set(envelope_id.to_owned()),
+        role: Set(role),
+        role_name: Set(input.role_name),
+        name: Set(input.name),
+        email: Set(Some(input.email)),
+        person_id: Set(input.person_id),
+        locale: Set(input.locale.unwrap_or_else(|| "en".to_owned())),
+        routing_order: Set(int(&order)),
+        auth_mode: Set(auth_mode),
+        access_code_hash: Set(hash),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    Ok(row_json(row)?)
 }
 
 async fn update_recipient(
@@ -264,45 +266,56 @@ async fn update_recipient(
         input.access_code.as_set().map(String::as_str),
         current["accessCodeHash"].as_str(),
     )?;
-    let row: Value = sqlx::query_scalar(
-        "update sign_recipients set
-             role = $2,
-             name = case when $3 then $4 else name end,
-             email = case when $5 then $6 else email end,
-             person_id = case when $7 then $8 else person_id end,
-             locale = case when $9 then $10 else locale end,
-             routing_order = case when $11 then $12::int else routing_order end,
-             auth_mode = $13,
-             access_code_hash = $14,
-             updated_at = $15::timestamptz
-         where id = $1
-         returning to_jsonb(sign_recipients)",
-    )
-    .bind(recipient_id)
-    .bind(&role)
-    .bind(!input.name.is_absent())
-    .bind(input.name.as_set())
-    .bind(!input.email.is_absent())
-    .bind(input.email.as_set())
-    .bind(!input.person_id.is_absent())
-    .bind(input.person_id.as_set())
-    .bind(!input.locale.is_absent())
-    .bind(input.locale.as_set())
-    .bind(!input.routing_order.is_absent())
-    .bind(input.routing_order.as_set())
-    .bind(&auth_mode)
-    .bind(hash)
-    .bind(crate::now())
-    .fetch_one(db)
-    .await?;
+    use sign_recipients::Column;
+    let values: [(Column, Option<sea_orm::Value>); 9] = [
+        (Column::Role, Some(role.clone().into())),
+        (Column::Name, sent(&input.name, Clone::clone).map(Into::into)),
+        (
+            Column::Email,
+            sent(&input.email, Clone::clone).map(Into::into),
+        ),
+        (
+            Column::PersonId,
+            sent(&input.person_id, Clone::clone).map(Into::into),
+        ),
+        (
+            Column::Locale,
+            sent(&input.locale, Clone::clone).map(Into::into),
+        ),
+        (
+            Column::RoutingOrder,
+            sent(&input.routing_order, int).map(Into::into),
+        ),
+        (Column::AuthMode, Some(auth_mode.into())),
+        (Column::AccessCodeHash, Some(hash.into())),
+        (Column::UpdatedAt, Some(crate::now().into())),
+    ];
+    let update = values.into_iter().fold(
+        sign_recipients::Entity::update_many(),
+        |update, (column, value)| match value {
+            Some(value) => update.col_expr(column, Expr::value(value)),
+            None => update,
+        },
+    );
+    let rows = update
+        .filter(Column::Id.eq(recipient_id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    let row = returned(rows, "sign_recipients")?;
     // A copy recipient fills nothing in: drop the fields they had as a signer.
     if role == "cc" && current["role"] != "cc" {
-        sqlx::query("delete from sign_fields where recipient_id = $1")
-            .bind(recipient_id)
-            .execute(db)
-            .await?;
+        delete_fields_of(db, recipient_id).await?;
     }
-    Ok(js_row(row))
+    Ok(row_json(row)?)
+}
+
+/// `delete from sign_fields where recipient_id = …`.
+pub(crate) async fn delete_fields_of(db: &PgPool, recipient_id: &str) -> SignResult<()> {
+    sign_fields::Entity::delete_many()
+        .filter(sign_fields::Column::RecipientId.eq(recipient_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// Remove a recipient (or a template role) with their fields.
@@ -312,13 +325,10 @@ pub(crate) async fn remove_recipient(
     recipient_id: &str,
 ) -> SignResult<()> {
     get_recipient(db, envelope_id, recipient_id).await?;
-    sqlx::query("delete from sign_fields where recipient_id = $1")
-        .bind(recipient_id)
-        .execute(db)
-        .await?;
-    sqlx::query("delete from sign_recipients where id = $1")
-        .bind(recipient_id)
-        .execute(db)
+    delete_fields_of(db, recipient_id).await?;
+    sign_recipients::Entity::delete_many()
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }

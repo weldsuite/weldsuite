@@ -22,16 +22,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::SIGN_ENVELOPE_COMPLETED;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, iso_timestamp};
 use weldsuite_ports::{
     BoxFuture, Job, JobContext, JobError, JobRequest, PutOptions, StepRetry, step,
 };
+use weldsuite_schema::tenant::{sign_envelopes, sign_events};
 
-use crate::envelopes::{list_documents, list_fields, list_recipients};
+use crate::envelopes::{json_rows, list_documents, list_fields, list_recipients, row_json};
 use crate::filing::file_signed_pdf;
 use crate::links::{
     DOWNLOAD_WINDOW_DAYS, LinkTarget, create_link, limit_links_to_download, sha256_hex,
@@ -91,12 +94,8 @@ fn final_key(clerk_org_id: &str, envelope_id: &str) -> String {
 }
 
 async fn envelope_row(db: &PgPool, id: &str) -> SignResult<Option<Value>> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from sign_envelopes e where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+    let row = sign_envelopes::Entity::find_by_id(id).one(&orm(db)).await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 fn storage(ctx: &SendContext) -> SignResult<weldsuite_ports::FileStores> {
@@ -237,13 +236,12 @@ pub(crate) async fn build_final_pdf(
     let documents = list_documents(&ctx.db, envelope_id).await?;
     let recipients = list_recipients(&ctx.db, envelope_id).await?;
     let fields = list_fields(&ctx.db, envelope_id).await?;
-    let events: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_events e where envelope_id = $1 order by created_at asc",
-    )
-    .bind(envelope_id)
-    .fetch_all(&ctx.db)
-    .await?;
-    let events: Vec<Value> = events.into_iter().map(js_row).collect();
+    let events = sign_events::Entity::find()
+        .filter(sign_events::Column::EnvelopeId.eq(envelope_id))
+        .order_by_asc(sign_events::Column::CreatedAt)
+        .all(&orm(&ctx.db))
+        .await?;
+    let events = json_rows(events)?;
     if recipients
         .iter()
         .any(|r| r["role"] == "signer" && r["status"] != "signed")
@@ -253,7 +251,8 @@ pub(crate) async fn build_final_pdf(
 
     let files = storage(ctx)?;
     let mut out = drawn_documents(ctx, &documents, &fields).await?;
-    let completed_at = crate::now();
+    let completed = crate::now();
+    let completed_at = iso_timestamp(completed);
     let (_, workspace_name) = workspace_brand(ctx).await?;
     let input = CertificateInput {
         envelope_id: envelope_id.to_owned(),
@@ -291,19 +290,17 @@ pub(crate) async fn build_final_pdf(
         )
         .await
         .map_err(|e| SignError::Internal(e.to_string()))?;
-    sqlx::query(
-        "update sign_envelopes
-         set status = 'completed', completed_at = $3::timestamptz, final_sha256 = $4,
-             final_storage_key = $5, updated_at = $3::timestamptz
-         where id = $1 and status = $2",
-    )
-    .bind(envelope_id)
-    .bind(status)
-    .bind(&completed_at)
-    .bind(&sha256)
-    .bind(&key)
-    .execute(&ctx.db)
-    .await?;
+    // Once: only while the request is still in the status it was read in.
+    sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::Status, Expr::value("completed"))
+        .col_expr(sign_envelopes::Column::CompletedAt, Expr::value(completed))
+        .col_expr(sign_envelopes::Column::FinalSha256, Expr::value(&sha256))
+        .col_expr(sign_envelopes::Column::FinalStorageKey, Expr::value(&key))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(completed))
+        .filter(sign_envelopes::Column::Id.eq(envelope_id))
+        .filter(sign_envelopes::Column::Status.eq(status))
+        .exec(&orm(&ctx.db))
+        .await?;
     record_sign_event(
         &ctx.db,
         SignEvent {
@@ -326,12 +323,14 @@ pub(crate) async fn notify_completed(ctx: &SendContext, envelope_id: &str) -> Si
     if text(&envelope, "status") != "completed" || final_key.is_empty() {
         return Ok(());
     }
-    let notified: Option<String> = sqlx::query_scalar(
-        "select id from sign_events where envelope_id = $1 and type = 'delivered' limit 1",
-    )
-    .bind(envelope_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let notified: Option<String> = sign_events::Entity::find()
+        .select_only()
+        .column(sign_events::Column::Id)
+        .filter(sign_events::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_events::Column::Type.eq("delivered"))
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     if notified.is_some() {
         return Ok(());
     }
@@ -348,7 +347,7 @@ pub(crate) async fn notify_completed(ctx: &SendContext, envelope_id: &str) -> Si
         .ok_or_else(|| SignError::Internal(format!("Final PDF of {envelope_id} is missing")))?
         .bytes;
 
-    let until = iso_timestamp(completed_at + time::Duration::days(DOWNLOAD_WINDOW_DAYS));
+    let until = completed_at + time::Duration::days(DOWNLOAD_WINDOW_DAYS);
     let mut mails = Vec::new();
     for r in &recipients {
         let email = text(r, "email");
@@ -362,7 +361,7 @@ pub(crate) async fn notify_completed(ctx: &SendContext, envelope_id: &str) -> Si
                 clerk_org_id: &ctx.clerk_org_id,
                 envelope_id,
                 recipient_id: text(r, "id"),
-                expires_at: Some(&until),
+                expires_at: Some(until),
             },
         )
         .await?;

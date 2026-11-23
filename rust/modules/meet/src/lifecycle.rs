@@ -23,7 +23,7 @@ use weldsuite_schema::tenant::{crm_activities, meeting_sessions, meetings};
 use weldsuite_video_rooms::DynVideoRooms;
 
 use crate::js::{now_ms, parse_ms, text};
-use crate::table::{iso, now_both, row_json, sql_timestamp};
+use crate::table::{iso, row_json, sql_timestamp};
 use crate::{MeetState, now, publish, publish_system};
 
 /// What the lifecycle needs besides the database.
@@ -166,7 +166,7 @@ async fn log_meeting_activities(
         if people.is_empty() {
             return Ok(());
         }
-        let (_, now) = now_both();
+        let now = weldsuite_db::utc_now();
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let minutes = (duration_seconds as f64 / 60.0 + 0.5).floor() as i64;
         let start = sql_timestamp(started_at.unwrap_or(ended_at))?;

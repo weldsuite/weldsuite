@@ -16,7 +16,7 @@ use http::HeaderMap;
 use sea_orm::sea_query::{Expr, Func, Query};
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait as _,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
@@ -236,6 +236,7 @@ fn upcoming_condition() -> Condition {
 
 /// `view=history`: over, or with an ended session.
 fn history_condition() -> Condition {
+    use sea_orm::ExprTrait as _;
     let ended_session = Query::select()
         .column((meeting_sessions::Entity, meeting_sessions::Column::Id))
         .from(meeting_sessions::Entity)
@@ -609,7 +610,17 @@ async fn recorded_sessions(
     db: &PgPool,
     scope: Option<&str>,
 ) -> Result<Vec<RecordedSession>, DbErr> {
+    recorded_select(scope)
+        .into_model::<RecordedSession>()
+        .all(&orm(db))
+        .await
+}
+
+/// [`recorded_sessions`]' statement: the sessions joined to their meetings,
+/// `hasTranscript` an `exists` on a completed transcription.
+fn recorded_select(scope: Option<&str>) -> sea_orm::Select<meeting_sessions::Entity> {
     use meeting_sessions::Column as S;
+    use sea_orm::ExprTrait as _;
     let transcribed = Query::select()
         .column((crm_transcriptions::Entity, crm_transcriptions::Column::Id))
         .from(crm_transcriptions::Entity)
@@ -656,11 +667,7 @@ async fn recorded_sessions(
     if let Some(scope) = scope {
         find = find.filter(Meeting::OrganizerId.eq(scope));
     }
-    find.order_by_desc(S::StartedAt)
-        .limit(50)
-        .into_model::<RecordedSession>()
-        .all(&orm(db))
-        .await
+    find.order_by_desc(S::StartedAt).limit(50)
 }
 
 async fn ai_pricing(State(state): State<MeetState>, caller: Caller) -> Response {
@@ -2032,7 +2039,43 @@ async fn remove(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::{DbBackend, QueryTrait};
+
     use super::*;
+
+    #[test]
+    fn printing() {
+        let at = crate::table::sql_timestamp("2026-10-01T12:00:00.123Z").expect("at");
+        let filters = Filters {
+            scope: Some("u1".into()),
+            search: Some("%x%".into()),
+            statuses: Some(vec!["scheduled".into(), "completed".into()]),
+            counterparty: Some("cp1".into()),
+            person: Some("p1".into()),
+            upcoming: true,
+            history: true,
+            cursor: Some((at, "mtg1".into())),
+        };
+        let (page, count) = page_and_count(filters.conditions(), true);
+        println!("{}", meetings::Entity::find().filter(page).order_by_desc(Meeting::CreatedAt).order_by_desc(Meeting::Id).limit(limit_of(26.0)).build(DbBackend::Postgres));
+        println!("{}", meetings::Entity::find().filter(count).build(DbBackend::Postgres));
+        println!("{}", recorded_select(Some("u1")).build(DbBackend::Postgres));
+        println!("{}", meeting_sessions::Entity::find().distinct_on([meeting_sessions::Column::MeetingId]).filter(meeting_sessions::Column::MeetingId.is_in(["a", "b"])).order_by_asc(meeting_sessions::Column::MeetingId).order_by_desc(meeting_sessions::Column::CreatedAt).order_by_desc(meeting_sessions::Column::Id).build(DbBackend::Postgres));
+        let preferences = workspace_members::Entity::belongs_to(user_preferences::Entity)
+            .from(workspace_members::Column::UserId)
+            .to(user_preferences::Column::UserId)
+            .into();
+        println!("{}", workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .column(user_preferences::Column::Timezone)
+            .join(JoinType::LeftJoin, preferences)
+            .filter(workspace_members::Column::UserId.is_in(["a".to_owned(), "b".to_owned()])).build(DbBackend::Postgres));
+    }
 
     #[test]
     fn join_codes_look_like_the_workers() {

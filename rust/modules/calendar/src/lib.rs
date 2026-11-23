@@ -49,7 +49,6 @@ use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_catalogs::permission_keys::{
@@ -58,7 +57,7 @@ use weldsuite_catalogs::permission_keys::{
     EVENTS_UPDATE, GENERAL_READ, TEAM_READ, TEAM_UPDATE, WORKING_HOURS_EDIT_SELF,
 };
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, iso_timestamp};
+use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
@@ -388,15 +387,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// route's 500 message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     /// A failure outside the database (an invalid date the driver would
     /// refuse), answered with the route's 500 message.
     Internal(String),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -439,9 +444,9 @@ impl Refusal {
 pub(crate) type Outcome<T> = Result<T, Refusal>;
 
 /// `new Date()` as Drizzle writes it to a `timestamp` column: UTC with
-/// milliseconds. Bound as text and cast with `::timestamp`.
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// milliseconds.
+pub(crate) fn now() -> time::PrimitiveDateTime {
+    weldsuite_db::utc_now()
 }
 
 /// The body as JSON, or zod-validator's 400 for one that doesn't parse.

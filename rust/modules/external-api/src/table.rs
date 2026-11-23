@@ -3,15 +3,22 @@
 //! `db.update(t).set({ ...body, updatedAt })`, where `body` is what the
 //! route's Zod schema let through.
 //!
-//! The generated tables (`tables_gen.rs`) carry the statements: the values
-//! become a `{ column: value }` JSON object, `jsonb_populate_record` turns it
-//! into the row, and a column the object leaves out gets its database default
-//! (insert) or keeps its value (patch), as Drizzle leaves it out of the
-//! statement. (The same scheme as `weldsuite_desk_domain::table`, with the
-//! hard delete and the any-row read the public API also needs.)
+//! A generated table (`tables_gen.rs`) maps Drizzle's properties onto the
+//! columns of its entity; the values become a `{ column: value }` JSON object
+//! that [`weldsuite_db::record`] writes through the entity, so a column the
+//! object leaves out gets its database default (insert) or keeps its value
+//! (patch), as Drizzle leaves it out of the statement. Rows come back as the
+//! entity's model, which serializes as Drizzle returned the row. (The same
+//! scheme as `weldsuite_desk_domain::table`, with the hard delete and the
+//! any-row read the public API also needs.)
 
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ConnectionTrait, DbBackend, DbErr, EntityTrait, IdenStatic, Iterable, QueryResult, Statement,
+};
 use serde_json::{Map, Value};
-use weldsuite_db::{PgPool, js_timestamp};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm};
 
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
@@ -51,44 +58,63 @@ pub(crate) struct Column {
 /// A table the public API writes.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Table {
-    #[allow(dead_code)] // the table, for a reader of the generated file
+    /// The table, for a reader of the generated file.
     pub(crate) name: &'static str,
+    /// The table's entity: the statements, and the row as Drizzle returns it.
+    pub(crate) entity: JsonTable,
+    /// The hard delete, which [`JsonTable`] leaves out.
+    pub(crate) delete: Delete,
+    /// The properties the API reads, in the schema's order.
     pub(crate) columns: &'static [Column],
+    /// The entity's columns the API never reads (`selectableColumns`: the
+    /// ciphertext ones).
+    #[allow(dead_code)] // the test that holds each table to its entity
+    pub(crate) omitted: &'static [&'static str],
     /// Whether the table has `deleted_at` (the routes' soft delete).
     pub(crate) soft_delete: bool,
-    /// `$1`: the row as `{ column: value }`. Returns the row.
-    pub(crate) insert: &'static str,
-    /// `$1`: the changes as `{ column: value }`, `$2`: the id, `$3`: only a
-    /// live row (`deleted_at is null`). Returns the row, if one was changed.
-    pub(crate) patch: &'static str,
-    /// `$1`: the id. The live row (`deleted_at is null` where the table has it).
-    pub(crate) select_live: &'static str,
-    /// `$1`: the id. The row, removed or not.
-    pub(crate) select_any: &'static str,
-    /// `$1`: the id. Deletes the row, returning it.
-    pub(crate) remove: &'static str,
 }
 
-/// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
-/// a `date` (`2026-10-29`) is midnight UTC.
-pub(crate) fn js_date(text: &str) -> String {
-    if text.len() == 10 {
-        return format!("{text}T00:00:00.000Z");
-    }
-    js_timestamp(text).unwrap_or_else(|| text.to_owned())
+/// `delete from t where t.id = $1 returning <every column>`, and the reader
+/// of the row it returns: what [`JsonTable`] does for its other statements.
+#[derive(Clone, Copy)]
+pub(crate) struct Delete {
+    statement: fn(&str) -> Result<Statement, DbErr>,
+    json: fn(&QueryResult) -> Result<Value, DbErr>,
 }
 
-/// A `timestamp` column in `string` mode, as Postgres prints it
-/// (`2026-10-29 07:00:00+00`), where `to_jsonb` writes ISO.
-fn pg_text_timestamp(text: &str) -> String {
-    if text.len() <= 10 || text.as_bytes().get(10) != Some(&b'T') {
-        return text.to_owned();
+impl std::fmt::Debug for Delete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Delete").finish_non_exhaustive()
     }
-    let out = text.replacen('T', " ", 1);
-    match out.strip_suffix("+00:00") {
-        Some(stripped) => format!("{stripped}+00"),
-        None => out,
+}
+
+impl Delete {
+    /// The hard delete of the entity `E`'s rows.
+    pub(crate) const fn of<E>() -> Self
+    where
+        E: EntityTrait,
+        E::Model: serde::Serialize,
+    {
+        Self {
+            statement: delete_statement::<E>,
+            json: weldsuite_db::record::json::<E>,
+        }
     }
+}
+
+/// `delete from t where t.id = $1 returning <every column>`.
+fn delete_statement<E: EntityTrait>(id: &str) -> Result<Statement, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let table = E::default();
+    let id_column = E::Column::iter()
+        .find(|column| column.as_str() == "id")
+        .ok_or_else(|| DbErr::Custom(format!("{} has no id column", table.table_name())))?;
+    let mut delete = Query::delete();
+    delete
+        .from_table(table.table_ref())
+        .and_where(Expr::col((table, id_column)).eq(id))
+        .returning(Query::returning().columns(E::Column::iter()));
+    Ok(DbBackend::Postgres.build(&delete))
 }
 
 /// Why a write could not run.
@@ -99,31 +125,26 @@ pub(crate) enum WriteError {
     NotADate(&'static str),
     /// `set({})`: Drizzle throws `No values to set` (the route's 500).
     NoValues,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for WriteError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for WriteError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
 impl Table {
-    /// A row (`to_jsonb(t)`) as Drizzle's `select()` returns it: the
-    /// schema's property names, `Date`s as `toISOString()`, and only the
-    /// schema's columns, in its order.
+    /// A row as the entity serializes it (Drizzle's `select()`), kept to the
+    /// schema's properties, in its order: the columns the API never reads
+    /// are dropped.
     pub(crate) fn js(&self, row: Value) -> Value {
         let Value::Object(mut row) = row else {
             return row;
         };
         let mut out = Map::with_capacity(self.columns.len());
         for column in self.columns {
-            let value = row.remove(column.name).unwrap_or(Value::Null);
-            let value = match (column.kind, value) {
-                (Kind::Date, Value::String(text)) => Value::String(js_date(&text)),
-                (Kind::DateString, Value::String(text)) => Value::String(pg_text_timestamp(&text)),
-                (_, value) => value,
-            };
+            let value = row.remove(column.prop).unwrap_or(Value::Null);
             out.insert(column.prop.to_owned(), value);
         }
         Value::Object(out)
@@ -163,26 +184,45 @@ impl Table {
 
     /// Insert `data` (by property); `dates` names the properties holding a
     /// `Date`. The row as Drizzle returns it.
-    pub(crate) async fn insert<'e>(
+    pub(crate) async fn insert(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
+        data: &Map<String, Value>,
+        dates: &[&str],
+    ) -> Result<Value, WriteError> {
+        self.insert_on(&orm(db), data, dates).await
+    }
+
+    /// [`Table::insert`] on a SeaORM connection (`OrmConn` in a transaction).
+    pub(crate) async fn insert_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
         data: &Map<String, Value>,
         dates: &[&str],
     ) -> Result<Value, WriteError> {
         let values = self.values(data);
         self.check_dates(&values, dates)?;
-        let row: Value = sqlx::query_scalar(self.insert)
-            .bind(Value::Object(values))
-            .fetch_one(db)
-            .await?;
+        let row = self.entity.insert(db, values).await?;
         Ok(self.js(row))
     }
 
     /// Update the row `id` with `data` (by property); `live_only` adds
     /// `deleted_at is null`. The changed row, or `None` when none matched.
-    pub(crate) async fn patch<'e>(
+    pub(crate) async fn patch(
         &self,
-        db: impl sqlx::PgExecutor<'e>,
+        db: &PgPool,
+        id: &str,
+        data: &Map<String, Value>,
+        live_only: bool,
+        dates: &[&str],
+    ) -> Result<Option<Value>, WriteError> {
+        self.patch_on(&orm(db), id, data, live_only, dates).await
+    }
+
+    /// [`Table::patch`] on a SeaORM connection (`OrmConn` in a transaction).
+    pub(crate) async fn patch_on<C: ConnectionTrait>(
+        &self,
+        db: &C,
         id: &str,
         data: &Map<String, Value>,
         live_only: bool,
@@ -193,48 +233,53 @@ impl Table {
             return Err(WriteError::NoValues);
         }
         self.check_dates(&values, dates)?;
-        let row: Option<Value> = sqlx::query_scalar(self.patch)
-            .bind(Value::Object(values))
-            .bind(id)
-            .bind(live_only)
-            .fetch_optional(db)
-            .await?;
+        let row = self.entity.update(db, id, values, live_only).await?;
         Ok(row.map(|row| self.js(row)))
     }
 
-    /// The live row `id`, as Drizzle returns it.
-    pub(crate) async fn find_live(
-        &self,
-        db: &PgPool,
-        id: &str,
-    ) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.select_live)
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    /// The live row `id` (`deleted_at is null` where the table has it), as
+    /// Drizzle returns it.
+    pub(crate) async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        let row = self.entity.find(&orm(db), id, true).await?;
         Ok(row.map(|row| self.js(row)))
     }
 
     /// The row `id`, removed or not.
-    pub(crate) async fn find_any(
-        &self,
-        db: &PgPool,
-        id: &str,
-    ) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.select_any)
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    pub(crate) async fn find_any(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        let row = self.entity.find(&orm(db), id, false).await?;
         Ok(row.map(|row| self.js(row)))
     }
 
     /// Delete the row `id`; the deleted row, if there was one.
-    pub(crate) async fn delete(&self, db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = sqlx::query_scalar(self.remove)
-            .bind(id)
-            .fetch_optional(db)
+    pub(crate) async fn delete(&self, db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+        let row = orm(db)
+            .query_one_raw((self.delete.statement)(id)?)
             .await?;
-        Ok(row.map(|row| self.js(row)))
+        row.as_ref()
+            .map(self.delete.json)
+            .transpose()
+            .map(|row| row.map(|row| self.js(row)))
+    }
+
+    /// The columns this table names that its entity lacks, and the entity's
+    /// columns it neither names nor omits: both empty while the two agree.
+    #[cfg(test)]
+    pub(crate) fn entity_drift(&self) -> (Vec<&'static str>, Vec<&'static str>) {
+        let entity = self.entity.columns();
+        let missing = self
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .filter(|name| !entity.contains(name))
+            .collect();
+        let extra = entity
+            .into_iter()
+            .filter(|name| {
+                !self.columns.iter().any(|column| column.name == *name)
+                    && !self.omitted.contains(name)
+            })
+            .collect();
+        (missing, extra)
     }
 }
 
@@ -242,16 +287,45 @@ impl Table {
 mod tests {
     use super::*;
 
+    /// The generated tables keep Drizzle's properties; their columns are the
+    /// entities', so a schema change shows up here.
     #[test]
-    fn string_timestamps_print_as_postgres() {
-        assert_eq!(
-            pg_text_timestamp("2026-10-29T07:00:00+00:00"),
-            "2026-10-29 07:00:00+00"
+    fn the_tables_match_their_entities() {
+        assert_eq!(crate::tables_gen::ALL.len(), 67);
+        for table in crate::tables_gen::ALL {
+            assert_eq!(table.entity_drift(), (vec![], vec![]), "{}", table.name);
+            assert_eq!(table.entity.table_name(), table.name);
+            assert_eq!(
+                table.soft_delete,
+                table.entity.columns().contains(&"deleted_at"),
+                "{}",
+                table.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_hard_delete_returns_the_row() {
+        let statement = (crate::tables_gen::DNS_RECORDS.delete.statement)("rec_1")
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            statement
+                .sql
+                .starts_with(r#"DELETE FROM "dns_records" WHERE "dns_records"."id" = $1 RETURNING "id", "#),
+            "{}",
+            statement.sql
         );
-        assert_eq!(
-            pg_text_timestamp("2026-10-29T07:00:00"),
-            "2026-10-29 07:00:00"
-        );
-        assert_eq!(pg_text_timestamp("2026-10-29"), "2026-10-29");
+    }
+
+    #[test]
+    fn rows_keep_the_schemas_properties_only() {
+        let table = &crate::tables_gen::BANK_ACCOUNTS;
+        let row = table.js(serde_json::json!({
+            "id": "ba_1",
+            "accountNumberEncrypted": "secret",
+        }));
+        assert_eq!(row["id"], "ba_1");
+        assert!(row.get("accountNumberEncrypted").is_none());
+        assert_eq!(table.omitted, ["account_number_encrypted"]);
     }
 }

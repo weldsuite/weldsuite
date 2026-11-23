@@ -26,10 +26,19 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+    RelationDef,
+};
 use serde_json::Value;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::flags::WELDMAIL_OUTBOUND_GUARD;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_ports::{DynCache, FlagContext, FlagSourceExt};
+use weldsuite_schema::master::{outbound_mail_policies, plans, workspaces};
+use weldsuite_schema::tenant::{mail_correspondents, mail_suppressions};
 
 use crate::{SendContext, text};
 
@@ -168,13 +177,17 @@ fn unique_addresses(list: &[String]) -> Vec<String> {
 /// Refused for a complaint, else the recipients who never wrote in. A
 /// tenant without the tables yet counts everyone as known.
 async fn first_contacts(ctx: &SendContext, recipients: &[String]) -> Result<Vec<String>, ()> {
-    let suppressed: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select email from mail_suppressions where email = any($1) and reason = 'complaint'",
-    )
-    .bind(recipients)
-    .fetch_all(&ctx.db)
-    .await;
-    let known: Result<Vec<String>, sqlx::Error> = match &suppressed {
+    let db = &orm(&ctx.db);
+    let addresses = || recipients.iter().map(String::as_str);
+    let suppressed: Result<Vec<String>, DbErr> = mail_suppressions::Entity::find()
+        .select_only()
+        .column(mail_suppressions::Column::Email)
+        .filter(mail_suppressions::Column::Email.is_in(addresses()))
+        .filter(mail_suppressions::Column::Reason.eq("complaint"))
+        .into_tuple()
+        .all(db)
+        .await;
+    let known: Result<Vec<String>, DbErr> = match suppressed {
         Ok(found) if !found.is_empty() => {
             tracing::warn!(
                 recipients = ?found,
@@ -183,15 +196,16 @@ async fn first_contacts(ctx: &SendContext, recipients: &[String]) -> Result<Vec<
             return Err(());
         }
         Ok(_) => {
-            sqlx::query_scalar(
-                "select email from mail_correspondents
-                 where email = any($1) and first_inbound_at is not null",
-            )
-            .bind(recipients)
-            .fetch_all(&ctx.db)
-            .await
+            mail_correspondents::Entity::find()
+                .select_only()
+                .column(mail_correspondents::Column::Email)
+                .filter(mail_correspondents::Column::Email.is_in(addresses()))
+                .filter(mail_correspondents::Column::FirstInboundAt.is_not_null())
+                .into_tuple()
+                .all(db)
+                .await
         }
-        Err(error) => Err(sqlx::Error::Protocol(error.to_string())),
+        Err(error) => Err(error),
     };
     match known {
         Ok(known) => Ok(recipients
@@ -212,29 +226,79 @@ struct Policy {
     limits: Limits,
 }
 
-async fn load_policy(ctx: &SendContext) -> Result<Policy, sqlx::Error> {
-    let row: Option<(String, Option<String>, Value)> = sqlx::query_as(
-        "select state, trust_override, limits from outbound_mail_policies
-         where workspace_id = $1 limit 1",
-    )
-    .bind(&ctx.workspace_id)
-    .fetch_optional(&ctx.master)
-    .await?;
+/// What the trust level reads off the workspace and its plan.
+#[derive(Debug, FromQueryResult)]
+struct WorkspaceTrust {
+    created_at: PrimitiveDateTime,
+    comp_granted_at: Option<PrimitiveDateTime>,
+    billing_mode: String,
+    subscription_status: Option<String>,
+    /// `plans.price_monthly > 0`; `None` without a plan.
+    priced: Option<bool>,
+}
+
+impl WorkspaceTrust {
+    /// `extract(epoch from (now() - created_at)) / 86400`.
+    fn age_days(&self) -> f64 {
+        (OffsetDateTime::now_utc() - self.created_at.assume_utc()).as_seconds_f64() / 86400.0
+    }
+
+    /// Comped, sold by a partner, or on a priced plan that is paid up.
+    fn paid(&self) -> bool {
+        self.comp_granted_at.is_some()
+            || self.billing_mode == "partner"
+            || (matches!(
+                self.subscription_status.as_deref().unwrap_or_default(),
+                "active" | "past_due"
+            ) && self.priced.unwrap_or(false))
+    }
+}
+
+async fn load_policy(ctx: &SendContext) -> Result<Policy, DbErr> {
+    let master = &orm(&ctx.master);
+    let row: Option<(String, Option<String>, Value)> = outbound_mail_policies::Entity::find()
+        .select_only()
+        .columns([
+            outbound_mail_policies::Column::State,
+            outbound_mail_policies::Column::TrustOverride,
+            outbound_mail_policies::Column::Limits,
+        ])
+        .filter(outbound_mail_policies::Column::WorkspaceId.eq(ctx.workspace_id.as_str()))
+        .into_tuple()
+        .one(master)
+        .await?;
     let (state, trust_override, overrides) =
         row.unwrap_or_else(|| ("active".to_owned(), None, Value::Null));
-    let workspace: Option<(f64, bool)> = sqlx::query_as(
-        "select extract(epoch from (now() - w.created_at))::float8 / 86400,
-                (w.comp_granted_at is not null or w.billing_mode = 'partner'
-                 or (coalesce(w.subscription_status, '') in ('active', 'past_due')
-                     and coalesce(p.price_monthly::float8, 0) > 0))
-         from workspaces w left join plans p on p.id = w.plan_id
-         where w.id = $1 limit 1",
-    )
-    .bind(&ctx.workspace_id)
-    .fetch_optional(&ctx.master)
-    .await?;
+    let plan: RelationDef = workspaces::Entity::belongs_to(plans::Entity)
+        .from(workspaces::Column::PlanId)
+        .to(plans::Column::Id)
+        .into();
+    let workspace = workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::CreatedAt,
+            workspaces::Column::CompGrantedAt,
+            workspaces::Column::BillingMode,
+            workspaces::Column::SubscriptionStatus,
+        ])
+        .column_as(
+            sea_orm::ExprTrait::gt(
+                Expr::col((plans::Entity, plans::Column::PriceMonthly)),
+                0,
+            ),
+            "priced",
+        )
+        .join(JoinType::LeftJoin, plan)
+        .filter(workspaces::Column::Id.eq(ctx.workspace_id.as_str()))
+        .into_model::<WorkspaceTrust>()
+        .one(master)
+        .await?;
     let level = match workspace {
-        Some((age, paid)) => trust_level(trust_override.as_deref(), age, paid),
+        Some(workspace) => trust_level(
+            trust_override.as_deref(),
+            workspace.age_days(),
+            workspace.paid(),
+        ),
         None => trust_level(trust_override.as_deref(), 0.0, false),
     };
     Ok(Policy {
@@ -533,24 +597,49 @@ pub(crate) async fn settle(
             tracing::warn!(%error, "sign: outbound commit failed");
         }
     }
-    let now = crate::now();
-    let recorded = sqlx::query(
-        "insert into mail_correspondents
-             (email, first_outbound_at, last_outbound_at, outbound_count, updated_at)
-         select email, $2::timestamp, $2::timestamp, 1, $2::timestamp from unnest($1::text[]) as email
-         on conflict (email) do update set
-             first_outbound_at = coalesce(mail_correspondents.first_outbound_at, excluded.first_outbound_at),
-             last_outbound_at = excluded.last_outbound_at,
-             outbound_count = mail_correspondents.outbound_count + 1,
-             updated_at = excluded.updated_at",
-    )
-    .bind(&sent)
-    .bind(&now)
-    .execute(&ctx.db)
-    .await;
-    if let Err(error) = recorded {
+    if let Err(error) = record_correspondents(ctx, sent).await {
         tracing::warn!(%error, "sign: outbound correspondent record failed");
     }
+}
+
+/// `recordOutboundCorrespondents`: the workspace wrote to these addresses,
+/// in one statement.
+async fn record_correspondents(ctx: &SendContext, sent: Vec<String>) -> Result<u64, DbErr> {
+    use mail_correspondents::Column;
+    let now = utc_now();
+    let rows = sent
+        .into_iter()
+        .map(|email| mail_correspondents::ActiveModel {
+            email: Set(email),
+            first_outbound_at: Set(Some(now)),
+            last_outbound_at: Set(Some(now)),
+            outbound_count: Set(1),
+            updated_at: Set(now),
+            ..Default::default()
+        });
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+    let merge = OnConflict::column(Column::Email)
+        .value(
+            Column::FirstOutboundAt,
+            Func::coalesce([
+                Expr::col((mail_correspondents::Entity, Column::FirstOutboundAt)),
+                excluded(Column::FirstOutboundAt),
+            ]),
+        )
+        .value(Column::LastOutboundAt, excluded(Column::LastOutboundAt))
+        .value(
+            Column::OutboundCount,
+            sea_orm::ExprTrait::add(
+                Expr::col((mail_correspondents::Entity, Column::OutboundCount)),
+                1,
+            ),
+        )
+        .value(Column::UpdatedAt, excluded(Column::UpdatedAt))
+        .to_owned();
+    mail_correspondents::Entity::insert_many(rows)
+        .on_conflict(merge)
+        .exec_without_returning(&orm(&ctx.db))
+        .await
 }
 
 #[cfg(test)]

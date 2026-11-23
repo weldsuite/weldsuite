@@ -59,6 +59,7 @@ pub(crate) struct Column {
 /// A table meet-api writes from a request body.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Table {
+    #[allow(dead_code)] // the generated tables carry it; the drift test names it
     pub(crate) name: &'static str,
     /// The table's entity: the statements, and the row as Drizzle returns it.
     pub(crate) entity: JsonTable,

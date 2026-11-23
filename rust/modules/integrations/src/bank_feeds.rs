@@ -30,8 +30,10 @@ use hmac::{KeyInit, Mac};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256, Sha512};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_books_domain::bank_feeds::{FeedConfig, providers::normalize_provider_id};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::bank_feed_connection_index as index;
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
 
 use crate::binding::{BindingRequest, ServiceBinding};
@@ -207,15 +209,15 @@ async fn lookup(
     master: &PgPool,
     provider: &str,
     provider_connection_id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    sqlx::query_as::<_, (String, String)>(
-        "select connection_id, clerk_org_id from bank_feed_connection_index \
-         where provider = $1 and provider_connection_id = $2 limit 1",
-    )
-    .bind(provider)
-    .bind(provider_connection_id)
-    .fetch_optional(master)
-    .await
+) -> Result<Option<(String, String)>, DbErr> {
+    index::Entity::find()
+        .select_only()
+        .columns([index::Column::ConnectionId, index::Column::ClerkOrgId])
+        .filter(index::Column::Provider.eq(provider))
+        .filter(index::Column::ProviderConnectionId.eq(provider_connection_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await
 }
 
 /// Group events by the connection id the provider used and hand each group
@@ -244,7 +246,7 @@ pub async fn dispatch_bank_feed_events(
             let master = master.ok_or("the master database is not configured")?;
             let hit = lookup(master, provider, &provider_connection_id)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| crate::crm::db_text(&e))?;
             let Some((connection_id, clerk_org_id)) = hit else {
                 tracing::warn!(
                     "[BankFeedWebhook] no connection for {provider}:{provider_connection_id}"

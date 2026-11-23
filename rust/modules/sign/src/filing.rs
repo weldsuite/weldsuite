@@ -13,17 +13,23 @@
 //! Each copy is its own object, so deleting it in Drive or on the record
 //! never touches WeldSign's signed PDF, or the other copy.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     ACTIVITY_CREATED, EventName, FILE_CREATED, FOLDER_CREATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::tenant::{
+    crm_activities, crm_opportunities, files, folders, sign_envelopes, sign_recipients,
+};
 
-use crate::envelopes::latest_filing;
+use crate::envelopes::{json_rows, latest_filing, row_json};
 use crate::mail::safe_title;
 use crate::sending::{SignEvent, record_sign_event};
 use crate::sources::source_name;
@@ -53,45 +59,54 @@ async fn ensure_owned_folder(
     parent: Option<&str>,
     owner: &str,
 ) -> SignResult<(Value, bool)> {
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from folders f
-         where created_by_id = $1
-           and (case when $2::text is null then parent_id is null else parent_id = $2 end)
-           and lower(name) = lower($3) and deleted_at is null
-         limit 1",
-    )
-    .bind(owner)
-    .bind(parent)
-    .bind(name)
-    .fetch_optional(db)
-    .await?;
+    let db = &orm(db);
+    let existing = folders::Entity::find()
+        .filter(folders::Column::CreatedById.eq(owner))
+        .filter(match parent {
+            None => folders::Column::ParentId.is_null(),
+            Some(parent) => folders::Column::ParentId.eq(parent),
+        })
+        .filter(lower_eq(folders::Column::Name, name))
+        .filter(folders::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
     if let Some(folder) = existing {
-        return Ok((js_row(folder), false));
+        return Ok((row_json(folder)?, false));
     }
-    let folder: Value = sqlx::query_scalar(
-        "insert into folders (id, name, parent_id, created_by_id, general_access, metadata)
-         values ($1, $2, $3, $4, 'restricted', '{\"weldsign\":true}'::jsonb)
-         returning to_jsonb(folders)",
-    )
-    .bind(generate_id("fld"))
-    .bind(name)
-    .bind(parent)
-    .bind(owner)
-    .fetch_one(db)
+    let folder = folders::Entity::insert(folders::ActiveModel {
+        id: Set(generate_id("fld")),
+        name: Set(name.to_owned()),
+        parent_id: Set(parent.map(str::to_owned)),
+        created_by_id: Set(Some(owner.to_owned())),
+        general_access: Set("restricted".to_owned()),
+        metadata: Set(Some(json!({ "weldsign": true }))),
+        ..Default::default()
+    })
+    .exec_with_returning(db)
     .await?;
-    Ok((js_row(folder), true))
+    Ok((row_json(folder)?, true))
+}
+
+/// `lower(column) = lower(value)`, both lowered by Postgres.
+fn lower_eq(column: impl ColumnTrait, value: &str) -> Expr {
+    sea_orm::ExprTrait::eq(
+        Expr::expr(Func::lower(Expr::col(column.as_column_ref()))),
+        Func::lower(Expr::val(value)),
+    )
 }
 
 /// The folder for the Drive copy: the chosen one while it exists, else the
 /// sender's `WeldSign/<year>`.
 async fn drive_folder_for(ctx: &SendContext, envelope: &Value, year: i32) -> SignResult<String> {
     if let Some(chosen) = envelope["fileBackFolderId"].as_str() {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from folders where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(chosen)
-        .fetch_optional(&ctx.db)
-        .await?;
+        let found: Option<String> = folders::Entity::find()
+            .select_only()
+            .column(folders::Column::Id)
+            .filter(folders::Column::Id.eq(chosen))
+            .filter(folders::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if let Some(id) = found {
             return Ok(id);
         }
@@ -144,12 +159,14 @@ async fn record_for(db: &PgPool, envelope: &Value) -> SignResult<Option<Record>>
             }))
         }
         "opportunity" => {
-            let customer: Option<String> = sqlx::query_scalar(
-                "select customer_id from crm_opportunities where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+            let customer: Option<String> = crm_opportunities::Entity::find()
+                .select_only()
+                .column(crm_opportunities::Column::CustomerId)
+                .filter(crm_opportunities::Column::Id.eq(id))
+                .filter(crm_opportunities::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             Ok(customer.map(|customer| Record {
                 kind: "company",
                 id: customer,
@@ -162,29 +179,41 @@ async fn record_for(db: &PgPool, envelope: &Value) -> SignResult<Option<Record>>
 
 /// A copy an earlier, interrupted run already made (`existingCopy`).
 async fn existing_copy(db: &PgPool, envelope_id: &str, copy: &str) -> SignResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from files f
-         where deleted_at is null
-           and metadata->'weldsign'->>'envelopeId' = $1
-           and metadata->'weldsign'->>'copy' = $2
-         limit 1",
-    )
-    .bind(envelope_id)
-    .bind(copy)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    // `metadata->'weldsign'->>key`.
+    let weldsign = |key: &str| {
+        use sea_orm::sea_query::extension::postgres::PgExpr;
+        PgExpr::cast_json_field(
+            PgExpr::get_json_field(
+                Expr::col((files::Entity, files::Column::Metadata)),
+                "weldsign",
+            ),
+            key,
+        )
+    };
+    let row = files::Entity::find()
+        .filter(files::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(weldsign("envelopeId"), envelope_id))
+        .filter(sea_orm::ExprTrait::eq(weldsign("copy"), copy))
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 /// The note an earlier run already logged: it lists the record copy among
 /// its attachments (`existingNote`).
 async fn existing_note(db: &PgPool, record_file_id: &str) -> SignResult<Option<String>> {
-    Ok(sqlx::query_scalar(
-        "select id from crm_activities where attachments @> jsonb_build_array($1::text) limit 1",
-    )
-    .bind(record_file_id)
-    .fetch_optional(db)
-    .await?)
+    Ok(crm_activities::Entity::find()
+        .select_only()
+        .column(crm_activities::Column::Id)
+        .filter(
+            sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                Expr::col((crm_activities::Entity, crm_activities::Column::Attachments)),
+                json!([record_file_id]),
+            ),
+        )
+        .into_tuple()
+        .one(&orm(db))
+        .await?)
 }
 
 /// `deduplicateFileName`: `name (1).pdf`, `name (2).pdf`, … until no live
@@ -194,17 +223,20 @@ async fn deduplicate_file_name(
     name: &str,
     folder: Option<&str>,
 ) -> SignResult<String> {
+    let db = &orm(db);
     let taken = |candidate: String| async move {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from files
-             where lower(file_name) = lower($1) and deleted_at is null
-               and (case when $2::text is null then folder_id is null else folder_id = $2 end)
-             limit 1",
-        )
-        .bind(&candidate)
-        .bind(folder)
-        .fetch_optional(db)
-        .await?;
+        let found: Option<String> = files::Entity::find()
+            .select_only()
+            .column(files::Column::Id)
+            .filter(lower_eq(files::Column::FileName, &candidate))
+            .filter(files::Column::DeletedAt.is_null())
+            .filter(match folder {
+                None => files::Column::FolderId.is_null(),
+                Some(folder) => files::Column::FolderId.eq(folder),
+            })
+            .into_tuple()
+            .one(db)
+            .await?;
         Ok::<_, SignError>((found.is_some(), candidate))
     };
     let (conflict, _) = taken(name.to_owned()).await?;
@@ -262,32 +294,34 @@ async fn store_copy(
     let name = signed_file_name(text(envelope, "title"));
     let unique = deduplicate_file_name(&ctx.db, &name, place.folder).await?;
     let metadata = json!({ "weldsign": { "envelopeId": id, "copy": copy, "sha256": envelope["finalSha256"] } });
-    let now = crate::now();
+    let now = utc_now();
     let file_id = generate_id("fil");
     let (entity_type, entity_id) = place.entity.unzip();
-    let row: Value = sqlx::query_scalar(
-        "insert into files
-             (id, file_name, original_name, mime_type, file_size, file_type, storage_path, file_key,
-              bucket, url, thumbnail_url, folder_id, uploaded_by_id, is_public, entity_type,
-              entity_id, metadata, created_at, updated_at)
-         values ($1, $2, $3, 'application/pdf', $4, 'file', $5, $5, 'private', null, null, $6, $7,
-                 false, $8, $9, $10::jsonb, $11::timestamp, $11::timestamp)
-         returning to_jsonb(files)",
-    )
-    .bind(&file_id)
-    .bind(&unique)
-    .bind(&name)
-    .bind(i32::try_from(pdf.len()).unwrap_or(i32::MAX))
-    .bind(&key)
-    .bind(place.folder)
-    .bind(text(envelope, "senderUserId"))
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(metadata)
-    .bind(&now)
-    .fetch_one(&ctx.db)
+    let row = files::Entity::insert(files::ActiveModel {
+        id: Set(file_id.clone()),
+        file_name: Set(unique),
+        original_name: Set(Some(name)),
+        mime_type: Set("application/pdf".to_owned()),
+        file_size: Set(i32::try_from(pdf.len()).unwrap_or(i32::MAX)),
+        file_type: Set("file".to_owned()),
+        storage_path: Set(key.clone()),
+        file_key: Set(Some(key)),
+        bucket: Set(Some("private".to_owned())),
+        url: Set(None),
+        thumbnail_url: Set(None),
+        folder_id: Set(place.folder.map(str::to_owned)),
+        uploaded_by_id: Set(Some(text(envelope, "senderUserId").to_owned())),
+        is_public: Set(false),
+        entity_type: Set(entity_type.map(str::to_owned)),
+        entity_id: Set(entity_id.map(str::to_owned)),
+        metadata: Set(Some(metadata)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&ctx.db))
     .await?;
-    let file = js_row(row);
+    let file = row_json(row)?;
     publish(
         ctx,
         FILE_CREATED,
@@ -345,11 +379,11 @@ async fn log_activity(
     record_file_id: &str,
     now: OffsetDateTime,
 ) -> SignResult<String> {
-    let recipients: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(r) from sign_recipients r where envelope_id = $1")
-            .bind(text(envelope, "id"))
-            .fetch_all(&ctx.db)
-            .await?;
+    let recipients = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::EnvelopeId.eq(text(envelope, "id")))
+        .all(&orm(&ctx.db))
+        .await?;
+    let recipients = json_rows(recipients)?;
     let names: Vec<String> = recipients
         .iter()
         .filter(|r| r["role"] == "signer")
@@ -383,28 +417,32 @@ async fn log_activity(
     let person = (record.kind == "person").then_some(record.id.as_str());
     let assignee = text(envelope, "senderUserId");
     let id = generate_id("act");
-    let stamp = crate::now();
-    sqlx::query(
-        "insert into crm_activities
-             (id, type, subject, description, related_to, related_to_id, related_to_name,
-              customer_id, person_id, opportunity_id, assigned_to_id, status, priority,
-              attachments, created_at, updated_at)
-         values ($1, 'note', $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', 'medium',
-                 jsonb_build_array($11::text), $12::timestamp, $12::timestamp)",
-    )
-    .bind(&id)
-    .bind(&subject)
-    .bind(&description)
-    .bind(related_to)
-    .bind(record.opportunity_id.as_deref().unwrap_or(&record.id))
-    .bind(related_name)
-    .bind(customer)
-    .bind(person)
-    .bind(record.opportunity_id.as_deref())
-    .bind(assignee)
-    .bind(record_file_id)
-    .bind(&stamp)
-    .execute(&ctx.db)
+    let stamp = utc_now();
+    crm_activities::Entity::insert(crm_activities::ActiveModel {
+        id: Set(id.clone()),
+        type_: Set("note".to_owned()),
+        subject: Set(subject.clone()),
+        description: Set(Some(description)),
+        related_to: Set(Some(related_to.to_owned())),
+        related_to_id: Set(Some(
+            record
+                .opportunity_id
+                .clone()
+                .unwrap_or_else(|| record.id.clone()),
+        )),
+        related_to_name: Set(related_name),
+        customer_id: Set(customer.map(str::to_owned)),
+        person_id: Set(person.map(str::to_owned)),
+        opportunity_id: Set(record.opportunity_id.clone()),
+        assigned_to_id: Set(assignee.to_owned()),
+        status: Set("completed".to_owned()),
+        priority: Set(Some("medium".to_owned())),
+        attachments: Set(Some(json!([record_file_id]))),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&ctx.db))
     .await?;
     // `createActivity`'s event data; keys that are `undefined` there stay out.
     let mut data = json!({ "id": id, "type": "note", "subject": subject, "status": "completed" });
@@ -455,12 +493,10 @@ pub(crate) async fn file_signed_pdf(
     envelope_id: &str,
 ) -> SignResult<Option<Value>> {
     let now = OffsetDateTime::now_utc();
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from sign_envelopes e where id = $1 limit 1")
-            .bind(envelope_id)
-            .fetch_optional(&ctx.db)
-            .await?;
-    let Some(envelope) = row.map(js_row) else {
+    let row = sign_envelopes::Entity::find_by_id(envelope_id)
+        .one(&orm(&ctx.db))
+        .await?;
+    let Some(envelope) = row.map(row_json).transpose()? else {
         return Ok(None);
     };
     let final_key = text(&envelope, "finalStorageKey").to_owned();
