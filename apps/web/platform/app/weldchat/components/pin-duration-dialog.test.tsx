@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/i18n/provider', () => ({
@@ -72,5 +72,64 @@ describe('PinDurationDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onPin).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('PinDurationDialog durations', () => {
+  beforeAll(() => {
+    // Radix Select scrolls the picked option into view; jsdom has no layout.
+    Element.prototype.scrollIntoView ??= () => {};
+    Element.prototype.hasPointerCapture ??= () => false;
+  });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function renderDialog() {
+    const onPin = vi.fn();
+    render(<PinDurationDialog open onOpenChange={vi.fn()} onPin={onPin} />);
+    return { onPin };
+  }
+
+  /** Opens the duration select and picks the option named `name`. */
+  function choose(name: string) {
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Keep pinned' }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('option', { name: new RegExp(`^${name}`) }), { key: 'Enter' });
+  }
+
+  it('says until when each timed choice keeps the message pinned', () => {
+    renderDialog();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Keep pinned' }), { key: 'ArrowDown' });
+    // 24 hours names the time too; the longer pins name the day alone.
+    expect(screen.getByRole('option', { name: /^24 hours/ }).textContent).toMatch(/Until Sun,? 22 Nov, \d{2}:\d{2}/);
+    expect(screen.getByRole('option', { name: /^7 days/ }).textContent).toMatch(/Until Sat,? 28 Nov$/);
+    expect(screen.getByRole('option', { name: /^Forever/ }).textContent).not.toContain('Until');
+  });
+
+  it('pins for 24 hours from now', () => {
+    const { onPin } = renderDialog();
+    choose('24 hours');
+    fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
+    expect(onPin).toHaveBeenCalledWith('2026-11-22T16:00:00.000Z', true);
+  });
+
+  it('needs a day for a custom end, from tomorrow on', () => {
+    const { onPin } = renderDialog();
+    choose('Custom date');
+
+    expect(screen.getByRole('button', { name: 'Pin' })).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin on' }));
+    // The field is named by its label. Today (21 November) can't be picked; 25 November can.
+    expect(screen.getByText('21').closest('button')).toHaveProperty('disabled', true);
+    fireEvent.click(screen.getByText('25'));
+
+    const pin = screen.getByRole('button', { name: 'Pin' });
+    expect(pin).toHaveProperty('disabled', false);
+    fireEvent.click(pin);
+    expect(onPin).toHaveBeenCalledWith(new Date(2026, 10, 25).toISOString(), true);
   });
 });

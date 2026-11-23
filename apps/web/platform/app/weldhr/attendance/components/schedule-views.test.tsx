@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import type { HrAbsence, HrEmployee, HrLeaveRequest, HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { buildDayStats, groupByDepartment, viewDays, type RosterEmployee, type TimeOff } from './schedule-model';
 import { ScheduleDayView } from './schedule-day-view';
+import { RosterSearchInput, ShiftBlock } from './schedule-parts';
 import { ScheduleMonthView } from './schedule-month-view';
 import { ScheduleTab } from './schedule-tab';
 import { ScheduleWeekView } from './schedule-week-view';
@@ -244,5 +246,161 @@ describe('ScheduleTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByRole('heading', { name: 'Thursday 19 November 2026' })).toBeInTheDocument();
     expect(within(screen.getByRole('columnheader', { name: /Noah Visser/ })).getByText('Sick')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleWeekView rows', () => {
+  function renderWeekWith(shifts: HrShift[], canCreate = true) {
+    const handlers = { onAddShift: vi.fn(), onOpenShift: vi.fn(), onOpenDay: vi.fn() };
+    const shiftsByCell = byCell(shifts);
+    wrap(
+      <ScheduleWeekView
+        days={WEEK}
+        groups={groupByDepartment(ROSTER)}
+        showGroupHeaders
+        employeeCount={3}
+        totalHours={0}
+        hoursByEmployee={new Map()}
+        shiftsByCell={shiftsByCell}
+        timeOffByEmployee={TIME_OFF}
+        dayStats={buildDayStats(WEEK, ROSTER, shiftsByCell, TIME_OFF)}
+        timeFormat="24h"
+        canCreate={canCreate}
+        {...handlers}
+      />,
+    );
+    return handlers;
+  }
+
+  it('shows the first shift and "+N more" for a day with more than two, which opens that day', () => {
+    const handlers = renderWeekWith([
+      shift('m1', 'e1', at(17, 6), at(17, 9)),
+      shift('m2', 'e1', at(17, 10), at(17, 12)),
+      shift('m3', 'e1', at(17, 13), at(17, 15)),
+      shift('m4', 'e1', at(17, 16), at(17, 18)),
+    ]);
+    expect(screen.getByRole('button', { name: /06:00 – 09:00/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /10:00 – 12:00/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '+3 more' }));
+    expect(handlers.onOpenDay).toHaveBeenCalledWith('2026-11-17');
+  });
+
+  it('shows both shifts of a two-shift day, each on one line', () => {
+    renderWeekWith([
+      shift('d1', 'e1', at(17, 6), at(17, 9), { workType: 'Early' }),
+      shift('d2', 'e1', at(17, 13), at(17, 17), { workType: 'Late' }),
+    ]);
+    expect(screen.getByRole('button', { name: /06:00 – 09:00/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /13:00 – 17:00/ })).toBeInTheDocument();
+    expect(screen.queryByText('Early')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /more/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps an add button in the corner of a day that has a shift or a leave bar', () => {
+    const handlers = renderWeekWith([shift('u1', 'e1', at(17, 9), at(17, 12))]);
+    // Emma's Tuesday has a shift; Julia's Wednesday is under her leave bar.
+    fireEvent.click(screen.getByRole('button', { name: 'Add shift: Emma Bakker, Tue 17 Nov' }));
+    expect(handlers.onAddShift).toHaveBeenCalledWith(EMMA, '2026-11-17');
+    fireEvent.click(screen.getByRole('button', { name: 'Add shift: Julia Smit, Wed 18 Nov' }));
+    expect(handlers.onAddShift).toHaveBeenCalledWith(JULIA, '2026-11-18');
+  });
+
+  it('has no add buttons without permission to create', () => {
+    renderWeekWith([shift('u1', 'e1', at(17, 9), at(17, 12))], false);
+    expect(screen.queryByRole('button', { name: /^Add shift/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('ShiftBlock', () => {
+  const full = shift('b1', 'e1', at(18, 9), at(18, 17), {
+    workType: 'Cashier',
+    companyName: 'Acme',
+    notes: 'Bring keys',
+    breakStartsAt: at(18, 12),
+    breakEndsAt: at(18, 12, 30),
+  });
+
+  it('shows the hours and the type of work on two lines, the rest in the tooltip', () => {
+    wrap(<ShiftBlock shift={full} timeFormat="24h" lines={2} onClick={vi.fn()} />);
+    const block = screen.getByRole('button');
+    expect(within(block).getByText('Cashier')).toBeInTheDocument();
+    expect(within(block).queryByText('Acme')).not.toBeInTheDocument();
+    expect(block.title.split('\n')).toEqual(expect.arrayContaining(['09:00 – 17:00', 'Cashier', 'Acme', 'Bring keys']));
+    expect(block.title).toContain('12:00 – 12:30');
+  });
+
+  it('falls back to the client when there is no type of work', () => {
+    wrap(<ShiftBlock shift={{ ...full, workType: null }} timeFormat="24h" lines={2} onClick={vi.fn()} />);
+    expect(within(screen.getByRole('button')).getByText('Acme')).toBeInTheDocument();
+  });
+
+  it('shows only the hours on one line, and no second line when there is nothing to show', () => {
+    const { unmount } = wrap(<ShiftBlock shift={full} timeFormat="24h" lines={1} onClick={vi.fn()} />);
+    expect(within(screen.getByRole('button')).queryByText('Cashier')).not.toBeInTheDocument();
+    unmount();
+    const bare = { ...full, workType: null, companyName: null, notes: null, breakStartsAt: null, breakEndsAt: null };
+    wrap(<ShiftBlock shift={bare} timeFormat="24h" lines={2} onClick={vi.fn()} />);
+    expect(screen.getByRole('button').children).toHaveLength(1);
+    expect(screen.getByRole('button').title).toBe('09:00 – 17:00');
+  });
+
+  it('is disabled without a click handler', () => {
+    wrap(<ShiftBlock shift={full} timeFormat="24h" lines={1} />);
+    expect(screen.getByRole('button')).toBeDisabled();
+  });
+
+  it('shows every line, with the break and notes, without a line limit', () => {
+    wrap(<ShiftBlock shift={full} timeFormat="24h" onClick={vi.fn()} />);
+    const block = within(screen.getByRole('button'));
+    expect(block.getByText('Cashier')).toBeInTheDocument();
+    expect(block.getByText('Acme')).toBeInTheDocument();
+    expect(block.getByText('Bring keys')).toBeInTheDocument();
+    expect(block.getByText(/12:00 – 12:30/)).toBeInTheDocument();
+  });
+});
+
+describe('RosterSearchInput', () => {
+  function renderSearch(open: boolean, query = '') {
+    const handlers = { onOpenChange: vi.fn(), onQueryChange: vi.fn() };
+    render(<RosterSearchInput open={open} query={query} placeholder="Search people" toggleLabel="Search" {...handlers} />);
+    return handlers;
+  }
+
+  it('opens from the icon button', async () => {
+    const user = userEvent.setup();
+    const handlers = renderSearch(false);
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  it('focuses the input when open, and reports typing', async () => {
+    const user = userEvent.setup();
+    const handlers = renderSearch(true);
+    const input = screen.getByRole('textbox', { name: 'Search people' });
+    expect(input).toHaveFocus();
+    await user.type(input, 'a');
+    expect(handlers.onQueryChange).toHaveBeenCalledWith('a');
+  });
+
+  it('closes when it loses focus while empty', () => {
+    const handlers = renderSearch(true);
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Search people' }));
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('stays open on blur while there is a query', () => {
+    const handlers = renderSearch(true, 'emma');
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Search people' }));
+    expect(handlers.onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('clears and closes on Escape, and ignores other keys', () => {
+    const handlers = renderSearch(true, 'emma');
+    const input = screen.getByRole('textbox', { name: 'Search people' });
+    fireEvent.keyDown(input, { key: 'a' });
+    expect(handlers.onQueryChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(handlers.onQueryChange).toHaveBeenCalledWith('');
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
   });
 });

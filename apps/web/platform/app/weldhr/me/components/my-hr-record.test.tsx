@@ -69,7 +69,7 @@ function makeOverview(extra: Partial<HrSelfOverview> = {}): HrSelfOverview {
   } as HrSelfOverview;
 }
 
-function renderRecord(canClockIn = true, requiresLocation = false) {
+function renderRecord(canClockIn = true, requiresLocation = false, who: HrSelfProfile = employee) {
   return render(
     <I18nProvider initialLanguage="en">
       <MyHrProvider
@@ -78,7 +78,7 @@ function renderRecord(canClockIn = true, requiresLocation = false) {
           features: { selfClockIn: canClockIn, clockInRequiresLocation: requiresLocation, leaveRequests: true, declarations: true },
         }}
       >
-        <MyHrRecord employee={employee} canClockIn={canClockIn} />
+        <MyHrRecord employee={who} canClockIn={canClockIn} />
       </MyHrProvider>
     </I18nProvider>,
   );
@@ -221,5 +221,99 @@ describe('MyHrRecord', () => {
     expect(screen.getByText('Server unavailable')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it('lists what there is to acknowledge, with singular and plural evaluations', () => {
+    overview = makeOverview({ toAcknowledge: { coaching: 0, evaluations: 1 } });
+    const { unmount } = renderRecord();
+    const one = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/weldhr/me/reviews' && /valuation/.test(link.textContent ?? ''));
+    expect(one?.textContent).toBe('1 evaluation');
+    unmount();
+
+    overview = makeOverview({ toAcknowledge: { coaching: 2, evaluations: 3 } });
+    renderRecord();
+    const both = screen.getAllByRole('link').find((link) => /3 evaluations/.test(link.textContent ?? ''));
+    expect(both?.textContent).toMatch(/2 coaching.*3 evaluations/);
+  });
+
+  it('says there is nothing to acknowledge', () => {
+    overview = makeOverview({ toAcknowledge: { coaching: 0, evaluations: 0 } });
+    renderRecord();
+
+    expect(screen.getByText('Nothing to confirm')).toBeInTheDocument();
+  });
+
+  it('shows the latest evaluation as a score badge with its form and date', () => {
+    overview = makeOverview({
+      latestEvaluation: { id: 'ev_1', overallScore: 4.25, formName: 'Annual review', submittedAt: '2026-10-15T09:00:00.000Z' },
+    });
+    renderRecord();
+
+    expect(screen.getByRole('link', { name: '4.3' })).toHaveAttribute('href', '/weldhr/me/reviews');
+    expect(screen.getByText(/Annual review · .*2026/)).toBeInTheDocument();
+  });
+
+  it('shows a latest evaluation without score, form or date', () => {
+    overview = makeOverview({ latestEvaluation: { id: 'ev_1', overallScore: null, formName: null, submittedAt: null } });
+    renderRecord();
+
+    expect(screen.getByRole('link', { name: '—' })).toHaveAttribute('href', '/weldhr/me/reviews');
+  });
+
+  it('shows the profile with an avatar, no manager and a client without a name', () => {
+    const sparse: HrSelfProfile = {
+      ...employee,
+      avatarUrl: 'https://example.com/ann.png',
+      manager: null,
+      phone: '+31 6 12345678',
+      employeeNumber: 'E-17',
+      clients: [
+        { companyId: 'cmp_1', companyName: null, isPrimary: false },
+        { companyId: 'cmp_2', companyName: 'Globex', isPrimary: true },
+      ],
+    };
+    renderRecord(true, false, sparse);
+
+    expect(screen.queryByText('Bea Boss')).not.toBeInTheDocument();
+    expect(screen.getByText('cmp_1')).toBeInTheDocument();
+    expect(screen.getByText('Globex')).toBeInTheDocument();
+    expect(screen.getByText('E-17')).toBeInTheDocument();
+  });
+
+  it('falls back to a # avatar for a nameless profile', () => {
+    renderRecord(true, false, { ...employee, displayName: ' ', avatarUrl: null });
+
+    expect(screen.getByText('#')).toBeInTheDocument();
+  });
+
+  it('shows the date and time of a clock-in from an earlier day', () => {
+    overview = makeOverview({ clock: { clockedIn: true, since: '2020-03-02T08:30:00.000Z', shiftId: null } });
+    renderRecord();
+
+    expect(screen.getByText(/Clocked in since .*Mar/)).toBeInTheDocument();
+  });
+
+  it('shows unlimited leave balances', async () => {
+    overview = makeOverview({
+      leaveBalances: [
+        { leaveTypeId: 'lt_u', name: 'Unpaid', color: '#336699', isPaid: false, overAllowance: 'allow', allowance: null, fullAllowance: null, prorated: false, used: 1, pending: 0, remaining: null },
+      ],
+    });
+    const user = userEvent.setup();
+    renderRecord();
+
+    await user.click(screen.getByRole('tab', { name: /Leave balances/ }));
+    expect(screen.getAllByText('Unlimited')).toHaveLength(2);
+  });
+
+  it('shows a shift without a client', async () => {
+    overview = makeOverview({
+      upcomingShifts: [{ id: 'sh_2', startsAt: '2026-12-01T08:00:00.000Z', endsAt: '2026-12-01T16:00:00.000Z', companyName: null }],
+    });
+    const user = userEvent.setup();
+    renderRecord();
+
+    await user.click(screen.getByRole('tab', { name: /Upcoming shifts/ }));
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 });
