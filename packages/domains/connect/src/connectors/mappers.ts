@@ -108,6 +108,10 @@ export interface MappedBankTransaction {
   entity: 'bank_transaction';
   externalId: string;
   financialAccountExternalId: string | null;
+  /** Moneybird: the sales invoice this mutation pays (first `SalesInvoice` payment). */
+  invoiceExternalId?: string | null;
+  /** Moneybird: the purchase invoice or receipt this mutation pays (first `Document` payment). */
+  billExternalId?: string | null;
   values: Record<string, unknown>;
 }
 
@@ -822,6 +826,26 @@ function mapParty(record: Record<string, unknown>, externalId: string, provider:
  * What a sales invoice and a purchase invoice or receipt share: the contact,
  * the lines, what they come to and what is paid, and the shared values.
  */
+/**
+ * WeldBooks converts with `base = amount / exchangeRate`, so the rate is
+ * document-currency units per base unit: the document total over its total in
+ * the base currency. Incl. tax first, else excl. tax; absent when neither parses.
+ */
+function documentExchangeRate(record: Record<string, unknown>): string | null {
+  const pairs: Array<[string, string]> = [
+    ['total_price_incl_tax', 'total_price_incl_tax_base'],
+    ['total_price_excl_tax', 'total_price_excl_tax_base'],
+  ];
+  for (const [amountKey, baseKey] of pairs) {
+    const amount = pickNumber(record, [amountKey]);
+    const base = pickNumber(record, [baseKey]);
+    if (amount === null || base === null || amount === 0 || base === 0) continue;
+    const rate = amount / base;
+    if (Number.isFinite(rate) && rate > 0) return rate.toFixed(6);
+  }
+  return null;
+}
+
 function documentParts(record: Record<string, unknown>, state: string) {
   const paidAt = parseDate(pickString(record, ['paid_at']));
   const nested = nestedContactRecord(record);
@@ -848,6 +872,7 @@ function documentParts(record: Record<string, unknown>, state: string) {
       reference: pickString(record, ['reference'], 255),
       notes: pickString(record, ['notes']),
       journalEntryId: null,
+      exchangeRate: documentExchangeRate(record),
     },
   };
 }
@@ -905,12 +930,26 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
   };
 }
 
-function looksLikeIban(value: string | null): string | null {
+const IBAN_LENGTHS: Record<string, number> = Object.fromEntries(
+  'AD24 AE23 AL28 AT20 AZ28 BA20 BE16 BG22 BH22 BI27 BR29 BY28 CH21 CR22 CY28 CZ24 DE22 DJ27 DK18 DO28 EE20 EG29 ES24 FI18 FK18 FO18 FR27 GB22 GE22 GI23 GL18 GR27 GT28 HR21 HU28 IE22 IL23 IQ23 IS26 IT27 JO30 KW30 KZ20 LB28 LC32 LI21 LT20 LU20 LV21 LY25 MC27 MD24 ME22 MK19 MN20 MR27 MT31 MU30 NI28 NL18 NO15 OM23 PK24 PL28 PS29 PT25 QA29 RO24 RS22 RU33 SA24 SC31 SD18 SE24 SI19 SK24 SM27 SO23 ST25 SV28 TL23 TN24 TR26 UA29 VA22 VG24 XK20'
+    .split(' ')
+    .map((entry) => [entry.slice(0, 2), Number(entry.slice(2))]),
+);
+
+/** Strict IBAN check: country length table plus the mod-97 checksum. */
+export function looksLikeIban(value: string | null): string | null {
   if (!value) return null;
   const compactIban = value.replace(/\s+/g, '').toUpperCase();
-  if (compactIban.length < 15 || compactIban.length > 34) return null;
-  if (!/^[A-Z]{2}[0-9A-Z]+$/.test(compactIban)) return null;
-  return compactIban.slice(0, 34);
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(compactIban)) return null;
+  if (IBAN_LENGTHS[compactIban.slice(0, 2)] !== compactIban.length) return null;
+  // ISO 7064 mod 97-10: move the first four characters to the end, letters become 10..35.
+  const rearranged = compactIban.slice(4) + compactIban.slice(0, 4);
+  let remainder = 0;
+  for (const ch of rearranged) {
+    const digits = ch >= 'A' ? String(ch.charCodeAt(0) - 55) : ch;
+    for (const d of digits) remainder = (remainder * 10 + Number(d)) % 97;
+  }
+  return remainder === 1 ? compactIban : null;
 }
 
 function mapBankAccount(record: Record<string, unknown>, externalId: string): MappedBankAccount | null {
@@ -953,7 +992,18 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
   if (!date) return null;
 
   const state = (pickString(record, ['state']) ?? 'unprocessed').toLowerCase();
-  const status = state === 'processed' || state === 'auto_booked' ? 'reconciled' : 'unreconciled';
+  const settlementState = (pickString(record, ['settlement_state']) ?? '').toLowerCase();
+  const excluded = ['cancelled', 'expired', 'refused', 'error'].includes(settlementState);
+  const status = excluded
+    ? 'excluded'
+    : state === 'processed' || state === 'auto_booked'
+      ? 'reconciled'
+      : 'unreconciled';
+  const payments = firstRecordArray(record.payments);
+  const paymentInvoiceId = (type: string): string | null => {
+    const payment = payments.find((p) => p && p.invoice_type === type);
+    return payment ? pickString(payment, ['invoice_id']) : null;
+  };
   const contra = pickString(record, ['contra_account_number'], 50);
   const description =
     pickString(record, ['message'])
@@ -965,6 +1015,12 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
     entity: 'bank_transaction',
     externalId,
     financialAccountExternalId: pickString(record, ['financial_account_id']),
+    ...(excluded
+      ? {}
+      : {
+          invoiceExternalId: paymentInvoiceId('SalesInvoice'),
+          billExternalId: paymentInvoiceId('Document'),
+        }),
     values: compact({
       date,
       valueDate: date,

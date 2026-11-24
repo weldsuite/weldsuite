@@ -405,6 +405,10 @@ async fn request_catchup(
     }
 }
 
+/// How soon a Moneybird connection is due again while documents still wait
+/// for their attachments (each run fetches a budget of them).
+const ATTACHMENT_BACKLOG_RETRY_MS: i64 = 30 * 60_000;
+
 /// One workspace (`processConnectorCatchupRow` per due connection): probe
 /// what is due, catch up what changed, and say when the workspace is next
 /// due (`None`: no connection left to look after).
@@ -419,8 +423,37 @@ pub async fn catch_up_workspace(
     let mut next: Option<i64> = None;
     let connections = catchup::due_connections(db).await?;
     for connection in connections {
-        let at = if connection.due_at <= now {
-            let interval = now + connection.interval_minutes * 60_000;
+        // Moneybird documents still waiting for their files (a run's
+        // download budget ran out): caught up as changed, half an hour after
+        // the last sync instead of the usual interval, until none is left.
+        let backlog = connection.provider == "moneybird"
+            && connection.row["status"].as_str() == Some("active")
+            && weldsuite_connect_domain::ingest::moneybird_attachment_backlog(
+                db,
+                &connection.id,
+                None,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(
+                    "[ConnectorCatchup] attachment backlog of {} failed: {error}",
+                    connection.id
+                );
+                false
+            });
+        let (due_at, interval_ms) = if backlog {
+            let last_sync = connection.due_at - connection.interval_minutes * 60_000;
+            (
+                connection
+                    .due_at
+                    .min(last_sync + ATTACHMENT_BACKLOG_RETRY_MS),
+                ATTACHMENT_BACKLOG_RETRY_MS,
+            )
+        } else {
+            (connection.due_at, connection.interval_minutes * 60_000)
+        };
+        let at = if due_at <= now {
+            let interval = now + interval_ms;
             // ADR OPS-026: a store outside the EU (Stripe, Shopify) the
             // workspace hasn't switched on is not probed; it stays scheduled.
             let switched_off =
@@ -439,7 +472,12 @@ pub async fn catch_up_workspace(
                 next = Some(next.map_or(interval, |n| n.min(interval)));
                 continue;
             }
-            match catchup::probe_updates(&connection.row, env).await {
+            let probed = if backlog {
+                Ok(true)
+            } else {
+                catchup::probe_updates(&connection.row, env).await
+            };
+            match probed {
                 Ok(false) => {
                     counts.probed += 1;
                     interval
@@ -465,7 +503,7 @@ pub async fn catch_up_workspace(
                 }
             }
         } else {
-            connection.due_at
+            due_at
         };
         next = Some(next.map_or(at, |n| n.min(at)));
     }

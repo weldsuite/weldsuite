@@ -15,6 +15,27 @@ import { asText } from '@weldsuite/text';
 
 export const MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET = 30;
 
+/** Attachment ids named by stored keys (`.../attachments/{attachmentId}/{filename}`). */
+export function attachmentIdsFromKeys(keys: readonly string[]): Set<string> {
+  const ids = new Set<string>();
+  for (const key of keys) {
+    const match = /\/attachments\/([^/]+)\//.exec(key);
+    if (match?.[1]) ids.add(match[1]);
+  }
+  return ids;
+}
+
+/** Attachment ids a Moneybird record carries (`attachments[].id`). */
+export function attachmentIdsFromRecord(record: Record<string, unknown>): Set<string> {
+  return new Set(listAttachmentMeta(record).map((att) => att.id));
+}
+
+export function sameIdSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
+
 export interface MoneybirdAttachmentBudget {
   remaining: number;
 }
@@ -151,8 +172,8 @@ export async function syncMoneybirdDocumentAttachments(args: AttachmentSyncArgs)
 
     for (const att of listAttachmentMeta(args.record)) {
       if (!takeAttachmentBudget(args.ctx.budget)) {
-        // Partial progress — keep what we have so far; empty only when nothing landed.
-        return keys.length > 0 ? keys : null;
+        // Never store a partial key list: retry the whole document later.
+        return null;
       }
       const key = await downloadAttachmentKey(args, base, kind, att);
       if (key) keys.push(key);

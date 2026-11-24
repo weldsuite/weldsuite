@@ -559,6 +559,7 @@ fn map_line(record: &Value, external_id: &str) -> Option<Mapped> {
             s(record.get("balance_account")).unwrap_or_else(|| balance_account_id(&currency)),
         ),
         invoice_external_id: s(record.get("invoice_id")),
+        bill_external_id: None,
         values: compact(vec![
             ("date", json!(date)),
             (

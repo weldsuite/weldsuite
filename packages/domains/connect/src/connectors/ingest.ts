@@ -24,6 +24,7 @@ import {
   externalIdOf,
   isDeletedRecord,
   keepKnownDocumentStatus,
+  looksLikeIban,
   mapConnectorRecord,
   type MappedBankAccount,
   type MappedBankTransaction,
@@ -41,6 +42,9 @@ import {
   type ConnectorFieldMappingRow,
 } from './field-mapper';
 import {
+  attachmentIdsFromKeys,
+  attachmentIdsFromRecord,
+  sameIdSet,
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
 } from './moneybird-attachments';
@@ -116,6 +120,16 @@ export async function recordChecksum(record: Record<string, unknown>): Promise<s
     .join('');
 }
 
+/**
+ * Bumped when a Moneybird mapper changes what it produces, so the next full
+ * sync rewrites every record once instead of skipping on an unchanged checksum.
+ */
+const MONEYBIRD_MAPPER_VERSION = 'moneybird-2';
+
+function providerRecordChecksum(provider: string, record: Record<string, unknown>): Promise<string> {
+  return recordChecksum(provider === 'moneybird' ? { ...record, __mapperVersion: MONEYBIRD_MAPPER_VERSION } : record);
+}
+
 function emptyCounts(): IngestCounts {
   return { created: 0, modified: 0, skipped: 0, deleted: 0, failed: 0 };
 }
@@ -148,10 +162,13 @@ function applyMappingsToRecord(
 ): MappedRecord {
   if (mappings.length === 0) return mapped;
   if (!('values' in mapped) || !mapped.values) return mapped;
-  return {
-    ...mapped,
-    values: keepKnownDocumentStatus(mapped, applyInboundFieldMappings(record, mapped.values, mappings)),
-  } as MappedRecord;
+  const values = keepKnownDocumentStatus(mapped, applyInboundFieldMappings(record, mapped.values, mappings));
+  // A default mapping `identifier -> iban` bypasses the mapper's IBAN check:
+  // an IBAN (compact, upper-cased) or nothing, as the Rust backend stores it.
+  if (mapped.entity === 'bank_account' && values.iban !== undefined && values.iban !== null) {
+    values.iban = looksLikeIban(asText(values.iban));
+  }
+  return { ...mapped, values } as MappedRecord;
 }
 
 export function sanitiseErrorMessage(err: unknown): string {
@@ -1091,14 +1108,23 @@ async function maybeSyncMoneybirdAttachments(args: {
   const table = args.entity === 'invoice' ? schema.invoices : schema.bills;
   const cols = table as unknown as { id: typeof schema.invoices.id; attachmentKeys: typeof schema.invoices.attachmentKeys };
 
-  if (!args.force) {
-    const [row] = await args.args.db
-      .select({ attachmentKeys: cols.attachmentKeys })
-      .from(table)
-      .where(eq(cols.id, args.internalId))
-      .limit(1);
-    // null/undefined = never attempted (catch-up). [] or [...] = already tried.
-    if (row?.attachmentKeys != null) return;
+  const [row] = await args.args.db
+    .select({ attachmentKeys: cols.attachmentKeys })
+    .from(table)
+    .where(eq(cols.id, args.internalId))
+    .limit(1);
+  const stored = row?.attachmentKeys ?? null;
+  // null = never attempted (catch-up). [] or [...] = already tried.
+  if (stored !== null) {
+    if (!args.force) return;
+    // Purchase invoices and receipts re-download only when their attachment set changed.
+    const externalType = args.args.sync.externalEntityType;
+    if (
+      (externalType === 'moneybird_purchase_invoice' || externalType === 'moneybird_receipt')
+      && sameIdSet(attachmentIdsFromKeys(stored), attachmentIdsFromRecord(args.record))
+    ) {
+      return;
+    }
   }
 
   const keys = await syncMoneybirdDocumentAttachments({
@@ -1282,6 +1308,11 @@ async function ingestDocumentRecord(params: {
   counts: IngestCounts;
 }): Promise<void> {
   const { args, entityId, document, record, externalId, checksum, counts } = params;
+  // Unprocessed Moneybird inbox documents have no contact yet: not a failure.
+  if (!document.contactExternalId && !document.nestedContact) {
+    counts.skipped++;
+    return;
+  }
   const contactId = await resolveContactId({
     db: args.db,
     connectionId: args.connectionId,
@@ -1374,7 +1405,7 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
       return;
     }
 
-    const checksum = await recordChecksum(record);
+    const checksum = await providerRecordChecksum(args.provider, record);
 
     if (mapped.entity === 'party') {
       await ingestPartyRecord(args, mapped, checksum, counts);
@@ -1505,6 +1536,32 @@ async function stripeChargeReconciliation(
   return { status: 'reconciled', reconciliationType: 'auto', reconciledInvoiceId: mapping.internalEntityId };
 }
 
+/**
+ * A Moneybird mutation that pays an imported bill or invoice links to it. The
+ * status is never changed here; only a line already reconciled gets the type.
+ */
+async function moneybirdPaymentLinks(
+  args: IngestArgs,
+  txn: MappedBankTransaction,
+): Promise<Record<string, unknown>> {
+  if (args.provider !== 'moneybird') return {};
+  const links: Record<string, unknown> = {};
+  if (txn.billExternalId) {
+    const mapping =
+      (await findMapping(args.db, args.connectionId, 'moneybird_purchase_invoice', txn.billExternalId))
+      ?? (await findMapping(args.db, args.connectionId, 'moneybird_receipt', txn.billExternalId));
+    if (mapping) links.reconciledBillId = mapping.internalEntityId;
+  }
+  if (txn.invoiceExternalId) {
+    const mapping = await findMapping(args.db, args.connectionId, 'moneybird_sales_invoice', txn.invoiceExternalId);
+    if (mapping) links.reconciledInvoiceId = mapping.internalEntityId;
+  }
+  if (Object.keys(links).length > 0 && txn.values.status === 'reconciled') {
+    links.reconciliationType = 'auto';
+  }
+  return links;
+}
+
 async function ingestBankTransactionRecord(params: {
   args: IngestArgs;
   entityId: string;
@@ -1538,6 +1595,7 @@ async function ingestBankTransactionRecord(params: {
     values: {
       ...txn.values,
       ...(await stripeChargeReconciliation(args, txn)),
+      ...(await moneybirdPaymentLinks(args, txn)),
       entityId,
       bankAccountId,
     },
@@ -1600,7 +1658,7 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
       return;
     }
 
-    const checksum = await recordChecksum(record);
+    const checksum = await providerRecordChecksum(args.provider, record);
 
     if (mapped.entity === 'bank_account') {
       await ingestBankAccountRecord({ args, entityId, account: mapped as MappedBankAccount, externalId, checksum, counts });
@@ -1901,7 +1959,7 @@ async function ingestWmsRecord(params: {
     return;
   }
 
-  const checksum = await recordChecksum(record);
+  const checksum = await providerRecordChecksum(args.provider, record);
   const outcome = await upsertByMapping({
     db: args.db,
     connectionId: args.connectionId,
@@ -2038,7 +2096,7 @@ async function ingestCatalogRecords(args: IngestArgs): Promise<IngestResult> {
     }
 
     const values = await buildCatalogValues(args, mapped, customerType);
-    const checksum = await recordChecksum(record);
+    const checksum = await providerRecordChecksum(args.provider, record);
     const outcome = await upsertByMapping({
       db: args.db,
       connectionId: args.connectionId,

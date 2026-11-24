@@ -20,7 +20,8 @@ import {
   resolveConnectorObjectDirection,
   StripeClient,
 } from '@weldsuite/connectors';
-import type { Database } from '@weldsuite/worker-kit/db';
+import { and, eq, isNull } from 'drizzle-orm';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { ingestRecords, type IngestCounts } from './ingest';
 import { modifiedAtOf } from './mappers';
@@ -295,6 +296,44 @@ async function recordSyncFailure(
   if (auth) throw err;
 }
 
+const MONEYBIRD_ATTACHMENT_TYPES = new Set([
+  'moneybird_purchase_invoice',
+  'moneybird_receipt',
+  'moneybird_sales_invoice',
+]);
+
+/**
+ * Whether an imported Moneybird document still lacks its attachments (never
+ * attempted, or the budget ran out). Such a model is pulled in full so the new
+ * run's download budget reaches them.
+ */
+async function hasMoneybirdAttachmentBacklog(ctx: SyncPullContext): Promise<boolean> {
+  const { args, sync, moneybirdAttachments } = ctx;
+  if (!moneybirdAttachments || args.connection.provider !== 'moneybird') return false;
+  if (!MONEYBIRD_ATTACHMENT_TYPES.has(sync.externalEntityType)) return false;
+  const table = sync.internalEntity === 'invoice' ? schema.invoices : schema.bills;
+  const m = schema.integrationEntityMappings;
+  try {
+    const [row] = await args.db
+      .select({ id: table.id })
+      .from(m)
+      .innerJoin(table, eq(table.id, m.internalEntityId))
+      .where(
+        and(
+          eq(m.connectionId, args.connection.id),
+          eq(m.externalEntityType, sync.externalEntityType),
+          isNull(table.attachmentKeys),
+          isNull(table.deletedAt),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  } catch (err) {
+    console.warn('[connectors/sync] attachment backlog check failed:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 async function runSingleSync(ctx: SyncPullContext): Promise<void> {
   const { args, sync } = ctx;
   const watermarks = args.connection.syncWatermarks;
@@ -310,7 +349,8 @@ async function runSingleSync(ctx: SyncPullContext): Promise<void> {
   });
 
   // While a page cursor is open, ignore modifiedAfter so we finish the full scan.
-  const modifiedAfter = args.full || continuing ? undefined : watermarks?.[sync.model];
+  const backlog = args.full || continuing ? false : await hasMoneybirdAttachmentBacklog(ctx);
+  const modifiedAfter = args.full || continuing || backlog ? undefined : watermarks?.[sync.model];
   const state: SyncPullState = {
     page: continuing ? Math.max(1, Number(savedPage) || 1) : 1,
     cursor: continuing ? (watermarks?.[cursorWatermarkKey(sync.model)] ?? null) : null,

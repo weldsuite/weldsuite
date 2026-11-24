@@ -580,6 +580,21 @@ async fn run_single_sync(pull: &Pull<'_>, sync: &Value) -> Result<(), SyncError>
     } else {
         mark(model).filter(|m| !m.is_empty())
     };
+    // Documents a run left without their files (out of download budget)
+    // only come round again when listed: such a type is pulled in full.
+    let backlog = modified_after.is_some()
+        && pull.moneybird_files.is_some()
+        && crate::ingest::moneybird_attachment_backlog(
+            args.db,
+            connection_id,
+            sync["externalEntityType"].as_str(),
+        )
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!("[connectors/sync] attachment backlog of {connection_id}: {error}");
+            false
+        });
+    let modified_after = if backlog { None } else { modified_after };
     let page = if continuing {
         let n = weldsuite_kit::validation::js_number(saved_page.as_deref().unwrap_or_default());
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
+import { useInfiniteAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { ReceiptText } from 'lucide-react';
 import { useRouter } from '@/lib/router';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
@@ -28,7 +28,7 @@ export default function InvoicesPage() {
   // A new invoice is written on its own page, next to a live preview of the PDF.
   const newInvoice = () => router.push('/weldbooks/invoices/add');
   // Credit notes have a list of their own: `type=invoice` is every invoice that is not a credit note.
-  const { data, isLoading } = useAccountingInvoices({ type: 'invoice', search });
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({ type: 'invoice', search });
   // Each invoice opens in the shared object panel (type 'invoice'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
   const { open: openPanel } = useObjectPanel();
@@ -39,7 +39,7 @@ export default function InvoicesPage() {
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
 
-  const invoices = (data?.data ?? []) as unknown as InvoiceRow[];
+  const invoices = (data?.rows ?? []) as unknown as InvoiceRow[];
 
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
@@ -106,6 +106,9 @@ export default function InvoicesPage() {
         isLoading={isLoading}
         columns={columns}
         groups={groups}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
         onRowClick={(inv) => openPanel({ type: 'invoice', id: inv.id })}
         getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
         filters={[]}

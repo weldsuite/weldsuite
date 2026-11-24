@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { MoneybirdClient } from '@weldsuite/connectors';
 import {
+  attachmentIdsFromKeys,
+  attachmentIdsFromRecord,
+  sameIdSet,
   MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
@@ -126,6 +129,33 @@ describe('syncMoneybirdDocumentAttachments', () => {
 
     expect(keys).toBeNull();
     expect(client.downloadSalesInvoicePdf).not.toHaveBeenCalled();
+  });
+
+  it('returns null, not a partial key list, when the budget runs out part-way through a document', async () => {
+    const ctx: MoneybirdAttachmentSyncContext = {
+      client: mockClient(),
+      storage: mockStorage(),
+      workspaceId: 'ws_1',
+      budget: { remaining: 1 },
+    };
+    const keys = await syncMoneybirdDocumentAttachments({
+      ctx,
+      externalEntityType: 'moneybird_purchase_invoice',
+      externalId: 'pi-1',
+      record: { id: 'pi-1', attachments: [{ id: 'a1' }, { id: 'a2' }] },
+    });
+    expect(keys).toBeNull();
+  });
+
+  it('compares the attachment ids of stored keys and a record', () => {
+    const stored = attachmentIdsFromKeys([
+      'workspaces/ws_1/connectors/moneybird/adm/moneybird_receipt/r1/attachments/a1/scan.pdf',
+      'workspaces/ws_1/connectors/moneybird/adm/moneybird_receipt/r1/attachments/a2/other.pdf',
+    ]);
+    expect([...stored].sort()).toEqual(['a1', 'a2']);
+    expect(sameIdSet(stored, attachmentIdsFromRecord({ attachments: [{ id: 'a2' }, { id: 'a1' }] }))).toBe(true);
+    expect(sameIdSet(stored, attachmentIdsFromRecord({ attachments: [{ id: 'a1' }] }))).toBe(false);
+    expect(sameIdSet(new Set(), attachmentIdsFromRecord({ attachments: [] }))).toBe(true);
   });
 
   it('does not throw when the sales invoice PDF download fails', async () => {
