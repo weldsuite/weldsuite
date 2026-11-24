@@ -946,7 +946,7 @@ export function looksLikeIban(value: string | null): string | null {
   const rearranged = compactIban.slice(4) + compactIban.slice(0, 4);
   let remainder = 0;
   for (const ch of rearranged) {
-    const digits = ch >= 'A' ? String(ch.charCodeAt(0) - 55) : ch;
+    const digits = ch >= 'A' ? String((ch.codePointAt(0) ?? 0) - 55) : ch;
     for (const d of digits) remainder = (remainder * 10 + Number(d)) % 97;
   }
   return remainder === 1 ? compactIban : null;
@@ -999,7 +999,7 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
   if (excluded) status = 'excluded';
   const payments = firstRecordArray(record.payments);
   const paymentInvoiceId = (type: string): string | null => {
-    const payment = payments.find((p) => p && p.invoice_type === type);
+    const payment = payments.find((p) => p?.invoice_type === type);
     const id = payment ? pickString(payment, ['invoice_id']) : null;
     return id && id !== '0' ? id : null;
   };

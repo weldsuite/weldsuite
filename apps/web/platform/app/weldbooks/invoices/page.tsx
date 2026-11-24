@@ -100,39 +100,37 @@ export default function InvoicesPage() {
   ];
 
   return (
-    <>
-      <WeldbooksEntityList<InvoiceRow>
-        items={invoices}
-        isLoading={isLoading}
-        columns={columns}
-        groups={groups}
-        hasMore={hasNextPage}
-        isLoadingMore={isFetchingNextPage}
-        onLoadMore={() => void fetchNextPage()}
-        onRowClick={(inv) => openPanel({ type: 'invoice', id: inv.id })}
-        getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
-        filters={[]}
-        searchQuery={search}
-        onSearchChange={setSearch}
-        searchPlaceholder={tip.searchPlaceholder}
-        createButton={{
+    <WeldbooksEntityList<InvoiceRow>
+      items={invoices}
+      isLoading={isLoading}
+      columns={columns}
+      groups={groups}
+      hasMore={hasNextPage}
+      isLoadingMore={isFetchingNextPage}
+      onLoadMore={() => void fetchNextPage()}
+      onRowClick={(inv) => openPanel({ type: 'invoice', id: inv.id })}
+      getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
+      filters={[]}
+      searchQuery={search}
+      onSearchChange={setSearch}
+      searchPlaceholder={tip.searchPlaceholder}
+      createButton={{
+        label: tip.newInvoice,
+        onClick: newInvoice,
+      }}
+      emptyState={{
+        icon: (
+          <EmptyStateIllustration>
+            <ReceiptText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+          </EmptyStateIllustration>
+        ),
+        title: tip.noInvoices,
+        description: tip.emptyDescription,
+        action: {
           label: tip.newInvoice,
           onClick: newInvoice,
-        }}
-        emptyState={{
-          icon: (
-            <EmptyStateIllustration>
-              <ReceiptText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
-            </EmptyStateIllustration>
-          ),
-          title: tip.noInvoices,
-          description: tip.emptyDescription,
-          action: {
-            label: tip.newInvoice,
-            onClick: newInvoice,
-          },
-        }}
-      />
-    </>
+        },
+      }}
+    />
   );
 }
