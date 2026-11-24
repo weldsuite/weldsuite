@@ -40,7 +40,7 @@ export function FieldRow({
   const { colors } = useTheme();
   const visible = !secret || (shown && value != null);
   const text = visible ? value || t.common.dash : DOTS;
-  const iconColor = colors.mutedForeground;
+  const valueTestID = testID ? `${testID}-value` : undefined;
 
   return (
     <View style={[styles.row, { borderBottomColor: colors.border }]} testID={testID}>
@@ -50,21 +50,55 @@ export function FieldRow({
           style={[styles.value, { color: colors.text }, monospace && visible ? styles.mono : null]}
           numberOfLines={multiline ? undefined : 1}
           selectable={false}
-          testID={testID ? `${testID}-value` : undefined}
+          testID={valueTestID}
         >
           {text}
         </Text>
       </View>
-      {secret && onToggle ? (
+      <FieldActions
+        label={label}
+        visible={visible}
+        onToggle={secret ? onToggle : undefined}
+        onOpen={onOpen}
+        onCopy={onCopy}
+        testID={testID}
+      />
+    </View>
+  );
+}
+
+/** Show/hide, open and copy, each only when its handler is given. */
+function FieldActions({
+  label,
+  visible,
+  onToggle,
+  onOpen,
+  onCopy,
+  testID,
+}: Readonly<{
+  label: string;
+  visible: boolean;
+  onToggle?: () => void;
+  onOpen?: () => void;
+  onCopy?: () => void;
+  testID?: string;
+}>) {
+  const { t } = useI18n();
+  const { colors } = useTheme();
+  const iconColor = colors.mutedForeground;
+  const ToggleIcon = visible ? EyeOff : Eye;
+  return (
+    <>
+      {onToggle ? (
         <Pressable
           onPress={onToggle}
           accessibilityRole="button"
           accessibilityLabel={visible ? t.item.hide : t.item.show}
           hitSlop={8}
-          testID={testID ? `${testID}-toggle` : undefined}
+          testID={testID && `${testID}-toggle`}
           style={styles.action}
         >
-          {visible ? <EyeOff size={20} color={iconColor} /> : <Eye size={20} color={iconColor} />}
+          <ToggleIcon size={20} color={iconColor} />
         </Pressable>
       ) : null}
       {onOpen ? (
@@ -78,13 +112,13 @@ export function FieldRow({
           accessibilityRole="button"
           accessibilityLabel={`${t.common.copy} ${label}`}
           hitSlop={8}
-          testID={testID ? `${testID}-copy` : undefined}
+          testID={testID && `${testID}-copy`}
           style={styles.action}
         >
           <Copy size={20} color={iconColor} />
         </Pressable>
       ) : null}
-    </View>
+    </>
   );
 }
 

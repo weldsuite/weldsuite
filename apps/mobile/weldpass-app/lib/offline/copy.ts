@@ -78,19 +78,9 @@ export function applySync(copy: OfflineCopy, result: WeldPassSyncResult): SyncOu
   let changed = removed.size > 0;
   const vaults: Record<string, CopiedVault> = {};
   for (const entry of result.vaults) {
-    const previous = copy.vaults[entry.vault.id];
-    const items: Record<string, WeldPassSyncedItem> = entry.full || !previous ? {} : { ...previous.items };
-    if (entry.full && previous && Object.keys(previous.items).length > 0) changed = true;
-    for (const id of entry.deletedIds) {
-      if (id in items) changed = true;
-      delete items[id];
-    }
-    for (const item of entry.items) {
-      items[item.id] = item;
-      changed = true;
-    }
-    if (!previous) changed = true;
-    vaults[entry.vault.id] = { vault: entry.vault, cursor: entry.cursor, items };
+    const merged = mergeVault(copy.vaults[entry.vault.id], entry);
+    vaults[entry.vault.id] = merged.vault;
+    changed ||= merged.changed;
   }
 
   return {
@@ -99,6 +89,22 @@ export function applySync(copy: OfflineCopy, result: WeldPassSyncResult): SyncOu
     removedVaultIds: [...removed],
     changed,
   };
+}
+
+/** One vault of a sync over what the copy held of it: replaced when `full`, else merged. */
+function mergeVault(
+  previous: CopiedVault | undefined,
+  entry: WeldPassSyncResult['vaults'][number],
+): { vault: CopiedVault; changed: boolean } {
+  const replaced = entry.full || !previous;
+  const items: Record<string, WeldPassSyncedItem> = replaced ? {} : { ...previous.items };
+  let changed = !previous || (entry.full && Object.keys(previous.items).length > 0) || entry.items.length > 0;
+  for (const id of entry.deletedIds) {
+    if (id in items) changed = true;
+    delete items[id];
+  }
+  for (const item of entry.items) items[item.id] = item;
+  return { vault: { vault: entry.vault, cursor: entry.cursor, items }, changed };
 }
 
 /** The vaults, as the vault list returns them, with their item counts from the copy. */
@@ -123,6 +129,7 @@ export function findItem(copy: OfflineCopy, vaultId: string, itemId: string): We
 }
 
 function withoutFields(item: WeldPassSyncedItem): WeldPassItem {
-  const { fields: _fields, ...summary } = item;
-  return summary;
+  const summary: Partial<WeldPassSyncedItem> = { ...item };
+  delete summary.fields;
+  return summary as WeldPassItem;
 }
