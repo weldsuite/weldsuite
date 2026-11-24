@@ -32,7 +32,7 @@ function OtherServer() {
   );
 }
 
-function SignedOut({ state }: { state: ExtensionState }) {
+function SignedOut({ state }: Readonly<{ state: ExtensionState }>) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<MessageKey | null>(null);
 
@@ -68,7 +68,7 @@ function SignedOut({ state }: { state: ExtensionState }) {
   );
 }
 
-function WorkspacePicker({ state, onChosen }: { state: ExtensionState; onChosen: (state: ExtensionState) => void }) {
+function WorkspacePicker({ state, onChosen }: Readonly<{ state: ExtensionState; onChosen: (state: ExtensionState) => void }>) {
   const [busy, setBusy] = useState(false);
   return (
     <Screen

@@ -35,7 +35,7 @@ const ADDRESS_PROBLEM: Record<'empty' | 'invalid' | 'insecure', MessageKey> = {
   insecure: 'serverAddressInsecure',
 };
 
-function Section({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
+function Section({ id, title, children }: Readonly<{ id?: string; title: string; children: ReactNode }>) {
   return (
     <section id={id} className="flex flex-col gap-3 rounded-lg border bg-card p-4">
       <h2 className="text-sm font-semibold">{title}</h2>
@@ -49,12 +49,12 @@ function Switch({
   description,
   checked,
   onChange,
-}: {
+}: Readonly<{
   label: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-}) {
+}>) {
   const id = useId();
   return (
     <div className="flex items-start justify-between gap-4">
@@ -79,7 +79,7 @@ function Switch({
   );
 }
 
-function SiteList({ hosts, empty, onRemove }: { hosts: string[]; empty: string; onRemove: (host: string) => void }) {
+function SiteList({ hosts, empty, onRemove }: Readonly<{ hosts: string[]; empty: string; onRemove: (host: string) => void }>) {
   if (hosts.length === 0) return <p className="text-xs text-muted-foreground">{empty}</p>;
   return (
     <ul className="flex flex-col divide-y rounded-md border">
@@ -105,7 +105,7 @@ async function grant(patterns: string[]): Promise<boolean> {
   }
 }
 
-function ServerSection({ state, onState }: { state: ExtensionState; onState: (state: ExtensionState) => void }) {
+function ServerSection({ state, onState }: Readonly<{ state: ExtensionState; onState: (state: ExtensionState) => void }>) {
   const ids = useId();
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
@@ -262,7 +262,7 @@ function ServerSection({ state, onState }: { state: ExtensionState; onState: (st
   );
 }
 
-function AccountSection({ state, onState }: { state: ExtensionState; onState: (state: ExtensionState) => void }) {
+function AccountSection({ state, onState }: Readonly<{ state: ExtensionState; onState: (state: ExtensionState) => void }>) {
   const [busy, setBusy] = useState(false);
   if (!state.person) {
     return (
@@ -332,11 +332,9 @@ export function SettingsPage() {
         <h1 className="text-sm font-semibold text-muted-foreground">{t('settingsTitle')}</h1>
       </header>
 
-      {state === undefined || settings === null ? (
-        <Spinner label={t('loading')} />
-      ) : state === null ? (
-        <Notice tone="error">{t('errorServer')}</Notice>
-      ) : (
+      {(state === undefined || settings === null) && <Spinner label={t('loading')} />}
+      {state === null && settings !== null && <Notice tone="error">{t('errorServer')}</Notice>}
+      {state && settings && (
         <>
           <AccountSection state={state} onState={setState} />
 
@@ -376,7 +374,7 @@ export function SettingsPage() {
   );
 }
 
-function AddSite({ onAdd }: { onAdd: (host: string) => void }) {
+function AddSite({ onAdd }: Readonly<{ onAdd: (host: string) => void }>) {
   const id = useId();
   const [value, setValue] = useState('');
   return (

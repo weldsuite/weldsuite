@@ -13,7 +13,7 @@
  * safe answer.
  */
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 export const CLICK_DELAY_MS = 500;
 
@@ -45,7 +45,7 @@ export function useClickGuard(target: RefObject<HTMLElement | null>): {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[entries.length - 1] as VisibilityEntry | undefined;
+        const entry = entries.at(-1) as VisibilityEntry | undefined;
         const visible = Boolean(entry?.isIntersecting && entry.isVisible);
         clearTimeout(timer);
         if (!visible) {
@@ -74,18 +74,24 @@ export function useClickGuard(target: RefObject<HTMLElement | null>): {
   return { armed, accept };
 }
 
+/** Where each key moves focus, from the current index in a list of `count`. */
+const MOVES: Record<string, (current: number, count: number) => number> = {
+  Home: () => 0,
+  End: (_, count) => count - 1,
+  ArrowDown: (current, count) => (current + 1) % count,
+  ArrowUp: (current, count) => (current - 1 + count) % count,
+};
+
 /** Arrow keys, Home and End between the buttons of a list. */
-export function moveFocus(event: KeyboardEvent<HTMLElement>, container: HTMLElement | null): void {
-  if (!container || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+export function moveFocus(
+  event: { key: string; preventDefault: () => void },
+  container: HTMLElement | null,
+): void {
+  const move = Object.hasOwn(MOVES, event.key) ? MOVES[event.key] : undefined;
+  if (!container || !move) return;
   const items = Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-item]:not([disabled])'));
   if (items.length === 0) return;
-  const current = items.indexOf(document.activeElement as HTMLButtonElement);
-  const next =
-    event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? items.length - 1
-        : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+  const current = items.indexOf(container.ownerDocument.activeElement as HTMLButtonElement);
   event.preventDefault();
-  items[next]?.focus();
+  items[move(current, items.length)]?.focus();
 }

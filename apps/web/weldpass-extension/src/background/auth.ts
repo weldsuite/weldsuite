@@ -15,10 +15,10 @@ import {
   storageIdFor,
   type AuthSessionResult,
   type OidcSessionDeps,
+  type SecureStoreLike,
 } from '@weldsuite/mobile-platform/oidc-session';
 import type { ServerProfile } from '../lib/server';
 import type { KeyValueStore } from './stores';
-import type { SecureStoreLike } from '@weldsuite/mobile-platform/oidc-session';
 
 export interface AuthPlatform {
   fetchImpl: typeof fetch;
@@ -57,7 +57,7 @@ export function openAuthSession(platform: Pick<AuthPlatform, 'launchWebAuthFlow'
 
 function base64(bytes: Uint8Array): string {
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }
 

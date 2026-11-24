@@ -41,9 +41,8 @@ import {
 import { isListed, mergeSettings, readSettings, SETTINGS_KEY, withHost, type Settings } from '../lib/settings';
 import { pageUrlForSaving } from '../lib/urls';
 import { AuthFlowError, createSession, type AuthPlatform } from './auth';
-import { decideCapture, SaveQueue, type MemoryStore } from './save-queue';
+import { decideCapture, SaveQueue, type ItemRef, type MemoryStore } from './save-queue';
 import type { SenderKind } from './senders';
-import type { KeyValueStore } from './stores';
 
 export interface WorkerEnv extends AuthPlatform {
   defaultServer: DefaultServer;
@@ -395,7 +394,7 @@ export class WeldPassWorker {
   private async menu(tabId: number, nonce: string): Promise<MenuRegistration | null> {
     if (typeof nonce !== 'string' || nonce.length < 16) return null;
     const registration = await this.env.memory.get<MenuRegistration>(menuKey(nonce));
-    if (!registration || registration.tabId !== tabId) return null;
+    if (registration?.tabId !== tabId) return null;
     if (this.now() - registration.at > REGISTRATION_TTL_MS) {
       await this.env.memory.remove(menuKey(nonce));
       return null;
@@ -508,21 +507,19 @@ export class WeldPassWorker {
     return result;
   }
 
-  async menuClose(tabId: number, nonce: string): Promise<null> {
+  async menuClose(tabId: number, nonce: string): Promise<void> {
     const registration = await this.menu(tabId, nonce);
-    if (!registration) return null;
+    if (!registration) return;
     await this.env.memory.remove(menuKey(nonce));
     await this.env
       .sendToFrame(registration.tabId, { type: 'menu:remove', nonce }, frameTarget(registration))
       .catch(() => undefined);
-    return null;
   }
 
   /** The content script closed its menu (Escape, a click elsewhere, typing). */
-  async menuClosed(sender: Content, nonce: string): Promise<null> {
+  async menuClosed(sender: Content, nonce: string): Promise<void> {
     const registration = await this.menu(sender.tabId, nonce);
-    if (registration && registration.frameId === sender.frameId) await this.env.memory.remove(menuKey(nonce));
-    return null;
+    if (registration?.frameId === sender.frameId) await this.env.memory.remove(menuKey(nonce));
   }
 
   private async toFrame(
@@ -549,42 +546,20 @@ export class WeldPassWorker {
    * the login in memory for the next page of this tab. Nothing is answered to
    * the content script: it keeps nothing and learns nothing.
    */
-  async capture(sender: Content, username: string, password: string): Promise<null> {
-    if (typeof username !== 'string' || typeof password !== 'string') return null;
-    if (username.length > 255 || password.length > 4096) return null;
-    const page = pageContext(sender.url);
-    if (!page.ok) return null;
-    const settings = await this.settings();
-    if (!settings.savePrompts || isListed(page.host, settings.neverSaveHosts)) return null;
-    if (!(await this.ready())) return null;
+  async capture(sender: Content, username: string, password: string): Promise<void> {
+    const page = await this.capturePage(sender, username, password);
+    if (!page) return;
     const api = await this.passwords();
 
     const name = username.trim();
     if (!password) {
       // The first step of a two-step login: remember who, for the next step.
       if (name) await this.queue.rememberUsername(sender.tabId, page.host, name);
-      return null;
+      return;
     }
     const user = name || (await this.queue.username(sender.tabId, page.host)) || '';
-
-    const decision = decideCapture({
-      username: user,
-      passwordHash: await this.queue.hash(password),
-      fill: await this.queue.fillRecord(sender.tabId),
-      host: page.host,
-      matches: await api.matchItems(page.origin).then((res) => res.data, () => []),
-    });
-    if (decision.action === 'ignore') return null;
-
-    let kind: 'save' | 'update' = decision.action === 'save' ? 'save' : 'update';
-    const item = decision.action === 'save' ? null : decision.item;
-    if (decision.action === 'compare') {
-      // One reveal to tell a typed-in, unchanged password from a new one.
-      const revealed = await api.revealItem(decision.item.vaultId, decision.item.id).catch(() => null);
-      const stored = revealed && 'password' in revealed.data.fields ? revealed.data.fields.password : null;
-      if (stored === password) return null;
-      kind = 'update';
-    }
+    const ask = await this.captureQuestion(api, sender.tabId, page, user, password);
+    if (!ask) return;
 
     await this.queue.put(sender.tabId, {
       origin: page.origin,
@@ -592,14 +567,59 @@ export class WeldPassWorker {
       url: pageUrlForSaving(sender.url) ?? page.origin,
       username: user,
       password,
-      kind,
-      item,
+      kind: ask.kind,
+      item: ask.item,
     });
     // A sign-in that doesn't navigate: the bar shows on this page.
     setTimeout(() => {
       void this.env.sendToFrame(sender.tabId, { type: 'prompt:poke' }, { frameId: 0 }).catch(() => undefined);
     }, PROMPT_POKE_DELAY_MS);
-    return null;
+  }
+
+  /** The page of a submitted login, when it may be offered at all: sane sizes, prompts on, signed in. */
+  private async capturePage(
+    sender: Content,
+    username: string,
+    password: string,
+  ): Promise<{ origin: string; host: string } | null> {
+    if (typeof username !== 'string' || typeof password !== 'string') return null;
+    if (username.length > 255 || password.length > 4096) return null;
+    const page = pageContext(sender.url);
+    if (!page.ok) return null;
+    const settings = await this.settings();
+    if (!settings.savePrompts || isListed(page.host, settings.neverSaveHosts)) return null;
+    return (await this.ready()) ? page : null;
+  }
+
+  /** What to ask about a submitted login: save it, update a saved one, or nothing. */
+  private async captureQuestion(
+    api: WeldPassPasswordsApi,
+    tabId: number,
+    page: { origin: string; host: string },
+    username: string,
+    password: string,
+  ): Promise<{ kind: 'save' | 'update'; item: ItemRef | null } | null> {
+    const decision = decideCapture({
+      username,
+      passwordHash: await this.queue.hash(password),
+      fill: await this.queue.fillRecord(tabId),
+      host: page.host,
+      matches: await api.matchItems(page.origin).then((res) => res.data, () => []),
+    });
+    switch (decision.action) {
+      case 'ignore':
+        return null;
+      case 'save':
+        return { kind: 'save', item: null };
+      case 'update':
+        return { kind: 'update', item: decision.item };
+      case 'compare': {
+        // One reveal to tell a typed-in, unchanged password from a new one.
+        const revealed = await api.revealItem(decision.item.vaultId, decision.item.id).catch(() => null);
+        const stored = revealed && 'password' in revealed.data.fields ? revealed.data.fields.password : null;
+        return stored === password ? null : { kind: 'update', item: decision.item };
+      }
+    }
   }
 
   /** The top frame of a tab, after load or a poke: show the bar if a save is pending. */
@@ -635,7 +655,7 @@ export class WeldPassWorker {
   private async prompt(tabId: number, nonce: string): Promise<PromptRegistration | null> {
     if (typeof nonce !== 'string' || nonce.length < 16) return null;
     const registration = await this.env.memory.get<PromptRegistration>(promptKey(nonce));
-    if (!registration || registration.tabId !== tabId) return null;
+    if (registration?.tabId !== tabId) return null;
     return registration;
   }
 
@@ -661,7 +681,7 @@ export class WeldPassWorker {
   async promptSave(tabId: number, nonce: string, vaultId: string): Promise<PromptOutcome> {
     if (!(await this.prompt(tabId, nonce))) return { ok: false, reason: 'expired' };
     const pending = await this.queue.get(tabId);
-    if (!pending || pending.kind !== 'save') return { ok: false, reason: 'expired' };
+    if (pending?.kind !== 'save') return { ok: false, reason: 'expired' };
     const api = await this.passwords();
     const input = itemInputSchema.safeParse({
       type: 'login',
@@ -728,10 +748,9 @@ export class WeldPassWorker {
     }
   }
 
-  async promptClosed(sender: Content, nonce: string): Promise<null> {
+  async promptClosed(sender: Content, nonce: string): Promise<void> {
     const registration = await this.prompt(sender.tabId, nonce);
     if (registration) await this.env.memory.remove(promptKey(nonce));
-    return null;
   }
 
   // ── housekeeping ────────────────────────────────────────────────────────
@@ -796,4 +815,4 @@ function uiLanguage(): string | undefined {
   }
 }
 
-export type { KeyValueStore };
+export type { KeyValueStore } from './stores';

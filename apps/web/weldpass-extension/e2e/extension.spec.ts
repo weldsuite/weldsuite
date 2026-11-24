@@ -164,8 +164,11 @@ test('asks nothing after signing in with exactly the login it filled', async () 
   await expect(page.getByLabel('Password')).toHaveValue('correct horse battery');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL('**/welcome');
-  // Longer than the worker's poke after a submit.
-  await page.waitForTimeout(2000);
+  // No bar may load, for longer than the worker's poke after a submit.
+  const bar = await page
+    .waitForEvent('framenavigated', { predicate: (frame) => frame.url().includes('prompt.html'), timeout: 2000 })
+    .catch(() => null);
+  expect(bar).toBeNull();
   expect(page.frames().some((frame) => frame.url().includes('prompt.html'))).toBe(false);
   await page.close();
 });

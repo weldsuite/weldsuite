@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { build, loadEnv, type Plugin } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { build, defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defaultServerFrom } from './src/lib/build-config';
@@ -105,11 +104,6 @@ export default defineConfig(({ mode }) => {
           entryFileNames: (chunk) => (chunk.name === 'background' ? 'background.js' : 'assets/[name]-[hash].js'),
         },
       },
-    },
-    test: {
-      environment: 'node',
-      include: ['src/**/*.test.{ts,tsx}'],
-      exclude: ['e2e/**', 'node_modules/**'],
     },
   };
 });

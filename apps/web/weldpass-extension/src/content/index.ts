@@ -164,7 +164,7 @@ function onKeyDown(event: KeyboardEvent): void {
 
 function onInput(event: Event): void {
   // Typing means the person is filling it in themselves.
-  if (event.isTrusted && menu && inputOf(event) === menu.field) closeMenu();
+  if (event.isTrusted && inputOf(event) === menu?.field) closeMenu();
 }
 
 let frame = 0;
@@ -237,30 +237,45 @@ function fieldsForMenu(): LoginFields | null {
   return menu?.field.isConnected ? loginFields(menu.field) : null;
 }
 
+/** A fill is for the open menu only, in the document the worker checked. */
+function fillRefusal(command: { nonce: string; expectedOrigin: string }): FrameResult | null {
+  if (command.nonce !== menu?.nonce) return { status: 'refused' };
+  if (!sameOrigin(command.expectedOrigin)) return { status: 'origin-mismatch' };
+  return null;
+}
+
+const filledResult = (filled: number): FrameResult =>
+  filled > 0 ? { status: 'filled', fields: filled } : { status: 'no-fields' };
+
+function fillSaved(command: Extract<FrameCommand, { type: 'fill:login' | 'fill:otp' }>): FrameResult {
+  const refusal = fillRefusal(command);
+  if (refusal) return refusal;
+  // The fill policy again, in the frame, on the frame's own URL.
+  if (!evaluateFill({ host: command.itemHost }, location.href).ok) return { status: 'refused' };
+  const fields = fieldsForMenu();
+  if (!fields) return { status: 'no-fields' };
+  return filledResult(
+    command.type === 'fill:login'
+      ? fillLogin(fields, command.username, command.password)
+      : fillOtp(fields, command.code),
+  );
+}
+
+function fillGenerated(command: Extract<FrameCommand, { type: 'fill:new-password' }>): FrameResult {
+  const refusal = fillRefusal(command);
+  if (refusal) return refusal;
+  if (!pageContext(location.href).ok) return { status: 'refused' };
+  const fields = fieldsForMenu();
+  return filledResult(fields ? fillNewPasswords(fields, command.password) : 0);
+}
+
 function handle(command: FrameCommand): FrameResult {
   switch (command.type) {
     case 'fill:login':
-    case 'fill:otp': {
-      if (!menu || command.nonce !== menu.nonce) return { status: 'refused' };
-      if (!sameOrigin(command.expectedOrigin)) return { status: 'origin-mismatch' };
-      // The fill policy again, in the frame, on the frame's own URL.
-      if (!evaluateFill({ host: command.itemHost }, location.href).ok) return { status: 'refused' };
-      const fields = fieldsForMenu();
-      if (!fields) return { status: 'no-fields' };
-      const filled =
-        command.type === 'fill:login'
-          ? fillLogin(fields, command.username, command.password)
-          : fillOtp(fields, command.code);
-      return filled > 0 ? { status: 'filled', fields: filled } : { status: 'no-fields' };
-    }
-    case 'fill:new-password': {
-      if (!menu || command.nonce !== menu.nonce) return { status: 'refused' };
-      if (!sameOrigin(command.expectedOrigin)) return { status: 'origin-mismatch' };
-      if (!pageContext(location.href).ok) return { status: 'refused' };
-      const fields = fieldsForMenu();
-      const filled = fields ? fillNewPasswords(fields, command.password) : 0;
-      return filled > 0 ? { status: 'filled', fields: filled } : { status: 'no-fields' };
-    }
+    case 'fill:otp':
+      return fillSaved(command);
+    case 'fill:new-password':
+      return fillGenerated(command);
     case 'menu:remove':
       if (menu?.nonce === command.nonce) {
         menu.remove();
@@ -279,18 +294,18 @@ function handle(command: FrameCommand): FrameResult {
   }
 }
 
+/** Answered at once, so the channel needn't stay open. */
 function onCommand(
   message: unknown,
   sender: chrome.runtime.MessageSender,
   sendResponse: (result: FrameResult) => void,
-): boolean {
+): void {
   // Only the worker: it has no tab. Another frame's content script has one.
-  if (sender.id !== extensionId || sender.tab) return false;
+  if (sender.id !== extensionId || sender.tab) return;
   if (typeof message !== 'object' || message === null || typeof (message as { type?: unknown }).type !== 'string') {
-    return false;
+    return;
   }
   sendResponse(handle(message as FrameCommand));
-  return false;
 }
 
 chrome.runtime.onMessage.addListener(onCommand);

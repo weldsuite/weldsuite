@@ -31,7 +31,7 @@ function hostList(value: unknown): string[] {
   const hosts = value
     .map((entry) => (typeof entry === 'string' ? hostOf(entry) : null))
     .filter((host): host is string => host !== null);
-  return [...new Set(hosts)].sort().slice(0, MAX_HOSTS);
+  return [...new Set(hosts)].sort((a, b) => a.localeCompare(b)).slice(0, MAX_HOSTS);
 }
 
 /** Whatever is stored, as valid settings. Unknown or broken values fall back to the defaults. */

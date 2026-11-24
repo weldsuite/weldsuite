@@ -75,15 +75,21 @@ export function normaliseServerAddress(input: string): AddressResult {
 
 export type ProfileResult = { ok: true; profile: ServerProfile } | { ok: false; problem: ServerProblem };
 
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** Whether this extension can use a server that answered with `config`, and how. */
 export function profileFromConfig(origin: string, config: RuntimeConfig): ProfileResult {
   if (config.backend !== 'rust') return { ok: false, problem: 'not-weldsuite' };
   const auth = config.auth;
-  if (!auth || auth.provider !== 'oidc' || !auth.extensionClientId) {
+  if (auth?.provider !== 'oidc' || !auth.extensionClientId) {
     return { ok: false, problem: 'no-extension-sign-in' };
   }
   if (config.modules && !config.modules.includes('pass')) return { ok: false, problem: 'no-weldpass' };
-  const issuer = secureOrigin(auth.issuer) ? auth.issuer.replace(/\/+$/, '') : null;
+  const issuer = secureOrigin(auth.issuer) ? withoutTrailingSlashes(auth.issuer) : null;
   if (!issuer) return { ok: false, problem: 'no-extension-sign-in' };
   const apiOrigin = config.apiBaseUrl ? secureOrigin(config.apiBaseUrl) : origin;
   if (!apiOrigin) return { ok: false, problem: 'not-weldsuite' };

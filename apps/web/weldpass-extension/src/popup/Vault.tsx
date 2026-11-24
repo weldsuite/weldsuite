@@ -19,7 +19,7 @@ const TABS: Array<{ view: View; label: MessageKey }> = [
   { view: 'generator', label: 'tabGenerator' },
 ];
 
-export function Vault({ state, onState }: { state: ExtensionState; onState: (state: ExtensionState) => void }) {
+export function Vault({ state, onState }: Readonly<{ state: ExtensionState; onState: (state: ExtensionState) => void }>) {
   const ids = useId();
   const tab = useActiveTab();
   const { status, notify } = useStatus();

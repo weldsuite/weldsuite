@@ -152,18 +152,17 @@ export function decideCapture(input: {
   const { username, passwordHash, fill, host, matches } = input;
 
   // The extension filled this host: unchanged means nothing to ask.
-  if (fill && fill.host === host && (!username || sameUser(username, fill.username))) {
+  if (fill?.host === host && (!username || sameUser(username, fill.username))) {
     return fill.passwordHash === passwordHash ? { action: 'ignore' } : { action: 'update', item: fill.item };
   }
 
   const logins = matches.filter((item) => item.type === 'login');
-  const sameName = username
-    ? logins.filter((item) => sameUser(item.subtitle ?? '', username))
-    : logins.length === 1
-      ? logins
-      : [];
-  if (sameName.length > 0) return { action: 'compare', item: ref(sameName[0]!) };
-  // A password without a username, and several logins for the site: don't guess which.
-  if (!username && logins.length > 1) return { action: 'ignore' };
-  return { action: 'save' };
+  if (!username) {
+    // A password without a username: compare with the site's only login;
+    // with several, don't guess which.
+    if (logins.length === 1) return { action: 'compare', item: ref(logins[0]!) };
+    return logins.length > 1 ? { action: 'ignore' } : { action: 'save' };
+  }
+  const sameName = logins.find((item) => sameUser(item.subtitle ?? '', username));
+  return sameName ? { action: 'compare', item: ref(sameName) } : { action: 'save' };
 }

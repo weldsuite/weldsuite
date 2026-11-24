@@ -26,7 +26,8 @@ export interface LoginFields extends FieldContext {
 }
 
 const TEXTLIKE = new Set(['text', 'email', 'tel', '']);
-const OTP_NAME = /one.?time|otp|totp|2fa|mfa|two.?factor|verification.?code|auth(entication)?.?code|security.?code|^code$|token/i;
+// Two expressions rather than one, to keep each simple.
+const OTP_NAME = [/one.?time|otp|2fa|mfa|two.?factor|token/i, /(verification|auth(entication)?|security).?code|^code$/i];
 const NEW_PASSWORD_HINT = /new|confirm|repeat|again|retype|verify|register|sign.?up|create|nieuw|herhaal|bevestig/i;
 const NOT_USERNAME = /search|query|zoek|otp|captcha|coupon|promo|voucher/;
 const USERNAME_HINT = /user|e-?mail|login|identifier|account|gebruiker/i;
@@ -42,21 +43,26 @@ function label(input: HTMLInputElement): string {
 /** Shown, enabled and big enough to be a real field (honeypots are often 0×0 or 1×1). */
 export function isUsable(input: HTMLInputElement): boolean {
   if (input.disabled || input.readOnly || input.type === 'hidden') return false;
+  return isShown(input) && !isTiny(input);
+}
+
+function isShown(input: HTMLInputElement): boolean {
   if (typeof input.checkVisibility === 'function') {
-    if (!input.checkVisibility({ checkVisibilityCSS: true, visibilityProperty: true })) return false;
-  } else {
-    for (let node: HTMLElement | null = input; node; node = node.parentElement) {
-      if (node.hidden) return false;
-      const style = getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-    }
+    return input.checkVisibility({ checkVisibilityCSS: true, visibilityProperty: true });
   }
-  // jsdom (tests) has no layout; a real page always does.
-  if (input.ownerDocument.documentElement.clientWidth > 0) {
-    const rect = input.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return false;
+  for (let node: HTMLElement | null = input; node; node = node.parentElement) {
+    if (node.hidden) return false;
+    const style = getComputedStyle(node);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
   }
   return true;
+}
+
+function isTiny(input: HTMLInputElement): boolean {
+  // jsdom (tests) has no layout; a real page always does.
+  if (input.ownerDocument.documentElement.clientWidth <= 0) return false;
+  const rect = input.getBoundingClientRect();
+  return rect.width < 2 || rect.height < 2;
 }
 
 export function inputsIn(scope: Scope): HTMLInputElement[] {
@@ -76,7 +82,8 @@ function isPassword(input: HTMLInputElement): boolean {
 function isOtp(input: HTMLInputElement): boolean {
   if (tokens(input).includes('one-time-code')) return true;
   if (!['text', 'tel', 'number', ''].includes(input.type)) return false;
-  if (!OTP_NAME.test(label(input))) return false;
+  const text = label(input);
+  if (!OTP_NAME.some((pattern) => pattern.test(text))) return false;
   const max = input.maxLength;
   return input.inputMode === 'numeric' || max === 1 || (max >= 4 && max <= 10) || /otp|totp|2fa|one.?time/i.test(label(input));
 }
@@ -133,7 +140,7 @@ function usernameFor(password: HTMLInputElement, inputs: HTMLInputElement[]): HT
   const candidates = inputs.filter(isUsernameCandidate);
   const before = candidates.filter((candidate) => precedes(candidate, password));
   const hinted = before.filter(hasUsernameHint);
-  return hinted[hinted.length - 1] ?? before[before.length - 1] ?? candidates.find(hasUsernameHint) ?? null;
+  return hinted.at(-1) ?? before.at(-1) ?? candidates.find(hasUsernameHint) ?? null;
 }
 
 /** The username field of a step that shows no password yet (step one of two). */
@@ -141,6 +148,21 @@ function loneUsername(inputs: HTMLInputElement[], focused: HTMLInputElement | nu
   const candidates = inputs.filter(isUsernameCandidate);
   if (focused && candidates.includes(focused) && looksLikeUsername(focused)) return focused;
   return candidates.find(hasUsernameHint) ?? candidates.find(looksLikeUsername) ?? null;
+}
+
+function fieldKind(
+  field: HTMLInputElement,
+  otp: HTMLInputElement[],
+  current: HTMLInputElement[],
+  fresh: HTMLInputElement[],
+): FieldKind | null {
+  if (otp.includes(field)) return 'one-time-code';
+  if (fresh.includes(field)) return 'new-password';
+  if (current.includes(field)) return 'login';
+  if (!isUsernameCandidate(field)) return null;
+  // A username in a sign-up form is the person's to choose: no menu.
+  const login = current.length > 0 || (fresh.length === 0 && looksLikeUsername(field));
+  return login ? 'login' : null;
 }
 
 /** Everything a fill needs around one field, or null when the field is none of ours. */
@@ -153,15 +175,7 @@ export function loginFields(field: HTMLInputElement): LoginFields | null {
   const { current, fresh } = splitPasswords(passwords);
   const otp = inputs.filter(isOtp);
 
-  let kind: FieldKind | null = null;
-  if (otp.includes(field)) kind = 'one-time-code';
-  else if (fresh.includes(field)) kind = 'new-password';
-  else if (current.includes(field)) kind = 'login';
-  else if (isUsernameCandidate(field)) {
-    // A username in a sign-up form is the person's to choose: no menu.
-    if (current.length > 0) kind = 'login';
-    else if (fresh.length === 0 && looksLikeUsername(field)) kind = 'login';
-  }
+  const kind = fieldKind(field, otp, current, fresh);
   if (!kind) return null;
 
   const focusedPassword = current.includes(field) ? field : null;
@@ -187,10 +201,10 @@ export function loginFields(field: HTMLInputElement): LoginFields | null {
  */
 export function submittedLogin(scope: Scope): { username: string; password: string } | null {
   const inputs = inputsIn(scope);
-  const passwords = inputs.filter(isPassword).filter((input) => input.value !== '');
+  const filled = (input: HTMLInputElement) => input.value !== '';
   const { current, fresh } = splitPasswords(inputs.filter(isPassword));
-  const filledFresh = fresh.filter((input) => input.value !== '');
-  const password = filledFresh[0] ?? current.find((input) => input.value !== '') ?? passwords[0] ?? null;
+  const password =
+    fresh.find(filled) ?? current.find(filled) ?? inputs.find((input) => isPassword(input) && filled(input)) ?? null;
   const username = password ? usernameFor(password, inputs) : loneUsername(inputs, null);
   if (!password && !username?.value) return null;
   return {
