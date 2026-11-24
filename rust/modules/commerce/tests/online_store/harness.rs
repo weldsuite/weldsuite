@@ -96,16 +96,26 @@ pub(crate) async fn env() -> Option<Env> {
     };
     let master = master_pool(&master_url, 4).expect("master pool");
     let tenant = master_pool(&tenant_url, 2).expect("tenant pool");
+    // The tests start together: on a fresh database several insert this row
+    // at once. `on conflict do nothing` without a target covers every unique
+    // index (the id and the org id) and waits out a concurrent insert; a
+    // targeted `on conflict (id)` let the org id's index fail the loser.
     sqlx::query(
         "insert into workspaces (id, name, slug, clerk_org_id, database_url) \
          values ($1, 'Online store tests', 'online-store-tests', 'org_os_test', $2) \
-         on conflict (id) do update set database_url = excluded.database_url",
+         on conflict do nothing",
     )
     .bind(WORKSPACE)
     .bind(&tenant_url)
     .execute(&master)
     .await
     .expect("workspace");
+    sqlx::query("update workspaces set database_url = $2 where id = $1")
+        .bind(WORKSPACE)
+        .bind(&tenant_url)
+        .execute(&master)
+        .await
+        .expect("workspace database");
     let workspaces = Arc::new(Workspaces::new(
         master.clone(),
         Keyring::default(),
