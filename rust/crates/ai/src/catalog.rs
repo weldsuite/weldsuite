@@ -262,7 +262,9 @@ pub enum Feature {
     Agents,
     /// Fixed: vectors from two models can't share an index.
     SearchIndex,
-    /// Fixed: a system job with no customer content.
+    /// Fixed: a system job with no customer content, run on WeldSuite's
+    /// Anthropic account when the install has one
+    /// ([`Feature::weldsuite_provider`]).
     ReachWarmup,
     /// Fixed: WeldSuite's own outbound abuse control stays in the EU.
     MailReview,
@@ -321,6 +323,18 @@ impl Feature {
             self,
             Self::SearchIndex | Self::ReachWarmup | Self::MailReview
         )
+    }
+
+    /// The provider WeldSuite runs this fixed feature on, on WeldSuite's own
+    /// key, when the install has that key; the install provider stays its
+    /// fallback. Only the warmup corpus has one: it writes made-up mail with
+    /// no customer content, and WeldSuite pays for it. `None`: the install
+    /// provider.
+    pub fn weldsuite_provider(self) -> Option<ProviderId> {
+        match self {
+            Self::ReachWarmup => Some(ProviderId::Anthropic),
+            _ => None,
+        }
     }
 
     /// Its catalog entry.
