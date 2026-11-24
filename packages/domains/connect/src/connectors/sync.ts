@@ -303,25 +303,27 @@ const MONEYBIRD_ATTACHMENT_TYPES = new Set([
 ]);
 
 /**
- * Whether an imported Moneybird document still lacks its attachments (never
- * attempted, or the budget ran out). Such a model is pulled in full so the new
- * run's download budget reaches them.
+ * Whether this connection imported a Moneybird document of `externalEntityType`
+ * whose attachments were never fetched (`attachment_keys` unset: the download
+ * budget ran out). A database error counts as no backlog.
  */
-async function hasMoneybirdAttachmentBacklog(ctx: SyncPullContext): Promise<boolean> {
-  const { args, sync, moneybirdAttachments } = ctx;
-  if (!moneybirdAttachments || args.connection.provider !== 'moneybird') return false;
-  if (!MONEYBIRD_ATTACHMENT_TYPES.has(sync.externalEntityType)) return false;
-  const table = sync.internalEntity === 'invoice' ? schema.invoices : schema.bills;
+export async function moneybirdAttachmentBacklog(
+  db: Database,
+  connectionId: string,
+  externalEntityType: string,
+): Promise<boolean> {
+  if (!MONEYBIRD_ATTACHMENT_TYPES.has(externalEntityType)) return false;
+  const table = externalEntityType === 'moneybird_sales_invoice' ? schema.invoices : schema.bills;
   const m = schema.integrationEntityMappings;
   try {
-    const [row] = await args.db
+    const [row] = await db
       .select({ id: table.id })
       .from(m)
       .innerJoin(table, eq(table.id, m.internalEntityId))
       .where(
         and(
-          eq(m.connectionId, args.connection.id),
-          eq(m.externalEntityType, sync.externalEntityType),
+          eq(m.connectionId, connectionId),
+          eq(m.externalEntityType, externalEntityType),
           isNull(table.attachmentKeys),
           isNull(table.deletedAt),
         ),
@@ -332,6 +334,16 @@ async function hasMoneybirdAttachmentBacklog(ctx: SyncPullContext): Promise<bool
     console.warn('[connectors/sync] attachment backlog check failed:', err instanceof Error ? err.message : err);
     return false;
   }
+}
+
+/**
+ * A Moneybird model with an attachment backlog is pulled in full, so the new
+ * run's download budget reaches the documents an earlier run left.
+ */
+function hasMoneybirdAttachmentBacklog(ctx: SyncPullContext): Promise<boolean> {
+  const { args, sync, moneybirdAttachments } = ctx;
+  if (!moneybirdAttachments || args.connection.provider !== 'moneybird') return Promise.resolve(false);
+  return moneybirdAttachmentBacklog(args.db, args.connection.id, sync.externalEntityType);
 }
 
 async function runSingleSync(ctx: SyncPullContext): Promise<void> {

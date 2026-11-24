@@ -9,6 +9,7 @@ import { getConnector } from '@weldsuite/connectors';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { ingestRecords, recordChecksum } from './ingest';
+import { moneybirdAttachmentBacklog } from './sync';
 
 let db: Database;
 
@@ -151,5 +152,58 @@ describe('Moneybird ingest', () => {
       ['mu_paid', 'reconciled', bill!.id, 'auto'],
       ['mu_void', 'excluded', null, null],
     ]);
+  });
+
+  it('links a statement line to the imported sales invoice its payment settles', async () => {
+    const sale = await run('moneybird_sales_invoice', [
+      {
+        id: 'si1',
+        invoice_id: '2026-0001',
+        contact_id: 'c1',
+        contact,
+        state: 'open',
+        invoice_date: '2026-03-03',
+        currency: 'EUR',
+        total_price_excl_tax: '100.0',
+        total_price_incl_tax: '121.0',
+        details: [],
+        updated_at: '2026-03-03T10:00:00.000Z',
+      },
+    ]);
+    expect(sale).toMatchObject({ created: 1, failed: 0 });
+    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-0001'));
+    const lines = await run('moneybird_financial_mutation', [
+      {
+        id: 'mu_sale',
+        financial_account_id: 'fa_bank',
+        amount: '121.00',
+        date: '2026-03-08',
+        state: 'processed',
+        payments: [{ invoice_type: 'SalesInvoice', invoice_id: 'si1' }],
+      },
+    ]);
+    expect(lines).toMatchObject({ created: 1, failed: 0 });
+    const [txn] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.externalId, 'mu_sale'));
+    expect([txn!.status, txn!.reconciledInvoiceId, txn!.reconciledBillId, txn!.reconciliationType]).toEqual([
+      'reconciled',
+      invoice!.id,
+      null,
+      'auto',
+    ]);
+  });
+
+  it('reports imported documents whose attachments were never fetched as a backlog', async () => {
+    // Imported here without attachment storage, so nothing was fetched yet.
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_purchase_invoice')).toBe(true);
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_sales_invoice')).toBe(true);
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_receipt')).toBe(false);
+    expect(await moneybirdAttachmentBacklog(db, 'conn_other', 'moneybird_purchase_invoice')).toBe(false);
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_contact')).toBe(false);
+
+    // Fetched, with or without files: no backlog.
+    await db.update(schema.bills).set({ attachmentKeys: [] });
+    await db.update(schema.invoices).set({ attachmentKeys: ['k/invoice.pdf'] });
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_purchase_invoice')).toBe(false);
+    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_sales_invoice')).toBe(false);
   });
 });
