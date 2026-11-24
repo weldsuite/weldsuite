@@ -136,6 +136,10 @@ settings, which weldsuite.env adds.
 - name: OIDC_DESKTOP_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.extensionClientId }}
+- name: OIDC_EXTENSION_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
 {{- $weldid := eq ($.Values.config.identity.provider | default "") "weldid" }}
 {{- with .oidc.signIn }}
 {{- if and (eq . "platform") $weldid }}

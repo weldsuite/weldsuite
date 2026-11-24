@@ -116,6 +116,9 @@ export const apiCors = () =>
       // Partner portal: which partner the caller acts for, and retry-safe credit grants.
       'X-Partner-Id',
       'Idempotency-Key',
+      // WeldPass: which client revealed a password (`extension`), kept in the
+      // vault's audit trail.
+      'X-WeldPass-Client',
     ],
     // Retry-After: a browser client reads it off a 503 WORKSPACE_MOVING to know
     // how long to back off while a workspace's database is being moved.
