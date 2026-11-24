@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -76,7 +75,8 @@ export function CalendarTab() {
       {isLoading ? (
         <PageLoader fullScreen={false} />
       ) : (
-        <Card className="overflow-hidden p-0">
+        // On the page background, not a card's lighter surface (it stood out in dark mode).
+        <div className="overflow-hidden rounded-lg border border-border bg-background">
           <div className="grid grid-cols-7 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
             {WEEKDAY_HEADERS.map((date) => (
               <div key={date.getDay()} className="px-2 py-1.5">
@@ -117,7 +117,7 @@ export function CalendarTab() {
               );
             })}
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );

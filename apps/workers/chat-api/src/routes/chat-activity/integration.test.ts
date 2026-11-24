@@ -35,7 +35,7 @@ function dm(userId: string) {
   });
 }
 
-async function notification(userId: string, type: string, minutesAgo: number) {
+async function notification(userId: string, type: string, minutesAgo: number, data?: Record<string, string>) {
   const id = generateId('notif');
   await db.insert(schema.notifications).values({
     id,
@@ -48,6 +48,7 @@ async function notification(userId: string, type: string, minutesAgo: number) {
     entityId: generateId('msg'),
     actionUrl: '/weldchat/somewhere',
     actorId: BOB,
+    data,
     createdAt: new Date(Date.now() - minutesAgo * 60_000),
   } as typeof schema.notifications.$inferInsert);
   return id;
@@ -84,6 +85,20 @@ describe('/api/chat-activity', () => {
     expect(((await mentions.json()) as { data: unknown[] }).data).toHaveLength(1);
     const ignored = await activity(ANN).request('/api/chat-activity?cursor=not-a-cursor');
     expect(ignored.status).toBe(200);
+  });
+
+  it('names the conversation a notification stored as chatChannelId (missed calls, DMs)', async () => {
+    const now = new Date();
+    await db.insert(schema.chatChannels).values({
+      id: 'ch_act_dm', name: 'ann-bob', slug: 'ann-bob', type: 'dm', createdBy: BOB, createdAt: now, updatedAt: now,
+    } as typeof schema.chatChannels.$inferInsert);
+    const id = await notification(ANN, 'chat_missed_call', 0, { chatChannelId: 'ch_act_dm' });
+    const res = await activity(ANN).request('/api/chat-activity');
+    const row = ((await res.json()) as { data: Array<{ id: string; channelId: string | null; channelName: string | null }> }).data
+      .find((n) => n.id === id);
+    expect(row).toMatchObject({ channelId: 'ch_act_dm', channelName: 'ann-bob' });
+    // Leave the unread counts of the tests below as they were.
+    await db.delete(schema.notifications).where(eq(schema.notifications.id, id));
   });
 
   it('refuses an unknown filter and a bad limit', async () => {

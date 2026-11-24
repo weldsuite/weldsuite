@@ -226,15 +226,15 @@ export function ServiceRequestSection({
     const startable = canUpdate && conversation.state === 'open' && !conversation.mergedIntoId;
     if (!startable) return null;
     return (
-      <div className="border-b border-border/60 px-4 py-3" data-testid="desk-service-request">
-        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.title}</p>
+      <section className="space-y-2" data-testid="desk-service-request">
+        <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
         <p className="py-1 text-sm text-muted-foreground">{t.makeHint}</p>
         <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setPicking(true)} data-testid="desk-service-request-make">
           <ConciergeBell className="mr-1 h-3.5 w-3.5" />
           {t.makeRequest}
         </Button>
         <ItemPickerDialog open={picking} conversationId={conversation.id} onClose={() => setPicking(false)} t={t} />
-      </div>
+      </section>
     );
   }
 
@@ -282,9 +282,9 @@ export function ServiceRequestSection({
   };
 
   return (
-    <div className="border-b border-border/60 px-4 py-3" data-testid="desk-service-request">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.title}</p>
+    <section className="space-y-2" data-testid="desk-service-request">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
         <SoftBadge tone={state.tone} data-testid="desk-service-request-state">
           {state.label}
         </SoftBadge>
@@ -362,6 +362,6 @@ export function ServiceRequestSection({
         onConfirm={confirm}
         t={t}
       />
-    </div>
+    </section>
   );
 }

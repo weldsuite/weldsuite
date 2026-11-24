@@ -31,8 +31,6 @@ interface MessagesTimelineProps {
   onRetry: (message: DeskMessage) => void;
 }
 
-/** Consecutive messages from the same author inside this window share one header. */
-const GROUP_WINDOW_MS = 5 * 60_000;
 /** How close to the bottom still counts as "following the conversation". */
 const STICK_THRESHOLD_PX = 120;
 
@@ -252,23 +250,29 @@ function EventRow({
   );
 }
 
-function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
-  if (!a || a.kind === 'event' || b.kind === 'event') return false;
-  if (isPhoneTimelineMessage(a) || isPhoneTimelineMessage(b)) return false;
-  if (a.kind !== b.kind || a.authorType !== b.authorType || a.authorId !== b.authorId) return false;
-  if (!isSameDay(new Date(a.createdAt), new Date(b.createdAt))) return false;
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
+type Strings = ReturnType<typeof getTranslations<'deskInbox2'>>;
+
+/** How long ago, short: "Now", "4min", "2h", "3d", then the date. */
+function shortAgo(date: Date, now: number, t: Strings): string {
+  const minutes = Math.floor((now - date.getTime()) / 60_000);
+  if (minutes < 1) return t.pane.timeNow;
+  if (minutes < 60) return t.pane.timeMinutes.replace('{n}', String(minutes));
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t.pane.timeHours.replace('{n}', String(hours));
+  const days = Math.floor(hours / 24);
+  if (days < 7) return t.pane.timeDays.replace('{n}', String(days));
+  return format(date, 'd MMM');
 }
 
 function Avatar({ label, picture, isBot }: Readonly<{ label: string; picture?: string | null; isBot?: boolean }>) {
   return (
-    <UiAvatar className="w-7 h-7 flex-shrink-0">
+    <UiAvatar className="w-6 h-6 flex-shrink-0" title={label}>
       {picture && <AvatarImage src={picture} alt={label} />}
       <AvatarFallback
-        className="text-white font-semibold text-xs"
+        className="text-white font-semibold text-[10px]"
         style={{ backgroundColor: getAvatarColor(label) }}
       >
-        {isBot ? <Bot className="h-3.5 w-3.5" /> : label.slice(0, 1).toUpperCase()}
+        {isBot ? <Bot className="h-3 w-3" /> : label.slice(0, 1).toUpperCase()}
       </AvatarFallback>
     </UiAvatar>
   );
@@ -288,9 +292,9 @@ function TypingBubble({ names }: Readonly<{ names: string[] }>) {
   const t = getTranslations('deskInbox2');
   return (
     <div className="flex items-end gap-2 px-4 pt-1 pb-2" data-testid="desk-inbox-typing">
-      <div className="w-7 flex-shrink-0" />
+      <div className="w-6 flex-shrink-0" />
       <div className="flex flex-col items-start gap-1">
-        <div className="inline-flex items-center gap-1 rounded-2xl rounded-bl-md bg-muted px-3.5 py-2.5">
+        <div className="inline-flex items-center gap-1 rounded-xl bg-muted px-3.5 py-3">
           {[0, 1, 2].map((i) => (
             <span
               key={i}
@@ -312,6 +316,12 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  // A clock so "4min" moves on while the conversation is open.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
   const visitorLabel = conversation.name || conversation.email || t.pane.visitor;
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
@@ -382,57 +392,57 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
           const isBot = message.authorType === 'bot';
           const member = members.find((m) => m.userId === message.authorId);
           const label = authorLabel(message, members, visitorLabel);
-          const grouped = !showDay && sameGroup(prev, message);
-          const next = messages[index + 1];
-          const lastInGroup = !next || !sameGroup(message, next);
 
           return (
             <div key={message.clientId ?? message.id}>
               {showDay && <DaySeparator date={created} />}
-              <div
-                className={cn(
-                  'flex items-end gap-2 px-4',
-                  grouped ? 'pt-0.5' : 'pt-3',
-                  isVisitor ? 'flex-row' : 'flex-row-reverse',
-                )}
-              >
-                <div className="w-7 flex-shrink-0">
-                  {lastInGroup && (
-                    <Avatar label={label} picture={isVisitor ? null : member?.picture} isBot={isBot} />
-                  )}
-                </div>
-                <div className={cn('flex flex-col max-w-[75%] min-w-0', isVisitor ? 'items-start' : 'items-end')}>
-                  {!grouped && (
-                    <div className={cn('flex items-center gap-1.5 mb-1 text-xs', isVisitor ? 'flex-row' : 'flex-row-reverse')}>
-                      <span className="font-medium text-foreground truncate">{label}</span>
-                      {isNote && (
-                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                          <Lock className="h-3 w-3" />
-                          {t.pane.internalNote}
-                        </span>
-                      )}
-                      <span className="text-muted-foreground">{format(created, 'HH:mm')}</span>
-                    </div>
-                  )}
+              {/* One bubble per message, its avatar beside it and the time inside it (Intercom's inbox). */}
+              <div className={cn('flex items-end gap-2 px-4 pt-3', isVisitor ? 'flex-row' : 'flex-row-reverse')}>
+                <Avatar label={label} picture={isVisitor ? null : member?.picture} isBot={isBot} />
+                <div className={cn('flex flex-col max-w-[70%] min-w-0', isVisitor ? 'items-start' : 'items-end')}>
                   <div
-                    title={format(created, 'PPpp')}
                     className={cn(
-                      'rounded-2xl px-3.5 py-2 text-[14px] leading-relaxed whitespace-pre-wrap break-words',
-                      isVisitor && 'bg-muted text-foreground rounded-bl-md',
-                      !isVisitor && !isNote && 'bg-primary text-primary-foreground rounded-br-md',
+                      'rounded-xl px-3.5 pt-2.5 pb-2 text-[14px] leading-relaxed',
+                      isVisitor && 'bg-muted text-foreground',
+                      !isVisitor && !isNote && 'bg-indigo-100 text-gray-900 dark:bg-indigo-500/20 dark:text-foreground',
                       isNote &&
-                        'bg-amber-50 text-amber-950 border border-amber-200 rounded-br-md dark:bg-amber-950/30 dark:text-amber-100 dark:border-amber-900',
+                        'bg-amber-50 text-amber-950 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-100 dark:border-amber-900',
                       message.pending === 'sending' && 'opacity-70',
                       message.pending === 'failed' && 'opacity-60 ring-1 ring-destructive/60',
                     )}
                   >
-                    {message.body && <LinkifiedText text={message.body} />}
+                    <span className="sr-only">{label}: </span>
+                    {message.body && (
+                      <div className="whitespace-pre-wrap break-words">
+                        <LinkifiedText text={message.body} />
+                      </div>
+                    )}
                     <AttachmentList attachments={message.attachments} spaced={Boolean(message.body)} />
+                    <div
+                      className={cn(
+                        'mt-1 flex items-center gap-1 text-[11px] leading-4',
+                        isVisitor && 'text-muted-foreground',
+                        !isVisitor && !isNote && 'justify-end text-gray-500 dark:text-muted-foreground',
+                        isNote && 'justify-end text-amber-700 dark:text-amber-400',
+                      )}
+                    >
+                      {isNote && (
+                        <>
+                          <Lock className="h-3 w-3" aria-hidden="true" />
+                          <span>{t.pane.internalNote}</span>
+                          <span aria-hidden="true">·</span>
+                        </>
+                      )}
+                      {message.pending === 'sending' ? (
+                        <span>{t.pane.sending}</span>
+                      ) : (
+                        <time dateTime={message.createdAt} title={format(created, 'PPpp')}>
+                          {shortAgo(created, now, t)}
+                        </time>
+                      )}
+                    </div>
                   </div>
                   <MessageTranslation conversation={conversation} messages={messages} message={message} />
-                  {message.pending === 'sending' && (
-                    <span className="mt-1 text-[11px] text-muted-foreground">{t.pane.sending}</span>
-                  )}
                   {message.pending === 'failed' && (
                     <span className="mt-1 text-[11px] text-destructive">
                       {t.pane.notSent} ·{' '}

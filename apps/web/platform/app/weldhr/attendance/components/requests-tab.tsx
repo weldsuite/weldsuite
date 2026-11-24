@@ -8,30 +8,45 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrShiftRequest } from '@weldsuite/app-api-client/domains/weldhr';
-import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { useObjectPanel } from '@/components/object-panel';
+import { HR_SHIFT_REQUEST_PANEL_TYPE } from '@/components/objects/hr-shift/types';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import { formatClockRange, useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { useHrShiftRequests, useReviewHrShiftRequest } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer } from '../../components/page-kit';
-import { StatusBadge, errorMessage, formatDateTime, formatMinutes, shiftIsoDate, todayIso } from '../../components/shared';
+import {
+  StatusBadge,
+  errorMessage,
+  formatDateTime,
+  formatMinutes,
+  formatWeekdayDate,
+  shiftIsoDate,
+  todayIso,
+} from '../../components/shared';
 import { ShiftRequestDeclineDialog } from './shift-request-decline-dialog';
 import { ShiftRequestsEmptyIllustration } from './shift-requests-empty-illustration';
 
 /** How far back the "recently reviewed" group reaches, counted from the day the shift starts. */
 const REVIEWED_DAYS = 30;
 
-/** "Mon, 27 Oct" for the day a shift starts, in the viewer's locale. */
-function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
 function lengthMinutes(request: HrShiftRequest): number {
   return Math.max(0, Math.round((new Date(request.endsAt).getTime() - new Date(request.startsAt).getTime()) / 60_000));
+}
+
+/** Distinct non-empty values, sorted, as filter options. */
+function optionsOf(values: Array<string | null>): Array<{ value: string; label: string }> {
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
 }
 
 export function RequestsTab() {
@@ -40,6 +55,7 @@ export function RequestsTab() {
   // Approving creates a shift, so it takes the same permission as adding one on the schedule.
   const canReview = can('attendance:create');
   const timeFormat = useTimeFormat();
+  const { open: openPanel } = useObjectPanel();
 
   const {
     data: pending,
@@ -89,6 +105,29 @@ export function RequestsTab() {
     { id: 'reviewed', label: t('weldhr.attendance.requests.groups.reviewed'), sortOrder: 2, filter: (r) => r.status !== 'pending' },
   ];
 
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: t('weldhr.attendance.requests.table.status'),
+      operators: ['is'],
+      options: (['pending', 'approved', 'rejected'] as const).map((status) => ({ value: status, label: t(`weldhr.status.shiftRequest.${status}`) })),
+    },
+    {
+      field: 'employee',
+      label: t('weldhr.attendance.requests.table.employee'),
+      operators: ['is'],
+      searchable: true,
+      options: optionsOf(items.map((r) => r.employeeName)),
+    },
+  ];
+  const applyFilters = (rows: HrShiftRequest[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'status') return list.filter((r) => r.status === filter.value);
+      if (filter.field === 'employee') return list.filter((r) => r.employeeName === filter.value);
+      return list;
+    }, rows);
+
   const columns: ColumnDef<HrShiftRequest>[] = [
     {
       id: 'employee',
@@ -96,18 +135,10 @@ export function RequestsTab() {
       width: HR_COL.main,
       render: (r) => (
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <p className="truncate font-medium">{r.employeeName}</p>
-            {/* A sign-up for a posted open shift, not a shift the employee proposed. */}
-            {r.openShiftId && (
-              <Badge variant="outline" className="shrink-0">
-                {t('weldhr.attendance.requests.openShiftBadge')}
-              </Badge>
-            )}
-          </div>
+          <p className="truncate font-medium">{r.employeeName}</p>
           {/* What the hidden columns would show, once the list is too narrow for them. */}
           <p className="truncate text-xs text-muted-foreground @4xl:hidden">
-            {dayLabel(r.startsAt)} · {timeRange(r)} · {formatMinutes(lengthMinutes(r))}
+            {formatWeekdayDate(r.startsAt)} · {timeRange(r)} · {formatMinutes(lengthMinutes(r))}
             {r.workType && <> · {r.workType}</>}
           </p>
           {r.note && <p className="truncate text-xs text-muted-foreground @7xl:hidden">{r.note}</p>}
@@ -122,8 +153,8 @@ export function RequestsTab() {
     {
       id: 'day',
       header: t('weldhr.attendance.requests.table.day'),
-      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[96px]'),
-      render: (r) => <span className="block truncate tabular-nums">{dayLabel(r.startsAt)}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[124px]'),
+      render: (r) => <span className="block truncate tabular-nums">{formatWeekdayDate(r.startsAt)}</span>,
     },
     {
       id: 'time',
@@ -174,18 +205,22 @@ export function RequestsTab() {
     {
       id: 'actions',
       header: '',
-      // Narrow: the buttons wrap onto two lines rather than run under the other columns.
+      // Narrow: the two buttons stack at the same width rather than run under the other columns.
       width: cn(HR_COL.fixed, 'w-[84px] @2xl:w-[150px]'),
       render: (r) => (
-        <div className="flex flex-wrap justify-end gap-1.5">
+        <div className="grid grid-cols-1 gap-1.5 @2xl:flex @2xl:justify-end">
           {canReview && r.status === 'pending' && (
             <>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
+                className="h-7 w-full px-2 text-xs @2xl:w-auto"
                 disabled={reviewRequest.isPending}
-                onClick={() => void review(r, 'approved')}
+                onClick={(e) => {
+                  // Answers the request without opening the row's panel.
+                  e.stopPropagation();
+                  void review(r, 'approved');
+                }}
               >
                 {reviewingId === r.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 {t('weldhr.attendance.requests.approve')}
@@ -193,9 +228,12 @@ export function RequestsTab() {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
+                className="h-7 w-full px-2 text-xs @2xl:w-auto"
                 disabled={reviewRequest.isPending}
-                onClick={() => setDeclineId(r.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeclineId(r.id);
+                }}
               >
                 {t('weldhr.attendance.requests.decline')}
               </Button>
@@ -214,8 +252,13 @@ export function RequestsTab() {
           isLoading={pendingLoading || reviewedLoading}
           error={pendingError ?? reviewedError}
           columns={columns}
+          onRowClick={(r) => openPanel({ type: HR_SHIFT_REQUEST_PANEL_TYPE, id: r.id })}
+          objectPanel={{ type: HR_SHIFT_REQUEST_PANEL_TYPE }}
           groups={groups}
-          filters={[]}
+          filters={filters}
+          applyFilters={applyFilters}
+          searchFields={['employeeName', 'workType', 'note']}
+          searchPlaceholder={t('weldhr.attendance.requests.searchPlaceholder')}
           emptyState={{
             icon: <ShiftRequestsEmptyIllustration />,
             title: t('weldhr.attendance.requests.empty.title'),
@@ -227,7 +270,7 @@ export function RequestsTab() {
       {declineTarget && (
         <ShiftRequestDeclineDialog
           request={declineTarget}
-          summary={`${dayLabel(declineTarget.startsAt)} · ${timeRange(declineTarget)}`}
+          summary={`${formatWeekdayDate(declineTarget.startsAt)} · ${timeRange(declineTarget)}`}
           onConfirm={(note) => review(declineTarget, 'rejected', note)}
           onClose={() => setDeclineId(null)}
         />

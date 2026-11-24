@@ -5,22 +5,63 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { cn } from '@weldsuite/ui/lib/utils';
 
-export interface TimePickerProps {
+export interface TimePickerProps
+  extends Omit<React.ComponentProps<typeof Button>, 'children' | 'onChange' | 'value'> {
+  /** "HH:MM", 24-hour. */
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
-  className?: string;
-  id?: string;
+  /** How the trigger and the hour list read: "2:30 PM" (12) or "14:30" (24). Defaults to 12. */
+  hourCycle?: 12 | 24;
+  /** Column headings of the picker; English when left out (the library holds no translations). */
+  hourLabel?: string;
+  minuteLabel?: string;
+  /**
+   * For an optional time: while one is set, a Clear button under the columns
+   * empties the field (`onChange('')`). Picking an hour or a minute can't.
+   */
+  clearable?: boolean;
+  /** The Clear button's text; English when left out. */
+  clearLabel?: string;
 }
 
+function hourText(hour: number, hourCycle: 12 | 24): string {
+  if (hourCycle === 24) return hour.toString().padStart(2, '0');
+  return `${hour % 12 || 12} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+
+/**
+ * A time field: an outline button that opens an hour and a minute column.
+ * Other props go to the button, so a form control can set its id and aria
+ * attributes.
+ */
 export function TimePicker({
   value,
   onChange,
   placeholder = 'Select time',
+  hourCycle = 12,
+  hourLabel = 'Hour',
+  minuteLabel = 'Min',
+  clearable,
+  clearLabel = 'Clear',
   className,
-  id,
+  ...props
 }: Readonly<TimePickerProps>) {
   const [open, setOpen] = React.useState(false);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  // On open, bring the picked hour and minute into view in their columns
+  // (only the columns scroll, never the page or a surrounding dialog).
+  React.useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      contentRef.current?.querySelectorAll<HTMLElement>('[data-selected="true"]').forEach((option) => {
+        const viewport = option.closest<HTMLElement>('[data-radix-scroll-area-viewport]');
+        if (viewport) viewport.scrollTop = option.offsetTop - viewport.clientHeight / 2 + option.offsetHeight / 2;
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   // Parse the current value (format: "HH:MM")
   const [hours, minutes] = React.useMemo(() => {
@@ -39,6 +80,7 @@ export function TimePicker({
     if (!value) return placeholder;
     const [h, m] = value.split(':');
     const hour = Number.parseInt(h ?? '0', 10);
+    if (hourCycle === 24) return `${hour.toString().padStart(2, '0')}:${m}`;
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const hour12 = hour % 12 || 12;
     return `${hour12}:${m} ${ampm}`;
@@ -48,8 +90,9 @@ export function TimePicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          id={id}
+          type="button"
           variant="outline"
+          {...props}
           className={cn(
             'w-full justify-start text-left font-normal h-9',
             !value && 'text-muted-foreground',
@@ -60,32 +103,39 @@ export function TimePicker({
           {formatDisplayTime()}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent ref={contentRef} className="w-auto p-0" align="start">
         <div className="flex">
           {/* Hours */}
-          <ScrollArea className="h-60 w-20 border-r">
+          <ScrollArea className={cn('h-60 border-r', hourCycle === 12 ? 'w-24' : 'w-20')}>
             <div className="p-2">
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">Hour</div>
-              {Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0')).map((hour) => (
-                <Button
-                  key={hour}
-                  variant={hours === hour ? 'default' : 'ghost'}
-                  className="w-full justify-center h-8 mb-1"
-                  onClick={() => handleTimeSelect('hours', hour)}
-                >
-                  {hour}
-                </Button>
-              ))}
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">{hourLabel}</div>
+              {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
+                const hh = hour.toString().padStart(2, '0');
+                return (
+                  <Button
+                    key={hh}
+                    type="button"
+                    variant={hours === hh ? 'default' : 'ghost'}
+                    data-selected={hours === hh}
+                    className="w-full justify-center h-8 mb-1"
+                    onClick={() => handleTimeSelect('hours', hh)}
+                  >
+                    {hourText(hour, hourCycle)}
+                  </Button>
+                );
+              })}
             </div>
           </ScrollArea>
           {/* Minutes */}
           <ScrollArea className="h-60 w-20">
             <div className="p-2">
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">Min</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">{minuteLabel}</div>
               {Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')).map((minute) => (
                 <Button
                   key={minute}
+                  type="button"
                   variant={minutes === minute ? 'default' : 'ghost'}
+                  data-selected={minutes === minute}
                   className="w-full justify-center h-8 mb-1"
                   onClick={() => handleTimeSelect('minutes', minute)}
                 >
@@ -95,6 +145,23 @@ export function TimePicker({
             </div>
           </ScrollArea>
         </div>
+        {clearable && value && (
+          <div className="border-t p-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                onChange?.('');
+                // Closing hands focus back to the field.
+                setOpen(false);
+              }}
+            >
+              {clearLabel}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

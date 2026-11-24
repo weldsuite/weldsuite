@@ -84,7 +84,7 @@ export const settings = {
       mailAccounts: 'Mail Accounts',
       manageMailAccounts: 'Manage email accounts',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Departments and leave types',
+      configureWeldhr: 'Departments, leave types, work locations and self-service',
     },
 
     companyInfo: {
@@ -1807,7 +1807,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Departments and leave types.',
+      description: 'Departments, leave types, work locations and self-service.',
     },
 
     weldflow: {
@@ -1861,6 +1861,7 @@ export const settings = {
         channels: 'Channels',
         ai: 'AI',
         ticketsRouting: 'Tickets & routing',
+        reports: 'Reports',
       },
       chatWidgetTitle: 'Chat widget',
       chatWidgetDescription: 'Design the live chat widget and install it on your website.',

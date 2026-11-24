@@ -18,13 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@weldsuite/ui/components/dialog";
-import { Badge } from "@weldsuite/ui/components/badge";
+import { SoftBadge, type SoftTone } from "@weldsuite/ui/components/soft-badge";
 import { ConfirmDialog } from "@weldsuite/ui/components/confirm-dialog";
 import {
-  MoreVertical,
+  EllipsisVertical,
   Edit,
   Eye,
-  Trash,
+  Trash2,
   FileText,
   FolderOpen,
   Folder,
@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from "@weldsuite/ui/components/select";
 import { Label } from "@weldsuite/ui/components/label";
-import { cn } from "@/lib/utils";
+import { RowOverlayButton } from "@/components/shared/row-overlay-button";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -54,28 +54,13 @@ interface KnowledgeClientProps {
   isLoading?: boolean;
 }
 
-// Status colors
-const statusConfig: Record<string, { label: string; color: string }> = {
-  published: {
-    label: 'Published',
-    color: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
-  },
-  draft: {
-    label: 'Draft',
-    color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
-  },
-  archived: {
-    label: 'Archived',
-    color: 'bg-gray-100 text-gray-800 dark:bg-background/20 dark:text-muted-foreground',
-  },
-  review: {
-    label: 'Review',
-    color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
-  },
-  outdated: {
-    label: 'Outdated',
-    color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400',
-  },
+// Status: label fallback and the standard soft badge tone.
+const statusConfig: Record<string, { label: string; tone: SoftTone }> = {
+  published: { label: 'Published', tone: 'success' },
+  draft: { label: 'Draft', tone: 'neutral' },
+  archived: { label: 'Archived', tone: 'neutral' },
+  review: { label: 'Review', tone: 'warning' },
+  outdated: { label: 'Outdated', tone: 'warning' },
 };
 
 // ── Tree node types ─────────────────────────────────────────────────────────
@@ -464,57 +449,38 @@ export function KnowledgeClient({
     });
   }, []);
 
-  // Tree line guides for indented rows
-  const renderTreeLines = (node: FlatNode) => {
-    if (node.depth === 0) return null;
-    const INDENT = 44;
-    const lines: React.ReactNode[] = [];
+  // The standard list row (the WeldFlow task row): one line, the divider and
+  // hover of every list, a whole-row click target and the ⋮ menu in the gutter.
+  const ROW_CLASS =
+    'group relative flex cursor-pointer items-center gap-4 border-b border-gray-200/70 px-4 py-3 hover:bg-gray-50 dark:border-border dark:hover:bg-secondary/50';
+  // A folder's contents sit one step further in.
+  const indent = (depth: number) => (depth > 0 ? { paddingLeft: `${16 + depth * 24}px` } : undefined);
 
-    // Vertical continuation lines for each ancestor level
-    for (let d = 0; d < node.depth - 1; d++) {
-      const ancestorIsLast = node.parentIsLast[d + 1];
-      if (!ancestorIsLast) {
-        lines.push(
-          <span
-            key={`vline-${d}`}
-            className="absolute top-0 bottom-0 border-l border-gray-200 dark:border-border"
-            style={{ left: `${22.5 + d * INDENT}px` }}
-          />
-        );
-      }
-    }
+  const rowMenu = (label: string, items: React.ReactNode) => (
+    // h-7 holds the task row's 53px height.
+    <div className="relative z-[1] flex h-7 w-[40px] items-center justify-end">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`${t.common.actions.openMenu}: ${label}`}
+            className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          >
+            <EllipsisVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">{items}</DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
-    // Connector for current node: L-shape (last) or T-shape (not last)
-    const connectorLeft = 22.5 + (node.depth - 1) * INDENT;
-    lines.push(
-      <span
-        key="connector"
-        className="absolute border-l border-b border-gray-200 dark:border-border rounded-bl-[10px]"
-        style={{
-          left: `${connectorLeft}px`,
-          top: 0,
-          height: '50%',
-          width: `${INDENT / 2 + 6}px`,
-        }}
-      />
-    );
-    // Continue vertical line below if not last sibling
-    if (!node.isLast) {
-      lines.push(
-        <span
-          key="vline-current"
-          className="absolute border-l border-gray-200 dark:border-border"
-          style={{
-            left: `${connectorLeft}px`,
-            top: '50%',
-            bottom: 0,
-          }}
-        />
-      );
-    }
-
-    return lines;
-  };
+  const deleteItem = (onSelect: () => void) => (
+    <DropdownMenuItem onSelect={onSelect} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+      <Trash2 className="mr-0.5 h-4 w-4 text-destructive" />
+      {t.helpdesk.actions.delete}
+    </DropdownMenuItem>
+  );
 
   const renderFolderRow = (node: FlatNode) => {
     const folder = node.folder!;
@@ -522,29 +488,26 @@ export function KnowledgeClient({
     const childCount = getFolderChildCount(folder.id);
     const FolderIcon = isExpanded ? FolderOpen : Folder;
     const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
+    const countLabel = `${childCount} ${childCount === 1 ? kn.itemSingular : kn.itemPlural}`;
 
     return (
-      <div
-        key={folder.id}
-        className="relative flex items-center gap-4 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group bg-muted/30"
-        style={{ paddingLeft: `${16 + node.depth * 44}px` }}
-      >
-        {renderTreeLines(node)}
-        {/* Title with folder icon */}
-        <div className="flex-1 min-w-[250px] flex items-center gap-2">
-          <ChevronIcon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform" />
-          <FolderIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />
-          <div className="min-w-0 flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-              {folder.name}
-            </span>
-            <span className="text-xs text-gray-400">
-              {childCount} {childCount === 1 ? kn.itemSingular : kn.itemPlural}
-            </span>
-          </div>
+      <div key={folder.id} className={ROW_CLASS} style={indent(node.depth)}>
+        <RowOverlayButton label={folder.name} expanded={isExpanded} onClick={() => toggleFolder(folder.id)} />
+        <div className="flex min-w-[250px] flex-1 items-center gap-2">
+          <ChevronIcon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <FolderIcon className="h-4 w-4 flex-shrink-0 text-blue-500" />
+          <span className="truncate text-sm font-medium text-gray-900 dark:text-foreground">{folder.name}</span>
+          {/* The count chip of the list's group headers. */}
+          <span
+            className="flex h-4 min-w-4 flex-shrink-0 items-center justify-center rounded-[5px] border border-border bg-muted px-1 font-mono text-[10px] text-muted-foreground"
+            title={countLabel}
+            aria-label={countLabel}
+          >
+            {childCount}
+          </span>
         </div>
 
-        {/* Empty cells to match article columns */}
+        {/* The article columns stay empty on a folder. */}
         <div className="w-[100px]" />
         <div className="w-[150px]" />
         <div className="w-[80px]" />
@@ -552,145 +515,88 @@ export function KnowledgeClient({
         <div className="w-[120px]" />
         <div className="w-[100px]" />
 
-        <button
-          type="button"
-          aria-label={folder.name}
-          aria-expanded={isExpanded}
-          onClick={() => toggleFolder(folder.id)}
-          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        />
-        {/* Actions */}
-        <div className="relative z-10 w-[40px] flex justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => openCreateFolderDialog(folder.id)}>
-                <FolderPlus className="h-4 w-4 mr-0.5" />
-                {kn.newSubfolder}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setRenameFolderId(folder.id); setRenameFolderName(folder.name); }}>
-                <Edit className="h-4 w-4 mr-0.5" />
-                {kn.renameFolder}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => handleDeleteFolder(folder.id)}
-                className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
-              >
-                <Trash className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-                {t.helpdesk.actions.delete}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        {rowMenu(
+          folder.name,
+          <>
+            <DropdownMenuItem onSelect={() => openCreateFolderDialog(folder.id)}>
+              <FolderPlus className="mr-0.5 h-4 w-4" />
+              {kn.newSubfolder}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setRenameFolderId(folder.id);
+                setRenameFolderName(folder.name);
+              }}
+            >
+              <Edit className="mr-0.5 h-4 w-4" />
+              {kn.renameFolder}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {deleteItem(() => handleDeleteFolder(folder.id))}
+          </>,
+        )}
       </div>
     );
   };
 
   const renderArticleRow = (node: FlatNode) => {
     const article = node.article!;
-    const config = statusConfig[article.status] || statusConfig.draft;
+    const status = statusConfig[article.status] || statusConfig.draft;
 
     return (
-      <div
-        key={article.id}
-        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group"
-        style={{ paddingLeft: `${16 + node.depth * 44}px` }}
-      >
-        {renderTreeLines(node)}
-        {/* Title */}
-        <div className="flex-1 min-w-[250px] flex items-center gap-2">
-          <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
-              {article.title}
-            </span>
-            {article.excerpt && (
-              <span className="text-xs text-gray-500 block truncate">{article.excerpt}</span>
-            )}
-          </div>
+      <div key={article.id} className={ROW_CLASS} style={indent(node.depth)}>
+        <RowOverlayButton label={article.title} onClick={() => router.push(`/welddesk/help-center/articles/${article.id}`)} />
+        <div className="flex min-w-[250px] flex-1 items-center gap-2">
+          <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium text-gray-900 dark:text-foreground">{article.title}</span>
         </div>
 
-        {/* Visibility */}
-        <div className="w-[100px] flex items-center gap-1.5">
-          <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
+        <div className="w-[100px]">
+          <span className="block truncate text-sm text-gray-600 dark:text-muted-foreground">
             {t.helpdesk.knowledgeInbox.visibility[article.visibility as keyof typeof t.helpdesk.knowledgeInbox.visibility] ?? article.visibility}
           </span>
         </div>
-
-        {/* Category */}
         <div className="w-[150px]">
           {article.category ? (
-            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">{article.category}</span>
+            <span className="block truncate text-sm text-gray-600 dark:text-muted-foreground">{article.category}</span>
           ) : (
-            <span className="text-sm text-gray-400">—</span>
+            <span className="text-sm text-muted-foreground">—</span>
           )}
         </div>
-
-        {/* Views */}
-        <div className="w-[80px] flex items-center gap-1.5">
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">{article.views.toLocaleString()}</span>
+        <div className="w-[80px]">
+          <span className="text-sm tabular-nums text-gray-600 dark:text-muted-foreground">{article.views.toLocaleString()}</span>
         </div>
-
-        {/* Helpful */}
-        <div className="w-[80px] flex items-center gap-1.5">
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">{article.helpful}</span>
+        <div className="w-[80px]">
+          <span className="text-sm tabular-nums text-gray-600 dark:text-muted-foreground">{article.helpful}</span>
         </div>
-
-        {/* Last Updated */}
-        <div className="w-[120px] flex items-center gap-1.5">
+        <div className="w-[120px]">
           <span className="text-sm tabular-nums">{format(article.lastUpdated, 'MMM d, yyyy')}</span>
         </div>
-
-        {/* Status */}
         <div className="w-[100px]">
-          <Badge className={cn("text-xs font-medium rounded-md border-transparent capitalize", config.color)}>
-            {(t.helpdesk.knowledge as Record<string, string>)[article.status] ?? config.label}
-          </Badge>
+          <SoftBadge tone={status.tone}>
+            {(t.helpdesk.knowledge as Record<string, string>)[article.status] ?? status.label}
+          </SoftBadge>
         </div>
 
-        <button
-          type="button"
-          aria-label={article.title}
-          onClick={() => router.push(`/welddesk/help-center/articles/${article.id}`)}
-          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        />
-        {/* Actions */}
-        <div className="relative z-10 w-[40px] flex justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link href={`/welddesk/help-center/articles/${article.id}`} className="flex items-center">
-                  <Eye className="h-4 w-4 mr-0.5" />
-                  {kn.view}
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={`/welddesk/help-center/articles/${article.id}/edit`} className="flex items-center">
-                  <Edit className="h-4 w-4 mr-0.5" />
-                  {t.helpdesk.actions.edit}
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => handleDeleteArticle(article.id)}
-                className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
-              >
-                <Trash className="h-4 w-4 mr-0.5 text-red-600 dark:text-red-400" />
-                {t.helpdesk.actions.delete}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        {rowMenu(
+          article.title,
+          <>
+            <DropdownMenuItem asChild>
+              <Link href={`/welddesk/help-center/articles/${article.id}`} className="flex items-center">
+                <Eye className="mr-0.5 h-4 w-4" />
+                {kn.view}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/welddesk/help-center/articles/${article.id}/edit`} className="flex items-center">
+                <Edit className="mr-0.5 h-4 w-4" />
+                {t.helpdesk.actions.edit}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {deleteItem(() => handleDeleteArticle(article.id))}
+          </>,
+        )}
       </div>
     );
   };

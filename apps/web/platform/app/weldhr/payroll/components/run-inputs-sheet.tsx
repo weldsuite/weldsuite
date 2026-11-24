@@ -219,7 +219,7 @@ function InputDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{input ? t('weldhr.payroll.inputs.editTitle') : t('weldhr.payroll.inputs.addTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.inputs.dialogDescription')}</DialogDescription>
         </DialogHeader>

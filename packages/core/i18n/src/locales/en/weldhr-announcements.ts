@@ -11,6 +11,9 @@ export const weldhrAnnouncements = {
     editTitle: 'Edit announcement',
     searchPlaceholder: 'Search announcements',
     pinned: 'Pinned',
+    filters: {
+      notPinned: 'Not pinned',
+    },
     groups: {
       pinned: 'Pinned',
       other: 'Announcements',
@@ -53,11 +56,21 @@ export const weldhrAnnouncements = {
       description: 'Delete "{title}"? Employees will no longer see it.',
       failed: 'Could not delete this announcement.',
     },
+    panel: {
+      postedBy: 'Posted by',
+      pushNotification: 'Push notification',
+      updated: 'Updated',
+      message: 'Message',
+      notFound: 'This announcement is no longer there.',
+    },
     reads: {
-      title: 'Read by',
-      summary: '{read} of {total} employees have read this.',
-      readTab: 'Read ({count})',
-      notReadTab: 'Not read ({count})',
+      readLabel: 'Read',
+      notReadLabel: 'Not read',
+      readOn: 'Read on',
+      noResults: {
+        title: 'No employees found',
+        description: 'Try another search or filter.',
+      },
       readAt: 'Read {date}',
       emptyRead: 'Nobody has read this yet.',
       emptyNotRead: 'Everyone has read this.',

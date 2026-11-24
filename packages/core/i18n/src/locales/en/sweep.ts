@@ -499,7 +499,10 @@ export const sweep = {
     "filePreview": {
       "close": "Close",
       "closePreview": "Close preview",
-      "download": "Download"
+      "download": "Download",
+      "previous": "Previous image",
+      "next": "Next image",
+      "position": "{current} of {total}"
     },
     "forwardMessage": {
       "couldNotOpenDm": "Could not open DM with {name}"

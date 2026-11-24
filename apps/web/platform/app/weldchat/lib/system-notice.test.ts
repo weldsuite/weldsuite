@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSystemNotice, matchSystemNotice } from './system-notice';
+import { isPinNotice, isSystemNotice, matchSystemNotice } from './system-notice';
 
 describe('system notices', () => {
   it('honours the [system:id] prefix on real system messages', () => {
@@ -54,5 +54,18 @@ describe('system notices', () => {
   it('handles missing content', () => {
     expect(isSystemNotice({ type: 'message' })).toBe(false);
     expect(isSystemNotice({ type: 'system' })).toBe(true);
+  });
+});
+
+describe('isPinNotice', () => {
+  it('is true for the pin notice the server posts, and for the older plain-message one', () => {
+    expect(isPinNotice({ type: 'system', content: '[system:msg_abc] pinned a message' })).toBe(true);
+    expect(isPinNotice({ type: 'message', content: '[system:msg_abc] pinned a message' })).toBe(true);
+  });
+
+  it('is false for other notices and for text typed to look like one', () => {
+    expect(isPinNotice({ type: 'system', content: '[system] joined the channel' })).toBe(false);
+    expect(isPinNotice({ type: 'message', content: '[system:x] pinned a message' })).toBe(false);
+    expect(isPinNotice({ type: 'message', content: 'pinned a message' })).toBe(false);
   });
 });

@@ -17,6 +17,12 @@ describe('canStartThread', () => {
     expect(canStartThread({}, undefined)).toBe(true);
   });
 
+  it('is not offered in a direct message or a group DM', () => {
+    expect(canStartThread({}, { type: 'dm' })).toBe(false);
+    expect(canStartThread({}, { type: 'group', threadsEnabled: true })).toBe(false);
+    expect(canStartThread({}, { type: 'public' })).toBe(true);
+  });
+
   it('is never offered on a message that is itself a thread reply', () => {
     expect(canStartThread({ parentId: 'msg_root' }, { threadsEnabled: true })).toBe(false);
     expect(canStartThread({ parentId: null }, { threadsEnabled: true })).toBe(true);

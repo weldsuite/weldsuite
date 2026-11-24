@@ -27,6 +27,7 @@ import { ProjectSelect } from '@/components/weldflow/project-select';
 import { EmployeePicker, errorMessage, todayIso } from '../../components/shared';
 import { RECEIPT_ACCEPT, parseAmount, receiptProblem } from './receipt-field';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 type Currency = (typeof HR_DECLARATION_CURRENCIES)[number];
 
@@ -103,7 +104,7 @@ export function DeclarationDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{declaration ? t('weldhr.declarations.form.editTitle') : t('weldhr.declarations.form.title')}</DialogTitle>
         </DialogHeader>
 
@@ -127,7 +128,7 @@ export function DeclarationDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="hr-declaration-date">{t('weldhr.declarations.form.date')}</Label>
-              <Input id="hr-declaration-date" type="date" max={todayIso()} value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} />
+              <HrDateInput id="hr-declaration-date" max={todayIso()} value={expenseDate} onChange={setExpenseDate} />
             </div>
             <div className="space-y-1.5">
               <Label>{t('weldhr.declarations.form.category')}</Label>

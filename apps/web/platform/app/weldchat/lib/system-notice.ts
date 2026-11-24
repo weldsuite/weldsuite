@@ -33,3 +33,12 @@ export function matchSystemNotice(message: SystemNoticeCandidate): RegExpMatchAr
 export function isSystemNotice(message: SystemNoticeCandidate): boolean {
   return message.type === 'system' || matchSystemNotice(message) !== null;
 }
+
+/**
+ * True for the "pinned a message" notice, posted under the person who pinned
+ * (`[system:<pinned message id>] pinned a message`): it reads as a message
+ * from them, not as a chip.
+ */
+export function isPinNotice(message: SystemNoticeCandidate): boolean {
+  return matchSystemNotice(message)?.[2] === 'pinned a message';
+}

@@ -1,10 +1,8 @@
 /**
  * "New employee" dialog. Every employee is someone in this workspace, so the
- * dialog either starts from a workspace member (INTERNAL or EMPLOYEE, not
- * linked to an employee yet) and prefills the form from them, or invites
- * someone new: one submit sends the workspace invitation and creates the
- * employee, which hr-api links to them as soon as they accept. That way HR
- * fills in the record once and the new hire logs their own hours in My HR.
+ * dialog starts from a workspace member (INTERNAL or EMPLOYEE, not linked to
+ * an employee yet) and prefills the form from them. Someone new joins the
+ * workspace first (Settings → Team) and is added here after.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -12,7 +10,6 @@ import { useNavigate } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
@@ -30,20 +27,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { usePermissions } from '@weldsuite/permissions/react';
 import {
   hrEmployeeStatusSchema,
   hrEmploymentTypeSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
-import type { CreateHrEmployeeInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { HrAvailableMember } from '@weldsuite/app-api-client/domains/weldhr';
-import { useAppApi } from '@/lib/api/use-app-api';
-import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
 import {
-  useCreateHrEmployee,
   useCreateHrEmployeeFromMember,
   useHrAvailableMembers,
   useHrDepartments,
@@ -54,6 +45,7 @@ import { WorkLocationsField, useWorkLocationOptions } from './work-locations-fie
 import { EmployerField } from './employer-field';
 import { useCurrentLegalEntity } from '@/hooks/use-current-legal-entity';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({
@@ -71,9 +63,6 @@ function buildFormSchema(t: (path: string) => string) {
 
 type FormValues = z.infer<ReturnType<typeof buildFormSchema>>;
 
-type Mode = 'member' | 'invite';
-type InviteAs = 'EMPLOYEE' | 'INTERNAL';
-
 function splitName(name: string | null | undefined): { firstName: string; lastName: string } {
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { firstName: '', lastName: '' };
@@ -84,64 +73,6 @@ function splitName(name: string | null | undefined): { firstName: string; lastNa
 function memberLabel(member: HrAvailableMember): string {
   const name = member.name || member.email || member.userId;
   return member.email && member.name ? `${name} · ${member.email}` : name;
-}
-
-function pickDefaultRoleId(roles: Array<{ id: string; name: string }>): string {
-  const member = roles.find((r) => r.name.toUpperCase() === 'MEMBER');
-  const viewer = roles.find((r) => r.name.toUpperCase() === 'VIEWER');
-  return (member ?? viewer ?? roles[0])?.id ?? '';
-}
-
-/** 409 from the invite: they are already a member or already invited, and the create step takes it from there. */
-function isConflict(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'status' in err && (err as { status?: unknown }).status === 409;
-}
-
-/**
- * Invite someone new and create their employee record. The email is checked
- * against the directory first, and an invitation this call sent is withdrawn
- * when the create step still fails. Withdrawing takes `team:delete`, which
- * inviting (`team:create`) does not imply; when it fails the error says the
- * invitation is still open, so it can be cancelled in Settings → Team instead
- * of holding a paid seat unnoticed. Resolves to the new employee's id.
- */
-function useInviteAndCreate() {
-  const t = useTranslations();
-  const { teamMembers, weldhr } = useAppApi();
-  const createEmployee = useCreateHrEmployee();
-
-  return async (input: CreateHrEmployeeInput, invite: { as: InviteAs; roleId: string }): Promise<string> => {
-    const email = input.email.toLowerCase();
-    // Needs employees:read; without it the create step's own check and the withdrawal below still apply.
-    const sameEmail = await weldhr.listEmployees({ search: input.email, limit: 20 }).catch(() => null);
-    if (sameEmail?.data.some((e) => e.email.toLowerCase() === email)) {
-      throw new Error(t('weldhr.employees.create.emailTaken'));
-    }
-
-    let sentMemberId: string | null = null;
-    try {
-      const sent = await teamMembers.inviteMember({
-        email: input.email,
-        name: `${input.firstName} ${input.lastName}`.trim(),
-        // An Employee member's access is fixed; the server ignores a role for them.
-        roleId: invite.as === 'INTERNAL' ? invite.roleId || null : null,
-        memberType: invite.as,
-      });
-      sentMemberId = sent.data.memberId;
-    } catch (err) {
-      if (!isConflict(err)) throw new Error(errorMessage(err, t('weldhr.employees.workspace.inviteFailed')));
-    }
-
-    try {
-      return (await createEmployee.mutateAsync(input)).data.id;
-    } catch (err) {
-      const failed = errorMessage(err, t('weldhr.employees.create.failed'));
-      if (!sentMemberId) throw new Error(failed);
-      const withdrawn = await teamMembers.removeMember(sentMemberId).then(() => true, () => false);
-      if (withdrawn) throw new Error(failed);
-      throw new Error(`${failed} ${t('weldhr.employees.create.inviteNotWithdrawn', { email: input.email })}`);
-    }
-  };
 }
 
 export function CreateEmployeeDialog({
@@ -158,31 +89,19 @@ export function CreateEmployeeDialog({
   const t = useTranslations();
   const formSchema = useMemo(() => buildFormSchema(t), [t]);
   const navigate = useNavigate();
-  const { can } = usePermissions();
   const createFromMember = useCreateHrEmployeeFromMember();
-  const inviteAndCreate = useInviteAndCreate();
   const { data: departments } = useHrDepartments();
   // A new employee defaults to the legal entity selected in the sidebar.
   const { entityId: currentEntityId } = useCurrentLegalEntity({ app: 'weldhr' });
   const { data: availableMembers, isLoading: membersLoading } = useHrAvailableMembers({ limit: 200 });
-  // Inviting takes a paid seat, so it needs team:create like Settings → Team does.
-  const canInvite = can('team:create');
-  const { data: rolesResponse } = useWorkspaceRoles(canInvite);
-  const roles = useMemo(() => rolesResponse?.data ?? [], [rolesResponse]);
 
-  const [chosenMode, setChosenMode] = useState<Mode | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
-  const [inviteAs, setInviteAs] = useState<InviteAs>('EMPLOYEE');
-  const [roleId, setRoleId] = useState<string>('');
-  const [inviting, setInviting] = useState(false);
   const [managerLabel, setManagerLabel] = useState<string | null>(null);
   const workLocationOptions = useWorkLocationOptions();
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
 
   const members = availableMembers ?? [];
-  // Nobody left to pick: start on the invite side.
-  const mode: Mode = chosenMode ?? (canInvite && !defaultUserId && !membersLoading && members.length === 0 ? 'invite' : 'member');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -202,11 +121,7 @@ export function CreateEmployeeDialog({
     },
   });
 
-  const isSubmitting = createFromMember.isPending || inviting;
-
-  useEffect(() => {
-    if (!roleId && roles.length) setRoleId(pickDefaultRoleId(roles));
-  }, [roleId, roles]);
+  const isSubmitting = createFromMember.isPending;
 
   // Preselect `defaultUserId` once the member list has it.
   const [preselected, setPreselected] = useState(false);
@@ -216,17 +131,6 @@ export function CreateEmployeeDialog({
     selectMember(defaultUserId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectMember only reads `members`, already a dependency
   }, [defaultUserId, members, preselected]);
-
-  function switchMode(next: Mode) {
-    setChosenMode(next);
-    setFailure(null);
-    // Errors from the other side's empty submit do not apply here (TASK-1471).
-    form.clearErrors();
-    if (next === 'invite') {
-      setSelectedUserId(undefined);
-      form.reset({ ...form.getValues(), firstName: '', lastName: '', email: '', phone: '', jobTitle: '' });
-    }
-  }
 
   function selectMember(userId: string | undefined) {
     setSelectedUserId(userId);
@@ -267,26 +171,8 @@ export function CreateEmployeeDialog({
     else void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId } });
   }
 
-  async function submitInvite(values: FormValues) {
-    setInviting(true);
-    try {
-      const employeeId = await inviteAndCreate(employeeFields(values), { as: inviteAs, roleId });
-      toast.success(t('weldhr.employees.create.invitedAndCreated', { email: values.email.trim() }));
-      finish(employeeId);
-    } catch (err) {
-      setFailure(errorMessage(err, t('weldhr.employees.create.failed')));
-    } finally {
-      setInviting(false);
-    }
-  }
-
   async function onSubmit(values: FormValues) {
     setFailure(null);
-    if (mode === 'invite') {
-      await submitInvite(values);
-      return;
-    }
-
     if (!selectedUserId) {
       setFailure(t('weldhr.employees.create.memberRequired'));
       return;
@@ -299,13 +185,12 @@ export function CreateEmployeeDialog({
     }
   }
 
-  const showFields = mode === 'invite' || Boolean(selectedUserId);
-  const canSubmit = mode === 'invite' ? !(inviteAs === 'INTERNAL' && !roleId) : Boolean(selectedUserId);
+  const showFields = Boolean(selectedUserId);
 
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.employees.create.title')}</DialogTitle>
         </DialogHeader>
 
@@ -313,87 +198,34 @@ export function CreateEmployeeDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
-            {canInvite && !defaultUserId && (
-              <Tabs value={mode} onValueChange={(v) => switchMode(v as Mode)}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="member" disabled={isSubmitting}>{t('weldhr.employees.create.modeMember')}</TabsTrigger>
-                  <TabsTrigger value="invite" disabled={isSubmitting}>{t('weldhr.employees.create.modeInvite')}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            )}
-
-            {mode === 'member' ? (
-              <div className="space-y-2">
-                <Label>{t('weldhr.employees.create.member')}</Label>
-                <Select
-                  value={selectedUserId ?? '__none'}
-                  onValueChange={(v) => selectMember(v === '__none' ? undefined : v)}
-                  disabled={membersLoading || members.length === 0}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={t('weldhr.employees.create.memberPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">{t('weldhr.employees.create.memberPlaceholder')}</SelectItem>
-                    {members.map((member) => (
-                      <SelectItem key={member.userId} value={member.userId}>
-                        {memberLabel(member)}
-                        {member.memberType === 'EMPLOYEE' && (
-                          <span className="ml-1.5 text-xs text-muted-foreground">
-                            ({t('weldhr.employees.create.employeeMemberTag')})
-                          </span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {!membersLoading && members.length === 0
-                    ? t('weldhr.employees.create.noMembersAvailable')
-                    : t('weldhr.employees.create.memberHint')}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">{t('weldhr.employees.create.inviteHint')}</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>{t('weldhr.employees.workspace.inviteAs')}</Label>
-                    <Select value={inviteAs} onValueChange={(v) => setInviteAs(v as InviteAs)} disabled={isSubmitting}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="EMPLOYEE">{t('weldhr.employees.workspace.inviteAsEmployee')}</SelectItem>
-                        <SelectItem value="INTERNAL">{t('weldhr.employees.workspace.inviteAsTeamMember')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {inviteAs === 'INTERNAL' && (
-                    <div className="space-y-2">
-                      <Label>{t('weldhr.employees.workspace.role')}</Label>
-                      <Select value={roleId || '__none'} onValueChange={(v) => setRoleId(v === '__none' ? '' : v)} disabled={isSubmitting}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map((role) => (
-                            <SelectItem key={role.id} value={role.id}>
-                              {role.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {inviteAs === 'EMPLOYEE'
-                    ? t('weldhr.employees.workspace.inviteAsEmployeeHint')
-                    : t('weldhr.employees.workspace.inviteAsTeamMemberHint')}
-                </p>
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label>{t('weldhr.employees.create.member')}</Label>
+              <Select
+                value={selectedUserId ?? '__none'}
+                onValueChange={(v) => selectMember(v === '__none' ? undefined : v)}
+                disabled={membersLoading || members.length === 0}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t('weldhr.employees.create.memberPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">{t('weldhr.employees.create.memberPlaceholder')}</SelectItem>
+                  {members.map((member) => (
+                    <SelectItem key={member.userId} value={member.userId}>
+                      {memberLabel(member)}
+                      {member.memberType === 'EMPLOYEE' && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">
+                          ({t('weldhr.employees.create.employeeMemberTag')})
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!membersLoading && members.length === 0 && (
+                <p className="text-xs text-muted-foreground">{t('weldhr.employees.create.noMembersAvailable')}</p>
+              )}
+            </div>
 
             {showFields && (
               <>
@@ -551,7 +383,7 @@ export function CreateEmployeeDialog({
                     <FormItem>
                       <FormLabel>{t('weldhr.employees.create.startDate')}</FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} />
+                        <HrDateInput {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -607,10 +439,8 @@ export function CreateEmployeeDialog({
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting || !canSubmit}>
-                {isSubmitting && t('weldhr.common.saving')}
-                {!isSubmitting && mode === 'invite' && t('weldhr.employees.create.inviteAndCreate')}
-                {!isSubmitting && mode === 'member' && t('weldhr.employees.create.submit')}
+              <Button type="submit" disabled={isSubmitting || !selectedUserId}>
+                {isSubmitting ? t('weldhr.common.saving') : t('weldhr.employees.create.submit')}
               </Button>
             </DialogFooter>
           </form>

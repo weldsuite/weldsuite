@@ -499,7 +499,10 @@ export const sweep = {
     "filePreview": {
       "close": "Sluiten",
       "closePreview": "Voorbeeld sluiten",
-      "download": "Downloaden"
+      "download": "Downloaden",
+      "previous": "Vorige afbeelding",
+      "next": "Volgende afbeelding",
+      "position": "{current} van {total}"
     },
     "forwardMessage": {
       "couldNotOpenDm": "Kon geen direct bericht openen met {name}"

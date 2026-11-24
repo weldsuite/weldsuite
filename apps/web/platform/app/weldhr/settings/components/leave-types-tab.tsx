@@ -107,7 +107,8 @@ export function LeaveTypesTab() {
     {
       id: 'approval',
       header: t('weldhr.settings.leaveTypes.requiresApproval'),
-      width: 'w-[110px]',
+      // Wide enough for the header on one line, in English and Dutch.
+      width: 'w-[140px] shrink-0',
       render: (leaveType) => (
         <span className="text-muted-foreground">
           {leaveType.requiresApproval ? t('weldhr.common.yes') : t('weldhr.common.no')}
@@ -117,7 +118,7 @@ export function LeaveTypesTab() {
     {
       id: 'allowance',
       header: t('weldhr.settings.leaveTypes.allowance'),
-      width: 'w-[100px]',
+      width: 'w-[140px] shrink-0',
       render: (leaveType) => (
         <span className="tabular-nums">
           {formatAllowance(leaveType.defaultAllowanceDays)}
@@ -217,7 +218,7 @@ function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose:
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>
             {isEdit ? t('weldhr.settings.leaveTypes.editTitle') : t('weldhr.settings.leaveTypes.addTitle')}
           </DialogTitle>

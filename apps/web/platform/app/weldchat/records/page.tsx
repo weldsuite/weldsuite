@@ -482,6 +482,8 @@ export default function RecordChatsPage() {
           hideFilter
           renderRow={renderRow}
           leftActionButtons={filterBar}
+          // Phones have the Filter menu on the right (mobileFilter) instead.
+          mobileToolbarRow={false}
           actionButtons={
             <>
               {sidebarToggle}

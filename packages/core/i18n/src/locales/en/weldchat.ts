@@ -83,6 +83,7 @@ export const weldchat = {
       joinCall: 'Join call',
     },
     calling: {
+      minimize: 'Minimize',
       ringing: 'Ringing…',
       /** On a call tile: someone already in the call whose connection is not up yet. */
       connecting: 'Connecting…',
@@ -178,6 +179,8 @@ export const weldchat = {
       threadSuggestion: 'Looks like a conversation. Continue it in a thread?',
       createThread: 'Create thread',
       dismissThreadSuggestion: 'Dismiss',
+      cancelReply: 'Cancel reply',
+      cancelEditing: 'Cancel editing',
     },
     channelEmptyState: {
       channelCreated: 'created this channel',
@@ -334,6 +337,7 @@ export const weldchat = {
     },
     groupSettings: {
       nav: {
+        heading: 'Settings',
         general: 'General',
         visibility: 'Visibility',
         channels: 'Channels',
@@ -433,6 +437,7 @@ export const weldchat = {
         moveToTopHint: 'Channels matching any of these float above the others. Stack as many as you like.',
         moveToBottom: 'Move to bottom',
         moveToBottomHint: 'Channels matching any of these sink below the others.',
+        noneChosen: 'None',
         channelLimit: 'Channel limit',
         channelLimitHint: 'Show only the top N channels. Leave blank to show all.',
         allChannels: 'All channels',
@@ -575,12 +580,13 @@ export const weldchat = {
     },
     pinDuration: {
       title: 'Pin message',
-      description: 'Choose how long to keep this message pinned.',
+      keepPinned: 'Keep pinned',
+      until: 'Until {date}',
       unpinOn: 'Unpin on',
       selectDate: 'Select date',
+      notify: 'Notify everyone in the chat',
       cancel: 'Cancel',
-      pinSilently: 'Pin silently',
-      pinWithAlert: 'Pin with alert',
+      pin: 'Pin',
       durations: {
         h24: '24 hours',
         d7: '7 days',
@@ -611,6 +617,7 @@ export const weldchat = {
     unreadSeparator: 'New messages',
     messageItem: {
       forwardedFrom: 'Forwarded from',
+      pinnedMessage: 'Pinned a message.',
       commentOn: 'Comment on {place}',
       aDirectMessage: 'a direct message',
       reply: 'reply',
@@ -871,8 +878,10 @@ export const weldchat = {
       meetingNamed: 'the meeting "{title}"',
     },
     dropZone: {
-      uploadFile: 'Upload a file',
-      dropToAttach: 'Drop to attach it to your next message',
+      uploadFile: 'Upload files',
+      uploadTo: 'Upload to {name}',
+      dropToAttach: 'They wait in your message, so you can add a note before you send.',
+      thread: 'this thread',
     },
     memberList: {
       header: 'Members',

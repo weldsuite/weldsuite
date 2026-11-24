@@ -1,4 +1,4 @@
-import { BookOpen, Bot, ChevronRight, ConciergeBell, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, ConciergeBell, Database, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
 import { isRouteOffered } from '@/lib/edition-routes';
 import { getTranslations } from '@/lib/i18n';
@@ -27,6 +27,7 @@ export default function HelpdeskSettingsPage() {
   const ts = getTranslations('settings');
   const td = ts.welddesk;
   const th = getTranslations('helpdesk');
+  const tb = getTranslations('deskBi');
 
   // Grouped the way the settings menu lists them.
   const sections: DeskSettingsSection[] = [
@@ -58,9 +59,14 @@ export default function HelpdeskSettingsPage() {
         deskLink('service-catalogue', ConciergeBell, td.serviceCatalogueTitle, td.serviceCatalogueDescription),
       ],
     },
+    {
+      id: 'reports',
+      title: td.sections.reports,
+      links: [deskLink('bi-connector', Database, tb.title, tb.description)],
+    },
   ]
-    // A page this edition doesn't serve (the hosted help center on Kubernetes)
-    // is left out rather than linked to its "not available" page.
+    // A page this edition doesn't serve (the hosted help center on Kubernetes,
+    // the BI connector without a public API) is left out rather than linked to its "not available" page.
     .map((section) => ({ ...section, links: section.links.filter((link) => isRouteOffered(link.href)) }))
     .filter((section) => section.links.length > 0);
 

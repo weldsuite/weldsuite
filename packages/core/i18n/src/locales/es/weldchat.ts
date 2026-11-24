@@ -526,12 +526,9 @@ export const weldchat = {
     },
     pinDuration: {
       title: 'Anclar mensaje',
-      description: 'Elige cuánto tiempo mantener este mensaje anclado.',
       unpinOn: 'Desanclar el',
       selectDate: 'Seleccionar fecha',
       cancel: 'Cancelar',
-      pinSilently: 'Anclar silenciosamente',
-      pinWithAlert: 'Anclar con alerta',
       durations: {
         h24: '24 horas',
         d7: '7 días',

@@ -84,7 +84,7 @@ export const settings = {
       mailAccounts: 'Mail-accounts',
       manageMailAccounts: 'E-mailaccounts beheren',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Afdelingen en verloftypes',
+      configureWeldhr: 'Afdelingen, verloftypes, werklocaties en zelfservice',
     },
 
     companyInfo: {
@@ -1803,7 +1803,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Afdelingen en verloftypes.',
+      description: 'Afdelingen, verloftypes, werklocaties en zelfservice.',
     },
 
     weldflow: {
@@ -1857,6 +1857,7 @@ export const settings = {
         channels: 'Kanalen',
         ai: 'AI',
         ticketsRouting: 'Tickets en routering',
+        reports: 'Rapportages',
       },
       chatWidgetTitle: 'Chatwidget',
       chatWidgetDescription: 'Ontwerp de livechatwidget en installeer hem op uw website.',

@@ -54,6 +54,12 @@ export const weldhr = {
     internalOnly: 'Internal only',
     noPermission: 'You do not have permission to see this.',
     dismiss: 'Dismiss',
+    weekend: 'Weekend',
+    weekendHelp: 'Falls on a weekend, so no working days count.',
+    pickDate: 'Pick a date',
+    pickTime: 'Pick a time',
+    hour: 'Hour',
+    minute: 'Min',
   },
 
   status: {

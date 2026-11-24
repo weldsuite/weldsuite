@@ -10,12 +10,13 @@ import {
   useChatActivity,
   useMarkActivityRead,
 } from '@/hooks/queries/use-weldchat-extras-queries';
-import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useDmChannels, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { renderChatTokens } from '../lib/render-tokens';
 import { EntityMentionChip } from '../components/entity-mention-chip';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ListActivityQuery, ActivityItem } from '@weldsuite/core-api-client/schemas/weldchat-activity';
+import { activityChannelId } from '../lib/activity-conversation';
 import {
   EmptyStateIllustration,
   EntityList,
@@ -113,6 +114,18 @@ export default function ActivityPage() {
     useChatActivity(serverFilter);
   const { mutate: markRead } = useMarkActivityRead();
   const { data: membersData } = useWorkspaceMembers();
+  // A DM has no channel name: it is named after who it is with, from the DM
+  // list the sidebar has loaded (a DM with yourself keeps its own name).
+  const { data: dmsData } = useDmChannels();
+  const dmNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const dm of dmsData?.data ?? []) {
+      const others = (dm.otherMembers ?? []).map((m) => m.name).filter(Boolean).join(', ');
+      const name = others || dm.name;
+      if (name) map.set(dm.id, name);
+    }
+    return map;
+  }, [dmsData]);
 
   const membersMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -247,6 +260,14 @@ export default function ActivityPage() {
     const category = activityCategory(item.type);
     const CategoryIcon = CATEGORY_ICONS[category];
 
+    // A DM by who it is with; a channel as #name.
+    // A missed call's body is the push notification's "Tap to call back":
+    // not shown here, where the row itself opens the conversation.
+    const body = category === 'calls' ? null : item.body;
+    const channelId = activityChannelId(item);
+    const dmName = channelId ? dmNames.get(channelId) : undefined;
+    const conversation = dmName ?? (item.channelName ? `#${item.channelName}` : null);
+
     const actor = item.actorId ? actorsMap.get(item.actorId) : undefined;
     const actorName = item.actorName ?? actor?.name ?? null;
     const actorAvatar = item.actorAvatarUrl ?? actor?.picture ?? null;
@@ -256,8 +277,10 @@ export default function ActivityPage() {
         key={item.id}
         type="button"
         onClick={() => handleItemClick(item)}
+        // The standard list row (as on WeldHR's employees): 24px avatar 8px
+        // from a 14px medium name, the actions column setting the height.
         className={cn(
-          'flex w-full text-left items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group relative',
+          'group relative flex w-full cursor-pointer items-center gap-4 border-b border-border/70 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/40',
           isUnread && 'bg-blue-50/40 dark:bg-blue-950/20',
         )}
       >
@@ -265,8 +288,9 @@ export default function ActivityPage() {
           <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-blue-500 rounded-r" />
         )}
 
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <div className="relative flex-shrink-0 -top-[6px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {/* Nudged up to the title line when a second line follows it. */}
+          <div className={cn('relative flex-shrink-0', body && '-top-[6px]')}>
             <MemberAvatar
               userId={item.actorId}
               name={actorName}
@@ -281,43 +305,38 @@ export default function ActivityPage() {
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className={cn(
-              'text-sm leading-snug truncate',
-              isUnread ? 'font-semibold text-foreground' : 'text-foreground/80',
-            )}>
+            <div className={cn('truncate', isUnread ? 'font-medium text-foreground' : 'text-foreground/80')}>
               {renderWithMentions(item.title, membersMap, st('sweep.weldchat.mentionAutocomplete.unknownUser'))}
-              {item.channelName && (
+              {item.channelName && !dmName && (
                 <span className="font-normal text-muted-foreground"> {st('sweep.weldchat.bookmarksPanel.inChannel')} #{item.channelName}</span>
               )}
             </div>
-            {item.body && (
+            {body && (
               <div className="text-xs text-muted-foreground truncate mt-0.5">
-                {renderWithMentions(item.body, membersMap, st('sweep.weldchat.mentionAutocomplete.unknownUser'))}
+                {renderWithMentions(body, membersMap, st('sweep.weldchat.mentionAutocomplete.unknownUser'))}
               </div>
             )}
           </div>
         </div>
 
         <div className="w-[160px] flex-shrink-0">
-          {item.channelName ? (
-            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">
-              #{item.channelName}
-            </span>
+          {conversation ? (
+            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">{conversation}</span>
           ) : (
             <span className="text-sm text-gray-400">—</span>
           )}
         </div>
 
         <div className="w-[120px] flex-shrink-0">
-          <span className="font-mono text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm text-gray-600 dark:text-muted-foreground">
             {formatRelative(item.createdAt, st)}
           </span>
         </div>
 
-        <div className="w-[40px] flex-shrink-0" />
+        <div className="h-7 w-[40px] flex-shrink-0" />
       </button>
     );
-  }, [membersMap, actorsMap, handleItemClick, st]);
+  }, [membersMap, actorsMap, dmNames, handleItemClick, st]);
 
   const actionButtons = (
     <Button

@@ -22,7 +22,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@weldsuite/ui/components/form';
-import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -31,6 +30,7 @@ import { useCreateHrAbsence, useMyHrReportSick, useUpdateHrAbsence } from '@/hoo
 import { EmployeePicker, todayIso } from '../../components/shared';
 import { absenceFailure } from './shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 type Mode = { kind: 'self' } | { kind: 'create' } | { kind: 'edit'; absence: HrAbsence };
 
@@ -69,6 +69,8 @@ export function AbsenceDialog({ mode, onClose }: Readonly<{ mode: Mode; onClose:
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    // Errors show as you go, since Submit stays disabled until the form is valid.
+    mode: 'onChange',
     defaultValues: {
       employeeId: existing?.employeeId ?? '',
       startDate: existing?.startDate ?? todayIso(),
@@ -106,7 +108,7 @@ export function AbsenceDialog({ mode, onClose }: Readonly<{ mode: Mode; onClose:
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t(mode.kind === 'edit' ? 'weldhr.absenteeism.form.editTitle' : 'weldhr.absenteeism.form.reportTitle')}</DialogTitle>
         </DialogHeader>
 
@@ -143,7 +145,7 @@ export function AbsenceDialog({ mode, onClose }: Readonly<{ mode: Mode; onClose:
                 <FormItem>
                   <FormLabel>{t('weldhr.absenteeism.form.firstSickDay')}</FormLabel>
                   <FormControl>
-                    <Input type="date" max={isSelf ? todayIso() : undefined} {...field} />
+                    <HrDateInput max={isSelf ? todayIso() : undefined} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -180,7 +182,7 @@ export function AbsenceDialog({ mode, onClose }: Readonly<{ mode: Mode; onClose:
                   <FormItem>
                     <FormLabel>{t('weldhr.absenteeism.form.lastSickDay')}</FormLabel>
                     <FormControl>
-                      <Input type="date" min={startDate || undefined} {...field} />
+                      <HrDateInput min={startDate || undefined} {...field} />
                     </FormControl>
                     <FormDescription>{t('weldhr.absenteeism.form.lastSickDayOpenHint')}</FormDescription>
                     <FormMessage />
@@ -208,7 +210,7 @@ export function AbsenceDialog({ mode, onClose }: Readonly<{ mode: Mode; onClose:
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || !form.formState.isValid}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {submitLabel}
               </Button>

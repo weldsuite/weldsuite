@@ -19,9 +19,9 @@ vi.mock('@/hooks/queries/use-desk-workspace-members', () => ({
 }));
 // The other actions have their own tests; this one is about the header's own.
 vi.mock('./sla-badge', () => ({ DeskSlaBadge: () => null }));
-vi.mock('./translation/translate-toggle', () => ({ TranslateToggle: () => null }));
-vi.mock('./create-article-action', () => ({ CreateArticleAction: () => null }));
+vi.mock('./translation/translate-toggle', () => ({ TranslateLanguageBadge: () => null }));
 vi.mock('./conversation-link-menu', () => ({ ConversationLinkMenu: () => null }));
+vi.mock('./create-ticket-action', () => ({ CreateTicketAction: () => null }));
 vi.mock('@/components/welddesk/phone/desk-call-button', () => ({ DeskCallButton: () => null }));
 
 const th = en.deskInbox2.header;
@@ -41,7 +41,6 @@ describe('ConversationHeader', () => {
 
     // The desktop check icon and the phone's text button.
     expect(screen.getAllByRole('button', { name: th.close })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: th.assignToMe })).toBeTruthy();
     expect(screen.getByRole('button', { name: th.assign })).toBeTruthy();
   });
 
@@ -52,10 +51,13 @@ describe('ConversationHeader', () => {
     expect(screen.getAllByRole('button', { name: th.reopen })).toHaveLength(2);
   });
 
-  it('assigns the conversation to the agent with Assign to me', () => {
+  it('assigns the conversation to the agent with Assign to me, the first item of the Assign menu', () => {
     render(<ConversationHeader conversation={conversation()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: th.assignToMe }));
+    // One Assign button: "Assign to me" is in its menu, not a button of its own.
+    expect(screen.queryByRole('button', { name: th.assignToMe })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: th.assign }));
+    fireEvent.click(screen.getByRole('option', { name: th.assignToMe }));
 
     expect(manage.mutateAsync).toHaveBeenCalledWith({
       id: 'dconv_1',
@@ -66,6 +68,8 @@ describe('ConversationHeader', () => {
   it('has no Assign to me when the agent already owns the conversation', () => {
     render(<ConversationHeader conversation={conversation({ assigneeId: 'user_me' })} />);
 
-    expect(screen.queryByRole('button', { name: th.assignToMe })).toBeNull();
+    // The members list doesn't hold the agent here, so the button still reads "Assign".
+    fireEvent.click(screen.getByRole('button', { name: th.assign }));
+    expect(screen.queryByRole('option', { name: th.assignToMe })).toBeNull();
   });
 });

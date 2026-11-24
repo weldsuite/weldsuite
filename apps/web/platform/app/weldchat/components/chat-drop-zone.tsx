@@ -1,6 +1,5 @@
 import { useCallback, type ReactNode } from 'react';
-import { useDropzone } from 'react-dropzone';
-import { UploadIcon } from 'lucide-react';
+import { DropArea, DropAreaOverlay } from '@weldsuite/ui/components/drop-area';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 
@@ -8,92 +7,45 @@ interface ChatDropZoneProps {
   channelId: string;
   /** Optional parent message id when wrapping a thread composer. */
   parentId?: string | null;
+  /**
+   * Who or where the files go, shown as "Upload to …": "#general", a DM's
+   * person, a group's name. Left out, the overlay says "Upload files".
+   */
+  targetName?: string | null;
+  /** Classes for the wrapper, which is the drop target and fills its slot. */
+  className?: string;
   children: ReactNode;
 }
 
 /**
- * Wraps the chat surface and turns it into a file drop target using
- * `react-dropzone` — the same primitive the shadcn `Dropzone` component
- * (apps/web/platform/components/ui/dropzone.tsx) wraps. We can't use that
- * component directly here because it renders as a `<Button>`; the chat
- * surface needs to stay fully interactive while still accepting drops.
+ * A conversation (header, messages and composer) as a file drop target: the
+ * library's `DropArea`, which turns the conversation into a dashed "Upload to
+ * …" area while files are dragged over it, as WhatsApp does.
  *
  * Dropped files are dispatched as a `weldchat:dropped-files` window event
  * with the channel + thread context so the matching MessageInput picks
- * them up via its existing presign → PUT → confirm upload flow.
+ * them up via its existing presign → PUT → confirm upload flow, and they wait
+ * in the composer so a message can go with them. The composer's attach button
+ * stays the way to add files by keyboard or screen reader.
  */
-export function ChatDropZone({ channelId, parentId, children }: Readonly<ChatDropZoneProps>) {
+export function ChatDropZone({ channelId, parentId, targetName, className, children }: Readonly<ChatDropZoneProps>) {
   const t = getTranslations('weldchat');
   const onDrop = useCallback(
-    (accepted: File[]) => {
-      if (accepted.length === 0) return;
+    (files: File[]) => {
       window.dispatchEvent(
         new CustomEvent('weldchat:dropped-files', {
-          detail: { channelId, parentId: parentId ?? null, files: accepted },
+          detail: { channelId, parentId: parentId ?? null, files },
         }),
       );
     },
     [channelId, parentId],
   );
 
-  const { getRootProps, isDragActive } = useDropzone({
-    onDrop,
-    noClick: true,
-    noKeyboard: true,
-    multiple: true,
-  });
-
   return (
-    <div
-      {...getRootProps({
-        className: 'relative flex-1 min-h-0 flex flex-col',
-      })}
-    >
+    <DropArea onDrop={onDrop} className={cn('flex-1 min-h-0 flex flex-col', className)}>
       {children}
-      {isDragActive && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-2 z-30 rounded-xl bg-background/85 backdrop-blur-[2px]',
-            'flex flex-col items-center justify-center gap-2.5 text-center text-gray-500 dark:text-gray-400',
-          )}
-          aria-hidden
-        >
-          {/* Inline SVG outline — `currentColor` picks up the parent's text
-              color and the dasharray gives a clearly dashed look that CSS
-              `border-style: dashed` doesn't render well at 0.5px. */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="absolute inset-0 h-full w-full overflow-visible"
-            preserveAspectRatio="none"
-          >
-            <rect
-              x="0"
-              y="0"
-              width="100%"
-              height="100%"
-              rx="12"
-              ry="12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="0.5"
-              strokeDasharray="6 4"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
-          {/* Matches the DropzoneEmptyState markup in
-              apps/web/platform/components/ui/dropzone.tsx so the visual reads
-              identically to the shadcn dropzone. */}
-          <div className="relative flex items-center justify-center text-muted-foreground">
-            <UploadIcon className="size-7" />
-          </div>
-          <div className="relative flex flex-col gap-1">
-            <p className="text-sm font-medium text-foreground">{t.dropZone.uploadFile}</p>
-            <p className="text-muted-foreground text-xs">
-              {t.dropZone.dropToAttach}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* WhatsApp-style: a dashed border with one centred line naming where the files go. */}
+      <DropAreaOverlay title={targetName ? t.dropZone.uploadTo.replace('{name}', targetName) : t.dropZone.uploadFile} />
+    </DropArea>
   );
 }

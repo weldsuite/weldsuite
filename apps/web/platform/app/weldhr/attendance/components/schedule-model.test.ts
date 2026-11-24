@@ -95,7 +95,7 @@ describe('timeOffSpans', () => {
 });
 
 describe('buildDayStats', () => {
-  it('counts who works and who is away, with pending leave apart and weekends only for people with a shift', () => {
+  it('counts who works and who is away, with pending leave apart and weekends included', () => {
     const shifts = new Map([
       ['e1|2026-11-18', [shift('e1', [9, 0], [17, 0])]],
       ['e3|2026-11-21', [shift('e3', [10, 0], [18, 0])]],
@@ -113,8 +113,8 @@ describe('buildDayStats', () => {
     expect(wednesday.away.map((a) => a.employee.id)).toEqual(['e2']);
     expect(wednesday.requested.map((a) => a.employee.id)).toEqual(['e4']);
     expect(wednesday.hours).toBe(8);
-    // Saturday: e2's leave covers it but e2 had no shift; e3 is sick and was rostered.
-    expect(stats.get('2026-11-21')!.away.map((a) => a.employee.id)).toEqual(['e3']);
+    // Saturday: e2's leave and e3's sick report both cover it, as their bars do in the week view.
+    expect(stats.get('2026-11-21')!.away.map((a) => a.employee.id)).toEqual(['e2', 'e3']);
   });
 });
 

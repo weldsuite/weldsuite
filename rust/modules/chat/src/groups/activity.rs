@@ -13,8 +13,8 @@ use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use http::HeaderMap;
-use sea_orm::sea_query::Expr;
 use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
     ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, QueryTrait,
@@ -148,12 +148,13 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let types = filter_types(&filter);
     let (cursor_at, cursor_id) = cursor.as_deref().and_then(decode_cursor).unzip();
     let result = async {
-        // `t.data->>'channelId'`.
+        // `coalesce(t.data->>'channelId', t.data->>'chatChannelId')`: WeldChat
+        // notifications store their conversation as `chatChannelId`.
         let channel_id = || {
-            pg::PgExpr::cast_json_field(
-                Expr::col((notifications::Entity, Column::Data)),
-                "channelId",
-            )
+            let field = |key: &'static str| {
+                pg::PgExpr::cast_json_field(Expr::col((notifications::Entity, Column::Data)), key)
+            };
+            Expr::from(Func::coalesce([field("channelId"), field("chatChannelId")]))
         };
         let mut rows = notifications::Entity::find()
             .select_only()
@@ -172,7 +173,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .column_as(channel_id(), "channel_id")
             .column_as(chat_channels::Column::Name, "channel_name")
             .filter(feed(&caller.user_id, &types));
-        // `left join chat_channels c on c.id = (t.data->>'channelId')`.
+        // `left join chat_channels c on c.id = coalesce(…)`.
         QueryTrait::query(&mut rows).join(
             JoinType::LeftJoin,
             chat_channels::Entity,

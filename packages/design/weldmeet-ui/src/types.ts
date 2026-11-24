@@ -102,6 +102,8 @@ export interface HeaderLabels {
   chat?: string;
   /** Meeting tools button. Default "Tools". */
   tools?: string;
+  /** Minimize button (shown when the host passes `onMinimize`). Default "Minimize". */
+  minimize?: string;
   /** Heading of the call timer in the Meeting details panel. Default "Duration". */
   duration?: string;
 }
@@ -159,6 +161,13 @@ export interface MeetingRoomViewProps {
   leaveLabels?: LeaveLabels;
   onToggleFullscreen?: () => void;
   onPictureInPicture?: () => void;
+  /**
+   * Shrinks the call to the host's minimized call widget while it carries on.
+   * When set, the header shows a Minimize button next to its panel buttons.
+   */
+  onMinimize?: () => void;
+  /** Borderless icon buttons in the header on every screen size (as on a phone). */
+  iconHeaderButtons?: boolean;
 
   // ── Title editing (omit to disable) ───────────────────────────────────────
   onRenameMeeting?: (newTitle: string) => void;

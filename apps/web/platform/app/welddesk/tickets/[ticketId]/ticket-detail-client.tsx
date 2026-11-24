@@ -8,7 +8,6 @@ import {
   CheckCheck,
   Ticket,
   X,
-  Check,
   User,
   History,
   Mail,
@@ -32,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
+import { CloseDoneButtons } from '@weldsuite/ui/components/close-done-buttons';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { WeldAgentInput, type AttachmentPreview } from '@weldsuite/ui/components/weldagent-input';
 import { cn } from '@/lib/utils';
@@ -1438,31 +1438,17 @@ export default function TicketDetailClient({
               <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
             </Button>
             {/* Desktop close/done buttons */}
-            <div className="hidden md:flex items-center border border-border rounded-md overflow-hidden flex-shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-                onClick={() => router.push('/welddesk/tickets')}
-                title={tp.backToTickets}
-              >
-                <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              </Button>
-              <div className="w-px h-5 bg-border" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-                onClick={() => {
-                  handleClose();
-                  router.push('/welddesk/tickets');
-                }}
-                disabled={isPending || ticket.status === 'closed'}
-                title={ticket.status === 'closed' ? tp.alreadyClosed : tp.closeAndGoBack}
-              >
-                <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              </Button>
-            </div>
+            <CloseDoneButtons
+              className="hidden md:flex"
+              onClose={() => router.push('/welddesk/tickets')}
+              closeLabel={tp.backToTickets}
+              onDone={() => {
+                handleClose();
+                router.push('/welddesk/tickets');
+              }}
+              doneLabel={ticket.status === 'closed' ? tp.alreadyClosed : tp.closeAndGoBack}
+              doneDisabled={isPending || ticket.status === 'closed'}
+            />
             {isEditingSubject ? (
               <input
                 ref={subjectInputRef}

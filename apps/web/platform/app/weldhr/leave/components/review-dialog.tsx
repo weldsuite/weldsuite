@@ -56,7 +56,7 @@ export function LeaveReviewDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>
             {decision === 'approved' ? t('weldhr.leave.requests.approve') : t('weldhr.leave.requests.reject')}
             {' · '}

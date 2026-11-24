@@ -15,6 +15,7 @@ export const weldhrAdmin = {
 
     selfService: {
       title: 'Zelfservice in Mijn HR',
+      permissionsTitle: 'Wat medewerkers zelf kunnen',
       description: 'Wat medewerkers zelf kunnen doen in Mijn HR. Ziekmelden kan altijd.',
       clockIn: 'Medewerkers kunnen in- en uitklokken',
       leaveRequests: 'Medewerkers kunnen verlof aanvragen',

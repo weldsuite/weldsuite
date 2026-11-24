@@ -26,6 +26,15 @@ export function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+/**
+ * The error a list shows: none while it has data (a failed refetch keeps the
+ * rows on screen), otherwise the query's error with a readable message.
+ */
+export function listLoadError(data: unknown, err: unknown, fallback: string): Error | null {
+  if (data || !err) return null;
+  return new Error(errorMessage(err, fallback));
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
@@ -48,6 +57,24 @@ export function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
   return date.toLocaleDateString(hrFormatLocale, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** A day with its weekday, for schedules: "Tue 24 Nov 2026". */
+export function formatWeekdayDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return date.toLocaleDateString(hrFormatLocale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** A weekday's short name for a calendar header: "Mon". */
+export function formatWeekdayShort(isoDate: string): string {
+  return new Date(`${isoDate}T12:00:00`).toLocaleDateString(hrFormatLocale, { weekday: 'short' });
+}
+
+/** The month of a date or instant: "November 2026". */
+export function formatMonth(value: string): string {
+  const date = /^\d{4}-\d{2}(-\d{2})?$/.test(value) ? new Date(`${value.slice(0, 7)}-01T12:00:00`) : new Date(value);
+  return date.toLocaleDateString(hrFormatLocale, { month: 'long', year: 'numeric' });
 }
 
 /** Clock time of an instant in the user's 12h/24h preference (the same one WeldCalendar and the roster use). */
@@ -124,6 +151,30 @@ export function workingDaysBetween(start: string, end: string): number {
     if (count > 400) break;
   }
   return count;
+}
+
+/**
+ * A period's day count, or "Weekend" when it counts 0 because every day of it
+ * is a Saturday or Sunday (a bare "0" next to a date reads as wrong data). An
+ * open period (`endDate` null) runs to today.
+ */
+export function DayCount({
+  days,
+  startDate,
+  endDate,
+  format = String,
+}: Readonly<{ days: number; startDate: string; endDate: string | null; format?: (days: number) => string }>) {
+  const t = useTranslations();
+  const last = (endDate ?? todayIso()).slice(0, 10);
+  const first = startDate.slice(0, 10);
+  if (days === 0 && last >= first && workingDaysBetween(first, last) === 0) {
+    return (
+      <span className="text-muted-foreground" title={t('weldhr.common.weekendHelp')}>
+        {t('weldhr.common.weekend')}
+      </span>
+    );
+  }
+  return <span className="tabular-nums">{format(days)}</span>;
 }
 
 /** "HH:mm" → minutes after midnight. */

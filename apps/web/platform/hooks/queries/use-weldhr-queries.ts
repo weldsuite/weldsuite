@@ -12,13 +12,18 @@
  * keep personal data in memory after the user closed the panel.
  */
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useCallback, useSyncExternalStore } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getHrLegalEntityId } from '@/lib/api/legal-entity-scope';
 import type {
   HrAbsenceListParams,
   HrAttendanceListParams,
   HrEmployeeListParams,
+  HrOpenShift,
+  HrSelfAttendance,
+  HrShift,
+  HrShiftRequest,
 } from '@weldsuite/app-api-client/domains/weldhr';
 import type {
   CreateHrAbsenceInput,
@@ -245,6 +250,47 @@ export function useHrShifts(params: { from?: string; to?: string; employeeId?: s
     // Paging through periods keeps the grid on screen instead of flashing a loader.
     placeholderData: keepPreviousData,
   });
+}
+
+/**
+ * A shift from the shift lists already loaded: the schedule loads a period at a
+ * time and there is no endpoint for one shift. Follows refetches and edits.
+ * `undefined` while no list has loaded yet, `null` when none of them has it.
+ */
+export function useLoadedHrShift(id: string): HrShift | null | undefined {
+  return useLoadedListItem<HrShift>('shifts', id);
+}
+
+/**
+ * An item from the WeldHR lists of one kind already loaded (`part` is the key
+ * segment after the root: 'shifts', 'shift-requests', …), for the panels of
+ * entities without a single-item endpoint. Follows refetches and edits.
+ * `undefined` while no list has loaded yet, `null` when none of them has it.
+ */
+function useLoadedListItem<T extends { id: string }>(part: string, id: string): T | null | undefined {
+  const queryClient = useQueryClient();
+  const find = useCallback(() => {
+    let anyLoaded = false;
+    for (const [, page] of queryClient.getQueriesData<{ data: T[] }>({ queryKey: [...weldhrKeys.all, part] })) {
+      if (!page) continue;
+      anyLoaded = true;
+      const hit = page.data.find((item) => item.id === id);
+      if (hit) return hit;
+    }
+    return anyLoaded ? null : undefined;
+  }, [queryClient, part, id]);
+  const subscribe = useCallback((onChange: () => void) => queryClient.getQueryCache().subscribe(onChange), [queryClient]);
+  return useSyncExternalStore(subscribe, find, find);
+}
+
+/** A shift request from the request lists already loaded (there is no endpoint for one). */
+export function useLoadedHrShiftRequest(id: string): HrShiftRequest | null | undefined {
+  return useLoadedListItem<HrShiftRequest>('shift-requests', id);
+}
+
+/** An open shift from the open-shift lists already loaded; `undefined` until one has loaded. */
+export function useLoadedHrOpenShift(id: string): HrOpenShift | null | undefined {
+  return useLoadedListItem<HrOpenShift>('open-shifts', id);
 }
 
 export function useCreateHrShift() {
@@ -800,6 +846,63 @@ export function useUpdateHrAnnouncement() {
 export function useDeleteHrAnnouncement() {
   const { weldhr } = useAppApi();
   return useHrMutation((id: string) => weldhr.deleteAnnouncement(id));
+}
+
+/**
+ * One of your shifts or clock records from the periods My HR → Schedule has
+ * loaded (there is no endpoint for one). Follows refetches. `undefined` while
+ * nothing has loaded yet, `null` when no loaded period has it.
+ */
+export function useLoadedMyAttendanceItem<K extends 'shifts' | 'records'>(
+  kind: K,
+  id: string,
+): HrSelfAttendance[K][number] | null | undefined {
+  const queryClient = useQueryClient();
+  const find = useCallback(() => {
+    let anyLoaded = false;
+    for (const [, page] of queryClient.getQueriesData<{ data: HrSelfAttendance }>({ queryKey: weldhrKeys.me('attendance').slice(0, -1) })) {
+      if (!page) continue;
+      anyLoaded = true;
+      const hit = (page.data[kind] as Array<HrSelfAttendance[K][number]>).find((item) => item.id === id);
+      if (hit) return hit;
+    }
+    return anyLoaded ? null : undefined;
+  }, [queryClient, kind, id]);
+  const subscribe = useCallback((onChange: () => void) => queryClient.getQueryCache().subscribe(onChange), [queryClient]);
+  return useSyncExternalStore(subscribe, find, find);
+}
+
+/**
+ * One of your shifts or clock records, for its details panel. It looks in what
+ * My HR → Schedule has loaded first; when that doesn't have it (an older item,
+ * or a copied link opened fresh) it loads `ranges`, the periods the Schedule
+ * lists offer, as the lists' own queries.
+ *
+ * `item` is `undefined` while loading, `null` when none of those periods has
+ * it. `error` is set when one failed to load and the item wasn't found.
+ */
+export function useMyAttendanceItem<K extends 'shifts' | 'records'>(
+  kind: K,
+  id: string,
+  ranges: ReadonlyArray<{ from: string; to: string }>,
+): { item: HrSelfAttendance[K][number] | null | undefined; error: unknown; retry: () => void } {
+  const { weldhr } = useAppApi();
+  const loaded = useLoadedMyAttendanceItem(kind, id);
+  const periods = useQueries({
+    queries: ranges.map((range) => ({
+      queryKey: weldhrKeys.me('attendance', range),
+      queryFn: () => weldhr.meAttendance(range),
+      enabled: !loaded,
+    })),
+  });
+  const retry = () => {
+    for (const period of periods) if (period.isError) void period.refetch();
+  };
+
+  if (loaded) return { item: loaded, error: null, retry };
+  if (periods.some((period) => period.isPending)) return { item: undefined, error: null, retry };
+  const error = periods.find((period) => period.isError)?.error ?? null;
+  return { item: error ? undefined : null, error, retry };
 }
 
 export function useMyHrOpenShifts(opts: { enabled?: boolean } = {}) {

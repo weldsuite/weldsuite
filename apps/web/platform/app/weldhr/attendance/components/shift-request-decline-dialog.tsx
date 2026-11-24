@@ -43,7 +43,7 @@ export function ShiftRequestDeclineDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.attendance.requests.declineTitle')}</DialogTitle>
           <DialogDescription>
             {request.employeeName} · {summary}

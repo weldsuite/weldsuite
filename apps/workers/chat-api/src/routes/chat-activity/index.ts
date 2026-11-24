@@ -22,7 +22,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql, type AnyColumn } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -35,6 +35,12 @@ type ActivityFilter = 'all' | 'mentions' | 'replies' | 'dms';
 
 /** What the feed lists, counts and marks read. */
 const FEED_TYPES = ['chat_mention', 'chat_thread_reply', 'chat_missed_call'];
+
+/**
+ * The conversation a notification is about. WeldChat's notifications store it
+ * as `chatChannelId`; older rows (and other senders) as `channelId`.
+ */
+const conversationIdSql = (data: AnyColumn) => sql`COALESCE(${data}->>'channelId', ${data}->>'chatChannelId')`;
 
 const FILTER_TYPES: Record<ActivityFilter, string[]> = {
   all: FEED_TYPES,
@@ -104,14 +110,14 @@ app.get('/', requirePermission('messages:read'), zValidator('query', listActivit
           actionUrl: t.actionUrl,
           readAt: t.readAt,
           createdAt: t.createdAt,
-          channelId: sql<string | null>`(${t.data}->>'channelId')`,
+          channelId: sql<string | null>`${conversationIdSql(t.data)}`,
           channelName: chatChannels.name,
           messageContent: sql<
             string | null
           >`CASE WHEN ${t.entityType} = 'message' THEN ${chatMessages.content} ELSE NULL END`,
         })
         .from(t)
-        .leftJoin(chatChannels, sql`${chatChannels.id} = (${t.data}->>'channelId')`)
+        .leftJoin(chatChannels, sql`${chatChannels.id} = ${conversationIdSql(t.data)}`)
         .leftJoin(
           chatMessages,
           and(eq(t.entityType, 'message'), eq(chatMessages.id, sql<string>`COALESCE(${t.entityId}, '')`)),

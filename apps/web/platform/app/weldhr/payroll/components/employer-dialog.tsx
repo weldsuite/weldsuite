@@ -176,7 +176,7 @@ export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPa
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{employer ? t('weldhr.payroll.settings.employers.editTitle') : t('weldhr.payroll.settings.employers.createTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.settings.employers.dialogDescription')}</DialogDescription>
         </DialogHeader>

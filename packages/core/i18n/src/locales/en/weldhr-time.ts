@@ -15,6 +15,7 @@ export const weldhrTime = {
       import: 'Import',
     },
     records: {
+      searchPlaceholder: 'Search records...',
       title: 'Attendance records',
       filters: {
         from: 'From',
@@ -135,6 +136,13 @@ export const weldhrTime = {
       deleteConfirmDescription: 'This permanently removes the shift.',
       deleteFailed: 'Could not delete this shift.',
       loadFailed: 'Could not load the schedule.',
+      panel: {
+        title: 'Shift',
+        time: 'Time',
+        break: 'Break',
+        plannedHours: 'Planned hours',
+        notFound: 'This shift is no longer in the schedule.',
+      },
       empty: {
         title: 'No shifts scheduled',
         description: 'Add a shift for an employee to plan their week.',
@@ -160,6 +168,7 @@ export const weldhrTime = {
       },
     },
     requests: {
+      searchPlaceholder: 'Search requests...',
       groups: {
         pending: 'Pending',
         reviewed: 'Recently reviewed',
@@ -177,7 +186,14 @@ export const weldhrTime = {
       },
       approve: 'Approve',
       decline: 'Decline',
-      openShiftBadge: 'Open shift',
+      panel: {
+        title: 'Shift request',
+        notFound: 'This shift request is no longer in the list.',
+        kind: 'Request type',
+        kindOpenShift: 'Open shift sign-up',
+        kindProposed: 'Proposed by the employee',
+        reviewNote: 'Review note',
+      },
       approvedToast: 'Shift approved and added to the schedule.',
       reviewFailed: 'This shift request could not be reviewed.',
       declineTitle: 'Decline shift request',
@@ -189,6 +205,7 @@ export const weldhrTime = {
       },
     },
     openShifts: {
+      searchPlaceholder: 'Search open shifts...',
       groups: {
         open: 'Upcoming',
         cancelled: 'Withdrawn',
@@ -298,22 +315,13 @@ export const weldhrTime = {
     halfFirstDay: 'half day',
     relapse: 'Within 4 weeks',
     relapseHelp: 'The previous sick report of this employee ended less than four weeks earlier, so this continues the same absence period.',
-    reportedBySelf: 'Employee',
     reportSick: 'Report sick',
     reportRecovered: 'Report recovered',
     mine: {
-      loadFailed: 'Could not load your sick reports.',
       well: {
         title: 'You are not reported sick',
-        description: 'Not feeling well? Report sick here and your employer knows right away.',
-      },
-      sick: {
-        title: 'You are reported sick',
-        days: 'Working days absent so far: {days}',
-        description: 'Feeling better? Report recovered so your employer knows you are back.',
       },
       history: {
-        title: 'Earlier sick reports',
         empty: 'No earlier sick reports.',
       },
     },
@@ -327,6 +335,7 @@ export const weldhrTime = {
       status: 'Status',
     },
     list: {
+      searchPlaceholder: 'Search sick reports...',
       filters: {
         employee: 'Employee',
         department: 'Department',
@@ -385,6 +394,7 @@ export const weldhrTime = {
       balances: 'Balances',
     },
     requests: {
+      searchPlaceholder: 'Search leave requests...',
       filters: {
         status: 'Status',
         allStatuses: 'All statuses',
@@ -422,7 +432,7 @@ export const weldhrTime = {
       deleteConfirmTitle: 'Delete this leave request?',
       deleteConfirmDescription: 'This permanently removes the request.',
       deleteFailed: 'Could not delete this request.',
-      newRequest: 'New request',
+      newRequest: 'New leave request',
       empty: {
         title: 'No leave requests',
         description: 'Requests made on behalf of an employee, or submitted from My HR, show up here.',

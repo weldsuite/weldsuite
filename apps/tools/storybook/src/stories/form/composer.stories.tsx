@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
-import { AtSign, Plus, Smile } from "lucide-react";
+import { AtSign, CornerDownRight, Pencil, Plus, Smile } from "lucide-react";
 
 import {
   ComposerActions,
   ComposerFrame,
+  ComposerNotice,
   ComposerSendButton,
   composerFieldClass,
   composerIconButtonClass,
@@ -96,6 +97,27 @@ export const Sending: Story = {
         <ComposerActions>
           <div />
           <ComposerSendButton type="button" label="Send" canSend isSending />
+        </ComposerActions>
+      </ComposerFrame>
+    </div>
+  ),
+};
+
+/** Strips above the field: a reply and an edit, each with a close button. */
+export const WithNotices: Story = {
+  render: () => (
+    <div className="w-[480px]">
+      <ComposerFrame>
+        <ComposerNotice icon={<CornerDownRight />} onDismiss={() => {}} dismissLabel="Cancel reply">
+          <p className="line-clamp-2">&ldquo;Can you call me back after lunch?&rdquo;</p>
+        </ComposerNotice>
+        <ComposerNotice icon={<Pencil />} onDismiss={() => {}} dismissLabel="Cancel editing">
+          Editing message
+        </ComposerNotice>
+        <div role="textbox" aria-label="Type a message..." data-placeholder="Type a message..." contentEditable className={composerFieldClass} />
+        <ComposerActions>
+          <div />
+          <ComposerSendButton type="button" label="Send" canSend={false} />
         </ComposerActions>
       </ComposerFrame>
     </div>
