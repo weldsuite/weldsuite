@@ -1863,6 +1863,13 @@
       "when": 1795467238172,
       "tag": "0265_weldcommerce_online_store",
       "breakpoints": true
+    },
+    {
+      "idx": 266,
+      "version": "7",
+      "when": 1795542505824,
+      "tag": "0266_weldpass_devices",
+      "breakpoints": true
     }
   ]
 }
