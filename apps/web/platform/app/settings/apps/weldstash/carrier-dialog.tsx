@@ -178,6 +178,10 @@ export function CarrierDialog({ open, onOpenChange, catalog, carrier }: Readonly
   const carrierOptions = catalog.map((c) => ({ value: c.code, label: c.name }));
   const formatOptions = (entry?.labelFormats ?? []).map((f) => ({ value: f, label: ts.labelFormats[f] }));
   const credentialLabels = ts.credentialFields as Record<string, string>;
+  const credentialLabel = (field: { key: string; required: boolean }) => {
+    const label = credentialLabels[field.key] ?? field.key;
+    return field.required ? label : `${label} (${t.optional})`;
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -235,7 +239,7 @@ export function CarrierDialog({ open, onOpenChange, catalog, carrier }: Readonly
                     key={`${entry.code}-${field.key}`}
                     control={form.control}
                     name={`credentials.${field.key}`}
-                    label={`${credentialLabels[field.key] ?? field.key}${field.required ? '' : ` (${t.optional})`}`}
+                    label={credentialLabel(field)}
                     type={field.secret ? 'password' : 'text'}
                     autoComplete={field.secret ? 'off' : undefined}
                     required={field.required && !(editing && field.secret)}

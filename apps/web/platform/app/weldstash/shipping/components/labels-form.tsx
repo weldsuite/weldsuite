@@ -7,37 +7,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { DialogFooter } from '@weldsuite/ui/components/dialog';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { Form } from '@weldsuite/ui/components/form';
-import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
-import {
-  CUSTOMS_CONTENT_TYPES,
-  type CarrierAccount,
-  type CreateLabelsResult,
-  type PickListShipping,
-  type ServicePointChoice,
+import type {
+  CarrierAccount,
+  CarrierProduct,
+  CreateLabelsResult,
+  PickListShipping,
+  ServicePointChoice,
 } from '@weldsuite/app-api-client/schemas/shipping';
 import { useCarrierProducts, useCarrierQuote, useCreateLabels } from '@/hooks/queries/use-shipping-queries';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getTranslations } from '@/lib/i18n';
-import { useRouter } from '@/lib/router';
 import {
   BOOLEAN_OPTION_KEYS,
   buildLabelsInput,
   buildQuoteInput,
-  emptyCustomsLine,
-  emptyPiece,
   makeLabelsFormSchema,
   shippingToFormValues,
   supportsReturn,
   type LabelsFormValues,
 } from '../lib/labels-form';
-import { AddressFields, CheckboxField, SelectField, TextField } from './form-fields';
+import { AddressFields, SelectField } from './form-fields';
+import { CustomsSection, NoCarriers, OptionsSection, PiecesSection, PriceRow, Section } from './labels-form-sections';
 import { ServicePointPicker } from './service-point-picker';
 import { ShippingErrorNotice } from './shipping-error-notice';
 
@@ -49,24 +45,28 @@ interface LabelsFormProps {
   onCancel: () => void;
 }
 
-function Section({ legend, children }: Readonly<{ legend: string; children: React.ReactNode }>) {
-  return (
-    <fieldset className="space-y-3 rounded-lg border p-4">
-      <legend className="px-1 text-sm font-medium">{legend}</legend>
-      {children}
-    </fieldset>
-  );
+/** The account the form starts on: the order's carrier, the default, else the first. */
+function preferredCarrier(active: CarrierAccount[], defaultCarrierId: string | null | undefined): CarrierAccount | undefined {
+  return active.find((c) => c.id === defaultCarrierId) ?? active.find((c) => c.isDefault) ?? active[0];
 }
 
-export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel }: Readonly<LabelsFormProps>) {
-  const t = getTranslations('weldstash').shipping.labels;
+/** The product to pick when the chosen one is not offered: the carrier's default first. */
+function preferredProduct(products: CarrierProduct[], defaultProduct: unknown): CarrierProduct | undefined {
+  return products.find((p) => p.code === defaultProduct) ?? products[0];
+}
+
+export function LabelsForm(props: Readonly<LabelsFormProps>) {
+  const activeCarriers = useMemo(() => props.carriers.filter((c) => c.isActive), [props.carriers]);
+  if (activeCarriers.length === 0) return <NoCarriers onCancel={props.onCancel} />;
+  return <LabelsFormBody {...props} activeCarriers={activeCarriers} />;
+}
+
+function LabelsFormBody({ pickListId, shipping, carriers, activeCarriers, onCreated, onCancel }: Readonly<LabelsFormProps & { activeCarriers: CarrierAccount[] }>) {
   const ts = getTranslations('weldstash').shipping;
-  const router = useRouter();
+  const t = ts.labels;
   const createLabels = useCreateLabels();
   const [servicePoint, setServicePoint] = useState<ServicePointChoice | null>(shipping.servicePoint);
   const [servicePointInvalid, setServicePointInvalid] = useState(false);
-
-  const activeCarriers = useMemo(() => carriers.filter((c) => c.isActive), [carriers]);
 
   const schema = useMemo(
     () =>
@@ -77,13 +77,12 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
     [t, shipping.customsRequired],
   );
 
-  const defaults = useMemo(() => {
-    const values = shippingToFormValues(shipping);
-    const preferred = activeCarriers.find((c) => c.id === shipping.defaultCarrierId) ?? activeCarriers.find((c) => c.isDefault) ?? activeCarriers[0];
-    return { ...values, carrierId: preferred?.id ?? '' };
+  const defaults = useMemo(
+    () => ({ ...shippingToFormValues(shipping), carrierId: preferredCarrier(activeCarriers, shipping.defaultCarrierId)?.id ?? '' }),
     // The form starts from what the server sent once; later refetches must not overwrite typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    [],
+  );
 
   const form = useForm<LabelsFormValues>({ resolver: zodResolver(schema), defaultValues: defaults });
   const pieces = useFieldArray({ control: form.control, name: 'pieces' });
@@ -98,14 +97,14 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
   const productsQuery = useCarrierProducts(values.carrierId || undefined, { toCountry: lookup.country, business: lookup.business }, lookup.country.length === 2);
   const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
   const product = products.find((p) => p.code === values.product);
+  const defaultProduct = carrier?.settings.defaultProduct;
 
-  // Keep the chosen product valid for the carrier and destination: the carrier's default first.
+  // Keep the chosen product valid for the carrier and destination.
   useEffect(() => {
     if (!productsQuery.data) return;
     if (products.some((p) => p.code === form.getValues('product'))) return;
-    const preferred = products.find((p) => p.code === carrier?.settings.defaultProduct) ?? products[0];
-    form.setValue('product', preferred?.code ?? '');
-  }, [productsQuery.data, products, carrier?.settings.defaultProduct, form]);
+    form.setValue('product', preferredProduct(products, defaultProduct)?.code ?? '');
+  }, [productsQuery.data, products, defaultProduct, form]);
 
   // A service point belongs to one carrier and destination.
   const carrierKey = `${values.carrierId}|${country}`;
@@ -116,15 +115,16 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
     setServicePoint(null);
   }, [carrierKey, lastCarrierKey]);
 
+  const onWeldsuiteContract = carrier?.contract === 'weldsuite';
   const quoteBody = useDebounce(useMemo(() => buildQuoteInput(values, product), [values, product]), 500);
-  const quote = useCarrierQuote(carrier?.contract === 'weldsuite' ? carrier.id : undefined, quoteBody);
+  const quote = useCarrierQuote(onWeldsuiteContract ? carrier.id : undefined, quoteBody);
 
   const listed = new Set(product?.options ?? []);
   const optionKeys = BOOLEAN_OPTION_KEYS.filter((key) => listed.has(key));
-  const showReturn = supportsReturn(product);
+  const needsServicePoint = !!product?.servicePoint;
 
   const onSubmit = form.handleSubmit(async (formValues) => {
-    if (product?.servicePoint && !servicePoint) {
+    if (needsServicePoint && !servicePoint) {
       setServicePointInvalid(true);
       return;
     }
@@ -141,44 +141,9 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
     }
   });
 
-  if (activeCarriers.length === 0) {
-    return (
-      <div className="space-y-4">
-        <InfoBanner
-          variant="warning"
-          title={t.noCarrierTitle}
-          action={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                try {
-                  sessionStorage.setItem('settings-return-url', window.location.pathname);
-                } catch {
-                  // Private mode: the Settings back button then goes to its default.
-                }
-                router.push('/settings/apps/weldstash');
-              }}
-            >
-              {t.noCarrierLink}
-            </Button>
-          }
-        >
-          {t.noCarrierBody}
-        </InfoBanner>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            {t.close}
-          </Button>
-        </DialogFooter>
-      </div>
-    );
-  }
-
   const carrierOptions = activeCarriers.map((c) => ({ value: c.id, label: `${c.name} (${ts.contracts[c.contract]})` }));
   const productOptions = products.map((p) => ({ value: p.code, label: p.name }));
-  const contentOptions = CUSTOMS_CONTENT_TYPES.map((c) => ({ value: c, label: ts.customsContent[c] }));
+  const noProducts = productsQuery.isSuccess && products.length === 0;
 
   return (
     <Form {...form}>
@@ -197,50 +162,14 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
             />
           </div>
           {productsQuery.isError ? <ErrorBanner error={(productsQuery.error as Error).message || t.productLoadError} /> : null}
-          {productsQuery.isSuccess && products.length === 0 ? <p className="text-sm text-muted-foreground">{t.productEmpty}</p> : null}
+          {noProducts ? <p className="text-sm text-muted-foreground">{t.productEmpty}</p> : null}
         </Section>
 
-        <Section legend={t.pieces}>
-          <p className="text-sm text-muted-foreground">{t.dimensionsHint}</p>
-          {pieces.fields.map((field, index) => {
-            const number = index + 1;
-            return (
-              <div key={field.id} className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
-                <TextField control={form.control} name={`pieces.${index}.weightKg`} label={`${t.piece.replace('{number}', String(number))}: ${t.weightKg}`} inputMode="decimal" required />
-                <TextField control={form.control} name={`pieces.${index}.lengthCm`} label={t.lengthCm} inputMode="decimal" />
-                <TextField control={form.control} name={`pieces.${index}.widthCm`} label={t.widthCm} inputMode="decimal" />
-                <TextField control={form.control} name={`pieces.${index}.heightCm`} label={t.heightCm} inputMode="decimal" />
-                {pieces.fields.length > 1 ? (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => pieces.remove(index)} aria-label={t.removePiece.replace('{number}', String(number))}>
-                    <Trash2 className="size-4" aria-hidden="true" />
-                  </Button>
-                ) : null}
-              </div>
-            );
-          })}
-          {product?.multiCollo ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => pieces.append(emptyPiece())}>
-              <Plus className="size-4" aria-hidden="true" />
-              {t.addPiece}
-            </Button>
-          ) : null}
-        </Section>
+        <PiecesSection control={form.control} pieces={pieces} multiCollo={!!product?.multiCollo} />
 
-        {optionKeys.length > 0 || listed.has('insurance') || showReturn ? (
-          <Section legend={t.options}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {optionKeys.map((key) => (
-                <CheckboxField key={key} control={form.control} name={key} label={ts.options[key]} />
-              ))}
-              {showReturn ? <CheckboxField control={form.control} name="returnLabel" label={t.returnLabel} /> : null}
-            </div>
-            {listed.has('insurance') ? (
-              <TextField className="max-w-48" control={form.control} name="insuredValue" label={t.insuredValue} inputMode="decimal" />
-            ) : null}
-          </Section>
-        ) : null}
+        <OptionsSection control={form.control} optionKeys={optionKeys} insurance={listed.has('insurance')} showReturn={supportsReturn(product)} />
 
-        {product?.servicePoint ? (
+        {needsServicePoint ? (
           <Section legend={t.servicePoint}>
             <p className="text-sm text-muted-foreground">{t.servicePointHint}</p>
             <ServicePointPicker
@@ -264,63 +193,9 @@ export function LabelsForm({ pickListId, shipping, carriers, onCreated, onCancel
           <AddressFields control={form.control} prefix="recipient" section="shipping" required />
         </Section>
 
-        {shipping.customsRequired ? (
-          <Section legend={t.customs}>
-            <p className="text-sm text-muted-foreground">{t.customsHint}</p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <SelectField control={form.control} name="customs.content" label={t.customsContent} options={contentOptions} required />
-              <TextField control={form.control} name="customs.invoiceNumber" label={t.invoiceNumber} />
-              <TextField control={form.control} name="customs.currency" label={t.currency} required />
-            </div>
-            <p className="text-sm font-medium">{t.customsLines}</p>
-            {lines.fields.map((field, index) => {
-              const number = index + 1;
-              return (
-                <div key={field.id} className="grid grid-cols-6 items-end gap-3 rounded-md border p-3">
-                  <TextField className="col-span-6 sm:col-span-3" control={form.control} name={`customs.lines.${index}.description`} label={t.lineDescription} required />
-                  <TextField className="col-span-2 sm:col-span-1" control={form.control} name={`customs.lines.${index}.quantity`} label={t.lineQuantity} inputMode="numeric" required />
-                  <TextField className="col-span-2 sm:col-span-1" control={form.control} name={`customs.lines.${index}.value`} label={t.lineValue} inputMode="decimal" required />
-                  <TextField className="col-span-2 sm:col-span-1" control={form.control} name={`customs.lines.${index}.weightGrams`} label={t.lineWeightGrams} inputMode="numeric" />
-                  <TextField className="col-span-3 sm:col-span-2" control={form.control} name={`customs.lines.${index}.hsCode`} label={t.lineHsCode} inputMode="numeric" />
-                  <TextField className="col-span-3 sm:col-span-2" control={form.control} name={`customs.lines.${index}.originCountry`} label={t.lineOrigin} required />
-                  <div className="col-span-6 flex justify-end sm:col-span-2">
-                    {lines.fields.length > 1 ? (
-                      <Button type="button" variant="ghost" size="icon" onClick={() => lines.remove(index)} aria-label={t.removeLine.replace('{number}', String(number))}>
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-            <Button type="button" size="sm" variant="outline" onClick={() => lines.append(emptyCustomsLine())}>
-              <Plus className="size-4" aria-hidden="true" />
-              {t.addLine}
-            </Button>
-          </Section>
-        ) : null}
+        {shipping.customsRequired ? <CustomsSection control={form.control} lines={lines} /> : null}
 
-        {carrier?.contract === 'weldsuite' ? (
-          <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-3 text-sm" aria-live="polite">
-            <div>
-              <p className="font-medium">{t.price}</p>
-              <p className="text-xs text-muted-foreground">{t.priceHint}</p>
-            </div>
-            <p className="font-medium tabular-nums">
-              {quote.isFetching ? (
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <InlineSpinner /> {t.priceLoading}
-                </span>
-              ) : quote.data?.credits !== null && quote.data?.credits !== undefined ? (
-                t.priceCredits.replace('{credits}', new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(quote.data.credits))
-              ) : quote.isError ? (
-                <span className="text-destructive">{t.priceUnavailable}</span>
-              ) : (
-                '—'
-              )}
-            </p>
-          </div>
-        ) : null}
+        {onWeldsuiteContract ? <PriceRow fetching={quote.isFetching} credits={quote.data?.credits} failed={quote.isError} /> : null}
 
         {createLabels.isError ? <ShippingErrorNotice error={createLabels.error} title={t.createFailed} /> : null}
 

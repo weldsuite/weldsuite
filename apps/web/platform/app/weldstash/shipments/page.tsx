@@ -36,7 +36,7 @@ function ShipmentsPageContent() {
       if (value) params.set(key, value);
       else params.delete(key);
       const qs = params.toString();
-      router.replace(`/weldstash/shipments${qs ? `?${qs}` : ''}`);
+      router.replace(qs ? `/weldstash/shipments?${qs}` : '/weldstash/shipments');
     },
     [router, searchParams],
   );

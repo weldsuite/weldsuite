@@ -239,7 +239,8 @@ export function useParcelFile() {
       }
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${fileName ?? `${kind}-${id}`}.${isZpl ? 'zpl' : 'pdf'}`;
+      const baseName = fileName ?? `${kind}-${id}`;
+      link.download = `${baseName}.${isZpl ? 'zpl' : 'pdf'}`;
       document.body.appendChild(link);
       link.click();
       link.remove();

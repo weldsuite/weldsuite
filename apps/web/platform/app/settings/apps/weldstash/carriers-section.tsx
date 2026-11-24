@@ -36,6 +36,12 @@ function maskedCredentials(carrier: CarrierAccount): string {
     .join(' · ');
 }
 
+/** The credentials column: nothing to show on WeldSuite's contract. */
+function credentialsText(carrier: CarrierAccount, noCredentials: string): string {
+  if (carrier.contract === 'weldsuite') return '—';
+  return carrier.hasCredentials ? maskedCredentials(carrier) : noCredentials;
+}
+
 export function CarriersSection() {
   const ts = getTranslations('weldstash').shipping;
   const t = ts.carriers;
@@ -121,7 +127,7 @@ export function CarriersSection() {
       width: 'w-[220px]',
       cell: (row) => (
         <span className="truncate font-mono text-xs text-muted-foreground">
-          {row.contract === 'weldsuite' ? '—' : row.hasCredentials ? maskedCredentials(row) : t.noCredentials}
+          {credentialsText(row, t.noCredentials)}
         </span>
       ),
     },

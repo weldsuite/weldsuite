@@ -31,6 +31,45 @@ export function CreateLabelsDialog({ pickListId, open, onOpenChange }: Readonly<
   const hasLabels = !!data && (created !== null || data.parcels.length > 0);
   const title = data?.orderNumber ? t.title.replace('{order}', data.orderNumber) : t.titleNoOrder;
 
+  const renderBody = () => {
+    if (shipping.isLoading || carriers.isLoading) return <PageLoader fullScreen={false} />;
+    if (shipping.isError || carriers.isError || !data) {
+      return (
+        <ErrorState
+          message={((shipping.error ?? carriers.error) as Error | null)?.message || t.loadError}
+          onRetry={() => {
+            void shipping.refetch();
+            void carriers.refetch();
+          }}
+        />
+      );
+    }
+    if (hasLabels) {
+      return (
+        <LabelsResult
+          pickListId={pickListId}
+          shipping={data}
+          created={created}
+          onClose={() => onOpenChange(false)}
+          onVoided={() => {
+            setCreated(null);
+            setFormVersion((v) => v + 1);
+          }}
+        />
+      );
+    }
+    return (
+      <LabelsForm
+        key={formVersion}
+        pickListId={pickListId}
+        shipping={data}
+        carriers={carriers.data ?? []}
+        onCreated={setCreated}
+        onCancel={() => onOpenChange(false)}
+      />
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
@@ -38,37 +77,7 @@ export function CreateLabelsDialog({ pickListId, open, onOpenChange }: Readonly<
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">{title}</DialogDescription>
         </DialogHeader>
-        {shipping.isLoading || carriers.isLoading ? (
-          <PageLoader fullScreen={false} />
-        ) : shipping.isError || carriers.isError || !data ? (
-          <ErrorState
-            message={((shipping.error ?? carriers.error) as Error | null)?.message || t.loadError}
-            onRetry={() => {
-              void shipping.refetch();
-              void carriers.refetch();
-            }}
-          />
-        ) : hasLabels ? (
-          <LabelsResult
-            pickListId={pickListId}
-            shipping={data}
-            created={created}
-            onClose={() => onOpenChange(false)}
-            onVoided={() => {
-              setCreated(null);
-              setFormVersion((v) => v + 1);
-            }}
-          />
-        ) : (
-          <LabelsForm
-            key={formVersion}
-            pickListId={pickListId}
-            shipping={data}
-            carriers={carriers.data ?? []}
-            onCreated={setCreated}
-            onCancel={() => onOpenChange(false)}
-          />
-        )}
+        {renderBody()}
       </DialogContent>
     </Dialog>
   );
