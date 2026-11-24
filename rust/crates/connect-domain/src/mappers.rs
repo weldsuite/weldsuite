@@ -2636,7 +2636,10 @@ mod tests {
                 bill_external_id,
                 ..
             }) => (values, invoice_external_id, bill_external_id),
-            other => panic!("not a bank transaction: {other:?}"),
+            other => panic!(
+                "not a bank transaction but {:?}",
+                other.as_ref().map(Mapped::entity)
+            ),
         }
     }
 
@@ -2736,7 +2739,7 @@ mod tests {
             .expect("a bank account");
             match mapped {
                 Mapped::BankAccount { values, .. } => values,
-                other => panic!("not a bank account: {other:?}"),
+                other => panic!("not a bank account but a {}", other.entity()),
             }
         };
         let private = account(json!({
