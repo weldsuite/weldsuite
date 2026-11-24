@@ -6,7 +6,7 @@ import type { MollieBillingAccount } from './billing-types';
 import { formatCents, formatDay } from './billing-format';
 import { fill } from './i18n';
 import type { MollieBillingCopy } from './mollie-billing-copy';
-import { formatOffList, offList } from './seat-price';
+import { offListNote } from './seat-price-form';
 
 /** "Yearly" / "Monthly"; another cycle as written. */
 export function cycleLabel(copy: MollieBillingCopy, cycle: string): string {
@@ -40,7 +40,6 @@ export function mollieAccountSummary(
   cycle: string | null,
   listPrice: number | null = null,
 ): MollieAccountSummary {
-  const off = offList(account.unitAmount, listPrice);
   const seatPrice =
     account.unitAmount == null
       ? '—'
@@ -50,13 +49,7 @@ export function mollieAccountSummary(
         });
   return {
     seatPrice,
-    seatPriceNote:
-      off === null
-        ? null
-        : fill(off > 0 ? copy.seatPriceNote.below : copy.seatPriceNote.above, {
-            percent: formatOffList(off),
-            list: formatCents(listPrice, account.currency),
-          }),
+    seatPriceNote: offListNote(copy, account.unitAmount, listPrice, account.currency),
     nextCharge: formatDay(account.nextChargeAt),
     billingDay: account.anchorDay == null ? null : fill(copy.billingDay, { day: account.anchorDay }),
     scheduled: scheduledRows(copy, account.scheduled),

@@ -9,30 +9,15 @@ import type { ActionResult } from '@/actions/workspaces';
 import { formatCents, formatDay } from '@/lib/billing-format';
 import type { MollieBillingAccount, WorkspaceBilling } from '@/lib/billing-types';
 import { fill } from '@/lib/i18n';
-import { mollieBillingCopy, type MollieBillingCopy } from '@/lib/mollie-billing-copy';
+import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
+import { SEAT_PRICE_CURRENCY } from '@/lib/seat-price';
 import {
-  MAX_SEAT_PRICE_CENTS,
-  SEAT_PRICE_CURRENCY,
-  formatOffList,
-  offList,
-  typedSeatPriceProblem,
-  type SeatPriceProblem,
-} from '@/lib/seat-price';
-import { centsToMajorUnits, parseMajorUnitsToCents } from '@/lib/sso-admin';
-
-function problemMessage(c: MollieBillingCopy, problem: SeatPriceProblem): string {
-  const e = c.seatPriceDialog.errors;
-  switch (problem) {
-    case 'format':
-      return e.format;
-    case 'zero':
-      return e.zero;
-    case 'too_high':
-      return fill(e.tooHigh, { max: formatCents(MAX_SEAT_PRICE_CENTS, SEAT_PRICE_CURRENCY) });
-    case 'unchanged':
-      return e.unchanged;
-  }
-}
+  SEAT_PRICE_ERROR_ID,
+  SEAT_PRICE_TOTAL_ID,
+  seatPriceFormState,
+  seatPriceProblemMessage,
+} from '@/lib/seat-price-form';
+import { centsToMajorUnits } from '@/lib/sso-admin';
 
 /**
  * Sets what a workspace paying through Mollie is charged per seat, in place
@@ -58,59 +43,41 @@ export function SeatPriceDialog({
   const c = mollieBillingCopy();
   const d = c.seatPriceDialog;
   const interval = billing.subscriptionCycle === 'yearly' ? c.intervalYear : c.intervalMonth;
-  const money = (cents: number | null) => formatCents(cents, SEAT_PRICE_CURRENCY);
-  const perSeat = (cents: number | null) => fill(d.perSeat, { amount: money(cents), interval });
+  const perSeat = (cents: number | null) =>
+    fill(d.perSeat, { amount: formatCents(cents, SEAT_PRICE_CURRENCY), interval });
 
   const input = useRef<HTMLInputElement>(null);
   const [amount, setAmount] = useState('');
   // The field's error shows once it has been left (or a save was tried), not while typing.
   const [touched, setTouched] = useState(false);
-
-  const cents = parseMajorUnitsToCents(amount);
-  const problem = typedSeatPriceProblem(amount, account.unitAmount);
-  const shownProblem = touched && amount.trim() !== '' ? problem : null;
-  const off = problem ? null : offList(cents, listPrice);
+  const form = seatPriceFormState(c, {
+    amount,
+    touched,
+    current: account.unitAmount,
+    listPrice,
+    seats: billing.purchasedSeats,
+    interval,
+  });
   const scheduledChange = Boolean(account.scheduled?.planId || account.scheduled?.cycle);
 
+  // The field shows its own error, so the dialog's footer message stays unset;
+  // a save with a bad amount is refused here, which focuses the field.
   const submit = (reason: string): Promise<ActionResult<{ unitAmount: number; previous: number }>> => {
-    if (problem || cents === null) {
+    if (form.problem || form.cents === null) {
       setTouched(true);
       input.current?.focus();
-      return Promise.resolve({ ok: false, error: problemMessage(c, problem ?? 'format') });
+      return Promise.resolve({ ok: false, error: seatPriceProblemMessage(c, form.problem ?? 'format') });
     }
-    return setSeatPrice({ workspaceId, unitAmount: cents, reason });
+    return setSeatPrice({ workspaceId, unitAmount: form.cents, reason });
   };
 
-  const total =
-    cents !== null && !problem
-      ? [
-          fill(d.total, {
-            seats: billing.purchasedSeats,
-            amount: money(cents),
-            total: money(cents * billing.purchasedSeats),
-            interval,
-          }),
-          off === null
-            ? null
-            : fill(off > 0 ? c.seatPriceNote.below : c.seatPriceNote.above, {
-                percent: formatOffList(off),
-                list: money(listPrice),
-              }),
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : null;
-  const describedBy = [total ? 'seat-price-total' : null, shownProblem ? 'seat-price-error' : null].filter(Boolean);
-
-  // The field shows its own error, so the dialog's footer message stays unset;
-  // a save with a bad amount is refused in `submit`, which focuses the field.
   return (
     <ActionDialog
       title={d.title}
       description={fill(d.description, { plan: planName })}
       submitLabel={d.submit}
       onClose={onClose}
-      onSubmit={(reason) => submit(reason)}
+      onSubmit={submit}
       successMessage={d.success}
     >
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -135,8 +102,8 @@ export function SeatPriceDialog({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             onBlur={() => setTouched(amount.trim() !== '')}
-            aria-invalid={shownProblem !== null}
-            aria-describedby={describedBy.length > 0 ? describedBy.join(' ') : undefined}
+            aria-invalid={form.error !== null}
+            aria-describedby={form.describedBy}
           />
           {listPrice !== null && listPrice !== account.unitAmount && (
             <Button type="button" variant="outline" size="sm" onClick={() => setAmount(centsToMajorUnits(listPrice))}>
@@ -144,14 +111,14 @@ export function SeatPriceDialog({
             </Button>
           )}
         </div>
-        {total && (
-          <p id="seat-price-total" className="text-xs text-muted-foreground">
-            {total}
+        {form.total && (
+          <p id={SEAT_PRICE_TOTAL_ID} className="text-xs text-muted-foreground">
+            {form.total}
           </p>
         )}
-        {shownProblem && (
-          <p id="seat-price-error" className="text-xs text-destructive">
-            {problemMessage(c, shownProblem)}
+        {form.error && (
+          <p id={SEAT_PRICE_ERROR_ID} className="text-xs text-destructive">
+            {form.error}
           </p>
         )}
       </Field>
