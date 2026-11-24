@@ -352,6 +352,36 @@
         "packages/clients/app-api-client/src/schemas/weldpass-passwords.ts",
         "packages/core/cloudflare-deploy/src/",
         "rust/modules/pass/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "DELETE /api/weldpass/devices/:deviceId",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "GET /api/weldpass/devices",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "GET /api/weldpass/settings",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "PATCH /api/weldpass/settings",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "POST /api/weldpass/devices",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "POST /api/weldpass/devices/:deviceId/events",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        },
+        {
+          "route": "POST /api/weldpass/devices/:deviceId/sync",
+          "reason": "Rust-only (ADR PASS-010; the TypeScript backend is frozen), tested in rust/modules/pass."
+        }
       ]
     },
     {

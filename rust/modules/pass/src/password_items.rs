@@ -607,6 +607,89 @@ pub(crate) async fn restore_item_version(
     update_item(db, kek, vault_id, item_id, &document, actor_id, "restored").await
 }
 
+/// A vault's items for a device's offline copy (ADR PASS-010).
+pub(crate) struct VaultChanges {
+    /// The live items changed since the cursor (every live item without
+    /// one), opened, by title.
+    pub(crate) items: Vec<(Item, ItemDocument)>,
+    /// The items deleted (or moved out) since the cursor; none without one.
+    pub(crate) deleted_ids: Vec<String>,
+}
+
+/// The items of `vault_id` updated after `since`, opened with its KEK, and
+/// the ids deleted after it; every live item and no ids when `since` is
+/// `None` (a full sync).
+pub(crate) async fn open_vault_changes(
+    db: &PgPool,
+    kek: &Key,
+    vault_id: &str,
+    since: Option<OffsetDateTime>,
+) -> PassResult<VaultChanges> {
+    let db = orm(db);
+    let mut select = items::Entity::find()
+        .filter(I::VaultId.eq(vault_id))
+        .filter(I::DeletedAt.is_null());
+    if let Some(since) = since {
+        select = select.filter(I::UpdatedAt.gt(since));
+    }
+    let rows = select
+        .order_by_asc(I::Title)
+        .order_by_asc(I::Id)
+        .all(&db)
+        .await?;
+    let mut opened = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (item, ciphertext, dek_wrapped) = Item::sealed(row);
+        let document = open_document(
+            kek,
+            &ItemLocation::new(vault_id, &item.id),
+            &ciphertext,
+            &dek_wrapped,
+        )?;
+        opened.push((item, document));
+    }
+    let deleted_ids: Vec<String> = match since {
+        Some(since) => {
+            items::Entity::find()
+                .select_only()
+                .column(I::Id)
+                .filter(I::VaultId.eq(vault_id))
+                .filter(I::DeletedAt.gt(since))
+                .order_by_asc(I::Id)
+                .into_tuple()
+                .all(&db)
+                .await?
+        }
+        None => Vec::new(),
+    };
+    Ok(VaultChanges {
+        items: opened,
+        deleted_ids,
+    })
+}
+
+/// `(id, vault, title)` of the items among `item_ids` in these vaults,
+/// deleted ones too: what a device reports doing with its copy happened
+/// all the same.
+pub(crate) async fn item_titles(
+    db: &PgPool,
+    vault_ids: &[String],
+    item_ids: &[String],
+) -> PassResult<Vec<(String, String, String)>> {
+    if vault_ids.is_empty() || item_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(String, String, String)> = items::Entity::find()
+        .select_only()
+        .columns([I::Id, I::VaultId, I::Title])
+        .filter(I::VaultId.is_in(vault_ids.iter().map(String::as_str)))
+        .filter(I::Id.is_in(item_ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows)
+}
+
 /// `openLogins`: every login of these vaults, opened in memory for the
 /// health report only.
 pub(crate) async fn open_logins(

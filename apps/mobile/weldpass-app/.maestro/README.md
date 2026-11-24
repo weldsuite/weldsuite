@@ -35,9 +35,19 @@ to the personal vault, reveals and copies its password, and deletes it again.
 
 The flows assert English text, so run them on an emulator set to English.
 
+## The offline flow
+
+`03-offline` checks the offline copy (ADR PASS-010) in airplane mode. The
+copy's key sits behind biometrics, so the emulator needs an enrolled
+fingerprint (Settings → Security → Fingerprint), and each biometric prompt is
+answered from a second terminal with `adb -e emu finger touch 1`. With a
+fingerprint enrolled the lock no longer shows the PIN screen, so run this flow
+on its own (`--include-tags offline`), not with the others.
+
 ## Run
 
 ```bash
-pnpm test:e2e                                 # all flows
+pnpm test:e2e                                 # all flows (03-offline needs the fingerprint setup)
 maestro test .maestro --exclude-tags writes   # read-only flows
+maestro test .maestro --include-tags offline  # airplane mode, see above
 ```

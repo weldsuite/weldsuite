@@ -23,6 +23,7 @@ import { Group } from '@/components/Group';
 import { ItemIcon } from '@/components/ItemIcon';
 import { HeaderButton, Screen } from '@/components/Screen';
 import { TotpCode } from '@/components/TotpCode';
+import { useOffline } from '@/contexts/OfflineContext';
 import { useDeleteItem, useItems, useRevealItem, useVaults } from '@/hooks/use-passwords';
 import { copySecret, copyText } from '@/lib/clipboard';
 import { passErrorMessage } from '@/lib/errors';
@@ -43,6 +44,7 @@ export default function ItemScreen() {
   const vaults = useVaults();
   const reveal = useRevealItem();
   const remove = useDeleteItem();
+  const offline = useOffline();
   const [fields, setFields] = useState<WeldPassItemFields | null>(null);
   const [shown, setShown] = useState<ReadonlySet<SecretField>>(new Set());
   usePreventScreenshots();
@@ -99,6 +101,8 @@ export default function ItemScreen() {
     const value = current ? pick(current) : undefined;
     if (!value) return;
     await copySecret(value);
+    // Copied from the offline copy: the vault's trail learns of it at the next sync.
+    if (offline.copy) offline.recordEvent(vaultId, itemId, 'copied');
     toast.success(format(t.item.copiedSecret, { field: label }));
   };
 

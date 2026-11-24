@@ -21,5 +21,8 @@ class WeldPassNativeModule : Module() {
     AsyncFunction("clearIfUnchanged") { token: String ->
       SensitiveClipboard.clearIfUnchanged(context, token)
     }.runOnQueue(Queues.MAIN)
+
+    // The app's `allowBackup` is off, so nothing of it is backed up already.
+    Function("excludeFromBackup") { _: String -> true }
   }
 }

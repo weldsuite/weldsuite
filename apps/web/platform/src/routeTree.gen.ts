@@ -343,6 +343,7 @@ import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$user
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldstashRouteImport } from './routes/settings/apps/weldstash'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
+import { Route as SettingsAppsWeldpassRouteImport } from './routes/settings/apps/weldpass'
 import { Route as SettingsAppsWeldpanelRouteImport } from './routes/settings/apps/weldpanel'
 import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
@@ -2371,6 +2372,11 @@ const SettingsAppsWeldreachRoute = SettingsAppsWeldreachRouteImport.update({
   path: '/apps/weldreach',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsAppsWeldpassRoute = SettingsAppsWeldpassRouteImport.update({
+  id: '/apps/weldpass',
+  path: '/apps/weldpass',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldpanelRoute = SettingsAppsWeldpanelRouteImport.update({
   id: '/apps/weldpanel',
   path: '/apps/weldpanel',
@@ -4293,6 +4299,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -4882,6 +4889,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -5518,6 +5526,7 @@ export interface FileRoutesById {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -6162,6 +6171,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -6751,6 +6761,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -7386,6 +7397,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -10314,6 +10326,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWeldreachRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/apps/weldpass': {
+      id: '/settings/apps/weldpass'
+      path: '/apps/weldpass'
+      fullPath: '/settings/apps/weldpass'
+      preLoaderRoute: typeof SettingsAppsWeldpassRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldpanel': {
       id: '/settings/apps/weldpanel'
       path: '/apps/weldpanel'
@@ -12585,6 +12604,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
   SettingsAppsWeldmergeRoute: typeof SettingsAppsWeldmergeRoute
   SettingsAppsWeldpanelRoute: typeof SettingsAppsWeldpanelRoute
+  SettingsAppsWeldpassRoute: typeof SettingsAppsWeldpassRoute
   SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsAppsWeldstashRoute: typeof SettingsAppsWeldstashRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
@@ -12659,6 +12679,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
   SettingsAppsWeldmergeRoute: SettingsAppsWeldmergeRoute,
   SettingsAppsWeldpanelRoute: SettingsAppsWeldpanelRoute,
+  SettingsAppsWeldpassRoute: SettingsAppsWeldpassRoute,
   SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsAppsWeldstashRoute: SettingsAppsWeldstashRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,

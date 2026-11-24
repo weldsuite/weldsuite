@@ -90,6 +90,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
   ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
+  // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
+  ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {

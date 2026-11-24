@@ -14,6 +14,8 @@
 //!   `passwords:use` opens the door, the role on the vault decides the rest;
 //!   a vault the caller cannot see is a 404, one they can see but not touch
 //!   a 403.
+//! - a registered phone keeps an encrypted offline copy of its owner's
+//!   vaults ([`devices`], ADR PASS-010). Those routes exist only here.
 //!
 //! Every value is encrypted under the envelope of [`envelope`], bit for bit
 //! the worker's, so the two backends read each other's rows. No entity
@@ -26,6 +28,7 @@ mod cases;
 mod credentials;
 #[cfg(test)]
 mod db_tests;
+mod devices;
 mod dotenv;
 pub mod envelope;
 mod health;
@@ -36,6 +39,7 @@ mod password_items;
 mod password_vaults;
 mod projects;
 mod providers;
+mod routes_devices;
 mod routes_passwords;
 mod routes_projects;
 mod schemas;
@@ -126,12 +130,14 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    use routes_devices as rd;
     use routes_passwords as pw;
     use routes_projects as rp;
 
     const SECRETS: &str = "/projects/{projectId}/environments/{environmentId}/secrets";
     const VAULT: &str = "/vaults/{vaultId}";
     const ITEM: &str = "/vaults/{vaultId}/items/{itemId}";
+    const DEVICE: &str = "/devices/{deviceId}";
     let need = |keys: &[&'static str]| gate.require(keys.iter().copied());
 
     Router::new()
@@ -342,6 +348,33 @@ where
         .route(
             const_format(ITEM, "/move"),
             post(pw::move_item).route_layer(need(&[PASSWORDS_USE])),
+        )
+        // Password manager: devices and their offline copy (ADR PASS-010)
+        .route(
+            "/devices",
+            get(rd::list_devices)
+                .post(rd::register_device)
+                .route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            DEVICE,
+            delete(rd::revoke_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/sync"),
+            post(rd::sync_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/events"),
+            post(rd::device_events).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            get(rd::get_settings).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            patch(rd::update_settings).route_layer(need(&[PASSWORDS_MANAGE])),
         )
         .with_state(state)
 }

@@ -23,6 +23,12 @@ export interface WeldPassNativeModule {
   setSensitiveString(text: string, expiresInSeconds: number): Promise<string>;
   /** Clear the clipboard if it still holds the copy `token` names. */
   clearIfUnchanged(token: string): Promise<boolean>;
+  /**
+   * Keep a file or folder (a `file://` URI) out of iCloud and iTunes
+   * backups. A no-op on Android, where the app's `allowBackup` is off.
+   * Absent in binaries built before the offline copy (1.0 without 4B).
+   */
+  excludeFromBackup?(uri: string): boolean;
 }
 
 export const weldPassNative = requireOptionalNativeModule<WeldPassNativeModule>('WeldPassNative');

@@ -73,6 +73,14 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
   });
 
+  it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
+    expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/settings/apps/weldpass')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'pass'], unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/apps/weldpass')).toBe(true);
+  });
+
   it('offers the services-outside-the-EU settings on the EU edition only (ADR OPS-026)', () => {
     expect(routeRequirement('/settings/outside-eu')).toEqual({ feature: 'outside-eu-services' });
     // Global: in GLOBAL_UNAVAILABLE_FEATURES.

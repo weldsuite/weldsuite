@@ -33,5 +33,11 @@ No. WeldPass does not track people across other companies' apps or websites.
   30 seconds.
 - Sign-in tokens are kept in the iOS Keychain or Android Keystore
   (expo-secure-store).
-- From phase 4B: an encrypted copy of the vaults on the phone, for offline
-  use and autofill (ADR PASS-010). Update this file before 4B ships.
+- An encrypted copy of the vaults the person can open is kept on the phone,
+  for offline use (ADR PASS-010): AES-256-GCM, with a key that stays in the
+  phone's Keychain / Keystore behind biometrics and never leaves the device.
+  It is excluded from backups and wiped on sign-out, when the phone is
+  removed in Settings or on the web, and when the workspace turns offline
+  copies off. Shared vaults' two-factor secrets are not in it.
+- Each sync and each offline reveal or copy is recorded in the vault's
+  activity.

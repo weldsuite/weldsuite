@@ -23,6 +23,19 @@ phase 4; ADRs PASS-001, PASS-007, PASS-010.
   item screen's state only and are dropped when the app goes to the
   background; item screens block screenshots; the app switcher shows a
   blurred (iOS) or blank (Android, `FLAG_SECURE`) app.
+- **Offline copy** (ADR PASS-010, `contexts/OfflineContext.tsx`,
+  `lib/offline/`): the phone registers itself and syncs an encrypted copy
+  of the vaults the person can read (`/api/weldpass/devices`, Rust servers
+  only). The key is 256 random bits in the Keychain / Android Keystore behind
+  biometrics, this device only (expo-secure-store); the copy is AES-256-GCM
+  (expo-crypto) in the app's own storage, kept out of backups. Unlocking the
+  app reads the key, so one Face ID opens both. Sync on unlock, on foreground
+  and after every write; lists, search and item fields read from the copy, so
+  the app works offline, read-only. Wiped on sign-out (the phone is revoked
+  first), on a server switch, when the server says the phone was revoked or
+  copies are off, and per vault when access goes. A shared vault's 2FA
+  secrets stay on the server (PASS-007), so the edit form always reveals from
+  the server. Phones without enrolled biometrics run online only.
 - **Sensitive clipboard** (`lib/clipboard.ts`, `modules/weldpass-native`): a
   copied secret is marked sensitive (Android `IS_SENSITIVE`; iOS local-only,
   so no Universal Clipboard) and cleared after 30 s.
@@ -37,8 +50,10 @@ app/                      Expo Router screens
   item/[vaultId]/[itemId] the item (index) and its edit form
   health.tsx              password health
 components/               Screen, ItemList, ItemForm, FieldRow, TotpCode, …
-hooks/use-passwords.ts    TanStack Query over /api/weldpass
+contexts/OfflineContext.tsx the offline copy in the running app
+hooks/use-passwords.ts    the copy when open, else TanStack Query over /api/weldpass
 lib/                      server, i18n (en, nl), clipboard, privacy, errors
+lib/offline/              the copy: format and merge, envelope, sync engine, events
 modules/weldpass-native/  local Expo module (Swift + Kotlin)
 store/                    store listing, privacy answers, review notes
 .maestro/                 e2e flows
