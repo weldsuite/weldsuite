@@ -58,25 +58,24 @@ export async function queueEvents(
 }
 
 /**
- * Upload the queue in batches. Each batch the server took is removed, so a
- * failure part-way keeps only what wasn't sent.
+ * Upload the queue in batches of 500, oldest first, one after the other.
+ * Each batch the server took is removed, so a failure part-way keeps only
+ * what wasn't sent, and an event recorded during the upload stays queued.
  */
 export async function flushEvents(
   store: KeyValue,
   workspaceId: string,
   upload: (events: WeldPassDeviceEvent[]) => Promise<unknown>,
 ): Promise<number> {
-  let events = await readEvents(store, workspaceId);
-  let sent = 0;
-  while (events.length > 0) {
-    const batch = events.slice(0, EVENTS_PER_UPLOAD);
-    await upload(batch);
-    sent += batch.length;
-    events = events.slice(batch.length);
-    if (events.length === 0) await store.removeItem(queueKey(workspaceId));
-    else await store.setItem(queueKey(workspaceId), JSON.stringify(events));
-  }
-  return sent;
+  const batch = (await readEvents(store, workspaceId)).slice(0, EVENTS_PER_UPLOAD);
+  if (batch.length === 0) return 0;
+  await upload(batch);
+  // Read again: an event recorded while the batch was on its way was appended
+  // behind it, so only the batch leaves the front of the queue.
+  const rest = (await readEvents(store, workspaceId)).slice(batch.length);
+  if (rest.length === 0) await store.removeItem(queueKey(workspaceId));
+  else await store.setItem(queueKey(workspaceId), JSON.stringify(rest));
+  return batch.length + (await flushEvents(store, workspaceId, upload));
 }
 
 export async function clearEvents(store: KeyValue, workspaceId: string): Promise<void> {
