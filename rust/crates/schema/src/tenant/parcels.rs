@@ -207,10 +207,7 @@ pub struct Model {
     #[serde(rename = "returnForParcelId")]
     pub return_for_parcel_id: Option<String>,
     /// When the tracking sweep polls the carrier next; null stops it.
-    #[serde(
-        rename = "trackingNextCheckAt",
-        with = "crate::js::timestamp::option"
-    )]
+    #[serde(rename = "trackingNextCheckAt", with = "crate::js::timestamp::option")]
     pub tracking_next_check_at: Option<TimeDateTime>,
 }
 

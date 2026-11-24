@@ -68,6 +68,8 @@ pub(crate) const PRODUCTS: Table = Table {
         Column { prop: "reviewCount", name: "review_count", kind: Kind::Number, default_fn: false },
         Column { prop: "publishedAt", name: "published_at", kind: Kind::Date, default_fn: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
+        Column { prop: "hsCode", name: "hs_code", kind: Kind::Text, default_fn: false },
+        Column { prop: "originCountry", name: "origin_country", kind: Kind::Text, default_fn: false },
     ],
 };
 

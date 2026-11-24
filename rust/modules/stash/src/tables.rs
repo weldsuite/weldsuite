@@ -565,6 +565,14 @@ pub(crate) const PARCELS: Table = Table {
         Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false },
         Column { prop: "notes", name: "notes", kind: Kind::Text, default_fn: false },
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false },
+        Column { prop: "pickListId", name: "pick_list_id", kind: Kind::Text, default_fn: false },
+        Column { prop: "carrierCode", name: "carrier_code", kind: Kind::Text, default_fn: false },
+        Column { prop: "carrierReference", name: "carrier_reference", kind: Kind::Text, default_fn: false },
+        Column { prop: "trackingUrl", name: "tracking_url", kind: Kind::Text, default_fn: false },
+        Column { prop: "colloNumber", name: "collo_number", kind: Kind::Number, default_fn: false },
+        Column { prop: "servicePoint", name: "service_point", kind: Kind::Json, default_fn: false },
+        Column { prop: "returnForParcelId", name: "return_for_parcel_id", kind: Kind::Text, default_fn: false },
+        Column { prop: "trackingNextCheckAt", name: "tracking_next_check_at", kind: Kind::Date, default_fn: false },
     ],
 };
 
