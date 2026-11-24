@@ -576,7 +576,7 @@ mod tests {
             removed_vault_ids(&cursors, &readable),
             vec!["wpk_gone".to_owned()]
         );
-        assert!(removed_vault_ids(&[], &readable).is_empty());
+        assert_eq!(removed_vault_ids(&[], &readable), Vec::<String>::new());
         assert_eq!(removed_vault_ids(&cursors, &[]).len(), 2);
     }
 

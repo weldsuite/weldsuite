@@ -373,7 +373,7 @@ async fn a_device_keeps_its_copy_in_sync() {
     assert_eq!(wiped.json["wipe"], true);
     assert_eq!(wiped.json["reason"], "revoked");
     assert_eq!(wiped.json["removedVaultIds"], json!([]));
-    assert!(wiped.sent.is_empty());
+    assert_eq!(wiped.sent, Vec::<crate::devices::VaultSent>::new());
     let listed = list_devices(&db, ws, OWNER).await.expect("listed");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0]["revokedBy"], "user_admin");
