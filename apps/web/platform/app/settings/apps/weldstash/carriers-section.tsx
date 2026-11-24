@@ -42,6 +42,49 @@ function credentialsText(carrier: CarrierAccount, noCredentials: string): string
   return carrier.hasCredentials ? maskedCredentials(carrier) : noCredentials;
 }
 
+/** The carrier accounts table's columns. */
+function carrierColumns(): ListTableColumn<CarrierAccount>[] {
+  const ts = getTranslations('weldstash').shipping;
+  const t = ts.carriers;
+  return [
+    {
+      id: 'carrier',
+      header: t.colCarrier,
+      width: 'w-[130px]',
+      cell: (row) => <span className="font-medium">{row.carrierName}</span>,
+    },
+    { id: 'name', header: t.colName, cell: (row) => <span className="truncate">{row.name}</span> },
+    {
+      id: 'contract',
+      header: t.colContract,
+      width: 'w-[160px]',
+      cell: (row) => <SoftBadge tone={row.contract === 'weldsuite' ? 'success' : 'neutral'}>{ts.contracts[row.contract]}</SoftBadge>,
+    },
+    {
+      id: 'status',
+      header: t.colStatus,
+      width: 'w-[210px]',
+      cell: (row) => (
+        <span className="flex flex-wrap gap-1">
+          {row.isDefault ? <SoftBadge tone="success">{t.default}</SoftBadge> : null}
+          <SoftBadge tone={row.isActive ? 'neutral' : 'warning'}>{row.isActive ? t.active : t.inactive}</SoftBadge>
+          {row.settings.sandbox ? <SoftBadge tone="warning">{t.sandbox}</SoftBadge> : null}
+        </span>
+      ),
+    },
+    {
+      id: 'credentials',
+      header: t.colCredentials,
+      width: 'w-[220px]',
+      cell: (row) => (
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {credentialsText(row, t.noCredentials)}
+        </span>
+      ),
+    },
+  ];
+}
+
 export function CarriersSection() {
   const ts = getTranslations('weldstash').shipping;
   const t = ts.carriers;
@@ -95,43 +138,7 @@ export function CarriersSection() {
     }
   };
 
-  const columns: ListTableColumn<CarrierAccount>[] = [
-    {
-      id: 'carrier',
-      header: t.colCarrier,
-      width: 'w-[130px]',
-      cell: (row) => <span className="font-medium">{row.carrierName}</span>,
-    },
-    { id: 'name', header: t.colName, cell: (row) => <span className="truncate">{row.name}</span> },
-    {
-      id: 'contract',
-      header: t.colContract,
-      width: 'w-[160px]',
-      cell: (row) => <SoftBadge tone={row.contract === 'weldsuite' ? 'success' : 'neutral'}>{ts.contracts[row.contract]}</SoftBadge>,
-    },
-    {
-      id: 'status',
-      header: t.colStatus,
-      width: 'w-[210px]',
-      cell: (row) => (
-        <span className="flex flex-wrap gap-1">
-          {row.isDefault ? <SoftBadge tone="success">{t.default}</SoftBadge> : null}
-          <SoftBadge tone={row.isActive ? 'neutral' : 'warning'}>{row.isActive ? t.active : t.inactive}</SoftBadge>
-          {row.settings.sandbox ? <SoftBadge tone="warning">{t.sandbox}</SoftBadge> : null}
-        </span>
-      ),
-    },
-    {
-      id: 'credentials',
-      header: t.colCredentials,
-      width: 'w-[220px]',
-      cell: (row) => (
-        <span className="truncate font-mono text-xs text-muted-foreground">
-          {credentialsText(row, t.noCredentials)}
-        </span>
-      ),
-    },
-  ];
+  const columns = carrierColumns();
 
   return (
     <SectionCard
