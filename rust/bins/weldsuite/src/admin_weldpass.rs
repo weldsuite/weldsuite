@@ -54,7 +54,9 @@ impl WeldpassCommand {
             Some("rewrap") => Ok(Self::Rewrap { workspace }),
             Some("backfill-checksums") => Ok(Self::BackfillChecksums { workspace }),
             Some(other) => Err(format!("unknown weldpass action {other}")),
-            None => Err("weldpass needs an action: status, rewrap or backfill-checksums".to_owned()),
+            None => {
+                Err("weldpass needs an action: status, rewrap or backfill-checksums".to_owned())
+            }
         }
     }
 
@@ -193,7 +195,9 @@ pub(crate) async fn execute(
                         counts(&census.projects),
                         counts(&census.vaults)
                     );
-                    rows.push(json!({ "workspace": id, "name": name, "keys": census_json(&census) }));
+                    rows.push(
+                        json!({ "workspace": id, "name": name, "keys": census_json(&census) }),
+                    );
                 }
                 Err(error) => {
                     problems += 1;
@@ -273,7 +277,9 @@ pub(crate) async fn execute(
                                 "{name} ({id}): would backfill the checksums of {projects} \
                                  secrets projects"
                             );
-                            rows.push(json!({ "workspace": id, "name": name, "projects": projects }));
+                            rows.push(
+                                json!({ "workspace": id, "name": name, "projects": projects }),
+                            );
                         }
                         Err(error) => {
                             problems += 1;
@@ -386,7 +392,10 @@ mod tests {
     fn the_keys_line_names_no_value() {
         let key = "ab".repeat(32);
         let line = keys_line(&RootKeyring::from_values(Some(&key), None));
-        assert_eq!(line, "Root keys: v1 set, v2 unset; new keys wrap under v1.\n");
+        assert_eq!(
+            line,
+            "Root keys: v1 set, v2 unset; new keys wrap under v1.\n"
+        );
         assert!(!line.contains(&key));
         assert!(keys_line(&RootKeyring::default()).contains("not usable"));
     }

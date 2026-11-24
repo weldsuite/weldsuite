@@ -350,9 +350,12 @@ fn parse(args: &[String], actor_env: Option<String>) -> Result<Parsed, String> {
                 &mut take,
             )?)
         }
-        (Some("weldpass"), action) => Command::Weldpass(
-            crate::admin_weldpass::WeldpassCommand::parse(action, words.get(2).map(String::as_str))?,
-        ),
+        (Some("weldpass"), action) => {
+            Command::Weldpass(crate::admin_weldpass::WeldpassCommand::parse(
+                action,
+                words.get(2).map(String::as_str),
+            )?)
+        }
         (Some(area @ ("access" | "staff")), None) => return Err(format!("{area} needs an action")),
         (Some(area), _) => return Err(format!("unknown area {area}")),
         (None, _) => {

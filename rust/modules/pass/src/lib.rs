@@ -82,12 +82,19 @@ pub struct PassState {
     pub root_keys: RootKeyring,
     /// Outbound calls to the deploy targets.
     pub http: Arc<dyn HttpTransport>,
+    /// Whether secrets may be pushed to deploy targets (Cloudflare, Vercel).
+    /// Off on the hosted EU install for now (weldsuite-documentation
+    /// `plans/weldpass-eu.md`, decision 3): the routes that store a
+    /// provider token or call a provider answer 403 `SYNC_UNAVAILABLE`, and
+    /// writes skip auto-sync. Lists and deletes still work.
+    pub sync: bool,
 }
 
 impl std::fmt::Debug for PassState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PassState")
             .field("root_keys", &self.root_keys)
+            .field("sync", &self.sync)
             .finish_non_exhaustive()
     }
 }
@@ -115,6 +122,7 @@ impl PassState {
         Self {
             root_keys,
             http: Arc::new(ReqwestTransport::new()),
+            sync: true,
         }
     }
 }

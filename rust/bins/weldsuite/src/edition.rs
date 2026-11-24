@@ -175,6 +175,20 @@ pub(crate) const SSO_CONNECTIONS_FEATURE: &str = "sso-connections";
 /// lists the settings page and the "leaves the EU" labels as unavailable.
 pub(crate) const OUTSIDE_EU_SERVICES_FEATURE: &str = "outside-eu-services";
 
+/// WeldPass's deploy-target sync (`/api/weldpass/projects/:id/credentials`
+/// and `/sync-targets`), which pushes decrypted secrets to Cloudflare and
+/// Vercel. Off on the EU edition for now (weldsuite-documentation
+/// `plans/weldpass-eu.md`, decision 3; `weldsuite_pass::PassState::sync`):
+/// those routes answer 403 `SYNC_UNAVAILABLE` and writes skip auto-sync. A
+/// self-hosted install's operator decides where its data goes, so it stays
+/// on there.
+pub(crate) const WELDPASS_SYNC_FEATURE: &str = "weldpass-sync";
+
+/// Whether `EDITION` turns WeldPass's sync off ([`WELDPASS_SYNC_FEATURE`]).
+pub(crate) fn sync_off(edition: Option<&str>) -> bool {
+    edition == Some(Edition::Eu.as_str())
+}
+
 /// WeldAgent: offered by `/config.json` only with an AI provider.
 pub(crate) const AI_MODULE: &str = "agent";
 
@@ -470,6 +484,9 @@ impl EditionConfig {
         if self.edition != Edition::Eu {
             features.push(OUTSIDE_EU_SERVICES_FEATURE);
         }
+        if self.edition == Edition::Eu {
+            features.push(WELDPASS_SYNC_FEATURE);
+        }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
         }
@@ -618,6 +635,20 @@ mod tests {
         };
         assert!(!on.unavailable_features().contains(&AGENT_SANDBOX_FEATURE));
         assert!(!UNAVAILABLE_FEATURES.contains(&AGENT_SANDBOX_FEATURE));
+    }
+
+    /// WeldPass pushes no secrets to Cloudflare or Vercel on the EU edition;
+    /// a self-hosted install keeps the sync.
+    #[test]
+    fn turns_weldpass_sync_off_on_the_eu_edition() {
+        let (eu, _) = read(&[("EDITION", "eu")]);
+        assert!(eu.unavailable_features().contains(&WELDPASS_SYNC_FEATURE));
+        let (own, _) = read(&[("EDITION", "self-hosted")]);
+        assert!(!own.unavailable_features().contains(&WELDPASS_SYNC_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&WELDPASS_SYNC_FEATURE));
+        assert!(sync_off(Some("eu")));
+        assert!(!sync_off(Some("self-hosted")));
+        assert!(!sync_off(None));
     }
 
     /// WeldPanel's analytics run on the install's own store (ADR EVT-019):
