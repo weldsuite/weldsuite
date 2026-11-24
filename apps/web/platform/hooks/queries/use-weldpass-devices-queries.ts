@@ -32,9 +32,8 @@ export function useRevokeWeldPassDevice() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (deviceId: string) => weldpassDevices.revokeDevice(deviceId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: weldpassDeviceKeys.all });
-    },
+    // Returned, so the mutation settles once the list has been refetched.
+    onSuccess: () => qc.invalidateQueries({ queryKey: weldpassDeviceKeys.all }),
   });
 }
 
