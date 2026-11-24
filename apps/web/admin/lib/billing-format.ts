@@ -6,6 +6,7 @@ import type { AdminCopy } from './i18n';
 import type { PaymentMethodSummary } from './billing-types';
 import { fill } from './i18n';
 import { ssoActionLabel } from './sso-copy';
+import { mollieActionLabel } from './mollie-billing-copy';
 
 /** 1250 + "eur" → "€12.50". */
 export function formatCents(cents: number | null | undefined, currency: string | null | undefined): string {
@@ -109,7 +110,7 @@ const ACTION_KEYS: Record<string, keyof AdminCopy['activity']['actions']> = {
 export function actionLabel(t: AdminCopy, action: string): string {
   const key = ACTION_KEYS[action];
   if (key) return t.activity.actions[key];
-  return ssoActionLabel(action) ?? action;
+  return ssoActionLabel(action) ?? mollieActionLabel(action) ?? action;
 }
 
 /** A fresh idempotency key for one form submission. */

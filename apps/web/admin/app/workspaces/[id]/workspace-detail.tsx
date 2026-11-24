@@ -150,9 +150,9 @@ export function WorkspaceDetail({
         </div>
 
         {/*
-          Billing is read-only on Kubernetes (Mollie, changed from the CLI) and
-          opens first only for a workspace that pays there. The database tab
-          (Neon) and SSO are Global's.
+          On Kubernetes, billing (Mollie) is changed from the CLI, except the
+          seat price on the Mollie card, and opens first only for a workspace
+          that pays there. The database tab (Neon) and SSO are Global's.
         */}
         <Tabs defaultValue={GLOBAL || mollieBilling ? 'billing' : 'members'} className="gap-4">
           <TabsList>
@@ -178,7 +178,13 @@ export function WorkspaceDetail({
           <TabsContent value="billing" className="space-y-4">
             <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
             {!GLOBAL && mollieBilling && (
-              <MollieBillingCard workspaceId={workspace.id} account={mollieBilling} billing={billing} />
+              <MollieBillingCard
+                workspaceId={workspace.id}
+                account={mollieBilling}
+                billing={billing}
+                plans={plans}
+                canWrite={canWrite}
+              />
             )}
             {GLOBAL && <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />}
             <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
