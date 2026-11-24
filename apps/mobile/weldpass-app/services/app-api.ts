@@ -18,6 +18,7 @@ import { createMobileApiClient } from '@weldsuite/mobile-platform/api';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import { createWeldPassDevicesApi } from '@weldsuite/app-api-client/domains/weldpass-devices';
 
 import { APP } from '@/lib/server';
 
@@ -41,6 +42,8 @@ export const appApi = {
   workspaces: createWorkspacesApi(client),
   me: createMeApi(client),
   passwords: createWeldPassPasswordsApi(client),
+  /** Devices and the offline copy (ADR PASS-010): Rust servers only. */
+  devices: createWeldPassDevicesApi(client),
 };
 
 export { client as appApiClient };

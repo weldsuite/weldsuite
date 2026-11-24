@@ -1,7 +1,7 @@
 /**
- * Settings: the lock (always on), password health, workspace, server,
- * language, appearance and sign-out. The offline copy and this phone's
- * device registration come with PASS-010 (phase 4B).
+ * Settings: the lock (always on), password health, the offline copy and the
+ * phones that keep one (PASS-010), workspace, server, language, appearance
+ * and sign-out.
  */
 
 import { useState } from 'react';
@@ -17,14 +17,18 @@ import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/Th
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 
 import { Group, GroupRow } from '@/components/Group';
+import { OfflineSettings } from '@/components/OfflineSettings';
 import { Screen } from '@/components/Screen';
+import { useOffline } from '@/contexts/OfflineContext';
 import { brandFor } from '@/lib/brand';
 import { APP_LANGUAGES, useI18n, type AppLanguage } from '@/lib/i18n';
 
 export default function SettingsScreen() {
   const { t, format, language, setLanguage } = useI18n();
   const { colors, theme, preference, setPreference } = useTheme();
-  const { user, signOut } = useAuthSession();
+  const { user } = useAuthSession();
+  // Revokes this phone and wipes its offline copy before signing out.
+  const { signOut } = useOffline();
   const lock = useAppLock();
   const router = useRouter();
   const brand = brandFor(theme);
@@ -52,6 +56,8 @@ export default function SettingsScreen() {
             testID="open-health"
           />
         </Group>
+
+        <OfflineSettings />
 
         <WorkspaceGroup />
 

@@ -98,8 +98,9 @@ export interface AppLockProviderProps {
   /**
    * Replaces the system prompt, e.g. reading a key that is itself behind
    * Face ID, so unlocking the app and opening its data is one prompt.
+   * Resolving null falls back to the system prompt.
    */
-  authenticate?: (prompt: string) => Promise<boolean>;
+  authenticate?: (prompt: string) => Promise<boolean | null>;
   /** After every unlock (launch, or back after the grace period). */
   onUnlock?: () => void;
 }
@@ -176,7 +177,10 @@ export function AppLockProvider({
 
   const prompt = useCallback(
     async (message: string): Promise<boolean> => {
-      if (authenticate) return authenticate(message);
+      if (authenticate) {
+        const answered = await authenticate(message);
+        if (answered !== null) return answered;
+      }
       const auth = localAuth();
       if (!auth) return true;
       const result = await auth.authenticateAsync({ promptMessage: message, cancelLabel: copy.cancel });

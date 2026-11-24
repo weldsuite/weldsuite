@@ -81,6 +81,7 @@ import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/acces
 import { createPartnersApi } from '@weldsuite/app-api-client/domains/partners';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import { createWeldPassDevicesApi } from '@weldsuite/app-api-client/domains/weldpass-devices';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
 import { createSheetsApi } from '@weldsuite/app-api-client/domains/sheets';
@@ -271,6 +272,7 @@ export function useAppApi() {
       partners: createPartnersApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
+      weldpassDevices: createWeldPassDevicesApi(lazyClient),
       // WeldReach (reach-api) and the on-request access flow (app-api).
       reach: createReachApi(lazyClient),
       // WeldSheets records (sheets-api); a sheet's content goes over its room socket.

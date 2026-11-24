@@ -31,7 +31,7 @@ export default function EditItemScreen() {
   const router = useRouter();
   const lock = useAppLock();
   const vaults = useVaults();
-  const reveal = useRevealItem();
+  const reveal = useRevealItem('server');
   const update = useUpdateItem();
   const [item, setItem] = useState<WeldPassRevealedItem | null>(null);
   const [failed, setFailed] = useState<string | null>(null);

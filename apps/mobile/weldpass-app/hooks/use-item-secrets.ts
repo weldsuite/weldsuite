@@ -11,6 +11,7 @@ import type { WeldPassItemFields } from '@weldsuite/app-api-client/domains/weldp
 import { useAppLock } from '@weldsuite/mobile-ui/contexts/AppLockContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
+import { useOffline } from '@/contexts/OfflineContext';
 import { useRevealItem } from '@/hooks/use-passwords';
 import { copySecret, copyText } from '@/lib/clipboard';
 import { passErrorMessage } from '@/lib/errors';
@@ -41,6 +42,7 @@ export function useItemSecrets(vaultId: string, itemId: string): ItemSecrets {
   const toast = useToast();
   const lock = useAppLock();
   const reveal = useRevealItem();
+  const offline = useOffline();
   const [fields, setFields] = useState<WeldPassItemFields | null>(null);
   const [shown, setShown] = useState<ReadonlySet<SecretField>>(new Set());
   const { reset, mutateAsync } = reveal;
@@ -96,6 +98,8 @@ export function useItemSecrets(vaultId: string, itemId: string): ItemSecrets {
     const raw = current ? (current as unknown as Record<string, unknown>)[field] : null;
     if (typeof raw !== 'string' || !raw) return;
     await copySecret(raw);
+    // Copied from the offline copy: the vault's trail learns of it at the next sync.
+    if (offline.copy) offline.recordEvent(vaultId, itemId, 'copied');
     toast.success(format(t.item.copiedSecret, { field: label }));
   };
 

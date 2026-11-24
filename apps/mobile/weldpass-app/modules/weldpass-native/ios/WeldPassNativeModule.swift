@@ -29,5 +29,20 @@ public class WeldPassNativeModule: Module {
       pasteboard.items = []
       return true
     }.runOnQueue(.main)
+
+    /// The offline copy's folder stays out of iCloud and iTunes backups
+    /// (ADR PASS-010). Its key is this-device-only anyway; this keeps the
+    /// ciphertext off Apple's servers too.
+    Function("excludeFromBackup") { (uri: String) -> Bool in
+      guard var url = URL(string: uri) else { return false }
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      do {
+        try url.setResourceValues(values)
+        return true
+      } catch {
+        return false
+      }
+    }
   }
 }

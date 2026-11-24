@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Copy } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
+import { isNetworkError } from '@weldsuite/api-client/client';
 import { formatTotpCode, secondsUntil } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
@@ -60,6 +61,9 @@ export function TotpCode({
         <Text style={[styles.code, { color: colors.text }]} selectable={false}>
           {code.data ? formatTotpCode(code.data.code) : t.common.dash}
         </Text>
+        {!code.data && isNetworkError(code.error) ? (
+          <Text style={[styles.countdown, { color: colors.mutedForeground }]}>{t.item.totpOffline}</Text>
+        ) : null}
         {code.data ? (
           <Text style={[styles.countdown, { color: colors.mutedForeground }]}>
             {plural(left, t.item.totpExpires)}

@@ -55,8 +55,8 @@ Self-hosted installs add it themselves (`rust/deploy/hetzner/README.md`).
    same key as the other apps works).
 5. Export compliance: `ITSAppUsesNonExemptEncryption` is false. WeldPass uses
    only the encryption built into iOS (HTTPS, the Keychain); the offline copy
-   (4B) is encrypted with the system's AES-GCM, which is exempt. Re-check
-   before 4B ships.
+   is encrypted with the system's AES-GCM (expo-crypto over CryptoKit /
+   javax.crypto) to protect the person's own data, which is exempt.
 
 ### 1.4 Google Play
 
@@ -111,6 +111,13 @@ a version bump in `app.json` and a new binary.
 - [ ] **Missing root key:** against a server without `WELDPASS_ROOT_KEY` the
       vault list shows "WeldPass can't open vaults on this server right now…"
 - [ ] Add a login, reveal it, copy its password and its 2FA code
+- [ ] **Offline copy:** after a sync, airplane mode: the lists, search and a
+      login's password still open; a write says you're offline; back online,
+      the reveal shows in the vault's activity on the web
+- [ ] **Wipe:** sign out → the copy file and the key are gone; remove the phone
+      on the web → its next sync wipes the copy and Settings says so; turn
+      offline copies off for the workspace → the same; remove the person from
+      a shared vault → that vault leaves the phone
 - [ ] The generator's strength meter matches the web app's
 - [ ] Demo workspace seeded and the review account works (`review-notes.md`)
 - [ ] Screenshots captured (`screenshots/README.md`)

@@ -1,0 +1,59 @@
+appId: com.weldsuite.weldpass
+name: The offline copy works in airplane mode
+# Needs a fingerprint enrolled on the emulator: the copy's key is behind
+# biometrics (ADR PASS-010). Answer each prompt with `adb -e emu finger touch 1`
+# (see .maestro/README.md, "The offline flow").
+tags: [writes, offline, device]
+---
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.title = 'E2E offline ' + Date.now()}
+# One login to find again offline.
+- tapOn:
+    id: add-item
+- tapOn:
+    id: new-login
+- tapOn:
+    id: form-title
+- inputText: ${output.title}
+- tapOn:
+    id: form-password
+- inputText: "Offline-Copy-Works-7"
+- hideKeyboard
+- tapOn:
+    id: form-save
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+# The first sync wrote the copy: Settings says so.
+- tapOn:
+    id: tab-settings
+- extendedWaitUntil:
+    visible:
+      text: "On this phone · synced.*"
+    timeout: 30000
+- setAirplaneMode: enabled
+- stopApp
+- launchApp
+# The lock asks for the fingerprint, which opens the copy.
+- extendedWaitUntil:
+    visible: "All items"
+    timeout: 60000
+- tapOn:
+    id: tab-items
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+- tapOn: ${output.title}
+- tapOn:
+    id: field-password-toggle
+- extendedWaitUntil:
+    visible: "Offline-Copy-Works-7"
+    timeout: 30000
+- setAirplaneMode: disabled
+# Clean up online.
+- tapOn:
+    id: delete-item
+- tapOn: "Delete"
+- extendedWaitUntil:
+    visible: "Item deleted"
+    timeout: 30000

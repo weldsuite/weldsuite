@@ -12,9 +12,9 @@ import { Building2 } from 'lucide-react-native';
 import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
 import { platformUrl } from '@weldsuite/mobile-platform/api';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
+import { useOffline } from '@/contexts/OfflineContext';
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
@@ -24,7 +24,7 @@ export default function NoWorkspaceScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signOut } = useAuthSession();
+  const { signOut } = useOffline();
   const { userMemberships } = useOrganizationList({ userMemberships: { infinite: true } });
   const [checking, setChecking] = useState(false);
 

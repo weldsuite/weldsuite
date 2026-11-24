@@ -226,6 +226,13 @@ export const EDITION_FEATURES = [
    * keeps its one-way import.
    */
   'moneybirdTwoWay',
+  /**
+   * WeldPass's encrypted offline copy on registered phones (ADR PASS-010):
+   * `/api/weldpass/devices` and `/api/weldpass/settings`, and the Settings →
+   * Apps → WeldPass page that lists the devices. Built only in Rust, so it is
+   * in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the page.
+   */
+  'weldpass-offline',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

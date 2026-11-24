@@ -472,6 +472,8 @@ export const weldpass = {
       description: 'Wie wat deed in deze kluis, inclusief elke keer dat een wachtwoord is getoond.',
       empty: 'Nog niets vastgelegd.',
       loadFailed: 'De activiteit kon niet worden geladen.',
+      offline: 'op een telefoon, offline',
+      deviceItems: '{count} items',
       actions: {
         vault: {
           created: 'maakte de kluis aan',
@@ -492,9 +494,14 @@ export const weldpass = {
           totp_generated: 'genereerde een 2FA-code',
           moved_in: 'verplaatste een item hierheen',
           moved_out: 'verplaatste een item hiervandaan',
+          copied: 'kopieerde een item',
+          autofilled: 'vulde een item automatisch in',
         },
         items: {
           imported: 'importeerde items',
+        },
+        device: {
+          synced: 'synchroniseerde met een telefoon',
         },
       },
     },

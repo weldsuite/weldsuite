@@ -485,6 +485,7 @@ pub mod welddata_columns;
 pub mod welddata_leads;
 pub mod welddata_lists;
 pub mod weldpass_audit_events;
+pub mod weldpass_devices;
 pub mod weldpass_environments;
 pub mod weldpass_item_versions;
 pub mod weldpass_items;
@@ -1064,6 +1065,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<welddata_leads::Entity>(&welddata_leads::DDL),
         crate::snapshot::table::<welddata_lists::Entity>(&welddata_lists::DDL),
         crate::snapshot::table::<weldpass_audit_events::Entity>(&weldpass_audit_events::DDL),
+        crate::snapshot::table::<weldpass_devices::Entity>(&weldpass_devices::DDL),
         crate::snapshot::table::<weldpass_environments::Entity>(&weldpass_environments::DDL),
         crate::snapshot::table::<weldpass_item_versions::Entity>(&weldpass_item_versions::DDL),
         crate::snapshot::table::<weldpass_items::Entity>(&weldpass_items::DDL),
@@ -1857,6 +1859,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "weldpass_audit_events" => {
             json(Box::pin(weldpass_audit_events::Entity::find().all(db)).await?)
         }
+        "weldpass_devices" => json(Box::pin(weldpass_devices::Entity::find().all(db)).await?),
         "weldpass_environments" => {
             json(Box::pin(weldpass_environments::Entity::find().all(db)).await?)
         }

@@ -21,6 +21,7 @@ import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeCont
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 
+import { OfflineProvider, useOffline } from '@/contexts/OfflineContext';
 import { BRAND } from '@/lib/brand';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 import { useAppSwitcherCover } from '@/lib/privacy';
@@ -100,6 +101,7 @@ function AuthGuard({ children }: Readonly<{ children: ReactNode }>) {
 function PassLock({ children }: Readonly<{ children: ReactNode }>) {
   const { t } = useI18n();
   const { user } = useAuthSession();
+  const offline = useOffline();
   return (
     <AppLockProvider
       mode="required"
@@ -107,6 +109,9 @@ function PassLock({ children }: Readonly<{ children: ReactNode }>) {
       accentColor={BRAND}
       confirmWindowMs={CONFIRM_WINDOW_MS}
       disabled={!user}
+      // One prompt unlocks the app and opens the offline copy (PASS-010).
+      authenticate={offline.unlock}
+      onUnlock={offline.onUnlocked}
     >
       {children}
     </AppLockProvider>
@@ -162,19 +167,21 @@ function AppStack() {
           <NavigationThemeProvider value={navigationTheme}>
             <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
             <AuthGuard>
-              <PassLock>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="authorisation" />
-                  <Stack.Screen name="sso-callback" />
-                  <Stack.Screen name="no-workspace" options={{ animation: 'fade', gestureEnabled: false }} />
-                  <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                  <Stack.Screen name="vault/[vaultId]" />
-                  <Stack.Screen name="item/[vaultId]/[itemId]/index" />
-                  <Stack.Screen name="item/[vaultId]/[itemId]/edit" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="item/new" options={{ presentation: 'modal' }} />
-                  <Stack.Screen name="health" />
-                </Stack>
-              </PassLock>
+              <OfflineProvider>
+                <PassLock>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="authorisation" />
+                    <Stack.Screen name="sso-callback" />
+                    <Stack.Screen name="no-workspace" options={{ animation: 'fade', gestureEnabled: false }} />
+                    <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                    <Stack.Screen name="vault/[vaultId]" />
+                    <Stack.Screen name="item/[vaultId]/[itemId]/index" />
+                    <Stack.Screen name="item/[vaultId]/[itemId]/edit" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="item/new" options={{ presentation: 'modal' }} />
+                    <Stack.Screen name="health" />
+                  </Stack>
+                </PassLock>
+              </OfflineProvider>
             </AuthGuard>
           </NavigationThemeProvider>
         </WorkspaceProvider>
