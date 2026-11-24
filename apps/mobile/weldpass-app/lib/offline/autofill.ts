@@ -20,7 +20,7 @@ import type { WeldPassSyncedItem } from '@weldsuite/app-api-client/domains/weldp
 import { weldPassNative } from '@/modules/weldpass-native';
 
 import type { OfflineCopy } from './copy';
-import { queueEvent, type KeyValue } from './events';
+import { queueEvents, type KeyValue } from './events';
 
 /** `serviceIdentifier` (a host) + username + where to find the item again. Nothing secret. */
 export interface CredentialIdentity {
@@ -77,13 +77,17 @@ export async function collectFills(fillsFile: File, store: KeyValue): Promise<nu
     // A broken queue is dropped.
   }
   fillsFile.delete();
-  for (const fill of fills) {
-    await queueEvent(store, fill.workspaceId, {
-      vaultId: fill.vaultId,
-      itemId: fill.itemId,
-      action: 'autofilled',
-      at: new Date(fill.at),
-    });
-  }
+  // One write per workspace queue; different workspaces don't share a key.
+  const byWorkspace = new Map<string, Fill[]>();
+  for (const fill of fills) byWorkspace.set(fill.workspaceId, [...(byWorkspace.get(fill.workspaceId) ?? []), fill]);
+  await Promise.all(
+    [...byWorkspace].map(([workspaceId, group]) =>
+      queueEvents(
+        store,
+        workspaceId,
+        group.map((fill) => ({ vaultId: fill.vaultId, itemId: fill.itemId, action: 'autofilled' as const, at: new Date(fill.at) })),
+      ),
+    ),
+  );
   return fills.length;
 }

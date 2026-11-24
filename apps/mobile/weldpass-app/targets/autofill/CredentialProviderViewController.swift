@@ -56,7 +56,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
   /// A suggestion picked straight from the QuickType bar: the key needs
   /// biometrics, so this always asks for the interface.
-  override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) {
+  override func provideCredentialWithoutUserInteraction(for _: ASPasswordCredentialIdentity) {
     extensionContext.cancelRequest(
       withError: NSError(
         domain: ASExtensionErrorDomain, code: ASExtensionError.userInteractionRequired.rawValue))
@@ -115,11 +115,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
       withError: NSError(domain: ASExtensionErrorDomain, code: ASExtensionError.userCanceled.rawValue))
   }
 
-  func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+  func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
     logins.count
   }
 
-  func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+  func tableView(_: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
     let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
     let login = logins[indexPath.row]
     cell.textLabel?.text = login.title
@@ -128,7 +128,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     return cell
   }
 
-  func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+  func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
     complete(with: logins[indexPath.row])
   }
 }
