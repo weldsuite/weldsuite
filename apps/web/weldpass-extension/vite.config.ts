@@ -1,21 +1,24 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadEnv, type Plugin } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { build, defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { buildManifest, ICON_SIZES, type ManifestEnv } from './src/manifest/manifest';
+import { defaultServerFrom } from './src/lib/build-config';
+import { buildManifest, ICON_SIZES } from './src/manifest/manifest';
 import en from './src/locales/en.json';
 import nl from './src/locales/nl.json';
 
 const root = __dirname;
+/** The Playwright run builds into its own folder, so it never clobbers `dist/`. */
+const outDir = process.env.WELDPASS_OUT_DIR || 'dist';
+const alias = { '@': path.resolve(root, './src') };
 
 /**
- * Emits `manifest.json` and Chrome's `_locales/` into the bundle. The manifest
- * depends on the env (see src/manifest/manifest.ts); the locale files live in
- * src/ so the popup can type its message keys against them.
+ * Emits `manifest.json` and Chrome's `_locales/`, then builds the content
+ * script. Content scripts can't be ES modules, so it is its own IIFE build
+ * into the same `dist/` (`content.js`), after the pages and the worker.
  */
-function extensionFiles(env: ManifestEnv): Plugin {
+function extensionFiles(mode: string, env: Record<string, string>): Plugin {
   return {
     name: 'weldpass-extension-files',
     generateBundle() {
@@ -25,15 +28,13 @@ function extensionFiles(env: ManifestEnv): Plugin {
       const hasIcons = ICON_SIZES.every((size) =>
         existsSync(path.join(root, 'public', 'icons', `icon-${size}.png`)),
       );
-      const manifest = buildManifest({ version, env, hasIcons });
-
-      if (manifest.host_permissions.length === 0) {
-        this.warn(
-          'VITE_API_URL / VITE_SYNC_HOST / VITE_CLERK_PUBLISHABLE_KEY are not set: ' +
-            'the manifest has no host permissions and the popup will show "not configured".',
-        );
-      }
-
+      const manifest = buildManifest({
+        version,
+        defaultServer: defaultServerFrom(env),
+        store: mode === 'store',
+        extensionKey: env.VITE_EXTENSION_KEY,
+        hasIcons,
+      });
       this.emitFile({
         type: 'asset',
         fileName: 'manifest.json',
@@ -47,6 +48,31 @@ function extensionFiles(env: ManifestEnv): Plugin {
         });
       }
     },
+    async closeBundle() {
+      await build({
+        configFile: false,
+        root,
+        mode,
+        logLevel: 'warn',
+        envPrefix: 'VITE_',
+        resolve: { alias },
+        define: { 'process.env.NODE_ENV': JSON.stringify(mode === 'development' ? 'development' : 'production') },
+        build: {
+          outDir,
+          emptyOutDir: false,
+          target: 'chrome116',
+          minify: mode !== 'development',
+          sourcemap: false,
+          lib: {
+            entry: path.resolve(root, 'src/content/index.ts'),
+            formats: ['iife'],
+            name: 'weldpassContent',
+            fileName: () => 'content.js',
+          },
+          rollupOptions: { output: { extend: true } },
+        },
+      });
+    },
   };
 }
 
@@ -54,38 +80,30 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, 'VITE_');
 
   return {
-    // Relative asset URLs: the popup is served from chrome-extension://<id>/.
+    // Relative asset URLs: pages are served from chrome-extension://<id>/.
     base: './',
-    plugins: [
-      react(),
-      tailwindcss(),
-      extensionFiles({
-        publishableKey: env.VITE_CLERK_PUBLISHABLE_KEY,
-        syncHost: env.VITE_SYNC_HOST,
-        apiUrl: env.VITE_API_URL,
-        extensionKey: env.VITE_EXTENSION_KEY,
-      }),
-    ],
-    resolve: {
-      alias: { '@': path.resolve(root, './src') },
-    },
+    plugins: [react(), tailwindcss(), extensionFiles(mode, env)],
+    resolve: { alias },
     envPrefix: 'VITE_',
     build: {
-      outDir: 'dist',
+      outDir,
       emptyOutDir: true,
       target: 'chrome116',
       // Extension pages may not run inline scripts, so no preload polyfill.
       modulePreload: { polyfill: false },
-      // Clerk's SDK (clerk-js plus its bundled UI, no remotely hosted code) is
-      // ~1.4 MB of the popup chunk. It loads from disk, not the network.
-      chunkSizeWarningLimit: 1600,
       rollupOptions: {
-        input: { popup: path.resolve(root, 'popup.html') },
+        input: {
+          popup: path.resolve(root, 'popup.html'),
+          settings: path.resolve(root, 'settings.html'),
+          menu: path.resolve(root, 'menu.html'),
+          prompt: path.resolve(root, 'prompt.html'),
+          background: path.resolve(root, 'src/background/index.ts'),
+        },
+        output: {
+          // The manifest names the worker by a fixed path.
+          entryFileNames: (chunk) => (chunk.name === 'background' ? 'background.js' : 'assets/[name]-[hash].js'),
+        },
       },
-    },
-    test: {
-      environment: 'node',
-      include: ['src/**/*.test.{ts,tsx}'],
     },
   };
 });

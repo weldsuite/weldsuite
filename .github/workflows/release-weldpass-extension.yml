@@ -1,0 +1,113 @@
+name: Release WeldPass extension
+
+# Builds the WeldPass browser extension's store zip (ADR PASS-009, plan
+# weldpass-eu.md phase 3) and attaches it to this run. Nothing is uploaded
+# to the Chrome Web Store or Edge Add-ons: a person uploads the zip
+# (apps/web/weldpass-extension/store/README.md).
+#
+# A tag starts it: bump apps/web/weldpass-extension/package.json, merge to
+# main, then push `weldpass-extension-v<that version>`. A manual run builds
+# any ref as a dry run.
+
+on:
+  push:
+    tags:
+      - 'weldpass-extension-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or SHA to build'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-weldpass-extension-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  zip:
+    name: Build the store zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      # The tag names the version; the zip must carry the same one.
+      - name: Check the version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./apps/web/weldpass-extension/package.json').version")
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            TAGGED="${GITHUB_REF_NAME#weldpass-extension-v}"
+            if [[ "$TAGGED" != "$VERSION" ]]; then
+              echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}"
+              exit 1
+            fi
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Type-check and unit tests
+        run: |
+          pnpm --filter weldpass-extension type-check
+          pnpm --filter weldpass-extension test
+
+      - name: Install Chromium for Playwright
+        run: pnpm --filter weldpass-extension exec playwright install --with-deps chromium
+
+      # Loads the unpacked extension against local login pages: sign-in,
+      # inline fill, a cross-origin frame, a refused fill, save and update.
+      - name: Playwright
+        run: pnpm --filter weldpass-extension test:e2e
+
+      - name: Build the store zip
+        run: pnpm --filter weldpass-extension zip
+
+      - name: Summarise
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="apps/web/weldpass-extension/release/weldpass-extension-${VERSION}.zip"
+          SHA=$(sha256sum "$ZIP" | cut -d' ' -f1)
+          {
+            echo "### WeldPass extension ${VERSION}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Zip | \`weldpass-extension-${VERSION}.zip\` |"
+            echo "| SHA-256 | \`${SHA}\` |"
+            echo "| Permissions | \`$(node -p "require('./apps/web/weldpass-extension/dist/manifest.json').permissions.join(', ')")\` |"
+            echo ""
+            echo "Upload it by hand: apps/web/weldpass-extension/store/README.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach the zip to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: weldpass-extension-${{ steps.version.outputs.version }}
+          path: apps/web/weldpass-extension/release/weldpass-extension-${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weldpass-extension-playwright
+          path: |
+            apps/web/weldpass-extension/playwright-report
+            apps/web/weldpass-extension/test-results
+          if-no-files-found: ignore
+          retention-days: 14

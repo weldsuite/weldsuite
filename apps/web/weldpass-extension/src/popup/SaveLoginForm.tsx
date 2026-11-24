@@ -1,17 +1,17 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import type { WeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { hostOf, itemInputSchema } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
 import { readLoginFromPage } from '../lib/actions';
 import { chromePage, type ActiveTab } from '../lib/chrome-page';
 import { errorMessageKey } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { pageUrlForSaving } from '../lib/urls';
+import type { PopupApi } from './api';
 import { useAsync, type Notify } from './hooks';
 import { Button, IconButton, Notice, Spinner } from './ui';
 
 interface Props {
-  api: WeldPassPasswordsApi;
+  api: PopupApi;
   tab: ActiveTab | null;
   notify: Notify;
   onSaved: () => void;

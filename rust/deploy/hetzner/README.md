@@ -375,6 +375,15 @@ default) organisation:
      `https://app.<domain>/auth` too, like `platform`'s. Its client id is
      `ZITADEL_DESKTOP_CLIENT_ID` (optional); until it is set the desktop app
      signs in inside its own window with the web application.
+   - **2d. User Agent application** `extension` in the same project, for
+     the WeldPass browser extension, which signs in from its service worker
+     (ADR PASS-009, `apps/web/weldpass-extension/README.md`): type *User
+     Agent*, authentication *PKCE*, refresh tokens on, **Auth token type:
+     JWT**, the same token settings as `platform`, and one redirect URI per
+     extension id, `https://<extension id>.chromiumapp.org/` with the
+     trailing slash (the README lists the ids). Its client id goes in
+     `config.auth.oidc.extensionClientId` (`OIDC_EXTENSION_CLIENT_ID`,
+     optional); until it is set the extension can't sign in to the cluster.
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and

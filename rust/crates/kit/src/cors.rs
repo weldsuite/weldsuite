@@ -27,7 +27,7 @@ pub use weldsuite_catalogs::FIRST_PARTY_ORIGINS;
 /// page talks to several origins, and each pays its own preflights.
 pub const CORS_MAX_AGE_SECONDS: u64 = 86_400;
 
-const ALLOW_HEADERS: [&str; 11] = [
+const ALLOW_HEADERS: [&str; 12] = [
     "content-type",
     "authorization",
     "x-request-id",
@@ -43,6 +43,9 @@ const ALLOW_HEADERS: [&str; 11] = [
     // credit grants.
     "x-partner-id",
     "idempotency-key",
+    // WeldPass: which client revealed a password (`extension`), kept in the
+    // vault's audit trail.
+    "x-weldpass-client",
     // Membership mode (`OIDC_WORKSPACE_SOURCE=header`, Kubernetes editions
     // only): the request's workspace. Global never reads it.
     "x-weld-workspace",
@@ -241,6 +244,7 @@ mod tests {
             .to_str()
             .expect("ascii");
         assert!(allowed.contains("x-weld-app"), "{allowed}");
+        assert!(allowed.contains("x-weldpass-client"), "{allowed}");
     }
 
     #[tokio::test]

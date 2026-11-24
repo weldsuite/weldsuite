@@ -1,0 +1,6 @@
+# The Playwright build of the extension and its reports.
+e2e/.extension/
+test-results/
+playwright-report/
+# `pnpm zip` output.
+release/

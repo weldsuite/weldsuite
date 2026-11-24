@@ -38,6 +38,13 @@ export const runtimeAuthSchema = z.discriminatedUnion('provider', [
      * `clientId` inside its own window, as before.
      */
     desktopClientId: z.string().min(1).nullish(),
+    /**
+     * The WeldPass browser extension's public client
+     * (`OIDC_EXTENSION_CLIENT_ID`, ADR PASS-009): PKCE from the extension's
+     * service worker, redirect `https://<extension id>.chromiumapp.org/`. Null
+     * or absent: the extension can't sign in to this server.
+     */
+    extensionClientId: z.string().min(1).nullish(),
     audience: z.string().min(1).nullish(),
     orgClaim: z.string().min(1).nullish(),
     scopes: z.array(z.string().min(1)).optional(),

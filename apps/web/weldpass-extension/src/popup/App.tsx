@@ -1,104 +1,153 @@
-import { Component, useEffect, useState, type ReactNode } from 'react';
-import { ClerkProvider, useAuth } from '@clerk/chrome-extension';
+import { useState } from 'react';
+import { Settings } from 'lucide-react';
 import { openTab } from '../lib/chrome-page';
-import { readConfig, type ExtensionConfig } from '../lib/config';
-import { t } from '../lib/i18n';
+import { t, type MessageKey } from '../lib/i18n';
+import { request } from '../lib/messaging';
+import type { ExtensionState, SignInResult } from '../lib/protocol';
+import { openPage, useExtensionState } from './state';
 import { Button, Screen, Spinner } from './ui';
 import { Vault } from './Vault';
 
-const configuration = readConfig(import.meta.env);
+const PROBLEM: Record<NonNullable<ExtensionState['server']['problem']>, MessageKey> = {
+  unreachable: 'serverUnreachable',
+  'not-weldsuite': 'serverNotWeldSuite',
+  'no-extension-sign-in': 'serverNoExtensionSignIn',
+  'no-weldpass': 'serverNoWeldPass',
+  'no-permission': 'serverNoPermission',
+};
 
-function OpenWebApp({ config }: { config: ExtensionConfig }) {
+const SIGN_IN_FAILED: Record<Exclude<SignInResult, { ok: true }>['reason'], MessageKey | null> = {
+  cancelled: null,
+  unreachable: 'signInUnreachable',
+  failed: 'signInFailed',
+  server: 'serverUnreachable',
+};
+
+function OtherServer() {
   return (
-    <Button variant="primary" autoFocus onClick={() => openTab(config.appUrl)}>
-      {t('openWebApp')}
+    <Button variant="ghost" onClick={() => openPage('settings.html#server')}>
+      <Settings className="size-3.5" aria-hidden />
+      {t('serverChange')}
     </Button>
   );
 }
 
-/**
- * Clerk's extension SDK validates the manifest when it starts and throws if a
- * permission it needs is missing. Without a boundary that is a blank popup.
- */
-class AuthBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+function SignedOut({ state }: Readonly<{ state: ExtensionState }>) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<MessageKey | null>(null);
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+  async function signIn() {
+    setBusy(true);
+    setFailure(null);
+    // The worker runs the sign-in window; this popup usually closes when it opens.
+    const result = await request({ type: 'auth:sign-in' }).catch(
+      (): SignInResult => ({ ok: false, reason: 'failed' }),
+    );
+    setBusy(false);
+    if (!result.ok) setFailure(SIGN_IN_FAILED[result.reason]);
   }
 
-  render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
-  }
+  return (
+    <Screen
+      title={t('signedOutTitle')}
+      body={
+        <div className="flex flex-col gap-2">
+          <p>{t('signedOutBody', state.server.label)}</p>
+          {failure && <p className="text-destructive">{t(failure)}</p>}
+        </div>
+      }
+      action={
+        <div className="flex flex-col items-center gap-2">
+          <Button variant="primary" autoFocus disabled={busy} onClick={signIn}>
+            {busy ? t('signingIn') : t('signIn')}
+          </Button>
+          <OtherServer />
+        </div>
+      }
+    />
+  );
 }
 
-function AuthGate({ config }: { config: ExtensionConfig }) {
-  const { isLoaded, isSignedIn, orgId } = useAuth();
-  const [slow, setSlow] = useState(false);
+function WorkspacePicker({ state, onChosen }: Readonly<{ state: ExtensionState; onChosen: (state: ExtensionState) => void }>) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Screen
+      title={t('pickWorkspaceTitle')}
+      body={
+        <ul className="flex w-64 flex-col gap-1 text-left">
+          {state.workspaces.map((workspace) => (
+            <li key={workspace.id}>
+              <Button
+                className="w-full justify-start"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  const next = await request({ type: 'workspace:set', workspaceId: workspace.id }).catch(() => null);
+                  setBusy(false);
+                  if (next) onChosen(next);
+                }}
+              >
+                {workspace.name}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      }
+    />
+  );
+}
 
-  useEffect(() => {
-    if (isLoaded) return;
-    const timer = window.setTimeout(() => setSlow(true), 8000);
-    return () => window.clearTimeout(timer);
-  }, [isLoaded]);
+export function App() {
+  const { state, reload, setState } = useExtensionState();
 
-  if (!isLoaded) {
+  if (state === undefined) return <Screen title="WeldPass" body={<Spinner label={t('loading')} />} />;
+  if (state === null) {
+    return (
+      <Screen title={t('authFailedTitle')} body={t('errorServer')} action={<Button onClick={reload}>{t('retry')}</Button>} />
+    );
+  }
+
+  const { server } = state;
+  if (server.problem) {
     return (
       <Screen
-        title="WeldPass"
-        body={slow ? t('authSlow') : <Spinner label={t('loading')} />}
-        action={slow ? <OpenWebApp config={config} /> : undefined}
+        title={server.label}
+        body={t(PROBLEM[server.problem])}
+        action={
+          <div className="flex flex-col items-center gap-2">
+            {server.problem === 'no-permission' ? (
+              <Button variant="primary" autoFocus onClick={() => openPage('settings.html#server')}>
+                {t('serverGrant')}
+              </Button>
+            ) : (
+              <Button autoFocus onClick={reload}>
+                {t('retry')}
+              </Button>
+            )}
+            <OtherServer />
+          </div>
+        }
       />
     );
   }
-  if (!isSignedIn) {
-    return (
-      <Screen
-        title={t('signedOutTitle')}
-        body={t('signedOutBody')}
-        action={<OpenWebApp config={config} />}
-      />
-    );
+  if (!state.loaded) return <Screen title="WeldPass" body={<Spinner label={t('loading')} />} />;
+  if (!state.person) return <SignedOut state={state} />;
+  if (!state.activeWorkspaceId && state.loadingWorkspaces) {
+    return <Screen title="WeldPass" body={<Spinner label={t('loadingWorkspaces')} />} />;
   }
-  // The API takes the workspace from the token's active organization.
-  if (!orgId) {
+  if (state.workspaces.length === 0) {
     return (
       <Screen
         title={t('noWorkspaceTitle')}
         body={t('noWorkspaceBody')}
-        action={<OpenWebApp config={config} />}
+        action={
+          <Button variant="primary" autoFocus onClick={() => openTab(server.origin)}>
+            {t('openWebApp')}
+          </Button>
+        }
       />
     );
   }
-  return <Vault config={config} />;
-}
-
-export function App() {
-  if (!configuration.ok) {
-    return (
-      <Screen
-        title={t('notConfiguredTitle')}
-        body={t('notConfiguredBody', configuration.missing.join(', '))}
-      />
-    );
-  }
-  const { config } = configuration;
-
-  return (
-    <AuthBoundary
-      fallback={
-        <Screen
-          title={t('authFailedTitle')}
-          body={t('authSlow')}
-          action={<OpenWebApp config={config} />}
-        />
-      }
-    >
-      {/* `syncHost` makes the SDK reuse the web app's Clerk session instead of
-          signing in on its own; the extension has no sign-in UI. */}
-      <ClerkProvider publishableKey={config.publishableKey} syncHost={config.syncHost}>
-        <AuthGate config={config} />
-      </ClerkProvider>
-    </AuthBoundary>
-  );
+  if (!state.activeWorkspaceId) return <WorkspacePicker state={state} onChosen={setState} />;
+  return <Vault state={state} onState={setState} />;
 }

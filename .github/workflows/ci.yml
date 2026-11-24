@@ -1060,6 +1060,14 @@ jobs:
       # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
       - name: Admin console unit tests
         run: pnpm --filter admin test
+      # The WeldPass extension (fill policy, form detection, the save queue,
+      # the worker) and the OIDC session it shares with the mobile apps. Its
+      # Playwright run needs a browser and runs on a release tag
+      # (release-weldpass-extension.yml).
+      - name: WeldPass extension and mobile-platform unit tests
+        run: |
+          pnpm --filter weldpass-extension test
+          pnpm --filter @weldsuite/mobile-platform test
       # The console's Node build for Kubernetes (ADR FE-018), and its check that
       # no Clerk, Neon driver or Cloudflare runtime module got into it.
       - name: Admin console Node build

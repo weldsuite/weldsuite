@@ -1,38 +1,63 @@
 # WeldPass browser extension
 
-A Chrome / Edge (Manifest V3) extension for the WeldPass team password manager.
-It is a popup, nothing else: no content script, no background worker.
+A Chrome / Edge (Manifest V3) extension for the WeldPass team password
+manager (ADR PASS-009, which replaced the popup-only PASS-008).
 
-- **For this site** lists the logins saved for the page you are on, with a
-  **Fill** button each.
-- **Search** across every login you can open: copy the username, copy the
-  password, copy the current 2FA code, open the site.
-- **Save** stores what is typed in the page's login form as a new login.
-- **Generator** makes a password and can put it into a sign-up or
-  change-password form.
+- **Inline menus.** A WeldPass icon in login, sign-up and one-time-code
+  fields opens a menu with the logins saved for that site. Picking one fills
+  it. On a one-time-code field the menu offers the current 2FA code; on a
+  sign-up or change-password field, a generated password.
+- **Save and update.** After a login form is submitted, a bar on the next
+  page offers to save the login, update the saved password, or never ask for
+  that site.
+- **The toolbar popup**: search every login (copy the username, password or
+  2FA code, open the site), Fill / Save on the current tab, the generator, and
+  the workspace switcher.
+- **Settings** (`settings.html`, also the options page): the server, inline
+  menus and save prompts on or off, the sites where they never show, and
+  signing out.
 
-The extension has no login of its own. It reuses the session of the WeldSuite
-web app in the same browser profile (Clerk's `syncHost`), and shows the logins
-of the workspace that is active there. Passwords are decrypted by `pass-api`;
-the extension asks for one only at the moment it fills or copies it.
+## Sign-in, server and workspace
 
-## Environment
+The extension is a WeldID public client of its own, `weldsuite-extension`
+(authorization code with PKCE, refresh tokens, audience `weldsuite-api`). The
+server names it in `/config.json` as `auth.extensionClientId`
+(`OIDC_EXTENSION_CLIENT_ID`).
 
-Vite env, read at build time. Copy `.env.example` to `.env.production` (used by
-`build`) and/or `.env.development` (used by `dev`). None of the values are
-secrets. The build succeeds without them and the popup then shows "Extension
-not configured" with the names of what is missing.
+- The OIDC session runs in the **service worker** (`src/background/`), the
+  only part that holds tokens or calls the API. It is the mobile apps' session
+  (`@weldsuite/mobile-platform/oidc-session`) with the browser plugged in:
+  `chrome.identity.launchWebAuthFlow` opens WeldID's sign-in in its own window
+  and comes back to `https://<extension id>.chromiumapp.org/`. The popup can't
+  run the flow: it closes when that window takes focus.
+- The refresh token is in `chrome.storage.local`, the access token in
+  `chrome.storage.session` (memory only). Signing out revokes the refresh
+  token, and the next sign-in shows WeldID's form (`prompt=login`).
+- **Server:** `https://app.weldsuite.eu` by default. Settings → "Use your own
+  server" takes an address, asks for host access to it, reads its
+  `/config.json` (it must be the Rust backend with OIDC sign-in, offer
+  `pass` and name an `extensionClientId`), asks for host access to its
+  sign-in server too, and switches.
+- **Workspace:** in header mode (WeldID) the workspace list is
+  `GET /api/workspaces`; a sole workspace is picked without asking; the choice
+  is remembered and sent as `X-Weld-Workspace` on every request. In claim mode
+  (Zitadel) the token names the workspace.
 
-| Variable | Required | What it is |
+### Extension ids and WeldID
+
+Every id that signs in must have its redirect, `https://<id>.chromiumapp.org/`
+(trailing slash included: WeldID matches redirects exactly), on the
+`weldsuite-extension` client in
+`rust/deploy/flux/infrastructure/weldid/values/weldid.yaml`.
+
+| Build | Id | Key |
 | --- | --- | --- |
-| `VITE_CLERK_PUBLISHABLE_KEY` | yes | Publishable key of the Clerk instance the web app uses. |
-| `VITE_SYNC_HOST` | yes | The host whose Clerk cookie carries the web session. See [Clerk configuration](#clerk-configuration): it is the web app's origin for a development instance and the Clerk Frontend API domain for a production one. |
-| `VITE_API_URL` | yes | `app-api` origin, e.g. `https://app-api.weldsuite.org`. Requests go to `${VITE_API_URL}/api/weldpass/...`; app-api forwards them to `pass-api`. |
-| `VITE_APP_URL` | no | The web app opened by "Open WeldSuite". Defaults to `VITE_SYNC_HOST`. Set it whenever the sync host is not the web app. |
-| `VITE_EXTENSION_KEY` | no | Public key that pins the extension ID (the manifest's `key`). See below. |
+| Development, test, Playwright | `nlmnjlkgeoeklbahlemmlcfnlfgdimnp` | `src/manifest/dev-key.ts` (public half; the private half isn't needed and isn't in the repo) |
+| Chrome Web Store | not yet created | the store's |
+| Edge Add-ons | not yet created | the store's |
 
-`manifest.json` is generated at build time (`src/manifest/manifest.ts`), because
-`host_permissions` must name exactly the hosts this build talks to.
+A self-hosted install with Zitadel adds the same redirects to a User Agent
+application (`rust/deploy/hetzner/README.md`, step 7 "2d").
 
 ## Build and load
 
@@ -40,174 +65,116 @@ not configured" with the names of what is missing.
 pnpm install
 pnpm --filter weldpass-extension build       # → apps/web/weldpass-extension/dist
 pnpm --filter weldpass-extension dev         # rebuilds dist/ on change (no dev server)
-pnpm --filter weldpass-extension test
+pnpm --filter weldpass-extension test        # unit tests
 pnpm --filter weldpass-extension type-check
+pnpm --filter weldpass-extension zip         # the store zip, see store/README.md
 ```
 
-Load it unpacked:
+Load it unpacked: `chrome://extensions` (or `edge://extensions`), turn on
+**Developer mode**, **Load unpacked**, pick `apps/web/weldpass-extension/dist`.
+After a rebuild, press the reload icon on its card. The suggested shortcut
+for the popup is **Alt+Shift+P** (`chrome://extensions/shortcuts`).
 
-1. Chrome: `chrome://extensions` — Edge: `edge://extensions`.
-2. Turn on **Developer mode**.
-3. **Load unpacked** and pick `apps/web/weldpass-extension/dist`.
-4. Pin WeldPass to the toolbar. After a rebuild, press the reload icon on the
-   extension's card.
+Optional build settings (`.env.example`; none are secrets):
 
-The suggested shortcut for opening the popup is **Alt+Shift+P**. The browser
-drops the suggestion if the combination is taken; set your own under
-`chrome://extensions/shortcuts`.
+| Variable | What it does |
+| --- | --- |
+| `VITE_DEFAULT_SERVER`, `VITE_DEFAULT_ISSUER` | Another default server and its sign-in server, e.g. EU test (`https://app.test.weldsuite.eu`, `https://auth.test.weldsuite.eu`). The manifest's host permissions follow. |
+| `VITE_EXTENSION_KEY` | Another public key to pin the id with, instead of the development key. Ignored by the store build. |
 
-## Clerk configuration
-
-This was written against `@clerk/chrome-extension` **3.1.90**. What that version
-needs, and where each requirement comes from:
-
-1. **A stable extension ID.** The SDK's README (step 2, "Set a consistent
-   extension key") requires it: Clerk identifies the extension by its
-   `chrome-extension://<id>` origin, and an unpacked extension's ID otherwise
-   depends on the folder it was loaded from. Generate a key pair once, put the
-   base64 public key in `VITE_EXTENSION_KEY`, and note the ID Chrome shows for
-   that build. (A Web Store listing has a fixed ID and key of its own.)
-
-2. **Allow the extension's origin on the Clerk instance.** SDK README step 3:
-   "Setting the `allowed_origins` is required for both Development and
-   Production instances." One time per instance, with that instance's secret key:
-
-   ```bash
-   curl -X PATCH https://api.clerk.com/v1/instance \
-     -H "Authorization: Bearer <CLERK_SECRET_KEY>" \
-     -H "Content-type: application/json" \
-     -d '{"allowed_origins": ["chrome-extension://<EXTENSION_ID>"]}'
-   ```
-
-   The call sets the list as a whole. If the instance already has allowed
-   origins, send those along with the new one.
-
-3. **Manifest permissions.** The SDK checks the manifest when it starts
-   (`validateManifest` in its `dist/esm/chunk-RQHI25AD.js`) and throws without
-   the `storage` permission, and — because `syncHost` is set — without the
-   `cookies` permission and a `host_permissions` entry. Clerk's manifest guide
-   (`packages/chrome-extension/docs/manifest.md` in clerk/javascript) lists the
-   sync host and the Frontend API as the hosts to allow. The build derives the
-   Frontend API host from the publishable key.
-
-4. **`syncHost` on `<ClerkProvider>`.** The SDK reads one cookie from that host
-   with `chrome.cookies.get`: `__client` for a production instance,
-   `__clerk_db_jwt` for a development one. Clerk's sync-host guide
-   (clerk.com/docs/guides/sessions/sync-host) gives the value per instance type:
-
-   | Clerk instance | `VITE_SYNC_HOST` | `VITE_APP_URL` |
-   | --- | --- | --- |
-   | Development (`pk_test_…`), local | `http://localhost` | `http://localhost:3000` |
-   | Development (`pk_test_…`), hosted test | `https://app-test.weldsuite.org` (inferred, see below) | not needed |
-   | Production (`pk_live_…`) | `https://clerk.weldsuite.org` (the Frontend API domain) | `https://app.weldsuite.org` |
-
-   The local and production rows follow Clerk's guide (production: "The value
-   should be the domain that your Clerk Frontend API runs on"). The hosted-test
-   row is an inference from how the SDK works — a development instance keeps
-   `__clerk_db_jwt` on the web app's own host — and the guide does not cover
-   it. None of the three has been tried against a WeldSuite Clerk instance.
-
-5. **Accept the extension's tokens on the API.** The API workers refuse a Clerk
-   token whose authorized party (`azp`) is not a first-party origin
-   (`packages/core/worker-kit/src/middleware/clerk.ts`), and the extension's
-   tokens carry `chrome-extension://<EXTENSION_ID>`. Put that origin in
-   `CLERK_AUTHORIZED_PARTIES` in the `[env.test.vars]` and
-   `[env.production.vars]` blocks of both `apps/workers/app-api/wrangler.toml`
-   and `apps/workers/pass-api/wrangler.toml` (app-api forwards the request,
-   and pass-api checks the token again). Until then every vault call answers
-   401.
-
-Nothing needs to change in the Clerk Dashboard beyond the allowed origin: the
-extension shows no Clerk sign-in UI, so no redirect URLs are involved.
+`manifest.json` is generated at build time (`src/manifest/manifest.ts`). The
+content script is a separate IIFE build (`content.js`), because content
+scripts can't be ES modules; the pages and the module service worker
+(`background.js`) are one Vite build.
 
 ## Permissions
 
 | Permission | Why |
 | --- | --- |
-| `activeTab` | Gives the popup the URL of the tab it was opened on, and access to that one tab, only after the user clicks the toolbar button or presses the shortcut. This is what stands in for a host permission on web pages. |
-| `scripting` | `chrome.scripting.executeScript` runs the form reader/filler (`src/page/page-agent.ts`) in that tab — when the user presses **Fill**, opens **Save**, or presses **Fill into page**. Never on its own. |
-| `storage` | Required by `@clerk/chrome-extension`, which keeps its client token in `chrome.storage.local`. The extension's own code stores nothing. |
-| `cookies` | Required by `@clerk/chrome-extension` for `syncHost`: it reads the Clerk session cookie of the sync host. Limited to the hosts below. |
-| host: `VITE_API_URL` | Calls to app-api from the popup. The API's CORS list (`packages/core/worker-kit/src/cors.ts`) has no extension origins and does not allow the `X-WeldPass-Client` header; a host permission is what exempts an extension page from CORS. |
-| host: `VITE_SYNC_HOST` | The `cookies` API only returns cookies for hosts the extension has permission for. |
-| host: Clerk Frontend API | Listed by Clerk's manifest guide for session sync; the SDK's requests to Clerk go there. |
+| `storage` | The session, the server and workspace choice, the settings. Pending saves and open menus in `chrome.storage.session` (memory only). |
+| `identity` | `launchWebAuthFlow`: the WeldID sign-in. |
+| `scripting` | The popup's Fill / Save / generator on the active tab, and the content script for tabs open at install. |
+| `activeTab` | The popup's tab URL, without `tabs`. |
+| host: `https://app.weldsuite.eu/*`, `https://auth.weldsuite.eu/*` | The default server's API and sign-in. |
+| optional host: `https://*/*`, `http://localhost/*` | A self-hosted server and its sign-in server, asked for when chosen. |
+| content script: `https://*/*`, `http://localhost/*`, all frames | Inline icons and menus, filling, noticing a submitted login. |
+| web accessible: `menu.html`, `prompt.html`, `use_dynamic_url` | The inline menu and the save bar, framed into pages. |
 
-There is deliberately **no** `<all_urls>`, no `content_scripts`, no `tabs`
-permission and no background service worker. `src/manifest/manifest.test.ts`
-fails the build's test run if any of those appear.
-
-Copying uses `navigator.clipboard` from the focused popup, which needs no
-`clipboardWrite` permission.
+No `tabs`, `cookies`, `<all_urls>`, `webRequest`, `externally_connectable` or
+remote code. `src/manifest/manifest.test.ts` asserts this exact set and fails
+on any change until PASS-009 is amended. The store wording is in
+[`store/permissions.md`](store/permissions.md).
 
 ## Safety rules
 
-Implemented in `src/lib/fill-policy.ts` and `src/lib/actions.ts`, tested in the
-files next to them.
+- **Only the worker holds tokens and calls the API.** It answers each message
+  by its sender (`src/background/senders.ts`), never by what the message says:
+  a content script can't ask for anything that reveals a password; the menu
+  and the bar can act only for a nonce registered in their own tab. Web pages
+  can't message the extension at all.
+- **Fill policy** (`src/lib/fill-policy.ts`, shared with the API through
+  `hostOf` / `hostsMatch`): `https:` or `http://localhost` only, and the
+  frame's own host must match the login's. The worker checks it before the
+  reveal (on the item as matched) and after it (on the item as revealed); the
+  frame checks it once more, and refuses any origin other than the one the
+  worker validated, before filling. A cross-origin frame is filled only when
+  its own origin matches, and the menu names that origin.
+- **The page can't read the menu or the bar.** Both are extension pages in
+  iframes inside closed shadow roots; their size is fixed per kind, so it
+  doesn't tell a page how many logins there are.
+- **Clickjacking** (`src/frames/guard.ts`): a pick counts only as a trusted
+  click inside the menu frame, while IntersectionObserver v2 says the frame is
+  fully visible and unobscured, after it has been so for 500 ms; the menu is
+  shown in the top layer (a popover). A browser without `trackVisibility`
+  gets no clickable menu.
+- **A password reaches a frame only after a pick**, for that frame and
+  document alone (`chrome.tabs.sendMessage` with `frameId` and `documentId`),
+  bound to the menu's nonce. On the first step of a two-step login only the
+  username is filled, with no reveal.
+- **Pending saves** stay in `chrome.storage.session`, per tab, for at most
+  five minutes, and are dropped on sign-out, server change or tab close. The
+  bar shows the site and username, never the password. A record of what was
+  filled keeps a salted hash of the password, never the password, so
+  submitting exactly that login asks nothing.
+- Nothing logs a password or a message's contents. Only the page's origin is
+  sent for matching, never its path or query; a saved login keeps origin and
+  path.
 
-- A login is only filled into a page whose host satisfies
-  `hostsMatch(item.host, hostOf(tabUrl))` — the same helper the API uses — and
-  only on `https:` pages or `http://localhost`.
-- That is checked when **Fill** is pressed, against the tab's URL at that
-  moment: before the password is requested, again when it has arrived (using the
-  item as the server returned it), and a third time inside the page, where the
-  injected function refuses any origin other than the one that was validated.
-- The password is requested only if the page shows a password field. On the
-  first step of a two-step login the username from the list is filled and no
-  reveal is made (or logged).
-- A revealed password is a local variable for the length of one call. It is not
-  put in `chrome.storage`, in a log, in module state or in React state. The two
-  places a password is held in component state are the ones that must show it:
-  the Save form and the generator. Both are gone when the popup closes.
-- What the Save form reads from a page is treated as untrusted text: it only
-  ever becomes the value of a React-rendered input.
-- Only the page's origin is sent to the API for matching, not its path or query.
-  A saved login stores origin and path, never the query string or fragment.
-- Only the top frame is touched (`allFrames` is off).
+## Tests
 
-## How filling works
+- Unit (`pnpm --filter weldpass-extension test`, also on every PR in CI):
+  form detection (`src/content/detect.test.ts`), the fill policy, the save
+  queue, the worker against a fake server (`src/background/worker.test.ts`),
+  sender rules, the session adapters, server choice, settings and the
+  manifest. The shared session has its own tests in
+  `packages/clients/mobile-platform`.
+- Playwright (`pnpm --filter weldpass-extension test:e2e`, once
+  `pnpm --filter weldpass-extension exec playwright install chromium`): loads
+  the unpacked extension into Chromium against local login pages and a fake
+  WeldSuite server and issuer (`e2e/fake-server.ts`): sign-in, an inline fill,
+  a cross-origin frame, a refused fill for another host, save, update, and no
+  prompt after an unchanged fill. It runs on every release tag.
 
-`chrome.scripting.executeScript({ func: pageAgent, args })` serializes one
-self-contained function and runs it in the tab's isolated world. It finds the
-visible password field (never one marked `autocomplete="new-password"`), then
-the username field: the nearest visible text / email / tel input before it in
-the same form, preferring one marked `autocomplete="username"`. Values are set
-through the native `HTMLInputElement` value setter followed by bubbling `input`
-and `change` events, so React- and Vue-controlled forms pick them up.
+## Release
 
-Because the function is shipped as source text, it cannot use anything outside
-its own body. `page-agent.test.ts` runs every case twice — once directly, once
-on a copy rebuilt from `pageAgent.toString()` — to keep it that way.
+[`store/README.md`](store/README.md): a tag `weldpass-extension-v<version>`
+builds the store zip in CI; a person uploads it.
 
 ## Icons
 
 `public/icons/icon-{16,32,48,128}.png` are generated from
-`apps/web/platform/public/assets/images/weldpass/icon.svg` and committed. To
-regenerate after the source icon changes:
-
-```bash
-pnpm --filter weldpass-extension icons
-```
+`apps/web/platform/public/assets/images/weldpass/icon.svg`:
+`pnpm --filter weldpass-extension icons`.
 
 ## Known limitations
 
-- **No "Save this password?" prompt** after you log in somewhere. Noticing a
-  form submission needs a content script on every page, which is exactly the
-  standing access this extension does not ask for. Saving is a click in the popup.
-- **No inline autofill** (icons in fields, fill on page load) for the same reason.
-- **Cross-origin iframes are not filled or read.** Login forms embedded from
-  another origin are out of reach of `activeTab` on the top frame, and filling
-  them would undo the host check.
-- **Shadow DOM**: fields inside shadow roots are not found.
-- **Two-step logins need two presses**: one for the username step, one for the
-  password step.
-- **Host matching has no public-suffix list.** `hostsMatch` treats a host and
-  its subdomains as the same site, so a login saved for `example.github.io` is
-  offered on `github.io` and vice versa. Shared with the API; changing it means
-  changing `@weldsuite/app-api-client`.
-- **The clipboard is not cleared.** There is no background worker to do it after
-  the popup closes.
-- **Signing out or switching workspace** in the web app is picked up the next
-  time the popup opens, not while it is open.
-- **Chromium only.** Firefox and Safari are not built or tested.
-- **Bundle size**: about 2.6 MB unpacked, almost all of it Clerk's SDK (which
-  bundles its UI even though none of it is shown).
+- **Chromium only.** Firefox would need its own identity redirect domain;
+  Safari isn't built.
+- **Closed shadow roots** are not searched for fields (open ones are).
+- **Cards and secure notes** aren't offered by the extension, only logins.
+- **The clipboard is not cleared** after a copy from the popup.
+- **Host matching** is `hostsMatch` from `@weldsuite/app-api-client`, shared
+  with the API; public-suffix awareness lands there (plan
+  `weldpass-eu.md`, 1.6), not here.
+- **The content script carries Zod** (about 50 KB of its 80 KB), because the
+  shared host helpers live in a module with the WeldPass schemas.
