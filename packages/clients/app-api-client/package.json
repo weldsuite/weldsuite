@@ -267,6 +267,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
+    "tldts": "7.4.19",
     "zod": "^3.25.76"
   },
   "devDependencies": {
